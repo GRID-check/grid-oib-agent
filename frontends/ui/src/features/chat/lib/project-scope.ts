@@ -25,3 +25,25 @@ export function conversationMatchesProject(
   if (!conversation.projectId) return true
   return conversation.projectId === activeProjectId
 }
+
+/**
+ * A conversation a JOB produced (`conversations.job_id`, migration 0044) rather
+ * than one a person started by typing.
+ *
+ * These are kept out of the personal sessions list, and the reason is arithmetic:
+ * the list is filtered to `c.userId === currentUserId`, so a job conversation —
+ * owned by the job's owner, because `created_by` must be a real person for the
+ * roster, the last-owner invariant and audit to work — would appear in exactly
+ * ONE person's history, that owner's, and nowhere else. A weekly job puts 52
+ * threads a year there, on top of the chats they actually had, and none of them
+ * is a chat they will recognise having started.
+ *
+ * Hiding, not withholding. Job conversations stay in the store and stay fully
+ * reachable: `?session=<id>` selects one, the job's run history links straight
+ * to it, and everyone with `project:view` can open it because it is created
+ * `visibility: 'project'`. The only thing this rule denies them is a slot in a
+ * list of "chats I started", which they are not.
+ */
+export function isJobConversation(conversation: { jobId?: string | null }): boolean {
+  return Boolean(conversation.jobId)
+}

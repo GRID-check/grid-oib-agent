@@ -40,13 +40,6 @@ import {
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
@@ -92,12 +85,7 @@ const DESCRIPTION_MAX = 1024
 
 /** Everything except the keys this dialog owns a control for. */
 function withoutReservedKeys(metadata: Record<string, string>): Record<string, string> {
-  const owned = new Set([
-    METADATA_EXECUTION,
-    METADATA_SCHEDULABLE,
-    METADATA_CARDS,
-    METADATA_AGENTS,
-  ])
+  const owned = new Set([METADATA_CARDS, METADATA_AGENTS])
   const rest: Record<string, string> = {}
   for (const key of Object.keys(metadata)) {
     if (owned.has(key)) continue
@@ -114,13 +102,8 @@ function withoutReservedKeys(metadata: Record<string, string>): Record<string, s
  * no business in a client bundle. The values are asserted against the stored
  * document by this dialog's spec.
  */
-const METADATA_EXECUTION = 'grid-execution'
-const METADATA_SCHEDULABLE = 'grid-schedulable'
 const METADATA_CARDS = 'grid-cards'
 const METADATA_AGENTS = 'grid-agents'
-
-/** The two execution modes, in the order they are offered. */
-const EXECUTION_MODES = ['chat', 'deep-research'] as const
 
 interface SkillEditorDialogProps {
   open: boolean
@@ -147,12 +130,6 @@ export function SkillEditorDialog({
 }: SkillEditorDialogProps): JSX.Element {
   const t = useTranslations('skills')
   const isEdit = skill !== null
-  const [execution, setExecution] = useState<'chat' | 'deep-research'>(
-    isEdit && skill.metadata[METADATA_EXECUTION] === 'deep-research' ? 'deep-research' : 'chat',
-  )
-  const [schedulable, setSchedulable] = useState(
-    !isEdit || skill.metadata[METADATA_SCHEDULABLE] !== 'false',
-  )
   const [preferredCards, setPreferredCards] = useState<string[]>(() =>
     isEdit ? parsePreferredCardTypes(skill.metadata[METADATA_CARDS]) : [],
   )
@@ -189,11 +166,7 @@ export function SkillEditorDialog({
    * would start to.
    */
   const buildMetadata = useCallback((): Record<string, string> => {
-    const metadata: Record<string, string> = {
-      // Deterministic at write time, mirroring the server's executionOf.
-      [METADATA_EXECUTION]: execution,
-    }
-    if (!schedulable) metadata[METADATA_SCHEDULABLE] = 'false'
+    const metadata: Record<string, string> = {}
     const scope = formatAgentScope(agents)
     if (scope) metadata[METADATA_AGENTS] = scope
     // Absent, not empty: "no preference" is the default, and an empty
@@ -203,7 +176,7 @@ export function SkillEditorDialog({
       metadata[METADATA_CARDS] = formatPreferredCardTypes(preferredCards)
     }
     return { ...metadata, ...extraMetadata }
-  }, [agents, execution, extraMetadata, preferredCards, schedulable])
+  }, [agents, extraMetadata, preferredCards])
   const [enabled, setEnabled] = useState(isEdit ? skill.enabled : true)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -300,10 +273,6 @@ export function SkillEditorDialog({
       form.setFieldValue('name', parsed.name)
       form.setFieldValue('description', parsed.description)
       form.setFieldValue('body', parsed.body)
-      setExecution(
-        parsed.metadata[METADATA_EXECUTION] === 'deep-research' ? 'deep-research' : 'chat',
-      )
-      setSchedulable(parsed.metadata[METADATA_SCHEDULABLE] !== 'false')
       setPreferredCards(parsePreferredCardTypes(parsed.metadata[METADATA_CARDS]))
       setAgents(parseAgentScope(parsed.metadata[METADATA_AGENTS]))
       setExtraMetadata(withoutReservedKeys(parsed.metadata))
@@ -557,55 +526,6 @@ export function SkillEditorDialog({
                         <p className="text-muted-foreground text-xs">{t('editor.enabledHint')}</p>
                       </div>
                       <Switch id="skill-enabled" checked={enabled} onCheckedChange={setEnabled} />
-                    </div>
-                  </section>
-
-                  {/* Everything about being fired on a timer, including the one
-                      thing `grid-execution` actually decides. A schedule is a
-                      PROMPT on a cron that happens to invoke this skill; the
-                      only open question is what comes back out of it. */}
-                  <section className="border-border flex flex-col gap-4 rounded-xl border p-4">
-                    <h3 className="text-sm font-medium">{t('editor.scheduleHeading')}</h3>
-
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        <Label htmlFor="skill-schedulable" className="text-sm font-medium">
-                          {t('editor.schedulableLabel')}
-                        </Label>
-                        <p className="text-muted-foreground text-xs">
-                          {t('editor.schedulableHint')}
-                        </p>
-                      </div>
-                      <Switch
-                        id="skill-schedulable"
-                        checked={schedulable}
-                        onCheckedChange={setSchedulable}
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="skill-output" className="text-sm font-medium">
-                        {t('editor.outputLabel')}
-                      </Label>
-                      {/* NOT disabled when scheduling is off: a schedule with
-                          `grid-schedulable: false` can still be run by hand,
-                          and that run produces one of these two things too. */}
-                      <Select
-                        value={execution}
-                        onValueChange={(value) => setExecution(value as 'chat' | 'deep-research')}
-                      >
-                        <SelectTrigger id="skill-output" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {EXECUTION_MODES.map((mode) => (
-                            <SelectItem key={mode} value={mode}>
-                              {t(`editor.output.${mode === 'chat' ? 'chat' : 'deepResearch'}`)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-muted-foreground text-xs">{t('editor.outputHint')}</p>
                     </div>
                   </section>
 

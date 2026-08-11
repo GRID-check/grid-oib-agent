@@ -137,6 +137,7 @@ function stubConversation(
     visibility: 'private' as ResourceVisibility,
     createdBy: 'user_creator',
     deletedAt: null,
+    jobId: null,
     ...overrides,
   }
   vi.mocked(findConversationTenancy).mockResolvedValue(tenancy)

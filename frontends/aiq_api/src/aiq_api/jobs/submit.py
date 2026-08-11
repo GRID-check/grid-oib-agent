@@ -323,6 +323,7 @@ async def submit_agent_job(
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
     force_skills: list[str] | None = None,
+    conversation_id: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -515,7 +516,18 @@ async def submit_agent_job(
             )
 
     parent_trace_context = _get_parent_trace_context()
-    parent_conversation_id = parent_trace_context[5]
+    # An EXPLICIT conversation wins over the ambient one.
+    #
+    # Interactive submits inherit the caller's conversation from NAT request
+    # context, which is right: the job belongs to the turn that started it. A
+    # scheduled job has no request context at all — it is fired by the
+    # scheduler over the internal route — so its conversation can only arrive
+    # as an argument, and it must not be overwritten by whatever (usually
+    # nothing) the ambient context holds. Passing it here is enough to reach
+    # both places it is needed: `create_job_access` below, which is what makes
+    # `GET /v1/jobs/async/jobs?conversation_id=` able to find the run, and the
+    # worker payload, which is how the runner knows where to write the answer.
+    parent_conversation_id = conversation_id or parent_trace_context[5]
     project_collection = _derive_project_collection(collection_scope)
 
     try:

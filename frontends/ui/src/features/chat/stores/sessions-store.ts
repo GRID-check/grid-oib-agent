@@ -29,7 +29,7 @@ import {
   clearDeepResearchSession,
 } from '../lib/deep-research-session-storage'
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
-import { conversationMatchesProject } from '../lib/project-scope'
+import { conversationMatchesProject, isJobConversation } from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
@@ -491,7 +491,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // switching users inside project A could surface project B's session.
     const userConversations = userId
       ? conversations.filter(
-          (c) => c.userId === userId && conversationMatchesProject(c, projectId)
+          (c) =>
+            c.userId === userId &&
+            conversationMatchesProject(c, projectId) &&
+            !isJobConversation(c)
         )
       : []
     const newCurrentConversation = shouldClearCurrent
@@ -545,8 +548,16 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (!currentUserId) return []
     // Scoped to the active project context; legacy sessions without a
     // projectId fail open (see lib/project-scope.ts).
+    //
+    // Job conversations are excluded: they are the OUTPUT of a scheduled job,
+    // not chats this person started, and a weekly job would otherwise put 52
+    // threads a year into their history. They stay reachable by URL and from
+    // the job's run history — see `isJobConversation`.
     return conversations.filter(
-      (c) => c.userId === currentUserId && conversationMatchesProject(c, projectId)
+      (c) =>
+        c.userId === currentUserId &&
+        conversationMatchesProject(c, projectId) &&
+        !isJobConversation(c)
     )
   },
 
@@ -909,8 +920,14 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // (fail-open display rule, see lib/project-scope.ts). Sessions stamped
     // with a DIFFERENT project are never touched, so "delete all" cannot
     // silently wipe another project's history (UX-8).
+    // Job conversations are excluded for the same reason they are hidden from
+    // the list: "delete all" must mean exactly what the panel showed, and a
+    // job's output belongs to the job (and to everyone with project:view),
+    // not to whoever happens to own the job.
     const isInScope = (c: Conversation): boolean =>
-      c.userId === currentUserId && conversationMatchesProject(c, projectId)
+      c.userId === currentUserId &&
+      conversationMatchesProject(c, projectId) &&
+      !isJobConversation(c)
 
     const userConversations = conversations.filter(isInScope)
 

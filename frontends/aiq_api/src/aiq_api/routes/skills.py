@@ -130,6 +130,13 @@ class SkillSubmitPayload(BaseModel):
     organization_id: str = Field(..., description="WorkOS organization id owning the run (required)")
     user_id: str | None = Field(None, description="Skill owner's WorkOS user id")
     project_id: str | None = Field(None, description="Project id the skill run is scoped to")
+    conversation_id: str | None = Field(
+        None,
+        description=(
+            "Conversation the BFF created for this run to land in (output='chat' jobs only). "
+            "Absent for deep-research jobs, and for any run whose conversation could not be created."
+        ),
+    )
     owner_email: str | None = Field(None, description="Skill owner's email (job ownership)")
     budget_header: str | None = Field(
         None,
@@ -269,7 +276,7 @@ def add_skill_routes(router: APIRouter) -> None:
                 "organization_id": body.organization_id,
                 "user_id": body.user_id,
                 "project_id": body.project_id,
-                "conversation_id": None,
+                "conversation_id": body.conversation_id,
             },
             "budget_header": body.budget_header,
         }
@@ -287,6 +294,10 @@ def add_skill_routes(router: APIRouter) -> None:
                 model_overrides=body.model_overrides,
                 usage_context=usage_context,
                 force_skills=body.skills,
+                # Explicit, because a scheduled run has no request context to
+                # inherit one from. This is what lets the worker write the
+                # answer into a thread a human can open and continue.
+                conversation_id=body.conversation_id,
             )
         except JobAdmissionError as exc:
             raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)})

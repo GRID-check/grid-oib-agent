@@ -224,6 +224,13 @@ export async function updateConversationVisibilityInOrg(
  * fires create-if-missing checks per appended message, so two in-flight
  * appends can both attempt the insert. On id conflict this returns null and
  * the caller resolves the existing row instead of surfacing a 500.
+ *
+ * `visibility` and `jobId` are optional and the interactive path passes
+ * NEITHER: a conversation a person starts is `private` by column default
+ * (ADR-0032 — sharing is a deliberate act) and has no job behind it. They exist
+ * for the one writer that is not a person typing, the jobs fire path, which
+ * states both at creation because both are already decided by then. See
+ * `lib/jobs/service.ts`.
  */
 export async function insertConversation(values: {
   id: string
@@ -231,6 +238,8 @@ export async function insertConversation(values: {
   createdBy: string
   title: string | null
   projectId: string | null
+  visibility?: ResourceVisibility
+  jobId?: string | null
 }): Promise<Conversation | null> {
   const db = getDb()
   const [row] = await db.insert(conversations).values(values).onConflictDoNothing().returning()

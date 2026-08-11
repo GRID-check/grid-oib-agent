@@ -187,12 +187,7 @@ export default function SkillsDevPage(): JSX.Element {
 
   return (
     <main className="mx-auto flex flex-col gap-6 p-8" data-testid="skills-panel-preview">
-      <SkillsPanel
-        projectId="p1"
-        projectCollection="proj_1"
-        canManageOrgSkills
-        canManageProjectSkills
-      />
+      <SkillsPanel canManageOrgSkills />
     </main>
   )
 }

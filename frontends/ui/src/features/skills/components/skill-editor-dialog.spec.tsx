@@ -30,9 +30,11 @@ const orgSkill: client.SkillListItem = {
   name: 'acoustic-report',
   description: 'Drafts the acoustic compliance report.',
   body: 'Draft a report on sound insulation per OIB Richtlinie 5.',
-  // 'voice-ana' is not an agent. Both resolvers ignore unknown names, so the
-  // scope reads as "both agents" — and the value still has to survive a save
-  // rather than being tidied away on the author's behalf.
+  // Two leftovers, both of which must simply SURVIVE a save. 'voice-ana' is
+  // not an agent, so the scope reads as "both agents"; 'grid-execution' is not
+  // a reserved key any more (scheduling belongs to a job), so it is ordinary
+  // free-form metadata the editor must carry through untouched rather than
+  // tidy away on the author's behalf.
   metadata: { 'grid-execution': 'deep-research', 'grid-agents': 'voice-ana' },
   origin: 'org',
   enabled: true,
@@ -99,43 +101,23 @@ describe('SkillEditorDialog — create', () => {
     expect(payload.name).toBe('oib-fire-check')
     expect(payload.body).toBe('Act as a fire-safety reviewer.')
     expect(payload.clonedFrom).toBeUndefined()
-    // The editor always sends a deterministic execution value so the resolved
-    // mode cannot drift from what it showed; schedulable stays default-on.
-    expect(payload.metadata).toEqual({ 'grid-execution': 'chat' })
+    // A new skill writes NO reserved metadata at all: both agents is the
+    // default (so no `grid-agents`), no card preference, and nothing about
+    // time or output — a skill does not know when it runs.
+    expect(payload.metadata).toEqual({})
     expect(payload.enabled).toBe(true)
     expect(toast.success).toHaveBeenCalledWith('Skill created.')
   })
 
-  test('deep-research plus schedulable-off are written into the reserved keys', async () => {
-    createSkillMock.mockResolvedValue(orgSkill)
+  test('offers nothing about time or output — that belongs to a job', async () => {
     render(<SkillEditorDialog {...dialogProps} skill={null} />)
 
-    // Fill the required text fields first so the form can submit.
-    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'acoustic-report' } })
-    fireEvent.change(screen.getByLabelText(/^Description/), {
-      target: { value: 'Drafts the report.' },
-    })
-    fireEvent.change(screen.getByLabelText(/^Instruction/), {
-      target: { value: 'Draft the report.' },
-    })
-
-    fireEvent.click(screen.getByRole('combobox', { name: 'Output' }))
-    fireEvent.click(await screen.findByRole('option', { name: 'Deep-research report' }))
-
-    // By NAME, not by DOM order: the rail has been reorganised twice, and an
-    // index silently flips which setting a test is about.
-    fireEvent.click(screen.getByRole('switch', { name: 'Schedulable' }))
-
-    const saveButton = screen.getByRole('button', { name: 'Save skill' })
-    await waitFor(() => expect(saveButton).toBeEnabled())
-    fireEvent.click(saveButton)
-
-    await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
-    const payload = createSkillMock.mock.calls[0][0]
-    expect(payload.metadata).toEqual({
-      'grid-execution': 'deep-research',
-      'grid-schedulable': 'false',
-    })
+    // These three controls moved to the Jobs builder with the concepts they
+    // configure. A skill that could still declare them would be declaring
+    // something no longer read.
+    expect(screen.queryByRole('combobox', { name: 'Output' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: 'Schedulable' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Deep-research report/)).not.toBeInTheDocument()
   })
 
   test('both agents is the default, and the default writes no grid-agents key', async () => {
@@ -184,7 +166,6 @@ describe('SkillEditorDialog — create', () => {
 
     await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
     expect(createSkillMock.mock.calls[0][0].metadata).toEqual({
-      'grid-execution': 'chat',
       'grid-agents': 'deep_researcher',
     })
   })
@@ -221,7 +202,6 @@ describe('SkillEditorDialog — create', () => {
 
     await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
     expect(createSkillMock.mock.calls[0][0].metadata).toEqual({
-      'grid-execution': 'chat',
       'grid-cards': 'comparison_table',
     })
   })
@@ -296,10 +276,6 @@ describe('SkillEditorDialog — edit', () => {
     expect(screen.getByRole('heading', { name: 'Edit skill' })).toBeInTheDocument()
     expect(screen.getByLabelText(/^Name/)).toHaveValue('acoustic-report')
     expect(screen.getByLabelText(/^Description/)).toHaveValue('Drafts the acoustic compliance report.')
-    // The scheduled-output mode reflects the skill's reserved metadata.
-    expect(screen.getByRole('combobox', { name: 'Output' })).toHaveTextContent(
-      'Deep-research report',
-    )
     // `grid-agents: voice-ana` names no known agent, so the scope is "both".
     expect(screen.getByRole('checkbox', { name: /Chat agent/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Deep research agent/ })).toBeChecked()
@@ -311,7 +287,9 @@ describe('SkillEditorDialog — edit', () => {
     await waitFor(() => expect(updateSkillMock).toHaveBeenCalledTimes(1))
     const [skillId, payload] = updateSkillMock.mock.calls[0]
     expect(skillId).toBe('skill-1')
-    // Reserved keys are rewritten deterministically; opaque keys pass through.
+    // Keys the editor owns are rewritten deterministically; everything else —
+    // including the stale `grid-execution` this row still carries — passes
+    // through untouched rather than being tidied away.
     expect(payload.metadata).toEqual({
       'grid-execution': 'deep-research',
       'grid-agents': 'voice-ana',
@@ -376,9 +354,10 @@ describe('SkillEditorDialog — edit', () => {
       'A pasted description that says when to use it.',
     )
     expect(screen.getByLabelText(/^Instruction/)).toHaveValue('# Pasted\n\nDo the pasted thing.')
-    // The reserved keys follow the document, including the ones the document
+    // The metadata follows the document, including the keys the document
     // DROPS — `grid-agents` was in the row and is gone from the paste.
-    expect(screen.getByRole('combobox', { name: 'Output' })).toHaveTextContent('Chat')
+    expect(screen.getByRole('checkbox', { name: /Chat agent/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Deep research agent/ })).toBeChecked()
     expect(screen.getByText('A concise overview of the answer for the user.')).toBeInTheDocument()
 
     const saveButton = screen.getByRole('button', { name: 'Save skill' })

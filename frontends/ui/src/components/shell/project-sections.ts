@@ -8,6 +8,7 @@ import {
   Folder,
   Inbox,
   MessageSquare,
+  Repeat,
   Settings,
   Sparkles,
 } from 'lucide-react'
@@ -35,6 +36,7 @@ import {
 export type ProjectSectionKey =
   | 'chat'
   | 'skills'
+  | 'jobs'
   | 'files'
   | 'model'
   | 'knowledge'
@@ -121,6 +123,20 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'w',
+  },
+  {
+    // Jobs sit next to Skills because that is the relationship: a job is a
+    // prompt on a timer that MAY attach a skill. Same `showSkills` gate —
+    // the two ship together, and a job builder whose skill picker resolves
+    // nothing is not worth having on its own.
+    key: 'jobs',
+    segment: 'jobs',
+    icon: Repeat,
+    i18nKey: 'jobs',
+    gate: 'showSkills',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'j',
   },
   {
     key: 'files',

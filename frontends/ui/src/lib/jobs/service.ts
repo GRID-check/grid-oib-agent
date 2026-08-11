@@ -18,9 +18,13 @@
  */
 
 import 'server-only'
+// Explicit, not the `crypto` global: this module is server-only and the global
+// is not guaranteed in every Node/test environment the service is loaded in.
+import { randomUUID } from 'node:crypto'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { enforcementOn, requireSkillsEnabled } from '@/lib/authz/feature-flags'
 import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { insertConversation } from '@/lib/conversations/repository'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
@@ -358,19 +362,10 @@ export async function fireJob(
       ])
     const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
 
-    // TODO(jobs): an `output: 'chat'` run should land in a conversation the
-    // team can open and continue, and this is where that conversation would be
-    // created. It is NOT created yet: the ownership/visibility model is pending
-    // redesign. `conversations.visibility` defaults to 'private' and
-    // `created_by` is one person, but a job is a team artefact scheduled on a
-    // project whose runs are already readable by anyone with `project:view` —
-    // so a private conversation attributed to a single human is the wrong
-    // default on both axes, and whether the scheduler should carry its own
-    // participant identity rather than borrow the job owner's is still open.
-    // The plumbing below is the finished seam: set `conversationId` here, and
-    // it rides the submit payload as `conversation_id` and lands on the
-    // job_runs row. Until then it stays null and nothing writes a conversation.
-    const conversationId: string | null = null
+    // An `output: 'chat'` run lands in a REAL conversation the team can open
+    // and continue, and this is where it is created — before submission,
+    // because the backend needs its id to write into (see the payload below).
+    const conversationId = await createRunConversation(job)
 
     const payload: JobSubmitPayload = {
       input: buildFirePrompt({ prompt: job.prompt, skill: job.skillSnapshot }),
@@ -378,7 +373,10 @@ export async function fireJob(
       // backend now accepts.
       skills: job.skillSnapshot ? [job.skillSnapshot.name] : [],
       output: job.output,
-      // Seam only — see the TODO above; nothing sets this yet.
+      // Where the answer is to be written. Absent for deep-research (a report,
+      // not a thread) and for a chat run whose conversation could not be
+      // created — the backend then behaves exactly as it did before jobs had
+      // conversations at all.
       ...(conversationId ? { conversation_id: conversationId } : {}),
       // Defense for legacy rows persisted before knowledge_layer was always-on.
       data_sources: withAlwaysOnKnowledge(job.dataSources ?? null),
@@ -424,6 +422,86 @@ export async function fireJob(
     }
     const detail = err instanceof Error ? err.message : 'Unexpected error while preparing the run'
     return recordJobRun(job, trigger, actor, 'error', null, detail, null)
+  }
+}
+
+/**
+ * The conversation an `output: 'chat'` run writes into — a real thread the team
+ * opens, reads and keeps typing into, not a rendering of a report.
+ *
+ * Returns the new conversation's id, or null when this job produces no
+ * conversation (`output: 'deep-research'`) or when the insert failed.
+ *
+ * Three decisions are made here, and each was forced:
+ *
+ * **`createdBy` is the JOB'S OWNER — a real user id, never 'scheduler' and
+ * never a synthetic one.** Four separate mechanisms read `conversations.created_by`
+ * as a person, and a synthetic id breaks all four: the sharing roster lists the
+ * creator as a participant (`lib/sharing/service.ts`), the last-owner invariant
+ * refuses to leave a resource ownerless and needs a real user to hold that role,
+ * `attributeLegacyAuthor` names them as the author of pre-collaboration
+ * messages, and `recordAuditEvent` requires an actor with a `userId: string`.
+ * A conversation owned by nobody is one nobody can act as, that notifies nobody
+ * (participants = {createdBy} ∪ {grantees}), and that cannot be audited. The
+ * owner is also the identity the run itself already carries — `user_id` on the
+ * payload and in the signed context envelope — so this adds no new attribution,
+ * it just stops the conversation from disagreeing with the run.
+ *
+ * **`visibility: 'project'` at creation, not 'private'.** ADR-0032 made
+ * `private` the default so that sharing is a DELIBERATE act; this IS that act,
+ * made at schedule time. Someone holding `project:skills:manage` set up a
+ * recurring job on a project, whose runs are already readable by anyone with
+ * `project:view` — a thread that only its nominal owner can open would hide the
+ * output of a team artefact behind one person's account, and every colleague
+ * following the run-history link would get a 404. The interactive path still
+ * passes no visibility at all and still gets `private` from the column default.
+ *
+ * **`jobId` stamps the provenance** (migration 0044): it is what lets the UI
+ * render the job's name and glyph instead of the owner's face, and what keeps
+ * these threads out of the owner's personal chat history — a weekly job is 52
+ * of them a year.
+ *
+ * A failure here is logged and swallowed: a scheduled run must still run. The
+ * run then submits with no `conversation_id` and its `job_runs` row records
+ * none, which is exactly the shape of every run that predates this feature.
+ * The reverse trade — refusing to fire because a row could not be written — is
+ * the one outcome nobody would want at 03:00.
+ *
+ * Note what is deliberately NOT done: when submission subsequently fails, the
+ * conversation created here is left in place rather than cleaned up. A submit
+ * error is not proof the backend did not receive the run (a timeout is the
+ * common case), and deleting the conversation a run is about to write into
+ * would destroy the output to tidy up a row.
+ */
+async function createRunConversation(job: Job): Promise<string | null> {
+  if (job.output !== 'chat') return null
+
+  // The app's conversation id shape: `s_` + a uuid with hyphens as underscores.
+  // It is not cosmetic — the id doubles as this session's Qdrant collection
+  // name (`lib/collection-scope.ts`, `lib/proxy/collection-authz.ts` both key
+  // off the `s_` prefix), so a job conversation must be minted exactly the way
+  // `features/chat/stores/sessions-store.ts` mints an interactive one.
+  const id = `s_${randomUUID().replace(/-/g, '_')}`
+
+  try {
+    const inserted = await insertConversation({
+      id,
+      organizationId: job.organizationId,
+      createdBy: job.createdBy,
+      title: job.name,
+      projectId: job.projectId,
+      visibility: 'project',
+      jobId: job.id,
+    })
+    if (inserted) return inserted.id
+    // `onConflictDoNothing` returned nothing, i.e. the id already exists —
+    // impossible for a uuid we just minted, so treat it as a failed create
+    // rather than adopting a row we cannot vouch for.
+    console.warn('[jobs] conversation id collision while firing job', job.id)
+    return null
+  } catch (err) {
+    console.warn('[jobs] failed to create the conversation for job', job.id, err)
+    return null
   }
 }
 

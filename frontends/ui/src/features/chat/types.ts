@@ -402,6 +402,18 @@ export interface Conversation {
    * `lib/project-scope.ts` for the rule.
    */
   projectId?: string | null
+  /**
+   * The job that produced this session, when one did (`conversations.job_id`,
+   * migration 0044); null/undefined for every session a person started, which
+   * is nearly all of them.
+   *
+   * Provenance, NOT ownership — `userId` above is still a membership marker and
+   * still says nothing about authorship. This is the only field that says
+   * "nobody typed this", and it is what keeps a job's threads out of the
+   * personal sessions list (`lib/project-scope.ts`, `isJobConversation`) while
+   * leaving them openable by URL and from the job's run history.
+   */
+  jobId?: string | null
   title: string
   messages: ChatMessage[]
   createdAt: Date

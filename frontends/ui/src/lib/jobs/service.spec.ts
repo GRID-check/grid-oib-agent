@@ -12,6 +12,10 @@ vi.mock('@/lib/authz/feature-flags', () => ({
   enforcementOn: vi.fn().mockReturnValue(false),
 }))
 
+vi.mock('@/lib/conversations/repository', () => ({
+  insertConversation: vi.fn(),
+}))
+
 vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn(),
 }))
@@ -73,6 +77,7 @@ import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { resolveSkillSnapshot, resolveSkillsForAgent } from '@/lib/skills/service'
+import { insertConversation } from '@/lib/conversations/repository'
 import * as repository from './repository'
 import { submitJob, JobSubmitSkippedError, JobSubmitError } from './backend-client'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -365,16 +370,55 @@ describe('fireJob', () => {
     expect(vi.mocked(repository.insertJobRun).mock.calls[0][0].skillSnapshot).toEqual({})
   })
 
-  it('leaves conversation_id unset — the seam is plumbed, the feature is not', async () => {
-    // Deliberate: an output=chat run will one day land in a conversation the
-    // team can open, but who OWNS that conversation is unsettled (a job is a
-    // team artefact; conversations default to private and one creator). Until
-    // that is decided nothing writes a conversation, and the payload/run-row
-    // plumbing below is what a later change fills in.
+  it('creates a PROJECT-visible conversation owned by the job owner, stamped with the job', async () => {
+    // Every field here was forced by a constraint, so each is worth pinning:
+    //  - createdBy is the job's OWNER, a real user id. Four mechanisms read
+    //    created_by as a person (the sharing roster, the last-owner invariant,
+    //    legacy author attribution, audit), so a synthetic 'scheduler' would
+    //    produce a thread nobody can own, notify or audit.
+    //  - visibility is 'project', not the 'private' column default. A job is a
+    //    team artefact scheduled on a project, and its runs are already
+    //    readable by anyone with project:view.
+    //  - jobId is the provenance the UI renders instead of a person's face,
+    //    and what keeps these threads out of a personal chat history.
+    vi.mocked(insertConversation).mockResolvedValue({ id: 's_generated' } as never)
+
     const run = await fireJob(makeJob({ output: 'chat' }), 'schedule', 'scheduler')
+
+    expect(insertConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org_1',
+        createdBy: 'owner_9',
+        projectId: 'proj-1',
+        title: 'Weekly run',
+        visibility: 'project',
+        jobId: 'job-1',
+      })
+    )
+    // The `s_` prefix is not cosmetic: the id doubles as this session's Qdrant
+    // collection name, so a job conversation must be minted exactly the way an
+    // interactive one is.
+    expect(vi.mocked(insertConversation).mock.calls[0][0].id).toMatch(/^s_[0-9a-f_]{36}$/)
+
+    expect(vi.mocked(submitJob).mock.calls[0][0].conversation_id).toBe('s_generated')
+    expect(run.conversationId).toBe('s_generated')
+    expect(vi.mocked(repository.insertJobRun).mock.calls[0][0].conversationId).toBe('s_generated')
+  })
+
+  it('creates no conversation for a deep-research job — that produces a report', async () => {
+    await fireJob(makeJob({ output: 'deep-research' }), 'schedule', 'scheduler')
+    expect(insertConversation).not.toHaveBeenCalled()
     expect(vi.mocked(submitJob).mock.calls[0][0].conversation_id).toBeUndefined()
+  })
+
+  it('still fires when the conversation cannot be created', async () => {
+    // The reverse trade — refusing to run because a row could not be written —
+    // is the one outcome nobody wants at 03:00.
+    vi.mocked(insertConversation).mockRejectedValue(new Error('db down'))
+    const run = await fireJob(makeJob({ output: 'chat' }), 'schedule', 'scheduler')
+    expect(run.status).toBe('submitted')
     expect(run.conversationId).toBeNull()
-    expect(vi.mocked(repository.insertJobRun).mock.calls[0][0].conversationId).toBeNull()
+    expect(vi.mocked(submitJob).mock.calls[0][0].conversation_id).toBeUndefined()
   })
 
   it('records a skipped run on a 429 admission cap and never throws', async () => {
