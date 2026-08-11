@@ -96,7 +96,9 @@ describe('buildComplianceBcf', () => {
   })
 
   it('names the file after the project and the revision it was run against', () => {
-    expect(build([result()]).filename).toBe('pruefbuch-Wohnhaus-Grungasse-2026-05-04.bcfzip')
+    // `Grüngasse` → `Gruengasse`: umlauts are spelled out rather than stripped
+    // to a bare vowel. See the transliteration test at the bottom of this file.
+    expect(build([result()]).filename).toBe('pruefbuch-Wohnhaus-Gruengasse-2026-05-04.bcfzip')
   })
 
   it('keeps the topic guid stable across revisions of the same project', () => {
@@ -399,5 +401,33 @@ describe('buildComplianceBcf', () => {
     })
 
     expect(export_.filename).toBe('pruefbuch-projekt-2026-05-04.bcfzip')
+  })
+
+  it('spells an Austrian project name instead of punching holes in it', () => {
+    // `ß` has NO Unicode decomposition, so NFKD left it for the
+    // `[^A-Za-z0-9]` pass to turn into a hyphen: `Beispielstraße` downloaded
+    // as `Beispielstra-e`. Roughly half of Viennese project names contain
+    // *straße*, so nearly every real download carried a hole in its name.
+    const named = (projectName: string) =>
+      buildComplianceBcf({
+        projectId: 'project-1',
+        projectName,
+        model: MODEL,
+        results: [result()],
+        author: 'planer@example.at',
+      }).filename
+
+    expect(named('Beispielstraße 14')).toBe('pruefbuch-Beispielstrasse-14-2026-05-04.bcfzip')
+    // Umlauts are spelled the way the office spells them on a form that
+    // refuses one — `ue`, not the bare `u` NFKD would have left behind.
+    expect(named('Grünanger Höfe')).toBe('pruefbuch-Gruenanger-Hoefe-2026-05-04.bcfzip')
+    expect(named('ÖBB Ärztezentrum')).toBe('pruefbuch-OeBB-Aerztezentrum-2026-05-04.bcfzip')
+    // Arrives decomposed from a macOS filesystem: same output, or the table
+    // would be silently bypassed for exactly the users who hit it most.
+    expect(named('Grünanger'.normalize('NFD'))).toBe('pruefbuch-Gruenanger-2026-05-04.bcfzip')
+    // Everything NFKD DOES decompose still goes through it — no table per
+    // language, and a name with no Latin letters at all still gets a filename.
+    expect(named('Rezidence Dvořák')).toBe('pruefbuch-Rezidence-Dvorak-2026-05-04.bcfzip')
+    expect(named('日本橋')).toBe('pruefbuch-projekt-2026-05-04.bcfzip')
   })
 })

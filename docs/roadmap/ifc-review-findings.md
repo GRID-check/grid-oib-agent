@@ -25,6 +25,9 @@ regression tests named beside them.
 | Door judged on nominal width against a *lichte Durchgangsbreite* threshold | `lib/bim/rules.ts` `oib4-tuer-durchgangsbreite` | `rules.spec.ts` › *reads the CLEAR width* |
 | BCF emitted `<File IfcProject="">` and `IfcGuid="express:1421"` — both schema-invalid | `lib/bim/bcf.ts` | `bcf.spec.ts` |
 | `AcousticRating` passed on any non-empty string — a wall reading *siehe Beilage* was reported **erfüllt** under an `OIB 5` caption | `lib/bim/rules.ts` `ratedSoundReduction()` | `rules.spec.ts` › *refuses prose as a declaration* / *accepts a rated value however the exporter labelled it* |
+| `slug()` could not decompose `ß`, so `Beispielstraße` downloaded as `Beispielstra-e` — a hole in the name of roughly half of all Viennese projects | `lib/bim/bcf.ts` `GERMAN_TRANSLITERATION` | `bcf.spec.ts` › *spells an Austrian project name instead of punching holes in it* |
+| BCF zip carried no directory entries — the spec's own *Incorrect* example | `lib/bim/zip.ts`, `bcf.ts` | `bcf.spec.ts` › the folder entry is asserted in the archive layout test |
+| The model download was never aborted; leaving mid-download still transferred the whole file | `features/bim/components/ifc-viewer-canvas.tsx` | `viewer-camera` specs + the `AbortController` at `ifc-viewer-canvas.tsx:335` |
 
 The acoustic fix is worth a note, because the cause was subtler than the
 symptom: `numericProperty` anchors its number at the START of the string, so it
@@ -49,8 +52,6 @@ the adopted Ausgabe before an Einreichung leans on it.
 
 ## Open — standards conformance
 
-- **BCF zip has no directory entries.** The BCF 2.1 spec's own *Incorrect*
-  example is the shape we emit. Readers tolerate it; validators may not.
 - **No `<AssignedTo>`, `<DueDate>` or `<Stage>` on any topic.** In a real BCF
   loop the first action is routing *FireRating fehlt* to the Bauzeichner and
   *Schalldämmung* to the Bauphysiker. Topic-per-requirement is the right call,
@@ -59,9 +60,6 @@ the adopted Ausgabe before an Einreichung leans on it.
   but double-clicking a topic in ArchiCAD restores nothing — you land wherever
   your camera was, on a whole-building view with 34 things lit up somewhere
   inside it. Every topic also shows a blank thumbnail (no snapshot).
-- **`slug()` does not decompose `ß` under NFKD**, so `Beispielstraße` becomes
-  `Beispielstra-e` in the download filename. Roughly half of Viennese project
-  names contain *straße*. `lib/bim/bcf.ts`.
 - **The IFC test fixture violates three where-rules** —
   `IfcRelContainedInSpatialStructure.WR31` and `IfcSpatialStructureElement.WR41`
   (twice) in `tests/fixtures/ifc/sample-building-geometry.ifc`. It fails the
@@ -71,11 +69,6 @@ the adopted Ausgabe before an Einreichung leans on it.
 
 ## Open — frontend
 
-- **The model download is never aborted.** `features/bim/components/ifc-viewer-canvas.tsx`
-  — `fetch(sourceUrl)` takes no `AbortSignal`; cleanup only sets a boolean.
-  Navigating away mid-download transfers the whole model anyway, which on the
-  large models this feature exists for is tens to hundreds of MB per abandoned
-  visit.
 - **No live region for viewer load status**, while every toolbar control is
   `disabled` until `ready` — focus drops to `<body>` if a re-parse starts.
 - **Duplicate React keys in the highlight legend** — `key={highlight.label}`

@@ -42,6 +42,7 @@
 
 import 'server-only'
 import { createHash } from 'node:crypto'
+import { latinize } from '@/lib/text/latinize'
 import { createZip, type ZipEntry } from './zip'
 import { rulesWithOpenWork } from './rules'
 import type { BimElementVerdict, BimRuleResultWithConfirmation } from './rules'
@@ -339,9 +340,11 @@ const VERSION_XML = [
 
 /** A filesystem-safe stem for the download name. */
 function slug(value: string, fallback: string): string {
-  const cleaned = value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
+  // `latinize` spells `straße` as `strasse` — `ß` has no Unicode
+  // decomposition, so without it the `[^A-Za-z0-9]` pass below turned the
+  // letter into a hyphen and roughly half of all Viennese project names
+  // downloaded with a hole in them.
+  const cleaned = latinize(value)
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60)

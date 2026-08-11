@@ -402,6 +402,26 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   `any` in a test double is how fixtures silently drift from the code they
   stand in for. `no-console` allows `warn`/`error`/`debug`; `console.debug` is
   the dev-only diagnostic channel and its call sites are `NODE_ENV`-gated.
+- **A general-purpose helper belongs in a shared module, not in the feature
+  that happened to need it first (obligation).** Before writing a text
+  transform, a formatter, a date/number helper or any other utility that is not
+  *about* your feature's domain, **search for an existing one** — and if you
+  write a new one, put it where the next caller will find it (`lib/text/`,
+  `lib/utils/`, `lib/format.ts`, `features/<x>/lib/` only when it really is
+  domain logic). A private copy in a feature file is a fork: the copies drift,
+  and the drift is invisible because each looks locally correct.
+  The case that produced this rule: German transliteration (`ä`→`ae`, `ß`→`ss`)
+  existed in `MarkdownRenderer.tsx` and in `norm-entry-editor.tsx`, and a third
+  was being written into `lib/bim/bcf.ts` — where its absence had been shipping
+  `Beispielstraße` as the filename `Beispielstra-e`. All three now call
+  `lib/text/latinize.ts`.
+  Sharing is not the same as merging: keep the pieces that genuinely differ
+  separate and say why. `latinize` splits into `transliterateGerman` and
+  `foldDiacritics` precisely because the Markdown anchors must NOT gain
+  diacritic folding (their ids are already published in links), and
+  `bucket.ts`, `MentionPicker` and `passage-highlight` each document why they
+  keep their own fold. **Document the non-adopters** — an unexplained holdout
+  reads as an oversight and gets "fixed" later.
 - Documentation obligations above apply to every change — treat stale docs as a bug.
 - **Fix errors you find — never dismiss them as "pre-existing."** If, while
   working, you identify a bug, a failing/broken test, or wrong behavior — even

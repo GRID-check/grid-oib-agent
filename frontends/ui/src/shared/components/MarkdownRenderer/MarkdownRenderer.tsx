@@ -7,6 +7,7 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
+import { transliterateGerman } from '@/lib/text/latinize'
 import type { MarkdownRendererProps } from './types'
 import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
@@ -23,33 +24,23 @@ function getTextFromChildren(node: ReactNode): string {
 }
 
 /**
- * German letters, spelled out rather than dropped.
+ * Heading anchor ids.
  *
- * `[^\w\s-]` below treats every one of these as punctuation, so "Gebäude"
- * slugified to "gebude" and "Außenwand" to "auenwand" — ids no in-page link
- * ever names. The content this renders is German (chat answers, OIB reports),
- * so that is the common heading, not an edge case, and a missed anchor is
- * silent: `scrollToAnchor` returns when `getElementById` finds nothing.
+ * German letters are spelled out rather than dropped: `[^\w\s-]` below treats
+ * every one of them as punctuation, so "Gebäude" slugified to "gebude" and
+ * "Außenwand" to "auenwand" — ids no in-page link ever names. The content this
+ * renders is German (chat answers, OIB reports), so that is the common
+ * heading, not an edge case, and a missed anchor is silent: `scrollToAnchor`
+ * returns when `getElementById` finds nothing.
  *
- * Transliteration (ä→ae) rather than diacritic-stripping (ä→a) because it is
- * how German spells these out when it cannot print them, and it matches the
- * slug the catalog editor derives from a norm's short name.
+ * Deliberately `transliterateGerman` and NOT `latinize`: folding every other
+ * diacritic would change ids that are already published in links, where today
+ * an `é` is simply dropped. Everything from the trim down is likewise
+ * unchanged, so every ASCII id already in use (and the `1.2` → `12`
+ * punctuation shape) stays byte-identical.
  */
-const GERMAN_TRANSLITERATIONS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/ä/g, 'ae'],
-  [/ö/g, 'oe'],
-  [/ü/g, 'ue'],
-  [/ß/g, 'ss'],
-]
-
 function slugify(text: string): string {
-  const transliterated = GERMAN_TRANSLITERATIONS.reduce(
-    (value, [pattern, replacement]) => value.replace(pattern, replacement),
-    text.toLowerCase()
-  )
-  // Everything from here down is unchanged, so every ASCII id already in use
-  // (and the `1.2` → `12` punctuation shape) stays byte-identical.
-  return transliterated
+  return transliterateGerman(text.toLowerCase())
     .trim()
     .replace(/[^\w\s-]/g, '')
     .replace(/[\s_]+/g, '-')
