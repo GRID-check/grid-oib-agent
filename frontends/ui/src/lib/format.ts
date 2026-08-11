@@ -12,17 +12,31 @@ export const formatEur = (value: number, locale?: string): string =>
 /**
  * Byte sizes for humans ("1.4 GB" / "1,4 GB").
  *
- * Decimal units (1000-based), not binary: the number sits next to a quota an
- * administrator typed in GB, and showing 1 GB of quota as "0.93 GiB used" reads
- * as a bug. `Intl.NumberFormat`'s `unit` style handles the locale's separator
- * and spacing, so German gets "1,4 GB" without a second code path.
+ * **The one byte formatter.** There used to be two — this, and a
+ * `formatFileSize` in `lib/utils/` that counted in 1024s — so the same
+ * 1,048,576-byte document read as "1.0 MB" on its card and contributed
+ * "1 MB" to a storage figure, and an administrator's 1 GB quota rendered as
+ * 0.93 of itself. Two functions computing the same quantity differently is a
+ * fork whose copies each look locally correct; there is now one.
+ *
+ * Decimal units (1000-based), not binary, because that is what the numbers
+ * beside them mean: a quota is entered in GB (`BYTES_PER_GB = 1e9`), an upload
+ * ceiling is configured in MB, and a disk is sold in TB. Showing 1 GB of quota
+ * as "0.93 GiB used" reads as a bug.
+ *
+ * `Intl.NumberFormat`'s `unit` style owns the separator, the spacing and the
+ * unit word, so German gets "1,4 GB" without a second code path — with ONE
+ * exception, the byte tier: CLDR's short form for `byte` is the literal word
+ * ("878 byte"), which reads as a typo in a column of "4.8 MB". Sub-kilobyte
+ * values therefore get a formatted number and a plain `B`.
  *
  * One decimal place from MB up, none below: "1.4 GB" is a size, "1.4 kB" is
- * noise. Negative input is clamped — a size is never below zero, and a bad
- * subtraction upstream should not render as "-2 MB".
+ * noise. Null, undefined, negative and non-finite input all render as "0 B" —
+ * a size is never below zero, and a bad subtraction upstream should not appear
+ * as "-2 MB".
  */
-export const formatBytes = (bytes: number, locale?: string): string => {
-  const safe = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+export const formatBytes = (bytes: number | null | undefined, locale?: string): string => {
+  const safe = typeof bytes === 'number' && Number.isFinite(bytes) && bytes > 0 ? bytes : 0
   const units: Array<{ unit: string; scale: number }> = [
     { unit: 'byte', scale: 1 },
     { unit: 'kilobyte', scale: 1e3 },
@@ -38,6 +52,10 @@ export const formatBytes = (bytes: number, locale?: string): string => {
 
   const value = safe / chosen.scale
   const fractionDigits = chosen.scale >= 1e6 && value < 1000 ? 1 : 0
+
+  if (chosen.scale === 1) {
+    return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value)} B`
+  }
 
   return new Intl.NumberFormat(locale, {
     style: 'unit',

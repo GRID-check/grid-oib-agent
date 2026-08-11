@@ -158,6 +158,37 @@ Same lens, applied to the surface that opens when a document is clicked:
   glancing at it sees "a document" and moves on. Skeleton bars now appear only
   while a preview is genuinely loading.
 
+## One byte formatter, one byte convention
+
+There were two functions computing the same quantity differently:
+`formatBytes` (decimal, 1000-based) and `formatFileSize` (binary, 1024-based).
+So a 1,048,576-byte document read as **1.0 MB** on its card and contributed
+**1 MB** to the org's storage figure, and an administrator's 1 GB quota rendered
+as 0.93 of itself. Each copy looked locally correct, which is what makes a fork
+like this survive.
+
+The mismatch went deeper than display. Upload ceilings were computed as
+`MB * 1024 * 1024`, so `FILE_UPLOAD_MAX_SIZE_MB=100` actually admitted
+104.9 MB — while the storage quota beside it used `BYTES_PER_GB = 1e9`. The
+binary formatter then printed that binary limit as "100.0 MB", so the two errors
+cancelled and the inconsistency stayed invisible. Fixing either half alone makes
+the enforced limit and the sentence describing it disagree, so both moved:
+
+- `formatBytes` is now the only byte formatter (`lib/format.ts`), absorbing the
+  nullable input and the `0 B` zero case the deleted one handled. The byte tier
+  is the one place Intl does not own the unit word — CLDR's short form for
+  `byte` is the literal word ("878 byte"), which reads as a typo in a column of
+  "4.8 MB".
+- `BYTES_PER_MB = 1e6` (`shared/config/request-body-limit.ts`) now backs the
+  document ceiling, the IFC ceiling, the transport limit and the client-side
+  fallback constants, matching `BYTES_PER_GB` on the storage side.
+
+**Behavioural consequence, stated plainly:** the effective upload ceiling drops
+~4.9% (104.86 MB → 100.00 MB for a deployment configured at 100), and likewise
+the IFC ceiling (262.1 MB → 250.0 MB). That is the limit becoming the number the
+administrator actually configured. Raise the env var if the old headroom was
+being relied on.
+
 ## Where the code lives
 
 | Concern | Module |

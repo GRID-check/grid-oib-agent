@@ -43,7 +43,7 @@ describe('FilePreviewPane', () => {
   it('renders file metadata', () => {
     render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
     expect(screen.getByText('plan.pdf')).toBeDefined()
-    expect(screen.getByText(/1\.0 MB/i)).toBeDefined()
+    expect(screen.getByText(/1 MB/i)).toBeDefined()
   })
 
   it('offers an expand affordance for a PDF once its preview URL has loaded', async () => {
@@ -241,7 +241,7 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByText('Status')).toBeNull()
       expect(screen.getByText('Type')).toBeDefined()
       expect(screen.getByText('Size')).toBeDefined()
-      expect(screen.getByText(/1\.0 MB/i)).toBeDefined()
+      expect(screen.getByText(/1 MB/i)).toBeDefined()
     })
 
     it('shows content types only when the document holds more than plain text', () => {

@@ -120,13 +120,13 @@ describe('FileSourceCard', () => {
   test('renders formatted file size when provided', () => {
     render(<FileSourceCard {...defaultProps} fileSize={2048} />)
 
-    expect(screen.getByText('2.0 KB')).toBeInTheDocument()
+    expect(screen.getByText('2 kB')).toBeInTheDocument()
   })
 
   test('renders MB file size correctly', () => {
-    render(<FileSourceCard {...defaultProps} fileSize={5242880} />)
+    render(<FileSourceCard {...defaultProps} fileSize={5_200_000} />)
 
-    expect(screen.getByText('5.0 MB')).toBeInTheDocument()
+    expect(screen.getByText('5.2 MB')).toBeInTheDocument()
   })
 
   test('does not render file size when zero', () => {

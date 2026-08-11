@@ -118,20 +118,24 @@ describe('validation', () => {
 
       /*
         The size named in an error is the same size the user can read off the
-        file card beside it, so it has to be punctuated the same way. The card
-        renders through `formatFileSize` with the APP's locale; these messages
-        used a second formatter that hardcoded a period, then briefly used the
-        right formatter with no locale at all — which still disagrees with the
-        card whenever the app language is not the browser's.
+        file card beside it, so it has to be punctuated the same way — and it
+        has to be the same NUMBER. Both now go through the one `formatBytes`
+        with the APP's locale, over a limit stored in decimal MB, so a
+        deployment configured for 100 MB says exactly that.
       */
       test('punctuates the size with the caller-supplied locale', () => {
-        const files = [createFile('large.pdf', MAX_FILE_SIZE + 1)]
+        // Half a megabyte over, so the file's own size carries a decimal and
+        // the locale's separator is actually exercised.
+        const files = [createFile('large.pdf', MAX_FILE_SIZE + 500_000)]
 
         const german = validateFileUpload(files, createEmptyValidationContext(), undefined, 'de')
         const english = validateFileUpload(files, createEmptyValidationContext(), undefined, 'en-US')
 
-        expect(german.fileErrors[0].message).toContain('100,0 MB')
-        expect(english.fileErrors[0].message).toContain('100.0 MB')
+        expect(german.fileErrors[0].message).toContain('100,5 MB')
+        expect(english.fileErrors[0].message).toContain('100.5 MB')
+        // And the LIMIT reads as the number a deployment configured, exactly.
+        expect(german.fileErrors[0].message).toContain('100 MB')
+        expect(english.fileErrors[0].message).toContain('100 MB')
       })
     })
 

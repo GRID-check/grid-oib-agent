@@ -75,7 +75,7 @@ describe('FileBrowserPane — card grid', () => {
     const cards = screen.getAllByTestId('file-card')
     const card = cards.find((c) => within(c).queryByText('site-plan.pdf'))!
     expect(within(card).getByText('PDF')).toBeInTheDocument()
-    expect(within(card).getByText(/1\.0 KB/)).toBeInTheDocument()
+    expect(within(card).getByText(/1 kB/)).toBeInTheDocument()
     // The ingestion-status badge is kept — critical info the dummy lacks.
     expect(within(card).getByText('Citable')).toBeInTheDocument()
   })

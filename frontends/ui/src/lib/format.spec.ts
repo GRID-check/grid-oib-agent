@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { formatDurationShort, formatEur, formatTransferRate } from './format'
+import { formatBytes, formatDurationShort, formatEur, formatTransferRate } from './format'
 
 describe('formatEur', () => {
   test('formats German amounts with comma decimal and trailing symbol', () => {
@@ -53,5 +53,50 @@ describe('formatTransferRate', () => {
   test('punctuates a speed exactly like the size beside it', () => {
     expect(formatTransferRate(4_200_000, 'en-US')).toBe('4.2 MB/s')
     expect(formatTransferRate(4_200_000, 'de')).toBe('4,2 MB/s')
+  })
+})
+
+describe('formatBytes', () => {
+  test('counts in decimal units, matching the numbers configured beside it', () => {
+    // A quota is entered in GB (BYTES_PER_GB = 1e9) and an upload ceiling in MB
+    // (BYTES_PER_MB = 1e6); a 1024-based formatter renders both as ~93% of what
+    // the administrator typed.
+    expect(formatBytes(1_000_000_000, 'en-US')).toBe('1 GB')
+    expect(formatBytes(100_000_000, 'en-US')).toBe('100 MB')
+  })
+
+  test('keeps one decimal from MB up and none below — "1.4 kB" is noise', () => {
+    expect(formatBytes(4_800_000, 'en-US')).toBe('4.8 MB')
+    expect(formatBytes(878_900, 'en-US')).toBe('879 kB')
+  })
+
+  test('takes its separator and unit word from the locale', () => {
+    // CLDR picks the space itself — a plain one for MB in German, a
+    // non-breaking one for GB — so the assertion normalizes whitespace rather
+    // than embedding an invisible character it would be easy to "fix" wrongly.
+    const spaces = (value: string) => value.replace(/\s/g, ' ')
+    expect(spaces(formatBytes(4_800_000, 'de'))).toBe('4,8 MB')
+    expect(spaces(formatBytes(2_400_000_000, 'de'))).toBe('2,4 GB')
+  })
+
+  test('renders the byte tier as "B", not as CLDR\'s literal word "byte"', () => {
+    // "878 byte" reads as a typo in a column of "4.8 MB".
+    expect(formatBytes(878, 'en-US')).toBe('878 B')
+    expect(formatBytes(878, 'de')).toBe('878 B')
+  })
+
+  test('absorbs the nullable sizes the document rows carry', () => {
+    expect(formatBytes(null)).toBe('0 B')
+    expect(formatBytes(undefined)).toBe('0 B')
+    expect(formatBytes(0)).toBe('0 B')
+  })
+
+  test('a bad subtraction upstream never renders as a negative size', () => {
+    expect(formatBytes(-2_000_000, 'en-US')).toBe('0 B')
+    expect(formatBytes(Number.NaN, 'en-US')).toBe('0 B')
+  })
+
+  test('scales past gigabytes', () => {
+    expect(formatBytes(3_500_000_000_000, 'en-US')).toBe('3.5 TB')
   })
 })

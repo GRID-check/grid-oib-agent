@@ -6,11 +6,18 @@
  * Runtime configuration is provided via AppConfigContext from environment variables.
  */
 
-/** Default maximum file size in bytes per individual file (100MB) */
-export const DEFAULT_MAX_FILE_SIZE = 100 * 1024 * 1024
+/**
+ * Default maximum file size in bytes per individual file (100 MB).
+ *
+ * Decimal MB, matching `BYTES_PER_MB` in the config these values are the
+ * fallback for — the client-side fallback and the server-composed limit must
+ * agree, or a file passes one validator and is refused by the other with a
+ * different number in the message.
+ */
+export const DEFAULT_MAX_FILE_SIZE = 100 * 1e6
 
-/** Default maximum total size for all files including existing session files (100MB) */
-export const DEFAULT_MAX_TOTAL_SIZE = 100 * 1024 * 1024
+/** Default maximum total size for all files including existing session files (100 MB). */
+export const DEFAULT_MAX_TOTAL_SIZE = 100 * 1e6
 
 /** Default maximum number of files per session */
 export const DEFAULT_MAX_FILE_COUNT = 10

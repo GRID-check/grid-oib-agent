@@ -7,8 +7,7 @@ import { DocumentStatusBadge } from './document-status'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/file-sort'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatFileSize } from '@/lib/utils/format-file-size'
-import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /**
@@ -163,7 +162,7 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
                   {file.pageCount ?? '—'}
                 </td>
                 <td className="hidden border-b whitespace-nowrap px-2 py-1.5 text-right text-[11.5px] text-muted-foreground tabular-nums pointer-coarse:py-3 sm:table-cell">
-                  {formatFileSize(file.fileSize, locale)}
+                  {formatBytes(file.fileSize, locale)}
                 </td>
                 <td className="hidden border-b whitespace-nowrap px-2 py-1.5 text-right text-[11.5px] text-muted-foreground tabular-nums pointer-coarse:py-3 md:table-cell">
                   <time

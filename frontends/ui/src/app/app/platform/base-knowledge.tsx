@@ -65,7 +65,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { SectionCard } from '@/features/platform/components/section-card'
 import { cn } from '@/lib/utils'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatFileSize } from '@/lib/utils/format-file-size'
 import type { KnowledgeBaseStatus, KnowledgeFile, KnowledgeFileState } from '@/lib/knowledge/service'
 import type { KnowledgeUploadResult } from '@/lib/knowledge/service'
 import {
@@ -79,6 +78,7 @@ import {
 } from '@/lib/knowledge/doc-class'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
+import { formatBytes } from '@/lib/format'
 
 const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' | 'destructive' | 'secondary'> = {
   ingested: 'success',
@@ -1087,7 +1087,7 @@ export function BaseKnowledge() {
                 />
                 <DetailRow
                   label={t('knowledgeAdmin.detailSize')}
-                  value={detailFile.sizeBytes !== null ? formatFileSize(detailFile.sizeBytes, locale) : '—'}
+                  value={detailFile.sizeBytes !== null ? formatBytes(detailFile.sizeBytes, locale) : '—'}
                 />
                 {detailFile.ingestedAt && (
                   <DetailRow

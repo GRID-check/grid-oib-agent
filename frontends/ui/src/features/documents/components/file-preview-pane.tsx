@@ -28,8 +28,7 @@ import { Button } from '@/components/ui/button'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { documentFileUrl } from '@/lib/documents/urls'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatFileSize } from '@/lib/utils/format-file-size'
-import { formatAbsoluteTime } from '@/lib/format'
+import { formatAbsoluteTime, formatBytes } from '@/lib/format'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
@@ -545,7 +544,7 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
               </MetaRow>
               <MetaRow label={t('preview.size')} icon={HardDrive}>
                 <span className="text-xs font-medium tabular-nums text-foreground">
-                  {formatFileSize(file.fileSize, locale)}
+                  {formatBytes(file.fileSize, locale)}
                 </span>
               </MetaRow>
               {showMetadataPanel && (

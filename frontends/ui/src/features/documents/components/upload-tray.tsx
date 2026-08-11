@@ -16,8 +16,7 @@ import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { Button } from '@/components/ui/button'
 import { AnimatePresence, motion, springGentle } from '@/components/motion'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatDurationShort, formatTransferRate } from '@/lib/format'
-import { formatFileSize } from '@/lib/utils/format-file-size'
+import { formatBytes, formatDurationShort, formatTransferRate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /**
@@ -352,7 +351,7 @@ function UploadRow({
         </p>
 
         <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-          {formatFileSize(file.fileSize, locale)}
+          {formatBytes(file.fileSize, locale)}
         </span>
 
         <span
@@ -488,8 +487,8 @@ function trayDetail(
   if (summary.stage === 'transferring') {
     const parts = [
       t('uploads.detail.bytes', {
-        done: formatFileSize(summary.uploadedBytes, locale),
-        total: formatFileSize(summary.totalBytes, locale),
+        done: formatBytes(summary.uploadedBytes, locale),
+        total: formatBytes(summary.totalBytes, locale),
       }),
     ]
     if (bytesPerSecond !== null) parts.push(formatTransferRate(bytesPerSecond, locale))
@@ -508,5 +507,5 @@ function trayDetail(
     return parts.join(' · ')
   }
 
-  return t('uploads.detail.settled', { total: formatFileSize(summary.uploadedBytes, locale) })
+  return t('uploads.detail.settled', { total: formatBytes(summary.uploadedBytes, locale) })
 }

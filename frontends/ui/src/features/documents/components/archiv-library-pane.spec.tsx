@@ -60,7 +60,7 @@ describe('ArchivLibraryPane — card grid', () => {
     renderPane()
     const card = screen.getAllByTestId('archiv-document-card')[0]
     expect(within(card).getByText('PDF')).toBeInTheDocument()
-    expect(within(card).getByText(/1\.0 KB/)).toBeInTheDocument()
+    expect(within(card).getByText(/1 kB/)).toBeInTheDocument()
     expect(within(card).getByText('Citable')).toBeInTheDocument()
   })
 

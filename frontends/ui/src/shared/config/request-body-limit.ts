@@ -29,11 +29,27 @@
  * the largest file ANY route may admit, not the largest document.
  */
 
+/**
+ * Bytes in the MB an administrator types.
+ *
+ * Decimal, matching `BYTES_PER_GB` on the storage side and the one byte
+ * formatter (`lib/format.ts`). These limits used to be `MB * 1024 * 1024`, so a
+ * deployment configured for 100 MB actually admitted 104.9 MB and the refusal
+ * message — rendered by a formatter that also counted in 1024s — said "100.0 MB"
+ * about a different number than the one enforced. Two wrongs cancelling is not
+ * the same as being right: the moment either side is fixed alone, the limit and
+ * the sentence describing it disagree.
+ *
+ * Declared here rather than imported because this module must stay import-free
+ * (see above); `@/lib/storage/contract` states the same convention for GB.
+ */
+export const BYTES_PER_MB = 1e6
+
 /** Default ceiling on a `.ifc` upload, overridable with `BIM_MAX_IFC_BYTES`. */
-export const DEFAULT_MAX_IFC_BYTES = 250 * 1024 * 1024
+export const DEFAULT_MAX_IFC_BYTES = 250 * BYTES_PER_MB
 
 /** Default ceiling on every other upload, overridable with `FILE_UPLOAD_MAX_SIZE_MB`. */
-export const DEFAULT_MAX_DOCUMENT_BYTES = 100 * 1024 * 1024
+export const DEFAULT_MAX_DOCUMENT_BYTES = 100 * BYTES_PER_MB
 
 function positive(value: string | undefined): number | null {
   if (!value) return null
@@ -58,7 +74,7 @@ export function requestBodyLimitBytes(
   env: Record<string, string | undefined> = process.env
 ): number {
   const documentLimit = positive(env.FILE_UPLOAD_MAX_SIZE_MB)
-    ? (positive(env.FILE_UPLOAD_MAX_SIZE_MB) as number) * 1024 * 1024
+    ? (positive(env.FILE_UPLOAD_MAX_SIZE_MB) as number) * BYTES_PER_MB
     : DEFAULT_MAX_DOCUMENT_BYTES
   return Math.max(documentLimit, maxIfcBytesFrom(env))
 }
