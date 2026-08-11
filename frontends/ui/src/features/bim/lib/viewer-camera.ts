@@ -25,6 +25,11 @@
  * a `sectionPlane` render option.
  */
 
+// Type-only, so this module stays free of the renderer at runtime — but the
+// section plane it builds is checked against the renderer's own declaration
+// rather than against a restatement of it that can drift.
+import type { SectionPlane } from '@ifc-lite/renderer'
+
 /**
  * The named directions the viewport can snap to.
  *
@@ -144,18 +149,7 @@ export function clampCut(atMetres: number, bounds: { minY: number; maxY: number 
  * the axes note in `ifc-viewer-canvas.tsx`. A horizontal cut in an IFC file is
  * a Z plane; by the time it reaches the renderer it is a Y plane.
  */
-export interface RendererSectionPlane {
-  axis: 'down'
-  position: number
-  enabled: true
-  flipped: boolean
-  normal: [number, number, number]
-  distance: number
-  min?: number
-  max?: number
-  showCap: boolean
-  showOutlines: boolean
-}
+export type RendererSectionPlane = SectionPlane
 
 /** Percent of `[minY, maxY]` that `atMetres` sits at, clamped to 0..100. */
 export function cutPercent(

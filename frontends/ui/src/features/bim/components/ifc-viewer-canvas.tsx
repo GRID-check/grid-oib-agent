@@ -51,6 +51,22 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+/**
+ * The renderer, typed by the renderer.
+ *
+ * The declarations below used to be hand-written structural interfaces —
+ * `render(options?: Record<string, unknown>)` and a dozen methods copied out by
+ * eye — and that is what let every defect this component has shipped through.
+ * `xrayContextIds` was not a key the renderer reads; `position: atMetres` was
+ * metres in a percentage field. A `Record<string, unknown>` accepts both
+ * happily, and neither shows up in a screenshot, so both survived a release.
+ *
+ * `import type` is erased at build time: it costs nothing in the bundle, does
+ * not defeat the `next/dynamic` split this file exists for, and makes the
+ * renderer's own `RenderOptions` the contract. A misspelled option is now a
+ * type error at the call site, which is where it was always meant to be caught.
+ */
+import type { Camera, Renderer, Scene } from '@ifc-lite/renderer'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
@@ -140,77 +156,53 @@ export interface IfcViewerStatus {
   message?: string
 }
 
-interface Vec3Like {
-  x: number
-  y: number
-  z: number
-}
-
-interface BoxLike {
-  min: Vec3Like
-  max: Vec3Like
-}
-
-/** Minimal structural types for the dynamically-imported ifc-lite classes. */
-interface RendererLike {
-  init(): Promise<void>
-  addMeshes(meshes: unknown[], streaming?: boolean): void
-  fitToView(): void
-  render(options?: Record<string, unknown>): void
-  resize(width: number, height: number): void
-  destroy(): void
-  pick(
-    x: number,
-    y: number,
-    options?: { isolatedIds?: Set<number> | null; isStreaming?: boolean }
-  ): Promise<{ expressId?: number } | null>
-  /**
-   * A CPU-side BVH raycast. Unlike {@link pick} it is SYNCHRONOUS — no GPU
-   * readback, no frame of latency — which is the only reason hover is
-   * affordable at all.
-   */
-  raycastScene?(
-    x: number,
-    y: number,
-    options?: { isolatedIds?: Set<number> | null }
-  ): { intersection?: { expressId?: number } } | null
-  onDeviceLost?(listener: (info: { message: string }) => void): () => void
+/**
+ * What this component uses of the renderer — the real types, narrowed.
+ *
+ * Narrowed rather than `Renderer` itself for one reason: the class carries
+ * private fields, so a structural stand-in can never satisfy it and the specs
+ * would have to cast their fake through `unknown`, which throws away exactly
+ * the checking this exists for. Each member below is `Renderer`'s own
+ * signature, so a change in the package still lands here as a type error.
+ */
+type RendererLike = Pick<
+  Renderer,
+  | 'init'
+  | 'addMeshes'
+  | 'fitToView'
+  | 'render'
+  | 'resize'
+  | 'destroy'
+  | 'pick'
+  | 'raycastScene'
+  | 'onDeviceLost'
+  | 'getModelBounds'
+  | 'getGPUDevice'
+  | 'getPipeline'
+  | 'captureScreenshot'
+> & {
   getCamera(): CameraLike
-  getModelBounds(): BoxLike | null
-  getScene(): {
-    setColorOverrides(overrides: Map<number, Rgba>, device: unknown, pipeline: unknown): void
-    clearColorOverrides(): void
-    /** World-space AABB of one element, or null before its geometry lands. */
-    getEntityBoundingBox(expressId: number): BoxLike | null
-  }
-  getGPUDevice(): unknown
-  getPipeline(): unknown
+  getScene(): SceneLike
 }
 
-interface CameraLike {
+/** The camera surface this component drives. Signatures are `Camera`'s own. */
+type CameraLike = Pick<
+  Camera,
   /**
    * `addVelocity` feeds the renderer's own inertia system. Omitting it — which
-   * this interface used to force, by not declaring the parameter — makes every
-   * drag a raw per-event jump with no momentum and no damping.
+   * the old hand-written declaration forced, by not declaring the parameter —
+   * makes every drag a raw per-event jump with no momentum and no damping.
    */
-  orbit(dx: number, dy: number, addVelocity?: boolean): void
-  pan(dx: number, dy: number, addVelocity?: boolean): void
+  | 'orbit'
+  | 'pan'
   /**
    * The cursor arguments are the difference between "zoom toward what I am
    * pointing at" and "zoom toward the middle of the screen, and watch the
-   * detail I wanted slide off the edge". They were absent from this
+   * detail I wanted slide off the edge". They were absent from the old
    * declaration, so the call site could not pass them and nobody could see
    * that the renderer had supported it all along.
    */
-  zoom(
-    delta: number,
-    addVelocity?: boolean,
-    mouseX?: number,
-    mouseY?: number,
-    canvasWidth?: number,
-    canvasHeight?: number,
-    fastZoom?: boolean
-  ): void
+  | 'zoom'
   /**
    * Advance inertia and any running tween; true while still moving.
    *
@@ -219,26 +211,28 @@ interface CameraLike {
    * only advance when something drives them, and the on-demand renderer drew
    * exactly one frame and stopped.
    */
-  update(deltaTime: number): boolean
+  | 'update'
   /** Rotate about this point instead of the scene centre. `null` restores it. */
-  setOrbitCenter(center: Vec3Like | null): void
-  setAspect(aspect: number): void
+  | 'setOrbitCenter'
+  | 'setAspect'
   /** Zoom to fit a box while KEEPING the current view direction. */
-  frameBounds?(min: Vec3Like, max: Vec3Like, duration?: number): Promise<void>
-  zoomExtent(min: Vec3Like, max: Vec3Like, duration?: number): Promise<void>
-  setPresetView(
-    view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right',
-    bounds?: BoxLike
-  ): void
-  setProjectionMode(mode: 'perspective' | 'orthographic'): void
+  | 'frameBounds'
+  | 'zoomExtent'
+  | 'setPresetView'
+  | 'setProjectionMode'
   /** Adaptive home pose — isometric for a building, along-axis for a corridor. */
-  fitBoundsAdaptive?(
-    bounds: BoxLike,
-    options?: { animate?: boolean; duration?: number; viewportShortPx?: number }
-  ): unknown
-  stopInertia?(): void
-  setSceneBounds?(bounds: BoxLike | null): void
-}
+  | 'fitBoundsAdaptive'
+  | 'stopInertia'
+  | 'setSceneBounds'
+  /** World point → canvas pixel, for the DOM overlays drawn over the model. */
+  | 'projectToScreen'
+  | 'getPosition'
+  | 'getFOV'
+  | 'enableFirstPersonMode'
+  | 'moveFirstPerson'
+>
+
+type SceneLike = Pick<Scene, 'setColorOverrides' | 'clearColorOverrides' | 'getEntityBoundingBox'>
 
 /**
  * How long one synchronous hover raycast may take before hover is abandoned.
@@ -484,7 +478,11 @@ export function IfcViewerCanvas({
 
         const geometry = new GeometryProcessor()
         geometryRef.current = geometry
-        const renderer = new Renderer(canvas) as unknown as RendererLike
+        // No cast: `RendererLike` is now built out of `Renderer`'s own member
+        // types, so the real class satisfies it and a package change that
+        // renames a method lands here as a type error rather than as a
+        // viewport that silently stops responding.
+        const renderer: RendererLike = new Renderer(canvas)
         await Promise.all([geometry.init(), renderer.init()])
         if (cancelled) {
           renderer.destroy()

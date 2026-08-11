@@ -110,7 +110,7 @@ describe('the section plane the renderer is given', () => {
     const plane = rendererSectionPlane({ atMetres: 7.5, flipped: false }, bounds)
     const resolved =
       (plane.min ?? 0) + (plane.position / 100) * ((plane.max ?? 0) - (plane.min ?? 0))
-    expect(resolved).toBeCloseTo(plane.distance, 10)
+    expect(resolved).toBeCloseTo(plane.distance ?? Number.NaN, 10)
   })
 
   it('handles a building that does not start at zero', () => {
