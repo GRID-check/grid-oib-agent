@@ -20,6 +20,7 @@ import { bim } from './bim'
 import { knowledge } from './knowledge'
 import { research } from './research'
 import { skills } from './skills'
+import { jobs } from './jobs'
 import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
@@ -46,6 +47,7 @@ export const de: Dictionary = {
   knowledge,
   research,
   skills,
+  jobs,
   members,
   onboarding,
   organization,

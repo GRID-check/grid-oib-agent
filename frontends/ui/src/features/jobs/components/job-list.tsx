@@ -1,11 +1,15 @@
 'use client'
 
 /**
- * Skill schedules list — the "Schedules" section of the Skills tab. One card
- * per project schedule: name, the pinned skill, an enable switch (PATCH,
- * optimistic), a humanized schedule summary, next/last run, and actions
- * (run now, edit, delete, and an expandable run history). Run-now and all
- * mutations require project:skills:manage — without it the card is read-only.
+ * The project's jobs. One card per job: name, the prompt it sends, what a run
+ * produces, the attached skill (or the fact that there is none), an enable
+ * switch (PATCH, optimistic), a humanized schedule summary, next/last run, and
+ * actions (run now, edit, delete, and an expandable run history).
+ *
+ * The PROMPT is on the card because it is what the job IS — a row that named
+ * only a skill would be describing the optional part and hiding the required
+ * one. Run-now and all mutations require project:skills:manage; without it the
+ * card is read-only.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -18,6 +22,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Sparkles,
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -34,25 +39,25 @@ import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import {
-  deleteSkillSchedule,
-  listSkillSchedules,
-  runSkillSchedule,
-  SkillApiError,
-  updateSkillSchedule,
-  type SkillSchedule,
-} from '@/adapters/api/skills-client'
+  deleteJob,
+  listJobs,
+  runJob,
+  updateJob,
+  JobApiError,
+  type Job,
+} from '@/adapters/api/jobs-client'
+import { ConfirmDeleteDialog } from '@/features/skills/components/confirm-delete-dialog'
 import { presetForCron } from '../lib/schedule'
-import { RunHistory } from './run-history'
-import { ConfirmDeleteDialog } from './confirm-delete-dialog'
+import { JobRunHistory } from './job-run-history'
 
-interface ScheduleListProps {
+interface JobListProps {
   projectId: string
   /** Qdrant collection of this project — scopes the run history's live job statuses. */
   projectCollection: string | null
-  /** Whether this member may create/edit/delete/run schedules (project:skills:manage). */
+  /** Whether this member may create/edit/delete/run jobs (project:skills:manage). */
   canManage: boolean
   onCreate: () => void
-  onEdit: (schedule: SkillSchedule) => void
+  onEdit: (job: Job) => void
 }
 
 type Translate = ReturnType<typeof useTranslations>
@@ -74,10 +79,10 @@ function scheduleSummary(t: Translate, cron: string | null, timezone: string): s
   return t('schedule.inTimezone', { summary, timezone })
 }
 
-function ScheduleCard({
+function JobCard({
   projectId,
   projectCollection,
-  schedule,
+  job,
   canManage,
   onEdit,
   onChanged,
@@ -85,13 +90,13 @@ function ScheduleCard({
 }: {
   projectId: string
   projectCollection: string | null
-  schedule: SkillSchedule
+  job: Job
   canManage: boolean
-  onEdit: (schedule: SkillSchedule) => void
-  onChanged: (next: SkillSchedule) => void
+  onEdit: (job: Job) => void
+  onChanged: (next: Job) => void
   onDeleted: (id: string) => void
 }): JSX.Element {
-  const t = useTranslations('skills')
+  const t = useTranslations('jobs')
   const { locale } = useLocale()
   const router = useRouter()
   const [toggling, setToggling] = useState(false)
@@ -105,12 +110,12 @@ function ScheduleCard({
   const toggleEnabled = async (enabled: boolean) => {
     setToggling(true)
     // Optimistic — revert on failure.
-    onChanged({ ...schedule, enabled })
+    onChanged({ ...job, enabled })
     try {
-      const updated = await updateSkillSchedule(projectId, schedule.id, { enabled })
+      const updated = await updateJob(projectId, job.id, { enabled })
       onChanged(updated)
     } catch {
-      onChanged({ ...schedule, enabled: !enabled })
+      onChanged({ ...job, enabled: !enabled })
       toast.error(t('list.toggleError'))
     } finally {
       setToggling(false)
@@ -120,34 +125,34 @@ function ScheduleCard({
   const runNow = async () => {
     setRunning(true)
     try {
-      const result = await runSkillSchedule(projectId, schedule.id)
+      const result = await runJob(projectId, job.id)
       if (result.status === 'submitted') {
         // The run is now a live job. Open the history (so the new row and its
         // status are visible right away) and offer a one-click jump into the
         // research panel that follows it.
-        const jobId = result.jobId
+        const backendJobId = result.jobId
         toast.success(t('run.submitted'), {
           description: t('run.submittedDetail'),
-          ...(jobId
+          ...(backendJobId
             ? {
                 action: {
                   label: t('run.viewProgress'),
                   onClick: () =>
-                    router.push(`/app/projects/${projectId}/chat?job=${jobId}&tab=tasks`),
+                    router.push(`/app/projects/${projectId}/chat?job=${backendJobId}&tab=tasks`),
                 },
               }
             : {}),
         })
         setHistoryOpen(true)
         setHistoryToken((token) => token + 1)
-        onChanged({ ...schedule, lastRunAt: new Date().toISOString() })
+        onChanged({ ...job, lastRunAt: new Date().toISOString() })
       } else if (result.status === 'skipped') {
         toast.warning(t('run.skipped'), { description: result.detail ?? undefined })
       } else {
         toast.error(t('run.error'), { description: result.detail ?? undefined })
       }
     } catch (err) {
-      if (err instanceof SkillApiError && err.status === 409) {
+      if (err instanceof JobApiError && err.status === 409) {
         toast.error(t('run.disabled'))
       } else {
         toast.error(t('run.error'))
@@ -160,9 +165,9 @@ function ScheduleCard({
   const confirmDelete = async () => {
     setDeleting(true)
     try {
-      await deleteSkillSchedule(projectId, schedule.id)
+      await deleteJob(projectId, job.id)
       setConfirmOpen(false)
-      onDeleted(schedule.id)
+      onDeleted(job.id)
     } catch {
       toast.error(t('deleteDialog.error'))
     } finally {
@@ -170,39 +175,37 @@ function ScheduleCard({
     }
   }
 
-  const nextRun = schedule.nextRunAt
-    ? t('list.nextRun', { time: formatRelativeTime(schedule.nextRunAt, locale) })
+  const nextRun = job.nextRunAt
+    ? t('list.nextRun', { time: formatRelativeTime(job.nextRunAt, locale) })
     : null
-  const lastRun = schedule.lastRunAt
-    ? t('list.lastRun', { time: formatRelativeTime(schedule.lastRunAt, locale) })
+  const lastRun = job.lastRunAt
+    ? t('list.lastRun', { time: formatRelativeTime(job.lastRunAt, locale) })
     : t('list.neverRun')
 
   return (
-    <Card className={cn(!schedule.enabled && 'opacity-75')}>
+    <Card className={cn(!job.enabled && 'opacity-75')}>
       <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
         <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate text-sm font-semibold text-foreground">{schedule.name}</h3>
-              {!schedule.enabled && <Badge variant="secondary">{t('list.disabled')}</Badge>}
+          <div className="min-w-0 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold text-foreground">{job.name}</h3>
+              <Badge variant="secondary">{t(`list.output.${job.output}`)}</Badge>
+              {!job.enabled && <Badge variant="outline">{t('list.disabled')}</Badge>}
             </div>
-            {schedule.skillSnapshot.description && (
-              <p className="line-clamp-2 text-sm text-muted-foreground">
-                {schedule.skillSnapshot.description}
-              </p>
-            )}
+            {/* The prompt, verbatim and clamped. It is what the job sends. */}
+            <p className="line-clamp-2 text-sm text-muted-foreground">{job.prompt}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {toggling && <Spinner size="sm" />}
             {canManage && (
               <Switch
-                checked={schedule.enabled}
+                checked={job.enabled}
                 disabled={toggling}
                 onCheckedChange={(checked) => void toggleEnabled(checked)}
                 aria-label={
-                  schedule.enabled
-                    ? t('list.disableAria', { name: schedule.name })
-                    : t('list.enableAria', { name: schedule.name })
+                  job.enabled
+                    ? t('list.disableAria', { name: job.name })
+                    : t('list.enableAria', { name: job.name })
                 }
               />
             )}
@@ -212,27 +215,27 @@ function ScheduleCard({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <CalendarClock className="size-3.5" aria-hidden />
-            {scheduleSummary(t, schedule.scheduleCron, schedule.scheduleTimezone)}
+            {scheduleSummary(t, job.scheduleCron, job.scheduleTimezone)}
+          </span>
+          {/* No skill is the common case, and it is stated rather than left
+              blank: a missing line reads as missing information. */}
+          <span className="flex items-center gap-1.5">
+            <Sparkles className="size-3.5" aria-hidden />
+            {job.skillName ? t('list.withSkill', { name: job.skillName }) : t('list.noSkill')}
           </span>
           {nextRun && <span>{nextRun}</span>}
-          <span
-            title={schedule.lastRunAt ? formatAbsoluteTime(schedule.lastRunAt, locale) : undefined}
-          >
+          <span title={job.lastRunAt ? formatAbsoluteTime(job.lastRunAt, locale) : undefined}>
             {lastRun}
           </span>
         </div>
 
         {canManage && (
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              onClick={() => void runNow()}
-              disabled={running || !schedule.enabled}
-            >
+            <Button size="sm" onClick={() => void runNow()} disabled={running || !job.enabled}>
               {running ? <Spinner size="sm" /> : <Play className="size-3.5" aria-hidden />}
               {running ? t('actions.running') : t('actions.runNow')}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onEdit(schedule)}>
+            <Button size="sm" variant="outline" onClick={() => onEdit(job)}>
               <Pencil className="size-3.5" aria-hidden />
               {t('actions.edit')}
             </Button>
@@ -261,11 +264,11 @@ function ScheduleCard({
           </CollapsibleTrigger>
           <CollapsibleContent className="border-t border-border pt-1">
             {historyOpen && (
-              <RunHistory
+              <JobRunHistory
                 key={historyToken}
                 projectId={projectId}
                 projectCollection={projectCollection}
-                scheduleId={schedule.id}
+                jobId={job.id}
               />
             )}
           </CollapsibleContent>
@@ -276,7 +279,7 @@ function ScheduleCard({
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={t('deleteDialog.title')}
-        description={t('deleteDialog.description', { name: schedule.name })}
+        description={t('deleteDialog.description', { name: job.name })}
         confirmLabel={t('deleteDialog.confirm')}
         cancelLabel={t('deleteDialog.cancel')}
         pending={deleting}
@@ -286,22 +289,22 @@ function ScheduleCard({
   )
 }
 
-export function ScheduleList({
+export function JobList({
   projectId,
   projectCollection,
   canManage,
   onCreate,
   onEdit,
-}: ScheduleListProps): JSX.Element {
-  const t = useTranslations('skills')
-  const [schedules, setSchedules] = useState<SkillSchedule[] | null>(null)
+}: JobListProps): JSX.Element {
+  const t = useTranslations('jobs')
+  const [jobs, setJobs] = useState<Job[] | null>(null)
   const [error, setError] = useState(false)
 
   const load = useCallback(() => {
-    setSchedules(null)
+    setJobs(null)
     setError(false)
-    listSkillSchedules(projectId)
-      .then(setSchedules)
+    listJobs(projectId)
+      .then(setJobs)
       .catch(() => setError(true))
   }, [projectId])
 
@@ -309,18 +312,18 @@ export function ScheduleList({
     load()
   }, [load])
 
-  const handleChanged = useCallback((next: SkillSchedule) => {
-    setSchedules((prev) => prev?.map((s) => (s.id === next.id ? next : s)) ?? prev)
+  const handleChanged = useCallback((next: Job) => {
+    setJobs((prev) => prev?.map((job) => (job.id === next.id ? next : job)) ?? prev)
   }, [])
 
   const handleDeleted = useCallback((id: string) => {
-    setSchedules((prev) => prev?.filter((s) => s.id !== id) ?? prev)
+    setJobs((prev) => prev?.filter((job) => job.id !== id) ?? prev)
   }, [])
 
   return (
-    <section className="mt-10 space-y-4" aria-labelledby="skill-schedules-heading">
+    <section className="space-y-4" aria-labelledby="jobs-heading">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="skill-schedules-heading" className="text-sm font-semibold text-foreground">
+        <h2 id="jobs-heading" className="text-sm font-semibold text-foreground">
           {t('list.heading')}
         </h2>
         {canManage && (
@@ -331,8 +334,8 @@ export function ScheduleList({
         )}
       </div>
 
-      {schedules === null && !error && (
-        <div className="space-y-3" data-testid="schedules-loading">
+      {jobs === null && !error && (
+        <div className="space-y-3" data-testid="jobs-loading">
           <Skeleton className="h-36 w-full rounded-xl" />
           <Skeleton className="h-36 w-full rounded-xl" />
         </div>
@@ -350,7 +353,7 @@ export function ScheduleList({
         </Alert>
       )}
 
-      {schedules !== null && !error && schedules.length === 0 && (
+      {jobs !== null && !error && jobs.length === 0 && (
         <EmptyState
           icon={CalendarClock}
           title={t('list.empty.title')}
@@ -366,14 +369,14 @@ export function ScheduleList({
         />
       )}
 
-      {schedules !== null && !error && schedules.length > 0 && (
+      {jobs !== null && !error && jobs.length > 0 && (
         <div className="space-y-4">
-          {schedules.map((schedule) => (
-            <ScheduleCard
-              key={schedule.id}
+          {jobs.map((job) => (
+            <JobCard
+              key={job.id}
               projectId={projectId}
               projectCollection={projectCollection}
-              schedule={schedule}
+              job={job}
               canManage={canManage}
               onEdit={onEdit}
               onChanged={handleChanged}

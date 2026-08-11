@@ -1,10 +1,11 @@
 'use client'
 
 /**
- * Plain confirm dialog for deleting a schedule or a skill. Both are
- * recoverable-ish (a schedule is re-creatable; a skill's schedules keep their
- * snapshot), so a single explicit confirmation — not type-to-confirm — is the
- * right friction here. Mirrors the workflows confirm-delete dialog.
+ * Plain confirm dialog for deleting a skill or a job. Both are
+ * recoverable-ish (a job is re-creatable; a deleted skill's jobs keep their
+ * snapshot and keep running), so a single explicit confirmation — not
+ * type-to-confirm — is the right friction here. Shared with `features/jobs`,
+ * which imports it rather than growing a second copy.
  */
 
 import { AlertTriangle } from 'lucide-react'

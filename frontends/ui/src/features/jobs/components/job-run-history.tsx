@@ -1,11 +1,11 @@
 'use client'
 
 /**
- * Per-schedule run history. Lists append-only `skill_runs` (newest first):
- * a trigger badge (manual/scheduled), a status badge, a relative timestamp and
- * a link into the research panel.
+ * Per-job run history. Lists append-only `job_runs` (newest first): a trigger
+ * badge (manual/scheduled), a status badge, a relative timestamp and a link
+ * into the research panel.
  *
- * `skill_runs.status` only records how the SUBMISSION went — the run's actual
+ * `job_runs.status` only records how the SUBMISSION went — the run's actual
  * fate lives in the backend job store. So rows that produced a job are joined
  * against the project's research runs (`GET /v1/jobs/async/jobs`, the same
  * list the History page uses) to show the live job status, and that status
@@ -24,20 +24,16 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { listResearchRuns } from '@/adapters/api/research-runs-client'
-import {
-  listSkillRuns,
-  type SkillRun,
-  type SkillRunStatus,
-} from '@/adapters/api/skills-client'
+import { listJobRuns, type JobRun, type JobRunStatus } from '@/adapters/api/jobs-client'
 
-interface RunHistoryProps {
+interface JobRunHistoryProps {
   projectId: string
-  scheduleId: string
+  jobId: string
   /** Qdrant collection scoping the live job-status join; null disables it. */
   projectCollection: string | null
 }
 
-const STATUS_VARIANT: Record<SkillRunStatus, NonNullable<BadgeProps['variant']>> = {
+const STATUS_VARIANT: Record<JobRunStatus, NonNullable<BadgeProps['variant']>> = {
   submitted: 'info',
   skipped: 'warning',
   error: 'destructive',
@@ -62,20 +58,24 @@ const JOB_STATUS_POLL_MS = 10000
 /** Newest jobs to join against; runs older than this fall back to their badge. */
 const JOB_STATUS_LOOKUP_LIMIT = 200
 
-export function RunHistory({ projectId, scheduleId, projectCollection }: RunHistoryProps): JSX.Element {
-  const t = useTranslations('skills')
+export function JobRunHistory({
+  projectId,
+  jobId,
+  projectCollection,
+}: JobRunHistoryProps): JSX.Element {
+  const t = useTranslations('jobs')
   const { locale } = useLocale()
-  const [runs, setRuns] = useState<SkillRun[] | null>(null)
+  const [runs, setRuns] = useState<JobRun[] | null>(null)
   const [error, setError] = useState(false)
   const [jobStatuses, setJobStatuses] = useState<Record<string, string>>({})
 
   const load = useCallback(() => {
     setRuns(null)
     setError(false)
-    listSkillRuns(projectId, scheduleId, { limit: 20 })
+    listJobRuns(projectId, jobId, { limit: 20 })
       .then(setRuns)
       .catch(() => setError(true))
-  }, [projectId, scheduleId])
+  }, [projectId, jobId])
 
   useEffect(() => {
     load()
@@ -85,8 +85,10 @@ export function RunHistory({ projectId, scheduleId, projectCollection }: RunHist
   // project's newest jobs), repeated while at least one run is still active.
   useEffect(() => {
     if (!projectCollection || !runs) return
-    const jobIds = new Set(runs.map((run) => run.jobId).filter((id): id is string => Boolean(id)))
-    if (jobIds.size === 0) return
+    const backendJobIds = new Set(
+      runs.map((run) => run.jobId).filter((id): id is string => Boolean(id)),
+    )
+    if (backendJobIds.size === 0) return
 
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -101,7 +103,7 @@ export function RunHistory({ projectId, scheduleId, projectCollection }: RunHist
 
         const next: Record<string, string> = {}
         for (const job of jobs) {
-          if (jobIds.has(job.job_id)) next[job.job_id] = job.status
+          if (backendJobIds.has(job.job_id)) next[job.job_id] = job.status
         }
         setJobStatuses(next)
 
@@ -137,7 +139,7 @@ export function RunHistory({ projectId, scheduleId, projectCollection }: RunHist
 
   if (runs === null) {
     return (
-      <div className="space-y-2 py-2" data-testid="run-history-loading">
+      <div className="space-y-2 py-2" data-testid="job-run-history-loading">
         {Array.from({ length: 3 }).map((_, index) => (
           <Skeleton key={index} className="h-10 w-full rounded-lg" />
         ))}

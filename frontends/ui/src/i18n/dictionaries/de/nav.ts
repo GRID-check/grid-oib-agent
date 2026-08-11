@@ -16,6 +16,7 @@ export const nav: typeof en.nav = {
     knowledge: 'Wissen',
     research: 'Recherche',
     skills: 'Skills',
+    jobs: 'Jobs',
     archiv: 'Archiv',
     history: 'Historie',
     settings: 'Einstellungen',

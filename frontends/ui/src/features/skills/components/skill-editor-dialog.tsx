@@ -2,12 +2,16 @@
 
 /**
  * Org skill authoring dialog (org:skills:manage). Fields: name, description
- * and the instruction body in agentskills.io format, plus the three reserved
- * metadata controls the UI owns — where the skill applies (`grid-execution`,
- * default chat), the scheduling opt-out (`grid-schedulable=false`) and the
- * preferred output cards (`grid-cards`) — and the master enabled switch.
- * Editing a clone shows its source. Platform-builtin skills have no DB row and
- * are never edited here; they are cloned instead (see the toolbox).
+ * and the instruction body in agentskills.io format, plus the two reserved
+ * metadata controls the UI owns — who may use the skill (`grid-agents`, the
+ * ONE availability gate) and its preferred output cards (`grid-cards`) — and
+ * the master enabled switch. Editing a clone shows its source. Platform-builtin
+ * skills have no DB row and are never edited here; they are cloned instead
+ * (see the toolbox).
+ *
+ * There is deliberately nothing here about time or output. A skill does not
+ * know when it runs or what a run produces: scheduling belongs to the JOB that
+ * attaches it, and the output kind is that job's choice (`jobs.output`).
  *
  * Laid out as one view rather than a wizard. The fields are few; what is not
  * few is the number of things an author has to hold in mind at once — the
@@ -16,9 +20,7 @@
  * fields, and a step-by-step flow could only show them after the fact.
  *
  * The server owns all final validation; this dialog only mirrors the write
- * boundary rules (name shape/lengths) for instant feedback and always sends a
- * deterministic `grid-execution` value, so the resolved mode cannot drift
- * from what the editor showed.
+ * boundary rules (name shape/lengths) for instant feedback.
  */
 
 import { useCallback, useMemo, useState } from 'react'

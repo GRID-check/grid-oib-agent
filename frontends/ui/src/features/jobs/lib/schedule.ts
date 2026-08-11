@@ -1,15 +1,15 @@
 /**
- * Schedule helpers for the skill-schedule builder and list.
+ * Schedule helpers for the job builder and the job list.
  *
  * The BFF validates and parses cron authoritatively (5-field, `cron-parser`,
- * per-schedule IANA timezone, min-interval). These helpers only power the UI:
+ * per-job IANA timezone, min-interval). These helpers only power the UI:
  * a small set of common presets, a lightweight client-side shape check that
  * gives instant feedback before the server round-trip, and a humanizer for the
  * list's schedule summary. Anything the client cannot know for sure (real
  * next-occurrence, min-interval) is left to the server.
  */
 
-/** Preset identifiers offered in the schedule editor. */
+/** Preset identifiers offered in the job builder's schedule section. */
 export type SchedulePreset = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'custom'
 
 /** The cron expression each non-custom preset maps to (5-field). */

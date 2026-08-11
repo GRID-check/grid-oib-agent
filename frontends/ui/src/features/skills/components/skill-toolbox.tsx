@@ -3,8 +3,9 @@
 /**
  * Skill toolbox — the "Skill toolbox" section of the Skills tab. Renders the
  * merged toolbox (builtin platform skills + org rows, org rows shadowing same
- * names) as cards: origin + execution + schedulability badges, description,
- * a collapsible verbatim instruction preview, and actions. Builtin platform
+ * names) as cards: an origin badge, the agent scope where there is one, the
+ * description, a collapsible verbatim instruction preview, and actions.
+ * Nothing here is about time or output: a skill says neither. Builtin platform
  * skills can be cloned into the org; org-authored/cloned rows can be edited
  * and deleted (org:skills:manage — without it the section is read-only).
  */
@@ -164,11 +165,6 @@ export function SkillToolbox({
                       <Badge variant="outline">
                         {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
                       </Badge>
-                    )}
-                    {skill.metadata['grid-schedulable'] !== 'false' ? (
-                      <Badge variant="outline">{t('toolbox.schedulable')}</Badge>
-                    ) : (
-                      <Badge variant="secondary">{t('toolbox.notSchedulable')}</Badge>
                     )}
                   </div>
                 </div>
