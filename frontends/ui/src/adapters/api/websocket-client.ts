@@ -48,6 +48,11 @@ export interface ResponseTransparency {
   answerConfidenceReason?: string
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Skills whose instructions the agent LOADED this turn, in activation order.
+   * Absent when none were — availability is not activation.
+   */
+  skillsActivated?: string[]
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
@@ -611,6 +616,7 @@ export class NATWebSocketClient {
             answerConfidenceCappedReason: message.answer_confidence_capped_reason,
             answerConfidenceReason: message.answer_confidence_reason,
             citationsRemoved: message.citations_removed,
+            skillsActivated: message.skills_activated,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
           }

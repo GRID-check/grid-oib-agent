@@ -1025,14 +1025,20 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const client = wsClientRef.current
       if (!client?.isConnected()) return false
 
+      // The two-argument call is load-bearing, not stylistic: an ordinary
+      // message must stay the exact call it has always been (three specs assert
+      // on arity), so a message with no invoked skill never grows a third
+      // `undefined` argument.
+      const sendChatMessage = (): string | null =>
+        payload.kind === 'message' && payload.skills && payload.skills.length > 0
+          ? client.sendMessage(payload.content, payload.dataSources, { skills: payload.skills })
+          : client.sendMessage(
+              (payload as Extract<PendingOutgoing, { kind: 'message' }>).content,
+              (payload as Extract<PendingOutgoing, { kind: 'message' }>).dataSources,
+            )
+
       const outboundId = payload.kind === 'message'
-        ? client.sendMessage(
-            payload.content,
-            payload.dataSources,
-            // Omitted entirely when nothing was invoked, so an ordinary message
-            // stays the exact two-argument call it has always been.
-            payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : undefined,
-          )
+        ? sendChatMessage()
         : client.sendInteractionResponse(
           payload.interactionId,
           payload.parentId,

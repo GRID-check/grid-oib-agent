@@ -108,6 +108,12 @@ export interface AnswerTransparency {
   /** The model's own one-clause justification for its self-assessment, shown verbatim in the chip tooltip. */
   answerConfidenceReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Skills whose full instructions the agent loaded this turn (`use_skill`), in
+   * activation order. Absent when none — a skill merely being available is not
+   * reportable, only the decision to load one is.
+   */
+  skillsActivated?: string[]
 }
 
 /** File card data for file messages */
@@ -316,6 +322,12 @@ export interface ChatMessage {
    * sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Skills whose instructions the agent LOADED while answering, in activation
+   * order. Renders the "skills used" disclosure under the answer; absent when
+   * the turn activated none.
+   */
+  skillsActivated?: string[]
 }
 
 /** Intermediate thinking step from agent */
