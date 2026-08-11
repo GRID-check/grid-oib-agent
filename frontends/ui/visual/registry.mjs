@@ -310,6 +310,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="primitives-demo"]',
   },
   {
+    id: 'platform-cards',
+    mobile: true,
+    path: '/dev/platform-cards',
+    description:
+      "Platform → cards: the agent's presentation vocabulary as a gallery. Each entry is a REAL render through the same GridCards dispatcher chat uses, so the page cannot advertise a card the renderers do not produce — a Stellplatznachweis with a failing count beside a passing one, a legal-basis excerpt, the system-emitted memory proposal carrying both badges (and inert, because a gallery must not be able to fire the write behind its Yes), and the IFC viewer described rather than faked because it needs a loaded model. The values each card carries expand underneath, and the request-a-card link sits in the header and again at the foot, where the reader who found nothing has arrived.",
+    waitFor: '[data-testid="platform-cards-preview"]',
+  },
+  {
     id: 'platform-nav',
     mobile: true,
     path: '/dev/platform-nav',

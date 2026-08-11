@@ -514,6 +514,7 @@ export const platform: typeof en.platform = {
     models: 'Modelle',
     retrieval: 'Abruf',
     quality: 'Antwortqualität',
+    cards: 'Karten',
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
     workflows: 'Workflow-Vorlagen',
@@ -613,6 +614,10 @@ export const platform: typeof en.platform = {
       title: 'Abruf',
       subtitle: 'Wie viele Treffer jede Suche holt und zusammenführt — flottenweit, wirksam ab der nächsten Anfrage.',
     },
+    cards: {
+      title: 'Karten',
+      subtitle: 'Was der Agent darstellen kann — jeder Kartentyp, gerendert, mit den Werten, die er trägt.',
+    },
     quality: {
       title: 'Antwortqualität',
       subtitle: 'Wie gut Antworten belegt sind, was Nutzerinnen und Nutzer von ihnen hielten, und der Ausführungsverlauf hinter jedem Turn, der es nicht war.',
@@ -638,6 +643,21 @@ export const platform: typeof en.platform = {
       title: 'Wartung',
       subtitle: 'Pflege des Vektorspeichers. Nur nötig, wenn Retrieval und Korpus auseinanderlaufen.',
     },
+  },
+  /** Platform → Karten: das Darstellungsvokabular des Agenten, gerendert. */
+  cards: {
+    title: 'Kartenkatalog',
+    description:
+      'Jede Karte, die der Agent darstellen kann, gezeigt wie in einer Antwort. Die Liste wird aus dem Kartenschema selbst abgeleitet und zeigt daher immer, was diese Installation tatsächlich erzeugen kann.',
+    count: '{count} Kartentypen.',
+    loadError: 'Der Kartenkatalog konnte nicht geladen werden.',
+    interactiveBadge: 'Fragt nach',
+    systemBadge: 'Systemseitig',
+    showValues: 'Werte anzeigen ({count})',
+    hideValues: 'Werte ausblenden',
+    noPreviewModel: 'Nur mit geladenem IFC-Modell — diese Karte trägt Bauteil-IDs, keine Zahlen.',
+    noPreviewDocuments: 'Nur mit echten Projektdokumenten — diese Karte zeigt Dateien, keine Beispieldaten.',
+    requestCta: 'Karte anfragen',
   },
   /** Plattform → Modelle: das flottenweite Standardmodell je Agentenbereich. */
   models: {

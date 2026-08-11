@@ -272,6 +272,30 @@ The response also carries `featureRequest` — the repository plus a link to the
 enhancement issue form — because the question that follows "here is what Grid
 can render" is "and how do I get the one thing that is missing?".
 
+### The gallery: Platform → cards
+
+`/app/platform/cards` is that catalog as a page (platform owners; nav entry
+between "Answer quality" and "Base knowledge"). Every entry is a **real render**
+— the sample card goes through the same `GridCards` dispatcher chat uses — so
+the page cannot advertise a card the renderers do not produce, and a platform
+owner's visual question ("can Grid show me a Stellplatznachweis?") gets a visual
+answer. The values each card carries expand underneath, straight from the
+endpoint, and the request-a-card link sits in the header and again at the foot.
+
+| piece | where |
+|---|---|
+| The page | `src/app/app/platform/cards/page.tsx` + `platform-cards.tsx` |
+| The sample cards | `features/grid-cards/preview-fixtures.ts` — authored in schema-INPUT shape, then run through `validateGridCards`, so a fixture that stops matching the union is dropped rather than rendered |
+| Coverage guard | `preview-fixtures.spec.ts` — every type in `CARD_INTERACTIVITY` needs a fixture or an entry in `PREVIEW_EXCLUDED` |
+| Not previewed | the four IFC cards + `document_grid`: they carry identifiers resolved against a loaded model or real document rows, and a fabricated preview would show a building that does not exist |
+| Preview evidence | `/dev/platform-cards` + the `platform-cards` screenshot target |
+
+**Previews are inert.** `memory_proposal`'s "Yes" writes an org-scoped memory and
+`project_profile_patch`'s "Accept" applies a JSON Patch. In a gallery those
+buttons are decoration, so the preview subtree is removed from hit-testing,
+focus order and the accessibility tree (`inert`) — `pointer-events-none` alone
+would leave them keyboard-reachable, and a tabbed-to "Yes" still writes.
+
 The card-generation LLM is `card_llm` (config `reasoning_effort: medium`). Adding a
 card type = define the Pydantic model (`cards/models.py`), regenerate the schema
 (`scripts/generate_card_schema.py` → `npm run generate:cards`), add a renderer, and
