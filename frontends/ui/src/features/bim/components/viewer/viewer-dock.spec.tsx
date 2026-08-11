@@ -30,7 +30,10 @@ describe('ViewerDock', () => {
     expect(container.querySelectorAll('[data-slot="viewer-surface"]')).toHaveLength(2)
   })
 
-  it('adds a third pill for the way out to the advanced surfaces', () => {
+  it('keeps the way out inside the tool pill, behind a divider', () => {
+    // NOT a third pill. Three floating bars two gaps apart read as three
+    // competing objects rather than one control bar — the bottom of the
+    // viewport ended up busier than the building.
     const { container } = render(
       <ViewerDock
         lead={<ViewerIconButton label="Ganzes Modell" icon={Home} />}
@@ -39,7 +42,8 @@ describe('ViewerDock', () => {
         <ViewerIconButton label="Ebenen" icon={Home} />
       </ViewerDock>
     )
-    expect(container.querySelectorAll('[data-slot="viewer-surface"]')).toHaveLength(3)
+    expect(container.querySelectorAll('[data-slot="viewer-surface"]')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Mehr' })).toBeInTheDocument()
   })
 
   it('renders the section slider above the bar rather than inside it', () => {

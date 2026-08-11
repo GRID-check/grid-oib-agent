@@ -148,6 +148,15 @@ describe('ModelStage — what is on screen', () => {
     ])
   })
 
+  it('drops the model list entirely when there is only one', () => {
+    // A "Modelle" heading over a single row is a section that exists to be
+    // looked past, and it doubles the rail's height. The model's name is
+    // already the dialog's title, so nothing is lost.
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.queryByRole('region', { name: 'Models' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Levels' })).toBeInTheDocument()
+  })
+
   it('will not switch to a model that is still being read', () => {
     state.models = [model(), model({ id: 'm-2', filename: 'B.ifc', status: 'extracting' })]
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)

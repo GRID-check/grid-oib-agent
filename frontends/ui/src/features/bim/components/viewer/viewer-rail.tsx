@@ -41,7 +41,7 @@ export function ViewerRail({ children, className }: ViewerRailProps): JSX.Elemen
         // and what a reader expects.
         // The fade says "there is more" without a scrollbar. A hard cut across
         // a half-height row reads as a rendering fault; a fade reads as a list.
-        'scroll-fade-bottom flex max-h-[calc(100%-1.5rem)] w-56 flex-col overflow-y-auto overscroll-contain',
+        'scroll-fade-bottom flex max-h-[calc(100%-1.5rem)] w-52 flex-col overflow-y-auto overscroll-contain',
         className
       )}
     >
@@ -78,7 +78,7 @@ export function ViewerRailSection({ label, action, children }: ViewerRailSection
         result — on a phone it came out as a solid red bar across the heading.
         The rail is already blurred; a second blur inside it buys nothing.
       */}
-      <div className="bg-card sticky top-0 z-10 flex items-center justify-between gap-2 px-3 pt-3 pb-1.5">
+      <div className="bg-card sticky top-0 z-10 flex items-center justify-between gap-2 px-3 pt-2.5 pb-1">
         {/*
           Sentence case, not uppercase. Shouted micro-labels are a habit from
           dashboards, and this rail is a list of buildings and floors — the
@@ -139,7 +139,7 @@ export function ViewerRailItem({
       title={label}
       data-testid={rest['data-testid']}
       className={cn(
-        'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors',
+        'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors',
         'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
         'pointer-coarse:py-2.5',
         selected ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',

@@ -30,7 +30,16 @@ export interface ViewerDockProps {
   lead?: ReactNode
   /** The tool group. */
   children: ReactNode
-  /** Its own pill on the far side — the way out to the advanced surfaces. */
+  /**
+   * The way out to the advanced surfaces — inside the same pill as the tools,
+   * behind a separator.
+   *
+   * It had its own pill once. Three floating bars two gaps apart read as three
+   * competing objects rather than one control bar, and the screenshot made
+   * that obvious in a way the markup did not: the bottom of the viewport was
+   * busier than the building. One divider says "different kind of thing"
+   * perfectly well.
+   */
   trail?: ReactNode
   /** Rendered above the bar: the section-height slider, when a cut is live. */
   above?: ReactNode
@@ -41,22 +50,29 @@ export function ViewerDock({ lead, children, trail, above, className }: ViewerDo
   return (
     <div
       className={cn(
-        'pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 p-3 sm:p-4',
+        'pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-1.5 p-3 sm:p-4',
         className
       )}
     >
       {above}
       {/*
         `w-full justify-center` rather than a shrink-to-fit row: at 390 px the
-        three pills are wider than the viewport, and a centred row that cannot
+        pills are wider than the viewport, and a centred row that cannot
         scroll simply loses its ends. This way the bar scrolls, and the
         scrollbar itself is hidden because a visible one under a floating pill
         reads as a rendering artefact.
       */}
       <div className="pointer-events-auto flex w-full max-w-full items-center justify-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {lead && <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">{lead}</ViewerSurface>}
-        <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">{children}</ViewerSurface>
-        {trail && <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">{trail}</ViewerSurface>}
+        <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">
+          {children}
+          {trail && (
+            <>
+              <ViewerDockSeparator />
+              {trail}
+            </>
+          )}
+        </ViewerSurface>
       </div>
     </div>
   )

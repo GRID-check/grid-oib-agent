@@ -288,6 +288,14 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           {railOpen && (
             <div className="absolute top-3 left-3 z-20 flex max-h-[calc(100%-1.5rem)] sm:top-4 sm:left-4">
               <ViewerRail>
+                {/*
+                  A list of one is not a list. Most projects carry a single
+                  model, and a "Modelle" heading over one row is a section that
+                  exists to be looked past — the rail is half as tall without
+                  it, and the reader loses nothing, because the model's name is
+                  already the dialog's title.
+                */}
+                {(models ?? []).length > 1 && (
                 <ViewerRailSection label={t('stage.models')}>
                   {(models ?? []).map((candidate) => (
                     <ViewerRailItem
@@ -311,6 +319,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                     />
                   ))}
                 </ViewerRailSection>
+                )}
 
                 {levels.length > 0 && (
                   <ViewerRailSection label={t('stage.levels')}>

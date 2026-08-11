@@ -40,7 +40,7 @@ export const ViewerSurface = forwardRef<HTMLDivElement, ViewerSurfaceProps>(
         className={cn(
           'rounded-2xl border border-border',
           tone === 'raised'
-            ? 'bg-card/80 shadow-md backdrop-blur-md supports-[backdrop-filter]:bg-card/70'
+            ? 'bg-card/80 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-card/70'
             : 'bg-transparent',
           className
         )}
