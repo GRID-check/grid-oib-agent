@@ -29,7 +29,7 @@ import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -196,24 +196,24 @@ function JobCard({
     : t('list.neverRun')
 
   return (
-    // `h-full` so every card in a grid row is the height of the tallest one —
-    // a ragged row of cards reads as a broken layout, not as varying content.
-    // `py-0` drops Card's own vertical padding: with CardContent's it stacked
-    // to 44px of nothing above and below the content, which a tile in a grid
-    // cannot afford.
-    <Card className={cn('h-full py-0', !job.enabled && 'opacity-75')}>
-      <CardContent className="flex h-full flex-col gap-4 p-4 sm:p-5">
+    // The product's card anatomy (components/ui/raised-card): a white block
+    // laid into a subtler tray, with the quiet metadata showing on the tray
+    // beneath it. Not `interactive` — a job card is a container with its own
+    // buttons, and a hover-lift would promise a click on the card that does
+    // not exist.
+    <RaisedCard className={cn(!job.enabled && 'opacity-75')}>
+      <RaisedCardBody className="flex flex-1 flex-col gap-4 px-4 pb-4 pt-4 sm:px-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="truncate text-sm font-semibold text-foreground">{job.name}</h3>
+              <h3 className="text-foreground truncate text-sm font-semibold">{job.name}</h3>
               <Badge variant="secondary">{t(`list.output.${job.output}`)}</Badge>
               {!job.enabled && <Badge variant="outline">{t('list.disabled')}</Badge>}
             </div>
             {/* The prompt, verbatim and clamped to a fixed three lines: in a
                 grid the card is a third of the page wide, and an unclamped
                 prompt would set the height of every card in its row. */}
-            <p className="line-clamp-3 text-sm text-muted-foreground">{job.prompt}</p>
+            <p className="text-muted-foreground line-clamp-3 text-sm">{job.prompt}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {toggling && <Spinner size="sm" />}
@@ -232,7 +232,7 @@ function JobCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
           <span className="flex min-w-0 max-w-full items-center gap-1.5">
             <CalendarClock className="size-3.5 shrink-0" aria-hidden />
             <span className="truncate">
@@ -249,51 +249,80 @@ function JobCard({
               {job.skillName ? t('list.withSkill', { name: job.skillName }) : t('list.noSkill')}
             </span>
           </span>
-          {nextRun && <span>{nextRun}</span>}
-          <span title={job.lastRunAt ? formatAbsoluteTime(job.lastRunAt, locale) : undefined}>
-            {lastRun}
-          </span>
         </div>
 
-        {/* Actions and the history live at the FOOT of the card: `mt-auto`
-            pins them to the bottom edge, so in a grid row of unequal content
-            the buttons line up across cards instead of floating at whatever
-            height the prompt above them happened to end. */}
-        <div className="mt-auto flex flex-col gap-2">
-        {canManage && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={() => void runNow()} disabled={running || !job.enabled}>
-              {running ? <Spinner size="sm" /> : <Play className="size-3.5" aria-hidden />}
-              {running ? t('actions.running') : t('actions.runNow')}
-            </Button>
-            <Button size="sm" variant="outline" data-testid="job-edit" onClick={() => onEdit(job)}>
-              <Pencil className="size-3.5" aria-hidden />
-              {t('actions.edit')}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setConfirmOpen(true)}
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-              {t('actions.delete')}
-            </Button>
-          </div>
-        )}
+        {/* `mt-auto` pins the actions to the bottom of the white block, so in
+            a grid row of unequal content the buttons line up across cards
+            instead of floating at whatever height the prompt above them
+            happened to end. */}
+        <div className="mt-auto">
+          {canManage && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={() => void runNow()} disabled={running || !job.enabled}>
+                {running ? <Spinner size="sm" /> : <Play className="size-3.5" aria-hidden />}
+                {running ? t('actions.running') : t('actions.runNow')}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="job-edit"
+                onClick={() => onEdit(job)}
+              >
+                <Pencil className="size-3.5" aria-hidden />
+                {t('actions.edit')}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setConfirmOpen(true)}
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+                {t('actions.delete')}
+              </Button>
+            </div>
+          )}
+        </div>
+      </RaisedCardBody>
 
-        <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="text-muted-foreground">
-              <History className="size-3.5" aria-hidden />
-              {t('actions.history')}
-              <ChevronDown
-                className={cn('size-3.5 transition-transform', historyOpen && 'rotate-180')}
-                aria-hidden
-              />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="border-t border-border pt-1">
+      {/* The tray showing beneath the block: when it next runs, when it last
+          did, and the way into the history. Quiet, temporal, secondary — the
+          same role size · time plays on a file card. No divider: the surface
+          change IS the separation. */}
+      <RaisedCardFooter className="flex-col items-stretch gap-1">
+        <Collapsible open={historyOpen} onOpenChange={setHistoryOpen} className="w-full">
+          {/* Two fixed lines, not one wrapping row. A card that happens to have
+              both a next and a last run overflows a single line at grid width
+              and wraps the trigger down on its own; a card with only one of
+              them keeps everything on one line. Same component, two different
+              footer shapes side by side in the same row. Splitting the meta
+              from the disclosure makes every card's tray identical. */}
+          <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1">
+            {nextRun && <span className="truncate">{nextRun}</span>}
+            <span
+              className="truncate"
+              title={job.lastRunAt ? formatAbsoluteTime(job.lastRunAt, locale) : undefined}
+            >
+              {lastRun}
+            </span>
+          </div>
+          <div className="flex w-full items-center">
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground -my-1 ml-auto h-7 shrink-0 px-2"
+              >
+                <History className="size-3.5" aria-hidden />
+                {t('actions.history')}
+                <ChevronDown
+                  className={cn('size-3.5 transition-transform', historyOpen && 'rotate-180')}
+                  aria-hidden
+                />
+              </Button>
+            </CollapsibleTrigger>
+          </div>
+          <CollapsibleContent className="pt-1">
             {historyOpen && (
               <JobRunHistory
                 key={historyToken}
@@ -304,8 +333,7 @@ function JobCard({
             )}
           </CollapsibleContent>
         </Collapsible>
-        </div>
-      </CardContent>
+      </RaisedCardFooter>
 
       <ConfirmDeleteDialog
         open={confirmOpen}
@@ -317,7 +345,7 @@ function JobCard({
         pending={deleting}
         onConfirm={confirmDelete}
       />
-    </Card>
+    </RaisedCard>
   )
 }
 
