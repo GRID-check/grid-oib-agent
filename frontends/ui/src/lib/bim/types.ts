@@ -200,6 +200,16 @@ export const IFC_MIME_TYPES = [
  */
 export { DEFAULT_MAX_IFC_BYTES, maxIfcBytesFrom } from '@/shared/config/request-body-limit'
 
+/**
+ * Largest `op: 'elements'` page the query API serves, and therefore the page
+ * size the viewer's full-model walk uses — one constant so the client cannot
+ * ask for a size the schema refuses, and so the walk's request count is a
+ * number a spec can reason about. At the 200 000-element extraction cap the
+ * walk is 200 requests; at the old 200-row cap it was 1 000, which is how a
+ * viewer load could drain a rate-limit budget by itself.
+ */
+export const BIM_ELEMENTS_PAGE_LIMIT = 1_000
+
 /** True when a filename is one the IFC pipeline should handle. */
 export function isIfcFilename(filename: string): boolean {
   const lower = filename.trim().toLowerCase()
