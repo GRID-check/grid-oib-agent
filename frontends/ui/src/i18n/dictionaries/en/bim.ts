@@ -283,6 +283,7 @@ export const bim = {
   link: {
     copy: 'Copy view link',
     copied: 'Copied',
+    failed: 'The link could not be copied',
   },
   /**
    * The full-screen viewer inside Dateien.
@@ -294,13 +295,13 @@ export const bim = {
   stage: {
     dialogLabel: 'Model {name}',
     close: 'Close',
-    home: 'Show everything',
+    home: 'Fit the whole model',
     views: 'View',
     advanced: 'Details & checks',
     models: 'Models',
     levels: 'Levels',
     allLevels: 'All levels',
-    showEverything: 'Show everything again',
+    showEverything: 'Restore hidden components',
     elevation: '{value} m',
     notReady: 'The model is still being read. This usually takes a few moments.',
     loading: 'Loading model…',

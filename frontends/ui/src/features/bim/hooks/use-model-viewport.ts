@@ -457,6 +457,24 @@ export function useModelViewport({
     },
     [onSelect]
   )
+
+  /**
+   * The marker is about the LAST selection, not about the element forever.
+   *
+   * It was only ever written by the canvas, so once a wall had been clicked in
+   * the viewport its id stayed here for the rest of the session: pick that
+   * same wall later from the element table, a search result or a chat chip and
+   * the camera would not move, while the row above it — a wall never clicked —
+   * flew the camera across the building. Same list, same gesture, two
+   * behaviours, and nothing on screen to explain the difference.
+   *
+   * Cleared as soon as the selection moves elsewhere, so the marker only ever
+   * describes the selection it was recorded for.
+   */
+  useEffect(() => {
+    if (clickedInCanvas !== null && selectedGlobalId !== clickedInCanvas) setClickedInCanvas(null)
+  }, [selectedGlobalId, clickedInCanvas])
+
   const zoomToSelection = selectedGlobalId !== null && selectedGlobalId !== clickedInCanvas
 
   const handleStatus = useCallback(

@@ -301,10 +301,39 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     return () => clearTimeout(timer)
   }, [copied])
 
+  /**
+   * Copying can fail, and the button next to it already knows that.
+   *
+   * `navigator.clipboard` is absent in any non-secure context and
+   * `writeText` rejects on a denied permission or, in Safari, outside a user
+   * gesture chain. The optional chain swallowed the first and the missing
+   * `catch` turned the second into an unhandled rejection — the button simply
+   * never changed. Its neighbour, the capture button, has an explicit failure
+   * state for precisely this reason, so the two disagreed about whether
+   * failure is worth mentioning.
+   */
+  const [copyFailed, setCopyFailed] = useState(false)
   const copyLink = useCallback(() => {
     if (typeof window === 'undefined') return
-    void navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true))
+    const clipboard = navigator.clipboard
+    if (!clipboard) {
+      setCopyFailed(true)
+      return
+    }
+    clipboard
+      .writeText(window.location.href)
+      .then(() => {
+        setCopyFailed(false)
+        setCopied(true)
+      })
+      .catch(() => setCopyFailed(true))
   }, [])
+
+  useEffect(() => {
+    if (!copyFailed) return
+    const timer = setTimeout(() => setCopyFailed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [copyFailed])
 
   /** Injected into the overlay's readout so it stays a pure function. */
   const measureLabels = useMemo(
@@ -438,11 +467,13 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                         // become part of the row's spoken name.
                         ariaLabel={level.name}
                         selected={storey === level.name}
+                        // The selection stays. `handleSelect` already keeps
+                        // the filter and the selected element on the same
+                        // level, so nothing here can become invisible — and
+                        // "All levels" one row above did not drop it either,
+                        // so the list behaved differently row by row.
                         onClick={() =>
-                          setView({
-                            storey: storey === level.name ? undefined : level.name,
-                            element: undefined,
-                          })
+                          setView({ storey: storey === level.name ? undefined : level.name })
                         }
                       />
                     ))}
@@ -461,8 +492,8 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           <div className="absolute top-3 right-3 z-40 sm:top-4 sm:right-4">
             <ViewerSurface className="flex items-center gap-1 p-1">
               <ViewerIconButton
-                label={copied ? t('link.copied') : t('link.copy')}
-                icon={copied ? Check : Link2}
+                label={copyFailed ? t('link.failed') : copied ? t('link.copied') : t('link.copy')}
+                icon={copyFailed ? MonitorX : copied ? Check : Link2}
                 onClick={copyLink}
                 side="bottom"
               />
@@ -510,6 +541,14 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           />
 
           <ViewerDock
+            // The drawer is `z-30` and right-anchored full height; the dock is
+            // `z-20` and centred. On a 1024 px viewport the drawer sat on top
+            // of x-ray, the rail toggle and the button that OPENED it — press
+            // the visibly-pressed button again and nothing happened, because
+            // the drawer was intercepting the click. On a phone it covered
+            // every viewer control. The inspector was taught to step aside;
+            // the dock never was.
+            className={cn(advancedOpen && 'sm:pr-[27rem]')}
             lead={
               <ViewerIconButton
                 label={t('stage.home')}
@@ -891,9 +930,17 @@ function StageViewMenu({
   disabled: boolean
 }): JSX.Element {
   const t = useTranslations('bim')
+  /**
+   * Controlled so choosing a view CLOSES the menu.
+   *
+   * It did not, so picking "Grundriss" left an 11 rem popover sitting over the
+   * lower-left of the building the reader had just re-oriented to look at —
+   * and the one thing they wanted to see was behind it.
+   */
+  const [open, setOpen] = useState(false)
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       {/*
         The trigger is the BUTTON, not a wrapper around it. A `<span>` in
         between takes Radix's props — including the ones that make Enter open
@@ -903,7 +950,25 @@ function StageViewMenu({
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
-            <ViewerIconButtonBase label={t('stage.views')} icon={Video} disabled={disabled} />
+            {/*
+              The name of the active view, on the trigger. Section, Measure and
+              See-through all light up when they are on; this one looked
+              identical whether the reader was on the north elevation in
+              parallel projection or in the free perspective default, so the
+              only way to find out was to open the menu and read it. The
+              `adornment` prop exists for exactly this and had no caller.
+            */}
+            <ViewerIconButtonBase
+              label={t('stage.views')}
+              icon={Video}
+              disabled={disabled}
+              active={view !== 'iso'}
+              adornment={
+                view === 'iso' ? undefined : (
+                  <span className="text-[11px] font-medium">{t(`viewer.view.${view}`)}</span>
+                )
+              }
+            />
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top" sideOffset={8}>
@@ -917,7 +982,10 @@ function StageViewMenu({
               key={candidate}
               type="button"
               aria-pressed={view === candidate}
-              onClick={() => onViewChange(candidate)}
+              onClick={() => {
+                onViewChange(candidate)
+                setOpen(false)
+              }}
               className={cn(
                 'focus-visible:ring-ring/60 flex items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2',
                 view === candidate

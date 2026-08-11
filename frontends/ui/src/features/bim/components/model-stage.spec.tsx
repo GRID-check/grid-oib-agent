@@ -156,14 +156,28 @@ describe('ModelStage — what is on screen', () => {
     expect(screen.queryByTestId('advanced-sheet')).not.toBeInTheDocument()
   })
 
-  it('carries six controls, not a toolbar of nine', () => {
+  it('carries a handful of controls, not a toolbar of nine', () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
-    for (const name of ['Show everything', 'View', 'Section', 'See through']) {
+    for (const name of ['Fit the whole model', 'View', 'Section', 'See through']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument()
     }
     // The six view directions used to be six buttons in the bar, which is what
     // pushed the controls anyone uses off the end of the row.
     expect(screen.queryByRole('button', { name: 'Plan' })).not.toBeInTheDocument()
+  })
+
+  it('gives the camera button and the restore button different names', () => {
+    // Both were called "Show everything" — one fits the camera, the other
+    // brings hidden components back. Icon-only, in the same pill, and a
+    // screen reader heard "Show everything" and "Show everything again".
+    state.elements = [
+      { globalId: 'g-w1', expressId: 21, ifcType: 'IfcWall', name: 'Wand', storeyName: 'Erdgeschoss' },
+    ]
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w1')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Fit the whole model' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Show everything/ })).not.toBeInTheDocument()
   })
 
   it('lists the project’s models and the building’s levels, top floor first', () => {
