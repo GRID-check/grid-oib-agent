@@ -155,7 +155,8 @@ class TestRender:
                 },
             }
         )
-        assert "Geschosse: Erdgeschoss (12 Bauteile)" in rendered
+        # Geschoß, the Austrian spelling the rest of the product uses.
+        assert "Geschoße: Erdgeschoss (12 Bauteile)" in rendered
         assert "Bauteiltypen: IfcWall (5), IfcSpace (4)" in rendered
 
     def test_element_lists_carry_the_global_id_the_viewer_highlights_by(self):

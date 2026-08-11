@@ -365,6 +365,19 @@ def _entry_label(entry: dict[str, Any], storey: bool = True) -> str:
     return f"{label} · {entry.get('storeyName') or '—'}" if storey else label
 
 
+def _clipped(items: list, shown: int, noun: str) -> str | None:
+    """A line saying what a clipped list left out, or None when nothing was.
+
+    Every list in `_render` is cut to keep the tool result readable, and none
+    of them said so. The trailing "Weitere Treffer vorhanden" line reflects the
+    SERVER's truncation flag only, so a query that returned 200 elements and
+    rendered 50 told the agent "200 Bauteile erfüllen die Abfrage" and then
+    listed fifty as though they were all of them.
+    """
+    missing = len(items) - shown
+    return f"… {missing} weitere {noun} nicht gezeigt." if missing > 0 else None
+
+
 def _render(
     result: dict[str, Any],
     project_id: str | None = None,
@@ -409,13 +422,21 @@ def _render(
         storeys = overview.get("storeys") or []
         if storeys:
             rendered = ", ".join(f"{s.get('name') or '—'} ({s.get('elementCount', 0)} Bauteile)" for s in storeys[:20])
-            lines.append(f"Geschosse: {rendered}")
+            lines.append(f"Geschoße: {rendered}")
+            clipped = _clipped(storeys, 20, "Geschoße")
+            if clipped:
+                lines.append(clipped)
         type_counts = overview.get("typeCounts") or {}
         if type_counts:
-            top = list(type_counts.items())[:15]
+            entries = list(type_counts.items())
+            top = entries[:15]
             lines.append("Bauteiltypen: " + ", ".join(f"{name} ({count})" for name, count in top))
+            clipped = _clipped(entries, 15, "Bauteiltypen")
+            if clipped:
+                lines.append(clipped)
     elif op == "elements":
-        for element in (result.get("elements") or [])[:50]:
+        elements = result.get("elements") or []
+        for element in elements[:50]:
             label = element.get("name") or element.get("tag") or element.get("globalId")
             storey = element.get("storeyName") or "—"
             link = _element_link(project_id, filename, element.get("globalId"))
@@ -423,6 +444,9 @@ def _render(
             lines.append(
                 f"- {element.get('ifcType')} „{label}“ · {storey} · GlobalId {element.get('globalId')}{suffix}"
             )
+        clipped = _clipped(elements, 50, "Bauteile")
+        if clipped:
+            lines.append(clipped)
     elif op == "element" and isinstance(result.get("element"), dict):
         element = result["element"]
         lines.append(f"GlobalId: {element.get('globalId')}")
@@ -442,18 +466,30 @@ def _render(
     elif op == "schedule" and isinstance(result.get("schedule"), dict):
         schedule = result["schedule"]
         area_unit = (schedule.get("units") or {}).get("area", "m²")
-        for storey in (schedule.get("storeys") or [])[:12]:
+        storeys = schedule.get("storeys") or []
+        for storey in storeys[:12]:
             lines.append(
                 f"{storey.get('storeyName')}: {storey.get('netFloorArea')} {area_unit} "
                 f"({len(storey.get('rooms') or [])} Räume)"
             )
-            for room in (storey.get("rooms") or [])[:30]:
+            rooms = storey.get("rooms") or []
+            for room in rooms[:30]:
                 area = room.get("netFloorArea")
                 lines.append(f"  · {room.get('name')} — {area if area is not None else 'ohne Fläche'}")
+            clipped = _clipped(rooms, 30, "Räume")
+            if clipped:
+                lines.append(f"  {clipped}")
+        clipped = _clipped(storeys, 12, "Geschoße")
+        if clipped:
+            lines.append(clipped)
     elif op == "takeoff":
-        for row in (result.get("takeoff") or [])[:40]:
+        takeoff = result.get("takeoff") or []
+        for row in takeoff[:40]:
             missing = f", {row.get('missing')} ohne Wert" if row.get("missing") else ""
             lines.append(f"- {row.get('group')}: {row.get('value')} ({row.get('elements')} Bauteile{missing})")
+        clipped = _clipped(takeoff, 40, "Gruppen")
+        if clipped:
+            lines.append(clipped)
     elif op in {"compliance", "compliance-diff"}:
         # The endpoint already renders the German verdict lines into `summary`;
         # what the model needs on top is the shopping list, because that is the
@@ -502,21 +538,32 @@ def _render(
             )
     elif op == "compare" and isinstance(result.get("comparison"), dict):
         comparison = result["comparison"]
-        for entry in (comparison.get("added") or [])[:25]:
+        added = comparison.get("added") or []
+        for entry in added[:25]:
             lines.append(f"+ {_entry_label(entry)}")
-        for entry in (comparison.get("removed") or [])[:25]:
+        removed = comparison.get("removed") or []
+        for entry in removed[:25]:
             lines.append(f"- {_entry_label(entry)}")
-        for entry in (comparison.get("changed") or [])[:25]:
+        changed = comparison.get("changed") or []
+        for entry in changed[:25]:
             deltas = "; ".join(
                 f"{change.get('field')}: {change.get('before')} → {change.get('after')}"
                 for change in (entry.get("changes") or [])[:6]
             )
             lines.append(f"~ {_entry_label(entry, storey=False)} — {deltas}")
+        for bucket, noun in ((added, "neue"), (removed, "entfallene"), (changed, "geänderte")):
+            clipped = _clipped(bucket, 25, f"{noun} Bauteile")
+            if clipped:
+                lines.append(clipped)
     elif op == "properties":
-        for entry in (result.get("properties") or [])[:60]:
+        properties = result.get("properties") or []
+        for entry in properties[:60]:
             values = ", ".join(f"{v.get('value')} ({v.get('elements')}×)" for v in (entry.get("values") or [])[:6])
             kind = "Menge" if entry.get("source") == "quantity" else "Merkmal"
             lines.append(f"- [{kind}] {entry.get('set')}.{entry.get('name')}: {values}")
+        clipped = _clipped(properties, 60, "Merkmale")
+        if clipped:
+            lines.append(clipped)
 
     if result.get("truncated"):
         lines.append("(Weitere Treffer vorhanden — Abfrage eingrenzen oder aggregieren.)")
