@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, Boxes, FileText, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
@@ -14,7 +14,7 @@ import { FilePreviewDialog } from './file-preview-dialog'
 import { DeleteDocumentButton } from './delete-document-button'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
-import { ActiveUploads } from './active-uploads'
+import { UploadTray } from './upload-tray'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
@@ -78,8 +78,14 @@ type OptionalWireField =
   | 'contentTypes'
   | 'tags'
 
-/** Presentation of the file browser: the dummy's card grid, or the folder tree. */
-type FileView = 'cards' | 'tree'
+/**
+ * Presentation of the file browser.
+ *
+ * `cards` browses, `list` is the explorer detail view for a corpus too large to
+ * skim as tiles, `tree` puts the folder hierarchy alongside the cards. All
+ * three read the same documents through the same search and folder filter.
+ */
+type FileView = 'cards' | 'list' | 'tree'
 
 /**
  * Statuses that are going to change on their own — the `info` family from
@@ -105,7 +111,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   useEffect(() => {
     if (typeof window === 'undefined') return
     const stored = window.localStorage.getItem(VIEW_STORAGE_KEY)
-    if (stored === 'cards' || stored === 'tree') setView(stored)
+    if (stored === 'cards' || stored === 'list' || stored === 'tree') setView(stored)
   }, [])
   const selectView = useCallback((next: FileView) => {
     setView(next)
@@ -163,15 +169,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       })
   }, [projectId])
 
-  const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile } = useProjectDocuments({
-    projectId,
-    folderId: selectedFolderId ?? undefined,
-    // Refresh the durable file list once ingestion of an upload completes so new
-    // documents appear without a manual reload. Wrapped rather than passed
-    // directly: `loadFiles` now takes a `quiet` flag, and whatever the
-    // orchestrator hands its callback must not decide how this renders.
-    onComplete: () => void loadFiles(),
-  })
+  const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile, cancelFile, cancelUpload, dismissFiles } =
+    useProjectDocuments({
+      projectId,
+      folderId: selectedFolderId ?? undefined,
+      // Refresh the durable file list once ingestion of an upload completes so
+      // new documents appear without a manual reload. Wrapped rather than passed
+      // directly: `loadFiles` now takes a `quiet` flag, and whatever the
+      // orchestrator hands its callback must not decide how this renders.
+      onComplete: () => void loadFiles(),
+    })
 
   // Fetch folders
   const loadFolders = useCallback(() => {
@@ -333,15 +340,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     setSelectedFileId((current) => (current === fileId ? null : current))
   }, [])
 
-  // In-flight and failed uploads for this project's corpus only.
+  // This session's own uploads for this project's corpus — every phase, so the
+  // tray can carry a batch all the way from queued to its "added" summary
+  // instead of dropping rows out from under the user as they settle. `file`
+  // being present is what marks a row as ours: server-loaded documents belong
+  // in the browser below, never in the upload tray.
   const activeUploads = useMemo(
-    () =>
-      trackedFiles.filter(
-        (f) =>
-          f.collectionName === collectionName &&
-          f.file != null &&
-          (f.status === 'uploading' || f.status === 'ingesting' || f.status === 'failed')
-      ),
+    () => trackedFiles.filter((f) => f.collectionName === collectionName && f.file != null),
     [trackedFiles, collectionName]
   )
 
@@ -414,6 +419,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               icon={LayoutGrid}
             />
             <ViewToggleButton
+              active={view === 'list'}
+              onClick={() => selectView('list')}
+              label={t('workspace.view.list')}
+              icon={List}
+            />
+            <ViewToggleButton
               active={view === 'tree'}
               onClick={() => selectView('tree')}
               label={t('workspace.view.tree')}
@@ -450,7 +461,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       )}
 
       {/* Live upload progress */}
-      <ActiveUploads files={activeUploads} onRetry={retryFile} />
+      <UploadTray
+        files={activeUploads}
+        onRetry={retryFile}
+        onCancel={cancelFile}
+        onCancelAll={cancelUpload}
+        onDismiss={dismissFiles}
+      />
 
       {/* Three-pane layout — stacks on mobile: folders on top, files below,
           preview as a full-screen overlay. */}
@@ -486,7 +503,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               isLoading={isLoadingFiles}
               hasFolderSelected={selectedFolderId !== null}
               projectId={projectId}
-              {...(view === 'cards'
+              view={view === 'list' ? 'list' : 'cards'}
+              {...(view !== 'tree'
                 ? {
                     folders,
                     selectedFolderId,

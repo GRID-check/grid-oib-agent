@@ -21,7 +21,6 @@ import { isIfcFilename } from '@/lib/bim/types'
 // The same formatter every file size in the UI renders through. These messages
 // name a size the user can also see on a file card, so a second implementation
 // meant one screen showing "1,5 MB" beside "1.5 MB" in German.
-import { formatFileSize } from '@/lib/utils/format-file-size'
 import {
   DEFAULT_MAX_FILE_SIZE,
   DEFAULT_MAX_TOTAL_SIZE,
@@ -29,6 +28,7 @@ import {
   DEFAULT_ACCEPTED_FILE_TYPES,
   DEFAULT_ACCEPTED_MIME_TYPES,
 } from './constants'
+import { formatBytes } from '@/lib/format'
 
 // ============================================================================
 // Types
@@ -256,7 +256,7 @@ export function validateFileUpload(
       fileErrors.push({
         file,
         code: 'FILE_TOO_LARGE',
-        message: `"${file.name}" is ${formatFileSize(file.size, locale)}, exceeds ${formatFileSize(sizeCeiling, locale)} limit`,
+        message: `"${file.name}" is ${formatBytes(file.size, locale)}, exceeds ${formatBytes(sizeCeiling, locale)} limit`,
       })
       continue
     }
@@ -300,8 +300,8 @@ export function validateFileUpload(
       code: 'TOTAL_SIZE_EXCEEDED',
       message:
         context.existingTotalSize > 0
-          ? `Total size would be ${formatFileSize(totalSize, locale)}. Only ${formatFileSize(availableSpace, locale)} available (${formatFileSize(totalCeiling, locale)} limit).`
-          : `Total size ${formatFileSize(totalSize, locale)} exceeds ${formatFileSize(totalCeiling, locale)} limit.`,
+          ? `Total size would be ${formatBytes(totalSize, locale)}. Only ${formatBytes(availableSpace, locale)} available (${formatBytes(totalCeiling, locale)} limit).`
+          : `Total size ${formatBytes(totalSize, locale)} exceeds ${formatBytes(totalCeiling, locale)} limit.`,
     })
   }
 

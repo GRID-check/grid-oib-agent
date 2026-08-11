@@ -21,9 +21,9 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DocumentStatusBadge, documentStatusVariant, fileTypeIcon } from '@/features/documents/components/document-status'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatFileSize } from '@/lib/utils/format-file-size'
 import type { KnowledgeBaseStatus, KnowledgeFile, KnowledgeFileState } from '@/lib/knowledge/service'
 import { PdfViewerDialog } from './pdf-viewer-dialog'
+import { formatBytes } from '@/lib/format'
 
 interface ProjectDocument {
   id: string
@@ -100,7 +100,7 @@ function CorpusRow({ file, onView }: { file: KnowledgeFile; onView: (fileName: s
           {file.chunkCount > 0 ? t('corpus.chunkCount', { count: file.chunkCount }) : '—'}
         </span>
         <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
-          {file.sizeBytes !== null ? formatFileSize(file.sizeBytes, locale) : '—'}
+          {file.sizeBytes !== null ? formatBytes(file.sizeBytes, locale) : '—'}
         </span>
         <span className="hidden text-xs tabular-nums text-muted-foreground lg:inline">
           {formatDate(file.ingestedAt)}
@@ -137,7 +137,7 @@ function ProjectDocumentRow({ doc }: { doc: ProjectDocument }) {
       </div>
       <div className="flex shrink-0 items-center gap-4">
         <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
-          {doc.fileSize !== null ? formatFileSize(doc.fileSize, locale) : '—'}
+          {doc.fileSize !== null ? formatBytes(doc.fileSize, locale) : '—'}
         </span>
         <span className="hidden text-xs tabular-nums text-muted-foreground lg:inline">{formatDate(doc.createdAt)}</span>
         <DocumentStatusBadge status={doc.status} />

@@ -13,6 +13,8 @@ interface UseArchivDocumentsOptions {
 interface UseArchivDocumentsReturn {
   uploadFiles: (files: File[]) => Promise<void>
   cancelUpload: () => void
+  cancelFile: (fileId: string) => void
+  dismissFiles: (fileIds: string[]) => void
   retryFile: (fileId: string) => Promise<void>
   trackedFiles: TrackedFile[]
   isUploading: boolean

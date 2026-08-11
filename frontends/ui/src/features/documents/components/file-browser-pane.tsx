@@ -10,6 +10,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
+import { FileListView } from './file-list-view'
 import { FileSearchBar } from './file-search-bar'
 import { FilterChip } from './filter-chip'
 
@@ -40,6 +41,13 @@ interface FileBrowserPaneProps {
    * mode (the substring filter still works).
    */
   projectId?: string
+  /**
+   * How the listing renders. `cards` is the browsing surface; `list` is the
+   * explorer's sortable detail view for a corpus too large to skim as tiles.
+   * Search, folder filtering and selection are identical in both — the view is
+   * a presentation choice, never a different data path.
+   */
+  view?: 'cards' | 'list'
 }
 
 export function FileBrowserPane({
@@ -54,6 +62,7 @@ export function FileBrowserPane({
   selectedFolderId = null,
   onSelectFolder,
   projectId,
+  view = 'cards',
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -246,28 +255,36 @@ export function FileBrowserPane({
           />
         </div>
       ) : (
-        <div className="p-4">
-          {/* Section label — "Recently uploaded" at the corpus root, matching the
-              click-dummy. Hidden inside a folder view (the chip already names it)
-              and while searching (the query is the context). */}
-          {search === '' && selectedFolderId === null && (
-            <p className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-              {t('browser.recentlyUploaded')}
-            </p>
-          )}
-          <FileGrid>
-            {filteredFiles.map((file) => (
-              <FileCard
-                key={file.id}
-                file={file}
-                isSelected={selectedFileId === file.id}
-                onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                locale={locale}
-              />
-            ))}
-            {uploadCard}
-          </FileGrid>
-        </div>
+        view === 'list' ? (
+          <FileListView
+            files={filteredFiles}
+            selectedFileId={selectedFileId}
+            onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+          />
+        ) : (
+          <div className="p-4">
+            {/* Section label — "Recently uploaded" at the corpus root, matching
+                the click-dummy. Hidden inside a folder view (the chip already
+                names it) and while searching (the query is the context). */}
+            {search === '' && selectedFolderId === null && (
+              <p className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                {t('browser.recentlyUploaded')}
+              </p>
+            )}
+            <FileGrid>
+              {filteredFiles.map((file) => (
+                <FileCard
+                  key={file.id}
+                  file={file}
+                  isSelected={selectedFileId === file.id}
+                  onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                  locale={locale}
+                />
+              ))}
+              {uploadCard}
+            </FileGrid>
+          </div>
+        )
       )}
     </div>
   )

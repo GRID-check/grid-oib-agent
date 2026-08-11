@@ -15,8 +15,8 @@ import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { motion, springGentle } from '@/components/motion'
 import { useIsCurrentSessionBusy } from '@/features/chat'
-import { formatFileSize } from '@/lib/utils/format-file-size'
 import { useLocale, useTranslations } from '@/i18n'
+import { formatBytes } from '@/lib/format'
 
 /** File source status types */
 export type FileSourceStatus = 'uploading' | 'ingesting' | 'available' | 'error' | 'deleting'
@@ -209,7 +209,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
           <span className="truncate text-sm font-semibold">{title}</span>
           {fileSize != null && fileSize > 0 && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatFileSize(fileSize, locale)}
+              {formatBytes(fileSize, locale)}
             </span>
           )}
           {uploadedAt && (

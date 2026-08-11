@@ -5,8 +5,7 @@ import Image from 'next/image'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import type { FileItem } from './project-file-workspace'
 import { motion, springSnappy } from '@/components/motion'
-import { formatFileSize } from '@/lib/utils/format-file-size'
-import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { sourceTint } from '@/lib/ui/source-tint'
@@ -271,7 +270,7 @@ export function FileCard({
         {/* Footer tab on the subtle outer surface: optional lead + size · time. */}
         <div className="flex w-full items-center gap-1.5 px-3.5 pb-2.5 pt-[9px] text-[11px] text-muted-foreground/80">
           {footerLead ?? <span className="flex-1" />}
-          <span className="shrink-0 tabular-nums">{formatFileSize(file.fileSize, locale)}</span>
+          <span className="shrink-0 tabular-nums">{formatBytes(file.fileSize, locale)}</span>
           <span aria-hidden className="text-muted-foreground/40">
             ·
           </span>

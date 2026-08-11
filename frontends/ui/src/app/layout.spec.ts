@@ -39,8 +39,8 @@ describe('File Upload Configuration', () => {
       const config = buildFileUploadConfig()
 
       expect(config.maxTotalSizeMB).toBe(100)
-      expect(config.maxFileSize).toBe(100 * 1024 * 1024)
-      expect(config.maxTotalSize).toBe(100 * 1024 * 1024)
+      expect(config.maxFileSize).toBe(100 * 1_000_000)
+      expect(config.maxTotalSize).toBe(100 * 1_000_000)
     })
 
     test('uses default max file count when env var not set', () => {
@@ -218,8 +218,8 @@ describe('File Upload Configuration', () => {
       const config = buildFileUploadConfig()
 
       expect(config.maxTotalSizeMB).toBe(50)
-      expect(config.maxFileSize).toBe(50 * 1024 * 1024)
-      expect(config.maxTotalSize).toBe(50 * 1024 * 1024)
+      expect(config.maxFileSize).toBe(50 * 1_000_000)
+      expect(config.maxTotalSize).toBe(50 * 1_000_000)
     })
 
     test('FILE_UPLOAD_MAX_FILE_COUNT overrides default max file count', () => {
@@ -247,7 +247,7 @@ describe('File Upload Configuration', () => {
 
       expect(config.acceptedTypes).toBe('.pdf,.txt,.ifc,.ifczip')
       expect(config.maxTotalSizeMB).toBe(25)
-      expect(config.maxFileSize).toBe(25 * 1024 * 1024)
+      expect(config.maxFileSize).toBe(25 * 1_000_000)
       expect(config.maxFileCount).toBe(3)
       expect(config.acceptedMimeTypes).toContain('application/pdf')
       expect(config.acceptedMimeTypes).toContain('text/plain')
@@ -328,19 +328,19 @@ describe('the transport ceiling clears the largest file any route admits', () =>
   })
 
   test('defaults to the IFC ceiling, not the document limit', () => {
-    expect(requestBodyLimitBytes({})).toBe(250 * 1024 * 1024)
+    expect(requestBodyLimitBytes({})).toBe(250 * 1_000_000)
   })
 
   test('never sits below what an .ifc upload is allowed to be', () => {
-    const env = { BIM_MAX_IFC_BYTES: String(400 * 1024 * 1024) }
-    expect(requestBodyLimitBytes(env)).toBe(400 * 1024 * 1024)
+    const env = { BIM_MAX_IFC_BYTES: String(400 * 1_000_000) }
+    expect(requestBodyLimitBytes(env)).toBe(400 * 1_000_000)
   })
 
   test('follows the document limit when that is the larger of the two', () => {
     const env = {
       FILE_UPLOAD_MAX_SIZE_MB: '600',
-      BIM_MAX_IFC_BYTES: String(250 * 1024 * 1024),
+      BIM_MAX_IFC_BYTES: String(250 * 1_000_000),
     }
-    expect(requestBodyLimitBytes(env)).toBe(600 * 1024 * 1024)
+    expect(requestBodyLimitBytes(env)).toBe(600 * 1_000_000)
   })
 })

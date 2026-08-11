@@ -3,7 +3,7 @@ import type { FileUploadConfig } from '@/shared/context'
 // types + constants with no server-only import, so the client bundle can read
 // it too and the accept-list cannot drift from the pipeline that consumes it.
 import { IFC_EXTENSIONS, IFC_MIME_TYPES } from '@/lib/bim/types'
-import { maxIfcBytesFrom } from './request-body-limit'
+import { BYTES_PER_MB, maxIfcBytesFrom } from './request-body-limit'
 
 // Doctrine (see AGENTS.md): flags are product decisions, env vars are real
 // infrastructure dependencies, a capability is DERIVED from the dependency, and
@@ -148,7 +148,9 @@ export const getFileUploadConfigFromEnv = (
   const fileExpirationCheckIntervalHours =
     parsePositiveNumber(env.FILE_EXPIRATION_CHECK_INTERVAL_HOURS) ??
     DEFAULT_EXPIRATION_CHECK_INTERVAL_HOURS
-  const maxSizeBytes = maxTotalSizeMB * 1024 * 1024
+  // Decimal, so the ceiling enforced is the number the administrator typed and
+  // the number the refusal message prints. See BYTES_PER_MB.
+  const maxSizeBytes = maxTotalSizeMB * BYTES_PER_MB
 
   // A `.ifc` gets its own, much larger ceiling, shared with the extractor via
   // `maxIfcBytesFrom` so the two layers cannot disagree. An ordinary

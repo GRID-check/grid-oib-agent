@@ -6,6 +6,7 @@
  */
 
 import { apiConfig } from './config'
+import { xhrUpload, XhrUploadError } from '@/lib/http/xhr-upload'
 import {
   CollectionInfoSchema,
   CollectionListResponseSchema,
@@ -60,6 +61,32 @@ export interface UploadFilesOptions {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * Lift the API's own reason out of an error body, if it stated one.
+ *
+ * Two envelope shapes are in play — the BFF's `{ error: { message } }` and the
+ * Python backend's flatter `{ error }` / `{ detail }` — and an upload refusal
+ * ("file too large", "unsupported type") is exactly the message a user needs to
+ * see, so it is worth reading all three rather than falling back to a status
+ * code.
+ */
+function parseErrorMessage(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (!parsed || typeof parsed !== 'object') return null
+    const record = parsed as { error?: unknown; detail?: unknown }
+    if (record.error && typeof record.error === 'object') {
+      const message = (record.error as { message?: unknown }).message
+      if (typeof message === 'string' && message) return message
+    }
+    if (typeof record.error === 'string' && record.error) return record.error
+    if (typeof record.detail === 'string' && record.detail) return record.detail
+    return null
+  } catch {
+    return null
+  }
+}
 
 /**
  * Parse API error response and throw a consistent error
@@ -208,83 +235,36 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
         formData.append('files', file)
       })
 
-      // Use XMLHttpRequest for progress tracking if callback provided
-      if (options?.onProgress) {
-        return new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest()
-
-          // Handle abort signal
-          if (options.signal) {
-            if (options.signal.aborted) {
-              reject(new DOMException('Upload aborted', 'AbortError'))
-              return
-            }
-            options.signal.addEventListener('abort', () => {
-              xhr.abort()
-              reject(new DOMException('Upload aborted', 'AbortError'))
-            })
-          }
-
-          xhr.upload.addEventListener('progress', (event) => {
-            if (event.lengthComputable) {
-              options.onProgress?.(event.loaded, event.total)
-            }
-          })
-
-          xhr.addEventListener('load', () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                const data = JSON.parse(xhr.responseText)
-                const validated = UploadResponseSchema.parse(data)
-                resolve({
-                  job_id: validated.job_id,
-                  file_ids: validated.file_ids,
-                })
-              } catch (error) {
-                reject(new Error(`Failed to parse upload response: ${error}`))
-              }
-            } else {
-              reject(new Error(`Upload failed: ${xhr.statusText}`))
-            }
-          })
-
-          xhr.addEventListener('error', () => {
-            reject(new Error('Upload failed: Network error'))
-          })
-
-          xhr.open(
-            'POST',
-            buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName)
-          )
-
-          if (authToken) {
-            xhr.setRequestHeader('Authorization', `Bearer ${authToken}`)
-          }
-
-          xhr.send(formData)
-        })
-      }
-
-      // Standard fetch for simple uploads
       const headers: Record<string, string> = {}
       if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`
       }
-      // Don't set Content-Type for FormData - browser sets it with boundary
+      // Content-Type is deliberately unset: the browser authors it for FormData
+      // so it can append the multipart boundary.
 
-      const response = await fetch(buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName), {
-        method: 'POST',
-        headers,
-        body: formData,
-        signal: options?.signal,
-      })
-
-      if (!response.ok) {
-        await handleApiError(response, 'Failed to upload files')
+      // One transport for every caller, progress callback or not. This used to
+      // fork — XHR when a caller wanted progress, `fetch` otherwise — and the
+      // two branches had drifted into different error messages and different
+      // abort behaviour, on the path where an upload most needs to say clearly
+      // what went wrong. `fetch` cannot report upload progress at all, so the
+      // shared helper is XHR (see `lib/http/xhr-upload`).
+      let responseText: string
+      try {
+        responseText = await xhrUpload({
+          url: buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName),
+          body: formData,
+          headers,
+          onProgress: options?.onProgress,
+          signal: options?.signal,
+        })
+      } catch (error) {
+        if (error instanceof XhrUploadError) {
+          throw new Error(parseErrorMessage(error.responseText) || `Failed to upload files: ${error.status}`)
+        }
+        throw error
       }
 
-      const data = await response.json()
-      const validated = UploadResponseSchema.parse(data)
+      const validated = UploadResponseSchema.parse(JSON.parse(responseText))
       return {
         job_id: validated.job_id,
         file_ids: validated.file_ids,

@@ -3,6 +3,7 @@
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createDocumentsClient } from './documents-client'
+import { installFakeXhr, type FakeXhrHandle } from '@/test-utils/xhr-mock'
 
 // Mock the config - note: browser environment uses relative URLs
 vi.mock('./config', () => ({
@@ -199,67 +200,82 @@ describe('createDocumentsClient', () => {
     })
   })
 
+  // Uploads go over XHR, not fetch — it is the only transport that reports
+  // request-upload progress, and the client no longer forks between the two.
   describe('uploadFiles', () => {
-    test('uploads files successfully with fetch', async () => {
-      const mockResponse = {
-        job_id: 'job-123',
-        file_ids: ['file-1', 'file-2'],
-      }
+    let xhr: FakeXhrHandle
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      })
+    beforeEach(() => {
+      xhr = installFakeXhr()
+    })
 
+    afterEach(() => {
+      xhr.restore()
+    })
+
+    test('uploads files successfully', async () => {
       const client = createDocumentsClient()
       const files = [
         new File(['content1'], 'file1.pdf', { type: 'application/pdf' }),
         new File(['content2'], 'file2.pdf', { type: 'application/pdf' }),
       ]
 
-      const result = await client.uploadFiles('test-collection', files)
+      const pending = client.uploadFiles('test-collection', files)
+      xhr.last().respond(200, JSON.stringify({ job_id: 'job-123', file_ids: ['file-1', 'file-2'] }))
 
-      expect(result).toEqual(mockResponse)
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/v1/collections/test-collection/documents',
-        expect.objectContaining({
-          method: 'POST',
-          body: expect.any(FormData),
-        })
-      )
+      await expect(pending).resolves.toEqual({ job_id: 'job-123', file_ids: ['file-1', 'file-2'] })
+      expect(xhr.last().method).toBe('POST')
+      expect(xhr.last().url).toBe('/api/v1/collections/test-collection/documents')
+      expect(xhr.last().body).toBeInstanceOf(FormData)
     })
 
-    test('handles upload error', async () => {
-      mockFetch.mockResolvedValue({
-        ok: false,
-        statusText: 'Bad Request',
-        json: () => Promise.resolve({ error: { message: 'File too large' } }),
-      })
-
+    test('lifts the API error message out of the response body', async () => {
       const client = createDocumentsClient()
       const files = [new File(['content'], 'file.pdf', { type: 'application/pdf' })]
 
-      await expect(client.uploadFiles('test-collection', files)).rejects.toThrow('File too large')
+      const pending = client.uploadFiles('test-collection', files)
+      xhr.last().respond(400, JSON.stringify({ error: { message: 'File too large' } }))
+
+      await expect(pending).rejects.toThrow('File too large')
     })
 
-    test('passes abort signal', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ job_id: 'job-1', file_ids: ['file-1'] }),
-      })
+    test('reports upload progress', async () => {
+      const client = createDocumentsClient()
+      const files = [new File(['content'], 'file.pdf', { type: 'application/pdf' })]
+      const onProgress = vi.fn()
 
+      const pending = client.uploadFiles('test-collection', files, { onProgress })
+      xhr.last().emitProgress(512, 2048)
+      xhr.last().respond(200, JSON.stringify({ job_id: 'job-1', file_ids: ['file-1'] }))
+      await pending
+
+      expect(onProgress).toHaveBeenCalledWith(512, 2048)
+    })
+
+    test('aborts when the signal fires', async () => {
       const controller = new AbortController()
       const client = createDocumentsClient()
       const files = [new File(['content'], 'file.pdf', { type: 'application/pdf' })]
 
-      await client.uploadFiles('test-collection', files, { signal: controller.signal })
+      const pending = client.uploadFiles('test-collection', files, { signal: controller.signal })
+      controller.abort()
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          signal: controller.signal,
-        })
-      )
+      await expect(pending).rejects.toThrow(/aborted/i)
+      expect(xhr.last().aborted).toBe(true)
+    })
+
+    test('sends the auth token when one is configured', async () => {
+      const client = createDocumentsClient({ authToken: 'token-abc' })
+      const files = [new File(['content'], 'file.pdf', { type: 'application/pdf' })]
+
+      const pending = client.uploadFiles('test-collection', files)
+      xhr.last().respond(200, JSON.stringify({ job_id: 'job-1', file_ids: ['file-1'] }))
+      await pending
+
+      expect(xhr.last().headers['Authorization']).toBe('Bearer token-abc')
+      // The browser must author the multipart Content-Type so it can append
+      // the boundary — setting it by hand corrupts the body.
+      expect(xhr.last().headers['Content-Type']).toBeUndefined()
     })
   })
 
