@@ -263,17 +263,22 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
       {/* Header — extension tile, name/meta, download, expand, close. The row
           stays on one line (the name truncates); below `@md` the Download label
           collapses to its icon so the controls never crowd a ~360px sheet. The
-          top padding grows past the safe-area inset on the full-screen sheet. */}
-      <div className="flex shrink-0 items-center gap-2 border-b px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] @md:gap-3 @md:px-4 sm:pt-3">
+          top padding grows past the safe-area inset on the full-screen sheet.
+
+          Given more air than the rest of the pane on purpose: this is the line
+          that says WHICH document is open, and it is read first every time. */}
+      <div className="flex shrink-0 items-center gap-2.5 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:gap-3 @md:px-5 sm:pt-3.5">
         <span
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-[9.5px] font-bold uppercase leading-none"
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold uppercase leading-none"
           style={extChipTint(ext)}
           aria-hidden
         >
           {ext || <Icon className="size-4" />}
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold text-foreground">{file.filename}</h3>
+          <h3 className="truncate text-[15px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
+            {file.filename}
+          </h3>
           {/* Type AND status on one line. The status badge used to live only in
               the metadata column, below the fold on a narrow panel — so the one
               question a reader has on opening a file ("is this actually indexed,
@@ -281,7 +286,7 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
               further away than the answer to "what format is it". A document in
               `failed` is the case that matters, and it must not require a
               scroll. */}
-          <div className="flex min-w-0 items-center gap-1.5">
+          <div className="mt-1 flex min-w-0 items-center gap-1.5">
             <p className="truncate text-[11.5px] text-muted-foreground">
               {ext || file.contentType || t('preview.unknownType')}
             </p>
@@ -382,7 +387,12 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
             metadata off-screen. Split (@2xl+): an independently-scrollable
             column. The Maximize2 affordance in the header still opens the
             full-screen viewer for PDFs and images. */}
-        <div className="flex h-[50dvh] shrink-0 min-w-0 justify-center overflow-hidden bg-muted/40 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain">
+        {/* The ground under the document. A flat grey box read as "an iframe in
+            a panel"; a soft vertical gradient with the page raised off it on a
+            real shadow reads as a document ON something — which is what a
+            drawing on a desk actually looks like, and the whole reason this
+            column exists rather than a download link. */}
+        <div className="flex h-[50dvh] shrink-0 min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7">
           {isModel && projectId ? (
             <IfcFilePreview
               documentId={file.id}
@@ -394,7 +404,11 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
             <PageMock skeleton />
           ) : canPreview && previewUrl ? (
             file.contentType === 'application/pdf' ? (
-              <iframe src={previewUrl} className="h-full w-full rounded border bg-background" title={file.filename} />
+              <iframe
+                src={previewUrl}
+                className="h-full w-full rounded-lg border bg-background shadow-lg"
+                title={file.filename}
+              />
             ) : (
               // This is where the bytes actually were: the preview URL serves
               // the FULL-SIZE original into a column a few hundred pixels wide,
@@ -427,7 +441,7 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
                   setPreviewImageUrl(null)
                   setPreviewFailed(true)
                 }}
-                className="h-fit w-auto max-h-full max-w-full rounded border bg-background object-contain shadow-sm @2xl:max-h-none"
+                className="h-fit w-auto max-h-full max-w-full rounded-lg border bg-background object-contain shadow-lg @2xl:max-h-none"
               />
             )
           ) : (
@@ -471,55 +485,93 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
               className="mb-4 border-b pb-4"
             />
           )}
+          {/* What Piloti made of the document, in its own words.
+              Promoted out of the fact list and onto a raised card: it is the
+              single most valuable thing on this rail — the answer to "does the
+              agent actually understand this file" — and it used to sit as one
+              more 12.5px paragraph between an eyebrow and six key/value rows,
+              read at the same weight as the MIME type. */}
           {showMetadataPanel && (
-            <section className="space-y-3" aria-label={t('preview.indexed.title')}>
-              <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                <Sparkles className="size-3.5 shrink-0" aria-hidden />
-                {t('preview.indexed.title')}
-              </p>
-              {file.summary && <p className="text-[12.5px] leading-relaxed text-foreground">{file.summary}</p>}
-              <div className="space-y-2">
-                {detectedType && (
-                  <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
-                    <span className="text-xs font-medium text-foreground">{detectedType}</span>
-                  </MetaRow>
-                )}
-                {projectName && (
-                  <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
-                    <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
-                  </MetaRow>
-                )}
-                {typeof file.pageCount === 'number' && file.pageCount > 0 && (
-                  <MetaRow label={t('preview.pages')} icon={FileText}>
-                    <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
-                  </MetaRow>
-                )}
-                {typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
-                  <MetaRow label={t('preview.chunks')} icon={Layers}>
-                    <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
-                  </MetaRow>
-                )}
-                {hasRichContent && (
-                  <MetaRow label={t('preview.contents')} icon={Shapes}>
-                    <span className="text-xs text-foreground">
-                      {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
-                    </span>
-                  </MetaRow>
-                )}
+            <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
+              <SectionLabel icon={Sparkles}>{t('preview.indexed.title')}</SectionLabel>
+              {file.summary && (
+                <p className="rounded-lg border bg-card p-3 text-[13px] leading-[1.55] text-foreground shadow-2xs">
+                  {file.summary}
+                </p>
+              )}
+            </section>
+          )}
+
+          {/* One list of facts, not two.
+              Type and size used to sit in a separate block BELOW the tags,
+              divorced from the page count and the document type they belong
+              with, because one group was behind a feature flag and the other
+              was not. The flag now gates ROWS, which is what it was always
+              about; the group is whole either way. */}
+          <section className={cn('space-y-2', showMetadataPanel && 'mt-4')}>
+            <SectionLabel icon={FileCode2}>{t('preview.properties')}</SectionLabel>
+            <div className="space-y-2">
+              {showMetadataPanel && detectedType && (
+                <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
+                  <span className="text-xs font-medium text-foreground">{detectedType}</span>
+                </MetaRow>
+              )}
+              {showMetadataPanel && projectName && (
+                <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
+                  <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
+                </MetaRow>
+              )}
+              {showMetadataPanel && typeof file.pageCount === 'number' && file.pageCount > 0 && (
+                <MetaRow label={t('preview.pages')} icon={FileText}>
+                  <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
+                </MetaRow>
+              )}
+              {showMetadataPanel && typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
+                <MetaRow label={t('preview.chunks')} icon={Layers}>
+                  <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
+                </MetaRow>
+              )}
+              {showMetadataPanel && hasRichContent && (
+                <MetaRow label={t('preview.contents')} icon={Shapes}>
+                  <span className="text-xs text-foreground">
+                    {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
+                  </span>
+                </MetaRow>
+              )}
+              {/* No status row: the header badge already answers it, and the
+                  same fact stated twice on one surface reads as two facts. */}
+              <MetaRow label={t('preview.type')} icon={FileCode2}>
+                <span className="truncate font-mono text-xs text-foreground">
+                  {file.contentType ?? t('preview.unknownType')}
+                </span>
+              </MetaRow>
+              <MetaRow label={t('preview.size')} icon={HardDrive}>
+                <span className="text-xs font-medium tabular-nums text-foreground">
+                  {formatFileSize(file.fileSize, locale)}
+                </span>
+              </MetaRow>
+              {showMetadataPanel && (
                 <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
                   <span className="text-xs font-medium tabular-nums text-foreground">
                     {formatAbsoluteTime(file.createdAt, locale)}
                   </span>
                 </MetaRow>
+              )}
+            </div>
+          </section>
+
+          {showMetadataPanel && (
+            <>
+              <div className="mt-4">
+                <DocumentTagsSection
+                  fileId={file.id}
+                  initialTags={file.tags ?? []}
+                  onTagsUpdated={onTagsUpdated}
+                  readOnly={!canManage}
+                />
               </div>
-              <DocumentTagsSection
-                fileId={file.id}
-                initialTags={file.tags ?? []}
-                onTagsUpdated={onTagsUpdated}
-                readOnly={!canManage}
-              />
               {hasVisualContent && (
-                <div className="border-t pt-3">
+                <div className="mt-4 border-t pt-3.5">
                   <button
                     type="button"
                     onClick={toggleDetails}
@@ -527,11 +579,16 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
                     className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground touch-target"
                   >
                     {t('preview.visualDetails.title')}
-                    <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
+                    <ChevronDown
+                      className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')}
+                      aria-hidden
+                    />
                   </button>
                   {detailsOpen && (
                     <div className="mt-2.5 space-y-3">
-                      {detailsLoading && <p className="text-xs text-muted-foreground">{t('preview.visualDetails.loading')}</p>}
+                      {detailsLoading && (
+                        <p className="text-xs text-muted-foreground">{t('preview.visualDetails.loading')}</p>
+                      )}
                       {!detailsLoading && details && details.length === 0 && (
                         <p className="text-xs text-muted-foreground">{t('preview.visualDetails.empty')}</p>
                       )}
@@ -542,29 +599,22 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
                               <span>{t('preview.visualDetails.page', { page: d.page })}</span>
                               {d.drawingType && <span className="text-muted-foreground">· {d.drawingType}</span>}
                               {d.scale && d.scale.toLowerCase() !== 'unbekannt' && (
-                                <span className="text-muted-foreground">· {t('preview.visualDetails.scale', { scale: d.scale })}</span>
+                                <span className="text-muted-foreground">
+                                  · {t('preview.visualDetails.scale', { scale: d.scale })}
+                                </span>
                               )}
                             </div>
-                            <p className="whitespace-pre-line text-[12px] leading-relaxed text-muted-foreground">{d.text}</p>
+                            <p className="whitespace-pre-line text-[12px] leading-relaxed text-muted-foreground">
+                              {d.text}
+                            </p>
                           </div>
                         ))}
                     </div>
                   )}
                 </div>
               )}
-            </section>
+            </>
           )}
-
-          <div className={cn('space-y-2', showMetadataPanel && 'mt-4 border-t pt-4')}>
-            {/* No status row here: the header badge already answers it, and
-                the same fact stated twice on one surface reads as two facts. */}
-            <MetaRow label={t('preview.type')} icon={FileCode2}>
-              <span className="truncate font-mono text-xs text-foreground">{file.contentType ?? t('preview.unknownType')}</span>
-            </MetaRow>
-            <MetaRow label={t('preview.size')} icon={HardDrive}>
-              <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
-            </MetaRow>
-          </div>
 
           {/* Failure reason + re-ingestion affordance (re-ingest is a mutation,
               so the button is hidden for read-only viewers). */}
@@ -607,13 +657,29 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
         </div>
       </div>
 
-      {/* Footer page indicator — mirrors the click-dummy's "Seite 1 von N". */}
-      {typeof file.pageCount === 'number' && file.pageCount > 0 && (
-        <div className="flex shrink-0 items-center justify-center border-t bg-muted/30 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11.5px] text-muted-foreground @2xl:pb-2">
-          {t('preview.pageCountOnly', { count: file.pageCount })}
-        </div>
-      )}
+      {/* No footer page band. It stated the page count a second time, three
+          rows below the "Pages" row that already stated it, in a band that cost
+          the preview column ~32px of height on every document — the definition
+          of a part that could be removed without losing anything. */}
     </div>
+  )
+}
+
+/**
+ * A rail section's eyebrow.
+ *
+ * The rail is three different KINDS of information stacked in one column — what
+ * the agent understood, what the file is, what the user has labelled it — and
+ * without a heading per kind they read as one undifferentiated list of small
+ * grey text. The icon carries the same weight rule as {@link MetaRow}'s: it is
+ * a scan target, not decoration.
+ */
+function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
+  return (
+    <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+      <Icon className="size-3.5 shrink-0" aria-hidden />
+      {children}
+    </p>
   )
 }
 
@@ -840,21 +906,30 @@ function MetaRow({
 }
 
 /**
- * Decorative document-page mock for the preview's left column — a paper sheet
- * with a header rule and paragraph skeleton bars, matching the click-dummy's
- * page preview. Purely presentational (no filename/project text, so nothing
- * duplicates the real metadata); the optional caption states why no live
- * preview is shown.
+ * The preview column when there is no live preview to show.
+ *
+ * Two cases with one shape but different intent, which is why `skeleton` is a
+ * flag rather than two components:
+ *
+ *  - LOADING: a page-shaped skeleton. Bars standing in for text that is on its
+ *    way is what a skeleton IS, and the silhouette tells the reader the column
+ *    is about to hold a document rather than an image or an error.
+ *  - NO PREVIEW / FAILED: the same page, EMPTY, carrying the sentence that
+ *    explains why and the control that retries. It previously drew the same
+ *    paragraph bars here — a document mocked up with fake text, permanently,
+ *    for a file whose contents cannot be shown at all. That is decoration
+ *    pretending to be content, and on a compliance surface it is worse than
+ *    blank: a reader glancing at the column sees "a document" and moves on.
  */
 function PageMock({ caption, action, skeleton }: { caption?: string; action?: ReactNode; skeleton?: boolean }) {
   return (
-    <div className="h-fit w-full max-w-[520px] rounded border bg-background p-7 shadow-sm">
+    <div className="h-fit w-full max-w-[520px] rounded-lg border bg-background p-7 shadow-lg">
       <div className="flex items-baseline justify-between border-b pb-2.5">
         <div className="space-y-1.5">
-          <div className="h-[9px] w-28 rounded bg-muted" />
-          <div className="h-[6px] w-16 rounded bg-muted/70" />
+          <div className={cn('h-[9px] w-28 rounded', skeleton ? 'bg-muted' : 'bg-muted/50')} />
+          <div className={cn('h-[6px] w-16 rounded', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
         </div>
-        <div className="h-[6px] w-12 rounded bg-muted/70" />
+        <div className={cn('h-[6px] w-12 rounded', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
       </div>
       <div className="mt-3.5 flex h-[260px] flex-col items-center justify-center gap-3 rounded border border-dashed px-6 text-center">
         {!skeleton && caption && (
@@ -862,11 +937,15 @@ function PageMock({ caption, action, skeleton }: { caption?: string; action?: Re
         )}
         {action}
       </div>
-      <div className="mt-3.5 space-y-1.5">
-        <div className="h-[7px] w-3/5 rounded bg-muted" />
-        <div className="h-[7px] w-1/2 rounded bg-muted" />
-        <div className="h-[7px] w-[55%] rounded bg-muted" />
-      </div>
+      {/* Body lines only while loading: bars under a caption that says the file
+          cannot be previewed would be text this document does not have. */}
+      {skeleton && (
+        <div className="mt-3.5 space-y-1.5">
+          <div className="h-[7px] w-3/5 rounded bg-muted" />
+          <div className="h-[7px] w-1/2 rounded bg-muted" />
+          <div className="h-[7px] w-[55%] rounded bg-muted" />
+        </div>
+      )}
     </div>
   )
 }
