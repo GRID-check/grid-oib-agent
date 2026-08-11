@@ -14,10 +14,20 @@
  * folder tree, view toggle, filter chips, and search-bar clear button. A
  * module-scope fetch shim 404s thumbnails so the SVG sketch fallback renders.
  * 404s outside development.
+ *
+ * `?variant=uploading` renders the moment right after a batch lands, which is
+ * the one row where the cards are NOT all the same shape: a document that is
+ * still being read has no AI summary yet, while its neighbours do. That is the
+ * state the grid used to render badly — the shorter card kept its natural
+ * height inside a stretched grid cell and its size · time footer floated in the
+ * middle of the tile with dead space underneath. One card in the fixture also
+ * has its page thumbnail already rendered while the badge still says
+ * "Processing", because a PDF preview is produced at upload time and the rest of
+ * ingestion runs after it.
  */
 
 import { useState } from 'react'
-import { notFound } from 'next/navigation'
+import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
 import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
 import { ViewToggleButton } from '@/features/documents/components/project-file-workspace'
@@ -76,6 +86,56 @@ const FILES: FileItem[] = [
   }),
 ]
 
+/**
+ * Stand-in for a rendered PDF first page — inline so the fixture needs no
+ * backend and no committed binary. Shaped like a landscape drawing sheet, which
+ * is what the card's thumbnail well actually has to crop.
+ */
+const PAGE_THUMBNAIL =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260">
+       <rect width="400" height="260" fill="#ffffff"/>
+       <g fill="none" stroke="#1f2937" stroke-width="2">
+         <path d="M40 220h320"/>
+         <path d="M110 220V80l90-46 90 46v140"/>
+         <path d="M110 174h180M110 128h180M110 80h180"/>
+         <rect x="140" y="182" width="34" height="38"/>
+         <rect x="226" y="182" width="34" height="38"/>
+       </g>
+       <g fill="none" stroke="#9ca3af" stroke-width="1.5">
+         <path d="M40 226l10-10M64 226l10-10M88 226l10-10M302 226l10-10M326 226l10-10M350 226l10-10"/>
+         <circle cx="62" cy="118" r="18"/><path d="M62 136v34"/>
+         <circle cx="344" cy="130" r="14"/><path d="M344 144v26"/>
+       </g>
+     </svg>`
+  )
+
+/**
+ * The moment a batch lands: two documents still being read (no summary yet, one
+ * of them already showing its page preview) beside two that have settled. The
+ * settled cards carry a two-line description, so they set the row height and the
+ * unsettled ones have to fill it.
+ */
+const UPLOADING_FILES: FileItem[] = [
+  makeFile('u1', '240119_PerspektivischerSchnitt_Bauteil-A.pdf', '', {
+    status: 'processing',
+    summary: null,
+    fileSize: 2_400_000,
+  }),
+  makeFile('u2', 'Baubeschreibung_Einreichung.pdf', '', {
+    status: 'processing',
+    summary: null,
+    fileSize: 1_700_000,
+  }),
+  makeFile('u3', 'Lageplan_Bestand.pdf', 'Lageplan des Bestands mit Grundstücksgrenzen und Zufahrt.', {
+    fileSize: 3_100_000,
+  }),
+  makeFile('u4', 'Bauphysik_Nachweis.pdf', 'Bauphysikalischer Nachweis für die Außenbauteile.', {
+    fileSize: 2_200_000,
+  }),
+]
+
 // Root + nested folders so the tree renders indentation, expand rows, and the
 // per-row add-subfolder hit target.
 const FOLDERS: FolderItem[] = [
@@ -92,6 +152,11 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      // u1 already has its page preview while ingestion is still running — the
+      // PDF thumbnail is produced at upload time, the summary much later.
+      if (/\/api\/documents\/u1\/thumbnail$/.test(url)) {
+        return Response.json({ url: PAGE_THUMBNAIL })
+      }
       // p7 simulates a GENUINE thumbnail failure (5xx) → distinct error tile;
       // every other thumbnail 404s → warm "no thumbnail" placeholder.
       if (/\/api\/documents\/p7\/thumbnail$/.test(url)) return new Response(null, { status: 500 })
@@ -102,9 +167,46 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 }
 
 export default function FileBrowserDevPage(): JSX.Element {
+  const variant = useSearchParams()?.get('variant') ?? 'default'
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
+  if (variant === 'uploading') return <JustUploadedFixture />
+  return <FileBrowserFixtures />
+}
+
+/**
+ * The grid a second after an upload: unsettled cards (no summary yet) sharing a
+ * row with settled ones. Every tile has to reach the bottom of its cell, so the
+ * size · time footers line up across the row whatever the card carries above it.
+ */
+function JustUploadedFixture(): JSX.Element {
+  const [selected, setSelected] = useState<string | null>(null)
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — a batch that just landed</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Two documents still being read (one with its page preview already rendered) beside two that have settled.
+        </p>
+      </div>
+
+      <div className="h-[420px] overflow-hidden rounded-xl border">
+        <FileBrowserPane
+          files={UPLOADING_FILES}
+          selectedFileId={selected}
+          onSelectFile={setSelected}
+          isLoading={false}
+          hasFolderSelected={false}
+          projectId="proj-demo"
+        />
+      </div>
+    </main>
+  )
+}
+
+function FileBrowserFixtures(): JSX.Element {
   const [selected, setSelected] = useState<string | null>('p2')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [view, setView] = useState<'cards' | 'tree'>('tree')

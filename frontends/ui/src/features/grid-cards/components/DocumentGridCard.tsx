@@ -43,7 +43,10 @@ const UnresolvedCard: FC<{ entry: ResolvedSurfacedDocument; projectId?: string |
       data-testid="document-grid-unresolved"
       className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-dashed bg-muted/40 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
     >
-      <div className="w-full overflow-hidden rounded-b-[10px] bg-card/60 shadow-2xs">
+      {/* `flex-1` for the same reason as the resolved FileCard next to it: the
+          grid stretches every cell to the row height, and without it this card's
+          surface stops short and leaves a band of dead space at the bottom. */}
+      <div className="w-full flex-1 overflow-hidden rounded-b-[10px] bg-card/60 shadow-2xs">
         <div className="flex h-[124px] w-full items-center justify-center border-b bg-card/40 text-muted-foreground/45">
           <FileSearch className="size-7" aria-hidden />
         </div>

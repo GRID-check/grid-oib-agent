@@ -11,7 +11,7 @@ import { useTranslations } from '@/i18n'
 import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
-import { DocumentStatusBadge } from './document-status'
+import { DocumentStatusBadge, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -29,7 +29,8 @@ type ThumbState = 'loading' | 'ready' | 'none' | 'error'
  * lifetime, mirroring the `indexCache` pattern in `use-surfaced-documents`. It
  * stops the request thrashing when a card's file object is remapped each render.
  * A genuine failure rejects and is evicted so a later mount can retry; a
- * resolved "no thumbnail" (null url) stays cached.
+ * resolved "no thumbnail" (null url) stays cached — unless the document was
+ * still being read when we asked (see {@link loadThumbnail}).
  */
 const thumbnailCache = new Map<string, Promise<string | null>>()
 
@@ -43,8 +44,15 @@ export const resetThumbnailCache = (): void => {
  * with `{ url: null }` (or 404) when no thumbnail exists — that's NOT a failure,
  * it resolves to `null`. Any other non-ok status (5xx, network) rejects into the
  * genuine-error state so the card can tell "no thumbnail" from "failed to load".
+ *
+ * `provisional` marks a document that is still being ingested. "No thumbnail"
+ * is then an answer about right now, not about the file: the page render lands
+ * during ingestion, so a card that asked a second too early would otherwise keep
+ * the sketch placeholder for the whole page lifetime and only show the real
+ * preview after a reload. Such a miss is evicted so the re-ask that follows the
+ * status transition actually reaches the route.
  */
-function loadThumbnail(fileId: string): Promise<string | null> {
+function loadThumbnail(fileId: string, provisional = false): Promise<string | null> {
   const existing = thumbnailCache.get(fileId)
   if (existing) return existing
   const promise = fetch(`/api/documents/${fileId}/thumbnail`)
@@ -56,6 +64,10 @@ function loadThumbnail(fileId: string): Promise<string | null> {
       return r.json()
     })
     .then((data) => (data && typeof data.url === 'string' ? data.url : null))
+    .then((url) => {
+      if (url === null && provisional) thumbnailCache.delete(fileId)
+      return url
+    })
   // Evict a rejected resolution so a later mount can retry (successes stay cached).
   promise.catch(() => thumbnailCache.delete(fileId))
   thumbnailCache.set(fileId, promise)
@@ -85,7 +97,7 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
     }
     let cancelled = false
     setState('loading')
-    loadThumbnail(file.id)
+    loadThumbnail(file.id, isSettlingStatus(file.status))
       .then((url) => {
         if (cancelled) return
         if (url) {
@@ -101,7 +113,10 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
     return () => {
       cancelled = true
     }
-  }, [file.id, canHaveThumbnail])
+    // `file.status` is a dependency, not noise: it is the signal that a document
+    // which had no preview when the page loaded has finished being read, and so
+    // the moment to ask the route again.
+  }, [file.id, canHaveThumbnail, file.status])
 
   if (state === 'ready' && imgUrl) {
     return (
@@ -194,6 +209,11 @@ export function FileCard({
   const isFailed = file.status === 'failed'
   const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
   const showStatus = !!file.status && !(hideStatusWhenReady && file.status === 'ready')
+  // The AI summary is the last thing ingestion produces, so a document that is
+  // still being read has an empty description slot. Left blank it reads as a
+  // card that failed to render; skeleton lines say the sentence is on its way —
+  // the same promise the thumbnail well makes while its request is in flight.
+  const isAwaitingSummary = !match && !isFailed && !file.summary && isSettlingStatus(file.status)
 
   return (
     <motion.div
@@ -215,8 +235,15 @@ export function FileCard({
           isBusy && 'cursor-progress opacity-70'
         )}
       >
-        {/* Raised inner block — white surface, rounded bottom, soft divider shadow. */}
-        <div className="w-full overflow-hidden rounded-b-[10px] bg-card shadow-xs">
+        {/* Raised inner block — white surface, rounded bottom, soft divider shadow.
+            `flex-1` because a grid row is only as tall as its tallest card and
+            every cell stretches to match: a document that is still being read has
+            no summary yet, so without it the short tile kept its natural height,
+            its size · time footer floated in the middle of the cell, and the
+            leftover height showed as a band of dead surface underneath. Growing
+            the white block instead puts every footer on the bottom edge, so the
+            row reads as one strip whatever each card carries above it. */}
+        <div className="w-full flex-1 overflow-hidden rounded-b-[10px] bg-card shadow-xs">
           <div className="relative h-[124px] w-full overflow-hidden border-b bg-card">
             <ThumbnailWithFallback file={file} />
             {showStatus && (
@@ -257,6 +284,14 @@ export function FileCard({
               <p className="mt-1 line-clamp-2 text-[11.5px] leading-[1.45] text-destructive" title={failureReason}>
                 {failureReason}
               </p>
+            ) : isAwaitingSummary ? (
+              // Two bars on the two lines the summary will occupy. Decorative:
+              // the badge beside the thumbnail already says "Processing" in
+              // words, and a screen reader should hear that once, not twice.
+              <div className="mt-[7px] space-y-[7px]" aria-hidden data-testid="file-card-summary-skeleton">
+                <Skeleton className="h-[7px] w-full rounded-sm" />
+                <Skeleton className="h-[7px] w-[58%] rounded-sm" />
+              </div>
             ) : (
               file.summary && (
                 <p className="mt-1 line-clamp-2 text-[11.5px] leading-[1.45] text-muted-foreground" title={file.summary}>

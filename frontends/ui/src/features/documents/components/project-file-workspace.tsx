@@ -12,6 +12,7 @@ import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { DeleteDocumentButton } from './delete-document-button'
+import { isSettlingStatus } from './document-status'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
@@ -86,13 +87,6 @@ type OptionalWireField =
  * three read the same documents through the same search and folder filter.
  */
 type FileView = 'cards' | 'list' | 'tree'
-
-/**
- * Statuses that are going to change on their own — the `info` family from
- * `document-status`. Anything else (citable, failed) is terminal and needs no
- * watching.
- */
-const SETTLING_STATUSES = new Set(['uploading', 'ingesting', 'pending', 'processing'])
 
 /**
  * How often the list re-asks while something is unsettled. Matches the model
@@ -270,7 +264,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * observes into the confirmation.
    */
   const hasSettlingFile = useMemo(
-    () => files.some((file) => SETTLING_STATUSES.has((file.status ?? '').toLowerCase())),
+    () => files.some((file) => isSettlingStatus(file.status)),
     [files]
   )
   useEffect(() => {
