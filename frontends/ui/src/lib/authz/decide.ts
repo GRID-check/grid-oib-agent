@@ -41,7 +41,7 @@
 import 'server-only'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { GridSession } from '@/lib/auth/types'
-import { findSkillSchedule } from '@/lib/skills/repository'
+import { findJob } from '@/lib/jobs/repository'
 import { findPermissionSpec, type PermissionTier } from './catalog'
 import {
   hasPermission,
@@ -96,12 +96,12 @@ export interface AuthzDecision {
 }
 
 /**
- * Project-tier permission that also covers a skill-schedule action. Same
- * reasoning as WORKFLOW_FALLBACK: the Skill resource is a child of Project in
- * the topology, and rather than rely on unverified FGA inheritance semantics,
- * a project admin administers the skill schedules in their project because
- * they hold `project:skills:manage`, and anyone who can see the project can
- * see that its schedules exist.
+ * Project-tier permission that also covers a job action. Same reasoning as
+ * WORKFLOW_FALLBACK: the Skill resource (a JOB row since 0043) is a child of
+ * Project in the topology, and rather than rely on unverified FGA inheritance
+ * semantics, a project admin administers the jobs in their project because they
+ * hold `project:skills:manage`, and anyone who can see the project can see that
+ * its jobs exist.
  */
 const SKILL_FALLBACK: Record<SkillPermission, ProjectPermission> = {
   'skill:view': 'project:view',
@@ -204,10 +204,10 @@ async function decideProjectTier(
 }
 
 /**
- * Skill tier — tenancy from the skill_schedules row, then the schedule's own
- * FGA role, then the project-tier fallback above. Identical shape to the
- * workflow tier; the schedule is the resource, and its project carries the
- * fallback permissions.
+ * Skill tier — tenancy from the `jobs` row, then the job's own FGA role, then
+ * the project-tier fallback above. Identical shape to the workflow tier; the
+ * job is the resource, and its project carries the fallback permissions. The
+ * tier keeps the name `skill` because that is the FGA resource type slug.
  */
 async function decideSkillTier(
   session: GridSession,
@@ -218,9 +218,9 @@ async function decideSkillTier(
   if (!authorized) return deny(permission, 'skill', 'no-organization', resource)
 
   // Tenancy first, and never bypassed: the row is looked up scoped to the
-  // caller's organization, so a schedule id from another tenant is absent.
-  const schedule = await findSkillSchedule(resource.id, authorized.organizationId)
-  if (!schedule) return deny(permission, 'skill', 'tenancy-mismatch', resource)
+  // caller's organization, so a job id from another tenant is absent.
+  const job = await findJob(resource.id, authorized.organizationId)
+  if (!job) return deny(permission, 'skill', 'tenancy-mismatch', resource)
 
   const granted = await checkResourcePermission({
     organizationMembershipId: authorized.organizationMembershipId,
@@ -230,10 +230,10 @@ async function decideSkillTier(
   })
   if (granted) return allow(permission, 'skill', 'resource-role', resource)
 
-  // Parent fallback: the project role that covers this skill-schedule action.
+  // Parent fallback: the project role that covers this job action.
   const viaProject = await decideProjectTier(session, SKILL_FALLBACK[permission], {
     type: 'project',
-    id: schedule.projectId,
+    id: job.projectId,
   })
   return viaProject.allowed
     ? allow(permission, 'skill', 'project-inherited', resource)

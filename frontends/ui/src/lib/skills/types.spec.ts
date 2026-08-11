@@ -2,15 +2,9 @@
  * @vitest-environment node
  */
 import { describe, expect, it } from 'vitest'
-import { BadRequestError } from '@/lib/api/errors'
 import {
-  createSkillScheduleSchema,
   createSkillSchema,
-  executionOf,
-  isSchedulable,
   METADATA_CARDS,
-  METADATA_EXECUTION,
-  METADATA_SCHEDULABLE,
   patchSkillSchema,
   preferredCardsOf,
   skillNameSchema,
@@ -65,28 +59,6 @@ describe('createSkillSchema / patchSkillSchema', () => {
   it('patch schema leaves every field optional', () => {
     expect(patchSkillSchema.parse({}).name).toBeUndefined()
     expect(patchSkillSchema.parse({ enabled: false }).enabled).toBe(false)
-  })
-})
-
-describe('executionOf', () => {
-  it('defaults to chat', () => {
-    expect(executionOf({})).toBe('chat')
-    expect(executionOf({ [METADATA_EXECUTION]: 'chat' })).toBe('chat')
-    expect(executionOf({ [METADATA_EXECUTION]: 'deep-research' })).toBe('deep-research')
-  })
-
-  it('throws BadRequestError for invalid values (deterministic, fail at write time)', () => {
-    expect(() => executionOf({ [METADATA_EXECUTION]: 'deep_research' })).toThrow(BadRequestError)
-    expect(() => executionOf({ [METADATA_EXECUTION]: 'anything' })).toThrow(BadRequestError)
-  })
-})
-
-describe('isSchedulable', () => {
-  it('is false only for the literal grid-schedulable=false', () => {
-    expect(isSchedulable({})).toBe(true)
-    expect(isSchedulable({ [METADATA_SCHEDULABLE]: 'true' })).toBe(true)
-    expect(isSchedulable({ [METADATA_SCHEDULABLE]: 'false' })).toBe(false)
-    expect(isSchedulable({ anything: 'false' })).toBe(true)
   })
 })
 
@@ -148,31 +120,7 @@ describe('snapshotOf', () => {
     }
     const snapshot = snapshotOf(skill)
     expect(snapshot).toEqual(skill)
-    snapshot.metadata['grid-execution'] = 'deep-research'
-    expect(skill.metadata['grid-execution']).toBeUndefined()
-  })
-})
-
-describe('createSkillScheduleSchema', () => {
-  const base = { name: 'Weekly run', skillName: 'data-table-analysis' }
-
-  it('accepts a manual schedule (no cron)', () => {
-    expect(createSkillScheduleSchema.parse(base).scheduleCron).toBeUndefined()
-  })
-
-  it('rejects an invalid cron and an unknown timezone', () => {
-    expect(() => createSkillScheduleSchema.parse({ ...base, scheduleCron: '0 9 * *' })).toThrow()
-    expect(() =>
-      createSkillScheduleSchema.parse({ ...base, scheduleTimezone: 'Not/AZone' })
-    ).toThrow()
-  })
-
-  it('accepts a valid 5-field cron with an IANA timezone', () => {
-    const parsed = createSkillScheduleSchema.parse({
-      ...base,
-      scheduleCron: '0 9 * * 1',
-      scheduleTimezone: 'Europe/Vienna',
-    })
-    expect(parsed.scheduleCron).toBe('0 9 * * 1')
+    snapshot.metadata['grid-agents'] = 'deep_researcher'
+    expect(skill.metadata['grid-agents']).toBeUndefined()
   })
 })

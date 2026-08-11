@@ -1,13 +1,13 @@
 /**
- * GRID skill scheduler service.
+ * GRID job scheduler service.
  *
  * Dedicated container (frontend image, `node scheduler/index.js`) — the exact
  * deployment shape of the purger. Each tick (default 30s) it:
- *   1. claims due skill_schedules and advances their next_run_at, atomically,
- *      via FOR UPDATE SKIP LOCKED (db.claimDue) — replica- and crash-safe;
- *   2. AFTER that transaction commits, POSTs each claimed schedule to the BFF
+ *   1. claims due `jobs` and advances their next_run_at, atomically, via
+ *      FOR UPDATE SKIP LOCKED (db.claimDue) — replica- and crash-safe;
+ *   2. AFTER that transaction commits, POSTs each claimed job to the BFF
  *      internal fire endpoint (which records the run row + submits the job);
- *   3. prunes skill_runs older than the retention window.
+ *   3. prunes job_runs older than the retention window.
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -28,7 +28,7 @@ const { initOtelLogs } = require('../observability/otel-logs')
 // No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
 initOtelLogs()
 
-const LOG = '[skill-scheduler]'
+const LOG = '[job-scheduler]'
 
 // Must match src/lib/internal-auth.ts INTERNAL_TOKEN_HEADER — the header the
 // `internalApiRoute` factory guarding /api/internal/skills/fire expects.
@@ -65,8 +65,9 @@ function readConfig(env) {
 }
 
 /**
- * Fire one claimed schedule: POST {frontendUrl}/api/internal/skills/fire with
- * the shared internal token and body {scheduleId}. Non-2xx and transport errors
+ * Fire one claimed job: POST {frontendUrl}/api/internal/skills/fire with the
+ * shared internal token and body {scheduleId} (the pre-jobs wire spelling, kept
+ * because this container and the BFF deploy separately — see the route). Non-2xx and transport errors
  * are logged loudly and swallowed (returns false) — a fire failure must never
  * throw out of the tick loop. The BFF records run rows; if the BFF itself was
  * unreachable the occurrence is missed-once and the next occurrence heals it
@@ -93,7 +94,7 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
       } catch {
         /* body unreadable — status is enough to act on */
       }
-      console.error(`${LOG} fire failed for schedule ${scheduleId}: HTTP ${res.status} ${body}`)
+      console.error(`${LOG} fire failed for job ${scheduleId}: HTTP ${res.status} ${body}`)
       return false
     }
     // A 200 is not always a fire: the BFF returns {fired:false, reason} for
@@ -105,14 +106,14 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
       /* non-JSON 200 — treat as fired, the BFF contract says it is */
     }
     if (outcome && outcome.fired === false) {
-      console.warn(`${LOG} schedule ${scheduleId} not fired: ${outcome.reason || 'unknown reason'}`)
+      console.warn(`${LOG} job ${scheduleId} not fired: ${outcome.reason || 'unknown reason'}`)
       return false
     }
-    console.log(`${LOG} fired schedule ${scheduleId}`)
+    console.log(`${LOG} fired job ${scheduleId}`)
     return true
   } catch (error) {
     console.error(
-      `${LOG} fire request errored for schedule ${scheduleId}:`,
+      `${LOG} fire request errored for job ${scheduleId}:`,
       error && error.message ? error.message : error,
     )
     return false
@@ -146,7 +147,7 @@ async function tick(sql, config) {
   try {
     const pruned = await pruneOldRuns(sql, config.retentionDays)
     if (pruned > 0) {
-      console.log(`${LOG} pruned ${pruned} skill_runs older than ${config.retentionDays} days`)
+      console.log(`${LOG} pruned ${pruned} job_runs older than ${config.retentionDays} days`)
     }
   } catch (error) {
     console.error(`${LOG} run-history prune failed:`, error)

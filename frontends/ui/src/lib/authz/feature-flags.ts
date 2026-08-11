@@ -96,11 +96,12 @@ export const FEATURE_FLAGS = {
    * and degraded to the data explorer, not a deployment capability.
    */
   ifcModels: 'ifc-models',
-  /** Agent Skills (Phase A): the org toolbox of agentskills.io-format skills
-   *  plus project skill schedules. Dark-launched —
-   *  gated by the WorkOS flag when enforcement is on, else the
-   *  GRID_SKILLS_ENABLED env opt-in (default off). Gates every /api/skills and
-   *  /api/projects/[id]/skill-schedules route. */
+  /** Agent Skills: the org toolbox of agentskills.io-format skills plus the
+   *  project jobs that may attach them. Dark-launched — gated by the WorkOS
+   *  flag when enforcement is on, else the GRID_SKILLS_ENABLED env opt-in
+   *  (default off). Gates every /api/skills and /api/projects/[id]/jobs route,
+   *  and the scheduler container's start gate. Jobs ride this one flag: they
+   *  ship as one feature, so a second flag could only let them disagree. */
   skills: 'skills',
 } as const
 
