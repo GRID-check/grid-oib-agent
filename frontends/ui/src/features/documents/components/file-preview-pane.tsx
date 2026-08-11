@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import Image from 'next/image'
+import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
 import {
@@ -31,7 +32,7 @@ import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime } from '@/lib/format'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
-import { extChipTint, fileExtensionLabel } from '../document-kind'
+import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
@@ -77,6 +78,19 @@ interface FilePreviewPaneProps {
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
+/**
+ * The building itself, in the well where a PDF shows its pages.
+ *
+ * `ssr: false` because the viewport underneath reaches for `navigator.gpu`, and
+ * `dynamic` because it pulls the BIM hooks and (behind one more boundary) a
+ * multi-megabyte WASM kernel — none of which belongs in the bundle of a pane
+ * that is usually opened on a PDF.
+ */
+const IfcFilePreview = dynamic(
+  () => import('@/features/bim/components/ifc-file-preview').then((module) => module.IfcFilePreview),
+  { ssr: false }
+)
+
 /** One visual chunk's VLM description (mirrors the BFF visual-details payload). */
 interface VisualDetail {
   page: number
@@ -88,7 +102,7 @@ interface VisualDetail {
 
 const VISUAL_CONTENT_TYPES = ['drawing', 'image', 'chart']
 
-export function FilePreviewPane({ file, projectName, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, projectId, projectName, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -111,6 +125,18 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [details, setDetails] = useState<VisualDetail[] | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
+  /**
+   * An `.ifc` is a building, and it previews as one. This is the ONLY thing
+   * this pane knows about the BIM subsystem — `inferDocumentKind` already
+   * classifies a model by format (it has to, for the card thumbnails), and the
+   * viewport is behind one dynamic import.
+   *
+   * Project scope only: models are listed per project, so the org-wide Archiv —
+   * which has no project in hand — keeps the ordinary preview instead of a
+   * viewport that could never resolve a model.
+   */
+  const isModel =
+    inferDocumentKind({ filename: file.filename, contentType: file.contentType, tags: file.tags }) === 'model'
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
   const isImage = (file.contentType ?? '').startsWith('image/')
   // The large viewer dialog enlarges PDFs (native iframe viewer) and images
@@ -343,7 +369,14 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             column. The Maximize2 affordance in the header still opens the
             full-screen viewer for PDFs and images. */}
         <div className="flex h-[50dvh] shrink-0 min-w-0 justify-center overflow-hidden bg-muted/40 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain">
-          {canPreview && isLoading ? (
+          {isModel && projectId ? (
+            <IfcFilePreview
+              documentId={file.id}
+              filename={file.filename}
+              projectId={projectId}
+              className="size-full"
+            />
+          ) : canPreview && isLoading ? (
             <PageMock skeleton />
           ) : canPreview && previewUrl ? (
             file.contentType === 'application/pdf' ? (

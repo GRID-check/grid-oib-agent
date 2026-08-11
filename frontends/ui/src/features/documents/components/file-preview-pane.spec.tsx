@@ -3,6 +3,22 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FilePreviewPane } from './file-preview-pane'
 
+/**
+ * The model viewport, stood in for. Mounting the real one here would test the
+ * BIM subsystem (which has its own specs); what this file must prove is that
+ * the pane routes an `.ifc` to it AT ALL, and routes nothing else there.
+ */
+vi.mock('@/features/bim/components/ifc-file-preview', () => ({
+  IfcFilePreview: (props: { documentId: string; filename: string; projectId: string }) => (
+    <div
+      data-testid="ifc-file-preview"
+      data-document={props.documentId}
+      data-filename={props.filename}
+      data-project={props.projectId}
+    />
+  ),
+}))
+
 describe('FilePreviewPane', () => {
   const mockFile = {
     id: 'doc-1',
@@ -381,6 +397,50 @@ describe('FilePreviewPane', () => {
       )
       expect(screen.getByRole('button', { name: 'Remove tag Grundriss' })).toBeDefined()
       expect(onTagsUpdated).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('an .ifc previews as the building', () => {
+    const modelFile = {
+      ...mockFile,
+      id: 'doc-ifc',
+      filename: 'Haus-A.ifc',
+      // What the object store reports for an IFC; nothing about the preview may
+      // depend on it, because exporters disagree about this string.
+      contentType: 'application/octet-stream',
+    }
+
+    it('renders the model viewport instead of the "no inline preview" mock', async () => {
+      render(<FilePreviewPane file={modelFile} projectId="proj-1" />)
+
+      const preview = await screen.findByTestId('ifc-file-preview')
+      expect(preview.dataset.document).toBe('doc-ifc')
+      expect(preview.dataset.filename).toBe('Haus-A.ifc')
+      expect(preview.dataset.project).toBe('proj-1')
+      expect(screen.queryByText(/no inline preview/i)).toBeNull()
+    })
+
+    it('reads the format from the NAME, not from a tag a model may carry', async () => {
+      // A model exported as "Grundriss EG.ifc" is still a model — the tag rules
+      // would otherwise read that name as a floor plan and show a page mock.
+      render(
+        <FilePreviewPane
+          file={{ ...modelFile, filename: 'Grundriss EG.ifc', tags: ['Grundriss'] }}
+          projectId="proj-1"
+        />
+      )
+      expect(await screen.findByTestId('ifc-file-preview')).toBeDefined()
+    })
+
+    it('keeps the ordinary preview in the org Archiv, which has no project to resolve a model in', () => {
+      render(<FilePreviewPane file={modelFile} />)
+      expect(screen.queryByTestId('ifc-file-preview')).toBeNull()
+      expect(screen.getByText(/no inline preview/i)).toBeDefined()
+    })
+
+    it('never routes an ordinary document to the viewport', () => {
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+      expect(screen.queryByTestId('ifc-file-preview')).toBeNull()
     })
   })
 

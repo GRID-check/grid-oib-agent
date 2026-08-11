@@ -227,6 +227,42 @@ export function IfcModelViewer({
     )
   }
 
+  /**
+   * The viewport started and then failed — and until this branch existed, that
+   * left an empty grey box with one line of status text in the corner, which
+   * reads as a broken feature rather than as a missing picture.
+   *
+   * It is not a rare path. `supportsWebGpu` can only ask whether the API is
+   * PRESENT; whether an adapter can actually be acquired is a separate question
+   * a browser only answers when asked. Headless Chromium, a blocked or
+   * blocklisted driver, a remote desktop session and a VM all expose
+   * `navigator.gpu` and then refuse the adapter — and an interrupted download of
+   * a hundred-megabyte model lands here too.
+   *
+   * So the same shape as the unsupported fallback, plus the raw reason: the
+   * user is told the model is unaffected, and support gets the message it needs
+   * without a console.
+   */
+  if (status.phase === 'error') {
+    return (
+      <div
+        className={cn(
+          'flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-center',
+          className
+        )}
+      >
+        <MonitorX className="size-6 text-muted-foreground" aria-hidden="true" />
+        <p className="text-sm font-medium">{t('viewer.unavailable.title')}</p>
+        <p className="max-w-prose text-sm text-muted-foreground">{t('viewer.unavailable.description')}</p>
+        {status.message && (
+          <p className="max-w-prose text-xs text-muted-foreground/80">
+            {t('viewer.unavailable.reason', { message: status.message })}
+          </p>
+        )}
+      </div>
+    )
+  }
+
   const statusLabel =
     status.phase === 'downloading'
       ? t('viewer.downloading')
@@ -234,9 +270,9 @@ export function IfcModelViewer({
         ? t('viewer.parsing', { count: status.meshCount })
         : status.phase === 'ready'
           ? t('viewer.ready', { count: status.meshCount })
-          : status.phase === 'error'
-            ? t('viewer.failed', { message: status.message ?? '' })
-            : ''
+          : // `error` never reaches here: it returns the fallback above, where a
+            // failure gets a panel rather than a caption on an empty canvas.
+            ''
 
   return (
     <div className={cn('relative overflow-hidden rounded-xl border bg-muted/30', className)}>

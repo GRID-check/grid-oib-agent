@@ -10,8 +10,10 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useEffect } from 'react'
 import { render, screen } from '@testing-library/react'
 import { IfcModelViewer } from './ifc-model-viewer'
+import type { IfcViewerStatus } from './ifc-viewer-canvas'
 import type { BimViewerElement } from '../lib/model-index'
 
 /**
@@ -19,10 +21,17 @@ import type { BimViewerElement } from '../lib/model-index'
  * replaced by a marker. Its PRESENCE is the assertion: it appears only on the
  * paths where the real canvas would have mounted.
  */
+/** What the stand-in canvas reports back, for the tests that need a status. */
+const canvas: { status: IfcViewerStatus | null } = { status: null }
+
 vi.mock('./ifc-viewer-canvas', () => ({
-  IfcViewerCanvas: (props: { sourceUrl: string }) => (
-    <div data-testid="ifc-canvas" data-source={props.sourceUrl} />
-  ),
+  IfcViewerCanvas: (props: { sourceUrl: string; onStatus?: (status: IfcViewerStatus) => void }) => {
+    const { onStatus } = props
+    useEffect(() => {
+      if (canvas.status) onStatus?.(canvas.status)
+    }, [onStatus])
+    return <div data-testid="ifc-canvas" data-source={props.sourceUrl} />
+  },
 }))
 
 const ELEMENTS: BimViewerElement[] = [
@@ -38,7 +47,10 @@ function setWebGpu(available: boolean): void {
   }
 }
 
-afterEach(() => setWebGpu(false))
+afterEach(() => {
+  setWebGpu(false)
+  canvas.status = null
+})
 
 describe('IfcModelViewer without WebGPU', () => {
   it('explains what is missing and what still works, instead of a blank canvas', () => {
@@ -95,6 +107,29 @@ describe('IfcModelViewer with WebGPU', () => {
     // One of the two ids is not in this model — the legend shows what was
     // actually coloured, not what was asked for.
     expect(screen.getByText('(1)')).toBeInTheDocument()
+  })
+
+  it('replaces a failed viewport with an explanation, not an empty canvas', async () => {
+    setWebGpu(true)
+    canvas.status = {
+      phase: 'error',
+      percent: null,
+      meshCount: 0,
+      // The real message from a browser that HAS `navigator.gpu` and still
+      // cannot draw — headless, a blocked driver, a remote desktop. Presence of
+      // the API is not the same question as an available adapter, which is why
+      // `supportsWebGpu` cannot catch this one.
+      message: 'Failed to get GPU adapter',
+    }
+    render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
+
+    expect(await screen.findByText('The 3D view could not be loaded')).toBeInTheDocument()
+    // What is missing is the picture, and the copy has to say so — an empty
+    // grey box reads as a broken feature.
+    expect(screen.getByText(/Only the picture is missing/)).toBeInTheDocument()
+    // The raw reason travels with it, so a support report does not need a console.
+    expect(screen.getByText(/Failed to get GPU adapter/)).toBeInTheDocument()
+    expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
   })
 
   it('hides the page chrome in the card variant', () => {

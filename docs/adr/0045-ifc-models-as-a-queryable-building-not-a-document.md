@@ -239,3 +239,49 @@ choice:
 
 It costs one extra object per model, swept by the same prefix delete as the
 other two — a model cannot leave a compressed copy of itself behind.
+
+### A model previews as a file
+
+The decision above makes a model *queryable*; it left it *findable* only through
+a `Modell` entry in the project navigation. So the richest file in the system
+was the one file the file system could not show: an `.ifc` opened in **Dateien**
+rendered the same decorative page mock as a `.dwg`, captioned "no inline
+preview", while the building itself lived on a route beside the file list.
+
+An IFC is now previewed as the building, in the same pane and the same modal
+every other file opens in. Three constraints shaped how:
+
+- **The documents pane learns nothing about BIM.** It gains one conditional —
+  `inferDocumentKind(...) === 'model'`, a helper it already calls to pick card
+  thumbnails — and one dynamic import. Everything else lives in
+  `features/bim/components/ifc-file-preview.tsx`: which model belongs to this
+  document, whether the browser can draw, what to say when it cannot.
+- **The preview is not the workspace.** No tabs, no element table, no Prüfbuch.
+  The pane's question is "show me this file"; the analytical surfaces stay one
+  link away, and that link addresses the model **by file name** (`?model=`), so
+  no UUID travels through a URL a user can see (see *Alternatives considered*).
+- **Project scope only.** Models are listed per project, because that route is
+  where the `ifc-models` flag and the project-access check live. The org-wide
+  Archiv has no project in hand, so it keeps the ordinary preview rather than a
+  viewport that could never resolve a model.
+
+Four things can be true of an `.ifc` in that pane, and each gets its own
+sentence: the model is ready, it is still being read, it could not be read, or
+the model **list** did not load. The last is the one worth naming — collapsing
+it into "there is no model" would tell an architect their upload vanished.
+
+### The viewport fails after it starts, too
+
+`supportsWebGpu()` can only ask whether `navigator.gpu` is *present*. Whether an
+adapter can actually be acquired is a separate question the browser answers only
+when asked — and headless Chromium, a blocklisted driver, a VM and a remote
+desktop session all answer it with a refusal after passing the first check. An
+interrupted download of a hundred-megabyte model lands in the same place.
+
+Until this change, that path left an empty grey box with a caption in the
+corner, which reads as a broken feature rather than a missing picture. The
+viewport now renders the same shape of fallback as the unsupported-browser case
+— what is missing, what is unaffected, and the raw reason underneath so a
+support report does not need a browser console. This was found by capturing the
+screenshot for the new preview: the harness's Chromium is exactly such a
+browser.

@@ -183,6 +183,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'file-preview-model',
+    mobile: true,
+    path: '/dev/file-preview-model',
+    description:
+      'The same file-preview modal opened on an .ifc — a model is just another file, previewed as the building rather than as a page mock, with the analytical workspace one link away. Headless Chromium has no WebGPU adapter (as on /dev/bim-model), so what this pins is the degraded state a Safari or Firefox user sees: it must read as "the picture is missing, everything else is over there", never as "this file is broken".',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'file-browser',
     mobile: true,
     path: '/dev/file-browser',

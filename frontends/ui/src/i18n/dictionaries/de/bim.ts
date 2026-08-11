@@ -292,7 +292,6 @@ export const bim: typeof en.bim = {
     downloading: 'Modell wird geladen…',
     parsing: 'Geometrie wird aufgebaut… {count} Teile',
     ready: '{count} Teile',
-    failed: 'Die 3D-Ansicht konnte nicht geladen werden: {message}',
     xray: 'Röntgen',
     fit: 'Ansicht einpassen',
     isolate: 'Geschoß isolieren',
@@ -317,11 +316,30 @@ export const bim: typeof en.bim = {
       down: 'Blick nach unten',
       up: 'Blick nach oben',
     },
+    unavailable: {
+      title: 'Die 3D-Ansicht konnte nicht geladen werden',
+      description:
+        'Es fehlt nur das Bild — das Modell selbst ist davon nicht betroffen: Struktur, Bauteile, Eigenschaften und Mengen werden wie gewohnt daraus gelesen. Ein Browser mit gesperrter GPU, eine Remote-Desktop-Sitzung oder ein abgebrochener Download führen hierher.',
+      reason: 'Ursache: {message}',
+    },
     unsupported: {
       title: '3D-Ansicht in diesem Browser nicht verfügbar',
       description:
         'Der Viewer benötigt WebGPU, das dieser Browser nicht bereitstellt. Alle Modelldaten stehen links trotzdem zur Verfügung — Struktur, Bauteile, Eigenschaften und Mengen — und der Assistent kann Fragen dazu beantworten.',
     },
+  },
+  preview: {
+    loading: 'Modell wird geladen…',
+    extracting:
+      'Grid liest dieses Modell gerade ein. Sobald das abgeschlossen ist, erscheint das Gebäude hier.',
+    extractionFailed:
+      'Dieses Modell konnte nicht eingelesen werden. Die Datei selbst ist unverändert und kann weiterhin heruntergeladen werden.',
+    noModel: 'Zu dieser Datei wurde kein Modell eingelesen.',
+    loadFailed:
+      'Die Modelle dieses Projekts sind gerade nicht abrufbar. Das heißt NICHT, dass zu dieser Datei kein Modell vorliegt.',
+    noWebGpu:
+      'Die 3D-Ansicht benötigt WebGPU, das dieser Browser nicht bereitstellt. Alles, was aus dem Modell gelesen wurde — Struktur, Bauteile, Eigenschaften und Mengen — steht im Modellbereich zur Verfügung.',
+    open: 'Im Modellbereich öffnen',
   },
   card: {
     openModel: 'Modell öffnen',

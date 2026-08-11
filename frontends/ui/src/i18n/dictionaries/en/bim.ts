@@ -290,7 +290,6 @@ export const bim = {
     downloading: 'Loading model…',
     parsing: 'Building geometry… {count} parts',
     ready: '{count} parts',
-    failed: 'The 3D view could not be loaded: {message}',
     xray: 'X-ray',
     fit: 'Fit to view',
     isolate: 'Isolate storey',
@@ -315,11 +314,35 @@ export const bim = {
       down: 'Looking down',
       up: 'Looking up',
     },
+    unavailable: {
+      title: 'The 3D view could not be loaded',
+      description:
+        'Only the picture is missing — the model is unaffected, and its structure, elements, properties and quantities are read from it as usual. A browser whose GPU is blocked, a remote desktop session, or an interrupted download all end here.',
+      reason: 'Reason: {message}',
+    },
     unsupported: {
       title: '3D view not available in this browser',
       description:
         'The viewer needs WebGPU, which this browser does not provide. Everything about the model is still available on the left — structure, elements, properties and quantities — and the assistant can answer questions about it.',
     },
+  },
+  /**
+   * The model as a FILE — what the Dateien preview says while the building is
+   * not (yet) showable. Each state is its own sentence: "still being read",
+   * "could not be read" and "there is no model" are different answers, and a
+   * single "no preview" would hide which one the reader is looking at.
+   */
+  preview: {
+    loading: 'Loading model…',
+    extracting: 'Grid is still reading this model. The building appears here as soon as that finishes.',
+    extractionFailed:
+      'This model could not be read. The file itself is unchanged and can still be downloaded.',
+    noModel: 'No model has been read from this file.',
+    loadFailed:
+      'The models for this project are temporarily unavailable. That does NOT mean this file has no model.',
+    noWebGpu:
+      'The 3D view needs WebGPU, which this browser does not provide. Everything read from the model — structure, elements, properties and quantities — is available in the model workspace.',
+    open: 'Open in model workspace',
   },
   card: {
     openModel: 'Open model',

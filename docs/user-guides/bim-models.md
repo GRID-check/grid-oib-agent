@@ -17,6 +17,20 @@ a **Modell** entry appears in the project navigation.
 
 Models above 250 MB are refused with a message rather than half-read.
 
+## Opening a model from Files
+
+An `.ifc` opens like every other file — click it in **Dateien** and the preview
+shows the **building**, turnable, in the pane where a PDF shows its pages. The
+metadata column beside it is the ordinary one: summary, tags, size, status.
+
+The preview is deliberately just the picture. Everything you *analyse* — the
+tabs, the element table, the requirement check, the Raumbuch — is one click
+away on **Im Modellbereich öffnen**, which opens this model (not whichever one
+the page would default to) in the model page below.
+
+While the model is still being read the preview says so, and a file whose
+extraction failed says that instead — the two are never the same message.
+
 ## The model page
 
 The 3D view is always on the right. The left half has four tabs.
@@ -162,6 +176,12 @@ Edge today, Safari and Firefox depending on version). Without it you get a short
 note in place of the picture and *everything else on the page still works* — the
 structure, the elements, the properties, the quantities, the schedules, and
 every answer the assistant gives.
+
+A browser can also have WebGPU and still not be able to draw: a blocked or
+blocklisted graphics driver, a virtual machine, a remote-desktop session, or an
+interrupted download of a very large model. That produces the same kind of note
+— what is missing, what is unaffected, and the technical reason underneath, so
+a support message can quote it.
 
 ### Every view is a link
 
