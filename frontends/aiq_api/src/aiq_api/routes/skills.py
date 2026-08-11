@@ -1,24 +1,40 @@
-"""Internal workflows submit endpoint (ADR-0023).
+"""Internal skills submit endpoint (Agent Skills, replaces ADR-0023 workflows).
 
-``POST /v1/internal/workflows/submit`` is the single backend entry point for
-scheduled and manual workflow runs. The BFF's ``fireWorkflow()`` service calls
-it service-to-service; there is no live user JWT, so the workflow creator's
-identity (organization, user, project, owner email) is supplied explicitly in
-the body and reconstituted into a Principal + usage context here.
+``POST /v1/internal/skills/submit`` is the single backend entry point for
+scheduled and manual skill runs (the successor of ``/v1/internal/workflows/
+submit``). The BFF's fire path calls it service-to-service; there is no live
+user JWT, so the skill run's identity (organization, user, project, owner
+email) is supplied explicitly in the body and reconstituted into a Principal +
+usage context here.
 
 The route wraps ``submit_agent_job`` exactly like the public
 ``/v1/jobs/async/submit`` route, so scheduled runs inherit admission control,
 cost tracking, ownership (``job_access``), the ghost reaper, SSE and
-cancellation for free (ADR-0023 §4).
+cancellation for free.
+
+Agent selection is DETERMINISTIC and derived from the skill's declared
+``grid-execution`` mode — a skill never implicitly creates a deep-research
+run:
+
+* ``execution='chat'``         → ``shallow_researcher`` (quick single-turn job)
+* ``execution='deep-research'`` → ``deep_researcher`` (the deep research agent)
+
+``agent_type`` is an explicit escape hatch for future execution modes; when
+omitted the table above decides. The submitted job carries the skill names in
+``force_skills`` so the worker force-activates them (the agent-side consumer
+lives in ``src/aiq_agent``).
 
 Guarded by ``GRID_INTERNAL_API_TOKEN`` (the ``maintenance.py`` pattern) and,
 critically, NOT added to ``AuthMiddleware.EXTERNAL_ALLOWED_PATHS`` — so it is
-unreachable from outside the compose network.
+unreachable from outside the compose network. (The signed X-Grid-Request-Context
+envelope middleware enforces this path too, but internal-token calls are
+exempt there by design — see ``context_envelope.py``.)
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter
 from fastapi import HTTPException
@@ -34,18 +50,40 @@ from .internal_auth import _require_internal_token
 
 logger = logging.getLogger(__name__)
 
+# The skill's declared ``grid-execution`` metadata value maps onto exactly one
+# async-job-capable agent type. Both entries are registered in AGENT_REGISTRY
+# at import time (deep_researcher, shallow_researcher). Deterministic by
+# construction: there is no path from an execution mode to "some other agent".
+_EXECUTION_AGENT_TYPES: dict[str, str] = {
+    "chat": "shallow_researcher",
+    "deep-research": "deep_researcher",
+}
 
-class WorkflowSubmitRequest(BaseModel):
-    """Body of ``POST /v1/internal/workflows/submit`` (ADR-0023 contract).
+
+class SkillSubmitPayload(BaseModel):
+    """Body of ``POST /v1/internal/skills/submit`` (Agent Skills contract).
 
     Identity fields are supplied explicitly because the caller is the scheduler
-    / BFF, not the workflow's creator — there is no request JWT to read them
-    from. ``organization_id`` is required so per-org admission counting and cost
-    attribution always have a tenant to key on.
+    / BFF, not the skill's owner — there is no request JWT to read them from.
+    ``organization_id`` is required so per-org admission counting and cost
+    attribution always have a tenant to key on. ``input`` is the deterministic
+    prompt built BFF-side (it includes the full skill body).
     """
 
-    agent_type: str = Field("deep_researcher", description="Agent type; must exist in AGENT_REGISTRY")
-    input: str = Field(..., min_length=1, max_length=32000, description="Compiled research brief")
+    input: str = Field(..., min_length=1, max_length=32000, description="Compiled skill prompt (incl. full skill body)")
+    skills: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Skill names to force-activate for this run (forced skills)",
+    )
+    execution: Literal["chat", "deep-research"] = Field(
+        ...,
+        description="Deterministic execution mode declared by the skill (grid-execution metadata)",
+    )
+    agent_type: str | None = Field(
+        None,
+        description="Explicit agent type override; defaults to the execution-mode agent",
+    )
     job_id: str | None = Field(
         None,
         pattern=r"^[a-zA-Z0-9_-]+$",
@@ -62,9 +100,9 @@ class WorkflowSubmitRequest(BaseModel):
     )
     project_context: str | None = Field(None, description="Optional project-context prompt block")
     organization_id: str = Field(..., description="WorkOS organization id owning the run (required)")
-    user_id: str | None = Field(None, description="Workflow creator's WorkOS user id")
-    project_id: str | None = Field(None, description="Project id the workflow is scoped to")
-    owner_email: str | None = Field(None, description="Workflow creator's email (job ownership)")
+    user_id: str | None = Field(None, description="Skill owner's WorkOS user id")
+    project_id: str | None = Field(None, description="Project id the skill run is scoped to")
+    owner_email: str | None = Field(None, description="Skill owner's email (job ownership)")
     budget_header: str | None = Field(
         None,
         description="Pass-through X-Grid-Budget header value the BFF builds for interactive submits",
@@ -75,12 +113,12 @@ class WorkflowSubmitRequest(BaseModel):
     )
 
 
-class WorkflowSubmitResponse(BaseModel):
+class SkillSubmitResponse(BaseModel):
     job_id: str = Field(..., description="The submitted async job id")
 
 
-def add_workflow_routes(router: APIRouter) -> None:
-    """Register the internal workflows submit route.
+def add_skill_routes(router: APIRouter) -> None:
+    """Register the internal skills submit route.
 
     Wired alongside the maintenance routes (same router, same middleware
     treatment) so it stays internal-only. Heavy job-submission imports are
@@ -88,10 +126,10 @@ def add_workflow_routes(router: APIRouter) -> None:
     """
 
     @router.post(
-        "/v1/internal/workflows/submit",
-        response_model=WorkflowSubmitResponse,
-        tags=["workflows", "internal"],
-        summary="Submit a workflow run to the async research pipeline (internal)",
+        "/v1/internal/skills/submit",
+        response_model=SkillSubmitResponse,
+        tags=["skills", "internal"],
+        summary="Submit a skill run to the async research pipeline (internal)",
         responses={
             400: {"description": "Unknown agent type"},
             403: {"description": "Missing or invalid internal token"},
@@ -101,7 +139,7 @@ def add_workflow_routes(router: APIRouter) -> None:
             503: {"description": "Internal API disabled, or Dask scheduler not configured"},
         },
     )
-    async def submit_workflow(body: WorkflowSubmitRequest, request: Request) -> WorkflowSubmitResponse:
+    async def submit_skill(body: SkillSubmitPayload, request: Request) -> SkillSubmitResponse:
         _require_internal_token(request)
 
         # Import the async-job layer lazily (it pulls NAT/Dask) so this module
@@ -112,9 +150,14 @@ def add_workflow_routes(router: APIRouter) -> None:
         from ..jobs.submit import submit_agent_job as submit_authorized_job
         from .builder_state import get_active_builder
 
+        # Deterministic agent selection (see module docstring): the execution
+        # mode declared by the skill decides the agent, unless an explicit
+        # override arrived. Never substitutes one execution mode for another.
+        agent_type = body.agent_type or _EXECUTION_AGENT_TYPES[body.execution]
+
         # Validate agent_type against the registry, like the public submit route.
         try:
-            agent_config = get_agent_config(body.agent_type)
+            agent_config = get_agent_config(agent_type)
         except KeyError as exc:
             raise HTTPException(400, str(exc))
 
@@ -127,7 +170,7 @@ def add_workflow_routes(router: APIRouter) -> None:
 
             await _validate_data_sources_for_agent(
                 builder=builder,
-                agent_type=body.agent_type,
+                agent_type=agent_type,
                 agent_config_name=agent_config.config_name,
                 data_sources=body.data_sources,
             )
@@ -143,15 +186,15 @@ def add_workflow_routes(router: APIRouter) -> None:
             if unknown:
                 raise HTTPException(422, f"Unknown data source IDs: {', '.join(unknown)}")
             logger.warning(
-                "Workflow submit before job routes registered a builder: "
+                "Skill submit before job routes registered a builder: "
                 "validated %d data source(s) against the registry only",
                 len(body.data_sources),
             )
 
-        # Reconstitute the workflow creator's identity. The job is owned by the
-        # creator (type "jwt" matches the WorkOS-authenticated principal they
+        # Reconstitute the skill owner's identity. The job is owned by the
+        # owner (type "jwt" matches the WorkOS-authenticated principal they
         # present when later viewing the run), so existing job-access authz
-        # keeps working. Fall back through email/org when the creator id is
+        # keeps working. Fall back through email/org when the owner id is
         # absent so a Principal can always be built.
         subject = body.user_id or body.owner_email or body.organization_id
         principal = Principal(type="jwt", sub=subject, email=body.owner_email)
@@ -171,7 +214,7 @@ def add_workflow_routes(router: APIRouter) -> None:
 
         try:
             job_id = await submit_authorized_job(
-                agent_type=body.agent_type,
+                agent_type=agent_type,
                 input_text=body.input,
                 owner=owner,
                 principal=principal,
@@ -181,6 +224,7 @@ def add_workflow_routes(router: APIRouter) -> None:
                 project_context=body.project_context,
                 model_overrides=body.model_overrides,
                 usage_context=usage_context,
+                force_skills=body.skills,
             )
         except JobAdmissionError as exc:
             raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)})
@@ -191,17 +235,19 @@ def add_workflow_routes(router: APIRouter) -> None:
         except MissingPrincipalError as exc:
             raise HTTPException(403, str(exc))
         except RuntimeError:
-            logger.exception("Runtime error submitting workflow %s job", body.agent_type)
-            raise HTTPException(500, "Failed to submit workflow job")
+            logger.exception("Runtime error submitting skill %s job", agent_type)
+            raise HTTPException(500, "Failed to submit skill job")
         except Exception as exc:
-            logger.warning("Failed to submit workflow job: %s", exc)
-            raise HTTPException(500, "Failed to persist workflow job authorization metadata")
+            logger.warning("Failed to submit skill job: %s", exc)
+            raise HTTPException(500, "Failed to persist skill job authorization metadata")
 
         logger.info(
-            "Submitted workflow %s job %s for org %s (owner %s)",
-            body.agent_type,
+            "Submitted skill %s job %s for org %s (owner %s, execution %s, %d forced skill(s))",
+            agent_type,
             job_id,
             body.organization_id,
             owner,
+            body.execution,
+            len(body.skills),
         )
-        return WorkflowSubmitResponse(job_id=job_id)
+        return SkillSubmitResponse(job_id=job_id)

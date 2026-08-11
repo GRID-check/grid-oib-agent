@@ -1,20 +1,27 @@
-"""Tests for the internal workflows submit route (ADR-0023).
+"""Tests for the internal skills submit route (Agent Skills; successor of ADR-0023).
 
-``POST /v1/internal/workflows/submit`` wraps ``submit_agent_job`` for scheduled
-and manual workflow runs. It must:
+``POST /v1/internal/skills/submit`` wraps ``submit_agent_job`` for scheduled
+and manual skill runs. It must:
 
 - fail closed on the shared internal token (missing/wrong -> 403; well-known
   dev default outside a dev APP_ENV -> 503) — the maintenance.py pattern;
-- reject malformed payloads (missing organization_id, oversized input) with 422;
-- reconstitute the workflow creator's identity into the Principal, owner, and
+- reject malformed payloads (missing organization_id, invalid execution enum,
+  empty skills, oversized input) with 422;
+- select the agent type DETERMINISTICALLY from the skill's declared
+  ``grid-execution`` mode: ``chat`` -> shallow_researcher, ``deep-research`` ->
+  deep_researcher, with an explicit ``agent_type`` as the only override;
+- thread the forced skill names through to ``submit_agent_job`` as
+  ``force_skills`` (the same path ``data_sources`` travels);
+- reconstitute the skill owner's identity into the Principal, owner, and
   usage_context handed to ``submit_agent_job`` (org-scoped admission + cost
-  attribution), deriving the project collection from ``collection_scope``;
+  attribution);
 - map admission/duplicate errors to 429 (+ Retry-After) / 409, identically to
   the public submit route;
 - stay off the AuthMiddleware external-path allowlist (internal-only).
 
 The Dask/JobStore layer is mocked by patching ``submit_agent_job``; no builder
-is registered, so per-agent data-source validation is skipped.
+is registered, so per-agent data-source validation is skipped (the registry
+fallback is exercised explicitly for unknown ids).
 """
 
 from __future__ import annotations
@@ -35,8 +42,9 @@ _TOKEN = "real-internal-secret"
 
 def _valid_body(**overrides) -> dict:
     body = {
-        "agent_type": "deep_researcher",
-        "input": "Research the latest OIB fire-safety guidance.",
+        "input": "Act as a building-physics advisor: check the OIB thermal requirements.",
+        "skills": ["oib-thermal-check", "building-physics-advisor"],
+        "execution": "deep-research",
         "organization_id": "org_123",
         "user_id": "user_abc",
         "project_id": "proj-uuid-1",
@@ -61,10 +69,10 @@ def submit_mock(monkeypatch):
 
 @pytest.fixture
 def client(submit_mock):
-    from aiq_api.routes.workflows import add_workflow_routes
+    from aiq_api.routes.skills import add_skill_routes
 
     router = APIRouter()
-    add_workflow_routes(router)
+    add_skill_routes(router)
     app = FastAPI()
     app.include_router(router)
     with TestClient(app) as test_client:
@@ -79,7 +87,7 @@ def prod_token(monkeypatch):
 
 def _post(client, body, token=_TOKEN):
     headers = {} if token is None else {"x-internal-token": token}
-    return client.post("/v1/internal/workflows/submit", json=body, headers=headers)
+    return client.post("/v1/internal/skills/submit", json=body, headers=headers)
 
 
 # --- token guard -----------------------------------------------------------
@@ -133,6 +141,50 @@ def test_bad_job_id_pattern_422(client, prod_token):
     assert resp.status_code == 422
 
 
+def test_unknown_execution_mode_422(client, prod_token):
+    resp = _post(client, _valid_body(execution="overnight"))
+    assert resp.status_code == 422
+
+
+def test_missing_skills_422(client, prod_token):
+    body = _valid_body()
+    del body["skills"]
+    resp = _post(client, body)
+    assert resp.status_code == 422
+
+
+def test_empty_skills_422(client, prod_token):
+    resp = _post(client, _valid_body(skills=[]))
+    assert resp.status_code == 422
+
+
+# --- deterministic agent selection ----------------------------------------
+
+
+def test_chat_execution_selects_shallow_researcher(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(execution="chat", agent_type=None))
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+
+
+def test_deep_research_execution_selects_deep_researcher(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(execution="deep-research", agent_type=None))
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["agent_type"] == "deep_researcher"
+
+
+def test_explicit_agent_type_overrides_execution_default(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(execution="chat", agent_type="deep_researcher"))
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["agent_type"] == "deep_researcher"
+
+
+def test_unknown_agent_type_maps_to_400(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(agent_type="no_such_agent"))
+    assert resp.status_code == 400
+    submit_mock.assert_not_awaited()
+
+
 # --- successful submit -----------------------------------------------------
 
 
@@ -143,14 +195,16 @@ def test_successful_submit_returns_job_id(client, prod_token, submit_mock):
     submit_mock.assert_awaited_once()
 
 
-def test_successful_submit_forwards_identity_and_scope(client, prod_token, submit_mock):
+def test_successful_submit_forwards_identity_scope_and_forced_skills(client, prod_token, submit_mock):
     resp = _post(client, _valid_body())
     assert resp.status_code == 200
 
     kwargs = submit_mock.await_args.kwargs
     assert kwargs["agent_type"] == "deep_researcher"
-    assert kwargs["input_text"] == "Research the latest OIB fire-safety guidance."
-    # Owner is the creator's email (principal.email or principal.sub).
+    assert kwargs["input_text"] == "Act as a building-physics advisor: check the OIB thermal requirements."
+    # The forced skill names ride the same path data_sources travels.
+    assert kwargs["force_skills"] == ["oib-thermal-check", "building-physics-advisor"]
+    # Owner is the owner's email (principal.email or principal.sub).
     assert kwargs["owner"] == "creator@example.com"
     # Collection scope is forwarded verbatim; the project collection is derived
     # from it inside submit_agent_job.
@@ -158,7 +212,7 @@ def test_successful_submit_forwards_identity_and_scope(client, prod_token, submi
     assert kwargs["project_context"] is None
     assert kwargs["model_overrides"] == {"researcher": "openrouter/some-model"}
 
-    # Principal is the workflow creator (type "jwt" matches the WorkOS principal
+    # Principal is the skill owner (type "jwt" matches the WorkOS principal
     # they present later), so job-access ownership authz keeps working.
     principal = kwargs["principal"]
     assert principal.type == "jwt"
@@ -187,6 +241,24 @@ def test_owner_falls_back_to_user_id_when_no_email(client, prod_token, submit_mo
     assert kwargs["principal"].email is None
 
 
+def test_chat_execution_has_no_force_skills_when_none_requested(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(execution="chat", skills=["only-one"]))
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["force_skills"] == ["only-one"]
+
+
+def test_unknown_data_source_ids_422_via_registry_fallback(client, prod_token, submit_mock, monkeypatch):
+    # Ensure the registry fallback path is taken: other suites register a real
+    # builder via register_job_routes, and a stale global builder would divert
+    # this request into the builder-based validator (and fail on a mock await).
+    from aiq_api.routes import builder_state
+
+    monkeypatch.setattr(builder_state, "get_active_builder", lambda: None)
+    resp = _post(client, _valid_body(data_sources=["no_such_source"]))
+    assert resp.status_code == 422
+    submit_mock.assert_not_awaited()
+
+
 # --- error mapping ---------------------------------------------------------
 
 
@@ -212,12 +284,6 @@ def test_scheduler_not_configured_maps_to_503(client, prod_token, submit_mock):
     assert resp.status_code == 503
 
 
-def test_unknown_agent_type_maps_to_400(client, prod_token, submit_mock):
-    resp = _post(client, _valid_body(agent_type="no_such_agent"))
-    assert resp.status_code == 400
-    submit_mock.assert_not_awaited()
-
-
 # --- middleware exposure ----------------------------------------------------
 
 
@@ -225,7 +291,7 @@ def test_route_not_on_external_allowlist():
     """The internal path must never be reachable from outside the compose net."""
     from aiq_api.auth.middleware import EXTERNAL_ALLOWED_PATHS
 
-    path = "/v1/internal/workflows/submit"
+    path = "/v1/internal/skills/submit"
     assert path not in EXTERNAL_ALLOWED_PATHS
     # And it must not match any allowed prefix entry either.
     for allowed in EXTERNAL_ALLOWED_PATHS:

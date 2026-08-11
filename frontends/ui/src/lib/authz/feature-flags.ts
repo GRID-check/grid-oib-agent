@@ -102,6 +102,12 @@ export const FEATURE_FLAGS = {
    * and degraded to the data explorer, not a deployment capability.
    */
   ifcModels: 'ifc-models',
+  /** Agent Skills (Phase A): the org toolbox of agentskills.io-format skills
+   *  plus project skill schedules, replacing scheduled workflows. Dark-launched —
+   *  gated by the WorkOS flag when enforcement is on, else the
+   *  GRID_SKILLS_ENABLED env opt-in (default off). Gates every /api/skills and
+   *  /api/projects/[id]/skill-schedules route. */
+  skills: 'skills',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -229,6 +235,32 @@ export function requireWorkflowsEnabled(
   if (isWorkflowsEnabled(session)) return null
   return NextResponse.json(
     { error: 'feature-disabled', feature: FEATURE_FLAGS.workflows },
+    { status: 403 }
+  )
+}
+
+/**
+ * Default-OFF gate for Agent Skills (Phase A). Same dark-launch shape as
+ * `isWorkflowsEnabled`: with WorkOS flag enforcement it follows the per-org
+ * `skills` flag; without enforcement it requires an explicit deployment
+ * opt-in via `GRID_SKILLS_ENABLED=true`.
+ */
+export function isSkillsEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.skills)
+  }
+  return (process.env.GRID_SKILLS_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
+ * Route guard for the skills feature: stable-coded 403 when off (matching
+ * requireFeature's envelope), null when allowed. Usage:
+ * `const gated = requireSkillsEnabled(session); if (gated) return gated`
+ */
+export function requireSkillsEnabled(session: Pick<GridSession, 'featureFlags'>): Response | null {
+  if (isSkillsEnabled(session)) return null
+  return NextResponse.json(
+    { error: 'feature-disabled', feature: FEATURE_FLAGS.skills },
     { status: 403 }
   )
 }

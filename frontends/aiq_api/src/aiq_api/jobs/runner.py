@@ -459,6 +459,7 @@ async def run_agent_job(
     clarifier_result: str | None = None,
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
+    force_skills: list[str] | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -518,6 +519,11 @@ async def run_agent_job(
             finished report to record durable project findings — the chat path
             skips reflection for deep jobs because the report only exists once
             the async job completes.
+        force_skills: Optional list of skill names the agent run must
+            force-activate. Injected onto the agent state as ``force_skills``
+            where the state model declares the field — the same guarded path
+            ``data_sources``/``project_context`` take (Agent Skills feature;
+            the state-field consumer is added by ``src/aiq_agent``).
     """
 
     # Propagate auth token into the current async task's context so tools
@@ -886,6 +892,7 @@ async def run_agent_job(
                             user_info=user_info,
                             clarifier_result=clarifier_result,
                             project_context=project_context,
+                            force_skills=force_skills,
                         )
 
                     # Emit WORKFLOW_END event for Phoenix
@@ -1125,6 +1132,7 @@ async def _run_agent(
     user_info: dict | None = None,
     clarifier_result: str | None = None,
     project_context: str | None = None,
+    force_skills: list[str] | None = None,
 ) -> Any:
     """
     Run the agent, supporting different run() signatures.
@@ -1166,6 +1174,7 @@ async def _run_agent(
                 ("user_info", user_info),
                 ("clarifier_result", clarifier_result),
                 ("project_context", project_context),
+                ("force_skills", force_skills),
             ):
                 if field_value is not None and field_name in state_fields:
                     state_kwargs[field_name] = field_value
@@ -1196,6 +1205,8 @@ async def _run_agent(
                 state["clarifier_result"] = clarifier_result
             if project_context is not None:
                 state["project_context"] = project_context
+            if force_skills is not None:
+                state["force_skills"] = force_skills
 
         return await run_with_cancellation(
             agent.run(state),

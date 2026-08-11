@@ -411,6 +411,10 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "retry_after_seconds",
 )
 
+# Agent Skills extra (the chat agent records which skills it force-activated
+# this turn; surfaced only when present — same lift as the transparency extras).
+_SKILLS_EXTRA_FIELDS = ("skills_activated",)
+
 
 def latest_user_text(message: WebSocketUserMessage) -> str | None:
     """The last non-empty text part of a ``user_message`` frame, or ``None``.
@@ -507,6 +511,7 @@ async def persist_assistant_message(
     answer_confidence_reason: Any = None,
     answer_confidence_capped_reason: Any = None,
     sources: Any = None,
+    skills_activated: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
 
@@ -570,6 +575,8 @@ async def persist_assistant_message(
         metadata["answer_confidence_capped_reason"] = answer_confidence_capped_reason
     if sources:
         metadata["sources"] = sources
+    if skills_activated:
+        metadata["skills_activated"] = skills_activated
 
     payload = {
         "organizationId": organization_id,
@@ -965,6 +972,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 if (value := _pull_response_extra(data_model, name)) is not None
             }
 
+            # Agent Skills: the run's force-activated skill names ride the same
+            # lift so the frontend can render "skill X ran" on the answer.
+            skills_extras = {
+                name: value
+                for name in _SKILLS_EXTRA_FIELDS
+                if (value := _pull_response_extra(data_model, name)) is not None
+            }
+
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
                 # ``message_type`` MUST be forwarded. Both `system_response_message`
                 # and `error_message` map to this one schema class, but the schema
@@ -1010,6 +1025,13 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 # only when applicable — same lift as cards/sources/confidence.
                 if message_type == WebSocketMessageType.RESPONSE_MESSAGE and transparency_extras:
                     for _name, _value in transparency_extras.items():
+                        try:
+                            setattr(message, _name, _value)
+                        except Exception:
+                            logger.warning("Could not attach %s to websocket message", _name, exc_info=True)
+                # Attach the Agent Skills extras (e.g. skills_activated) the same way.
+                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and skills_extras:
+                    for _name, _value in skills_extras.items():
                         try:
                             setattr(message, _name, _value)
                         except Exception:
@@ -1132,6 +1154,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             answer_confidence_reason = dump.get("answer_confidence_reason")
             answer_confidence_capped_reason = dump.get("answer_confidence_capped_reason")
             sources = dump.get("sources")
+            skills_activated = dump.get("skills_activated")
 
             if not (text and text.strip()) and not cards:
                 return
@@ -1147,6 +1170,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 answer_confidence_reason=answer_confidence_reason,
                 answer_confidence_capped_reason=answer_confidence_capped_reason,
                 sources=sources,
+                skills_activated=skills_activated,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
             logger.warning("Unexpected error while persisting terminal message", exc_info=True)

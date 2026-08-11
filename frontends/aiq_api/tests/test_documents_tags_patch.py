@@ -6,6 +6,7 @@ no summary row exists, and clears tags on an empty list — never touching the
 one-sentence summary.
 """
 
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -31,6 +32,24 @@ def summary_db():
         DocumentMetadataStore._tables_initialized.discard(db_url)
         configure_summary_db(db_url)
         yield db_url
+        # Windows teardown: the store's TTL-cached engines keep their SQLite
+        # connections open past this test, so the temp file stays locked and
+        # TemporaryDirectory cleanup raises PermissionError (WinError 32).
+        # Dispose the engines for this URL before the directory goes away.
+        with DocumentMetadataStore._cache_lock:
+            for cache in (
+                DocumentMetadataStore._sync_engine_cache,
+                DocumentMetadataStore._async_engine_cache,
+            ):
+                engine = cache.pop(db_url, (None, None))[0]
+                if engine is None:
+                    continue
+                try:
+                    disposed = engine.dispose()
+                    if asyncio.iscoroutine(disposed):
+                        asyncio.run(disposed)
+                except (RuntimeError, OSError):
+                    pass
 
 
 @pytest.fixture

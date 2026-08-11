@@ -12,6 +12,7 @@ export type ProjectPermission =
   | 'project:memory:write'
   | 'project:members:manage'
   | 'project:workflows:manage'
+  | 'project:skills:manage'
 
 export type ProjectRole =
   | 'project-viewer'

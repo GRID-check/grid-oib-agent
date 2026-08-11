@@ -54,6 +54,7 @@ def test_stored_doc_class_wins_over_chunk_metadata():
         assert "oib_leitfaden" not in text
         # And the Trace-Lanes lane derives from the stored class (richtlinie).
         assert "baurecht_oib" in text
+        DocumentMetadataStore.dispose_engine(db_url)
 
 
 def test_falls_back_to_chunk_metadata_when_store_empty():
@@ -71,6 +72,7 @@ def test_falls_back_to_chunk_metadata_when_store_empty():
         text = _format_results(result, "q")
 
         assert "Dokumentart: oib_leitfaden" in text
+        DocumentMetadataStore.dispose_engine(db_url)
 
 
 def test_stored_display_title_is_the_source_label():
@@ -97,6 +99,7 @@ def test_stored_display_title_is_the_source_label():
         assert "Source: Custom OIB Name" in text
         assert "Source: oib-rl_2_ausgabe_mai_2023.pdf" not in text
         assert "Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.3" in text
+        DocumentMetadataStore.dispose_engine(db_url)
 
 
 def test_display_title_falls_back_to_derived_default():
@@ -114,6 +117,7 @@ def test_display_title_falls_back_to_derived_default():
         text = _format_results(result, "q")
 
         assert "Source: OIB-Richtlinie 2, Ausgabe Mai 2023" in text
+        DocumentMetadataStore.dispose_engine(db_url)
 
 
 def test_non_oib_upload_keeps_its_filename_as_source():
@@ -131,3 +135,4 @@ def test_non_oib_upload_keeps_its_filename_as_source():
         text = _format_results(result, "q")
 
         assert "Source: Brandschutzkonzept.pdf" in text
+        DocumentMetadataStore.dispose_engine(db_url)

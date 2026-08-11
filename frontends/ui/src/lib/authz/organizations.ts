@@ -73,6 +73,16 @@ export function canManageArchiv(session: SessionSlice): boolean {
   return hasPermission(session, ORG_PERMISSIONS.archivManage)
 }
 
+/**
+ * May author, edit, clone and delete skills in the org toolbox (Agent Skills).
+ * Reads are open to every org member — skills are shared knowledge — so only
+ * mutations gate on this permission. Org admins hold it via the
+ * `hasPermission` back-compat rule.
+ */
+export function canManageSkills(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.skillsManage)
+}
+
 /** Widget permissions we allow the UI to request a token for, when held. */
 export const ORG_WIDGET_PERMISSIONS = [
   'widgets:users-table:manage',

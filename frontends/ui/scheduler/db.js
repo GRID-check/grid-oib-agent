@@ -1,5 +1,5 @@
 /**
- * grid_app SQL helpers for the workflow scheduler (purger idiom: a small
+ * grid_app SQL helpers for the skill scheduler (purger idiom: a small
  * createSql() over the `postgres` client, plus pure functions that take a
  * postgres.js tagged-template so they are trivially unit-testable with a fake).
  */
@@ -18,17 +18,17 @@ function createSql() {
   return postgres(url, { prepare: false })
 }
 
-const LOG = '[workflow-scheduler]'
+const LOG = '[skill-scheduler]'
 const PRUNE_BATCH = 1000
 
-// The scheduler scans every organization's workflows for the ones due now, so
-// its statements run under the shared platform step-up (ADR-0041). Without it
-// the due-scan returns zero rows and the scheduler goes quiet rather than
-// failing — the worst way for a timer to break.
+// The scheduler scans every organization's skill_schedules for the ones due
+// now, so its statements run under the shared platform step-up (ADR-0041).
+// Without it the due-scan returns zero rows and the scheduler goes quiet
+// rather than failing — the worst way for a timer to break.
 const { PLATFORM_ROLE, enterPlatformScope } = require('../workers/platform-scope')
 
 /**
- * Claim due workflows and advance their schedules — the whole thing in ONE
+ * Claim due skill schedules and advance them — the whole thing in ONE
  * transaction so the claim + the next_run_at advance commit atomically. Only
  * after this commits does the caller fire the runs. That ordering is what makes
  * scheduling at-most-once per occurrence across any number of replicas
@@ -50,7 +50,7 @@ async function claimDue(sql, batch, computeNext) {
     await enterPlatformScope(tx)
     const rows = await tx`
       SELECT id, schedule_cron, schedule_timezone
-      FROM workflows
+      FROM skill_schedules
       WHERE enabled AND schedule_cron IS NOT NULL AND next_run_at <= now()
       ORDER BY next_run_at
       LIMIT ${batch}
@@ -66,18 +66,18 @@ async function claimDue(sql, batch, computeNext) {
         // invariant break (cron is validated in the BFF at save time). Disable
         // the row loudly instead of letting it wedge every subsequent due-scan.
         console.error(
-          `${LOG} workflow ${row.id} has an unparseable cron ${JSON.stringify(row.schedule_cron)} ` +
+          `${LOG} schedule ${row.id} has an unparseable cron ${JSON.stringify(row.schedule_cron)} ` +
             `(tz ${JSON.stringify(row.schedule_timezone)}) — disabling it. This should be impossible; ` +
             `cron is validated at save time.`,
           error,
         )
         await tx`
-          UPDATE workflows SET enabled = false, next_run_at = NULL WHERE id = ${row.id}
+          UPDATE skill_schedules SET enabled = false, next_run_at = NULL WHERE id = ${row.id}
         `
         continue
       }
       await tx`
-        UPDATE workflows SET next_run_at = ${next} WHERE id = ${row.id}
+        UPDATE skill_schedules SET next_run_at = ${next} WHERE id = ${row.id}
       `
       claimed.push(row)
     }
@@ -86,7 +86,7 @@ async function claimDue(sql, batch, computeNext) {
 }
 
 /**
- * Retention: delete workflow_runs older than the window, in index-friendly
+ * Retention: delete skill_runs older than the window, in index-friendly
  * batches (id-subselect with LIMIT so each statement locks a bounded set and
  * the created_at index does the work). Returns the total rows deleted.
  */
@@ -99,9 +99,9 @@ async function pruneOldRuns(sql, retentionDays) {
     const deleted = await sql.begin(async (tx) => {
       await enterPlatformScope(tx)
       return tx`
-        DELETE FROM workflow_runs
+        DELETE FROM skill_runs
         WHERE id IN (
-          SELECT id FROM workflow_runs
+          SELECT id FROM skill_runs
           WHERE created_at < now() - make_interval(days => ${retentionDays})
           ORDER BY created_at
           LIMIT ${PRUNE_BATCH}

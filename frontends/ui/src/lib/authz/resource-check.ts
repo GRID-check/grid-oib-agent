@@ -20,7 +20,7 @@ export interface ResourceCheckInput {
   readonly organizationMembershipId: string
   readonly permissionSlug: string
   readonly resourceExternalId: string
-  readonly resourceTypeSlug: 'project' | 'workflow'
+  readonly resourceTypeSlug: 'project' | 'workflow' | 'skill'
 }
 
 /**

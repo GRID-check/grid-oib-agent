@@ -47,6 +47,14 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
     max_llm_turns: int = Field(default=10, description="Maximum number of LLM turns")
     max_tool_iterations: int = Field(default=5, description="Maximum tool-calling iterations before forcing synthesis")
     verbose: bool = Field(default=False, description="Whether to enable verbose logging")
+    skills_enabled: bool = Field(
+        default=True,
+        description="Whether agent skills (progressive-disclosure `use_skill` tool) are active on research turns.",
+    )
+    skill_allowlist: list[str] = Field(
+        default_factory=list,
+        description="Optional skill-name allowlist; empty = every resolved skill is offered.",
+    )
 
 
 @register_function(config_type=ShallowResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -97,6 +105,26 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
         try:
             data_sources = state.data_sources
             selected_tools = filter_tools_by_sources(tools, data_sources)
+            # Agent skills: resolved per RUN (ADR-0018 — never cached on the
+            # shared agent instance), builtin + org set from the resolver, then
+            # narrowed by the config allowlist. The runtime's `use_skill` tool
+            # is folded into the tool set ONLY on research turns
+            # (requires_sources=True): meta/conversational turns keep their
+            # interaction-only binding — a greeting cannot load a skill.
+            skill_runtime = None
+            run_tools = selected_tools
+            if config.skills_enabled and state.requires_sources:
+                from aiq_agent.project_context import get_organization_id_from_context
+                from aiq_agent.skills import SkillResolver
+                from aiq_agent.skills import SkillRuntime
+
+                resolver = SkillResolver(agent="shallow_researcher")
+                resolved_skills = resolver.resolve(get_organization_id_from_context())
+                if config.skill_allowlist:
+                    allow = set(config.skill_allowlist)
+                    resolved_skills = tuple(s for s in resolved_skills if s.name in allow)
+                skill_runtime = SkillRuntime(skills=resolved_skills, force_names=state.force_skills)
+                run_tools = list(selected_tools) + list(skill_runtime.build_tools())
             # Per-org runtime model overrides (X-Grid-Model-Overrides). Returns
             # the build-time provider unchanged when no override targets this
             # agent, so the identity check below keeps the prebuilt agent.
@@ -111,10 +139,10 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             active_agent = agent
             # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
             # narrow selected_tools even when the request selects "all tools".
-            if active_provider is not provider or selected_tools != tools:
+            if active_provider is not provider or run_tools != tools:
                 active_agent = ShallowResearcherAgent(
                     llm_provider=active_provider,
-                    tools=selected_tools,
+                    tools=run_tools,
                     max_llm_turns=config.max_llm_turns,
                     max_tool_iterations=config.max_tool_iterations,
                     callbacks=callbacks,
@@ -144,7 +172,13 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 error_state = ShallowResearchAgentState(messages=state.messages + [AIMessage(content=error_msg)])
                 return error_state
 
+            if skill_runtime is not None:
+                state.skills_block = "\n\n".join(
+                    block for block in (skill_runtime.prompt_block(), skill_runtime.forced_block()) if block
+                )
             result = await active_agent.run(state)
+            if skill_runtime is not None:
+                result.skills_activated = list(skill_runtime.activated)
             return result
         except Exception:
             logger.exception("Error in shallow research execution.")

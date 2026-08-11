@@ -114,6 +114,7 @@ def _finalize_shallow_answer(
     self_reported_reason: str | None = None,
     verified_sources: list[dict[str, Any]] | None = None,
     citations_removed: dict[str, Any] | None = None,
+    skills_activated: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build the node update for a successful/insufficient shallow answer.
 
@@ -181,6 +182,9 @@ def _finalize_shallow_answer(
             "answer_confidence": None,
             "answer_confidence_reason": None,
             "verified_sources": verified_sources,
+            # The deep research report replaces this answer, so no skills-ran
+            # signal from the superseded shallow turn must leak to the terminal.
+            "skills_activated": None,
         }
 
     return {
@@ -193,6 +197,7 @@ def _finalize_shallow_answer(
         ),
         "verified_sources": verified_sources,
         "citations_removed": citations_removed,
+        "skills_activated": skills_activated,
     }
 
 
@@ -403,6 +408,11 @@ class ChatResearcherAgent:
                     available_documents=state.available_documents,
                     project_context=state.project_context,
                     requires_sources=requires_sources,
+                    # The user-requested forced skills (WS `skills` array). The
+                    # shallow register layer resolves them against the run's
+                    # skill set on research turns and ignores them on meta
+                    # turns — never passed to deep research.
+                    force_skills=state.force_skills,
                 )
                 result = await self.shallow_research_fn(shallow_state)
             except EmptySourceRegistryError as exc:
@@ -517,6 +527,10 @@ class ChatResearcherAgent:
 
             citations_removed = _normalize_citations_removed(getattr(result, "citations_removed", None))
 
+            skills_activated = getattr(result, "skills_activated", None)
+            if not isinstance(skills_activated, list) or not all(isinstance(name, str) for name in skills_activated):
+                skills_activated = None
+
             if final_ai_message:
                 return _finalize_shallow_answer(
                     final_ai_message,
@@ -527,6 +541,7 @@ class ChatResearcherAgent:
                     self_reported_reason=self_reported_reason,
                     verified_sources=verified_sources,
                     citations_removed=citations_removed,
+                    skills_activated=skills_activated,
                 )
             if new_messages:
                 return _finalize_shallow_answer(
@@ -538,6 +553,7 @@ class ChatResearcherAgent:
                     self_reported_reason=self_reported_reason,
                     verified_sources=verified_sources,
                     citations_removed=citations_removed,
+                    skills_activated=skills_activated,
                 )
             return {"messages": [], "shallow_result": None}
 

@@ -22,7 +22,7 @@ describe('nextOccurrence', () => {
     expect(next.toISOString()).toBe('2026-07-17T09:00:00.000Z')
   })
 
-  it('honours a per-workflow IANA timezone', () => {
+  it('honours a per-schedule IANA timezone', () => {
     // 09:00 America/New_York on Mon 2026-07-20 (EDT, UTC-4) = 13:00 UTC.
     const after = new Date('2026-07-16T12:00:00Z')
     const next = nextOccurrence('0 9 * * 1', 'America/New_York', after)

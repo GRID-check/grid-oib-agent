@@ -35,7 +35,7 @@
  */
 
 /** WorkOS resource type a permission or role attaches to. */
-export type PermissionTier = 'org' | 'platform' | 'project' | 'workflow'
+export type PermissionTier = 'org' | 'platform' | 'project' | 'workflow' | 'skill'
 
 /** Where a role may be assigned. */
 export type RoleScope =
@@ -160,6 +160,13 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
     tier: 'org',
   },
   {
+    slug: 'org:skills:manage',
+    name: 'Manage organization skills',
+    description:
+      'Author, edit, clone and delete skills in the organization toolbox (Agent Skills). Reads stay open to every member.',
+    tier: 'org',
+  },
+  {
     slug: 'org:projects:create',
     name: 'Create projects',
     description:
@@ -272,6 +279,41 @@ export const PROJECT_PERMISSION_SPECS: readonly PermissionSpec[] = [
     description: 'Create, edit and delete scheduled workflows in a project (ADR-0023).',
     tier: 'project',
   },
+  {
+    slug: 'project:skills:manage',
+    name: 'Manage project skill schedules',
+    description:
+      'Create, edit, delete and run skill schedules in a project (Agent Skills Phase A). Reads stay open to every project viewer.',
+    tier: 'project',
+  },
+]
+
+/**
+ * Skill-tier permissions — checked per skill schedule via WorkOS FGA. Mirrors
+ * the workflow tier 1:1: CREATING a schedule is `project:skills:manage` (no
+ * schedule exists yet to check against); operating an existing one is checked
+ * here, with the project-tier fallback in `./decide` keeping project admins
+ * working without provisioning per-skill roles.
+ */
+export const SKILL_PERMISSION_SPECS: readonly PermissionSpec[] = [
+  {
+    slug: 'skill:view',
+    name: 'View skill schedule',
+    description: "See a skill schedule's definition, schedule and run history.",
+    tier: 'skill',
+  },
+  {
+    slug: 'skill:run',
+    name: 'Run skill schedule',
+    description: 'Trigger a skill schedule manually, outside its schedule. Spends LLM budget.',
+    tier: 'skill',
+  },
+  {
+    slug: 'skill:manage',
+    name: 'Manage skill schedule',
+    description: "Edit a skill schedule's definition and schedule, or delete it.",
+    tier: 'skill',
+  },
 ]
 
 /**
@@ -358,6 +400,7 @@ export const ALL_PERMISSION_SPECS: readonly PermissionSpec[] = [
   ...PLATFORM_PERMISSION_SPECS,
   ...PROJECT_PERMISSION_SPECS,
   ...WORKFLOW_PERMISSION_SPECS,
+  ...SKILL_PERMISSION_SPECS,
   ...WIDGET_PERMISSION_SPECS,
 ]
 
@@ -518,6 +561,7 @@ export const ROLES: readonly RoleSpec[] = [
       'project:manage',
       'project:members:manage',
       'project:workflows:manage',
+      'project:skills:manage',
     ],
   },
 

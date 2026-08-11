@@ -521,55 +521,55 @@ class TestExtractQueryFromText:
 
     def test_extract_plain_text(self):
         """Test that plain text is returned as-is."""
-        query, sources = _extract_query_from_text("What is CUDA?")
+        query, sources, _skills = _extract_query_from_text("What is CUDA?")
         assert query == "What is CUDA?"
         assert sources is None
 
     def test_extract_empty_text(self):
         """Test extracting from empty text."""
-        query, sources = _extract_query_from_text("")
+        query, sources, _skills = _extract_query_from_text("")
         assert query == ""
         assert sources is None
 
     def test_extract_json_payload_with_query(self):
         """Test extracting from JSON payload with query key."""
         text = '{"query": "What is CUDA?", "data_sources": ["web_search"]}'
-        query, sources = _extract_query_from_text(text)
+        query, sources, _skills = _extract_query_from_text(text)
         assert query == "What is CUDA?"
         assert sources == ["web_search"]
 
     def test_extract_json_payload_with_text_key(self):
         """Test extracting from JSON payload with text key."""
         text = '{"text": "Hello world", "data_sources": "confluence"}'
-        query, sources = _extract_query_from_text(text)
+        query, sources, _skills = _extract_query_from_text(text)
         assert query == "Hello world"
         assert sources == ["confluence"]
 
     def test_extract_json_payload_no_data_sources(self):
         """Test extracting from JSON without data_sources."""
         text = '{"query": "Simple query"}'
-        query, sources = _extract_query_from_text(text)
+        query, sources, _skills = _extract_query_from_text(text)
         assert query == "Simple query"
         assert sources is None
 
     def test_extract_invalid_json_returns_original(self):
         """Test that invalid JSON returns original text."""
         text = '{"invalid json'
-        query, sources = _extract_query_from_text(text)
+        query, sources, _skills = _extract_query_from_text(text)
         assert query == '{"invalid json'
         assert sources is None
 
     def test_extract_json_with_whitespace(self):
         """Test extracting from JSON with surrounding whitespace."""
         text = '  {"query": "Test"}  '
-        query, sources = _extract_query_from_text(text)
+        query, sources, _skills = _extract_query_from_text(text)
         assert query == "Test"
         assert sources is None
 
     def test_extract_json_missing_query_returns_none_text(self):
         """Test JSON without query or text returns None query."""
         text = '{"data_sources": ["web_search"]}'
-        query, sources = _extract_query_from_text(text)
+        query, sources, _skills = _extract_query_from_text(text)
         assert query == '{"data_sources": ["web_search"]}'
         assert sources is None
 
@@ -585,21 +585,21 @@ class TestExtractQueryAndSourcesDict:
                 "data_sources": ["web_search"],
             }
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "What is AI?"
         assert sources == ["web_search"]
 
     def test_extract_from_dict_with_message_key(self):
         """Test extracting from dict with message key."""
         payload = {"message": "Direct message"}
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Direct message"
         assert sources is None
 
     def test_extract_from_dict_with_text_key(self):
         """Test extracting from dict with text key."""
         payload = {"text": "Text message"}
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Text message"
         assert sources is None
 
@@ -614,7 +614,7 @@ class TestExtractQueryAndSourcesDict:
                 ]
             }
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Second question"
         assert sources is None
 
@@ -626,7 +626,7 @@ class TestExtractQueryAndSourcesDict:
                 "messages": [{"role": "user", "content": "Query"}],
             },
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Query"
         assert sources == ["confluence", "sharepoint"]
 
@@ -638,7 +638,7 @@ class TestExtractQueryAndSourcesDict:
                 "data_sources": ["google_drive"],
             },
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Query"
         assert sources == ["google_drive"]
 
@@ -656,7 +656,7 @@ class TestExtractQueryAndSourcesObject:
         payload.messages = [user_msg]
         payload.data_sources = None
 
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Object query"
         assert sources is None
 
@@ -670,7 +670,7 @@ class TestExtractQueryAndSourcesObject:
         payload.messages = [user_msg]
         payload.data_sources = ["web_search", "confluence"]
 
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Query with sources"
         assert sources == ["web_search", "confluence"]
 
@@ -680,14 +680,14 @@ class TestExtractQueryAndSourcesString:
 
     def test_extract_from_plain_string(self):
         """Test extracting from plain string (no inline JSON)."""
-        query, sources = _extract_query_and_sources("Plain query string")
+        query, sources, _skills = _extract_query_and_sources("Plain query string")
         assert query == "Plain query string"
         assert sources is None
 
     def test_extract_from_json_string(self):
         """Test extracting from JSON string."""
         payload = '{"query": "JSON query", "data_sources": ["web_search"]}'
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "JSON query"
         assert sources == ["web_search"]
 
@@ -707,7 +707,7 @@ class TestExtractQueryAndSourcesInlineJson:
                 ]
             }
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Inline JSON"
         assert sources == ["sharepoint"]
 
@@ -723,7 +723,7 @@ class TestExtractQueryAndSourcesInlineJson:
                 ]
             }
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Test"
         assert sources == ["jira"]
 
@@ -740,7 +740,7 @@ class TestExtractQueryAndSourcesInlineJson:
                 ]
             },
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Test"
         assert sources == ["confluence"]
 
@@ -751,7 +751,7 @@ class TestExtractQueryAndSourcesEdgeCases:
     def test_extract_empty_messages_list(self):
         """Test with empty messages list."""
         payload = {"content": {"messages": []}}
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == ""
         assert sources is None
 
@@ -765,7 +765,7 @@ class TestExtractQueryAndSourcesEdgeCases:
                 ]
             }
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "System prompt"
         assert sources is None
 
@@ -780,7 +780,7 @@ class TestExtractQueryAndSourcesEdgeCases:
             }
         }
 
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "LangChain query"
         assert sources is None
 
@@ -792,6 +792,6 @@ class TestExtractQueryAndSourcesEdgeCases:
                 "messages": [{"role": "user", "content": "Query"}],
             },
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Query"
         assert sources == ["web_search", "confluence"]

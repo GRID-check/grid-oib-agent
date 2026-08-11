@@ -1338,6 +1338,31 @@ the full stage design, budget math, and its own still-open known limitation
 (`AgentGroup` has no dedicated member for this pipeline's model overrides
 yet).
 
+## 8d. Agent skills (ADR-0045)
+
+Reusable instruction packages (`SKILL.md`, agentskills.io contract) that
+extend a research turn's procedure. Selection is **user-driven** — a
+`skills` array in the chat envelope or `force_skills` on
+`/v1/internal/skills/submit` names the skills that must apply, exactly
+mirroring how `data_sources` work; the model never picks its own. Delivery
+is **progressive disclosure**: L1 is a one-line-per-skill catalog in the
+system prompt (`## Verfügbare Skills` + a forced-skills block), L2 is the
+full body, loaded only when the model calls the `use_skill` tool. Per-run
+`SkillRuntime` (ADR-0018 — never cached on the shared agent) tracks forced
+vs. invoked names for `skills_activated` on the terminal frame.
+
+The set per run = builtin (`src/aiq_agent/skills/builtin/`, discovered
+deterministically, validated strictly) + org rows from the BFF internal
+`GET /api/internal/skills/resolve` (org shadows builtin by name), resolved
+fail-open and cached in the shared cache
+(`GRID_SKILLS_CACHE_TTL_SECONDS`, default 60). `shallow_research_agent`
+config gate: `skills_enabled` (default true) + `skill_allowlist` (empty =
+all). Research turns only — meta turns keep the interaction-only tool
+partition. The deep researcher intentionally stays on the deepagents-native
+skill-sources mechanism (`DeepResearchSkillsConfig`, `SkillsMiddleware` +
+`FilesystemBackend`); `force_skills` never crosses to it. Full design and
+tests: `docs/architecture/agent-skills.md`.
+
 ## 9. Known issues / open items
 
 - **Research tab 403** — origin is `requireAuthorizedSession()` throwing

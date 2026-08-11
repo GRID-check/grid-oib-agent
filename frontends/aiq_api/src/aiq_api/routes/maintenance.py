@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from fastapi import Request
 from pydantic import BaseModel
 
-# The internal-token guard is shared with the workflows submit route. Re-exported
+# The internal-token guard is shared with the skills submit route. Re-exported
 # here so existing imports (and tests) of these names from routes.maintenance
 # keep working while a single implementation lives in one place.
 from .internal_auth import _DEV_APP_ENVS  # noqa: F401 - re-export for backwards compatibility

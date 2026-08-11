@@ -1,10 +1,10 @@
 /**
- * Cron helper for the workflow scheduler.
+ * Cron helper for the skill scheduler.
  *
  * `nextOccurrence(expr, tz, after)` returns the next firing time of a 5-field
  * cron expression in the given IANA timezone that is STRICTLY after `after`,
  * as a JS Date. The scheduler always passes `now` (not the stale next_run_at),
- * so misfire coalescing comes for free: after downtime a workflow fires once
+ * so misfire coalescing comes for free: after downtime a skill fires once
  * and jumps straight to its next future slot instead of backfilling every
  * missed occurrence.
  *

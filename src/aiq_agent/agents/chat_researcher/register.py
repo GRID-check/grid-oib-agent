@@ -195,6 +195,8 @@ _STREAM_EXTRA_FIELDS = (
     "citations_removed",
     "job_admission_rejected",
     "retry_after_seconds",
+    # Agent Skills: which skills ran this turn (forced first, then invoked).
+    "skills_activated",
 )
 
 
@@ -882,7 +884,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 pass
         logger.info("skip_clarifier=%s", skip_clarifier)
 
-        query_text, data_sources = _extract_query_and_sources(query)
+        query_text, data_sources, force_skills = _extract_query_and_sources(query)
         logger.info("ChatDeepResearcherAgent: %s", query_text)
         logger.info("ChatDeepResearcherAgent: Data sources: %s", data_sources)
 
@@ -984,6 +986,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 messages=[HumanMessage(content=query_text)],
                 user_info=user_info_dict,
                 data_sources=data_sources,
+                force_skills=force_skills,
                 available_documents=available_documents,
                 collection_scope=_collection_scope,
                 skip_clarifier=skip_clarifier,
@@ -1079,6 +1082,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         citations_removed = _result_field(result, "citations_removed")
         job_admission_rejected = _result_field(result, "job_admission_rejected")
         retry_after_seconds = _result_field(result, "retry_after_seconds")
+        skills_activated = _result_field(result, "skills_activated")
 
         # Exit after response when --input is provided
         if "--input" in sys.argv:
@@ -1119,6 +1123,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             response.job_admission_rejected = True
             if retry_after_seconds is not None:
                 response.retry_after_seconds = retry_after_seconds
+        if skills_activated:
+            response.skills_activated = skills_activated
 
         # Post-processing phase: kick off memory reflection AFTER the answer is
         # ready. Fire-and-forget — it runs on the event loop without delaying the

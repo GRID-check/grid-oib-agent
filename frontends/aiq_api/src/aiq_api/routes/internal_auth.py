@@ -1,6 +1,6 @@
 """Shared guard for service-to-service internal endpoints.
 
-The maintenance purge routes and the workflows submit route are both reachable
+The maintenance purge routes and the skills submit route are both reachable
 only from inside the compose network (never on the AuthMiddleware external-path
 allowlist) and are authenticated with the shared ``GRID_INTERNAL_API_TOKEN``.
 

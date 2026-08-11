@@ -9,6 +9,7 @@ import {
   Inbox,
   MessageSquare,
   Settings,
+  Sparkles,
   Zap,
 } from 'lucide-react'
 
@@ -25,14 +26,19 @@ import {
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Ask Piloti · Workflows* · Files · History · Archiv* · Inbox*.
- * The palette additionally surfaces the palette-only destinations Knowledge* and
- * Setup (intake). A `*` marks a flag-gated section.
+ * separately): Ask Piloti · Workflows* · Skills* · Files · History · Archiv* ·
+ * Inbox*. The palette additionally surfaces the palette-only destinations
+ * Knowledge* and Setup (intake). A `*` marks a flag-gated section.
+ *
+ * Skills supersedes Workflows (ADR-0045): the layouts pass the flags mutually
+ * exclusive — `showWorkflows = workflowsEnabled && !skillsEnabled` — so a
+ * deployment never sees both sections.
  */
 
 export type ProjectSectionKey =
   | 'chat'
   | 'workflows'
+  | 'skills'
   | 'files'
   | 'model'
   | 'knowledge'
@@ -46,6 +52,8 @@ export type ProjectSectionKey =
 export interface ProjectSectionFlags {
   /** Workflows page — feature-flagged, default off. */
   showWorkflows?: boolean
+  /** Agent Skills page — feature-flagged, default off (ADR-0045). */
+  showSkills?: boolean
   /** Org-wide Archiv — `organization-archiv` flag (ADR-0024). */
   canAccessArchiv?: boolean
   /** Project knowledge page — feature-flagged, default off. */
@@ -116,6 +124,19 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     icon: Zap,
     i18nKey: 'workflows',
     gate: 'showWorkflows',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'w',
+  },
+  {
+    // Skills (ADR-0045): the layouts keep `showWorkflows` and `showSkills`
+    // mutually exclusive, so this is the workflows entry's successor — it
+    // inherits the same slot and the same `w` muscle memory.
+    key: 'skills',
+    segment: 'skills',
+    icon: Sparkles,
+    i18nKey: 'skills',
+    gate: 'showSkills',
     inRail: true,
     inPalette: true,
     shortcutKey: 'w',

@@ -21,6 +21,7 @@ import {
   PLATFORM_PERMISSION_SPECS,
   PROJECT_PERMISSION_SPECS,
   ROLES,
+  SKILL_PERMISSION_SPECS,
   WORKFLOW_PERMISSION_SPECS,
 } from './catalog'
 
@@ -38,6 +39,8 @@ export const ORG_PERMISSIONS = {
   auditView: 'org:audit:view',
   /** Manage the org-wide document Archiv (upload/delete/reingest/retag). */
   archivManage: 'org:archiv:manage',
+  /** Author/edit/delete skills in the org toolbox (Agent Skills). */
+  skillsManage: 'org:skills:manage',
   /** Create new projects in the organization. */
   projectsCreate: 'org:projects:create',
   /** See and manage who is in the organization and what role they hold. */
@@ -68,6 +71,7 @@ export const PROJECT_PERMISSIONS = {
   manage: 'project:manage',
   membersManage: 'project:members:manage',
   workflowsManage: 'project:workflows:manage',
+  skillsManage: 'project:skills:manage',
 } as const
 
 /** Workflow-tier permissions, checked per workflow via WorkOS FGA. */
@@ -77,10 +81,18 @@ export const WORKFLOW_PERMISSIONS = {
   manage: 'workflow:manage',
 } as const
 
+/** Skill-tier permissions, checked per skill schedule via WorkOS FGA. */
+export const SKILL_PERMISSIONS = {
+  view: 'skill:view',
+  run: 'skill:run',
+  manage: 'skill:manage',
+} as const
+
 export type OrgPermission = (typeof ORG_PERMISSIONS)[keyof typeof ORG_PERMISSIONS]
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[keyof typeof PLATFORM_PERMISSIONS]
 export type ProjectPermission = (typeof PROJECT_PERMISSIONS)[keyof typeof PROJECT_PERMISSIONS]
 export type WorkflowPermission = (typeof WORKFLOW_PERMISSIONS)[keyof typeof WORKFLOW_PERMISSIONS]
+export type SkillPermission = (typeof SKILL_PERMISSIONS)[keyof typeof SKILL_PERMISSIONS]
 
 /**
  * A permission answerable from the JWT alone — no resource id, no I/O.
@@ -90,7 +102,11 @@ export type WorkflowPermission = (typeof WORKFLOW_PERMISSIONS)[keyof typeof WORK
 export type KnownPermission = OrgPermission | PlatformPermission
 
 /** Any permission in the catalog, across all four tiers. */
-export type AnyPermission = KnownPermission | ProjectPermission | WorkflowPermission
+export type AnyPermission =
+  | KnownPermission
+  | ProjectPermission
+  | WorkflowPermission
+  | SkillPermission
 
 /**
  * Permissions each ENVIRONMENT-SCOPED ORG role holds, straight from the catalog.
@@ -147,5 +163,8 @@ export const ALL_PROJECT_PERMISSION_SLUGS: readonly string[] = PROJECT_PERMISSIO
   (permission) => permission.slug
 )
 export const ALL_WORKFLOW_PERMISSION_SLUGS: readonly string[] = WORKFLOW_PERMISSION_SPECS.map(
+  (permission) => permission.slug
+)
+export const ALL_SKILL_PERMISSION_SLUGS: readonly string[] = SKILL_PERMISSION_SPECS.map(
   (permission) => permission.slug
 )

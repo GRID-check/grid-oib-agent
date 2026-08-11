@@ -31,6 +31,7 @@ const BOUNDARY_MIGRATIONS = [
   '0032_messages_organization_id.sql',
   '0034_bim_models.sql',
   '0035_bim_check_confirmations.sql',
+  '0041_agent_skills.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

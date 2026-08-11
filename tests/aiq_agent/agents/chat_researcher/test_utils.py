@@ -153,29 +153,40 @@ class TestExtractQueryFromText:
 
     def test_extract_simple_text(self):
         """Test extracting from plain text."""
-        query, sources = _extract_query_from_text("What is CUDA?")
+        query, sources, skills = _extract_query_from_text("What is CUDA?")
         assert query == "What is CUDA?"
         assert sources is None
+        assert skills is None
 
     def test_extract_empty_text(self):
         """Test extracting from empty string."""
-        query, sources = _extract_query_from_text("")
+        query, sources, skills = _extract_query_from_text("")
         assert query == ""
         assert sources is None
+        assert skills is None
 
     def test_extract_json_payload(self):
         """Test extracting from JSON payload."""
         text = '{"query": "Test query", "data_sources": ["web_search"]}'
-        query, sources = _extract_query_from_text(text)
+        query, sources, skills = _extract_query_from_text(text)
         assert query == "Test query"
         assert sources == ["web_search"]
+        assert skills is None
+
+    def test_extract_json_payload_with_skills(self):
+        """Test extracting forced skills from a JSON payload."""
+        text = '{"query": "Analyse", "skills": ["forecast-analysis", "data-table-analysis"]}'
+        query, _, skills = _extract_query_from_text(text)
+        assert query == "Analyse"
+        assert skills == ["forecast-analysis", "data-table-analysis"]
 
     def test_extract_invalid_json(self):
         """Test invalid JSON returns original text."""
         text = '{"invalid json'
-        query, sources = _extract_query_from_text(text)
+        query, sources, skills = _extract_query_from_text(text)
         assert query == text
         assert sources is None
+        assert skills is None
 
 
 class TestExtractQueryAndSources:
@@ -189,9 +200,10 @@ class TestExtractQueryAndSources:
                 "data_sources": ["confluence"],
             }
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, skills = _extract_query_and_sources(payload)
         assert query == "Query text"
         assert sources == ["confluence"]
+        assert skills is None
 
     def test_extract_from_object_payload(self):
         """Test extracting from object payload with messages."""
@@ -201,15 +213,18 @@ class TestExtractQueryAndSources:
         payload = MagicMock()
         payload.messages = [user_msg]
         payload.data_sources = None
-        query, sources = _extract_query_and_sources(payload)
+        payload.skills = None
+        query, sources, skills = _extract_query_and_sources(payload)
         assert query == "Object query"
         assert sources is None
+        assert skills is None
 
     def test_extract_from_string_payload(self):
         """Test extracting from string payload."""
-        query, sources = _extract_query_and_sources("Plain query string")
+        query, sources, skills = _extract_query_and_sources("Plain query string")
         assert query == "Plain query string"
         assert sources is None
+        assert skills is None
 
     def test_explicit_empty_data_sources_preserved(self):
         """An explicit [] ("no data-source tools") must not fall back to None."""
@@ -217,10 +232,11 @@ class TestExtractQueryAndSources:
             "data_sources": [],
             "content": {"messages": [{"role": "user", "content": "Query text"}]},
         }
-        query, sources = _extract_query_and_sources(payload)
+        query, sources, skills = _extract_query_and_sources(payload)
         assert query == "Query text"
         # [] must survive: `or`-chaining would overwrite it with None ("all tools").
         assert sources == []
+        assert skills is None
 
     def test_top_level_empty_not_overwritten_by_content_sources(self):
         """A top-level [] wins over content-level sources (both explicit)."""
@@ -231,5 +247,62 @@ class TestExtractQueryAndSources:
                 "data_sources": ["confluence"],
             },
         }
-        _query, sources = _extract_query_and_sources(payload)
+        _query, sources, _skills = _extract_query_and_sources(payload)
         assert sources == []
+
+    def test_forced_skills_extracted_top_level(self):
+        """The WS content JSON's `skills` array is extracted at the top level."""
+        payload = {
+            "skills": ["forecast-analysis"],
+            "content": {"messages": [{"role": "user", "content": "Prognose für Krankenhaus?"}]},
+        }
+        query, _sources, skills = _extract_query_and_sources(payload)
+        assert query == "Prognose für Krankenhaus?"
+        assert skills == ["forecast-analysis"]
+
+    def test_forced_skills_content_level_when_top_level_absent(self):
+        """`skills` inside `content` is the fallback location."""
+        payload = {
+            "content": {
+                "messages": [{"role": "user", "content": "Berechnung"}],
+                "skills": ["lightweight-calculation"],
+            }
+        }
+        query, _sources, skills = _extract_query_and_sources(payload)
+        assert query == "Berechnung"
+        assert skills == ["lightweight-calculation"]
+
+    def test_top_level_empty_skills_not_overwritten_by_content_skills(self):
+        """An explicit top-level [] wins over content-level skills."""
+        payload = {
+            "skills": [],
+            "content": {
+                "messages": [{"role": "user", "content": "Query text"}],
+                "skills": ["lightweight-calculation"],
+            },
+        }
+        _query, _sources, skills = _extract_query_and_sources(payload)
+        assert skills == []
+
+    def test_forced_skills_from_inline_json(self):
+        """Inline JSON inside the user message also carries the skills array."""
+        payload = {
+            "content": {
+                "messages": [{"role": "user", "content": '{"query": "Analyse", "skills": ["data-table-analysis"]}'}]
+            }
+        }
+        query, _sources, skills = _extract_query_and_sources(payload)
+        assert query == "Analyse"
+        assert skills == ["data-table-analysis"]
+
+    def test_malformed_skills_content_cleaned(self):
+        """Non-name junk in the skills array is stringified (mirroring
+        parse_data_sources); unknown names are resolved away downstream by the
+        reminder runtime (never an error)."""
+        payload = {
+            "skills": ["forecast-analysis", 42, None, " "],
+            "content": {"messages": [{"role": "user", "content": "Query"}]},
+        }
+        query, _sources, skills = _extract_query_and_sources(payload)
+        assert query == "Query"
+        assert skills == ["forecast-analysis", "42", "None"]

@@ -33,6 +33,8 @@ import pytest
 from knowledge_layer.llamaindex import adapter
 from knowledge_layer.llamaindex import processing
 
+from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
+
 # =============================================================================
 # is_failed_caption / vlm_cache_key
 # =============================================================================
@@ -689,7 +691,9 @@ class TestScopedReconcile:
     @pytest.fixture
     def temp_db_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            yield f"sqlite:///{Path(tmpdir) / 'reconcile_scoped.db'}"
+            db_url = f"sqlite:///{Path(tmpdir) / 'reconcile_scoped.db'}"
+            yield db_url
+            DocumentMetadataStore.dispose_engine(db_url)
 
     class _ListFilesForbiddenIngestor:
         def list_files(self, collection_name):

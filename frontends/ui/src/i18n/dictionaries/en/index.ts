@@ -20,6 +20,7 @@ import { bim } from './bim'
 import { knowledge } from './knowledge'
 import { research } from './research'
 import { workflows } from './workflows'
+import { skills } from './skills'
 import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
@@ -45,6 +46,7 @@ export const en = {
   knowledge,
   research,
   workflows,
+  skills,
   members,
   onboarding,
   organization,

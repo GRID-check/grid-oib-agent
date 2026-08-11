@@ -29,6 +29,14 @@ export const BYOK_LLM_FLAG = 'byok-llm'
 export const WORKFLOWS_FLAG = 'workflows'
 
 /**
+ * Slug of the flag gating the Agent Skills feature (Phase A). Session paths
+ * use `isSkillsEnabled` (authz/feature-flags); the session-less scheduled-fire
+ * path evaluates this slug per-org so revoking an org's flag also pauses its
+ * skill schedules (fail-closed, like workflows).
+ */
+export const SKILLS_FLAG = 'skills'
+
+/**
  * Slug of the platform-layer web-search flag (ADR-0022). Participates only
  * when GRID_ENFORCE_FEATURE_FLAGS=true — see `isWebSearchEnabledForOrg` in
  * `@/lib/organizations/service`, which combines it with the tenant's own

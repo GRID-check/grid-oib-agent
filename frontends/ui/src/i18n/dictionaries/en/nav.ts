@@ -14,6 +14,7 @@ export const nav = {
     knowledge: 'Knowledge',
     research: 'Research',
     workflows: 'Workflows',
+    skills: 'Skills',
     archiv: 'Archiv',
     history: 'History',
     settings: 'Settings',

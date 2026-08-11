@@ -1,0 +1,3 @@
+"New skill"
+"View instruction"
+"Clone"

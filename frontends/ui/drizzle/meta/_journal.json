@@ -288,6 +288,13 @@
       "when": 1785974400005,
       "tag": "0040_bim_elements_storey_expression_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786060800005,
+      "tag": "0041_agent_skills",
+      "breakpoints": true
     }
   ]
 }

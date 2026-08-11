@@ -246,6 +246,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="run-history-preview"] a',
   },
   {
+    id: 'skills-panel',
+    path: '/dev/skills-panel',
+    description:
+      'Agent Skills tab (ADR-0045) — the merged skill toolbox (builtin, org, cloned) with badges and instruction bodies, plus the schedule list with run history joined to live job status.',
+    waitFor: '[data-testid="skills-panel-preview"]',
+  },
+  {
     id: 'platform-knowledge',
     mobile: true,
     path: '/dev/platform-knowledge',

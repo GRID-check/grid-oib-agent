@@ -424,11 +424,11 @@ class TestSubmitDeepResearchJob:
         assert result == "test-job-id"
         mock_job_store.submit_job.assert_called_once()
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        # data_sources is tenth-to-last (auth_token, collection_scope,
+        # data_sources is eleventh-to-last (auth_token, collection_scope,
         # project_context, model_overrides, usage_context, user_info,
-        # clarifier_result, memory_reflection_enabled, memory_reflection_llm
-        # follow)
-        assert job_args[-10] == ["web_search"]
+        # clarifier_result, memory_reflection_enabled, memory_reflection_llm,
+        # force_skills follow)
+        assert job_args[-11] == ["web_search"]
 
     @pytest.mark.asyncio
     async def test_submit_agent_job_passes_user_info_and_clarifier_result(self):
@@ -459,9 +459,9 @@ class TestSubmitDeepResearchJob:
 
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
         # Tail order: ..., user_info, clarifier_result,
-        # memory_reflection_enabled, memory_reflection_llm.
-        assert job_args[-4] == {"name": "Ada", "email": "ada@example.com"}
-        assert job_args[-3] == "User confirmed scope: OIB 4 only."
+        # memory_reflection_enabled, memory_reflection_llm, force_skills.
+        assert job_args[-5] == {"name": "Ada", "email": "ada@example.com"}
+        assert job_args[-4] == "User confirmed scope: OIB 4 only."
 
     @pytest.mark.asyncio
     async def test_submit_with_custom_job_id(self):

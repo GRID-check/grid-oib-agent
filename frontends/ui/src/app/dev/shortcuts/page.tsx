@@ -58,6 +58,7 @@ export default function ShortcutsPreviewPage() {
           onOpenChange={() => {}}
           canViewOrganization={everything}
           showKnowledge={everything}
+          showSkills={everything}
           showWorkflows={everything}
           canAccessArchiv={everything}
           canCollaborate={everything}

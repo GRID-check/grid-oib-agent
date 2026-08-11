@@ -203,6 +203,13 @@ User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
 **No research tools available.**
 {% endif %}
 
+{# Agent skills catalog (L1): rendered by the register layer only when skills
+   apply to this run. None = no skills section, model never sees `use_skill`. #}
+{% if skills_block is defined and skills_block %}
+{{ skills_block }}
+
+{% endif %}
+
 {% if available_documents %}
 ## Knowledge-base inventory (index — NOT sources)
 These files exist and are searchable. This is an index of what is available, not evidence you may cite: the one-line summaries are not quotable, and a filename here is NOT a citable source.
