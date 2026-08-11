@@ -268,7 +268,8 @@ export function ModelAdvancedSheet({
 
         <TabsContent value="quantities" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
           <IfcRoomSchedule
-            schedule={schedule.data}
+            schedule={schedule.data?.schedule ?? null}
+            truncated={schedule.data?.truncated ?? false}
             isLoading={schedule.isLoading}
             error={schedule.error}
             filename={model.filename}
@@ -278,7 +279,8 @@ export function ModelAdvancedSheet({
             }
           />
           <IfcQuantityTakeoff
-            rows={takeoff.data}
+            rows={takeoff.data?.rows ?? null}
+            truncated={takeoff.data?.truncated ?? false}
             isLoading={takeoff.isLoading}
             error={takeoff.error}
             quantity={takeoffQuantity}
@@ -303,7 +305,8 @@ export function ModelAdvancedSheet({
           />
           <IfcComplianceDiff
             baseModel={previousRevision}
-            changes={complianceDiff.data}
+            changes={complianceDiff.data?.changes ?? null}
+            truncated={complianceDiff.data?.truncated ?? false}
             isLoading={complianceDiff.isLoading}
             error={complianceDiff.error}
             onRun={complianceDiff.run}

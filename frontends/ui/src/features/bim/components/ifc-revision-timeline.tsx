@@ -56,12 +56,23 @@ function useSigned(): (value: number | null) => string {
 function DeltaRow({ delta }: { delta: BimRevisionDelta }): JSX.Element {
   const t = useTranslations('bim')
   const signed = useSigned()
-  const entries: Array<{ key: string; value: number | null }> = [
+  /**
+   * `judged` marks the one metric that has a direction.
+   *
+   * Every delta used to be painted green when positive and red when negative.
+   * `+300 Bauteile` is not good news and `−40 m² Netto-Grundfläche` is not bad
+   * news — this file's own header warns that "an office that re-exports with a
+   * different mapping can move 300 elements without touching the design", and
+   * then the row painted that move green. Only the health score improves when
+   * it goes up; the rest are facts, and a colour on a fact is an opinion the
+   * data does not support.
+   */
+  const entries: Array<{ key: string; value: number | null; judged?: boolean }> = [
     { key: 'elements', value: delta.elements },
     { key: 'spaces', value: delta.spaces },
     { key: 'storeys', value: delta.storeys },
     { key: 'netFloorArea', value: delta.netFloorArea },
-    { key: 'health', value: delta.healthScore },
+    { key: 'health', value: delta.healthScore, judged: true },
   ]
   return (
     <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -70,7 +81,7 @@ function DeltaRow({ delta }: { delta: BimRevisionDelta }): JSX.Element {
           <span>{t(`timeline.delta.${entry.key}`)}</span>
           <span
             className={`tabular-nums ${
-              entry.value === null || entry.value === 0
+              !entry.judged || entry.value === null || entry.value === 0
                 ? ''
                 : entry.value > 0
                   ? 'text-success'

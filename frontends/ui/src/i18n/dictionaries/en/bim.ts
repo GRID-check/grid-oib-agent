@@ -204,6 +204,8 @@ export const bim = {
     running: 'Comparing…',
     failed: 'The comparison could not be run.',
     unchanged: 'No requirement changed its status between these two revisions.',
+    truncated:
+      'At least one revision was read only in part, so this comparison covers part of each building — an unchanged status here does not mean nothing changed.',
     counts:
       '{beforePassed}/{beforeFailed}/{beforeUndecidable} → {afterPassed}/{afterFailed}/{afterUndecidable} met/not met/not decidable',
     trend: {
@@ -215,6 +217,8 @@ export const bim = {
     },
   },
   schedule: {
+    truncated:
+      'This model was read only in part, so the totals below cover the rooms that were stored, not the building.',
     title: 'Room schedule',
     download: 'CSV',
     room: 'Room',
@@ -230,6 +234,7 @@ export const bim = {
     failed: 'The room schedule could not be loaded.',
   },
   takeoff: {
+    showAll: 'Show {count} more groups',
     title: 'Quantity take-off',
     description:
       "Sums the model's own published quantities per element type. Elements that publish nothing are counted separately — a total over an incomplete set is not a total.",

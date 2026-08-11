@@ -551,13 +551,32 @@ interface BimQueryResponse {
 const SCHEDULE_REQUEST = { op: 'schedule' } as const
 const PROFILE_REQUEST = { op: 'profile' } as const
 
-const selectSchedule = (body: BimQueryResponse): BimRoomSchedule | null => body.schedule ?? null
-const selectTakeoff = (body: BimQueryResponse): BimQuantityRow[] | null => body.takeoff ?? null
+/**
+ * The tables, WITH the flag saying whether they cover the whole building.
+ *
+ * The query layer computes `truncated` for every one of these — its own
+ * comment calls the banner "the only thing stopping 'was hat sich
+ * verschlechtert' being answered from half a building" — and the selectors
+ * dropped it on the floor. A Raumbuch's `Gesamt` row was then printed as a
+ * building total over however many rooms fitted under the cap, and
+ * "Keine Anforderung hat ihren Status geändert" read identically for "nothing
+ * regressed" and "we compared half of each revision".
+ */
+const selectSchedule = (
+  body: BimQueryResponse
+): { schedule: BimRoomSchedule; truncated: boolean } | null =>
+  body.schedule ? { schedule: body.schedule, truncated: body.truncated ?? false } : null
+const selectTakeoff = (
+  body: BimQueryResponse
+): { rows: BimQuantityRow[]; truncated: boolean } | null =>
+  body.takeoff ? { rows: body.takeoff, truncated: body.truncated ?? false } : null
 const selectProfile = (body: BimQueryResponse): BimProfileSuggestion[] | null =>
   body.profileSuggestions ?? null
 
 /** The Raumbuch: rooms per storey with the totals and their blind spots. */
-export function useBimRoomSchedule(modelId: string | null): AsyncState<BimRoomSchedule> {
+export function useBimRoomSchedule(
+  modelId: string | null
+): AsyncState<{ schedule: BimRoomSchedule; truncated: boolean }> {
   return useModelQuery(modelId, SCHEDULE_REQUEST, selectSchedule)
 }
 
@@ -566,7 +585,7 @@ export function useBimTakeoff(
   modelId: string | null,
   quantity: string,
   byMaterial: boolean
-): AsyncState<BimQuantityRow[]> {
+): AsyncState<{ rows: BimQuantityRow[]; truncated: boolean }> {
   const request = useMemo(
     () => ({ op: 'takeoff' as const, quantity, byMaterial }),
     [quantity, byMaterial]
@@ -704,13 +723,17 @@ export function useBimComplianceDiff(
   modelId: string | null,
   baseModelId: string | null,
   facts: { gebaeudeklasse: number | null; hauptnutzung: string | null }
-): AsyncState<BimComplianceChange[]> & { run: () => void } {
-  const [state, setState] = useState<AsyncState<BimComplianceChange[]>>(IDLE)
+): AsyncState<{ changes: BimComplianceChange[]; truncated: boolean }> & { run: () => void } {
+  const [state, setState] = useState<
+    AsyncState<{ changes: BimComplianceChange[]; truncated: boolean }>
+  >(IDLE)
 
   const run = useCallback(() => {
     if (!modelId || !baseModelId) return
     setState({ data: null, isLoading: true, error: null })
-    getJson<{ complianceChanges?: BimComplianceChange[] }>(`/api/bim/models/${modelId}/query`, {
+    getJson<{ complianceChanges?: BimComplianceChange[]; truncated?: boolean }>(
+      `/api/bim/models/${modelId}/query`,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -720,7 +743,13 @@ export function useBimComplianceDiff(
         ...(facts.hauptnutzung === null ? {} : { hauptnutzung: facts.hauptnutzung }),
       }),
     })
-      .then((body) => setState({ data: body.complianceChanges ?? [], isLoading: false, error: null }))
+      .then((body) =>
+        setState({
+          data: { changes: body.complianceChanges ?? [], truncated: body.truncated ?? false },
+          isLoading: false,
+          error: null,
+        })
+      )
       .catch(() => setState({ data: null, isLoading: false, error: 'load-failed' }))
   }, [modelId, baseModelId, facts.gebaeudeklasse, facts.hauptnutzung])
 

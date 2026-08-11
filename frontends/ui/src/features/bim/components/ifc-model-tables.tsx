@@ -33,6 +33,9 @@ import {
 /** Rows shown before the panel folds; a 400-room model must not own the page. */
 const VISIBLE_ROOMS = 60
 
+/** Take-off groups shown before the table folds. */
+const VISIBLE_TAKEOFF_ROWS = 40
+
 function useNumberFormat(): (value: number | null, digits?: number) => string {
   const { locale } = useLocale()
   return useMemo(() => {
@@ -47,6 +50,16 @@ function useNumberFormat(): (value: number | null, digits?: number) => string {
 // ---------------------------------------------------------------------------
 
 export interface IfcRoomScheduleProps {
+  /**
+   * The query read only part of the building.
+   *
+   * Load-bearing on this surface: the `Gesamt` row is a building total, and
+   * over a capped room list it is a partial sum labelled as a complete one —
+   * a Flächenaufstellung that can go into an Einreichung. The file's own
+   * header says "every total here states how many rows it could not see"; it
+   * stated `roomsWithoutArea` and not this.
+   */
+  truncated?: boolean
   schedule: BimRoomSchedule | null
   isLoading: boolean
   error: string | null
@@ -57,6 +70,7 @@ export interface IfcRoomScheduleProps {
 }
 
 export function IfcRoomSchedule({
+  truncated = false,
   schedule,
   isLoading,
   error,
@@ -111,6 +125,13 @@ export function IfcRoomSchedule({
 
       {schedule && schedule.totals.rooms > 0 && (
         <>
+          {/* Above the rows on purpose: it invalidates the `Gesamt` below. */}
+          {truncated && (
+            <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              {t('schedule.truncated')}
+            </p>
+          )}
           {schedule.totals.roomsWithoutArea > 0 && (
             <p className="flex items-start gap-2 rounded-md bg-warning-subtle p-2 text-xs text-warning">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -224,6 +245,8 @@ export function IfcRoomSchedule({
 // ---------------------------------------------------------------------------
 
 export interface IfcQuantityTakeoffProps {
+  /** The query read only part of the building — see the Raumbuch's note. */
+  truncated?: boolean
   rows: BimQuantityRow[] | null
   isLoading: boolean
   error: string | null
@@ -234,6 +257,7 @@ export interface IfcQuantityTakeoffProps {
 }
 
 export function IfcQuantityTakeoff({
+  truncated = false,
   rows,
   isLoading,
   error,
@@ -245,6 +269,16 @@ export function IfcQuantityTakeoff({
   const t = useTranslations('bim')
   const format = useNumberFormat()
   const incomplete = (rows ?? []).reduce((sum, row) => sum + row.missing, 0)
+  const [expandedRows, setExpandedRows] = useState(false)
+  /**
+   * The only table on this surface that had no cap.
+   *
+   * Grouped by type it is fifty rows; with "nach Material trennen" the group
+   * key is `type · material`, which on real material strings runs to thousands
+   * of distinct groups — every one of them rendered, in a 26 rem drawer.
+   * Everything else here caps (300, 60, 25, 8) and says what it left out.
+   */
+  const visibleRows = expandedRows ? (rows ?? []) : (rows ?? []).slice(0, VISIBLE_TAKEOFF_ROWS)
 
   return (
     <section aria-labelledby="bim-takeoff-heading" className="space-y-2">
@@ -290,6 +324,12 @@ export function IfcQuantityTakeoff({
 
       {rows && rows.length > 0 && (
         <>
+          {truncated && (
+            <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              {t('schedule.truncated')}
+            </p>
+          )}
           {incomplete > 0 && (
             <p className="flex items-start gap-2 rounded-md bg-warning-subtle p-2 text-xs text-warning">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -312,7 +352,7 @@ export function IfcQuantityTakeoff({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {visibleRows.map((row) => (
                   <tr key={row.group} className="border-t">
                     <td className="px-2 py-1">{row.group}</td>
                     <td className="px-2 py-1 text-right tabular-nums">
@@ -329,6 +369,17 @@ export function IfcQuantityTakeoff({
               </tbody>
             </table>
           </div>
+          {(rows?.length ?? 0) > visibleRows.length && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpandedRows(true)}
+              className="w-full"
+            >
+              {t('takeoff.showAll', { count: (rows?.length ?? 0) - visibleRows.length })}
+            </Button>
+          )}
         </>
       )}
     </section>

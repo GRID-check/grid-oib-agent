@@ -206,6 +206,8 @@ export const bim: typeof en.bim = {
     running: 'Wird verglichen…',
     failed: 'Der Vergleich konnte nicht durchgeführt werden.',
     unchanged: 'Keine Anforderung hat ihren Status zwischen diesen beiden Ständen geändert.',
+    truncated:
+      'Mindestens eine Revision wurde nur teilweise eingelesen — dieser Vergleich deckt jeweils nur einen Teil des Gebäudes ab. „Unverändert“ heißt hier nicht, dass sich nichts geändert hat.',
     counts:
       '{beforePassed}/{beforeFailed}/{beforeUndecidable} → {afterPassed}/{afterFailed}/{afterUndecidable} erfüllt/nicht erfüllt/nicht entscheidbar',
     trend: {
@@ -217,6 +219,8 @@ export const bim: typeof en.bim = {
     },
   },
   schedule: {
+    truncated:
+      'Dieses Modell wurde nur teilweise eingelesen — die Summen unten beziehen sich auf die gespeicherten Räume, nicht auf das Gebäude.',
     title: 'Raumbuch',
     download: 'CSV',
     room: 'Raum',
@@ -232,6 +236,7 @@ export const bim: typeof en.bim = {
     failed: 'Das Raumbuch konnte nicht geladen werden.',
   },
   takeoff: {
+    showAll: 'Weitere {count} Gruppen anzeigen',
     title: 'Massenermittlung',
     description:
       'Summiert die im Modell veröffentlichten Mengen je Bauteiltyp. Bauteile ohne Wert werden getrennt ausgewiesen — eine Summe über einen unvollständigen Satz ist keine Summe.',
