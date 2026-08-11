@@ -12,16 +12,23 @@ properties, quantities, materials and classifications, and writes a summary of
 the building into the knowledge base.
 
 While that runs the file shows **Modell wird gelesen…**. A typical single-building
-model takes a few seconds; a large federated one takes longer. When it finishes,
-a **Modell** entry appears in the project navigation.
+model takes a few seconds; a large federated one takes longer. The card updates
+itself — you do not have to reload to find out whether it finished — and when it
+does, a message says the model has been read and the building can now be asked
+about. A **Modell** entry appears in the project navigation at the same time.
 
 Models above 250 MB are refused with a message rather than half-read.
 
 ## Opening a model from Files
 
 An `.ifc` opens like every other file — click it in **Dateien** and the preview
-shows the **building**, turnable, in the pane where a PDF shows its pages. The
-metadata column beside it is the ordinary one: summary, tags, size, status.
+shows the **building**, turnable, in the pane where a PDF shows its pages.
+
+The column beside it leads with **Aus dem Modell**: storeys, Bauteile, Räume,
+the IFC schema, and the net floor area *if the export published one*. A quantity
+your export does not carry is left out of that list rather than shown as `0` —
+an absent area is not an area of nothing. Below it sits the ordinary metadata:
+summary, tags, size, status.
 
 The preview is deliberately just the picture. Everything you *analyse* — the
 tabs, the element table, the requirement check, the Raumbuch — is one click
@@ -194,6 +201,12 @@ current one. That is what makes "the third wall on the left in the ground floor"
 unnecessary: you send the wall.
 
 ## Asking questions in chat
+
+Once a model is readable, an empty chat in that project offers two questions
+about **your building** — marked with the model glyph — ahead of the usual
+Richtlinien examples. They are there because nothing else on that screen tells
+you the building can be counted and checked at all; clicking one fills the
+composer, it does not send.
 
 In a project chat, ask about the building the way you would ask a colleague:
 

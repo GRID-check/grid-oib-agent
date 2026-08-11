@@ -91,6 +91,8 @@ export const chat: typeof en.chat = {
   examples: {
     label: 'Zum Beispiel',
     questions: {
+      modelElements: 'Wie viele Außenwände hat das Erdgeschoß?',
+      modelRequirements: 'Welche Anforderungen kann mein Modell noch nicht beantworten?',
       fluchtweg: 'Fluchtweglänge nach OIB-2?',
       barrierefreiheit: 'Barrierefreiheit Wohnbau Wien?',
       brandabschnitte: 'Brandabschnitte Gebäudeklasse 4?',

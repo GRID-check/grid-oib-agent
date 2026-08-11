@@ -19,6 +19,8 @@
 import { notFound } from 'next/navigation'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
+import type { BimModelHeaderView } from '@/features/bim/hooks/use-bim-model'
+import type { BimModelSummary } from '@/lib/bim/types'
 import { SAMPLE_IFC } from './sample-model'
 
 const FIXTURE: FileItem = {
@@ -42,16 +44,58 @@ const FIXTURE: FileItem = {
   tags: ['Einreichplanung'],
 }
 
-const MODEL = {
+/**
+ * What extraction read out of the file. Typed rather than hand-shaped, so the
+ * fixture cannot drift away from the payload the rail actually receives.
+ *
+ * `grossFloorAreaM2` and `netVolumeM3` are deliberately null: an ArchiCAD
+ * export that publishes `Qto_SpaceBaseQuantities` but no gross figures is the
+ * common case, and the rail must be seen omitting those rows rather than
+ * printing a zero.
+ */
+const SUMMARY: BimModelSummary = {
+  schema: 'IFC4',
+  header: {
+    name: FIXTURE.filename,
+    description: [],
+    author: ['A. Muster'],
+    organization: ['Musterbüro ZT GmbH'],
+    preprocessorVersion: null,
+    originatingSystem: 'ArchiCAD 27',
+    timeStamp: '2026-08-04T08:30:00',
+  },
+  units: {
+    length: { symbol: 'mm', siScale: 0.001 },
+    area: { symbol: 'm²', siScale: 1 },
+    volume: { symbol: 'm³', siScale: 1 },
+  },
+  projectName: 'Wohnhaus Grungasse 14',
+  siteName: null,
+  buildingNames: ['Bauteil A'],
+  storeys: [],
+  spatial: null,
+  typeCounts: {},
+  propertySetNames: [],
+  quantitySetNames: [],
+  materialNames: [],
+  totals: { entities: 41_208, elements: 1842, spaces: 41, storeys: 5 },
+  quantityTotals: { netFloorAreaM2: 1240.5, grossFloorAreaM2: null, netVolumeM3: null },
+  health: null,
+  parseMs: 4_180,
+  fileSizeBytes: 148_900_000,
+  truncatedAt: null,
+}
+
+const MODEL: BimModelHeaderView = {
   id: 'dev-bim-1',
   documentId: FIXTURE.id,
   projectId: 'proj-demo',
   filename: FIXTURE.filename,
   status: 'ready',
   schemaVersion: 'IFC4',
-  elementCount: 1842,
+  elementCount: SUMMARY.totals.elements,
   errorMessage: null,
-  summary: null,
+  summary: SUMMARY,
   updatedAt: '2026-08-04T08:34:00Z',
 }
 

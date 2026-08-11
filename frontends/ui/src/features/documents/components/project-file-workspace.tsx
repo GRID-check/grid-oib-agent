@@ -2,11 +2,12 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, FileText, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, Boxes, FileText, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
+import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
@@ -79,6 +80,21 @@ type OptionalWireField =
 
 /** Presentation of the file browser: the dummy's card grid, or the folder tree. */
 type FileView = 'cards' | 'tree'
+
+/**
+ * Statuses that are going to change on their own — the `info` family from
+ * `document-status`. Anything else (citable, failed) is terminal and needs no
+ * watching.
+ */
+const SETTLING_STATUSES = new Set(['uploading', 'ingesting', 'pending', 'processing'])
+
+/**
+ * How often the list re-asks while something is unsettled. Matches the model
+ * surfaces' extraction poll, which is sized against the same work: a model
+ * takes tens of seconds, so this is a handful of requests, and none at all once
+ * everything has landed.
+ */
+const SETTLING_POLL_MS = 4_000
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
 export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true }: ProjectFileWorkspaceProps) {
@@ -104,8 +120,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const [foldersError, setFoldersError] = useState(false)
   const [filesError, setFilesError] = useState(false)
 
-  const loadFiles = useCallback(() => {
-    setIsLoadingFiles(true)
+  /**
+   * @param quiet Refresh without the skeleton — used by the settling poll
+   *   below, which would otherwise flash the whole grid every few seconds.
+   */
+  const loadFiles = useCallback((quiet = false) => {
+    if (!quiet) setIsLoadingFiles(true)
     setFilesError(false)
     const params = new URLSearchParams({ projectId })
     return fetch(`/api/documents?${params}`)
@@ -132,18 +152,25 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         setFiles(docs)
       })
       .catch(() => {
+        // A failed POLL must not empty a list the user is looking at; only a
+        // foreground load owns the error state.
+        if (quiet) return
         setFiles([])
         setFilesError(true)
       })
-      .finally(() => setIsLoadingFiles(false))
+      .finally(() => {
+        if (!quiet) setIsLoadingFiles(false)
+      })
   }, [projectId])
 
   const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile } = useProjectDocuments({
     projectId,
     folderId: selectedFolderId ?? undefined,
     // Refresh the durable file list once ingestion of an upload completes so new
-    // documents appear without a manual reload.
-    onComplete: loadFiles,
+    // documents appear without a manual reload. Wrapped rather than passed
+    // directly: `loadFiles` now takes a `quiet` flag, and whatever the
+    // orchestrator hands its callback must not decide how this renders.
+    onComplete: () => void loadFiles(),
   })
 
   // Fetch folders
@@ -192,13 +219,58 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     files,
     useCallback(
       (file: FileItem) => {
-        toast.success(t('toast.ingestionComplete', { name: file.filename }), {
-          icon: <FileText className="size-4" style={{ color: sourceBase('project') }} aria-hidden />,
-        })
+        // A model earns different words. "Citable" describes what happens to a
+        // PDF — its text can be quoted back — and it is the wrong promise for a
+        // building, whose whole point is that it can be COUNTED. The user has
+        // just waited tens of seconds for an extraction with no visible end;
+        // this is where that ends, so it says what is now possible.
+        const isModel =
+          inferDocumentKind({
+            filename: file.filename,
+            contentType: file.contentType,
+            tags: file.tags,
+          }) === 'model'
+        toast.success(
+          t(isModel ? 'toast.modelReady' : 'toast.ingestionComplete', { name: file.filename }),
+          {
+            icon: isModel ? (
+              <Boxes className="size-4" style={{ color: sourceBase('project') }} aria-hidden />
+            ) : (
+              <FileText className="size-4" style={{ color: sourceBase('project') }} aria-hidden />
+            ),
+          }
+        )
       },
       [t]
     )
   )
+
+  /**
+   * Re-ask while anything is still being read.
+   *
+   * The list was fetched once and never again, so a document that finished
+   * indexing after the page loaded kept its "Wird gelesen…" badge until someone
+   * reloaded. For a PDF that is a stale label; for an `.ifc` it hides the only
+   * moment that matters. IFC extraction is DETACHED and has no ingest job at
+   * upload time (`beginModelExtraction` returns a null job id), so the upload
+   * orchestrator — which polls by job id — never watches a model at all. The
+   * card for a 150 MB building therefore sat at "processing" forever, on
+   * exactly the file whose payoff is "now ask it something".
+   *
+   * The poll runs only while something is unsettled and stops the moment
+   * everything is terminal, so a corpus of finished documents makes no
+   * requests. `useIngestionCompleteToast` above turns the transition it
+   * observes into the confirmation.
+   */
+  const hasSettlingFile = useMemo(
+    () => files.some((file) => SETTLING_STATUSES.has((file.status ?? '').toLowerCase())),
+    [files]
+  )
+  useEffect(() => {
+    if (!hasSettlingFile) return
+    const timer = setInterval(() => void loadFiles(true), SETTLING_POLL_MS)
+    return () => clearInterval(timer)
+  }, [hasSettlingFile, loadFiles])
 
   // Refetch the corpus when an upload batch settles (covers non-orchestrated paths).
   const wasUploading = useRef(false)

@@ -27,6 +27,7 @@ export const files: typeof en.files = {
     // Sobald die asynchrone Verarbeitung abgeschlossen ist und das Dokument
     // zitierbar wird – die bislang fehlende Bestätigung des Abschlusses.
     ingestionComplete: '„{name}“ ist jetzt in Pilotis Wissen – zitierbar',
+    modelReady: '„{name}“ ist eingelesen – Sie können jetzt Fragen zum Gebäude stellen',
   },
   // Karten-Thumbnail-Fallbacks: ein warmer Platzhalter-Chip, wenn kein Thumbnail
   // existiert, und ein ehrliches „konnte nicht geladen werden“ bei einem echten

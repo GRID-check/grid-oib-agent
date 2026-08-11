@@ -152,6 +152,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'h1',
   },
   {
+    id: 'chat-welcome-model',
+    mobile: true,
+    path: '/dev/chat-welcome-model',
+    description:
+      'The same empty chat canvas in a project that HAS a readable IFC model: two building questions lead, marked with the model glyph, ahead of the OIB-corpus ones. This is where the model feature is discovered — chat is where a model is used, and nothing else on the canvas says the building can be counted, checked or compared.',
+    waitFor: 'h1',
+  },
+  {
     id: 'confirm-dialog',
     mobile: true,
     path: '/dev/confirm-dialog',

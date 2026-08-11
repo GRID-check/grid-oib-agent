@@ -328,6 +328,11 @@ export const bim: typeof en.bim = {
         'Der Viewer benötigt WebGPU, das dieser Browser nicht bereitstellt. Alle Modelldaten stehen links trotzdem zur Verfügung — Struktur, Bauteile, Eigenschaften und Mengen — und der Assistent kann Fragen dazu beantworten.',
     },
   },
+  facts: {
+    title: 'Aus dem Modell',
+    caption:
+      'Beim Einlesen direkt aus der IFC-Datei übernommen. Eine Menge, die die Datei nicht führt, fehlt hier — sie wird nicht als Null angezeigt.',
+  },
   preview: {
     loading: 'Modell wird geladen…',
     extracting:

@@ -61,6 +61,36 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
  */
 const EXTRACTION_POLL_MS = 4_000
 
+/**
+ * The model list request currently in flight per project, shared by everything
+ * that asks for it at the same moment.
+ *
+ * The list stopped being one page's data: the chat welcome asks whether this
+ * project has a readable model, the file preview asks which model belongs to a
+ * document, its metadata rail asks what the model contains, and every
+ * `ifc_viewer` card in a thread asks again. Mounting an answer with two model
+ * cards used to fire four identical requests, each spending a point of the
+ * `bim-query` budget on the same rows.
+ *
+ * Deliberately in-flight only — no TTL. A cache with a lifetime would have to
+ * answer "how stale may a model be", and the surfaces that care already poll
+ * (extraction) or remount (navigation). Collapsing a simultaneous burst is free
+ * and cannot show anyone a stale model.
+ */
+const modelsInFlight = new Map<string, Promise<{ models: BimModelHeaderView[] }>>()
+
+function fetchProjectModels(projectId: string): Promise<{ models: BimModelHeaderView[] }> {
+  const existing = modelsInFlight.get(projectId)
+  if (existing) return existing
+  const request = getJson<{ models: BimModelHeaderView[] }>(
+    `/api/projects/${projectId}/bim/models`
+  ).finally(() => {
+    modelsInFlight.delete(projectId)
+  })
+  modelsInFlight.set(projectId, request)
+  return request
+}
+
 /** Models in scope for a project: its own plus the org Archiv's. */
 export function useProjectBimModels(projectId: string | null): AsyncState<BimModelHeaderView[]> & {
   reload: () => void
@@ -75,7 +105,7 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
     }
     let cancelled = false
     setState({ data: null, isLoading: true, error: null })
-    getJson<{ models: BimModelHeaderView[] }>(`/api/projects/${projectId}/bim/models`)
+    fetchProjectModels(projectId)
       .then((body) => {
         if (!cancelled) setState({ data: body.models, isLoading: false, error: null })
       })

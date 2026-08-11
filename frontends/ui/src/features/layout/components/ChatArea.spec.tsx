@@ -49,10 +49,30 @@ vi.mock('@/adapters/auth', () => ({
   })),
 }))
 
+/**
+ * The project the welcome state is in, and the models it finds there — the two
+ * inputs that decide whether the empty canvas offers to ask the BUILDING
+ * anything. Mutable so a test can be in a project with a readable model, in one
+ * whose model is still extracting, or nowhere at all.
+ */
+let mockProjectId: string | null = null
+let mockBimModels: { status: string }[] | null = null
+
+vi.mock('@/features/bim/hooks/use-bim-model', () => ({
+  useProjectBimModels: (projectId: string | null) => ({
+    // Mirrors the real hook: no project, no request, no data.
+    data: projectId ? mockBimModels : null,
+    isLoading: false,
+    error: null,
+    reload: () => {},
+  }),
+}))
+
 vi.mock('@/features/chat', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: ChatStoreFixture = {
       currentConversation: { messages: [] },
+      projectId: mockProjectId,
       isLoading: false,
       isStreaming: false,
       hasHydrated: true,
@@ -207,6 +227,60 @@ describe('ChatArea', () => {
     vi.clearAllMocks()
     mockUserName = 'Max Mustermann'
     mockSharedThread = { ...INERT_SHARED_THREAD }
+    mockProjectId = null
+    mockBimModels = null
+  })
+
+  describe('the empty canvas offers the building when there is one', () => {
+    const MODEL_CHIP = /how many external walls/i
+    const REQUIREMENTS_CHIP = /which requirements can my model not answer/i
+
+    test('offers only corpus questions in a project with no model', () => {
+      mockProjectId = 'proj-1'
+      mockBimModels = []
+      render(<ChatArea isAuthenticated />)
+
+      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /escape route length/i })).toBeInTheDocument()
+    })
+
+    test('offers building questions FIRST once a model is readable', async () => {
+      mockProjectId = 'proj-1'
+      mockBimModels = [{ status: 'ready' }]
+      render(<ChatArea isAuthenticated />)
+
+      const chips = screen.getAllByRole('button', { name: /\?$/ })
+      // The building leads: it is this project's own content, and it is the
+      // half of the product the OIB corpus cannot answer.
+      expect(chips[0]).toHaveAccessibleName(MODEL_CHIP)
+      expect(screen.getByRole('button', { name: REQUIREMENTS_CHIP })).toBeInTheDocument()
+      // The corpus questions stay — both capabilities are on offer, not one.
+      expect(screen.getByRole('button', { name: /fire compartments/i })).toBeInTheDocument()
+
+      // A chip prefills the composer rather than sending, like every other one.
+      await userEvent.click(chips[0])
+      expect(mockSetComposerPrefill).toHaveBeenCalledWith(
+        expect.stringMatching(MODEL_CHIP)
+      )
+    })
+
+    test('says nothing about a model that cannot be asked anything yet', () => {
+      mockProjectId = 'proj-1'
+      // Still extracting: the query layer has no rows, so a chip promising an
+      // exact count would be answered with "I could not read the model".
+      mockBimModels = [{ status: 'extracting' }]
+      render(<ChatArea isAuthenticated />)
+
+      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
+    })
+
+    test('never asks for models outside a project', () => {
+      mockProjectId = null
+      mockBimModels = [{ status: 'ready' }]
+      render(<ChatArea isAuthenticated />)
+
+      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
+    })
   })
 
   test('renders welcome state when not authenticated', () => {

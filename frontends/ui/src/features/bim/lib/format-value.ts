@@ -23,3 +23,27 @@ export function formatPropertyValue(
   if (typeof value === 'number') return (Math.round(value * 1000) / 1000).toLocaleString(locale)
   return value
 }
+
+/**
+ * A published TOTAL with the unit the file declares — floor area, volume.
+ *
+ * Numbers follow the INTERFACE locale, not a hard-coded Austrian one. A German
+ * UI writes 74,2 m² and an English one 74.2 m²; pinning `de-AT` would have put
+ * a German decimal comma in an English sentence, where it reads as a thousands
+ * separator and changes the number by a factor of ten.
+ *
+ * `null` is an absent quantity, NOT a zero: an export that publishes no
+ * `Qto_*` set says nothing about the building's area, and printing 0 would say
+ * something false. It renders as an em dash, and callers that can omit the row
+ * entirely should.
+ *
+ * Unlike a per-element quantity, a unit may be printed here: these totals are
+ * summed server-side in the file's own declared unit system, which
+ * `summary.units` names — the element rows have no such guarantee and
+ * deliberately print no unit at all.
+ */
+export function formatMeasure(value: number | null, unit: string, locale: string): string {
+  if (value === null) return '—'
+  const rounded = Math.round(value * 100) / 100
+  return `${rounded.toLocaleString(locale)} ${unit}`
+}

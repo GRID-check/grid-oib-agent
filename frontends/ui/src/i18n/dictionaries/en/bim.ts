@@ -326,6 +326,11 @@ export const bim = {
         'The viewer needs WebGPU, which this browser does not provide. Everything about the model is still available on the left — structure, elements, properties and quantities — and the assistant can answer questions about it.',
     },
   },
+  /** The model's own facts, in the file preview's metadata rail. */
+  facts: {
+    title: 'From the model',
+    caption: 'Read from the IFC when it was indexed. An unpublished quantity is left out rather than shown as zero.',
+  },
   /**
    * The model as a FILE — what the Dateien preview says while the building is
    * not (yet) showable. Each state is its own sentence: "still being read",

@@ -26,6 +26,7 @@ export const files = {
     // Fired the instant async ingestion finishes and the document becomes
     // citable — the confirmation the completion moment previously lacked.
     ingestionComplete: '“{name}” is now in Piloti’s knowledge — citable',
+    modelReady: '“{name}” has been read — you can now ask about the building',
   },
   // Card thumbnail fallbacks: a warm placeholder chip when no thumbnail exists,
   // and an honest "couldn't load" label for a genuine failure (never a broken
