@@ -199,7 +199,7 @@ export const bim = {
   complianceDiff: {
     title: 'What this revision changed',
     description:
-      'Runs the requirement check on both revisions and lists only what moved, against {previous}.',
+      'Runs the requirement check on both revisions and lists only what changed, against {previous}.',
     run: 'Compare requirement status',
     running: 'Comparing…',
     failed: 'The comparison could not be run.',
@@ -403,6 +403,8 @@ export const bim = {
   },
   card: {
     openModel: 'Open model',
+    openElement: 'Open element {name} in the model',
+    openStorey: 'Open storey {name} in the model',
     unresolved: '{count} of the highlighted elements are not in this model.',
     noModel: 'The referenced model is not available in this project.',
     highlights: 'Highlighted',

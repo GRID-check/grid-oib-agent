@@ -21,14 +21,14 @@ export const bim: typeof en.bim = {
   empty: {
     title: 'Noch kein IFC-Modell',
     description:
-      'Laden Sie unter „Dateien“ eine .ifc-Datei hoch. Grid liest die Struktur ein, macht das Gebäude im Chat abfragbar und zeigt es hier dreidimensional.',
+      'Laden Sie unter „Dateien“ eine .ifc-Datei hoch. Piloti liest die Struktur ein, macht das Gebäude im Chat abfragbar und zeigt es hier in 3D.',
     action: 'Zu den Dateien',
   },
   status: {
     pending: 'In Warteschlange',
     extracting: 'Modell wird gelesen…',
     ready: 'Bereit',
-    failed: 'Konnte nicht gelesen werden',
+    failed: 'Modell konnte nicht gelesen werden',
   },
   overview: {
     title: 'Modellübersicht',
@@ -52,7 +52,7 @@ export const bim: typeof en.bim = {
   health: {
     title: 'Modellprüfung',
     score: 'Modellqualität {score}/100',
-    clean: 'Keine Befunde. Alle Bauteile sind verortet, eindeutig und beschrieben.',
+    clean: 'Keine Auffälligkeiten in diesen Prüfpunkten. Jedes Bauteil ist verortet, eindeutig identifiziert und benannt.',
     affected: '{count} von {total}',
     affectedAbsolute: '{count}',
     severity: {
@@ -74,7 +74,7 @@ export const bim: typeof en.bim = {
       'identity-duplicate-globalid': 'Mehrfach vergebene GlobalIds — Bauteile sind nicht eindeutig',
       'identity-malformed-globalid': 'GlobalIds nicht im 22-stelligen IFC-Format',
       'spatial-no-storeys': 'Das Modell enthält keine Geschoße',
-      'spatial-orphan-elements': 'Bauteile ohne Geschoß — fehlen in jeder geschossweisen Auswertung',
+      'spatial-orphan-elements': 'Bauteile ohne Geschoß — fehlen in jeder geschoßweisen Auswertung',
       'spatial-element-above-storey': 'Bauteile am Grundstück oder Gebäude statt an einem Geschoß',
       'spatial-space-without-storey': 'Räume ohne Geschoßzuordnung',
       'spatial-storey-without-elevation': 'Geschoße ohne Höhenlage',
@@ -84,7 +84,7 @@ export const bim: typeof en.bim = {
       'properties-vendor-sets-only': 'Nur programmspezifische Property Sets — kein Pset_/Qto_',
       'complete-unnamed-elements': 'Bauteile ohne Namen',
       'complete-space-without-area': 'Räume ohne Flächenangabe — Flächensummen sind unvollständig',
-      'complete-no-quantities': 'Kein Bauteil veröffentlicht Mengen',
+      'complete-no-quantities': 'Kein Bauteil führt Mengen',
       'complete-no-materials': 'Tragende Bauteile ohne Material',
       'complete-no-classifications': 'Kein Bauteil trägt eine Klassifikation',
     },
@@ -96,7 +96,7 @@ export const bim: typeof en.bim = {
   },
   elements: {
     title: 'Bauteile',
-    search: 'Nach Namen suchen…',
+    search: 'Nach Name, Kennzeichen oder GlobalId suchen…',
     allTypes: 'Alle Typen',
     columns: {
       type: 'Typ',
@@ -145,7 +145,7 @@ export const bim: typeof en.bim = {
   compliance: {
     title: 'Anforderungsprüfung',
     description:
-      'Prüft den OIB-Regelkatalog gegen die im Modell veröffentlichten Werte. Orientierung, kein Nachweis: es wird keine Geometrie gelesen, Fluchtweglängen, Geländerhöhen und Brandabschnittsgrößen werden daher gar nicht geprüft.',
+      'Prüft die im Modell hinterlegten Werte gegen den OIB-Regelkatalog. Orientierung, kein Nachweis: es wird keine Geometrie ausgewertet — Fluchtweglängen, Geländerhöhen und Brandabschnittsgrößen werden daher gar nicht geprüft.',
     failed: 'Die Anforderungsprüfung konnte nicht durchgeführt werden.',
     truncatedModel:
       'Dieses Modell ist zu groß, um vollständig geprüft zu werden — der Katalog hat nur einen Teil gesehen. Alle Zahlen unten beziehen sich auf diesen Teil, nicht auf das Gebäude.',
@@ -172,7 +172,7 @@ export const bim: typeof en.bim = {
       by: 'Bestätigt von {who} am {when}',
       stale: 'Älterer Stand',
       staleHint:
-        'Diese Bestätigung wurde gegen einen früheren Modellstand abgegeben. Sie bleibt als Nachweis erhalten, deckt den aktuellen Stand aber nicht mehr ab.',
+        'Diese Bestätigung wurde gegen eine frühere Revision des Modells abgegeben. Sie bleibt als Eintrag erhalten, deckt die aktuelle Revision aber nicht mehr ab.',
       failed: 'Die Bestätigung konnte nicht gespeichert werden. Sie ist NICHT hinterlegt — bitte erneut versuchen.',
       confirm: 'Manuell bestätigen',
       reconfirm: 'Für diesen Stand erneut bestätigen',
@@ -184,7 +184,7 @@ export const bim: typeof en.bim = {
     },
     card: {
       export: 'Offene Punkte als BCF',
-      unresolved: '{count} der angeforderten Regel-IDs sind nicht im Katalog.',
+      unresolved: '{count} der angefragten Regeln sind nicht im Katalog.',
       none: 'Keine der angeforderten Anforderungen ist im Katalog.',
     },
     shoppingList: {
@@ -201,8 +201,8 @@ export const bim: typeof en.bim = {
   complianceDiff: {
     title: 'Was dieser Stand verändert hat',
     description:
-      'Führt die Anforderungsprüfung auf beiden Ständen aus und listet nur, was sich bewegt hat — gegenüber {previous}.',
-    run: 'Erfüllungsgrad vergleichen',
+      'Führt die Anforderungsprüfung auf beiden Ständen aus und listet nur, was sich geändert hat — gegenüber {previous}.',
+    run: 'Anforderungsstatus vergleichen',
     running: 'Wird verglichen…',
     failed: 'Der Vergleich konnte nicht durchgeführt werden.',
     unchanged: 'Keine Anforderung hat ihren Status zwischen diesen beiden Ständen geändert.',
@@ -247,7 +247,7 @@ export const bim: typeof en.bim = {
   profile: {
     title: 'Projektangaben aus dem Modell',
     description:
-      'Abgeleitet aus Geschoßhöhen und Raumnutzung. Vorschläge, keine Messwerte — die Übernahme in die Projektdaten bestätigen Sie im Chat.',
+      'Abgeleitet aus den Höhenlagen der Geschoße und der Raumnutzung. Vorschläge, keine Messwerte — die Übernahme in die Projektdaten bestätigen Sie im Chat.',
     ask: 'Über den Assistenten übernehmen',
     empty: 'Aus diesem Modell lassen sich keine Projektangaben ableiten.',
     failed: 'Die Projektangaben konnten nicht abgeleitet werden.',
@@ -259,9 +259,9 @@ export const bim: typeof en.bim = {
       anzahl_einheiten: 'Nutzungseinheiten',
     },
     confidence: {
-      high: 'Hohe Sicherheit',
-      medium: 'Mittlere Sicherheit',
-      low: 'Geringe Sicherheit',
+      high: 'Hohe Verlässlichkeit',
+      medium: 'Mittlere Verlässlichkeit',
+      low: 'Geringe Verlässlichkeit',
     },
   },
   timeline: {
@@ -283,8 +283,8 @@ export const bim: typeof en.bim = {
     notFound: 'Dieses Bauteil ist im Modell nicht enthalten.',
   },
   link: {
-    copy: 'Ansicht verlinken',
-    copied: 'Kopiert',
+    copy: 'Link zur Ansicht kopieren',
+    copied: 'Link kopiert',
     failed: 'Der Link konnte nicht kopiert werden',
   },
   stage: {
@@ -321,7 +321,7 @@ export const bim: typeof en.bim = {
     keyboardHint:
       'Pfeiltasten drehen, Umschalt mit Pfeiltaste verschiebt, Plus und Minus zoomen, F passt das Modell ein. Beim Messen setzt Eingabe einen Punkt, Esc bricht ab. Alle Bauteile stehen zusätzlich als Liste unter „Details“.',
     title: '3D-Ansicht',
-    xray: 'Durchsichtig',
+    xray: 'Transparent',
     view: {
       iso: 'Frei',
       top: 'Grundriss',
@@ -364,13 +364,13 @@ export const bim: typeof en.bim = {
     unavailable: {
       title: 'Die 3D-Ansicht konnte nicht geladen werden',
       description:
-        'Es fehlt nur das Bild — das Modell selbst ist davon nicht betroffen, alles daraus Gelesene bleibt unverändert. Ein Browser mit gesperrter GPU, eine Remote-Desktop-Sitzung oder ein abgebrochener Download führen hierher.',
+        'Es fehlt nur das Bild — das Modell selbst ist davon nicht betroffen, alles daraus Gelesene bleibt unverändert. Ein Browser mit gesperrter GPU, eine Remote-Desktop-Sitzung oder ein abgebrochener Download sind die üblichen Ursachen.',
       reason: 'Ursache: {message}',
     },
     unsupported: {
       title: '3D-Ansicht in diesem Browser nicht verfügbar',
       description:
-        'Der Viewer benötigt WebGPU, das dieser Browser nicht bereitstellt. Am Modell selbst liegt es nicht — der Assistent beantwortet weiterhin Fragen dazu, und in Chrome, Edge oder einem aktuellen Safari wird es angezeigt.',
+        'Die 3D-Ansicht benötigt WebGPU, das dieser Browser nicht bereitstellt. Am Modell selbst liegt es nicht — Piloti beantwortet weiterhin Fragen dazu, und in Chrome, Edge oder einem aktuellen Safari wird das Modell angezeigt.',
     },
   },
   facts: {
@@ -393,6 +393,8 @@ export const bim: typeof en.bim = {
   },
   card: {
     openModel: 'Modell öffnen',
+    openElement: 'Bauteil {name} im Modell öffnen',
+    openStorey: 'Geschoß {name} im Modell öffnen',
     unresolved: '{count} der hervorgehobenen Bauteile sind in diesem Modell nicht enthalten.',
     noModel: 'Das referenzierte Modell ist in diesem Projekt nicht verfügbar.',
     highlights: 'Hervorgehoben',

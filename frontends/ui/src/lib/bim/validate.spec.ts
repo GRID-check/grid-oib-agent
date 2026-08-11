@@ -265,7 +265,7 @@ describe('healthCaveat', () => {
     const health = validateModel(
       index([element(), element({ expressId: 22, globalId: '0GridFixture00Wall0002', containerKind: null, storeyGlobalId: null })])
     )
-    expect(healthCaveat(health)).toContain('1 Bauteile sind keinem Geschoss zugeordnet')
+    expect(healthCaveat(health)).toContain('1 Bauteile sind keinem Geschoß zugeordnet')
   })
 
   it('states how many rooms are missing from an area total', () => {

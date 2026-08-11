@@ -122,7 +122,7 @@ export function deriveProfileSuggestions(input: BimProfileInput): BimProfileSugg
       key: 'geschosse_oberirdisch',
       value: above.length,
       confidence: placed.length === summary.storeys.length ? 'high' : 'medium',
-      evidence: `${above.length} Geschosse mit Höhenlage ≥ 0 im Modell: ${above
+      evidence: `${above.length} Geschoße mit Höhenlage ≥ 0 im Modell: ${above
         .map((storey) => storey.name ?? '—')
         .join(', ')}`,
     })
@@ -132,7 +132,7 @@ export function deriveProfileSuggestions(input: BimProfileInput): BimProfileSugg
         key: 'geschosse_unterirdisch',
         value: below.length,
         confidence: 'high',
-        evidence: `${below.length} Geschosse mit negativer Höhenlage: ${below
+        evidence: `${below.length} Geschoße mit negativer Höhenlage: ${below
           .map((storey) => `${storey.name ?? '—'} (${storey.elevation} m)`)
           .join(', ')}`,
       })
@@ -155,7 +155,7 @@ export function deriveProfileSuggestions(input: BimProfileInput): BimProfileSugg
           // Medium, always: a storey elevation is a proxy for the Fluchtniveau,
           // not the thing itself, and the difference decides a Gebäudeklasse.
           confidence: 'medium',
-          evidence: `Oberstes belegtes Geschoss liegt bei ${highest} m (${
+          evidence: `Oberstes belegtes Geschoß liegt bei ${highest} m (${
             occupied.find((storey) => storey.elevation === highest)?.name ?? '—'
           })`,
         })

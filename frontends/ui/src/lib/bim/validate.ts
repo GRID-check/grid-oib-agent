@@ -531,7 +531,7 @@ export function healthCaveat(health: BimHealth): string | null {
   const orphans = find('spatial-orphan-elements')
   if (orphans) {
     parts.push(
-      `${orphans.count} Bauteile sind keinem Geschoss zugeordnet und fehlen daher in jeder geschossweisen Auswertung`
+      `${orphans.count} Bauteile sind keinem Geschoß zugeordnet und fehlen daher in jeder geschoßweisen Auswertung`
     )
   }
   const spacesWithoutArea = find('complete-space-without-area')

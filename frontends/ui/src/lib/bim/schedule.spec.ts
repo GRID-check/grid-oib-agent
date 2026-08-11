@@ -125,7 +125,7 @@ describe('buildRoomSchedule', () => {
   it('exports a semicolon CSV with per-storey and grand totals', () => {
     const csv = roomScheduleToCsv(buildRoomSchedule(SUMMARY, ROOMS))
     const lines = csv.split('\n')
-    expect(lines[0]).toContain('Geschoss;Raum;Kategorie;Netto-Grundfläche (m²)')
+    expect(lines[0]).toContain('Geschoß;Raum;Kategorie;Netto-Grundfläche (m²)')
     expect(csv).toContain('Erdgeschoss;Wohnzimmer;INTERNAL;32;34.5;80;;g-Wohnzimmer')
     expect(csv).toContain('Erdgeschoss — Summe;;;44.5')
     expect(lines.at(-1)).toContain('Gesamt;;;62.5')

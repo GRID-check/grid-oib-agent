@@ -87,7 +87,7 @@ export function buildRoomSchedule(
   const byStorey = new Map<string, BimRoomRow[]>()
 
   for (const space of spaces) {
-    const storeyName = space.storeyName ?? '(ohne Geschoss)'
+    const storeyName = space.storeyName ?? '(ohne Geschoß)'
     const row: BimRoomRow = {
       globalId: space.globalId,
       name: space.name ?? '(ohne Namen)',
@@ -227,7 +227,7 @@ export function buildQuantityTakeoff(
 /** CSV for the Raumbuch — the export an architect pastes into their own sheet. */
 export function roomScheduleToCsv(schedule: BimRoomSchedule): string {
   const header = [
-    'Geschoss',
+    'Geschoß',
     'Raum',
     'Kategorie',
     `Netto-Grundfläche (${schedule.units.area})`,

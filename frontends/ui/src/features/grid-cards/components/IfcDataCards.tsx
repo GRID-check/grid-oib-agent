@@ -195,7 +195,7 @@ export function IfcScheduleCard({
       )
     )
     const csv = [
-      ['Geschoss', 'Raum', `NGF (${schedule.units.area})`, `BGF (${schedule.units.area})`, `Rauminhalt (${schedule.units.volume})`, 'GlobalId'].join(';'),
+      ['Geschoß', 'Raum', `NGF (${schedule.units.area})`, `BGF (${schedule.units.area})`, `Rauminhalt (${schedule.units.volume})`, 'GlobalId'].join(';'),
       ...rows,
     ].join('\n')
     const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' }))
