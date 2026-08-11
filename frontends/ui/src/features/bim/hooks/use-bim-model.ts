@@ -122,34 +122,77 @@ export function useBimElements(modelId: string | null): AsyncState<BimViewerElem
       return
     }
     let cancelled = false
+    // Navigating away mid-walk left every outstanding page in flight, each one
+    // still costing a query and a rate-limit point for a component that no
+    // longer exists.
+    const controller = new AbortController()
     setState({ data: null, isLoading: true, error: null })
 
+    const PAGE = BIM_ELEMENTS_PAGE_LIMIT
+    // Pages fetched at once. The walk was strictly sequential, so its wall
+    // clock was `pages × round trip` — on a real model, 200 round trips of
+    // latency spent one at a time, and the element table sat empty for all of
+    // it. Six is chosen against the server, not the client: it is comfortably
+    // inside `bim-query`'s burst clause, and the pool that serves these
+    // queries has ten connections, so a wider fan-out would just queue in
+    // Postgres while starving every other request on the page.
+    const CONCURRENCY = 6
+
+    const fetchPage = (offset: number) =>
+      getJson<{ elements: BimViewerElement[]; total?: number; totalIsLowerBound?: boolean }>(
+        `/api/bim/models/${modelId}/query`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ op: 'elements', filter: {}, limit: PAGE, offset }),
+          signal: controller.signal,
+        }
+      )
+
     const load = async () => {
-      const collected: BimViewerElement[] = []
-      // The API's own maximum, shared as one constant. At 200 rows this walk
-      // was 1 000 requests for a model at the extraction cap — enough to drain
-      // a rate-limit budget by opening a viewer; at 1 000 it is 200.
-      const PAGE = BIM_ELEMENTS_PAGE_LIMIT
-      let offset = 0
-      // Bounded so a pathological model cannot spin forever: `pages × PAGE`
-      // clears the extraction cap, past which there is nothing more to fetch.
-      for (let page = 0; page < 400; page += 1) {
-        const body = await getJson<{ elements: BimViewerElement[] }>(
-          `/api/bim/models/${modelId}/query`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ op: 'elements', filter: {}, limit: PAGE, offset }),
-          }
-        )
+      // The first page alone, because it is the only one whose existence is
+      // certain and because it reports how many there are. A small model — most
+      // models — is one request and done, exactly as before.
+      const first = await fetchPage(0)
+      if (cancelled) return
+      const collected = [...first.elements]
+      if (first.elements.length < PAGE) {
+        setState({ data: collected, isLoading: false, error: null })
+        return
+      }
+
+      // `total` is EXACT up to the count ceiling and a lower bound past it, so
+      // it sizes the fan-out but never terminates it: a short page does that.
+      // Under the ceiling this fetches precisely the pages that exist; over it,
+      // rounds continue until one comes back short.
+      const known = typeof first.total === 'number' && first.totalIsLowerBound !== true
+        ? Math.ceil(first.total / PAGE)
+        : Infinity
+
+      let offset = PAGE
+      let done = false
+      // Bounded so a pathological model cannot spin forever: `rounds ×
+      // CONCURRENCY × PAGE` clears the extraction cap with room to spare.
+      for (let round = 0; round < 80 && !done; round += 1) {
+        const width = Math.min(CONCURRENCY, Math.max(1, known - offset / PAGE))
+        if (width <= 0) break
+        const offsets = Array.from({ length: width }, (_, index) => offset + index * PAGE)
+        const pages = await Promise.all(offsets.map(fetchPage))
         if (cancelled) return
-        collected.push(...body.elements)
-        offset += body.elements.length
-        // A SHORT page is the end, not `collected.length >= body.total`: the
-        // total stops counting at `COUNT_CEILING` and reports a lower bound
-        // past it, so keying on it would silently load 10 000 elements of a
-        // 200 000-element model into the viewer and call it the building.
-        if (body.elements.length < PAGE) break
+        for (const page of pages) {
+          collected.push(...page.elements)
+          // A SHORT page is the end, not `collected.length >= total`: the total
+          // stops counting at the ceiling and reports a lower bound past it, so
+          // keying on it would silently load 10 000 elements of a
+          // 200 000-element model into the viewer and call it the building.
+          //
+          // Every page of the round is read even after a short one: the
+          // requests are concurrent, so the first short page is not necessarily
+          // the last one carrying rows.
+          if (page.elements.length < PAGE) done = true
+        }
+        offset += width * PAGE
+        if (offset / PAGE >= known) done = true
       }
       if (!cancelled) setState({ data: collected, isLoading: false, error: null })
     }
@@ -160,6 +203,7 @@ export function useBimElements(modelId: string | null): AsyncState<BimViewerElem
 
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [modelId])
 

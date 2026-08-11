@@ -45,7 +45,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from '@/i18n'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
-import { rendererPreset, type BimCameraView, type BimSection } from '../lib/viewer-camera'
+import {
+  boundsCentre,
+  downloadWithProgress,
+  rendererPreset,
+  wheelZoomDelta,
+  type BimCameraView,
+  type BimSection,
+} from '../lib/viewer-camera'
 
 export interface IfcViewerCanvasProps {
   /** Presigned URL of the raw `.ifc`. */
@@ -124,9 +131,40 @@ interface RendererLike {
   destroy(): void
   pick(x: number, y: number): Promise<{ expressId?: number } | null>
   getCamera(): {
-    orbit(dx: number, dy: number): void
-    pan(dx: number, dy: number): void
-    zoom(delta: number): void
+    /**
+     * `addVelocity` feeds the renderer's own inertia system. Omitting it — which
+     * this interface used to force, by not declaring the parameter — makes every
+     * drag a raw per-event jump with no momentum and no damping.
+     */
+    orbit(dx: number, dy: number, addVelocity?: boolean): void
+    pan(dx: number, dy: number, addVelocity?: boolean): void
+    /**
+     * The cursor arguments are the difference between "zoom toward what I am
+     * pointing at" and "zoom toward the middle of the screen, and watch the
+     * detail I wanted slide off the edge". They were absent from this
+     * declaration, so the call site could not pass them and nobody could see
+     * that the renderer had supported it all along.
+     */
+    zoom(
+      delta: number,
+      addVelocity?: boolean,
+      mouseX?: number,
+      mouseY?: number,
+      canvasWidth?: number,
+      canvasHeight?: number,
+      fastZoom?: boolean
+    ): void
+    /**
+     * Advance inertia and any running tween; true while still moving.
+     *
+     * Nothing called this, which is why momentum never existed AND why
+     * `zoomExtent` and the preset views did not animate: both are tweens that
+     * only advance when something drives them, and the on-demand renderer drew
+     * exactly one frame and stopped.
+     */
+    update(deltaTime: number): boolean
+    /** Rotate about this point instead of the scene centre. `null` restores it. */
+    setOrbitCenter(center: Vec3Like | null): void
     setAspect(aspect: number): void
     zoomExtent(
       min: { x: number; y: number; z: number },
@@ -200,15 +238,16 @@ export function IfcViewerCanvas({
   const onBoundsRef = useRef(onBounds)
   onBoundsRef.current = onBounds
 
-  /** Ask for one frame. Rendering is on demand — a static model must not spin the GPU. */
-  const frameRef = useRef<number | null>(null)
-  const requestFrame = useCallback(() => {
-    if (frameRef.current !== null) return
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = null
-      const renderer = rendererRef.current
-      if (!renderer) return
-      try {
+  /**
+   * Draw one frame, now. Split out of {@link requestFrame} so the camera loop
+   * below can render synchronously inside its own animation frame rather than
+   * scheduling a second one behind it.
+   */
+  const drawFrame = useCallback(() => {
+    const renderer = rendererRef.current
+    if (!renderer) return
+    try {
+      {
         renderer.render({
           isolatedIds: isolatedRef.current,
           selectedId: selectedRef.current,
@@ -233,15 +272,67 @@ export function IfcViewerCanvas({
               }
             : undefined,
         })
-      } catch {
-        // A lost device makes render() a no-op upstream; anything else here is
-        // a frame we skip rather than an error we surface mid-orbit.
       }
-    })
+    } catch {
+      // A lost device makes render() a no-op upstream; anything else here is
+      // a frame we skip rather than an error we surface mid-orbit.
+    }
   }, [])
+
+  /** Ask for one frame. Rendering is on demand — a static model must not spin the GPU. */
+  const frameRef = useRef<number | null>(null)
+  const requestFrame = useCallback(() => {
+    if (frameRef.current !== null) return
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null
+      drawFrame()
+    })
+  }, [drawFrame])
+
+  /**
+   * Run frames while the camera is still moving, then stop.
+   *
+   * On-demand rendering and inertia pull in opposite directions: one draws a
+   * frame per input event, the other needs frames AFTER the input stops. So
+   * anything that gives the camera velocity — a drag, a wheel, a pinch — starts
+   * this loop, and `Camera.update` decides when it is over. Tweens
+   * (`zoomExtent`, preset views) ride the same loop; they never animated before
+   * because nothing was advancing them.
+   *
+   * Idle cost is unchanged: `update` returns false on the first frame after the
+   * motion decays, the loop cancels itself, and a static model spins nothing.
+   */
+  const cameraLoopRef = useRef<number | null>(null)
+  const lastFrameRef = useRef(0)
+  const runCameraLoop = useCallback(() => {
+    if (cameraLoopRef.current !== null) return
+    lastFrameRef.current = performance.now()
+    const step = (now: number) => {
+      // Clamped: a backgrounded tab resumes with a multi-second gap, which
+      // would otherwise land as one enormous integration step and fling the
+      // camera across the model.
+      const deltaSeconds = Math.min((now - lastFrameRef.current) / 1000, 0.1)
+      lastFrameRef.current = now
+      const renderer = rendererRef.current
+      if (!renderer) {
+        cameraLoopRef.current = null
+        return
+      }
+      let moving = false
+      try {
+        moving = renderer.getCamera().update(deltaSeconds)
+      } catch {
+        moving = false
+      }
+      drawFrame()
+      cameraLoopRef.current = moving ? requestAnimationFrame(step) : null
+    }
+    cameraLoopRef.current = requestAnimationFrame(step)
+  }, [drawFrame])
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -250,11 +341,21 @@ export function IfcViewerCanvas({
     }
 
     const run = async () => {
-      report({ phase: 'downloading', percent: null, meshCount: 0 })
+      report({ phase: 'downloading', percent: 0, meshCount: 0 })
       try {
-        const response = await fetch(sourceUrl)
+        // Aborted on unmount. Without a signal, leaving the page mid-download
+        // left the whole model transferring to a component that no longer
+        // exists — on the large models this feature is for, that is hundreds of
+        // megabytes per abandoned visit.
+        const response = await fetch(sourceUrl, { signal: controller.signal })
         if (!response.ok) throw new Error(`model download failed (${response.status})`)
-        const buffer = new Uint8Array(await response.arrayBuffer())
+        // Read the body as it arrives rather than awaiting `arrayBuffer()`.
+        // Same bytes and the same total time, but the progress the user sees is
+        // now the download's real position instead of an indeterminate spinner
+        // that sits still for a minute on a 149 MB file and reads as a hang.
+        const buffer = await downloadWithProgress(response, (percent) => {
+          if (!cancelled) report({ phase: 'downloading', percent, meshCount: 0 })
+        })
         if (cancelled) return
 
         report({ phase: 'parsing', percent: 0, meshCount: 0 })
@@ -306,8 +407,11 @@ export function IfcViewerCanvas({
 
     return () => {
       cancelled = true
+      controller.abort()
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
       frameRef.current = null
+      if (cameraLoopRef.current !== null) cancelAnimationFrame(cameraLoopRef.current)
+      cameraLoopRef.current = null
       // Neither WebGPU resources nor the WASM heap are garbage-collected.
       // Skipping either leaks a device, every vertex buffer, and the kernel's
       // whole arena per mount; a handful of navigations exhausts VRAM.
@@ -460,6 +564,7 @@ export function IfcViewerCanvas({
     if (!renderer) return
     const box = renderer.getScene().getEntityBoundingBox(selectedExpressId)
     if (!box) return
+    runCameraLoop()
     void renderer
       .getCamera()
       .zoomExtent(box.min, box.max)
@@ -469,7 +574,35 @@ export function IfcViewerCanvas({
         // is a worse answer than moving but a much better one than a crash
         // mid-selection.
       })
-  }, [selectedExpressId, zoomToSelection, ready, requestFrame])
+  }, [selectedExpressId, zoomToSelection, ready, requestFrame, runCameraLoop])
+
+  /**
+   * Orbit around the selected element rather than the scene centre.
+   *
+   * The renderer supports a pivot and defaults to `camera.target`, which on a
+   * building means the middle of the whole model. Inspecting a stair core in
+   * one corner therefore swung the camera in a huge arc around the centre of
+   * the building — the element you were looking at left the screen on every
+   * drag. Pivoting on the selection makes the drag rotate the thing under
+   * examination, which is what every BIM viewer does.
+   *
+   * Cleared on deselect, so orbiting with nothing selected behaves as before.
+   */
+  useEffect(() => {
+    if (!ready) return
+    const renderer = rendererRef.current
+    if (!renderer) return
+    const camera = renderer.getCamera()
+    if (selectedExpressId === null) {
+      camera.setOrbitCenter(null)
+      return
+    }
+    const box = renderer.getScene().getEntityBoundingBox(selectedExpressId)
+    // No geometry (streaming has not reached it, or the element has none at
+    // all) leaves the previous pivot alone rather than snapping to the origin.
+    if (!box) return
+    camera.setOrbitCenter(boundsCentre(box))
+  }, [selectedExpressId, ready])
 
   // Report the model's vertical extent once, so the cut slider has a range
   // that belongs to this building rather than an arbitrary one. Y is up in the
@@ -524,11 +657,25 @@ export function IfcViewerCanvas({
       const current = pinchState()
       if (!current) return
       pinchRef.current = current
+      const rect = event.currentTarget.getBoundingClientRect()
       if (previous.distance > 0 && current.distance > 0) {
         // Ratio, not difference: pinching the same physical distance should
         // zoom the same PROPORTION whether the fingers started 40 px or
         // 400 px apart, which a subtraction gets wrong at both ends.
-        renderer.getCamera().zoom(Math.log(previous.distance / current.distance) * 4)
+        //
+        // Anchored between the fingers, which is where a hand expects a pinch
+        // to converge. No velocity: the fingers are still on the glass, so
+        // momentum here would fight them.
+        renderer
+          .getCamera()
+          .zoom(
+            Math.log(previous.distance / current.distance) * 4,
+            false,
+            current.centreX - rect.left,
+            current.centreY - rect.top,
+            rect.width,
+            rect.height
+          )
       }
       renderer.getCamera().pan(current.centreX - previous.centreX, current.centreY - previous.centreY)
       requestFrame()
@@ -544,9 +691,9 @@ export function IfcViewerCanvas({
     drag.y = event.clientY
     // Middle button or shift-drag pans; anything else orbits. Same convention
     // as every BIM viewer an architect already uses.
-    if (drag.button === 1 || event.shiftKey) renderer.getCamera().pan(dx, dy)
-    else renderer.getCamera().orbit(dx, dy)
-    requestFrame()
+    if (drag.button === 1 || event.shiftKey) renderer.getCamera().pan(dx, dy, true)
+    else renderer.getCamera().orbit(dx, dy, true)
+    runCameraLoop()
   }
 
   const handlePointerUp = async (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -582,8 +729,26 @@ export function IfcViewerCanvas({
   const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
     const renderer = rendererRef.current
     if (!renderer) return
-    renderer.getCamera().zoom(event.deltaY * 0.01)
-    requestFrame()
+    const rect = event.currentTarget.getBoundingClientRect()
+    // Zoom toward the CURSOR, not the middle of the canvas. Without these
+    // arguments the detail you point at slides off-screen as you approach it,
+    // and the only way back is to orbit and try again — the single thing that
+    // makes a viewer feel broken to someone used to Revit or Navisworks.
+    //
+    // Deltas are normalised per `deltaMode`: a mouse wheel reports pixels, but
+    // a trackpad or a Firefox line-mode wheel reports lines or pages, and
+    // treating 3 lines as 3 pixels is why a trackpad barely moved.
+    renderer
+      .getCamera()
+      .zoom(
+        wheelZoomDelta(event.deltaY, event.deltaMode, rect.height),
+        true,
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+        rect.width,
+        rect.height
+      )
+    runCameraLoop()
   }
 
   return (
