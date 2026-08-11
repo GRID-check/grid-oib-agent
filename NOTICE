@@ -25,3 +25,15 @@ under the License.
 The per-file SPDX/Apache copyright headers that previously appeared at the
 top of individual source files have been consolidated into this NOTICE to
 preserve upstream attribution at the repository level.
+
+Third-party content
+-------------------
+
+src/aiq_agent/skills/review/skill-check/SKILL.md is a verbatim copy of
+SkillCheck (Free) v3.28.0 by olgasafonova, distributed under the MIT
+licence and vendored here as the rulebook behind the skill-review endpoint.
+
+    https://github.com/olgasafonova/SkillCheck-Free
+
+The file keeps its own frontmatter, which carries that attribution and the
+licence declaration; see src/aiq_agent/skills/review/README.md.

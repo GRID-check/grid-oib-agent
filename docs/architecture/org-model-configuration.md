@@ -197,8 +197,8 @@ platform_model_defaults
   updated_by / updated_by_email / created_at / updated_at
 ```
 
-Global — no `organization_id`, mirroring `platform_workflow_templates`
-(ADR-0016/0027). One row per group; **no row = that group falls through to the
+Global — no `organization_id`: the platform-tier pattern of a table owned by
+the deployment rather than a tenant (ADR-0016). One row per group; **no row = that group falls through to the
 YAML**, which is what the first-boot bootstrap above exists to prevent for the
 groups it can safely fill. Rows it writes carry the sentinel actor
 `system:bootstrap` rather than a WorkOS user id; everything else about them —
@@ -353,7 +353,7 @@ them up:
 | Path | How overrides reach the backend | Overrides applied? |
 |---|---|---|
 | Interactive WS chat | `server.js` resolves the org's **effective** overrides at WS upgrade (`GET /api/auth/websocket-scope` → `getEffectiveModelOverrides`: platform defaults with the org's own choices layered over them) and forwards `x-grid-model-overrides`. When the turn kicks off an async deep-research job, that job is submitted **in-process** by `chat_researcher/register.py`, which captures the map from the live WS request context (`get_model_overrides_from_context()`) rather than re-resolving it. | Yes |
-| Scheduled / manual Workflows (ADR-0023) | `fireWorkflow()` (`frontends/ui/src/lib/workflows/service.ts`) resolves the org's **effective** overrides (`getEffectiveModelOverrides`) and passes them explicitly as `model_overrides` in the `POST /v1/internal/workflows/submit` payload. | Yes |
+| Scheduled / manual skill runs (ADR-0046) | `fireSkillSchedule()` (`frontends/ui/src/lib/skills/service.ts`) resolves the org's **effective** overrides (`getEffectiveModelOverrides`) and passes them explicitly as `model_overrides` in the `POST /v1/internal/skills/submit` payload. | Yes |
 | Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in-process (60 s positive / 30 s negative TTL) and fail-open to `{}` (YAML defaults) on any error — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
 
 The JIT fallback (`resolve_org_model_overrides` / `/api/internal/model-overrides`)

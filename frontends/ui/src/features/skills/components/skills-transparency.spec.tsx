@@ -35,7 +35,8 @@ describe('InvokedSkillChip', () => {
       <InvokedSkillChip name="oib-brandschutz" description="Prüft Brandschutz nach OIB-RL 2." />,
     )
     expect(screen.getByTestId('invoked-skill-chip')).toBeInTheDocument()
-    expect(screen.getByText('composer.invoked.label:oib-brandschutz')).toBeInTheDocument()
+    expect(screen.getByText('composer.invoked.label')).toBeInTheDocument()
+    expect(screen.getByText('/oib-brandschutz')).toBeInTheDocument()
     // The description is what confirms the RIGHT skill was picked.
     expect(screen.getByText('Prüft Brandschutz nach OIB-RL 2.')).toBeInTheDocument()
     // …and the mechanism is stated, because "instructions will be loaded" is

@@ -320,10 +320,21 @@ class SkillReviewRequest(BaseModel):
 
 
 class SkillReviewFinding(BaseModel):
-    """One critique of the skill under review."""
+    """One critique of the skill under review.
+
+    ``check`` names the rule that produced the finding. The reviewer applies a
+    vendored, versioned rulebook (SkillCheck — see the route's module docstring),
+    and every check in it has a stable id, so a finding can be traced back to the
+    rule rather than read as an opinion. Optional: it is empty when the check
+    that fired carries no id, or when the model simply did not supply one.
+    """
 
     severity: str = Field(..., description="'error' (breaks the skill), 'warning' (likely harmful), 'suggestion'")
     field: str = Field(..., description="Which part of the SKILL.md the finding is about: name, description or body")
+    check: str = Field(
+        default="",
+        description="Rulebook check id this finding came from (e.g. '4.8-description-trigger-style'); '' if unknown",
+    )
     message: str = Field(..., description="What is wrong, in the language of the skill being reviewed")
     fix: str = Field(..., description="Concrete rewrite/action that resolves the finding, in the same language")
 

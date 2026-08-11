@@ -276,7 +276,7 @@ export const skills = {
     },
     // The chip shown under the composer once a skill is invoked.
     invoked: {
-      label: 'Skill: {name}',
+      label: 'Skill',
       hint: 'Its instructions load at the start of this turn.',
       remove: 'Remove the {name} skill from this message',
     },

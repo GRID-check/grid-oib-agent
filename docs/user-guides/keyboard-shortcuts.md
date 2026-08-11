@@ -44,7 +44,7 @@ navigation rail, so what you see in the rail is what you can jump to:
 | **G** then **P** | All projects |
 | **G** then **O** | Organization |
 | **G** then **C** | Ask Piloti (chat) |
-| **G** then **W** | Workflows |
+| **G** then **W** | Skills |
 | **G** then **F** | Files |
 | **G** then **K** | Knowledge |
 | **G** then **H** | History |

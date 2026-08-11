@@ -16,7 +16,7 @@
  * the message can never disagree about whether a skill is attached.
  */
 
-import { Sparkles, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 
 export interface InvokedSkillChipProps {
@@ -38,16 +38,14 @@ export function InvokedSkillChip({
       data-testid="invoked-skill-chip"
       className="border-primary/20 bg-primary/5 mt-2 flex items-start gap-2.5 rounded-lg border px-2.5 py-2"
     >
-      <span
-        aria-hidden
-        className="bg-primary/10 text-primary mt-px flex size-5 shrink-0 items-center justify-center rounded-md"
-      >
-        <Sparkles className="size-3" />
-      </span>
-
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-foreground truncate text-xs font-medium">
-          {t('composer.invoked.label', { name })}
+        {/* The name in the form the user typed it. No icon: there is exactly one
+            of these at a time and the line already says what it is, so a glyph
+            would decorate rather than distinguish — the same reason the picker
+            rows carry none. */}
+        <span className="text-foreground truncate text-xs">
+          <span className="text-muted-foreground">{t('composer.invoked.label')}</span>{' '}
+          <span className="font-mono">/{name}</span>
         </span>
         {/* The description first — it is what confirms the right skill was
             picked — then the mechanism, which is the same for every skill and so

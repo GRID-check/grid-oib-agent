@@ -127,7 +127,7 @@ These routes are **not registered by custom code** — they are provided by the 
 - `db_url`: Job store database URL (default `sqlite+aiosqlite:///./jobs.db`)
 - `expiry_seconds`: Job TTL (default 86400, min 600, max 604800)
 
-## Agent Skills (internal, replaces ADR-0023 workflows)
+## Agent Skills (internal; replaces the removed ADR-0023 workflow submit route)
 
 | Method | Path | Auth | Description | Request | Response | Handler |
 |--------|------|------|-------------|---------|----------|---------|

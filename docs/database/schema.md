@@ -30,6 +30,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `inbox.ts` | `inbox_items` |
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
+| `skills.ts` | `skills`, `skill_schedules`, `skill_runs` |
 
 ---
 
@@ -402,27 +403,38 @@ LLM budgets and the usage ledger (ADR-0015).
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
 
-## workflows / workflow_runs (migration 0017)
+## skills / skill_schedules / skill_runs (migration 0041)
 
-Saved research briefs with cron scheduling (ADR-0023,
-`docs/architecture/workflows.md`).
+Agent Skills (ADR-0046, `docs/architecture/agent-skills.md`) — the successor
+to the removed Workflows tables. Schema:
+`frontends/ui/src/lib/db/schema/skills.ts`.
 
-- `workflows`: one row per saved brief — `project_id` (cascade FK) +
-  denormalized `organization_id`, `name`/`description`, versioned `definition`
-  jsonb (block-based builder state), denormalized `compiled_prompt` (compiled
-  once at save time; what the scheduler submits), `agent_type`
-  (`deep_researcher`), `data_sources` jsonb (NULL = all), `enabled`,
+- `skills`: the org toolbox — denormalized `organization_id`, the SKILL.md
+  contract (`name`, `description`, `body`, `metadata` jsonb with the reserved
+  `grid-execution` / `grid-schedulable` / `grid-agents` keys), `origin`
+  (`org` | `platform-clone`) + `cloned_from`, `enabled`,
+  `created_by`/`created_by_email`. Unique index `idx_skills_org_name` on
+  `(organization_id, name)`: one skill per name per org, and the point query
+  the fire/resolve paths make. Platform-authored skills are **not** rows — they
+  ship as files under `src/aiq_agent/skills/builtin/<collection>/`.
+- `skill_schedules`: a project-scoped schedule firing one named skill —
+  `project_id` (cascade FK) + denormalized `organization_id`, `name`,
+  `skill_name`, `skill_snapshot` jsonb (`{name, description, body, metadata,
+  origin}` copied at save time, so a run is a deterministic copy that cannot
+  drift when the skill is edited), `execution` (denormalized from the
+  snapshot's `grid-execution`; it picks the agent), `data_sources` jsonb
+  (NULL = all; `knowledge_layer` always included otherwise), `enabled`,
   `schedule_cron` (5-field, NULL = manual-only) + `schedule_timezone` (IANA),
-  `next_run_at`/`last_run_at`, `created_by`/`created_by_email`. Partial index
-  `idx_workflows_due` on `next_run_at` (WHERE scheduled AND enabled) serves
-  the scheduler's FOR UPDATE SKIP LOCKED due-scan.
-- `workflow_runs`: append-only submission history — `workflow_id` (cascade
-  FK), denormalized `project_id`/`organization_id`, `job_id` (backend async
-  job; NULL when skipped/error), `trigger` (`manual`/`schedule`), `status`
-  (`submitted`/`skipped`/`error`), `detail`, `prompt_snapshot`,
-  `triggered_by`. Live job progress/results stay in the backend job store.
-  `idx_workflow_runs_created_at` serves the scheduler's retention prune.
-  Schema: `frontends/ui/src/lib/db/schema/workflows.ts`.
+  `next_run_at`/`last_run_at`, author columns. Partial index
+  `idx_skill_schedules_due` on `next_run_at` (WHERE scheduled AND enabled)
+  serves the scheduler's FOR UPDATE SKIP LOCKED due-scan.
+- `skill_runs`: append-only submission history — `schedule_id` (cascade FK),
+  denormalized `project_id`/`organization_id`, `job_id` (backend async job;
+  NULL when skipped/error), `trigger` (`manual`/`schedule`), `status`
+  (`submitted`/`skipped`/`error`), `detail`, its own `skill_snapshot` copy so
+  history stays self-describing, `triggered_by`. Live job progress/results stay
+  in the backend job store. `idx_skill_runs_created_at` serves the scheduler's
+  retention prune, `(schedule_id, created_at DESC)` the newest-first history.
 
 ---
 

@@ -1184,13 +1184,15 @@ LangGraph checkpointing for the deep-research graph, configured via
 default) — see §9's "Async deep-research jobs are not restart-safe" bullet
 for the full mechanism and its manual-resubmit resume contract.
 
-**Workflows (ADR-0023, 2026-07-16)**: saved per-project research briefs can
-fire this same async pipeline on a cron schedule — a dedicated
-`workflow-scheduler` container claims due rows in `grid_app`
-(`FOR UPDATE SKIP LOCKED`) and fires through the BFF's internal endpoint into
-`POST /v1/internal/workflows/submit` (internal-token-guarded wrapper around
-`submit_agent_job`, so admission control and cost tracking apply unchanged).
-See `docs/architecture/workflows.md`.
+**Agent Skills (ADR-0046)**: project-level skill schedules can fire this same
+async pipeline on a cron schedule — a dedicated `skill-scheduler` container
+claims due rows in `grid_app` (`FOR UPDATE SKIP LOCKED`) and fires through the
+BFF's internal endpoint into `POST /v1/internal/skills/submit`
+(internal-token-guarded wrapper around `submit_agent_job`, so admission control
+and cost tracking apply unchanged). The job carries `force_skills`, so the
+worker force-activates the scheduled skill. This replaces the ADR-0023
+Workflows scheduler, which was removed. See
+`docs/architecture/agent-skills.md`.
 
 **Deep-research agent graph internals**: the orchestrator/planner/researcher/
 writer middleware stack, structured-output contracts, and graph invariants

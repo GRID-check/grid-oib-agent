@@ -51,6 +51,35 @@ The composer is a white card with the message field on top and a control row bel
 
 Under the composer, on an empty thread, a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (law sources such as RIS), *Projektunterlagen* (project documents; external sources off), and *Büroarchiv* (office archive). A preset maps onto the data sources the backend actually exposes; selecting one shows a colored provenance chip inside the composer, and any manual change in the Data Sources panel takes you off the preset again.
 
+## Invoking a skill (`/name`)
+
+When Agent Skills are enabled (ADR-0046), typing `/` **as the first character
+of a message** opens a picker of the skills you can invoke here. ↑↓ choose,
+Enter inserts, Esc closes — the same keyboard contract as the `@` mention
+picker. Picking one inserts `/name ` and shows a chip naming the skill attached
+to this message, together with its description, so you can confirm you picked
+the right one before sending. Deleting the token removes the invocation; there
+is nothing else to undo.
+
+The menu only opens at the start of a message. Slashes are ordinary punctuation
+in this field — `12/05`, `OIB-RL 2/3`, `und/oder` — and an invocation applies to
+the whole message anyway, so it belongs at the front.
+
+Each entry shows a name and a one-line description and nothing more. That is
+exactly what Piloti itself is told about each skill: the full instructions are
+loaded only when the skill is actually used. So a description that does not say
+*when* a skill applies is as unhelpful to the assistant as it looks to you —
+which is the signal to go and improve it in the project's **Skills** tab.
+
+A message that starts with a slash but names no real skill is sent as the plain
+text it is.
+
+**Which skills were used.** An answer that loaded skill instructions carries a
+quiet *Skills used* line underneath. Opening it names them and explains the
+mechanism: every skill contributes its name and description to Piloti's
+catalogue on every turn, and only the ones listed there had their full
+instructions loaded for this answer.
+
 ## Sharing, mentions, and the inbox (collaboration)
 
 When collaboration is enabled (ADR-0032…0036), a chat can have a named audience, and a message can address a person or the agent explicitly. Everything in this section is off unless an administrator switched collaboration on — without it the chat behaves exactly as described above.

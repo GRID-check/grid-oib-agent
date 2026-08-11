@@ -12,9 +12,12 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 from httpx import AsyncClient
 
+from aiq_api.routes.skill_review import MAX_CHECK_CHARS
 from aiq_api.routes.skill_review import MAX_FINDINGS
 from aiq_api.routes.skill_review import MAX_FIX_CHARS
 from aiq_api.routes.skill_review import MAX_MESSAGE_CHARS
+from aiq_api.routes.skill_review import RULEBOOK_VERSION
+from aiq_api.routes.skill_review import SYSTEM_PROMPT
 from aiq_api.routes.skill_review import add_skill_review_routes
 
 
@@ -69,6 +72,53 @@ def _body(**overrides):
     return body
 
 
+def test_system_prompt_is_built_from_the_vendored_rulebook():
+    """The reviewer's rules are the vendored file's, not a paraphrase of it.
+
+    Asserted on the actual wording of real checks rather than on a length: a
+    prompt can be long and still have lost the rules, and the whole point of
+    vendoring SkillCheck is that these specific checks are what runs.
+    """
+    # Check 1.9-xml-in-frontmatter, verbatim from the rulebook.
+    assert "Frontmatter values must not contain XML angle brackets" in SYSTEM_PROMPT
+    # Check 22.7-hollow-content: a gotchas section of pure filler.
+    assert "It promises hard-won advice but delivers platitudes." in SYSTEM_PROMPT
+    # Check 4.8-description-trigger-style, and its named ids stay intact so a
+    # finding can quote one back at us.
+    assert "1.9-xml-in-frontmatter" in SYSTEM_PROMPT
+    assert "4.8-description-trigger-style" in SYSTEM_PROMPT
+    assert "22.7-hollow-content" in SYSTEM_PROMPT
+    # Pinning the version here is the point of vendoring: bumping the file is a
+    # deliberate act that updates this line and the README beside the file.
+    assert RULEBOOK_VERSION == "3.28.0"
+
+
+def test_system_prompt_drops_the_upsell_and_the_frontmatter():
+    """We run this author's checks; we do not relay his advertisement.
+
+    The frontmatter goes too — it is the rulebook describing *itself* (its own
+    name, its own "use when" triggers), and a model handed that header starts
+    reviewing the rulebook instead of the skill.
+    """
+    lowered = SYSTEM_PROMPT.lower()
+    assert "getskillcheck.com" not in lowered
+    assert "upgrade to pro" not in lowered
+    assert "anti-slop" not in lowered  # the upsell's list of Pro-only features
+    assert "author: olgasafonova" not in SYSTEM_PROMPT
+    assert "metadata:\n  version:" not in SYSTEM_PROMPT
+
+
+def test_system_prompt_tells_the_reviewer_to_skip_inapplicable_checks():
+    """Our skills are DB rows; half the rulebook's file-system checks cannot fire.
+
+    A finding telling an author to add a `scripts/` directory they have no way to
+    create is noise, so the prompt names what does not exist here.
+    """
+    assert "`references/`" in SYSTEM_PROMPT
+    assert "`produces`" in SYSTEM_PROMPT
+    assert "SKIP every check that depends on something this product does not have" in SYSTEM_PROMPT
+
+
 @pytest.mark.asyncio
 async def test_skill_review_returns_findings(app):
     """Findings reported by the LLM are parsed into structured entries."""
@@ -118,6 +168,8 @@ async def test_skill_is_sent_to_the_model(app):
             response = await client.post("/v1/skills/review", json=_body())
 
     assert response.status_code == 200
+    # The rulebook travels as the system turn, the draft as the user turn.
+    assert captured["payload"]["messages"][0]["content"] == SYSTEM_PROMPT
     user_turn = captured["payload"]["messages"][1]["content"]
     assert "oib-checker" in user_turn
     assert "Prüft Projekte." in user_turn
@@ -190,6 +242,74 @@ async def test_missing_fix_becomes_empty_string(app):
     data = response.json()
     assert len(data["findings"]) == 1
     assert data["findings"][0]["fix"] == ""
+
+
+@pytest.mark.asyncio
+async def test_check_id_survives_into_the_response(app):
+    """A finding carries the rulebook id that produced it, so it is traceable."""
+    content = json.dumps(
+        {
+            "findings": [
+                {
+                    "severity": "suggestion",
+                    "field": "description",
+                    # The rulebook writes ids as "Check 4.8-…"; the prose prefix
+                    # is normalised away rather than costing the id.
+                    "check": "Check 4.8-description-trigger-style",
+                    "message": "Die Beschreibung liest sich wie eine Zusammenfassung.",
+                    "fix": "Beginne mit 'Prüfe …' und ergänze 'Verwende, wenn …'.",
+                },
+                {
+                    "severity": "error",
+                    "field": "name",
+                    "check": "1.9-xml-in-frontmatter",
+                    "message": "Der Name enthält spitze Klammern.",
+                    "fix": "Entferne < und >.",
+                },
+            ]
+        }
+    )
+    mock_post = AsyncMock(return_value=_llm_response(content))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/skills/review", json=_body())
+
+    findings = response.json()["findings"]
+    assert [finding["check"] for finding in findings] == [
+        "4.8-description-trigger-style",
+        "1.9-xml-in-frontmatter",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unusable_check_id_is_dropped_not_passed_through(app):
+    """A mangled id points at a rule that does not exist — worse than no id.
+
+    So it is dropped to "" (and the finding itself is kept): the message is still
+    worth showing, it just no longer claims a provenance it cannot support.
+    """
+    content = json.dumps(
+        {
+            "findings": [
+                {"severity": "warning", "field": "body", "message": "Zu lang.", "check": "x" * (MAX_CHECK_CHARS + 1)},
+                {"severity": "warning", "field": "body", "message": "Keine Zeichenkette.", "check": {"id": 4.8}},
+                {"severity": "warning", "field": "body", "message": "Ganze Prosa.", "check": "see section 4.8 above"},
+                {"severity": "warning", "field": "body", "message": "Fehlt ganz."},
+            ]
+        }
+    )
+    mock_post = AsyncMock(return_value=_llm_response(content))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/skills/review", json=_body())
+
+    findings = response.json()["findings"]
+    assert len(findings) == 4
+    assert [finding["check"] for finding in findings] == ["", "", "", ""]
+    # The findings themselves survive the loss of their id.
+    assert findings[0]["message"] == "Zu lang."
 
 
 @pytest.mark.asyncio

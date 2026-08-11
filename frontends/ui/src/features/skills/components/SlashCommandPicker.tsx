@@ -23,9 +23,15 @@
  * model deciding whether to load it, so the menu is honest feedback on how well
  * a skill was written.
  *
- * The description is therefore shown in full (wrapped, up to three lines) rather
- * than truncated to one — a spec-conformant description states what the skill
- * does *and* when to use it, and truncation would cut exactly the second half.
+ * ## What a row does NOT show
+ *
+ * There is no per-row icon and no origin badge. Every skill would carry the
+ * same glyph, so it distinguished nothing and only pushed the two things that
+ * DO distinguish rows — the name and the description — into a narrower column.
+ * Provenance (built-in vs. authored here) is a fact about managing a skill, not
+ * about invoking one; it belongs in the toolbox, where it is actionable, and
+ * carrying it here cost a badge on the line a reader scans first. What is left
+ * is the token to type and the sentence that says when to type it.
  */
 
 import {
@@ -38,9 +44,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Blocks, Slash, Sparkles } from 'lucide-react'
+import { Slash } from 'lucide-react'
 
-import { Badge } from '@/components/ui/badge'
 import {
   Command,
   CommandEmpty,
@@ -201,38 +206,24 @@ export const SlashCommandPicker = forwardRef<SlashCommandPickerHandle, SlashComm
         value={optionValue(skill)}
         onSelect={() => onSelect(skill)}
         className={cn(
-          'items-start gap-3 rounded-lg px-2.5 py-2 transition-colors duration-150 ease-out',
+          'flex-col items-start gap-0.5 rounded-lg px-2.5 py-1.5 transition-colors duration-150 ease-out',
           'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
         )}
       >
         {/* `asChild` so the row carries OUR stable id (see slashOptionDomId). */}
         <div id={slashOptionDomId(skill)} data-testid="slash-option" data-skill-name={skill.name}>
-          <span
-            aria-hidden
-            className="bg-primary/10 text-primary mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-          >
-            <Sparkles className="size-4" />
+          {/* Monospace: this is a literal token the user types, not a title. */}
+          <span className="block truncate font-mono text-[13px] leading-tight text-foreground/90">
+            /<HighlightedName name={skill.name} query={query} />
           </span>
-
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="flex items-center gap-2">
-              {/* Monospace: this is a literal token the user types, not a title. */}
-              <span className="truncate font-mono text-sm leading-tight text-foreground/90">
-                /<HighlightedName name={skill.name} query={query} />
-              </span>
-              {skill.origin === 'platform' && (
-                <Badge variant="secondary" className="shrink-0 gap-1 px-1.5 py-0 text-[10px]">
-                  <Blocks aria-hidden className="size-2.5" />
-                  {t('composer.picker.builtin')}
-                </Badge>
-              )}
-            </span>
-            {/* Wrapped, not truncated: a good description says what the skill
-                does AND when to use it, and one line would cut the second half —
-                which is the half that tells the reader whether to pick this row. */}
-            <span className="line-clamp-3 text-xs leading-snug text-muted-foreground">
-              {skill.description}
-            </span>
+          {/* Two lines, not one and not three. One would cut a spec-conformant
+              description in half — losing exactly the "when to use it" clause
+              that decides whether this is the row you want. Three made rows so
+              tall the panel could not show a whole one at its bottom edge, and a
+              menu you scan is worse for a ragged edge than for a clamp. The full
+              text is one selection away, on the chip. */}
+          <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+            {skill.description}
           </span>
         </div>
       </CommandItem>
@@ -243,7 +234,11 @@ export const SlashCommandPicker = forwardRef<SlashCommandPickerHandle, SlashComm
         ref={rootRef}
         data-testid="slash-command-picker"
         className={cn(
-          'bg-popover text-popover-foreground flex max-h-[320px] w-full flex-col overflow-hidden rounded-xl border shadow-lg',
+          // 360px, not the mention picker's 320: these rows are taller (a name
+        // line plus two description lines), and at 320 the fourth row was cut
+        // through the middle of its own sentence. The fade softened it but the
+        // slice still read as a rendering fault rather than as "scroll for more".
+        'bg-popover text-popover-foreground flex max-h-[360px] w-full flex-col overflow-hidden rounded-xl border shadow-lg',
           'animate-in fade-in-0 slide-in-from-bottom-1 duration-150 ease-out',
           className,
         )}
@@ -266,12 +261,9 @@ export const SlashCommandPicker = forwardRef<SlashCommandPickerHandle, SlashComm
               <div className="flex flex-col gap-1" aria-busy="true">
                 <span className="sr-only">{t('composer.picker.loading')}</span>
                 {[0, 1, 2].map((row) => (
-                  <div key={row} className="flex items-start gap-3 px-2.5 py-2">
-                    <Skeleton className="size-8 shrink-0 rounded-lg" />
-                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                      <Skeleton className="h-3 w-28" />
-                      <Skeleton className="h-2.5 w-52" />
-                    </div>
+                  <div key={row} className="flex flex-col gap-1.5 px-2.5 py-1.5">
+                    <Skeleton className="h-3 w-28" />
+                    <Skeleton className="h-2.5 w-52" />
                   </div>
                 ))}
               </div>

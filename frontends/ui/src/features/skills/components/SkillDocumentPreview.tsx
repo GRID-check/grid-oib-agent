@@ -23,7 +23,6 @@
  */
 
 import { type FC } from 'react'
-import { Layers } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { renderSkillDocumentParts, type SkillDocumentInput } from '../lib/skill-document'
@@ -55,12 +54,9 @@ export const SkillDocumentPreview: FC<SkillDocumentPreviewProps> = ({
       aria-labelledby="skill-document-preview-heading"
       data-testid="skill-document-preview"
     >
-      <div className="flex items-center gap-1.5">
-        <Layers className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
-        <h3 id="skill-document-preview-heading" className="text-sm font-medium">
-          {t('editor.preview.heading')}
-        </h3>
-      </div>
+      <h3 id="skill-document-preview-heading" className="text-sm font-medium">
+        {t('editor.preview.heading')}
+      </h3>
       <p className="text-muted-foreground text-xs">{t('editor.preview.subtitle')}</p>
 
       <div className="overflow-hidden rounded-lg border">
@@ -73,7 +69,7 @@ export const SkillDocumentPreview: FC<SkillDocumentPreviewProps> = ({
             {t('editor.preview.level1Hint')}
           </p>
         </div>
-        <pre className="overflow-x-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
+        <pre className="whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-relaxed">
           <code>{frontmatter}</code>
         </pre>
 
@@ -86,8 +82,12 @@ export const SkillDocumentPreview: FC<SkillDocumentPreviewProps> = ({
             {t('editor.preview.level2Hint')}
           </p>
         </div>
+        {/* Wrapped, not horizontally scrolled: an instruction line longer than the
+            pane was simply cut off at the right edge, which contradicts the one
+            thing this pane claims — that it shows exactly what is stored. Vertical
+            scrolling is fine; the body is long by design. */}
         {renderedBody ? (
-          <pre className="max-h-64 overflow-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-relaxed">
             <code>{renderedBody}</code>
           </pre>
         ) : (

@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useState, type FC } from 'react'
-import { AlertTriangle, Check, Lightbulb, Sparkles, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, Lightbulb, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
@@ -88,12 +88,9 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
       data-testid="skill-review-panel"
     >
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5">
-          <Sparkles className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
-          <h3 id="skill-review-heading" className="text-sm font-medium">
-            {t('editor.review.heading')}
-          </h3>
-        </div>
+        <h3 id="skill-review-heading" className="text-sm font-medium">
+          {t('editor.review.heading')}
+        </h3>
         <Button
           type="button"
           variant="outline"

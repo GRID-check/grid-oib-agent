@@ -4,8 +4,9 @@
 - **Date:** 2026-08-10
 - **Deciders:** Platform
 - **Related:** ADR-0018 (per-run state), ADR-0020 (Dragonfly shared cache),
-  ADR-0022 (org BYOK), ADR-0023 (scheduled research — superseded for the
-  skill scheduler), ADR-0026 (unified source-kind model)
+  ADR-0022 (org BYOK), ADR-0023 (Workflows — **superseded by this ADR**),
+  ADR-0027 (platform workflow templates — **superseded by this ADR**),
+  ADR-0026 (unified source-kind model)
 
 ## Context
 
@@ -19,7 +20,9 @@ domain-specific procedures. Two prior mechanisms shaped the design space:
    the skill filesystem is offered to the model as tool content, and skill
    application is the model's own choice.
 2. The workflow scheduler (ADR-0023) fired scheduled deep-research runs but
-   had no notion of skills at all.
+   had no notion of skills at all. That feature is superseded here and has
+   been removed: a skill schedule is what a saved brief was, and the
+   skill-scheduler is that scheduler under a name that matches what it fires.
 
 Two forces drove a new design:
 
@@ -69,6 +72,53 @@ exactly mirroring `data_sources`. `/v1/internal/skills/submit` carries
 — a typo never errors a turn. Skill application is a *request decision*, not
 a model decision.
 
+**Invocation is `/name` in the composer.** The `skills` envelope field needs a
+way in from a conversation, and it is a slash command: typing `/` as the first
+non-whitespace character of a message opens a picker of the skills this member
+may invoke (`GET /api/skills/invocable`), and sending carries the chosen name
+as `skills: [name]`. Three decisions inside that:
+
+- **Only the message's opening token triggers it.** Deliberately narrower than
+  `@`. Slashes are ordinary punctuation in this domain (`12/05`, `OIB-RL 2/3`,
+  `und/oder`, `m/s`, file paths), and a menu that fired on those would
+  interrupt someone writing a normal sentence. An invocation applies to the
+  whole turn, so the front of the message costs nothing and removes the entire
+  class of false positives instead of filtering them.
+- **The picker shows L1 and nothing else.** Name and description — the same
+  text the model gets at turn start. The menu a person reads and the catalogue
+  the model reads being identical is what makes a description that fails to say
+  *when* a skill applies visibly unhelpful to both, which is the feedback a
+  skill author needs. Bodies are never fetched to draw a menu.
+- **No invocation state.** The invoked skill is derived from the composer text
+  on every render, so deleting the token removes the invocation and nothing can
+  drift from what the user sees. Mentions cannot do this (two people may share
+  a display name); a skill name is unique and exact, so the text is a complete
+  record.
+
+Consequently `force_skills` no longer depends on the intent classifier: gating
+the `use_skill` tool on `requires_sources` alone made forcing a no-op on
+exactly the short, imperative messages people type after a slash command.
+
+**Activation is shown, not just recorded.** `skills_activated` rides the
+terminal websocket frame into the UI and renders as a quiet disclosure under
+the answer: nothing when no skill was activated, one line when some were,
+opening to name them and state the mechanism. The moment that distinguishes a
+skill from a prompt is the agent deciding to pull a body into context, and it
+was previously invisible. Showing it teaches the progressive-disclosure model
+at the point where it becomes concrete rather than in documentation nobody
+reads. Descriptions for that panel are fetched only on expand — paying an
+org-scoped read on every rendered answer to fill a panel almost nobody opens
+would be the eager loading this design exists to avoid.
+
+**One agent vocabulary.** Targeting uses the `AGENT_REGISTRY` identifiers
+`shallow_researcher` / `deep_researcher` everywhere — frontmatter, resolver,
+BFF. Two spellings for one agent (`deep_research_agent` vs. `deep_researcher`)
+meant a `grid-agents` value that was correct in one file and inert in the
+other. The five builtin skills declare their own
+`grid-execution: deep-research` + `grid-agents: deep_researcher`, and the BFF
+forwards platform metadata verbatim, so targeting travels with the skill
+instead of being asserted by whoever serves it.
+
 **Progressive disclosure, two levels.** L1 is the catalog: one
 `- \`name\`: description` line per resolved skill in the system prompt
 (`## Verfügbare Skills`), plus a `## Aktive Skills (vom Nutzer erzwungen)`
@@ -83,7 +133,7 @@ lists for one run and is never cached on a shared agent instance. Its
 resolved set never share activation state. `skills_activated` (forced first,
 then invoked, deduped) surfaces on the terminal frame.
 
-**Config.** `shallow_research_agent` in the workflow YAML gains
+**Config.** `shallow_research_agent` in the NAT workflow YAML gains
 `skills_enabled` (default `true`) and `skill_allowlist` (default empty =
 every resolved skill). Both apply only on research turns
 (`requires_sources=True`); meta/conversational turns keep the interaction-only
@@ -111,6 +161,11 @@ and strict validation are shared.
 - Fail-open resolution keeps chat up when the BFF is down; the strict model
   contract catches malformed skills at deploy time, not mid-turn.
 - Per-run runtime aligns with ADR-0018: no shared mutable activation state.
+- One affordance covers invocation and authoring feedback: the `/` menu is the
+  catalogue, so an unhelpful description is discovered by the person best
+  placed to fix it.
+- Activation is auditable from the answer itself, so "did the skill actually
+  run?" stops being a question only a log can answer.
 
 ### Negative
 
@@ -148,6 +203,15 @@ and strict validation are shared.
 - **One engine for both sides** — rejected: the chat side needs prompt
   catalogs + request forcing; the deep side runs sandboxed filesystem tools
   natively. Forcing one engine onto both would distort one of them.
+- **A `/` menu that opens anywhere in the message** (the `@` behaviour) —
+  rejected: false positives on ordinary German punctuation, for no gain, since
+  an invocation applies to the whole turn anyway.
+- **Remembering the invoked skill as composer state** — rejected: the token
+  stays editable in a plain textarea, so state and text would drift; the text
+  is the record.
+- **Always showing which skills were available** — rejected as noise: the
+  disclosure reports what was *loaded*, because availability is the constant
+  and activation is the event.
 
 ## Open Questions / Follow-ups
 
@@ -163,4 +227,7 @@ and strict validation are shared.
 - `docs/architecture/agent-skills.md` (subsystem doc)
 - `docs/api/python-endpoints.md` (`/v1/internal/skills/submit`)
 - `docs/api/bff-routes.md` (`/api/internal/skills/*`, `/api/skills/*`)
+- `docs/api/websocket-protocol.md` (`skills` on the message envelope,
+  `skills_activated` on the terminal frame)
+- ADR-0023 / ADR-0027 (Workflows and its template gallery, superseded here)
 - agentskills.io format spec (SKILL.md frontmatter contract)

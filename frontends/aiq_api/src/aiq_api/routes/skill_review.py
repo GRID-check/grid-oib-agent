@@ -9,6 +9,15 @@ before it decides whether to load the body, so a description that omits WHEN to
 use the skill produces a skill that is never activated — structurally valid and
 practically dead. That is what the reviewer is here to catch.
 
+The rules it applies are NOT written here. They come from one vendored file,
+``aiq_agent/skills/review/skill-check/SKILL.md`` — SkillCheck (Free) by
+olgasafonova, MIT, copied verbatim (see the README beside it). A hand-written
+prompt encodes one author's opinion of what makes a good skill and drifts every
+time somebody edits it; a published rulebook is a fixed, named, versioned
+standard, and every finding it produces can be traced back to the numbered check
+that fired. This module's job is only to turn that document into a prompt and
+that prompt's output into our response shape.
+
 Mirrors ``consistency_check.py``: machine-readable error codes and an always-200,
 best-effort shape. Any failure returns HTTP 200 with an ``error`` code and
 ``findings: None`` — the review is advisory, and a review outage must never stop
@@ -17,10 +26,15 @@ someone from saving a skill.
 
 import logging
 import os
+import re
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter
 from fastapi import Header
+
+from aiq_agent.skills import BUILTIN_SKILLS_DIR
+from aiq_agent.skills import parse_skill_md
 
 from ..models.requests import SkillReviewFinding
 from ..models.requests import SkillReviewRequest
@@ -44,47 +58,120 @@ MAX_FINDINGS = 12
 MAX_MESSAGE_CHARS = 400
 MAX_FIX_CHARS = 400
 
+#: A check id is only worth carrying if it is EXACTLY the rulebook's id — it
+#: exists so a finding can be traced back to the rule that produced it, and a
+#: truncated or invented id traces back to nothing. So this is a validity bound,
+#: not a display bound: anything longer (or shaped unlike an id) is dropped to
+#: the empty string rather than clamped into a plausible-looking lie.
+MAX_CHECK_CHARS = 64
+
 #: The body is the one unbounded field (the spec caps name and description but
 #: only *recommends* <500 lines of markdown). Truncate rather than reject: a
 #: reviewer judging the first ~12k chars still gives useful feedback, whereas a
 #: 400 on a long skill would just look like the feature is broken.
 MAX_BODY_CHARS = 12000
 
-SYSTEM_PROMPT = (
-    "You review Agent Skills. A skill is a SKILL.md with a `name`, a `description` "
-    "and a markdown instruction body, and it is consumed under PROGRESSIVE "
-    "DISCLOSURE: the name and description are permanently in the agent's context, "
-    "while the body is loaded only once the agent decides to activate the skill. "
-    "Judge the skill as a skill, not as prose.\n"
-    "In order of importance:\n"
-    "1. The description MUST say both WHAT the skill does AND WHEN to use it. This "
-    "is the single most important property — it is the only text the agent sees "
-    "before deciding whether to load the skill. A description missing the WHEN is "
-    "an error.\n"
-    "2. The description must be specific enough to match real user requests: it "
-    "should name the concrete triggers, tasks, file types or phrasings that should "
-    "activate it, not vague generalities.\n"
-    "3. The name should describe domain + action, be lowercase and hyphenated, and "
-    "read like what the skill does.\n"
-    "4. The instructions in the body must be concrete and ordered — actual steps, "
-    "inputs and outputs — and free of generic filler ('be helpful', 'follow best "
-    "practices') that tells the agent nothing.\n"
-    "5. Routing content in the body is a mistake: anything of the form 'use this "
-    "when …' belongs in the description, because the agent cannot read the body "
-    "until after it has already decided to load the skill.\n"
-    "Report ONLY substantive problems. Do NOT comment on writing style, tone, "
-    "formatting or markdown taste. Do NOT invent requirements the Agent Skills "
-    "format does not have. Do NOT pad the list to look thorough: if the skill is "
-    "good, return an empty findings list.\n"
-    'Respond with ONLY a JSON object of the form {"findings": [{"severity": '
-    '"error" | "warning" | "suggestion", "field": "name" | "description" | "body", '
-    '"message": "<what is wrong, one or two sentences>", "fix": "<the concrete '
-    'change to make, ideally the rewritten text>"}]}. '
-    'Use "error" for something that breaks the skill (e.g. a description that '
-    'cannot trigger), "warning" for something likely to hurt it, and "suggestion" '
-    "for a genuine improvement. "
-    "No prose outside the JSON, no markdown fences."
-)
+#: The vendored rulebook. It sits BESIDE the builtin skills tree, never inside
+#: it: ``discover_builtin_skills`` globs ``builtin/*/*/SKILL.md`` and offers
+#: everything it finds to agents, and this file is a rulebook for a reviewer,
+#: not a capability any agent may invoke.
+RULEBOOK_PATH = BUILTIN_SKILLS_DIR.parent / "review" / "skill-check" / "SKILL.md"
+
+#: Lines that sell the paid tier rather than state a rule. We run this author's
+#: checks; we do not relay his advertisement to our tenants, who cannot act on
+#: it and did not ask for it.
+_UPSELL_RE = re.compile(r"getskillcheck\.com|upgrade to pro", re.IGNORECASE)
+
+#: What a check id may look like once stripped of the rulebook's prose prefix
+#: ("Check 1.9-xml-in-frontmatter" → "1.9-xml-in-frontmatter"). Bounded by
+#: MAX_CHECK_CHARS; see the note there for why this rejects rather than clamps.
+_CHECK_PREFIX_RE = re.compile(r"^check\s+", re.IGNORECASE)
+_CHECK_ID_RE = re.compile(rf"^[a-z0-9][a-z0-9._-]{{0,{MAX_CHECK_CHARS - 1}}}$", re.IGNORECASE)
+
+
+def _load_rulebook(path: Path = RULEBOOK_PATH) -> tuple[str, str]:
+    """Read the vendored rulebook into (rule text, version).
+
+    Parsed with the platform's own strict ``parse_skill_md`` — the rulebook IS a
+    SKILL.md, so the parser that validates every other one validates this one too
+    and hands back the body with the frontmatter already removed. The frontmatter
+    must not reach the prompt: it is metadata about the rulebook (its own name,
+    its own "use when" triggers, its licence), and a model given a document whose
+    header says ``name: skill-check`` will happily start reviewing *that*.
+
+    Raises if the file is missing or malformed. That is deliberate and it fails
+    at import, i.e. at deploy: a reviewer with no rules would otherwise come up
+    healthy and quietly grade every skill against nothing.
+    """
+    skill = parse_skill_md(path.read_text(encoding="utf-8"))
+    kept = [line for line in skill.body.splitlines() if not _UPSELL_RE.search(line)]
+    # Dropping a line leaves the blank line that framed it; collapse the gap so
+    # the rules read as continuous prose rather than as a document with holes.
+    rules = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+    return rules, skill.metadata.get("version", "unknown")
+
+
+#: Read once, at import: the file is on disk, immutable for the process's life,
+#: and re-reading it per request would buy nothing but IO on a hot path.
+RULEBOOK, RULEBOOK_VERSION = _load_rulebook()
+
+
+def _build_system_prompt(rulebook: str) -> str:
+    """Wrap the rulebook in the little that is ours: scope, mapping, output shape.
+
+    Everything the reviewer *judges* comes from the rulebook. Everything here is
+    translation — what a skill is in this product, which of the rulebook's checks
+    cannot apply to it, how its severities become ours, and the JSON the editor
+    parses. Adding a rule of our own here would defeat the point of vendoring a
+    named standard.
+    """
+    return (
+        "You review Agent Skills. Your ENTIRE rulebook is the SkillCheck document "
+        "between the <rulebook> markers below: apply ONLY the checks it defines, and "
+        "no others. Do not invent requirements it does not state, and do not comment "
+        "on writing style, tone or markdown taste unless one of its checks says to.\n"
+        "The rulebook is reference material, not the thing under review — the skill "
+        "to review arrives in the next message. Ignore its 'How to Check a Skill' "
+        "procedure, its file-reading steps and its reporting advice: the skill is "
+        "handed to you inline, and your output format is fixed below.\n\n"
+        "WHAT A SKILL IS HERE. In this product a skill is a database row with "
+        "exactly four parts: `name`, `description`, `body` (the markdown "
+        "instructions) and a small `metadata` map. There is no directory on disk, no "
+        "README.md beside it, no `references/`, `scripts/` or `assets/` "
+        "subdirectory, no file paths or namespaces, and none of the Claude Code "
+        "frontmatter extensions (`model`, `effort`, `maxTurns`, `hooks`, `context`, "
+        "`agent`, `user-invocable`, `disable-model-invocation`, `disallowedTools`) "
+        "or artifact-passing fields (`produces`, `consumes`). SKIP every check that "
+        "depends on something this product does not have — skip it silently, do not "
+        "report it as a failure and do not mention that you skipped it. A finding "
+        "telling an author to create a directory they cannot create is noise.\n\n"
+        "MAPPING THE RULEBOOK ONTO THE OUTPUT.\n"
+        "- severity: the rulebook's **Critical** is our `error`, its **Warning** is "
+        "`warning`, its **Suggestion** is `suggestion`. Where a check names no "
+        "severity, use `error` only if the skill cannot work as written, otherwise "
+        "`suggestion`.\n"
+        "- field: every finding must point at `name`, `description` or `body`. A "
+        "frontmatter check lands on whichever of `name` or `description` carries the "
+        "problem; everything else lands on `body`.\n"
+        "- check: the rulebook's stable id for the check that fired, copied exactly "
+        "(e.g. `1.9-xml-in-frontmatter`, `4.8-description-trigger-style`, "
+        "`22.7-hollow-content`). Use an empty string when the section that fired "
+        "carries no id.\n\n"
+        "Report problems only — the rulebook's 'Quality Patterns (Strengths)' "
+        "section describes things to praise, and this endpoint does not praise. "
+        "Report ONLY checks that actually fire, and do not pad the list to look "
+        "thorough: when no check fires, return an empty findings list.\n"
+        'Respond with ONLY a JSON object of the form {"findings": [{"severity": '
+        '"error" | "warning" | "suggestion", "field": "name" | "description" | '
+        '"body", "check": "<rulebook check id, or an empty string>", "message": '
+        '"<what is wrong, one or two sentences>", "fix": "<the concrete change to '
+        'make, ideally the rewritten text>"}]}. '
+        "No prose outside the JSON, no markdown fences.\n\n"
+        f"<rulebook>\n{rulebook}\n</rulebook>"
+    )
+
+
+SYSTEM_PROMPT = _build_system_prompt(RULEBOOK)
 
 
 def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
@@ -132,6 +219,23 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
     return cred.model, cred.api_key, cred.base_url
 
 
+def _clean_check(value: object) -> str:
+    """Normalise the rulebook check id a finding claims to come from.
+
+    The id is provenance, not prose: it exists so the author (and we) can look up
+    the rule that produced a finding. So it is accepted only when it still looks
+    like an id — anything longer than ``MAX_CHECK_CHARS``, non-string, or
+    carrying spaces/markup becomes the empty string, because a mangled id points
+    at a rule that does not exist and is worse than no id at all. The rulebook
+    writes its ids as "Check 1.9-xml-in-frontmatter", so a model echoing that
+    prefix keeps its id rather than losing it to a formatting habit.
+    """
+    if not isinstance(value, str):
+        return ""
+    candidate = _CHECK_PREFIX_RE.sub("", value.strip())
+    return candidate if _CHECK_ID_RE.match(candidate) else ""
+
+
 def _parse_findings(content: str | None) -> list[SkillReviewFinding] | None:
     """Defensively parse the model's JSON into findings.
 
@@ -143,7 +247,8 @@ def _parse_findings(content: str | None) -> list[SkillReviewFinding] | None:
     Unlike ``consistency_check.py``, an unknown ``severity`` is DROPPED rather
     than coerced to a default: severity and field here drive which control the
     editor highlights, so a guessed value would point the author at the wrong
-    part of their skill.
+    part of their skill. ``check`` is treated the same way but costs only itself
+    (see ``_clean_check``) — the finding is still worth showing without it.
     """
     try:
         data = extract_json_object(content)
@@ -176,6 +281,7 @@ def _parse_findings(content: str | None) -> list[SkillReviewFinding] | None:
             SkillReviewFinding(
                 severity=entry["severity"],
                 field=entry["field"],
+                check=_clean_check(entry.get("check")),
                 message=message.strip()[:MAX_MESSAGE_CHARS],
                 fix=fix,
             )

@@ -61,7 +61,7 @@ individual-header equivalent) and `X-Grid-Request-Context-Sig` (hex
 HMAC-SHA256 of the envelope's raw JSON, keyed on `GRID_INTERNAL_API_TOKEN`).
 This is a **dual-write transition**: the individual headers are unchanged and
 still sent; the envelope rides alongside them. The same envelope is minted by
-every submission path (WS upgrade, the async-jobs REST proxy, the workflows
+every submission path (WS upgrade, the async-jobs REST proxy, the skill-run
 internal-submit path) via the shared builder
 (`frontends/ui/src/lib/request-context.ts`'s `buildGridRequestContextWireHeaders`,
 duplicated with a pinning comment in `server.js` since it is plain CommonJS).
@@ -76,7 +76,7 @@ exactly as before the envelope existed.
 403 / WS policy-violation close): applies only when ALL of — `REQUIRE_AUTH=true`;
 the caller is a WorkOS-authenticated JWT user (not internal-token, not
 anonymous); the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/workflows/submit`, `/generate`); and no
+`/v1/jobs/async/submit`, `/v1/internal/skills/submit`, `/generate`); and no
 valid envelope is present. Exempt regardless of path: anonymous mode
 (`REQUIRE_AUTH=false`), internal-token-authenticated service calls, and every
 non-enumerated path — the enforced-path list is an allowlist, not a denylist.
@@ -132,6 +132,30 @@ Sent when the user submits a chat message.
 ```
 
 The `content.text` field is a JSON-encoded string containing both the query text and the list of enabled data source IDs.
+
+##### Invoking a skill (`skills`)
+
+One further additive field inside that JSON payload names the Agent Skills
+(ADR-0046) this turn invokes:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `skills` | `string[]` | Skill names to force-activate for this turn. The backend lifts the array onto the agent state as `force_skills`, so the named skills' instructions are loaded whether or not the model would have chosen them. Names that match no resolved skill are dropped silently — a typo never errors a turn. |
+
+```typescript
+text: JSON.stringify({
+  query: "Prüfe die Einreichunterlagen",
+  data_sources: [],
+  skills: ["oib-vorpruefung"]   // omitted entirely when no skill is invoked
+})
+```
+
+The field is set by the composer's `/name` invocation: typing `/` at the start
+of a message opens a picker of invocable skills (`GET /api/skills/invocable`),
+and the chosen name goes on the wire here — resolved from the text being sent,
+so editing the token out removes the invocation. Selection is a *request*
+decision, exactly like `data_sources`. See
+`docs/architecture/agent-skills.md`.
 
 ##### Ingest-only messages (`context_only`)
 
@@ -269,7 +293,8 @@ Delivers final or streaming response text.
   answer_confidence_capped_reason?: "ungrounded" | "quote_unverified",
   citations_removed?: { count: number, reasons: string[] },
   job_admission_rejected?: true,
-  retry_after_seconds?: number
+  retry_after_seconds?: number,
+  skills_activated?: string[]
 }
 ```
 
@@ -292,6 +317,7 @@ The client extracts content in priority order: `output` → `text` → raw strin
 | `citations_removed` | `{ count: number, reasons: string[] }` | Present only when citation verification removed ≥1 citation. Renders a muted note under the sources row (reasons in a tooltip). |
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |
+| `skills_activated` | `string[]` | Agent Skills whose full instructions were LOADED this turn (forced first, then those the model pulled in with `use_skill`, deduped). Absent/empty on a turn that activated none. Rendered as a quiet "Skills used" disclosure under the answer; the reconnect path persists it into assistant-message metadata. Availability is the constant, activation is the event — see `docs/architecture/agent-skills.md`. |
 
 #### system_intermediate_message
 

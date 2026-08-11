@@ -269,7 +269,7 @@ export const skills: typeof en.skills = {
       keyboardHint: '↑↓ auswählen · ↵ einfügen · esc schließen',
     },
     invoked: {
-      label: 'Skill: {name}',
+      label: 'Skill',
       hint: 'Seine Anweisungen werden zu Beginn dieser Antwort geladen.',
       remove: 'Skill {name} aus dieser Nachricht entfernen',
     },

@@ -253,6 +253,36 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="skills-panel-preview"]',
   },
   {
+    id: 'skill-composer',
+    mobile: true,
+    path: '/dev/skill-composer',
+    description:
+      'The composer half of Agent Skills (ADR-0045) — the `/` menu open on a typed fragment, with the invoked-skill chip below it. A row carries exactly the level-1 metadata the agent itself is given and nothing else: the token to type, with the matched fragment emphasised, and the sentence that says when to type it. The fixture matches the same fragment two ways, in the name and in the description only, which is the ranking the menu applies. The chip beneath states the CONSEQUENCE — these instructions will be loaded — because a `/token` in a sentence says nothing about what it does.',
+    waitFor: '[data-testid="slash-command-picker"]',
+  },
+  {
+    id: 'skill-composer-empty',
+    path: '/dev/skill-composer?variant=empty',
+    description:
+      'The `/` menu for an organization that has authored no skills. Registered separately because this panel is the only place in the product that explains what a skill IS — the state a first-time user meets is the state that has to teach.',
+    waitFor: '[data-testid="slash-command-picker"]',
+  },
+  {
+    id: 'skill-editor',
+    path: '/dev/skill-editor',
+    description:
+      'The two panes beside the skill editor form: the SKILL.md the form is writing, split at the seam that decides everything about how a skill behaves (frontmatter in the agent’s context on every turn, instructions loaded only on activation), and the reviewer’s verdict on the draft beneath it. The draft is deliberately mediocre — a description that never says when to use the skill — so the findings show all three severities across all three fields rather than a clean bill of health that would prove nothing. The preview presses the check itself, because findings do not exist until somebody asks for them.',
+    waitFor: '[data-testid="skill-review-findings"]',
+  },
+  {
+    id: 'skill-activation',
+    mobile: true,
+    path: '/dev/skill-activation',
+    description:
+      'What the agent actually LOADED while writing an answer, in both of its states on one page: the quiet one-line summary under the answer, and the same disclosure opened, where each activated skill is named with the description that was fetched only on expand. One activated skill has since been renamed and so has no description — its row keeps the name rather than disappearing, because the answer really was written with it.',
+    waitFor: '[data-testid="skills-used-panel"]',
+  },
+  {
     id: 'platform-knowledge',
     mobile: true,
     path: '/dev/platform-knowledge',
