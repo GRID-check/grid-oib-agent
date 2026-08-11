@@ -53,7 +53,7 @@ vi.mock('./ifc-viewer-canvas', () => ({
       // Every control in the dock is disabled until the model has loaded, so
       // a canvas that never settles would make this whole spec assert on a
       // disabled dock.
-      onStatus?.({ phase: 'ready', percent: 100, meshCount: 12 })
+      onStatus?.(canvasStatus)
     }, [onStatus])
     return <div data-testid="ifc-canvas" />
   },
@@ -65,17 +65,39 @@ vi.mock('./model-advanced-sheet', () => ({
     open ? <div data-testid="advanced-sheet" /> : null,
 }))
 
+const sourceReload = vi.fn()
+const modelsReload = vi.fn()
+let modelsError: string | null = null
+/** What the stand-in canvas reports; `ready` unless a test says otherwise. */
+let canvasStatus: { phase: string; percent: number | null; meshCount: number; message?: string } = {
+  phase: 'ready',
+  percent: 100,
+  meshCount: 12,
+}
+
 const state = {
   models: [] as BimModelHeaderView[],
   elements: [] as unknown[],
   detail: null as unknown,
+  sourceUrl: 'https://example.test/haus-a.ifc' as string | null,
+  sourceError: null as string | null,
 }
 
 vi.mock('../hooks/use-bim-model', () => ({
-  useProjectBimModels: () => ({ data: state.models, isLoading: false, error: null, reload: vi.fn() }),
+  useProjectBimModels: () => ({
+    data: state.models,
+    isLoading: false,
+    error: modelsError,
+    reload: modelsReload,
+  }),
   useBimElements: () => ({ data: state.elements, isLoading: false, error: null }),
   useBimElementDetail: () => ({ data: state.detail, isLoading: false, error: null }),
-  useBimModelSource: () => 'https://example.test/haus-a.ifc',
+  useBimModelSource: () => ({
+    data: state.sourceUrl,
+    isLoading: false,
+    error: state.sourceError,
+    reload: sourceReload,
+  }),
 }))
 
 function model(overrides: Partial<BimModelHeaderView> = {}): BimModelHeaderView {
@@ -116,6 +138,10 @@ beforeEach(() => {
   state.models = [model()]
   state.elements = []
   state.detail = null
+  state.sourceUrl = 'https://example.test/haus-a.ifc'
+  state.sourceError = null
+  modelsError = null
+  canvasStatus = { phase: 'ready', percent: 100, meshCount: 12 }
   setWebGpu(true)
 })
 
@@ -433,5 +459,49 @@ describe('ModelStage — getting out', () => {
     render(<ModelStage projectId="p1" onClose={onClose} />)
     await userEvent.click(screen.getByTestId('stage-close'))
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Every failure offers a way back.
+ *
+ * Nielsen's ninth: a system must help a user recognise, diagnose and recover.
+ * This surface managed the first two and none of the third — the notices took
+ * no action, the hooks' `reload` had no caller, and the button's string had
+ * sat unused in both dictionaries since it was written. Closing and reopening
+ * the whole stage was the only escape, and nothing on screen suggested it.
+ */
+describe('ModelStage — recovering from a failure', () => {
+  it('offers a retry when the model list could not be loaded', async () => {
+    state.models = []
+    modelsError = 'load-failed'
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(modelsReload).toHaveBeenCalled()
+  })
+
+  it('says the view is unavailable when the URL could not be minted', async () => {
+    // Not a progress bar. This used to fall through to the indeterminate
+    // "Loading model…" veil, which never finishes — a 403 from a withdrawn
+    // feature flag looked exactly like a slow network, forever.
+    state.sourceUrl = null
+    state.sourceError = 'load-failed'
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    expect(screen.getByText('The 3D view could not be loaded')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(sourceReload).toHaveBeenCalled()
+  })
+
+  it('re-signs the URL when the renderer itself failed', async () => {
+    // A device loss — a driver reset, a laptop waking from sleep — is the
+    // common way to land here and is entirely recoverable: a new URL resets
+    // the stored status and remounts the canvas. Nothing triggered it.
+    canvasStatus = { phase: 'error', percent: null, meshCount: 0, message: 'device lost' }
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(sourceReload).toHaveBeenCalled()
   })
 })

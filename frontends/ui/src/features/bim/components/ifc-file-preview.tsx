@@ -74,7 +74,7 @@ export function IfcFilePreview({ documentId, filename, projectId, className }: I
   )
   const ready = model?.status === 'ready' ? model : null
 
-  const sourceUrl = useBimModelSource(ready?.id ?? null, webGpu && ready !== null)
+  const source = useBimModelSource(ready?.id ?? null, webGpu && ready !== null)
   const elements = useBimElements(ready?.id ?? null)
 
   // The link opens THIS file, not whichever model the workspace would default
@@ -119,17 +119,34 @@ export function IfcFilePreview({ documentId, filename, projectId, className }: I
     return <PreviewNote className={className} text={t('preview.noWebGpu')} href={href} label={t('preview.open')} />
   }
 
+  if (source.error !== null) {
+    // WebGPU is ruled out one branch above, so falling through to
+    // `IfcModelViewer` here rendered "Der Viewer benötigt WebGPU" — a sentence
+    // that was provably false at this point in the tree. The model is fine;
+    // the short-lived URL that streams it could not be minted.
+    return (
+      <PreviewNote className={className} text={t('preview.loadFailed')} href={href} label={t('preview.open')} />
+    )
+  }
+
   return (
     <div className={cn('flex min-h-0 flex-col gap-2', className)}>
       <IfcModelViewer
-        sourceUrl={sourceUrl}
-        elements={elements.data ?? []}
+        sourceUrl={source.data}
+        // One shared empty array: `?? []` inline mints a new one every render,
+        // which changes the canvas's props identity for a value that did not
+        // change. The stage has said so in a comment since it was written;
+        // this surface did the thing the comment warns against.
+        elements={elements.data ?? NO_ELEMENTS}
         className="min-h-[220px] flex-1"
       />
       <OpenInWorkspace href={href} label={t('preview.open')} />
     </div>
   )
 }
+
+/** One shared empty array, so "no elements yet" has a stable identity. */
+const NO_ELEMENTS: never[] = []
 
 /** The states that are a sentence rather than a building. */
 function PreviewNote({

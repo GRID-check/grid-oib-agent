@@ -47,6 +47,7 @@ import {
   Link2,
   MonitorX,
   PanelLeft,
+  RotateCcw,
   Ruler,
   Scissors,
   SlidersHorizontal,
@@ -60,7 +61,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import type { BimViewerElement } from '../lib/model-index'
+import { supportsWebGpu, type BimViewerElement } from '../lib/model-index'
 import {
   buildModelQuery,
   parseModelView,
@@ -168,7 +169,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     [pathname, router, view]
   )
 
-  const { data: models, isLoading, error } = useProjectBimModels(projectId)
+  const { data: models, isLoading, error, reload: reloadModels } = useProjectBimModels(projectId)
   const model = useMemo(() => pickStageModel(models ?? [], view.model), [models, view.model])
   const modelId = model?.status === 'ready' ? model.id : null
 
@@ -181,7 +182,10 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   const elementList = elements ?? NO_ELEMENTS
   const detail = useBimElementDetail(modelId, selectedGlobalId)
   // Only mint the presigned source URL when a viewport can actually use it.
-  const sourceUrl = useBimModelSource(modelId, true)
+  // `supportsWebGpu()`, not `true`: the comment above has always said the URL
+  // is only minted when a viewport can use it, and a browser without WebGPU
+  // was still signing an object-storage credential nothing would ever read.
+  const source = useBimModelSource(modelId, supportsWebGpu())
 
   const levels = useMemo(() => stageLevels(model?.summary), [model?.summary])
 
@@ -264,7 +268,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   )
 
   const viewport = useModelViewport({
-    sourceUrl,
+    sourceUrl: source.data,
     elements: elementList,
     highlights,
     isolatedStorey: storey,
@@ -370,8 +374,10 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           <StageCanvas
             isLoading={isLoading}
             error={error}
+            onRetry={reloadModels}
             hasModels={(models?.length ?? 0) > 0}
             model={model}
+            source={source}
             viewport={viewport}
           />
 
@@ -733,6 +739,17 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   )
 }
 
+/** The one way forward every viewer failure now offers. */
+function StageRetry({ onClick }: { onClick: () => void }): JSX.Element {
+  const t = useTranslations('bim')
+  return (
+    <Button variant="outline" size="sm" onClick={onClick}>
+      <RotateCcw className="size-3.5" aria-hidden="true" />
+      {t('loadFailed.action')}
+    </Button>
+  )
+}
+
 /**
  * The canvas, or the honest sentence that replaces it.
  *
@@ -745,14 +762,18 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
 function StageCanvas({
   isLoading,
   error,
+  onRetry,
   hasModels,
   model,
+  source,
   viewport,
 }: {
   isLoading: boolean
   error: string | null
+  onRetry: () => void
   hasModels: boolean
   model: { status: string; errorMessage: string | null } | null
+  source: { data: string | null; error: string | null; reload: () => void }
   viewport: ReturnType<typeof useModelViewport>
 }): JSX.Element {
   const t = useTranslations('bim')
@@ -766,6 +787,12 @@ function StageCanvas({
         icon={Boxes}
         title={t('loadFailed.title')}
         description={t('loadFailed.description')}
+        // Every error state in this viewer used to be terminal: the notices
+        // took no action, `reload` on the hook had no caller, and the string
+        // for this button had sat unused in both dictionaries since it was
+        // written. Closing and reopening the stage was the only escape, and
+        // nothing on screen suggested it.
+        action={<StageRetry onClick={onRetry} />}
       />
     )
   }
@@ -803,6 +830,26 @@ function StageCanvas({
             ? t('viewer.unavailable.reason', { message: viewport.status.message })
             : undefined
         }
+        // Re-signing mints a NEW url, and a new url is what resets the stored
+        // status and remounts the canvas — the recovery path existed and had
+        // nothing to trigger it. A device loss (a driver reset, a laptop
+        // waking) is the common way to land here, and it is entirely
+        // recoverable.
+        action={<StageRetry onClick={source.reload} />}
+      />
+    )
+  }
+  // A presigned URL that could not be minted — an expired session, a
+  // withdrawn feature flag, a dropped connection. Its own branch, because the
+  // fallthrough below renders an indeterminate progress bar, and a progress
+  // bar that will never finish is the least honest thing this surface can do.
+  if (source.error) {
+    return (
+      <ViewerNotice
+        icon={MonitorX}
+        title={t('viewer.unavailable.title')}
+        description={t('viewer.unavailable.description')}
+        action={<StageRetry onClick={source.reload} />}
       />
     )
   }

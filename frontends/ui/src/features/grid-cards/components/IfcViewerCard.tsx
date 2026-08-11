@@ -65,7 +65,7 @@ export function IfcViewerCard({
 
   const { data: elements } = useBimElements(model?.id ?? null)
   const webGpu = useMemo(() => supportsWebGpu(), [])
-  const sourceUrl = useBimModelSource(model?.id ?? null, webGpu)
+  const source = useBimModelSource(model?.id ?? null, webGpu)
 
   // A group written as a FILTER is resolved against the model rather than
   // against the ids that happened to fit in the answer — see
@@ -131,7 +131,7 @@ export function IfcViewerCard({
         </p>
       ) : (
         <IfcModelViewer
-          sourceUrl={sourceUrl}
+          sourceUrl={source.data}
           elements={elements ?? []}
           highlights={resolved}
           isolatedStorey={storey}

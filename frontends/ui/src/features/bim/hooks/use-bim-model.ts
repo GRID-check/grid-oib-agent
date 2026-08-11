@@ -438,29 +438,53 @@ export function useBimElementDetail(
  * Fetched lazily — only once a viewport is actually going to mount — because
  * minting it is a signature over object storage, not a free read, and a browser
  * with no WebGPU never needs one.
+ *
+ * ## Why this returns a state and not a string
+ *
+ * It used to return `string | null`, mapping every failure to `null`. Both
+ * consumers then rendered that as something it was not: the stage showed an
+ * indeterminate progress bar forever, and the file preview said "Der Viewer
+ * benötigt WebGPU" — on a branch where WebGPU had already been ruled out one
+ * line earlier, so the sentence was provably false. A 403 from a withdrawn
+ * feature flag, a 500 and a dropped connection all looked like loading.
+ *
+ * `reload` is the other half. The URL has a ten-minute TTL and is minted
+ * exactly once, so a viewport left open past it — or one whose GPU device was
+ * taken away by a driver reset — had no way back except closing the whole
+ * stage, which nobody would think to try. Re-signing produces a NEW url, and a
+ * new url is what resets the viewport's stored status and remounts the canvas;
+ * the machinery was already there with nothing to trigger it.
  */
-export function useBimModelSource(modelId: string | null, enabled: boolean): string | null {
-  const [url, setUrl] = useState<string | null>(null)
+export function useBimModelSource(
+  modelId: string | null,
+  enabled: boolean
+): AsyncState<string> & { reload: () => void } {
+  const [state, setState] = useState<AsyncState<string>>(IDLE)
+  const [tick, setTick] = useState(0)
 
   useEffect(() => {
     if (!modelId || !enabled) {
-      setUrl(null)
+      setState(IDLE)
       return
     }
     let cancelled = false
+    // Cleared on purpose, unlike the model list: the previous URL points at a
+    // DIFFERENT model, and handing it to the viewport would download the wrong
+    // building.
+    setState({ data: null, isLoading: true, error: null })
     getJson<{ url: string }>(`/api/bim/models/${modelId}/source`)
       .then((body) => {
-        if (!cancelled) setUrl(body.url)
+        if (!cancelled) setState({ data: body.url, isLoading: false, error: null })
       })
       .catch(() => {
-        if (!cancelled) setUrl(null)
+        if (!cancelled) setState({ data: null, isLoading: false, error: 'load-failed' })
       })
     return () => {
       cancelled = true
     }
-  }, [modelId, enabled])
+  }, [modelId, enabled, tick])
 
-  return url
+  return { ...state, reload: useCallback(() => setTick((value) => value + 1), []) }
 }
 
 /**
