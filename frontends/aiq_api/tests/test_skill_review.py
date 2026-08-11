@@ -474,7 +474,7 @@ async def test_byok_credential_from_request_body(app, monkeypatch):
         credential_id="cred-1",
         provider="openrouter",
         base_url="https://tenant.example.com/v1",
-        api_key="sk-tenant",
+        api_key="sk-tenant",  # pragma: allowlist secret
         key_fingerprint="fp",
     )
 

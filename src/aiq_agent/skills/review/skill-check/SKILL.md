@@ -298,4 +298,3 @@ Skills that mention output should specify format with concrete examples.
 Recognize positive patterns in skills. These are reported as "strengths" rather than issues.
 
 ### 8.1 Has Example Section
-
