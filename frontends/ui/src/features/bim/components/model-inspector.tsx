@@ -76,7 +76,19 @@ export function ModelInspector({
   // The heading has to say something before the fetch lands, and it must not
   // say the WRONG thing: "Bauteil" while loading, never a stale name from the
   // element the reader clicked a second ago.
-  const title = element?.name?.trim() || (element ? humaniseIfcType(element.ifcType) : t('stage.selection.loading'))
+  /**
+   * Three states, not two.
+   *
+   * The query answers a GlobalId this model does not contain with `200
+   * {element: null}` — the normal outcome for a link written against another
+   * revision, or for a link whose model could not be matched. That is not the
+   * same fact as "not fetched yet", and rendering it as one left a card
+   * permanently headed "Wird geladen…" whose body read "Wählen Sie ein
+   * Bauteil" — inside a card that only exists because something IS selected.
+   */
+  const missing = !isLoading && !error && !element
+  const title = element?.name?.trim()
+    || (element ? humaniseIfcType(element.ifcType) : t(missing ? 'element.notFound' : 'stage.selection.loading'))
 
   const subtitle = element
     ? [humaniseIfcType(element.ifcType), element.storeyName].filter(Boolean).join(' · ')
@@ -150,7 +162,7 @@ export function ModelInspector({
       {!error && !element && (
         <div className="text-muted-foreground flex items-center gap-2 text-xs">
           {isLoading && <Spinner className="size-3" />}
-          {isLoading ? t('stage.selection.loading') : t('properties.none')}
+          {isLoading ? t('stage.selection.loading') : t('element.notFound')}
         </div>
       )}
 

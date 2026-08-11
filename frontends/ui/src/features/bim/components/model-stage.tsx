@@ -76,6 +76,7 @@ import {
   stageModelLabel,
 } from '../lib/stage-model'
 import { BIM_CAMERA_VIEWS, type BimCameraView } from '../lib/viewer-camera'
+import { measurementText } from '../lib/measure-overlay'
 import { screenshotFilename } from '../lib/viewer-performance'
 import {
   useBimElementDetail,
@@ -114,12 +115,21 @@ const NO_ELEMENTS: readonly BimViewerElement[] = []
  * exactly when a live button would act on a component that is already gone.
  */
 function visibilityActions(
-  viewport: ReturnType<typeof useModelViewport>
+  viewport: ReturnType<typeof useModelViewport>,
+  clearSelection: () => void
 ): { onHide?: () => void; onIsolate?: () => void } {
   const expressId = viewport.selectedExpressId
   if (expressId === null) return {}
   return {
-    onHide: () => viewport.visibility.hide(expressId),
+    // Hiding CLEARS the selection. The card is mounted on the URL's
+    // `element=`, not on the renderer id, so without this the reader hid a
+    // wall and kept a card describing it — the highlight gone, the pivot
+    // reset, the Hide button itself silently removed from the card that was
+    // still open, and no way back except "show everything".
+    onHide: () => {
+      viewport.visibility.hide(expressId)
+      clearSelection()
+    },
     onIsolate: () => viewport.visibility.isolate([expressId]),
   }
 }
@@ -292,6 +302,15 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     void navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true))
   }, [])
 
+  /** Injected into the overlay's readout so it stays a pure function. */
+  const measureLabels = useMemo(
+    () => ({ horizontal: t('viewer.measure.horizontal'), vertical: t('viewer.measure.vertical') }),
+    [t]
+  )
+
+  /** Whether the rail has anything in it — see the toggle in the dock. */
+  const railHasContent = (models ?? []).length > 1 || levels.length > 0
+
   const section = viewport.section
   const cutDefault = viewport.defaultCut(levelElevation(model?.summary, storey))
 
@@ -326,7 +345,15 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         // dismiss a panel, which is the classic way a layered surface loses
         // people's work.
         onEscapeKeyDown={(event) => {
-          if (advancedOpen) {
+          // Measuring peels first. The canvas only swallows Escape when a
+          // first point is already down, and only while it has focus — from
+          // any dock button, the rail or the inspector, Escape fell straight
+          // through to the dialog and closed the model. Measurements are
+          // deliberately not in the URL, so that discarded every one of them.
+          if (viewport.measure.active) {
+            event.preventDefault()
+            viewport.measure.setActive(false)
+          } else if (advancedOpen) {
             event.preventDefault()
             setAdvancedOpen(false)
           } else if (selectedGlobalId) {
@@ -349,7 +376,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           />
 
           {/* Rail — models and levels. */}
-          {railOpen && (
+          {railOpen && railHasContent && (
             <div className="absolute top-3 left-3 z-20 flex max-h-[calc(100%-1.5rem)] sm:top-4 sm:left-4">
               <ViewerRail>
                 {/*
@@ -461,7 +488,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 projectId={projectId}
                 modelFilename={model?.filename ?? null}
                 onClose={() => setView({ element: undefined })}
-                {...visibilityActions(viewport)}
+                {...visibilityActions(viewport, () => setView({ element: undefined }))}
               />
             </div>
           )}
@@ -494,14 +521,39 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   with no way to clear leaves the building covered in someone
                   else's arithmetic.
                 */}
-                {viewport.measure.active && (
+                {/*
+                  Rendered while the tool is on OR while anything is measured.
+                  Turning the tool off keeps the measurements on screen by
+                  design — and used to take away the only control that could
+                  clear them, leaving the building covered in someone else's
+                  arithmetic with no way out.
+                */}
+                {(viewport.measure.active || viewport.measure.measurements.length > 0) && (
                   <ViewerSurface className="pointer-events-auto flex items-center gap-2 px-3 py-1.5">
-                    <span className="text-muted-foreground text-xs">
-                      {t(viewport.measure.pending ? 'viewer.measure.second' : 'viewer.measure.first')}
-                    </span>
+                    {viewport.measure.active && (
+                      <span className="text-muted-foreground text-xs">
+                        {t(
+                          viewport.measure.pending
+                            ? 'viewer.measure.second'
+                            : 'viewer.measure.first'
+                        )}
+                      </span>
+                    )}
                     {viewport.measure.measurements.length > 0 && (
                       <>
-                        <span className="text-muted-foreground/60 text-xs tabular-nums">
+                        {/*
+                          The numbers themselves, for a reader who cannot see
+                          the drawing over the model. The overlay is marked
+                          decorative precisely because this exists: without it
+                          every dimension the tool produced was available
+                          nowhere but as pixels.
+                        */}
+                        <span className="sr-only" role="status">
+                          {viewport.measure.measurements
+                            .map((measurement) => measurementText(measurement, measureLabels))
+                            .join('; ')}
+                        </span>
+                        <span className="text-muted-foreground text-xs tabular-nums">
                           {viewport.measure.measurements.length === 1
                             ? t('viewer.measure.countOne')
                             : t('viewer.measure.count', {
@@ -565,10 +617,18 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                     onClick={viewport.visibility.showEverything}
                   />
                 )}
+                {/*
+                  The rail holds the model list and the level list, and both
+                  can be absent — one model, and an export whose storeys have
+                  no names. It then rendered as a 13 rem empty blurred pill
+                  over the building, with a dock toggle reporting `active` for
+                  it. A toggle for nothing is not a toggle.
+                */}
                 <ViewerIconButton
                   label={railOpen ? t('stage.rail.hide') : t('stage.rail.show')}
                   icon={PanelLeft}
-                  active={railOpen}
+                  active={railOpen && railHasContent}
+                  disabled={!railHasContent}
                   onClick={() => setRailChoice(!railOpen)}
                 />
                 <ViewerIconButton
@@ -611,11 +671,23 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               disabled={viewport.status.phase !== 'ready'}
               onClick={() => viewport.measure.setActive(!viewport.measure.active)}
             />
+            {/*
+              See-through ghosts everything that is NOT highlighted or
+              selected, so with neither there is nothing to keep solid and the
+              renderer is correctly told to ghost nothing. Pressing it wrote
+              `xray=1`, filled the button and set `aria-pressed` — and the
+              building did not change. A control that cannot act must not
+              offer to; this is the second time this particular button has
+              been pressed-and-inert, for a different reason each time.
+            */}
             <ViewerIconButton
               label={t('viewer.xray')}
               icon={Eye}
               active={view.xray ?? false}
-              disabled={viewport.status.phase !== 'ready'}
+              disabled={
+                viewport.status.phase !== 'ready' ||
+                (viewport.highlights.length === 0 && viewport.selectedExpressId === null)
+              }
               onClick={() => setView({ xray: !(view.xray ?? false) })}
             />
           </ViewerDock>

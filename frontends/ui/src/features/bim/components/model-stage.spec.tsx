@@ -183,9 +183,23 @@ describe('ModelStage — every control is a link', () => {
   })
 
   it('puts see-through in the URL', async () => {
+    // With something selected there IS a subset to keep solid, so the control
+    // can act — see the test below for the case where it cannot.
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w1')
+    state.elements = [
+      { globalId: 'g-w1', expressId: 21, ifcType: 'IfcWall', name: 'Wand', storeyName: 'Erdgeschoss' },
+    ]
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: 'See through' }))
     expect(lastQuery().get('xray')).toBe('1')
+  })
+
+  it('does not offer see-through when there is nothing to keep solid', async () => {
+    // It ghosts everything that is NOT highlighted or selected, so with
+    // neither it correctly ghosts nothing. Pressing it wrote `xray=1`, filled
+    // the button and set `aria-pressed` — and the building did not change.
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'See through' })).toBeDisabled()
   })
 
   it('puts the cut in the URL, at a metre above the level in view', async () => {

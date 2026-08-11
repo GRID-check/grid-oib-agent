@@ -1444,7 +1444,12 @@ export function IfcViewerCanvas({
       <canvas
         ref={canvasRef}
         className={cn(
-          'size-full touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+          // `ring-inset`: the canvas fills a `overflow-hidden` dialog, so an
+          // outward ring lands exactly on the clip boundary and is cut off —
+          // the viewport is the primary keyboard target and had no visible
+          // focus at all. Same fix the repo already uses on `FileCard` and
+          // `CodeBlock`.
+          'size-full touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
           // The cursor IS the affordance. A canvas with a text caret over it
           // reads as a picture; a grab hand reads as something you can turn.
           // Measuring gets the crosshair every CAD tool uses, because the
@@ -1479,8 +1484,11 @@ export function IfcViewerCanvas({
       <svg
         ref={overlaySvgRef}
         className="pointer-events-none absolute inset-0 size-full overflow-visible"
-        // The measurements are also published as text in the list beside the
-        // dock, so the drawing itself is decorative to a screen reader.
+        // Decorative: the same measurements are published as text beside the
+        // dock, in the list the stage renders from `measure.measurements`.
+        // (That list did not exist when this comment was first written, and
+        // the drawing was the only place a dimension appeared — so every
+        // number the tool produced was unreadable to a screen reader.)
         aria-hidden="true"
       />
       <div

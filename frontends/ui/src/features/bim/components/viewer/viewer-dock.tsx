@@ -61,13 +61,20 @@ export function ViewerDock({ lead, children, trail, above, className }: ViewerDo
     >
       {above}
       {/*
-        `w-full justify-center` rather than a shrink-to-fit row: at 390 px the
-        pills are wider than the viewport, and a centred row that cannot
-        scroll simply loses its ends. This way the bar scrolls, and the
-        scrollbar itself is hidden because a visible one under a floating pill
-        reads as a rendering artefact.
+        `w-full` rather than a shrink-to-fit row: at 390 px the pills are wider
+        than the viewport, and a centred row that cannot scroll simply loses
+        its ends. This way the bar scrolls, and the scrollbar itself is hidden
+        because a visible one under a floating pill reads as a rendering
+        artefact.
+
+        `justify-center-safe`, not `justify-center`. A centred flex row that
+        overflows a scroll container overflows in BOTH directions, and
+        `scrollLeft` cannot go below zero — so the left end was unreachable by
+        any gesture. On a phone that is the Home button, the one control the
+        whole design calls "get me back". The safe alignment falls back to
+        `start` exactly when the content does not fit.
       */}
-      <div className="pointer-events-auto flex w-full max-w-full items-center justify-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="pointer-events-auto flex w-full max-w-full items-center justify-center-safe gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {lead && <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">{lead}</ViewerSurface>}
         <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">
           {children}

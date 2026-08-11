@@ -127,6 +127,9 @@ export function ViewerSlider({
         max={max}
         step={step}
         value={value}
+        // Without this a screen reader announces "2.6" while the readout
+        // beside it says "2,60 m". The formatted string is already in scope.
+        aria-valuetext={display}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
         // Every way a gesture can end. `pointerup` covers dragging and a click
@@ -138,7 +141,12 @@ export function ViewerSlider({
         onKeyUp={commit}
         onBlur={commit}
       />
-      <output htmlFor={id} className="w-16 text-right font-mono text-xs tabular-nums">
+      {/*
+        `<output>` has an implicit `role="status"`, which would announce the
+        value a second time on every step of a drag now that the range itself
+        carries `aria-valuetext`.
+      */}
+      <output aria-live="off" htmlFor={id} className="w-16 text-right font-mono text-xs tabular-nums">
         {display}
       </output>
       {action}
