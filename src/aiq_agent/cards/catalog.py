@@ -79,6 +79,11 @@ CARD_EXAMPLES: dict[str, dict] = {
         "rule_ids": ["oib2-feuerwiderstand-tragend"],
         "note": "Orientierende Prüfung, kein Nachweis.",
     },
+    # Shows BOTH selectors, because the choice between them is the thing that
+    # is easy to get wrong. The first group is a SET — reusing the exact filter
+    # the count came from, so all of it highlights however large it is. The
+    # second names two walls the answer actually discussed, which is the only
+    # case where transcribing ids is the right move.
     "ifc_viewer": {
         "type": "ifc_viewer",
         "title": "Brandabschnitte – Erdgeschoss",
@@ -86,14 +91,18 @@ CARD_EXAMPLES: dict[str, dict] = {
         "storey": "Erdgeschoss",
         "highlights": [
             {
+                "match": {
+                    "ifc_types": ["IfcWall"],
+                    "storeys": ["Erdgeschoss"],
+                    "properties": [{"set": "Pset_WallCommon", "name": "FireRating", "operator": "missing"}],
+                },
+                "label": "Keine Feuerwiderstandsklasse hinterlegt",
+                "status": "fail",
+            },
+            {
                 "global_ids": ["1kTvXnbbzCWw8lcMd1dR4o", "0RSwXnbbzCWw8lcMd1dR9z"],
                 "label": "REI 90 erfüllt",
                 "status": "pass",
-            },
-            {
-                "global_ids": ["2mUwYocc0DXx9mdNe2eS5p"],
-                "label": "Keine Feuerwiderstandsklasse hinterlegt",
-                "status": "fail",
             },
         ],
         "note": "Die hervorgehobenen Wände stammen aus der Modellabfrage, nicht aus dem Plan.",

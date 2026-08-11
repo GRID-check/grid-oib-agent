@@ -136,3 +136,68 @@ class TestValidateCards:
         ]
         result = validate_cards(raw)
         assert result == [{"type": "legal_basis", "law": "OIB Richtlinie 2"}]
+
+
+class TestIfcViewerHighlightSelectors:
+    """A highlight names a set by FILTER or names elements by id — not both.
+
+    The id list is what the agent could write before `match` existed, and it
+    stops working the moment the answer is about a set: "the 420 external
+    walls" has to survive the model's context window as 420 opaque strings, so
+    the card highlighted whatever fitted while the legend claimed all of it.
+    """
+
+    def _card(self, highlight: dict) -> list[dict]:
+        return validate_cards(
+            [
+                {
+                    "type": "ifc_viewer",
+                    "title": "Außenwände EG",
+                    "model_file": "haus-a.ifc",
+                    "highlights": [highlight],
+                }
+            ]
+        )
+
+    def test_a_filter_is_carried_through_untouched(self):
+        [card] = self._card(
+            {
+                "match": {
+                    "ifc_types": ["IfcWall"],
+                    "storeys": ["Erdgeschoss"],
+                    "properties": [{"set": "Pset_WallCommon", "name": "IsExternal", "value": True}],
+                },
+                "label": "Außenwände",
+                "status": "info",
+            }
+        )
+        match = card["highlights"][0]["match"]
+        assert match["ifc_types"] == ["IfcWall"]
+        assert match["properties"][0]["name"] == "IsExternal"
+        # The operator defaults rather than having to be spelled out for the
+        # common case, matching the query grammar it mirrors.
+        assert match["properties"][0]["operator"] == "eq"
+
+    def test_an_id_list_still_works_for_the_few_elements_an_answer_names(self):
+        [card] = self._card({"global_ids": ["1kTvXnbbzCWw8lcMd1dR4o"], "label": "T-14", "status": "fail"})
+        assert card["highlights"][0]["global_ids"] == ["1kTvXnbbzCWw8lcMd1dR4o"]
+
+    def test_a_group_with_neither_selector_is_refused(self):
+        # It would render a legend entry that can never colour anything, which
+        # reads as "nothing matched" rather than "this was malformed".
+        assert self._card({"label": "Außenwände", "status": "info"}) == []
+
+    def test_a_group_with_both_is_refused(self):
+        # The dangerous one: the renderer would have to pick, and either choice
+        # silently discards half of what the model asked for.
+        assert (
+            self._card(
+                {
+                    "global_ids": ["1kTvXnbbzCWw8lcMd1dR4o"],
+                    "match": {"ifc_types": ["IfcWall"]},
+                    "label": "Außenwände",
+                    "status": "info",
+                }
+            )
+            == []
+        )

@@ -20,7 +20,7 @@ import {
 } from '@/lib/bim/rules'
 import type { BimQuantityRow, BimRoomSchedule } from '@/lib/bim/schedule'
 import { BIM_ELEMENTS_PAGE_LIMIT, type BimModelSummary } from '@/lib/bim/types'
-import type { BimViewerElement } from '../lib/model-index'
+import type { BimHighlightGroup, BimHighlightStatus, BimViewerElement } from '../lib/model-index'
 
 export interface BimModelHeaderView {
   id: string
@@ -135,6 +135,84 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
 }
 
 /**
+ * Walk every element matching a filter, paged through until complete.
+ *
+ * Shared by the viewer's full-model load (`filter: {}`) and by a card's
+ * filter-matched highlight groups, which run the SAME filter grammar the agent
+ * wrote for `ifc_query` — see {@link useBimHighlightGroups}. Extracted so the
+ * two cannot drift: the termination rule below is subtle enough that a second
+ * copy of it would eventually get the `total` semantics wrong.
+ */
+export async function walkBimElements(
+  modelId: string,
+  filter: Record<string, unknown>,
+  signal: AbortSignal
+): Promise<BimViewerElement[]> {
+  const PAGE = BIM_ELEMENTS_PAGE_LIMIT
+  // Pages fetched at once. The walk was strictly sequential, so its wall
+  // clock was `pages × round trip` — on a real model, 200 round trips of
+  // latency spent one at a time, and the element table sat empty for all of
+  // it. Six is chosen against the server, not the client: it is comfortably
+  // inside `bim-query`'s burst clause, and the pool that serves these
+  // queries has ten connections, so a wider fan-out would just queue in
+  // Postgres while starving every other request on the page.
+  const CONCURRENCY = 6
+
+  const fetchPage = (offset: number) =>
+    getJson<{ elements: BimViewerElement[]; total?: number; totalIsLowerBound?: boolean }>(
+      `/api/bim/models/${modelId}/query`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'elements', filter, limit: PAGE, offset }),
+        signal,
+      }
+    )
+
+  // The first page alone, because it is the only one whose existence is
+  // certain and because it reports how many there are. A small model — most
+  // models — is one request and done.
+  const first = await fetchPage(0)
+  const collected = [...first.elements]
+  if (first.elements.length < PAGE) return collected
+
+  // `total` is EXACT up to the count ceiling and a lower bound past it, so
+  // it sizes the fan-out but never terminates it: a short page does that.
+  // Under the ceiling this fetches precisely the pages that exist; over it,
+  // rounds continue until one comes back short.
+  const known =
+    typeof first.total === 'number' && first.totalIsLowerBound !== true
+      ? Math.ceil(first.total / PAGE)
+      : Infinity
+
+  let offset = PAGE
+  let done = false
+  // Bounded so a pathological model cannot spin forever: `rounds ×
+  // CONCURRENCY × PAGE` clears the extraction cap with room to spare.
+  for (let round = 0; round < 80 && !done; round += 1) {
+    const width = Math.min(CONCURRENCY, Math.max(1, known - offset / PAGE))
+    if (width <= 0) break
+    const offsets = Array.from({ length: width }, (_, index) => offset + index * PAGE)
+    const pages = await Promise.all(offsets.map(fetchPage))
+    for (const page of pages) {
+      collected.push(...page.elements)
+      // A SHORT page is the end, not `collected.length >= total`: the total
+      // stops counting at the ceiling and reports a lower bound past it, so
+      // keying on it would silently load 10 000 elements of a
+      // 200 000-element model into the viewer and call it the building.
+      //
+      // Every page of the round is read even after a short one: the
+      // requests are concurrent, so the first short page is not necessarily
+      // the last one carrying rows.
+      if (page.elements.length < PAGE) done = true
+    }
+    offset += width * PAGE
+    if (offset / PAGE >= known) done = true
+  }
+  return collected
+}
+
+/**
  * Every element of a model, paged through until complete.
  *
  * The viewer needs the whole set in memory anyway (it maps a pick's express id
@@ -158,78 +236,13 @@ export function useBimElements(modelId: string | null): AsyncState<BimViewerElem
     const controller = new AbortController()
     setState({ data: null, isLoading: true, error: null })
 
-    const PAGE = BIM_ELEMENTS_PAGE_LIMIT
-    // Pages fetched at once. The walk was strictly sequential, so its wall
-    // clock was `pages × round trip` — on a real model, 200 round trips of
-    // latency spent one at a time, and the element table sat empty for all of
-    // it. Six is chosen against the server, not the client: it is comfortably
-    // inside `bim-query`'s burst clause, and the pool that serves these
-    // queries has ten connections, so a wider fan-out would just queue in
-    // Postgres while starving every other request on the page.
-    const CONCURRENCY = 6
-
-    const fetchPage = (offset: number) =>
-      getJson<{ elements: BimViewerElement[]; total?: number; totalIsLowerBound?: boolean }>(
-        `/api/bim/models/${modelId}/query`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ op: 'elements', filter: {}, limit: PAGE, offset }),
-          signal: controller.signal,
-        }
-      )
-
-    const load = async () => {
-      // The first page alone, because it is the only one whose existence is
-      // certain and because it reports how many there are. A small model — most
-      // models — is one request and done, exactly as before.
-      const first = await fetchPage(0)
-      if (cancelled) return
-      const collected = [...first.elements]
-      if (first.elements.length < PAGE) {
-        setState({ data: collected, isLoading: false, error: null })
-        return
-      }
-
-      // `total` is EXACT up to the count ceiling and a lower bound past it, so
-      // it sizes the fan-out but never terminates it: a short page does that.
-      // Under the ceiling this fetches precisely the pages that exist; over it,
-      // rounds continue until one comes back short.
-      const known = typeof first.total === 'number' && first.totalIsLowerBound !== true
-        ? Math.ceil(first.total / PAGE)
-        : Infinity
-
-      let offset = PAGE
-      let done = false
-      // Bounded so a pathological model cannot spin forever: `rounds ×
-      // CONCURRENCY × PAGE` clears the extraction cap with room to spare.
-      for (let round = 0; round < 80 && !done; round += 1) {
-        const width = Math.min(CONCURRENCY, Math.max(1, known - offset / PAGE))
-        if (width <= 0) break
-        const offsets = Array.from({ length: width }, (_, index) => offset + index * PAGE)
-        const pages = await Promise.all(offsets.map(fetchPage))
-        if (cancelled) return
-        for (const page of pages) {
-          collected.push(...page.elements)
-          // A SHORT page is the end, not `collected.length >= total`: the total
-          // stops counting at the ceiling and reports a lower bound past it, so
-          // keying on it would silently load 10 000 elements of a
-          // 200 000-element model into the viewer and call it the building.
-          //
-          // Every page of the round is read even after a short one: the
-          // requests are concurrent, so the first short page is not necessarily
-          // the last one carrying rows.
-          if (page.elements.length < PAGE) done = true
-        }
-        offset += width * PAGE
-        if (offset / PAGE >= known) done = true
-      }
-      if (!cancelled) setState({ data: collected, isLoading: false, error: null })
-    }
-
-    load().catch(() => {
-      if (!cancelled) setState({ data: null, isLoading: false, error: 'load-failed' })
-    })
+    walkBimElements(modelId, {}, controller.signal)
+      .then((elements) => {
+        if (!cancelled) setState({ data: elements, isLoading: false, error: null })
+      })
+      .catch(() => {
+        if (!cancelled) setState({ data: null, isLoading: false, error: 'load-failed' })
+      })
 
     return () => {
       cancelled = true
@@ -238,6 +251,91 @@ export function useBimElements(modelId: string | null): AsyncState<BimViewerElem
   }, [modelId])
 
   return state
+}
+
+/**
+ * A card highlight as the agent wrote it: either a literal id list, or the
+ * FILTER that selects the set.
+ *
+ * `globalIds` is what the agent can write when the answer is about a handful of
+ * elements it named. It stops being usable the moment the answer is about a
+ * set: "the 420 external walls" cannot travel as 420 ids through an LLM's
+ * context, so the card highlighted whatever fitted and quietly under-reported
+ * the rest.
+ *
+ * `match` is the same filter grammar the agent already passed to `ifc_query` to
+ * COUNT that set, re-run in the browser to select it. The full set highlights,
+ * exactly, and the ids cost the model nothing — it copies a filter it has
+ * already written rather than transcribing hundreds of opaque strings.
+ */
+export interface BimHighlightSpec {
+  globalIds?: string[]
+  /** The `ifc_query` filter object, passed through untouched. */
+  match?: Record<string, unknown>
+  label: string
+  status: BimHighlightStatus
+}
+
+/**
+ * Resolve every filter-matched highlight group into a plain id list.
+ *
+ * Groups that already carry ids pass straight through — no request, no wait.
+ * A group whose filter matches nothing resolves to an empty list rather than
+ * disappearing: the legend still names it, which is the difference between
+ * "no wall fails this" and "this was never checked".
+ */
+export function useBimHighlightGroups(
+  modelId: string | null,
+  specs: readonly BimHighlightSpec[]
+): AsyncState<BimHighlightGroup[]> {
+  const [resolved, setResolved] = useState<AsyncState<BimHighlightGroup[]>>(IDLE)
+  // Serialised, so a card re-rendering with an equal-but-new array does not
+  // re-run the walk. The specs come from a card payload and are plain JSON.
+  const key = JSON.stringify(specs)
+
+  useEffect(() => {
+    const groups: BimHighlightSpec[] = JSON.parse(key)
+    const literal = groups.map((group) => ({
+      globalIds: group.globalIds ?? [],
+      label: group.label,
+      status: group.status,
+    }))
+    if (!modelId || !groups.some((group) => group.match)) {
+      setResolved({ data: literal, isLoading: false, error: null })
+      return
+    }
+
+    let cancelled = false
+    const controller = new AbortController()
+    setResolved({ data: null, isLoading: true, error: null })
+
+    Promise.all(
+      groups.map(async (group, index) => {
+        if (!group.match) return literal[index]
+        const elements = await walkBimElements(modelId, group.match, controller.signal)
+        return {
+          globalIds: elements.map((element) => element.globalId),
+          label: group.label,
+          status: group.status,
+        }
+      })
+    )
+      .then((next) => {
+        if (!cancelled) setResolved({ data: next, isLoading: false, error: null })
+      })
+      .catch(() => {
+        // The card still renders the building and the groups it could resolve
+        // without a query; a failed filter must not blank the viewport.
+        if (!cancelled) setResolved({ data: literal, isLoading: false, error: 'load-failed' })
+      })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [modelId, key])
+
+  return resolved
 }
 
 export interface BimElementDetail {

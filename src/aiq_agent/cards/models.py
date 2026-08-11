@@ -645,19 +645,79 @@ class DocumentGridCard(BaseModel):
 # and says how many highlights it could not resolve, rather than pretending.
 
 
-class IfcHighlight(BaseModel):
-    """One set of model elements to call out, with a verdict."""
+class IfcPropertyMatch(BaseModel):
+    """One property predicate, in ifc_query's own filter grammar."""
 
-    global_ids: list[str] = Field(
+    name: str = Field(min_length=1, description="Property name, e.g. 'IsExternal' or 'FireRating'")
+    set: str | None = Field(
+        default=None,
+        description="Property-set name, e.g. 'Pset_WallCommon'. Omit to search every set.",
+    )
+    operator: Literal["eq", "neq", "contains", "gt", "gte", "lt", "lte", "exists", "missing"] = Field(
+        default="eq", description="Comparison. 'exists'/'missing' take no value."
+    )
+    value: str | float | bool | None = Field(default=None, description="Value to compare against")
+    source: Literal["property", "quantity"] = Field(
+        default="property", description="Search quantity sets instead of property sets"
+    )
+
+
+class IfcElementMatch(BaseModel):
+    """The SET of elements to highlight, as a filter rather than a list of ids.
+
+    Exactly the ``filters`` object passed to ``ifc_query`` — the browser re-runs
+    it against the model, so the highlight covers every matching element and
+    nothing has to survive the model's context window.
+    """
+
+    ifc_types: list[str] | None = Field(default=None, description="Canonical IFC types, e.g. ['IfcWall']")
+    storeys: list[str] | None = Field(default=None, description="Storey names, e.g. ['Erdgeschoss']")
+    name_contains: str | None = Field(default=None, description="Case-insensitive substring of the element name")
+    material: str | None = Field(default=None, description="Case-insensitive substring of a material name")
+    properties: list[IfcPropertyMatch] | None = Field(default=None, description="Property predicates, all required")
+
+
+class IfcHighlight(BaseModel):
+    """One set of model elements to call out, with a verdict.
+
+    Give EITHER ``match`` or ``global_ids``, and prefer ``match`` whenever the
+    answer is about a set rather than about elements you named. An id list has
+    to travel through the model's context, so "the 420 external walls" arrived
+    as whatever fitted and the card highlighted a fraction of the answer while
+    the legend claimed all of it. A filter is re-run in the browser: the whole
+    set lights up, and it costs the model a filter it has already written.
+    """
+
+    global_ids: list[str] | None = Field(
+        default=None,
         min_length=1,
         description=(
-            "IFC GlobalIds returned by ifc_query. NEVER invent these — an id you did not see is a wrong answer."
+            "IFC GlobalIds returned by ifc_query. NEVER invent these — an id you did not see is a wrong answer. "
+            "Use for a handful of elements the answer names; use 'match' for a set."
+        ),
+    )
+    match: IfcElementMatch | None = Field(
+        default=None,
+        description=(
+            "The ifc_query filter that selects this set. Preferred over global_ids for anything "
+            "larger than a few elements — reuse the exact filters you queried with."
         ),
     )
     label: str = Field(min_length=1, description="What is being shown, e.g. 'Fluchtweg > 40 m'")
     status: Literal["pass", "fail", "warning", "info"] = Field(
         default="info", description="Verdict colour: pass=green, fail=red, warning=amber, info=neutral"
     )
+
+    @model_validator(mode="after")
+    def exactly_one_selector(self) -> "IfcHighlight":
+        """A group with neither selects nothing; with both, the two disagree.
+
+        Both is the dangerous one: the renderer would have to pick, and either
+        choice silently discards half of what the model asked for.
+        """
+        if (self.global_ids is None) == (self.match is None):
+            raise ValueError("give exactly one of 'global_ids' or 'match'")
+        return self
 
 
 class IfcViewerCard(BaseModel):

@@ -218,7 +218,15 @@ In a project chat, ask about the building the way you would ask a colleague:
 
 These are answered by **querying the model**, not by reading text about it — the
 counts and sums are computed, not estimated. When the answer is about specific
-parts of the building, the assistant can show them highlighted on the 3D model.
+parts of the building, the assistant shows them highlighted on the 3D model,
+right in the answer.
+
+That highlight covers the **whole** set, not a sample of it. If the answer is
+about 420 external walls, all 420 light up: the card carries the same query the
+count came from and the browser re-runs it against the model, rather than
+carrying a list of element numbers that would have to fit inside the reply.
+Each group in the legend has its own colour — red for a breach, amber for
+something the model cannot decide, green for what passes.
 
 **Element names in an answer are links.** When the assistant names a wall, the
 name is a chip — click it and the model opens with that wall selected,

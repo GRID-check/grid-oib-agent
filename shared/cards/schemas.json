@@ -1531,23 +1531,124 @@
       "title": "IfcElementCard",
       "type": "object"
     },
+    "IfcElementMatch": {
+      "description": "The SET of elements to highlight, as a filter rather than a list of ids.\n\nExactly the ``filters`` object passed to ``ifc_query`` \u2014 the browser re-runs\nit against the model, so the highlight covers every matching element and\nnothing has to survive the model's context window.",
+      "properties": {
+        "ifc_types": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Canonical IFC types, e.g. ['IfcWall']",
+          "title": "Ifc Types"
+        },
+        "material": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Case-insensitive substring of a material name",
+          "title": "Material"
+        },
+        "name_contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Case-insensitive substring of the element name",
+          "title": "Name Contains"
+        },
+        "properties": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/IfcPropertyMatch"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Property predicates, all required",
+          "title": "Properties"
+        },
+        "storeys": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Storey names, e.g. ['Erdgeschoss']",
+          "title": "Storeys"
+        }
+      },
+      "title": "IfcElementMatch",
+      "type": "object"
+    },
     "IfcHighlight": {
-      "description": "One set of model elements to call out, with a verdict.",
+      "description": "One set of model elements to call out, with a verdict.\n\nGive EITHER ``match`` or ``global_ids``, and prefer ``match`` whenever the\nanswer is about a set rather than about elements you named. An id list has\nto travel through the model's context, so \"the 420 external walls\" arrived\nas whatever fitted and the card highlighted a fraction of the answer while\nthe legend claimed all of it. A filter is re-run in the browser: the whole\nset lights up, and it costs the model a filter it has already written.",
       "properties": {
         "global_ids": {
-          "description": "IFC GlobalIds returned by ifc_query. NEVER invent these \u2014 an id you did not see is a wrong answer.",
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Global Ids",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "IFC GlobalIds returned by ifc_query. NEVER invent these \u2014 an id you did not see is a wrong answer. Use for a handful of elements the answer names; use 'match' for a set.",
+          "title": "Global Ids"
         },
         "label": {
           "description": "What is being shown, e.g. 'Fluchtweg > 40 m'",
           "minLength": 1,
           "title": "Label",
           "type": "string"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IfcElementMatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The ifc_query filter that selects this set. Preferred over global_ids for anything larger than a few elements \u2014 reuse the exact filters you queried with."
         },
         "status": {
           "default": "info",
@@ -1563,10 +1664,84 @@
         }
       },
       "required": [
-        "global_ids",
         "label"
       ],
       "title": "IfcHighlight",
+      "type": "object"
+    },
+    "IfcPropertyMatch": {
+      "description": "One property predicate, in ifc_query's own filter grammar.",
+      "properties": {
+        "name": {
+          "description": "Property name, e.g. 'IsExternal' or 'FireRating'",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "operator": {
+          "default": "eq",
+          "description": "Comparison. 'exists'/'missing' take no value.",
+          "enum": [
+            "eq",
+            "neq",
+            "contains",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "exists",
+            "missing"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "set": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Property-set name, e.g. 'Pset_WallCommon'. Omit to search every set.",
+          "title": "Set"
+        },
+        "source": {
+          "default": "property",
+          "description": "Search quantity sets instead of property sets",
+          "enum": [
+            "property",
+            "quantity"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Value to compare against",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "IfcPropertyMatch",
       "type": "object"
     },
     "IfcScheduleCard": {

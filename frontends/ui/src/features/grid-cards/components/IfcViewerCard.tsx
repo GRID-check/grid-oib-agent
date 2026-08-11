@@ -20,13 +20,15 @@ import { Boxes, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { IfcModelViewer } from '@/features/bim/components/ifc-model-viewer'
-import { resolveHighlights, supportsWebGpu, type BimHighlightGroup } from '@/features/bim/lib/model-index'
+import { resolveHighlights, supportsWebGpu } from '@/features/bim/lib/model-index'
 import { buildModelHref } from '@/features/bim/lib/model-link'
 import {
   pickDefaultModel,
   useBimElements,
+  useBimHighlightGroups,
   useBimModelSource,
   useProjectBimModels,
+  type BimHighlightSpec,
 } from '@/features/bim/hooks/use-bim-model'
 
 export interface IfcViewerCardProps {
@@ -34,7 +36,7 @@ export interface IfcViewerCardProps {
   modelFile: string | null
   storey: string | null
   note: string | null
-  highlights: BimHighlightGroup[]
+  highlights: BimHighlightSpec[]
   projectId: string | null
 }
 
@@ -65,13 +67,19 @@ export function IfcViewerCard({
   const webGpu = useMemo(() => supportsWebGpu(), [])
   const sourceUrl = useBimModelSource(model?.id ?? null, webGpu)
 
+  // A group written as a FILTER is resolved against the model rather than
+  // against the ids that happened to fit in the answer — see
+  // `useBimHighlightGroups`. Groups that already carry ids cost no request.
+  const { data: groups } = useBimHighlightGroups(model?.id ?? null, highlights)
+  const resolved = useMemo(() => groups ?? [], [groups])
+
   const unresolvedCount = useMemo(
     () =>
-      resolveHighlights(highlights, elements ?? []).reduce(
+      resolveHighlights(resolved, elements ?? []).reduce(
         (total, group) => total + group.unresolved.length,
         0
       ),
-    [highlights, elements]
+    [resolved, elements]
   )
 
   /**
@@ -88,12 +96,12 @@ export function IfcViewerCard({
       buildModelHref(projectId ?? '', {
         ...(model ? { model: model.filename } : {}),
         ...(storey ? { storey } : {}),
-        ...(highlights.length > 0 ? { highlights } : {}),
+        ...(resolved.length > 0 ? { highlights: resolved } : {}),
         // Ghosting is what makes three highlighted walls findable inside a
         // whole building rather than buried in it.
-        ...(highlights.length > 0 ? { xray: true } : {}),
+        ...(resolved.length > 0 ? { xray: true } : {}),
       }),
-    [projectId, model, storey, highlights]
+    [projectId, model, storey, resolved]
   )
 
   return (
@@ -121,7 +129,7 @@ export function IfcViewerCard({
         <IfcModelViewer
           sourceUrl={sourceUrl}
           elements={elements ?? []}
-          highlights={highlights}
+          highlights={resolved}
           isolatedStorey={storey}
           variant="card"
           className="h-72"

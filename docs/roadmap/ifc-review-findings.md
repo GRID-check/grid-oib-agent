@@ -28,6 +28,7 @@ regression tests named beside them.
 | `slug()` could not decompose `ß`, so `Beispielstraße` downloaded as `Beispielstra-e` — a hole in the name of roughly half of all Viennese projects | `lib/bim/bcf.ts` `GERMAN_TRANSLITERATION` | `bcf.spec.ts` › *spells an Austrian project name instead of punching holes in it* |
 | BCF zip carried no directory entries — the spec's own *Incorrect* example | `lib/bim/zip.ts`, `bcf.ts` | `bcf.spec.ts` › the folder entry is asserted in the archive layout test |
 | The model download was never aborted; leaving mid-download still transferred the whole file | `features/bim/components/ifc-viewer-canvas.tsx` | `viewer-camera` specs + the `AbortController` at `ifc-viewer-canvas.tsx:335` |
+| `ifc_viewer` could only highlight ids that fit in the answer's context, so a card about 420 external walls coloured a handful under a legend claiming all of them | `IfcHighlight.match` (`cards/models.py`), `useBimHighlightGroups`, `features/bim/lib/card-highlights.ts` | `use-bim-highlight-groups.spec.tsx` › *pages past the API cap* / `card-highlights.spec.ts` |
 
 The acoustic fix is worth a note, because the cause was subtler than the
 symptom: `numericProperty` anchors its number at the START of the string, so it
@@ -105,12 +106,6 @@ still green.
   to copy ids from). So a deep answer about the building is prose with element
   links. Fix by giving `deep_researcher/prompts/` the same guidance the shallow
   researcher now carries — not by relaxing the post-hoc restriction.
-- **`ifc_viewer` carries a list of ids, so it cannot show a whole set.** A
-  question about 420 external walls can only highlight the ids that fit in the
-  answer's context. The card already resolves highlights client-side against an
-  element index it fetches itself, so the right shape is a FILTER on the card
-  (`ifcTypes`, `storey`, a property predicate) evaluated in the browser —
-  exact, complete, and costing the LLM nothing.
 - **No camera in a viewer card.** `buildModelHref` encodes and parses one
   (`model-link.ts:67`), and `ifc-viewer-card-spec.md:54` specifies it, but the
   card model has no field and the renderer never sets one. The user lands on a

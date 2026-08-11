@@ -619,6 +619,9 @@ class TestTheDescriptionDescribesTheRealTool:
             "ifc_compliance",
             "ifc_schedule",
             "ifc_diff",
+            # A field of `IfcHighlight`, not of this tool. Pinned as a real one
+            # by `test_the_highlight_selectors_it_names_are_real_fields`.
+            "global_ids",
         }
         named = set(re.findall(r"[a-z][a-z0-9]*_[a-z0-9_]+", description))
 
@@ -640,6 +643,27 @@ class TestTheDescriptionDescribesTheRealTool:
 
         assert named, "the invariant is vacuous if the description names no cards"
         assert sorted(named - real) == []
+
+    def test_the_highlight_selectors_it_names_are_real_fields(self):
+        # The description tells the agent which of the two to reach for. A
+        # renamed field would leave it teaching a key the card rejects, and a
+        # rejected card is dropped silently.
+        from aiq_agent.cards.models import IfcHighlight
+
+        description, _ = self._description_and_parameters()
+        assert {"global_ids", "match"} <= set(IfcHighlight.model_fields)
+        assert "'match'" in description
+        assert "'global_ids'" in description
+
+    def test_it_prefers_a_filter_over_a_transcribed_id_list(self):
+        # The reason the field exists: an id list can only carry what fits in
+        # the reply, so a set answer highlighted a fraction of itself while the
+        # legend claimed the whole thing.
+        description, _ = self._description_and_parameters()
+        assert "rather than a list of ids" in description
+        # And that the two are mutually exclusive — the Python model refuses a
+        # group carrying both, so an agent told otherwise loses the card.
+        assert "exactly one of the two per group" in description
 
     def test_the_takeoff_material_split_is_documented_as_a_name_match(self):
         # It matches material NAMES, not IfcMaterialLayerSet structure, and a

@@ -127,6 +127,18 @@ all of which have to be **copied from an `ifc_query` row in the same turn**.
   calls `render_card_catalog(include_model_backed=False)`, which withholds both
   the shapes *and* the worked examples.
 
+`ifc_viewer` takes this a step further. A highlight group carries **either**
+`global_ids` **or** `match` — and `match` is the same filter object the agent
+already passed to `ifc_query`, replayed by the browser
+(`features/bim/lib/card-highlights.ts` respells it into the query API's
+`camelCase`, then `useBimHighlightGroups` walks the pages). An id list can only
+carry what fits in the model's context, so a card about 420 external walls used
+to colour the handful that were transcribed while the legend claimed the whole
+set; a filter resolves against the model, so it is exact at any size and costs
+the model nothing it has not already written. A group giving both is refused by
+the Pydantic validator — the renderer would have to pick, and either choice
+silently discards half the request.
+
 Emitting one is not optional politeness: the shallow researcher's `<cards>`
 block asks for the matching card by default on any answer that came from
 `ifc_query`, and the tool description names which card goes with which

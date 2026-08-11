@@ -24,6 +24,7 @@ import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
 import { IfcViewerCard } from './IfcViewerCard'
+import { cardHighlightSpecs } from '@/features/bim/lib/card-highlights'
 import {
   IfcComplianceCard,
   IfcDiffCard,
@@ -385,11 +386,10 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId, messageId }) =
                 modelFile={card.model_file ?? null}
                 storey={card.storey ?? null}
                 note={card.note ?? null}
-                highlights={(card.highlights ?? []).map((highlight) => ({
-                  globalIds: highlight.global_ids,
-                  label: highlight.label,
-                  status: highlight.status,
-                }))}
+                // Typed in `card-highlights.ts`, not here: the generated zod
+                // renders a nested `$ref` as `z.any()`, so every field read off
+                // a highlight would otherwise be unchecked.
+                highlights={cardHighlightSpecs(card.highlights ?? [])}
                 projectId={projectId ?? null}
               />
             </FadeIn>
