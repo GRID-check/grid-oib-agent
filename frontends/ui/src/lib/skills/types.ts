@@ -12,11 +12,12 @@
  *   - body: the Markdown instructions loaded on activation (level 2), capped at
  *     32000 to match the backend's job-input limit.
  *   - `metadata`: a flat string→string map. The spec leaves it open and
- *     recommends namespaced keys; the three `grid-*` keys below are ours and
- *     are read at schedule/fire time. Every other key is opaque.
+ *     recommends namespaced keys; the four `grid-*` keys below are ours and
+ *     are read at schedule/fire/activation time. Every other key is opaque.
  */
 
 import { z } from 'zod'
+import { isSelectableCardType } from '@/features/skills/lib/card-catalog'
 import { BadRequestError } from '@/lib/api/errors'
 import { SKILL_EXECUTIONS, type SkillExecution, type SkillOrigin } from '@/lib/db/schema'
 import { isValidCronExpression, isValidTimezone } from './schedule'
@@ -56,6 +57,19 @@ export const METADATA_SCHEDULABLE = 'grid-schedulable'
 export const METADATA_AGENTS = 'grid-agents'
 
 /**
+ * `grid-cards` — comma-separated Grid card `type` values the skill would like
+ * its answers rendered as; absent = no preference.
+ *
+ * A PREFERENCE, not a contract. It is inert until the skill is activated, at
+ * which point the Python runtime appends a short block naming these types to
+ * the skill body it hands the model. Because that text goes to the model, the
+ * write boundary only accepts cards the model is allowed to emit: system cards
+ * (`memory_proposal`, `document_grid`) come from tools on sanctioned paths, and
+ * inviting the model to produce one would be inviting it to fabricate one.
+ */
+export const METADATA_CARDS = 'grid-cards'
+
+/**
  * The agents a skill may name in `grid-agents`.
  *
  * These are the backend `AGENT_REGISTRY` identifiers — the same strings a
@@ -93,6 +107,31 @@ export function executionOf(metadata: Record<string, string>): SkillExecution {
  */
 export function isSchedulable(metadata: Record<string, string>): boolean {
   return metadata[METADATA_SCHEDULABLE] !== 'false'
+}
+
+/** Split a reserved comma-list value: trimmed, empties dropped, deduplicated. */
+function splitMetadataList(raw: string): string[] {
+  const seen = new Set<string>()
+  for (const part of raw.split(',')) {
+    const name = part.trim()
+    if (name) seen.add(name)
+  }
+  return [...seen]
+}
+
+/**
+ * The card types a skill prefers, in author order; `[]` when unset.
+ *
+ * Filtered against the live catalogue on READ as well as on write, so a row
+ * stored before a card type was retired cannot put a name in front of the model
+ * (or in front of the editor's chips) that no longer exists. Unlike
+ * `executionOf`, a stale entry here is not worth throwing over: the preference
+ * degrades to the remaining cards, which is exactly what the author meant.
+ */
+export function preferredCardsOf(metadata: Record<string, string>): string[] {
+  const raw = metadata[METADATA_CARDS]
+  if (!raw) return []
+  return splitMetadataList(raw).filter(isSelectableCardType)
 }
 
 /**
@@ -187,6 +226,22 @@ const metadataSchema = z
     (metadata) => Object.keys(metadata).length <= 64,
     'A skill may carry at most 64 metadata keys.'
   )
+  // `grid-cards` is validated HERE rather than tolerated on read, because this
+  // is the one place a human is still in the loop: a typo the write boundary
+  // waves through only shows up as a card preference that quietly never
+  // applies. The Python parser rejects the same values for a SKILL.md file.
+  .superRefine((metadata, ctx) => {
+    const raw = metadata[METADATA_CARDS]
+    if (raw === undefined) return
+    const unknown = splitMetadataList(raw).filter((type) => !isSelectableCardType(type))
+    if (unknown.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [METADATA_CARDS],
+        message: `Unknown card type(s) in ${METADATA_CARDS}: ${unknown.join(', ')}.`,
+      })
+    }
+  })
 
 export const createSkillSchema = z.object({
   name: skillNameSchema,

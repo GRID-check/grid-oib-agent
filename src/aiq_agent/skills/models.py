@@ -190,8 +190,7 @@ def _validate_grid_cards(value: str, *, strict: bool) -> str | None:
     unknown = [name for name in names if name not in known]
     if unknown and strict:
         raise SkillValidationError(
-            f"Skill metadata {GRID_CARDS_KEY} names unknown or system card type(s) {unknown}; "
-            f"allowed: {sorted(known)}"
+            f"Skill metadata {GRID_CARDS_KEY} names unknown or system card type(s) {unknown}; allowed: {sorted(known)}"
         )
     if unknown:
         logger.warning(

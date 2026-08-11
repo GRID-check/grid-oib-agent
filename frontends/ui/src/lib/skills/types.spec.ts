@@ -8,9 +8,11 @@ import {
   createSkillSchema,
   executionOf,
   isSchedulable,
+  METADATA_CARDS,
   METADATA_EXECUTION,
   METADATA_SCHEDULABLE,
   patchSkillSchema,
+  preferredCardsOf,
   skillNameSchema,
   snapshotOf,
 } from './types'
@@ -85,6 +87,53 @@ describe('isSchedulable', () => {
     expect(isSchedulable({ [METADATA_SCHEDULABLE]: 'true' })).toBe(true)
     expect(isSchedulable({ [METADATA_SCHEDULABLE]: 'false' })).toBe(false)
     expect(isSchedulable({ anything: 'false' })).toBe(true)
+  })
+})
+
+describe('preferredCardsOf', () => {
+  it('parses the comma list, trimming and deduplicating', () => {
+    expect(preferredCardsOf({})).toEqual([])
+    expect(preferredCardsOf({ [METADATA_CARDS]: '' })).toEqual([])
+    expect(preferredCardsOf({ [METADATA_CARDS]: ' summary , legal_basis ' })).toEqual([
+      'summary',
+      'legal_basis',
+    ])
+    expect(preferredCardsOf({ [METADATA_CARDS]: 'summary,summary' })).toEqual(['summary'])
+  })
+
+  it('drops names the catalogue no longer offers, including system cards', () => {
+    expect(
+      preferredCardsOf({ [METADATA_CARDS]: 'summary,memory_proposal,gibt_es_nicht' })
+    ).toEqual(['summary'])
+  })
+})
+
+describe('createSkillSchema — grid-cards write boundary', () => {
+  const valid = { name: 'my-skill', description: 'Does the thing.', body: 'Do the thing.' }
+
+  it('accepts known card types', () => {
+    const parsed = createSkillSchema.parse({
+      ...valid,
+      metadata: { [METADATA_CARDS]: 'summary,comparison_table' },
+    })
+    expect(parsed.metadata?.[METADATA_CARDS]).toBe('summary,comparison_table')
+  })
+
+  it('rejects unknown card types and system cards', () => {
+    expect(() =>
+      createSkillSchema.parse({ ...valid, metadata: { [METADATA_CARDS]: 'gibt_es_nicht' } })
+    ).toThrow(/gibt_es_nicht/)
+    // A real union member, but tool-emitted: the model must never be asked for one.
+    expect(() =>
+      createSkillSchema.parse({ ...valid, metadata: { [METADATA_CARDS]: 'memory_proposal' } })
+    ).toThrow(/memory_proposal/)
+    expect(() =>
+      patchSkillSchema.parse({ metadata: { [METADATA_CARDS]: 'summary,document_grid' } })
+    ).toThrow(/document_grid/)
+  })
+
+  it('treats an empty value as no preference rather than an error', () => {
+    expect(() => createSkillSchema.parse({ ...valid, metadata: { [METADATA_CARDS]: '' } })).not.toThrow()
   })
 })
 

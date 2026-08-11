@@ -9,6 +9,7 @@ from aiq_agent.skills.models import MAX_DESCRIPTION_CHARS
 from aiq_agent.skills.models import SkillValidationError
 from aiq_agent.skills.models import build_skill_from_payload
 from aiq_agent.skills.models import parse_skill_md
+from aiq_agent.skills.models import preferred_cards
 
 VALID_MD = """---
 name: forecast-analysis
@@ -147,4 +148,57 @@ def test_build_skill_from_payload_rejects_garbage() -> None:
 
 
 def test_reserved_key_registry() -> None:
-    assert GRID_METADATA_KEYS == {"grid-execution", "grid-schedulable", "grid-agents"}
+    assert GRID_METADATA_KEYS == {"grid-execution", "grid-schedulable", "grid-agents", "grid-cards"}
+
+
+def _with_cards(value: str) -> str:
+    return VALID_MD.replace("  grid-agents: shallow_researcher", f"  grid-cards: {value}")
+
+
+def test_grid_cards_accepts_known_card_types() -> None:
+    skill = parse_skill_md(_with_cards("summary, comparison_table"))
+    assert preferred_cards(skill.metadata) == ("summary", "comparison_table")
+
+
+def test_grid_cards_deduplicates_and_keeps_author_order() -> None:
+    skill = parse_skill_md(_with_cards("comparison_table,summary,comparison_table"))
+    assert preferred_cards(skill.metadata) == ("comparison_table", "summary")
+
+
+def test_unknown_card_type_is_a_strict_error_for_a_file_skill() -> None:
+    with pytest.raises(SkillValidationError, match="grid-cards"):
+        parse_skill_md(_with_cards("summary, gibt_es_nicht"))
+
+
+def test_system_card_type_is_rejected_even_though_it_is_a_real_card() -> None:
+    # `memory_proposal` IS a union member — it is only ever emitted by a tool,
+    # so a skill asking the model for one is asking it to fabricate one.
+    for system_card in ("memory_proposal", "document_grid"):
+        with pytest.raises(SkillValidationError, match="grid-cards"):
+            parse_skill_md(_with_cards(system_card))
+
+
+def test_org_row_drops_unknown_card_types_instead_of_dying() -> None:
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-cards": "summary, memory_proposal, gibt_es_nicht"},
+        },
+        origin="org",
+    )
+    assert skill.metadata["grid-cards"] == "summary"
+
+
+def test_org_row_with_only_unknown_card_types_drops_the_key() -> None:
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-cards": "gibt_es_nicht"},
+        },
+        origin="org",
+    )
+    assert "grid-cards" not in skill.metadata

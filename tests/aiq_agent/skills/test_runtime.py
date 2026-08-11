@@ -7,6 +7,17 @@ from aiq_agent.skills.runtime import SkillRuntime
 
 S1 = Skill(name="alpha", description="Erster Skill.", body="alpha body", origin="platform")
 S2 = Skill(name="beta", description="Zweiter Skill.", body="beta body", origin="platform")
+CARDS = Skill(
+    name="gamma",
+    description="Dritter Skill.",
+    body="gamma body",
+    metadata={"grid-cards": "comparison_table,summary"},
+    origin="platform",
+)
+
+
+def _use_skill(runtime: SkillRuntime) -> object:
+    return next(t for t in runtime.build_tools() if t.name == "use_skill")
 
 
 def _runtime(*, forced: list[str] | None = None) -> SkillRuntime:
@@ -73,6 +84,46 @@ def test_unknown_skill_message_lists_available_names() -> None:
     assert "alpha" in result and "beta" in result
     # A failed load never activates the skill.
     assert _runtime().activated == ()
+
+
+def test_preferred_cards_are_appended_on_activation_only() -> None:
+    runtime = SkillRuntime(skills=(S1, CARDS))
+    body = _use_skill(runtime).invoke({"skill_name": "gamma"})
+    assert body.startswith("gamma body")
+    assert "## Bevorzugte Cards" in body
+    # Author order is preserved, and the types are named verbatim so the model
+    # can copy them into `type` without translating a prose paraphrase.
+    assert "`comparison_table`, `summary`" in body
+    # A preference, not a command — the wording must leave an out.
+    assert "keine Vorgabe" in body
+    # The whole point of the feature: it costs nothing until activation.
+    assert "Bevorzugte Cards" not in (runtime.prompt_block() or "")
+
+
+def test_skill_without_preferred_cards_returns_the_bare_body() -> None:
+    runtime = SkillRuntime(skills=(S1, CARDS))
+    assert _use_skill(runtime).invoke({"skill_name": "alpha"}) == "alpha body"
+
+
+def test_unknown_and_system_card_types_never_reach_the_model() -> None:
+    # Snapshots persisted before a card type was retired (or a row that slipped
+    # past write-time validation) must not name a card the renderer lacks — and
+    # a SYSTEM card must never be requested by name on any path.
+    skill = Skill(
+        name="delta",
+        description="Vierter Skill.",
+        body="delta body",
+        metadata={"grid-cards": "summary,memory_proposal,ganz_erfunden"},
+    )
+    body = _use_skill(SkillRuntime(skills=(skill,))).invoke({"skill_name": "delta"})
+    assert "`summary`" in body
+    assert "memory_proposal" not in body
+    assert "ganz_erfunden" not in body
+
+
+def test_empty_preferred_cards_value_adds_no_block() -> None:
+    skill = Skill(name="eps", description="Fünfter.", body="eps body", metadata={"grid-cards": " , "})
+    assert _use_skill(SkillRuntime(skills=(skill,))).invoke({"skill_name": "eps"}) == "eps body"
 
 
 def test_two_runtimes_share_no_activation_state() -> None:

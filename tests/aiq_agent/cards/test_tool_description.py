@@ -9,6 +9,7 @@ import pytest
 
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.models import GridCard
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.register import _CARD_EXAMPLES
@@ -63,6 +64,15 @@ class TestWorkedExamples:
         documented = set(_CARD_EXAMPLES) | _EXAMPLE_EXEMPT
         missing = [t for t in _CARD_TYPES if t not in documented]
         assert not missing, f"New card type(s) need a worked example or an _EXAMPLE_EXEMPT entry: {missing}"
+
+
+class TestModelFacingCardTypes:
+    def test_is_the_union_minus_system_cards(self):
+        # The one answer to "may this card be asked for by name?" — used by the
+        # tool description here and by the skills substrate's `grid-cards`
+        # validation, so the two can never disagree about a new card type.
+        assert model_facing_card_types() == set(_CARD_TYPES) - SYSTEM_CARD_TYPES
+        assert model_facing_card_types().isdisjoint(SYSTEM_CARD_TYPES)
 
 
 class TestToolDescription:
