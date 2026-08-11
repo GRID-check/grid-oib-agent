@@ -22,9 +22,10 @@
  *
  * - a rail on the left with the project's models and this building's levels —
  *   the only two questions a reader has before they have clicked anything;
- * - a dock at the bottom with six controls, because that is what is left after
- *   removing everything that was there to describe the model rather than to
- *   look at it;
+ * - a dock at the bottom holding only what someone LOOKS at a building with —
+ *   where the camera stands, where it cuts, what to measure, what to take out
+ *   of the way, and how to keep the result. Everything that was there to
+ *   describe the model rather than to look at it is gone;
  * - a card on the right, only once something is selected;
  * - one button to the analytical surfaces, which are real and occasionally
  *   decisive and belong behind a door rather than in front of one.
@@ -34,16 +35,19 @@
  * the version this replaces had four of them in three different materials.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   Boxes,
+  Camera,
   Check,
   Eye,
   Home,
+  Layers,
   Link2,
   MonitorX,
   PanelLeft,
+  Ruler,
   Scissors,
   SlidersHorizontal,
   Video,
@@ -72,6 +76,7 @@ import {
   stageModelLabel,
 } from '../lib/stage-model'
 import { BIM_CAMERA_VIEWS, type BimCameraView } from '../lib/viewer-camera'
+import { screenshotFilename } from '../lib/viewer-performance'
 import {
   useBimElementDetail,
   useBimElements,
@@ -98,6 +103,26 @@ import {
 
 /** One shared empty array, so "no elements yet" has a stable identity. */
 const NO_ELEMENTS: readonly BimViewerElement[] = []
+
+/**
+ * Hide and isolate, bound to whatever is selected right now.
+ *
+ * Both are omitted rather than disabled when nothing is selected: the card
+ * they live on only exists when there IS a selection, so a disabled pair would
+ * be a state the reader can never reach — except in the one frame between
+ * hiding the selected element and the selection clearing itself, which is
+ * exactly when a live button would act on a component that is already gone.
+ */
+function visibilityActions(
+  viewport: ReturnType<typeof useModelViewport>
+): { onHide?: () => void; onIsolate?: () => void } {
+  const expressId = viewport.selectedExpressId
+  if (expressId === null) return {}
+  return {
+    onHide: () => viewport.visibility.hide(expressId),
+    onIsolate: () => viewport.visibility.isolate([expressId]),
+  }
+}
 
 export interface ModelStageProps {
   projectId: string
@@ -150,6 +175,44 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
 
   const levels = useMemo(() => stageLevels(model?.summary), [model?.summary])
 
+  // Read inside the download handler, which is deliberately identity-stable so
+  // that renaming nothing re-mounts the viewport's capture effect.
+  const modelFilenameRef = useRef(model?.filename ?? null)
+  modelFilenameRef.current = model?.filename ?? null
+
+  /**
+   * A captured view lands in the reader's downloads.
+   *
+   * Not in the clipboard: a PNG on the clipboard is a thing you can paste into
+   * exactly one kind of application, and the reason someone captures a model
+   * view is to put it in a Befund, an email or a BCF topic — all of which want
+   * a file. A failed capture says so rather than silently doing nothing; the
+   * usual cause is a GPU that refused the readback, which is not something the
+   * reader can be expected to infer from an inert button.
+   */
+  const [captureFailed, setCaptureFailed] = useState(false)
+  const handleCapture = useCallback(
+    (dataUrl: string | null) => {
+      if (!dataUrl) {
+        setCaptureFailed(true)
+        return
+      }
+      setCaptureFailed(false)
+      const link = document.createElement('a')
+      link.href = dataUrl
+      link.download = screenshotFilename(modelFilenameRef.current, new Date())
+      link.click()
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (!captureFailed) return
+    const timer = setTimeout(() => setCaptureFailed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [captureFailed])
+
+
   const highlights = useMemo(
     () =>
       (view.highlights ?? []).map((group) => ({
@@ -201,6 +264,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     camera: view.camera,
     onCameraChange: (camera) => setView({ camera }),
     compact: false,
+    onCapture: handleCapture,
   })
 
   /**
@@ -397,6 +461,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 projectId={projectId}
                 modelFilename={model?.filename ?? null}
                 onClose={() => setView({ element: undefined })}
+                {...visibilityActions(viewport)}
               />
             </div>
           )}
@@ -421,8 +486,42 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               />
             }
             above={
-              section &&
-              viewport.bounds && (
+              <>
+                {/*
+                  What to click next, and a way out of the measurements once
+                  they have been read. A measure tool with no running commentary
+                  is a crosshair the reader has to experiment with — and one
+                  with no way to clear leaves the building covered in someone
+                  else's arithmetic.
+                */}
+                {viewport.measure.active && (
+                  <ViewerSurface className="pointer-events-auto flex items-center gap-2 px-3 py-1.5">
+                    <span className="text-muted-foreground text-xs">
+                      {t(viewport.measure.pending ? 'viewer.measure.second' : 'viewer.measure.first')}
+                    </span>
+                    {viewport.measure.measurements.length > 0 && (
+                      <>
+                        <span className="text-muted-foreground/60 text-xs tabular-nums">
+                          {viewport.measure.measurements.length === 1
+                            ? t('viewer.measure.countOne')
+                            : t('viewer.measure.count', {
+                                count: viewport.measure.measurements.length,
+                              })}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={viewport.measure.clear}
+                        >
+                          {t('viewer.measure.clear')}
+                        </Button>
+                      </>
+                    )}
+                  </ViewerSurface>
+                )}
+                {section && viewport.bounds && (
                 <ViewerSlider
                   label={t('viewer.section.height')}
                   min={viewport.bounds.minMetres}
@@ -443,10 +542,25 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                     </Button>
                   }
                 />
-              )
+                )}
+              </>
             }
             trail={
               <>
+                {/*
+                  The way back. It appears only once something is out of the
+                  way, because a viewport nobody has edited has nothing to
+                  restore — and a permanently-visible "show everything" is a
+                  control that is wrong about the state it describes most of
+                  the time.
+                */}
+                {viewport.visibility.edited && (
+                  <ViewerIconButton
+                    label={t('stage.showEverything')}
+                    icon={Layers}
+                    onClick={viewport.visibility.showEverything}
+                  />
+                )}
                 <ViewerIconButton
                   label={railOpen ? t('stage.rail.hide') : t('stage.rail.show')}
                   icon={PanelLeft}
@@ -479,6 +593,19 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               onClick={() =>
                 viewport.setSection(section ? null : { atMetres: cutDefault, flipped: false })
               }
+            />
+            <ViewerIconButton
+              label={captureFailed ? t('viewer.capture.failed') : t('viewer.capture.action')}
+              icon={captureFailed ? MonitorX : Camera}
+              disabled={viewport.status.phase !== 'ready'}
+              onClick={viewport.capture}
+            />
+            <ViewerIconButton
+              label={t('viewer.measure.toggle')}
+              icon={Ruler}
+              active={viewport.measure.active}
+              disabled={viewport.status.phase !== 'ready'}
+              onClick={() => viewport.measure.setActive(!viewport.measure.active)}
             />
             <ViewerIconButton
               label={t('viewer.xray')}

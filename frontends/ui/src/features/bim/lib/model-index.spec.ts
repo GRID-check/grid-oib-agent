@@ -6,9 +6,13 @@ import {
   expressIdsForStorey,
   flattenSpatialTree,
   formatElevation,
+  hasVisibilityEdits,
   highlightedExpressIds,
   HIGHLIGHT_RGBA,
+  NOTHING_HIDDEN,
   resolveHighlights,
+  resolveIsolation,
+  selectionSurvives,
   shortIfcType,
   type BimViewerElement,
 } from './model-index'
@@ -99,7 +103,87 @@ describe('expressIdsForStorey', () => {
   })
 
   it('returns an empty set for a storey with no elements', () => {
+    // The model DOES assign elements to storeys and none are on this one, so
+    // an empty viewport is the correct answer to the question asked.
     expect(expressIdsForStorey(ELEMENTS, 'Dachgeschoss')?.size).toBe(0)
+  })
+
+  it('does not blank the building while the element rows are still in flight', () => {
+    // Geometry and the element list arrive on separate requests. A link
+    // carrying `?storey=Erdgeschoss` renders the building a beat before the
+    // rows land, and an empty set in that window means "draw nothing" — the
+    // reader watches their model disappear and come back.
+    expect(expressIdsForStorey([], 'Erdgeschoss')).toBeNull()
+  })
+
+  it('does not blank the building when the model assigns no storeys at all', () => {
+    // Matching by name cannot be done, which is a fact about the export. It is
+    // not the same fact as "this level is empty", and hiding the whole
+    // building is not a truthful way to report it.
+    const unassigned: BimViewerElement[] = [
+      { globalId: 'g-1', expressId: 1, ifcType: 'IfcWall', name: 'Wand', storeyName: null },
+      { globalId: 'g-2', expressId: 2, ifcType: 'IfcSlab', name: 'Decke', storeyName: null },
+    ]
+    expect(expressIdsForStorey(unassigned, 'Erdgeschoss')).toBeNull()
+  })
+})
+
+describe('what the viewport finally isolates', () => {
+  it('leaves the building alone when neither constraint is live', () => {
+    expect(resolveIsolation(null, null)).toBeNull()
+  })
+
+  it('honours either constraint on its own', () => {
+    expect([...(resolveIsolation(new Set([1, 2]), null) ?? [])]).toEqual([1, 2])
+    expect([...(resolveIsolation(null, new Set([3])) ?? [])]).toEqual([3])
+  })
+
+  it('takes BOTH when the reader asked for both', () => {
+    // Isolate a stair, filter to the first floor: the answer is the part of
+    // the stair on that floor, not one or the other.
+    expect([...(resolveIsolation(new Set([1, 2, 3]), new Set([2, 3, 9])) ?? [])]).toEqual([2, 3])
+  })
+
+  it('passes an empty intersection through rather than dropping a constraint', () => {
+    // The reader isolated something that is not on the level they filtered to.
+    // An empty viewport is the honest report; quietly ignoring one control
+    // would show them a building they did not ask for.
+    expect(resolveIsolation(new Set([1]), new Set([2]))?.size).toBe(0)
+  })
+})
+
+describe('whether a selection survives being hidden', () => {
+  it('drops a selection the reader just hid', () => {
+    // Otherwise the inspector describes a component that is not on screen and
+    // the camera orbits around something invisible.
+    expect(selectionSurvives(21, { hidden: new Set([21]), isolated: null })).toBe(false)
+  })
+
+  it('drops a selection that isolation excluded', () => {
+    expect(selectionSurvives(21, { hidden: new Set(), isolated: new Set([22]) })).toBe(false)
+  })
+
+  it('keeps a selection that is still visible', () => {
+    expect(selectionSurvives(21, { hidden: new Set([22]), isolated: new Set([21]) })).toBe(true)
+    expect(selectionSurvives(21, NOTHING_HIDDEN)).toBe(true)
+  })
+
+  it('has nothing to keep when nothing is selected', () => {
+    expect(selectionSurvives(null, NOTHING_HIDDEN)).toBe(false)
+  })
+})
+
+describe('whether the reader has changed what is visible', () => {
+  it('is false on a untouched viewport', () => {
+    expect(hasVisibilityEdits(NOTHING_HIDDEN)).toBe(false)
+  })
+
+  it('is true once anything is hidden or isolated', () => {
+    expect(hasVisibilityEdits({ hidden: new Set([1]), isolated: null })).toBe(true)
+    // An EMPTY isolation set is still an edit — it is the state where the
+    // reader isolated a thing that no longer resolves, and they need the way
+    // out that "show everything" is.
+    expect(hasVisibilityEdits({ hidden: new Set(), isolated: new Set() })).toBe(true)
   })
 })
 

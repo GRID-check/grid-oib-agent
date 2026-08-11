@@ -41,7 +41,12 @@ export interface ViewerDockProps {
    * perfectly well.
    */
   trail?: ReactNode
-  /** Rendered above the bar: the section-height slider, when a cut is live. */
+  /**
+   * Rendered above the bar, stacked: the section-height slider when a cut is
+   * live, the measuring hint while that tool is. Both at once is a legitimate
+   * state — a reviewer measures a clear height on a sectioned model — so this
+   * is a column rather than a slot for one thing.
+   */
   above?: ReactNode
   className?: string
 }

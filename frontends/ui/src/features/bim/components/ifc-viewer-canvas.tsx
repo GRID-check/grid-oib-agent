@@ -48,21 +48,58 @@
  * fingers pinch and pan, double-click frames what was hit. Keyboard does all
  * of it too, because a canvas that can only be driven by a mouse is a canvas
  * half the audience cannot use.
+ *
+ * Measuring takes over the primary click while it is on, because a click
+ * cannot both place a dimension point and select the wall under it — see the
+ * `measuring` prop.
+ *
+ * ## What this component renders
+ *
+ * A wrapper, the canvas, and two overlay layers that draw measurements in the
+ * PAGE rather than in the scene (`measure-overlay.ts` says why). Both overlays
+ * are `pointer-events-none`, so every gesture still reaches the canvas and the
+ * viewport behaves exactly as it did when it was a single element.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+/**
+ * The renderer, typed by the renderer.
+ *
+ * The declarations below used to be hand-written structural interfaces —
+ * `render(options?: Record<string, unknown>)` and a dozen methods copied out by
+ * eye — and that is what let every defect this component has shipped through.
+ * `xrayContextIds` was not a key the renderer reads; `position: atMetres` was
+ * metres in a percentage field. A `Record<string, unknown>` accepts both
+ * happily, and neither shows up in a screenshot, so both survived a release.
+ *
+ * `import type` is erased at build time: it costs nothing in the bundle, does
+ * not defeat the `next/dynamic` split this file exists for, and makes the
+ * renderer's own `RenderOptions` the contract. A misspelled option is now a
+ * type error at the call site, which is where it was always meant to be caught.
+ */
+import type { Camera, RenderOptions, Renderer, Scene } from '@ifc-lite/renderer'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
+import { MeasureOverlay } from '../lib/measure-overlay'
+import {
+  completeMeasurement,
+  MEASURE_SNAP_OPTIONS,
+  type MeasureAnchor,
+  type MeasureSnapKind,
+  type Measurement,
+} from '../lib/viewer-measure'
 import {
   boundsCentre,
   downloadWithProgress,
   keyboardCameraStep,
   rendererPreset,
+  rendererSectionPlane,
   wheelZoomDelta,
   type BimCameraView,
   type BimSection,
 } from '../lib/viewer-camera'
+import { captureFrameOptions, interactiveFrameOptions } from '../lib/viewer-performance'
 import {
   readViewerTheme,
   VIEWER_CLEAR_COLOR,
@@ -80,6 +117,15 @@ export interface IfcViewerCanvasProps {
   colorOverrides?: Map<number, Rgba>
   /** Only these elements are drawn. `null` shows everything. */
   isolatedExpressIds?: Set<number> | null
+  /**
+   * Elements the reader has taken out of the way.
+   *
+   * Not the inverse of {@link isolatedExpressIds} and not interchangeable with
+   * it: hiding removes the slab in front of the stair and leaves the rest
+   * alone, isolating removes everything that is not the stair. Both are live
+   * at once when the reader has done both.
+   */
+  hiddenExpressIds?: ReadonlySet<number> | null
   /** Currently selected element, highlighted and used as the orbit pivot. */
   selectedExpressId?: number | null
   /**
@@ -128,6 +174,31 @@ export interface IfcViewerCanvasProps {
    * nobody can see.
    */
   compact?: boolean
+  /**
+   * Measuring: a click places a dimension point instead of selecting.
+   *
+   * The two cannot both be on the primary click. A reviewer measuring the
+   * clear width of a corridor clicks two wall faces, and if those clicks also
+   * selected the walls the inspector would open over the thing being measured
+   * and the second pick would land on the panel.
+   */
+  measuring?: boolean
+  /** Finished measurements, drawn over the model. */
+  measurements?: readonly Measurement[]
+  /** A measurement the reader just closed. The parent owns the list. */
+  onMeasure?: (measurement: Measurement) => void
+  /** Whether a first point is down, so the chrome can say what to click next. */
+  onMeasurePending?: (pending: boolean) => void
+  /**
+   * Bumped to capture the current view as a PNG.
+   *
+   * A counter for the same reason `fitNonce` is one: a `ref` cannot cross the
+   * `next/dynamic` boundary on React 18, and capturing the same view twice is
+   * two events rather than one piece of state.
+   */
+  captureNonce?: number
+  /** The PNG data URL, or null when the capture failed. */
+  onCapture?: (dataUrl: string | null) => void
   className?: string
 }
 
@@ -139,77 +210,54 @@ export interface IfcViewerStatus {
   message?: string
 }
 
-interface Vec3Like {
-  x: number
-  y: number
-  z: number
-}
-
-interface BoxLike {
-  min: Vec3Like
-  max: Vec3Like
-}
-
-/** Minimal structural types for the dynamically-imported ifc-lite classes. */
-interface RendererLike {
-  init(): Promise<void>
-  addMeshes(meshes: unknown[], streaming?: boolean): void
-  fitToView(): void
-  render(options?: Record<string, unknown>): void
-  resize(width: number, height: number): void
-  destroy(): void
-  pick(
-    x: number,
-    y: number,
-    options?: { isolatedIds?: Set<number> | null; isStreaming?: boolean }
-  ): Promise<{ expressId?: number } | null>
-  /**
-   * A CPU-side BVH raycast. Unlike {@link pick} it is SYNCHRONOUS — no GPU
-   * readback, no frame of latency — which is the only reason hover is
-   * affordable at all.
-   */
-  raycastScene?(
-    x: number,
-    y: number,
-    options?: { isolatedIds?: Set<number> | null }
-  ): { intersection?: { expressId?: number } } | null
-  onDeviceLost?(listener: (info: { message: string }) => void): () => void
+/**
+ * What this component uses of the renderer — the real types, narrowed.
+ *
+ * Narrowed rather than `Renderer` itself for one reason: the class carries
+ * private fields, so a structural stand-in can never satisfy it and the specs
+ * would have to cast their fake through `unknown`, which throws away exactly
+ * the checking this exists for. Each member below is `Renderer`'s own
+ * signature, so a change in the package still lands here as a type error.
+ */
+type RendererLike = Pick<
+  Renderer,
+  | 'init'
+  | 'addMeshes'
+  | 'fitToView'
+  | 'render'
+  | 'resize'
+  | 'destroy'
+  | 'pick'
+  | 'raycastScene'
+  | 'onDeviceLost'
+  | 'getModelBounds'
+  | 'getGPUDevice'
+  | 'getPipeline'
+  | 'captureScreenshot'
+  | 'enableQuantizedBatches'
+> & {
   getCamera(): CameraLike
-  getModelBounds(): BoxLike | null
-  getScene(): {
-    setColorOverrides(overrides: Map<number, Rgba>, device: unknown, pipeline: unknown): void
-    clearColorOverrides(): void
-    /** World-space AABB of one element, or null before its geometry lands. */
-    getEntityBoundingBox(expressId: number): BoxLike | null
-  }
-  getGPUDevice(): unknown
-  getPipeline(): unknown
+  getScene(): SceneLike
 }
 
-interface CameraLike {
+/** The camera surface this component drives. Signatures are `Camera`'s own. */
+type CameraLike = Pick<
+  Camera,
   /**
    * `addVelocity` feeds the renderer's own inertia system. Omitting it — which
-   * this interface used to force, by not declaring the parameter — makes every
-   * drag a raw per-event jump with no momentum and no damping.
+   * the old hand-written declaration forced, by not declaring the parameter —
+   * makes every drag a raw per-event jump with no momentum and no damping.
    */
-  orbit(dx: number, dy: number, addVelocity?: boolean): void
-  pan(dx: number, dy: number, addVelocity?: boolean): void
+  | 'orbit'
+  | 'pan'
   /**
    * The cursor arguments are the difference between "zoom toward what I am
    * pointing at" and "zoom toward the middle of the screen, and watch the
-   * detail I wanted slide off the edge". They were absent from this
+   * detail I wanted slide off the edge". They were absent from the old
    * declaration, so the call site could not pass them and nobody could see
    * that the renderer had supported it all along.
    */
-  zoom(
-    delta: number,
-    addVelocity?: boolean,
-    mouseX?: number,
-    mouseY?: number,
-    canvasWidth?: number,
-    canvasHeight?: number,
-    fastZoom?: boolean
-  ): void
+  | 'zoom'
   /**
    * Advance inertia and any running tween; true while still moving.
    *
@@ -218,26 +266,31 @@ interface CameraLike {
    * only advance when something drives them, and the on-demand renderer drew
    * exactly one frame and stopped.
    */
-  update(deltaTime: number): boolean
+  | 'update'
   /** Rotate about this point instead of the scene centre. `null` restores it. */
-  setOrbitCenter(center: Vec3Like | null): void
-  setAspect(aspect: number): void
+  | 'setOrbitCenter'
+  | 'setAspect'
   /** Zoom to fit a box while KEEPING the current view direction. */
-  frameBounds?(min: Vec3Like, max: Vec3Like, duration?: number): Promise<void>
-  zoomExtent(min: Vec3Like, max: Vec3Like, duration?: number): Promise<void>
-  setPresetView(
-    view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right',
-    bounds?: BoxLike
-  ): void
-  setProjectionMode(mode: 'perspective' | 'orthographic'): void
+  | 'frameBounds'
+  | 'zoomExtent'
+  | 'setPresetView'
+  | 'setProjectionMode'
   /** Adaptive home pose — isometric for a building, along-axis for a corridor. */
-  fitBoundsAdaptive?(
-    bounds: BoxLike,
-    options?: { animate?: boolean; duration?: number; viewportShortPx?: number }
-  ): unknown
-  stopInertia?(): void
-  setSceneBounds?(bounds: BoxLike | null): void
-}
+  | 'fitBoundsAdaptive'
+  | 'stopInertia'
+  | 'setSceneBounds'
+  /** World point → canvas pixel, for the DOM overlays drawn over the model. */
+  | 'projectToScreen'
+  | 'getPosition'
+  | 'getFOV'
+  | 'enableFirstPersonMode'
+  | 'moveFirstPerson'
+>
+
+type SceneLike = Pick<
+  Scene,
+  'setColorOverrides' | 'clearColorOverrides' | 'getEntityBoundingBox' | 'setLodBuildsEnabled'
+>
 
 /**
  * How long one synchronous hover raycast may take before hover is abandoned.
@@ -255,11 +308,28 @@ const HOVER_BUDGET_MS = 24
 const KEY_ORBIT_PX = 24
 const KEY_PAN_PX = 32
 
+/**
+ * The model's vertical extent, in the renderer's own Y-up world metres.
+ *
+ * One reader for two consumers that MUST agree: the cut slider's range, and
+ * the plane the cut resolves to. When those two disagree the readout lies —
+ * which is the whole class of bug the section plane kept landing in.
+ */
+function modelBoundsMetres(
+  renderer: RendererLike | null
+): { minMetres: number; maxMetres: number } | null {
+  const bounds = renderer?.getModelBounds()
+  if (!bounds) return null
+  if (!Number.isFinite(bounds.min.y) || !Number.isFinite(bounds.max.y)) return null
+  return { minMetres: bounds.min.y, maxMetres: bounds.max.y }
+}
+
 export function IfcViewerCanvas({
   sourceUrl,
   elements,
   colorOverrides,
   isolatedExpressIds = null,
+  hiddenExpressIds = null,
   selectedExpressId = null,
   xrayKeepIds = null,
   onSelect,
@@ -272,10 +342,18 @@ export function IfcViewerCanvas({
   fitNonce = 0,
   zoomToSelection = false,
   compact = false,
+  measuring = false,
+  measurements,
+  onMeasure,
+  onMeasurePending,
+  captureNonce = 0,
+  onCapture,
   className,
 }: IfcViewerCanvasProps): JSX.Element {
   const t = useTranslations('bim')
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const overlaySvgRef = useRef<SVGSVGElement | null>(null)
+  const overlayLabelsRef = useRef<HTMLDivElement | null>(null)
   const rendererRef = useRef<RendererLike | null>(null)
   // The geometry kernel is a WASM instance with its own heap, and it outlives
   // the parse: `processAdaptive` returns but the module stays resident. Only
@@ -291,6 +369,7 @@ export function IfcViewerCanvas({
   // frame callback on every prop change would restart the loop mid-orbit.
   const overridesRef = useRef(colorOverrides)
   const isolatedRef = useRef(isolatedExpressIds)
+  const hiddenRef = useRef(hiddenExpressIds)
   const selectedRef = useRef(selectedExpressId)
   const xrayRef = useRef(xrayKeepIds)
   const sectionRef = useRef(section)
@@ -298,6 +377,7 @@ export function IfcViewerCanvas({
   sectionRef.current = section
   overridesRef.current = colorOverrides
   isolatedRef.current = isolatedExpressIds
+  hiddenRef.current = hiddenExpressIds
   selectedRef.current = selectedExpressId
   xrayRef.current = xrayKeepIds
   compactRef.current = compact
@@ -311,6 +391,28 @@ export function IfcViewerCanvas({
   onSelectRef.current = onSelect
   const onBoundsRef = useRef(onBounds)
   onBoundsRef.current = onBounds
+  const onMeasureRef = useRef(onMeasure)
+  onMeasureRef.current = onMeasure
+  const onMeasurePendingRef = useRef(onMeasurePending)
+  onMeasurePendingRef.current = onMeasurePending
+  const measuringRef = useRef(measuring)
+  measuringRef.current = measuring
+  const onCaptureRef = useRef(onCapture)
+  onCaptureRef.current = onCapture
+
+  /**
+   * The measurement in progress, and the drawing of every finished one.
+   *
+   * Both are refs, and deliberately so. The first point of a measurement and
+   * the live cursor change on every pointer move; routing either through React
+   * would re-render the whole stage sixty times a second to move a line end.
+   * The overlay writes coordinates straight into the DOM instead, from inside
+   * the same frame the model is drawn in, so the dimension line cannot lag a
+   * frame behind the building it is measuring.
+   */
+  const overlayRef = useRef<MeasureOverlay | null>(null)
+  const anchorRef = useRef<MeasureAnchor | null>(null)
+  const cursorRef = useRef<MeasureAnchor | null>(null)
 
   /**
    * The theme the model is lit for, captured once per mount.
@@ -326,6 +428,87 @@ export function IfcViewerCanvas({
   /** Still receiving geometry — the renderer skips work that a partial scene invalidates. */
   const streamingRef = useRef(true)
 
+  /** `hiddenIds` for a pick query, or nothing when the reader has hidden nothing. */
+  const hiddenPickOption = useCallback(
+    (): { hiddenIds?: Set<number> } =>
+      hiddenRef.current && hiddenRef.current.size > 0
+        ? { hiddenIds: new Set(hiddenRef.current) }
+        : {},
+    []
+  )
+
+  /**
+   * Put the measurement drawing where the camera now says it goes.
+   *
+   * `projectToScreen` wants CSS pixels, and the drawing buffer is in DEVICE
+   * pixels — the ResizeObserver below multiplies by the device pixel ratio. On
+   * a retina display, projecting against the buffer size would put every
+   * dimension line at twice its coordinates, i.e. off the bottom-right of the
+   * viewport. So the CSS box is measured here, not `canvas.width`.
+   */
+  const drawOverlay = useCallback((renderer: RendererLike) => {
+    const overlay = overlayRef.current
+    const canvas = canvasRef.current
+    if (!overlay || !canvas) return
+    const width = canvas.clientWidth
+    const height = canvas.clientHeight
+    if (width === 0 || height === 0) return
+    try {
+      const camera = renderer.getCamera()
+      overlay.update((point) => camera.projectToScreen(point, width, height))
+    } catch {
+      // A camera mid-teardown is a frame without an overlay, not a crash.
+    }
+  }, [])
+
+  /**
+   * Everything a frame is made of that is NOT a speed/quality trade.
+   *
+   * Shared by the interactive loop and the capture below, which differ only in
+   * those trades. Written as one function rather than duplicated because a
+   * capture that quietly disagreed with the viewport about what is hidden, cut
+   * or highlighted would be a picture of a building nobody was looking at.
+   */
+  const frameOptions = useCallback((): RenderOptions => {
+    const renderer = rendererRef.current
+    const theme = themeRef.current
+    return {
+      isolatedIds: isolatedRef.current,
+      // Omitted rather than empty when nothing is hidden. An empty set is a
+      // no-op to the renderer either way, but it still costs a per-frame
+      // element-wise compare against the previous snapshot on every batch.
+      ...(hiddenRef.current && hiddenRef.current.size > 0
+        ? { hiddenIds: new Set(hiddenRef.current) }
+        : {}),
+      selectedId: selectedRef.current,
+      // The renderer treats an ABSENT set as "no ghosting" and an empty one
+      // as "ghost everything", so passing an empty set through would fade
+      // the whole building the moment a highlight resolved to nothing.
+      //
+      // The option is `ghostExceptIds`. It used to be spelled
+      // `xrayContextIds` here, which is not a key the renderer has ever
+      // read — so the x-ray control was inert from the day it shipped, and
+      // looked like it worked because the button's pressed state is local.
+      ghostExceptIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
+      ghostAlpha: 0.1,
+      clearColor: VIEWER_CLEAR_COLOR[theme],
+      environment: viewerEnvironment(theme),
+      visualEnhancement: compactRef.current ? viewerEnhancementCompact() : viewerEnhancement(),
+      // Absent rather than `enabled: false` when there is no cut: the option
+      // is snapshotted per frame and a disabled plane still costs the
+      // cap/outline setup.
+      //
+      // The bounds are read from the renderer HERE rather than taken from
+      // the `onBounds` prop round-trip, so the plane is expressed against the
+      // box the renderer holds this frame — during streaming that box is
+      // still growing, and a percentage computed against a stale one would
+      // slide the cut as the building arrived.
+      sectionPlane: sectionRef.current
+        ? rendererSectionPlane(sectionRef.current, modelBoundsMetres(renderer))
+        : undefined,
+    }
+  }, [])
+
   /**
    * Draw one frame, now. Split out of {@link requestFrame} so the camera loop
    * below can render synchronously inside its own animation frame rather than
@@ -335,49 +518,27 @@ export function IfcViewerCanvas({
     const renderer = rendererRef.current
     if (!renderer) return
     try {
-      const theme = themeRef.current
       renderer.render({
-        isolatedIds: isolatedRef.current,
-        selectedId: selectedRef.current,
-        // The renderer treats an ABSENT set as "no ghosting" and an empty one
-        // as "ghost everything", so passing an empty set through would fade
-        // the whole building the moment a highlight resolved to nothing.
-        //
-        // The option is `ghostExceptIds`. It used to be spelled
-        // `xrayContextIds` here, which is not a key the renderer has ever
-        // read — so the x-ray control was inert from the day it shipped, and
-        // looked like it worked because the button's pressed state is local.
-        ghostExceptIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
-        ghostAlpha: 0.1,
-        clearColor: VIEWER_CLEAR_COLOR[theme],
-        environment: viewerEnvironment(theme),
-        visualEnhancement: compactRef.current ? viewerEnhancementCompact() : viewerEnhancement(),
+        ...frameOptions(),
         // Both are hints the renderer uses to shed work it cannot use: a scene
         // that is still loading, and a camera that is still moving, are frames
         // nobody is inspecting closely.
         isStreaming: streamingRef.current,
         isInteracting: interactingRef.current,
-        // `down` is the renderer's horizontal plane. Absent rather than
-        // `enabled: false` when there is no cut: the option is snapshotted
-        // per frame and a disabled plane still costs the cap/outline setup.
-        sectionPlane: sectionRef.current
-          ? {
-              axis: 'down' as const,
-              position: sectionRef.current.atMetres,
-              enabled: true,
-              flipped: sectionRef.current.flipped,
-              // The hatched cap is what makes a section read as a drawing
-              // rather than as a model with its front wall deleted.
-              showCap: true,
-              showOutlines: true,
-            }
-          : undefined,
+        // Sub-pixel batches are skipped and distant ones draw their simplified
+        // index range. See `viewer-performance.ts` for why the thresholds are
+        // what they are — and why a capture render must not use them.
+        ...interactiveFrameOptions(),
       })
     } catch {
       // A lost device makes render() a no-op upstream; anything else here is
       // a frame we skip rather than an error we surface mid-orbit.
     }
-  }, [])
+    // In the SAME frame the model was drawn in, never one behind it: a
+    // dimension line that trails the building by a frame reads as the
+    // measurement sliding off the wall whenever the camera moves.
+    drawOverlay(renderer)
+  }, [drawOverlay, frameOptions])
 
   /** Ask for one frame. Rendering is on demand — a static model must not spin the GPU. */
   const frameRef = useRef<number | null>(null)
@@ -470,13 +631,36 @@ export function IfcViewerCanvas({
 
         const geometry = new GeometryProcessor()
         geometryRef.current = geometry
-        const renderer = new Renderer(canvas) as unknown as RendererLike
+        // No cast: `RendererLike` is now built out of `Renderer`'s own member
+        // types, so the real class satisfies it and a package change that
+        // renames a method lands here as a type error rather than as a
+        // viewport that silently stops responding.
+        const renderer: RendererLike = new Renderer(canvas)
         await Promise.all([geometry.init(), renderer.init()])
         if (cancelled) {
           renderer.destroy()
           return
         }
         rendererRef.current = renderer
+
+        // Both of these apply to batches built FROM NOW ON, so they have to be
+        // set before a single mesh arrives — after `processAdaptive` starts it
+        // is too late for the geometry that already landed.
+        //
+        // `enableQuantizedBatches` probes the pipeline variants and answers
+        // whether they exist; a backend that refuses them keeps the f32 path,
+        // which is correct and merely larger. That is not the reader's
+        // problem, so it is not reported.
+        renderer.getScene().setLodBuildsEnabled(true)
+        try {
+          await renderer.enableQuantizedBatches()
+        } catch {
+          // A probe that throws is a renderer that stays on f32 vertices.
+        }
+        if (cancelled) {
+          renderer.destroy()
+          return
+        }
 
         // A WebGPU device can be taken away — a driver reset, a laptop waking
         // from sleep, a tab backgrounded too long on a machine under memory
@@ -565,7 +749,7 @@ export function IfcViewerCanvas({
 
   useEffect(() => {
     if (ready) requestFrame()
-  }, [isolatedExpressIds, selectedExpressId, xrayKeepIds, ready, requestFrame])
+  }, [isolatedExpressIds, hiddenExpressIds, selectedExpressId, xrayKeepIds, ready, requestFrame])
 
   // Keep the drawing buffer in step with the element's CSS box, in device
   // pixels — a canvas sized only by CSS renders blurry on every retina display.
@@ -694,6 +878,46 @@ export function IfcViewerCanvas({
     fitModel()
   }, [fitNonce, ready, fitModel])
 
+  /**
+   * Capture the view, exhaustively.
+   *
+   * `captureScreenshot` grabs what is on the swap chain, so the frame drawn
+   * immediately before it IS the image. That frame must not be an interactive
+   * one: sub-pixel culling and LOD are invisible at 60 fps and perfectly
+   * visible in a PNG somebody prints and attaches to a finding. So one
+   * complete frame is drawn first — no culling, no LOD, every evicted batch
+   * rebuilt — and the interactive loop resumes on the next request.
+   *
+   * The initial value is skipped, or every mount would capture itself.
+   */
+  const capturedRef = useRef(captureNonce)
+  useEffect(() => {
+    if (!ready || captureNonce === capturedRef.current) return
+    capturedRef.current = captureNonce
+    const renderer = rendererRef.current
+    if (!renderer) return
+    let cancelled = false
+    const run = async () => {
+      try {
+        renderer.render({
+          ...frameOptions(),
+          ...captureFrameOptions(),
+        })
+        const png = await renderer.captureScreenshot()
+        if (!cancelled) onCaptureRef.current?.(png)
+      } catch {
+        if (!cancelled) onCaptureRef.current?.(null)
+      }
+      // Back to the interactive frame, so the viewport is not left showing a
+      // capture-quality image it will never redraw at that cost again.
+      if (!cancelled) requestFrame()
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [captureNonce, ready, requestFrame, frameOptions])
+
   // Frame the selected element, when the selection came from somewhere other
   // than a click in this canvas.
   //
@@ -768,10 +992,7 @@ export function IfcViewerCanvas({
       onBoundsRef.current?.(null)
       return
     }
-    const bounds = rendererRef.current?.getModelBounds() ?? null
-    onBoundsRef.current?.(
-      bounds ? { minMetres: bounds.min.y, maxMetres: bounds.max.y } : null
-    )
+    onBoundsRef.current?.(modelBoundsMetres(rendererRef.current))
   }, [ready])
 
   // A named view is declarative state, not a one-shot action: arriving on a
@@ -804,6 +1025,113 @@ export function IfcViewerCanvas({
     if (ready) requestFrame()
   }, [section, ready, requestFrame])
 
+  // ---------------------------------------------------------------------------
+  // Measuring
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The overlay lives as long as the two host elements do.
+   *
+   * Built here rather than at module scope because it holds DOM: one per
+   * mounted viewport, torn down with it. The labels are read out of the
+   * dictionary at construction — the overlay writes text into the DOM itself
+   * and has no translation context of its own.
+   */
+  useEffect(() => {
+    const svg = overlaySvgRef.current
+    const labels = overlayLabelsRef.current
+    if (!svg || !labels) return
+    const overlay = new MeasureOverlay(svg, labels, {
+      horizontal: t('viewer.measure.horizontal'),
+      vertical: t('viewer.measure.vertical'),
+    })
+    overlayRef.current = overlay
+    return () => {
+      overlay.destroy()
+      overlayRef.current = null
+    }
+  }, [t])
+
+  useEffect(() => {
+    overlayRef.current?.setMeasurements(measurements ?? [])
+    requestFrame()
+  }, [measurements, requestFrame])
+
+  /**
+   * Leaving measure mode drops the half-finished measurement.
+   *
+   * The alternative — keeping the anchor so it resumes when the tool comes
+   * back — sounds helpful and is not: the reader turned the tool off, orbited
+   * somewhere else, and the next click would silently close a measurement
+   * against a point they had forgotten was down.
+   */
+  useEffect(() => {
+    if (measuring) return
+    anchorRef.current = null
+    cursorRef.current = null
+    overlayRef.current?.setPending(null, null)
+    onMeasurePendingRef.current?.(false)
+    requestFrame()
+  }, [measuring, requestFrame])
+
+  /**
+   * Where a click would land, and what it would lock onto.
+   *
+   * `raycastScene` with snap options does the whole job in one synchronous
+   * call: the exact surface point AND the nearest vertex/edge/face target
+   * within the screen radius. Falling back to the raw intersection rather than
+   * to nothing is deliberate — a reader measuring a corridor is pointing at
+   * two wall faces, and "no corner nearby" must not mean "no measurement".
+   */
+  const measureAt = useCallback((clientX: number, clientY: number): MeasureAnchor | null => {
+    const renderer = rendererRef.current
+    const canvas = canvasRef.current
+    if (!renderer?.raycastScene || !canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    try {
+      const hit = renderer.raycastScene(clientX - rect.left, clientY - rect.top, {
+        isolatedIds: isolatedRef.current,
+        ...hiddenPickOption(),
+        snapOptions: MEASURE_SNAP_OPTIONS,
+      })
+      if (!hit) return null
+      const snapped = hit.snap
+      return snapped
+        ? { point: snapped.position, snap: snapped.type as MeasureSnapKind }
+        : { point: hit.intersection.point, snap: 'none' }
+    } catch {
+      // A BVH that cannot be built is a viewport that cannot measure, not one
+      // that crashes mid-drag.
+      return null
+    }
+  }, [hiddenPickOption])
+
+  /** Place a point: the first arms the measurement, the second closes it. */
+  const placeMeasurePoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const anchor = measureAt(clientX, clientY)
+      if (!anchor) return
+      const pending = anchorRef.current
+      if (!pending) {
+        anchorRef.current = anchor
+        onMeasurePendingRef.current?.(true)
+      } else {
+        const measurement = completeMeasurement(pending, anchor)
+        // A rejected measurement (the two picks landed on the same corner)
+        // leaves the anchor armed rather than clearing it, so a mis-click
+        // costs one more click instead of the whole measurement.
+        if (measurement) {
+          anchorRef.current = null
+          onMeasurePendingRef.current?.(false)
+          onMeasureRef.current?.(measurement)
+        }
+      }
+      overlayRef.current?.setPending(anchorRef.current, cursorRef.current)
+      requestFrame()
+    },
+    [measureAt, requestFrame]
+  )
+
   /**
    * Hover testing, and the budget that can switch it off.
    *
@@ -829,6 +1157,7 @@ export function IfcViewerCanvas({
       try {
         const hit = active.raycastScene(clientX - rect.left, clientY - rect.top, {
           isolatedIds: isolatedRef.current,
+          ...hiddenPickOption(),
         })
         setHovering(hit?.intersection?.expressId !== undefined)
       } catch {
@@ -840,7 +1169,7 @@ export function IfcViewerCanvas({
         setHovering(false)
       }
     })
-  }, [])
+  }, [hiddenPickOption])
 
   useEffect(() => {
     hoverAffordableRef.current = !compact
@@ -893,7 +1222,17 @@ export function IfcViewerCanvas({
 
     const drag = dragRef.current
     if (!drag) {
-      if (ready) testHover(event.clientX, event.clientY)
+      if (!ready) return
+      // While measuring, the pointer is a crosshair looking for a corner
+      // rather than a cursor looking for an element: the same raycast answers
+      // both, and running the hover test as well would pay for it twice.
+      if (measuringRef.current) {
+        cursorRef.current = measureAt(event.clientX, event.clientY)
+        overlayRef.current?.setPending(anchorRef.current, cursorRef.current)
+        requestFrame()
+        return
+      }
+      testHover(event.clientX, event.clientY)
       return
     }
     const dx = event.clientX - drag.x
@@ -930,12 +1269,16 @@ export function IfcViewerCanvas({
     const hit = await renderer.pick(
       Math.round((clientX - rect.left) * ratio),
       Math.round((clientY - rect.top) * ratio),
-      { isolatedIds: isolatedRef.current }
+      // Both filters travel with the query. Without them the pick pass
+      // considers geometry that is not on screen, so clicking empty space
+      // selects a wall the reader deliberately took out of the way — the
+      // selection is real, the element is invisible, and nothing explains it.
+      { isolatedIds: isolatedRef.current, ...hiddenPickOption() }
     )
     const expressId = hit?.expressId
     if (expressId === undefined) return null
     return elementsRef.current.find((candidate) => candidate.expressId === expressId) ?? null
-  }, [])
+  }, [hiddenPickOption])
 
   const handlePointerUp = async (event: React.PointerEvent<HTMLCanvasElement>) => {
     const wasPinching = pinchRef.current !== null
@@ -947,6 +1290,14 @@ export function IfcViewerCanvas({
     // A click is a pointer-up that did not drag: orbiting past an element must
     // not select it.
     if (!rendererRef.current || !drag || drag.moved || drag.button !== 0) return
+
+    // Measuring owns the primary click. Selecting as well would open the
+    // inspector over the wall being measured, and the second pick would land
+    // on the panel rather than on the building.
+    if (measuringRef.current) {
+      placeMeasurePoint(event.clientX, event.clientY)
+      return
+    }
 
     try {
       onSelectRef.current?.(await pickAt(event.clientX, event.clientY))
@@ -964,6 +1315,10 @@ export function IfcViewerCanvas({
   const handleDoubleClick = async (event: React.MouseEvent<HTMLCanvasElement>) => {
     const renderer = rendererRef.current
     if (!renderer || !ready) return
+    // Two measurement points in quick succession are also a double-click. Not
+    // guarding here would fly the camera to whatever the second point landed
+    // on, at exactly the moment the reader is reading the number.
+    if (measuringRef.current) return
     try {
       const element = await pickAt(event.clientX, event.clientY)
       if (!element) {
@@ -1050,6 +1405,16 @@ export function IfcViewerCanvas({
         event.preventDefault()
         fitModel()
       }
+      // Escape drops a half-placed measurement before it reaches the dialog,
+      // which would otherwise close the whole model over one stray click.
+      if (event.key === 'Escape' && measuringRef.current && anchorRef.current) {
+        event.preventDefault()
+        event.stopPropagation()
+        anchorRef.current = null
+        onMeasurePendingRef.current?.(false)
+        overlayRef.current?.setPending(null, cursorRef.current)
+        requestFrame()
+      }
       return
     }
     event.preventDefault()
@@ -1066,34 +1431,64 @@ export function IfcViewerCanvas({
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      className={cn(
-        'touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
-        // The cursor IS the affordance. A canvas with a text caret over it
-        // reads as a picture; a grab hand reads as something you can turn.
-        dragging ? 'cursor-grabbing' : hovering ? 'cursor-pointer' : 'cursor-grab',
-        className
-      )}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
-      onPointerLeave={() => setHovering(false)}
-      onDoubleClick={handleDoubleClick}
-      onKeyDown={handleKeyDown}
-      // Right-drag pans, so the browser's menu must not appear on top of it.
-      onContextMenu={(event) => event.preventDefault()}
-      // Focusable so the keyboard controls above can be reached at all.
-      tabIndex={0}
-      // The canvas is a graphical view of data that is also available as text in
-      // the element table beside it, so it is labelled rather than described.
-      // Through the dictionary like every other string a reader sees: a
-      // hardcoded German label is the one piece of the page an English screen
-      // reader cannot read.
-      role="img"
-      aria-label={t('viewer.canvasLabel')}
-    />
+    /*
+      The canvas, and the two layers that draw ON it.
+
+      A wrapper rather than a bare `<canvas>` because a dimension line has to
+      be drawn in the page, not in the scene — see `measure-overlay.ts` for
+      why. Both layers are `pointer-events-none`, so every gesture still
+      reaches the canvas underneath and the viewport behaves exactly as it did
+      when it was one element.
+    */
+    <div className={cn('relative', className)}>
+      <canvas
+        ref={canvasRef}
+        className={cn(
+          'size-full touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+          // The cursor IS the affordance. A canvas with a text caret over it
+          // reads as a picture; a grab hand reads as something you can turn.
+          // Measuring gets the crosshair every CAD tool uses, because the
+          // click means something completely different there.
+          measuring
+            ? 'cursor-crosshair'
+            : dragging
+              ? 'cursor-grabbing'
+              : hovering
+                ? 'cursor-pointer'
+                : 'cursor-grab'
+        )}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={() => setHovering(false)}
+        onDoubleClick={handleDoubleClick}
+        onKeyDown={handleKeyDown}
+        // Right-drag pans, so the browser's menu must not appear on top of it.
+        onContextMenu={(event) => event.preventDefault()}
+        // Focusable so the keyboard controls above can be reached at all.
+        tabIndex={0}
+        // The canvas is a graphical view of data that is also available as text
+        // in the element table beside it, so it is labelled rather than
+        // described. Through the dictionary like every other string a reader
+        // sees: a hardcoded German label is the one piece of the page an
+        // English screen reader cannot read.
+        role="img"
+        aria-label={t('viewer.canvasLabel')}
+      />
+      <svg
+        ref={overlaySvgRef}
+        className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        // The measurements are also published as text in the list beside the
+        // dock, so the drawing itself is decorative to a screen reader.
+        aria-hidden="true"
+      />
+      <div
+        ref={overlayLabelsRef}
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        aria-hidden="true"
+      />
+    </div>
   )
 }
 

@@ -155,7 +155,28 @@ export function highlightedExpressIds(highlights: readonly ResolvedHighlight[]):
   return ids
 }
 
-/** Express ids of everything on one storey, matched by name (case-insensitive). */
+/**
+ * Express ids of everything on one storey, matched by name (case-insensitive).
+ *
+ * ## Three answers, and why they are three
+ *
+ * The renderer reads `isolatedIds` as: `null` — isolate nothing, draw the whole
+ * building; an EMPTY set — isolate nothing at all, i.e. draw NOTHING. Those two
+ * are one keystroke apart and a whole building apart, so every path out of here
+ * has to say which one it means.
+ *
+ * - **No filter asked for** → `null`. Draw everything.
+ * - **A filter that cannot be evaluated** → `null`. The element list arrives
+ *   from a separate request than the geometry, so a link carrying `?storey=EG`
+ *   renders the building a beat before the rows land. Returning an empty set in
+ *   that window blanks the viewport mid-load, which reads as a model that
+ *   failed rather than as a list that has not arrived. Same answer when the
+ *   model publishes no storey assignments at all: matching by name is
+ *   impossible, and hiding the building is not a truthful way to say so.
+ * - **A filter that evaluated to nothing** → an empty set. The model DOES
+ *   assign elements to storeys and none of them are on this one, so an empty
+ *   viewport is the correct answer to the question that was asked.
+ */
 export function expressIdsForStorey(
   elements: readonly BimViewerElement[],
   storeyName: string | null
@@ -163,10 +184,86 @@ export function expressIdsForStorey(
   if (!storeyName) return null
   const needle = storeyName.toLowerCase()
   const ids = new Set<number>()
+  let anyStoreyAssignment = false
   for (const element of elements) {
+    if (element.storeyName) anyStoreyAssignment = true
     if ((element.storeyName ?? '').toLowerCase() === needle) ids.add(element.expressId)
   }
+  // Nothing to match against — the rows have not arrived, or this model does
+  // not assign elements to storeys. Either way the filter is unanswerable, and
+  // an unanswerable filter must not hide the building.
+  if (!anyStoreyAssignment) return null
   return ids
+}
+
+/**
+ * What the viewport is currently showing, once the reader has intervened.
+ *
+ * Two different acts, and they are not the same act with the sign flipped:
+ *
+ * - **Hiding** removes the thing in the way. A reviewer hides the roof slab to
+ *   see the stair under it, and everything else stays exactly as it was.
+ * - **Isolating** removes everything else. A reviewer isolates a stair core to
+ *   look at nothing but that, and hiding "everything else" one element at a
+ *   time is not a thing a person can do.
+ *
+ * Both compose with the storey filter rather than replacing it, because a
+ * reader who has isolated a stair on the first floor means BOTH constraints —
+ * and a control that silently drops one of them is a viewport that shows a
+ * different building from the one the chrome describes.
+ */
+export interface ViewerVisibility {
+  /** Manually hidden elements. Empty means nothing has been hidden. */
+  hidden: ReadonlySet<number>
+  /** Manually isolated elements, or `null` when nothing is isolated. */
+  isolated: ReadonlySet<number> | null
+}
+
+export const NOTHING_HIDDEN: ViewerVisibility = { hidden: new Set(), isolated: null }
+
+/** Whether the reader has changed what is visible — drives "show everything". */
+export function hasVisibilityEdits(visibility: ViewerVisibility): boolean {
+  return visibility.hidden.size > 0 || visibility.isolated !== null
+}
+
+/**
+ * The isolation set the renderer is finally given.
+ *
+ * The intersection when both a storey filter and a manual isolation are live,
+ * because they are two constraints on one question and the reader asked for
+ * both. An intersection that comes out EMPTY is meaningful and is passed
+ * through: the reader isolated something that is not on the level they are
+ * filtering to, and an empty viewport is the honest report of that — quietly
+ * dropping one constraint would show them a building they did not ask for and
+ * leave both controls looking active.
+ */
+export function resolveIsolation(
+  storeyIds: ReadonlySet<number> | null,
+  isolated: ReadonlySet<number> | null
+): Set<number> | null {
+  if (!storeyIds && !isolated) return null
+  if (!storeyIds) return new Set(isolated)
+  if (!isolated) return new Set(storeyIds)
+  const both = new Set<number>()
+  for (const id of isolated) if (storeyIds.has(id)) both.add(id)
+  return both
+}
+
+/**
+ * Hiding the element you are looking at should not leave it selected.
+ *
+ * The inspector would go on describing a component that is no longer on
+ * screen, and the orbit pivot would stay on it — the camera would swing around
+ * something invisible.
+ */
+export function selectionSurvives(
+  selectedExpressId: number | null,
+  visibility: ViewerVisibility
+): boolean {
+  if (selectedExpressId === null) return false
+  if (visibility.hidden.has(selectedExpressId)) return false
+  if (visibility.isolated && !visibility.isolated.has(selectedExpressId)) return false
+  return true
 }
 
 export interface SpatialTreeRow {
