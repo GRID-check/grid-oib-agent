@@ -11,7 +11,8 @@ export const jobs = {
   title: 'Jobs',
   // One line: it sits in the tab's header BAR, next to the title. The long
   // version of this explanation is the empty state, which has room for it.
-  subtitle: 'Prompts this project runs on a timer — as a chat or a report, optionally with a skill.',
+  subtitle:
+    'Prompts this project runs on a timer — as a chat or a report, optionally with a skill.',
   backToList: 'Back to jobs',
   loadError: 'The jobs could not be loaded.',
   tryAgain: 'Try again',
@@ -25,8 +26,10 @@ export const jobs = {
       action: 'New job',
     },
     manualOnly: 'Manual only',
-    nextRun: 'Next run {time}',
-    lastRun: 'Last run {time}',
+    // Terse on purpose: both sit on ONE footer line next to the history
+    // toggle, and the German equivalents overflow the card at grid width.
+    nextRun: 'Next {time}',
+    lastRun: 'Last {time}',
     neverRun: 'Never run',
     disabled: 'Disabled',
     enableAria: 'Enable job “{name}”',
@@ -47,7 +50,7 @@ export const jobs = {
     runNow: 'Run now',
     running: 'Running…',
     delete: 'Delete',
-    history: 'Run history',
+    history: 'History',
   },
 
   schedule: {

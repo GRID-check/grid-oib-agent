@@ -24,8 +24,11 @@ export const jobs: typeof en.jobs = {
       action: 'Neuer Job',
     },
     manualOnly: 'Nur manuell',
-    nextRun: 'Nächste Ausführung {time}',
-    lastRun: 'Letzte Ausführung {time}',
+    // Terse on purpose: both sit on ONE footer line next to the history
+    // toggle, and the full phrasings ("Nächste Ausführung …") overflowed the
+    // card at grid width.
+    nextRun: 'Nächster Lauf {time}',
+    lastRun: 'Letzter Lauf {time}',
     neverRun: 'Noch nie ausgeführt',
     disabled: 'Deaktiviert',
     enableAria: 'Job „{name}“ aktivieren',
@@ -45,7 +48,7 @@ export const jobs: typeof en.jobs = {
     runNow: 'Jetzt ausführen',
     running: 'Wird ausgeführt…',
     delete: 'Löschen',
-    history: 'Ausführungsverlauf',
+    history: 'Verlauf',
   },
 
   schedule: {

@@ -289,24 +289,25 @@ function JobCard({
           did, and the way into the history. Quiet, temporal, secondary — the
           same role size · time plays on a file card. No divider: the surface
           change IS the separation. */}
-      <RaisedCardFooter className="flex-col items-stretch gap-1">
+      <RaisedCardFooter>
         <Collapsible open={historyOpen} onOpenChange={setHistoryOpen} className="w-full">
-          {/* Two fixed lines, not one wrapping row. A card that happens to have
-              both a next and a last run overflows a single line at grid width
-              and wraps the trigger down on its own; a card with only one of
-              them keeps everything on one line. Same component, two different
-              footer shapes side by side in the same row. Splitting the meta
-              from the disclosure makes every card's tray identical. */}
-          <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1">
-            {nextRun && <span className="truncate">{nextRun}</span>}
+          {/* ONE row, never two. The meta and the disclosure share a line the
+              way `size · time` does on a file card, so the tray reads the same
+              on every card whether a job has a next run, a last run or neither.
+              That is why the labels are terse ("Nächster Lauf", "Verlauf") and
+              the times are joined by a middot rather than spaced apart: at grid
+              width (~440px of interior) the full phrasings did not fit, and a
+              row that wraps on some cards and not others is what made the grid
+              look ragged. The meta truncates and the trigger never shrinks —
+              if something has to give, it is the text that also exists in the
+              history panel one click away. */}
+          <div className="flex w-full items-center gap-2">
             <span
-              className="truncate"
+              className="min-w-0 truncate"
               title={job.lastRunAt ? formatAbsoluteTime(job.lastRunAt, locale) : undefined}
             >
-              {lastRun}
+              {nextRun ? `${nextRun} · ${lastRun}` : lastRun}
             </span>
-          </div>
-          <div className="flex w-full items-center">
             <CollapsibleTrigger asChild>
               <Button
                 variant="ghost"
