@@ -68,13 +68,13 @@ def test_grid_agents_filter_applies_to_builtin_and_org(resolver: SkillResolver) 
         description="Deep only.",
         body="b",
         origin="platform",
-        metadata={"grid-agents": "deep_research_agent"},
+        metadata={"grid-agents": "deep_researcher"},
     )
     resolver._builtin_by_name["smart"] = smart
     with mock.patch.object(
         resolver,
         "_fetch_org_skills",
-        return_value=[_row("org-deep", metadata={"grid-agents": "deep_research_agent"})],
+        return_value=[_row("org-deep", metadata={"grid-agents": "deep_researcher"})],
     ):
         resolved = resolver.resolve("org-1")
     assert "smart" not in {s.name for s in resolved}
@@ -86,7 +86,7 @@ def test_grid_execution_chat_excludes_deep_research(resolver: SkillResolver) -> 
         name="chat-only", description="chat.", body="b", origin="platform", metadata={"grid-execution": "chat"}
     )
     resolver._builtin_by_name["chat-only"] = chat_only
-    deep = SkillResolver(agent="deep_research_agent")
+    deep = SkillResolver(agent="deep_researcher")
     deep._builtin_by_name = dict(resolver._builtin_by_name)
     assert "chat-only" not in {s.name for s in deep.resolve(None)}
     assert "chat-only" in {s.name for s in resolver.resolve(None)}
@@ -131,3 +131,72 @@ def test_cache_tty_default_is_60(resolver: SkillResolver, monkeypatch: pytest.Mo
     assert _cache_ttl_seconds() == 60.0
     monkeypatch.setenv("GRID_SKILLS_CACHE_TTL_SECONDS", "junk")
     assert _cache_ttl_seconds() == 60.0
+
+
+# ---------------------------------------------------------------------------
+# The BFF wire contract
+# ---------------------------------------------------------------------------
+#
+# `_fetch_org_skills` once sent `organizationId` (camelCase) and `agent=""`,
+# while the BFF's `resolveQuerySchema` requires snake_case `organization_id`
+# and a NON-EMPTY optional `agent`. Both were rejected with a 400 — and because
+# resolution fails open to the builtin set, the only symptom was that org
+# skills never appeared anywhere. Nothing asserted the query, so nothing caught
+# it. These tests assert the request itself.
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, object]:
+        return self._payload
+
+
+def _capture_fetch_query(agent: str | None, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Run one `_fetch_org_skills` and return the query params it put on the wire."""
+    captured: dict[str, str] = {}
+
+    def fake_get(url: str, *, params: dict[str, str], headers: dict[str, str], timeout: float):
+        captured.update(params)
+        captured["__url"] = url
+        captured["__token_header"] = next(iter(headers))
+        return _FakeResponse({"skills": []})
+
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    SkillResolver(agent=agent)._fetch_org_skills("org-42")
+    return captured
+
+
+def test_fetch_sends_the_snake_case_organization_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    query = _capture_fetch_query("shallow_researcher", monkeypatch)
+    assert query["organization_id"] == "org-42"
+    assert "organizationId" not in query
+    assert query["agent"] == "shallow_researcher"
+    assert query["__url"] == "http://frontend:3000/api/internal/skills/resolve"
+    assert query["__token_header"] == "x-grid-internal-token"
+
+
+def test_fetch_omits_agent_entirely_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The BFF schema requires a non-empty string, so `agent=""` is a 400 — the
+    # key must be absent, not blank.
+    query = _capture_fetch_query(None, monkeypatch)
+    assert "agent" not in query
+    assert query["organization_id"] == "org-42"
+
+
+def test_unknown_grid_agents_names_do_not_delete_the_skill(resolver: SkillResolver) -> None:
+    """A typo in `grid-agents` must not silently hide a skill from every agent."""
+    from aiq_agent.skills.resolver import _agent_allows
+
+    typo = Skill(name="typo", description="d", body="b", metadata={"grid-agents": "shallow_reseacher"})
+    assert _agent_allows(typo, "shallow_researcher") is True
+    real = Skill(name="real", description="d", body="b", metadata={"grid-agents": "deep_researcher"})
+    assert _agent_allows(real, "shallow_researcher") is False

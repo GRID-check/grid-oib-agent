@@ -43,6 +43,17 @@ MAX_COMPATIBILITY_CHARS = 500
 GRID_METADATA_KEYS = frozenset({"grid-execution", "grid-schedulable", "grid-agents"})
 GRID_EXECUTION_VALUES = frozenset({"chat", "deep-research"})
 
+#: Words the Agent Skills spec reserves — a skill may not be named after the
+#: vendor or the model. Checked case-insensitively as a substring, which is how
+#: the spec states it ("must not contain").
+RESERVED_NAME_WORDS = ("anthropic", "claude")
+
+#: Anything that looks like an XML/HTML tag. The spec forbids tags in ``name``
+#: and ``description`` because both are interpolated into the system prompt,
+#: where a stray tag can close a structural element the harness opened and let
+#: skill text escape into a position it was never meant to occupy.
+XML_TAG_RE = re.compile(r"<[^>]+>")
+
 
 class SkillValidationError(ValueError):
     """A SKILL.md (or BFF skill payload) violates the agentskills.io contract."""
@@ -87,6 +98,12 @@ def _validate_name(name: Any, expected_dir_name: str | None) -> str:
         raise SkillValidationError(
             f"Skill name {name!r} must be lowercase a-z/0-9 hyphen-separated (no leading/trailing/consecutive hyphens)"
         )
+    lowered = name.lower()
+    reserved = [word for word in RESERVED_NAME_WORDS if word in lowered]
+    if reserved:
+        raise SkillValidationError(f"Skill name {name!r} must not contain the reserved word(s) {reserved}")
+    if XML_TAG_RE.search(name):
+        raise SkillValidationError(f"Skill name {name!r} must not contain XML tags")
     if expected_dir_name is not None and name != expected_dir_name:
         raise SkillValidationError(f"Skill name {name!r} does not match its directory name {expected_dir_name!r}")
     return name
@@ -98,7 +115,25 @@ def _validate_description(description: Any) -> str:
     description = description.strip()
     if len(description) > MAX_DESCRIPTION_CHARS:
         raise SkillValidationError(f"Skill description exceeds {MAX_DESCRIPTION_CHARS} characters: {len(description)}")
+    if XML_TAG_RE.search(description):
+        raise SkillValidationError("Skill 'description' must not contain XML tags")
     return description
+
+
+def _pop_allowed_tools(payload: dict[str, Any]) -> str | None:
+    """Read the tool allowlist under either spelling.
+
+    SKILL.md frontmatter spells it ``allowed-tools`` (the Agent Skills spec);
+    the BFF row and this module's own field spell it ``allowed_tools``. Reading
+    only the underscore form meant a hand-written SKILL.md declaring
+    ``allowed-tools`` had its allowlist silently dropped — a permission
+    narrowing that vanishes is worse than one that errors, so both spellings
+    are accepted and the hyphenated one wins where a file sets both.
+    """
+    hyphenated = payload.pop("allowed-tools", None)
+    underscored = payload.pop("allowed_tools", None)
+    value = hyphenated if hyphenated is not None else underscored
+    return value if isinstance(value, str) else None
 
 
 def _validate_metadata(metadata: Any) -> dict[str, str]:
@@ -129,6 +164,7 @@ def build_skill_from_payload(
     Raises :class:`SkillValidationError` on any contract violation — the shared
     strict path for both builtin files and org rows.
     """
+    payload = dict(payload)
     name = _validate_name(payload.get("name"), expected_dir_name=None)
     description = _validate_description(payload.get("description"))
     metadata = _validate_metadata(payload.get("metadata"))
@@ -143,7 +179,7 @@ def build_skill_from_payload(
             f"Skill {name!r} compatibility must be a string of at most {MAX_COMPATIBILITY_CHARS} characters"
         )
     license_ = payload.get("license")
-    allowed_tools = payload.get("allowed_tools")
+    allowed_tools = _pop_allowed_tools(payload)
     return Skill(
         name=name,
         description=description,
@@ -153,7 +189,7 @@ def build_skill_from_payload(
         collection=collection,
         license=license_ if isinstance(license_, str) else None,
         compatibility=compatibility,
-        allowed_tools=allowed_tools if isinstance(allowed_tools, str) else None,
+        allowed_tools=allowed_tools,
     )
 
 
@@ -192,7 +228,7 @@ def parse_skill_md(
             f"Skill {name!r} compatibility must be a string of at most {MAX_COMPATIBILITY_CHARS} characters"
         )
     license_ = payload.pop("license", None)
-    allowed_tools = payload.pop("allowed_tools", None)
+    allowed_tools = _pop_allowed_tools(payload)
     body = text[match.end() :].strip()
     return Skill(
         name=name,
@@ -203,5 +239,5 @@ def parse_skill_md(
         collection=collection,
         license=license_ if isinstance(license_, str) else None,
         compatibility=compatibility,
-        allowed_tools=allowed_tools if isinstance(allowed_tools, str) else None,
+        allowed_tools=allowed_tools,
     )

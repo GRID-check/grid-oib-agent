@@ -125,8 +125,13 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
 
 
 @pytest.mark.asyncio
-async def test_meta_turn_never_loads_skills():
-    """requires_sources=False: no resolution and no use_skill tool folding."""
+async def test_plain_meta_turn_never_loads_skills():
+    """requires_sources=False and nothing forced: no resolution, no use_skill tool.
+
+    This is the greeting case — an unprompted conversational turn the intent
+    classifier judged needs no sources. It keeps its interaction-only tool
+    binding, so a "hallo" can never pull a skill body into context.
+    """
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
     config = ShallowResearchAgentConfig(
         llm="research_llm",
@@ -142,15 +147,57 @@ async def test_meta_turn_never_loads_skills():
         run_fn, gen = await _get_run_fn(config, builder)
 
         state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="hello")],
+            messages=[HumanMessage(content="hallo")],
             requires_sources=False,
-            force_skills=["forecast-analysis"],
         )
         result = await run_fn(state)
 
         ResolverCls.assert_not_called()
         assert state.skills_block is None
         assert result.skills_activated is None
+        await gen.aclose()
+
+
+@pytest.mark.asyncio
+async def test_explicit_slash_invocation_survives_a_meta_classification():
+    """requires_sources=False but the USER forced a skill: it still loads.
+
+    `force_skills` is only ever populated by an explicit `/name` invocation in
+    the composer. The intent classifier decides whether an *unprompted* turn
+    needs sources; it does not get to overrule a direct instruction. Gating on
+    `requires_sources` alone made `/name` a silent no-op on exactly the short,
+    imperative messages people type after a slash command.
+    """
+    builder = _FakeBuilder({"web_search_tool": web_search_tool})
+    config = ShallowResearchAgentConfig(
+        llm="research_llm",
+        tools=["web_search_tool"],
+        skills_enabled=True,
+    )
+    resolved = (_skill("forecast-analysis"),)
+    runtime = _skill_runtime(resolved, ["forecast-analysis"])
+
+    with (
+        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
+        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
+        patch("aiq_agent.skills.SkillRuntime", return_value=runtime) as RuntimeCls,
+        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+    ):
+        resolver = ResolverCls.return_value
+        resolver.resolve.return_value = resolved
+
+        run_fn, gen = await _get_run_fn(config, builder)
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="und jetzt?")],
+            requires_sources=False,
+            force_skills=["forecast-analysis"],
+        )
+        result = await run_fn(state)
+
+        ResolverCls.assert_called_once_with(agent="shallow_researcher")
+        RuntimeCls.assert_called_once_with(skills=resolved, force_names=["forecast-analysis"])
+        assert result.skills_activated == ["forecast-analysis"]
         await gen.aclose()
 
 

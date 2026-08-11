@@ -41,7 +41,14 @@ _DEFAULT_TTL_SECONDS = 60
 _REQUEST_TIMEOUT_SECONDS = 5.0
 
 #: Agents allowed in the ``grid-agents`` metadata comma-list.
-_KNOWN_AGENTS = frozenset({"shallow_researcher", "deep_research_agent"})
+#:
+#: These are the ``AGENT_REGISTRY`` identifiers (see
+#: ``frontends/aiq_api/src/aiq_api/registry.py``) — the same strings a schedule's
+#: ``agent_type`` and the job-submit path use, so the feature has ONE agent
+#: vocabulary rather than one per layer. An unknown name in ``grid-agents`` is
+#: logged and ignored rather than silently narrowing a skill to nothing: a typo
+#: there would otherwise make a skill vanish with no diagnostic.
+KNOWN_AGENTS = frozenset({"shallow_researcher", "deep_researcher"})
 
 
 def _cache_ttl_seconds() -> float:
@@ -62,7 +69,21 @@ def _agent_allows(skill: Skill, agent: str | None) -> bool:
     allowed = skill.metadata.get("grid-agents")
     if not allowed:
         return True
-    return agent in {name.strip() for name in allowed.split(",")}
+    names = {name.strip() for name in allowed.split(",") if name.strip()}
+    unknown = names - KNOWN_AGENTS
+    if unknown:
+        logger.warning(
+            "Skill %r lists unknown agent(s) in grid-agents: %s (known: %s)",
+            skill.name,
+            sorted(unknown),
+            sorted(KNOWN_AGENTS),
+        )
+    known = names & KNOWN_AGENTS
+    # Every listed name was a typo — treat the allowlist as absent rather than
+    # letting one bad character silently delete the skill from every agent.
+    if not known:
+        return True
+    return agent in known
 
 
 def _skill_applies_to_agent(skill: Skill, agent: str | None) -> bool:
@@ -74,7 +95,7 @@ def _skill_applies_to_agent(skill: Skill, agent: str | None) -> bool:
     if execution == "chat":
         return agent in {None, "shallow_researcher"}
     if execution == "deep-research":
-        return agent == "deep_research_agent"
+        return agent in {None, "deep_researcher"}
     return True
 
 
@@ -177,9 +198,19 @@ class SkillResolver:
         import httpx
 
         base_url = (os.environ.get("FRONTEND_INTERNAL_URL") or "http://frontend:3000").rstrip("/")
+        # Param names are the BFF's `resolveQuerySchema` contract verbatim:
+        # snake_case `organization_id`, and `agent` OMITTED when unset (the
+        # schema requires a non-empty string, so sending `agent=""` is a 400).
+        # Both were wrong here once; because resolution fails open to the
+        # builtin set, the only symptom was org skills never appearing — which
+        # is exactly the kind of silence a contract test has to cover, so
+        # `test_resolver.py` now asserts the query it puts on the wire.
+        params = {"organization_id": organization_id}
+        if self.agent:
+            params["agent"] = self.agent
         response = httpx.get(
             f"{base_url}/api/internal/skills/resolve",
-            params={"organizationId": organization_id, "agent": self.agent or ""},
+            params=params,
             headers={"x-grid-internal-token": token},
             timeout=_REQUEST_TIMEOUT_SECONDS,
         )

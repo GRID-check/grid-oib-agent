@@ -53,6 +53,9 @@ import {
   isSchedulable,
   snapshotOf,
   withAlwaysOnKnowledge,
+  KNOWN_SKILL_AGENTS,
+  METADATA_AGENTS,
+  METADATA_EXECUTION,
   type CreateSkillInput,
   type CreateSkillScheduleInput,
   type PatchSkillInput,
@@ -611,11 +614,17 @@ export async function resolveSkillsForAgent(
   const rows = await repository.listSkillsInOrg(organizationId)
   const byName = new Map<string, { name: string; description: string; body: string; metadata: Record<string, string>; origin: SkillOrigin | 'platform' }>()
   for (const platform of listPlatformSkills()) {
+    // Platform metadata rides along VERBATIM. Sending `{}` here dropped the
+    // reserved `grid-*` keys, and because the backend resolver merges this
+    // payload OVER its own filesystem copy, the shipped
+    // `grid-execution: deep-research` targeting was erased on arrival — the
+    // chat agent was then offered writer/sandbox skills it cannot execute.
+    if (agent && !skillTargetsAgent(platform.metadata, agent)) continue
     byName.set(platform.name, {
       name: platform.name,
       description: platform.description,
       body: platform.body,
-      metadata: {},
+      metadata: { ...platform.metadata },
       origin: 'platform',
     })
   }
@@ -633,11 +642,39 @@ export async function resolveSkillsForAgent(
   return { skills: [...byName.values()] }
 }
 
-/** `grid-agents` is a comma-separated allowlist; absent = all agents. */
+/**
+ * Whether a skill applies to `agent` — the mirror of the backend resolver's
+ * `_skill_applies_to_agent` (`src/aiq_agent/skills/resolver.py`).
+ *
+ * Two independent gates, both from reserved frontmatter metadata:
+ *
+ *  - `grid-agents`: a comma-separated allowlist; absent = every agent. Names
+ *    that match no known agent are ignored rather than obeyed, so a typo
+ *    cannot silently delete a skill from every agent at once.
+ *  - `grid-execution`: `chat` skills reach the shallow/chat researcher,
+ *    `deep-research` skills reach the deep researcher. A skill written for one
+ *    runtime is not merely unhelpful in the other — a deep-research skill's
+ *    instructions call `execute` and write `/shared/`, neither of which exists
+ *    in a chat turn.
+ *
+ * Kept deliberately close to the Python in shape as well as behaviour: the two
+ * are a contract pair, and `service.spec.ts` pins them against the same cases.
+ */
 function skillTargetsAgent(metadata: Record<string, string>, agent: string): boolean {
-  const raw = metadata['grid-agents']
-  if (!raw) return true
-  return raw.split(',').map((part) => part.trim()).includes(agent)
+  const raw = metadata[METADATA_AGENTS]
+  if (raw) {
+    const listed = raw
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+    const known = listed.filter((name) => (KNOWN_SKILL_AGENTS as readonly string[]).includes(name))
+    if (known.length > 0 && !known.includes(agent)) return false
+  }
+
+  const execution = metadata[METADATA_EXECUTION]
+  if (execution === 'chat') return agent === 'shallow_researcher'
+  if (execution === 'deep-research') return agent === 'deep_researcher'
+  return true
 }
 
 // ---------------------------------------------------------------------------

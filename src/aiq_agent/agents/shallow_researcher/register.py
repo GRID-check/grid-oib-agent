@@ -108,12 +108,19 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             # Agent skills: resolved per RUN (ADR-0018 — never cached on the
             # shared agent instance), builtin + org set from the resolver, then
             # narrowed by the config allowlist. The runtime's `use_skill` tool
-            # is folded into the tool set ONLY on research turns
+            # is folded into the tool set on research turns
             # (requires_sources=True): meta/conversational turns keep their
             # interaction-only binding — a greeting cannot load a skill.
+            #
+            # A turn the user EXPLICITLY invoked a skill on (`/name` in the
+            # composer, arriving as `force_skills`) is wired regardless of that
+            # classification. The classifier decides whether an unprompted turn
+            # needs sources; it does not get to overrule a direct instruction,
+            # and dropping the tool there made `/name` a silent no-op on exactly
+            # the short, imperative messages people type after a slash command.
             skill_runtime = None
             run_tools = selected_tools
-            if config.skills_enabled and state.requires_sources:
+            if config.skills_enabled and (state.requires_sources or state.force_skills):
                 from aiq_agent.project_context import get_organization_id_from_context
                 from aiq_agent.skills import SkillResolver
                 from aiq_agent.skills import SkillRuntime

@@ -19,7 +19,6 @@ import { isValidCronExpression, isValidTimezone } from './schedule'
 
 export const MAX_SKILL_NAME_LENGTH = 64
 export const MAX_SKILL_DESCRIPTION_LENGTH = 1024
-export const MAX_SKILL_COMPATIBILITY_LENGTH = 500
 export const MAX_SKILL_BODY_LENGTH = 32000
 export const MAX_SKILL_SCHEDULE_NAME_LENGTH = 200
 export const MAX_DATA_SOURCES = 50
@@ -51,6 +50,17 @@ export const METADATA_SCHEDULABLE = 'grid-schedulable'
  * selection, never by schedule writes.
  */
 export const METADATA_AGENTS = 'grid-agents'
+
+/**
+ * The agents a skill may name in `grid-agents`.
+ *
+ * These are the backend `AGENT_REGISTRY` identifiers — the same strings a
+ * schedule's `agent_type`, the job-submit path and the Python resolver's
+ * `KNOWN_AGENTS` use, so the feature carries ONE agent vocabulary end to end
+ * rather than one per layer.
+ */
+export const KNOWN_SKILL_AGENTS = ['shallow_researcher', 'deep_researcher'] as const
+export type KnownSkillAgent = (typeof KNOWN_SKILL_AGENTS)[number]
 
 /** The execution a skill's metadata demands, deterministically. */
 export function executionOf(metadata: Record<string, string>): SkillExecution {
@@ -85,7 +95,11 @@ export function isSchedulable(metadata: Record<string, string>): boolean {
  */
 export function withAlwaysOnKnowledge(dataSources: string[] | null): string[] | null {
   if (dataSources === null) return null
-  if (dataSources.includes(KNOWLEDGE_SOURCE_ID)) return dataSources
+  // A COPY in both branches. Returning the caller's own array when the source
+  // was already present made the result alias its input, so a later push on
+  // either one silently mutated the other — the one path where this is applied
+  // to a stored row's `dataSources` would then edit the row object in place.
+  if (dataSources.includes(KNOWLEDGE_SOURCE_ID)) return [...dataSources]
   return [KNOWLEDGE_SOURCE_ID, ...dataSources]
 }
 
@@ -112,8 +126,23 @@ export function snapshotOf(skill: SkillSnapshot): SkillSnapshot {
 // Skill schemas
 // ---------------------------------------------------------------------------
 
-/** agentskills.io name rule: lowercase alphanumerics + single internal hyphens. */
+/** Agent Skills name rule: lowercase alphanumerics + single internal hyphens. */
 export const NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
+
+/**
+ * Words the Agent Skills spec reserves: a skill may not be named after the
+ * vendor or the model. Matched as a case-insensitive substring, which is how
+ * the spec states it ("must not contain").
+ */
+export const RESERVED_NAME_WORDS = ['anthropic', 'claude'] as const
+
+/**
+ * Anything shaped like an XML/HTML tag. The spec forbids tags in `name` and
+ * `description` because both are interpolated into an agent's system prompt,
+ * where a stray tag can close a structural element the harness opened and let
+ * skill text escape into a position it was never meant to occupy.
+ */
+export const XML_TAG_PATTERN = /<[^>]+>/
 
 export const skillNameSchema = z
   .string()
@@ -124,6 +153,11 @@ export const skillNameSchema = z
     NAME_PATTERN,
     'Skill names must be lowercase a-z/0-9 separated by single hyphens (no leading, trailing or consecutive hyphens).'
   )
+  .refine(
+    (name) => !RESERVED_NAME_WORDS.some((word) => name.toLowerCase().includes(word)),
+    `Skill names must not contain the reserved words ${RESERVED_NAME_WORDS.join(' or ')}.`
+  )
+  .refine((name) => !XML_TAG_PATTERN.test(name), 'Skill names must not contain XML tags.')
 
 const descriptionSchema = z
   .string()
@@ -132,6 +166,10 @@ const descriptionSchema = z
   .max(
     MAX_SKILL_DESCRIPTION_LENGTH,
     `Skill descriptions are at most ${MAX_SKILL_DESCRIPTION_LENGTH} characters.`
+  )
+  .refine(
+    (description) => !XML_TAG_PATTERN.test(description),
+    'Skill descriptions must not contain XML tags.'
   )
 
 const bodySchema = z

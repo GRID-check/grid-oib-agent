@@ -56,29 +56,65 @@ function parseFrontmatter(raw, file) {
   if (lines[0] !== '---') {
     throw new Error('missing frontmatter in ' + file)
   }
+  // Indentation is the whole grammar here. A top-level key sits at column 0; the
+  // lines BELOW it that are indented belong to it (a `>` block scalar's text, or
+  // a nested mapping's entries). The previous version had no notion of this and
+  // simply appended every line after `description:` until a blank one, so adding
+  // any second top-level key — `metadata:` — silently swallowed that key and its
+  // whole block into the description string.
   let name = null
-  let nameSeen = false
   let description = null
+  let metadata = null
   let contentStart = null
+  let current = null // which top-level key the indented lines belong to
+
+  const isIndented = (line) => /^\s+\S/.test(line)
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i]
     if (line === '---') {
       contentStart = i + 1
       break
     }
-    if (line.startsWith('name:')) {
-      name = line.slice('name:'.length).trim()
-      nameSeen = true
-    } else if (line.startsWith('description:')) {
-      // Accept both 'description: >' and a plain scalar on the next lines.
-      description = []
-    } else if (description !== null) {
+    if (isIndented(line)) {
       const text = line.trim()
-      if (text === '') break
-      description.push(text)
+      if (text === '' || text.startsWith('#')) continue
+      if (current === 'description') {
+        description.push(text)
+      } else if (current === 'metadata') {
+        const separator = text.indexOf(':')
+        if (separator <= 0) {
+          throw new Error('malformed metadata entry ' + JSON.stringify(text) + ' in ' + file)
+        }
+        const key = text.slice(0, separator).trim()
+        // Values may be quoted (`grid-schedulable: "false"`); unwrap one layer.
+        const value = text
+          .slice(separator + 1)
+          .trim()
+          .replace(/^(['"])(.*)\1$/, '$2')
+        metadata[key] = value
+      }
+      continue
+    }
+    if (line.trim() === '' || line.trimStart().startsWith('#')) continue
+
+    const separator = line.indexOf(':')
+    if (separator <= 0) {
+      throw new Error('malformed frontmatter line ' + JSON.stringify(line) + ' in ' + file)
+    }
+    const key = line.slice(0, separator).trim()
+    const inline = line.slice(separator + 1).trim()
+    current = key
+    if (key === 'name') {
+      name = inline
+    } else if (key === 'description') {
+      // `description: >` (block scalar) or `description: text` on one line.
+      description = inline === '' || inline === '>' || inline === '|' ? [] : [inline]
+    } else if (key === 'metadata') {
+      metadata = {}
     }
   }
-  if (!nameSeen || name === null || name === '') {
+  if (name === null || name === '') {
     throw new Error('missing name in frontmatter of ' + file)
   }
   if (description === null || description.length === 0) {
@@ -91,6 +127,7 @@ function parseFrontmatter(raw, file) {
   return {
     name: name,
     description: description.join(' '),
+    metadata: metadata ?? {},
     body: body,
   }
 }
@@ -101,6 +138,7 @@ const rows = skills
     return {
       name: parsed.name,
       description: parsed.description,
+      metadata: parsed.metadata,
       body: parsed.body,
       collection: collection,
     }
@@ -132,6 +170,8 @@ const header = [
   'export type PlatformSkill = {',
   '  name: string',
   '  description: string',
+  '  /** Frontmatter `metadata` verbatim — carries the reserved `grid-*` keys. */',
+  '  metadata: Record<string, string>',
   '  body: string',
   '  collection: PlatformSkillCollection',
   '}',
@@ -145,6 +185,7 @@ const rowLines = rows
       '  {',
       "    name: '" + s.name + "',",
       '    description: ' + JSON.stringify(s.description) + ',',
+      '    metadata: ' + JSON.stringify(s.metadata) + ',',
       '    body: ' + JSON.stringify(s.body) + ',',
       "    collection: '" + s.collection + "',",
       '  },',

@@ -2,6 +2,14 @@
 name: data-table-analysis
 description: >
   Use this skill for converting researched facts or user-provided data into structured tables by writing code, then running Python/pandas calculations in the job-scoped sandbox. This skill is for numeric normalization, tabular analysis, rankings, growth rates, summary statistics, CSV/JSON generation, and markdown tables. Triggers: "compute table", "calculate growth", "normalize values", "extract figures", "rank companies", "QoQ", "YoY", "CAGR", "summary statistics", "CSV", "JSON", "markdown table", "standardize quarters", "standardize currencies", "compare over time". Outputs: Markdown tables, CSV text, JSON records, summary statistics, rankings, and data-quality notes.
+metadata:
+  # These are DeepAgents subagent skills: their instructions call `execute`,
+  # read and write `/shared/`, and return `ResearchNotes` — capabilities that
+  # exist only inside a deep-research job. Declaring the target here keeps the
+  # shallow chat agent from being offered a skill it cannot carry out.
+  grid-execution: deep-research
+  grid-agents: deep_researcher
+  grid-schedulable: "false"
 ---
 
 # Data Table Analysis Skill

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Guard: a static `@utility` can never take a slash-opacity modifier.
  *

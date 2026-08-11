@@ -2,6 +2,14 @@
 name: lightweight-calculation
 description: >
   Use this skill for small deterministic calculations during research when pandas/table analysis is unnecessary. Triggers: "calculate", "arithmetic", "unit conversion", "percentage point", "expected value", "weighted average", "range", "ratio", "sanity check", "implied value", "probability conversion". Outputs: concise calculation notes, JSON snippets, or Markdown bullets returned in your ResearchNotes for later synthesis.
+metadata:
+  # These are DeepAgents subagent skills: their instructions call `execute`,
+  # read and write `/shared/`, and return `ResearchNotes` — capabilities that
+  # exist only inside a deep-research job. Declaring the target here keeps the
+  # shallow chat agent from being offered a skill it cannot carry out.
+  grid-execution: deep-research
+  grid-agents: deep_researcher
+  grid-schedulable: "false"
 ---
 
 # Lightweight Calculation Skill

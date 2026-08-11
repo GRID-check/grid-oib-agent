@@ -2,6 +2,14 @@
 name: long-form-report-writer
 description: >
   Use this skill when the final answer strategy calls for a long-form report, publication-quality research writeup, comprehensive analysis, deep dive, whitepaper-style narrative, or detailed cited Markdown report. Triggers: "long_form_report", "long-form report", "comprehensive report", "publication-ready", "deep dive", "in-depth analysis", "whitepaper", "research report", "detailed report", "full report". Outputs: A polished, cited Markdown report with coherent structure, analytical depth, source-grounded claims, limitations, and a sources section.
+metadata:
+  # These are DeepAgents subagent skills: their instructions call `execute`,
+  # read and write `/shared/`, and return `ResearchNotes` — capabilities that
+  # exist only inside a deep-research job. Declaring the target here keeps the
+  # shallow chat agent from being offered a skill it cannot carry out.
+  grid-execution: deep-research
+  grid-agents: deep_researcher
+  grid-schedulable: "false"
 ---
 
 # Long-Form Report Writer Skill
