@@ -2080,3 +2080,55 @@ class TestKnowledgeInventoryIsNotCitable:
         ):
             source = self._prompt(path)
             assert "Uploaded Documents" not in source, path
+
+
+class TestTheModelCardsAreActuallyAskedFor:
+    """The five IFC cards had renderers, generated types and a dev harness — and
+    no prompt anywhere told the agent to emit one.
+
+    Grepping `ifc` across every `.j2` in `src/aiq_agent` returned zero hits, so
+    the whole set was reachable only if the model picked it unprompted out of
+    the `emit_card` catalog. Meanwhile the `ifc_query` description pushed the
+    competing mechanism ("whenever a row comes back with a Link:, LINK the
+    element"), so the realistic outcome for a model question was prose. The
+    building was uploaded to be looked at; this is what makes that happen.
+    """
+
+    def _render(self):
+        from pathlib import Path
+
+        from aiq_agent.agents.shallow_researcher import agent as shallow_agent
+        from aiq_agent.common import load_prompt
+        from aiq_agent.common import render_prompt_template
+
+        prompt = load_prompt(Path(shallow_agent.__file__).parent / "prompts", "researcher")
+        return render_prompt_template(
+            prompt,
+            tools=[{"name": "ifc_query"}, {"name": "emit_card"}],
+            user_info={"name": "Alex", "email": "a@example.com"},
+            current_datetime="2026-07-23",
+            available_documents=[],
+            project_context=None,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=True,
+        )
+
+    def test_every_model_backed_card_is_named(self):
+        from aiq_agent.cards.catalog import MODEL_BACKED_CARD_TYPES
+
+        rendered = self._render()
+        for card_type in MODEL_BACKED_CARD_TYPES:
+            assert card_type in rendered, card_type
+
+    def test_it_says_where_the_ids_must_come_from(self):
+        # The one rule that keeps this from making things worse. An invented
+        # GlobalId renders as an unresolved element, which tells the user their
+        # model is broken when it is not.
+        rendered = self._render()
+        assert "THIS turn" in rendered
+
+    def test_the_card_does_not_replace_the_written_answer(self):
+        rendered = self._render()
+        assert "always write the prose reply too" in rendered

@@ -111,6 +111,31 @@ sanctioned path, carrying **real** data:
   *citing* a document and *surfacing* it for the user to open. See
   [ADR-0026](../adr/) for the source-kind doctrine the provenance chips follow.
 
+**Model-backed cards** (`MODEL_BACKED_CARD_TYPES` in `cards/catalog.py`) —
+`ifc_viewer`, `ifc_element`, `ifc_compliance`, `ifc_schedule`, `ifc_diff` — are
+a second, softer restriction, and they cut the other way: the model *may* emit
+them, but only on the surface that can supply their contents. Every field that
+identifies something in them is an IFC GlobalId, a rule id or a model file name,
+all of which have to be **copied from an `ifc_query` row in the same turn**.
+
+- `emit_card` advertises them in full. Its caller has the tool rows in context.
+- **Post-hoc generation does not.** `cards/generate.py` is handed only the
+  question and the finished answer TEXT, so the only ids available there are
+  whatever survived into the prose — the rest would be invented, and an
+  unresolvable GlobalId renders as a missing element, telling the user their
+  model is broken when it is not. `build_card_generation_prompt()` therefore
+  calls `render_card_catalog(include_model_backed=False)`, which withholds both
+  the shapes *and* the worked examples.
+
+Emitting one is not optional politeness: the shallow researcher's `<cards>`
+block asks for the matching card by default on any answer that came from
+`ifc_query`, and the tool description names which card goes with which
+operation. Before that existed, all five renderers were reachable only if the
+model happened to pick one unprompted out of the catalog — and the `ifc_query`
+description actively steered it the other way, toward markdown element links.
+The result was that a question about a 150 MB building was answered with three
+lines of prose.
+
 ## How cards render
 
 The frontend validates the wire cards (`validateGridCards`) and renders them
@@ -262,7 +287,11 @@ backend-free `document_grid` surfacing card. Both are captured by the screenshot
 harness (`npm run screenshots`, see `docs/ux/visual-screenshots.md`).
 For a system card emitted by a tool (`document_grid`), that tool must be added to
 the agent's `tools:` list in the config (e.g. `shallow_research_agent`) and its
-`_type` registered — see `surface_documents` in `configs/config_oib_openrouter.yml`. Next phases: a 3D massing card
+`_type` registered — see `surface_documents` in `configs/config_oib_openrouter.yml`.
+If the new card's contents must be **copied from a tool result** rather than
+written from the answer, add its type to `MODEL_BACKED_CARD_TYPES` as well, and
+say in a prompt when to emit it — a renderer nobody is asked for is a renderer
+nobody sees. Next phases: a 3D massing card
 (three.js/R3F) and the IFC/BIM viewer (`docs/roadmap/ifc-viewer-card-spec.md`).
 
 ## Known rough edges
@@ -274,5 +303,12 @@ the agent's `tools:` list in the config (e.g. `shallow_research_agent`) and its
 - Async deep-research answers carry cards (generated post-hoc from the final
   report in the job runner); synchronous inline deep research (no Dask) does
   not yet.
+- **An async deep-research answer therefore carries no model card**, because
+  post-hoc generation is not shown the IFC types (above) and the deep
+  researcher's own prompts have no `<cards>` block at all — it holds `emit_card`
+  with nothing but the tool description to go on. A deep answer about the
+  building comes back as prose with element links. Closing this means giving
+  the deep researcher the same `<cards>` guidance the shallow one now has, not
+  relaxing the post-hoc restriction, which would only license invented ids.
 - A silent card-generation failure is currently indistinguishable from "no cards";
   emission should surface failures.

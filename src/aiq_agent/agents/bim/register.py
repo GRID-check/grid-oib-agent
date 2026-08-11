@@ -132,6 +132,26 @@ _TOOL_DESCRIPTION = (
     "model with that element selected and highlighted, which is the difference between telling "
     "someone about a wall and showing it to them. Copy the path verbatim — never invent one.\n"
     "\n"
+    "SHOW THE BUILDING, do not only describe it. A link names one element inside a sentence; a "
+    "card puts the model itself in the answer. After a model query, emit the matching card with "
+    "`emit_card` IN ADDITION to your prose — this is the whole reason the building was uploaded:\n"
+    "  • a set of elements the user would want to SEE (all external walls in the Erdgeschoss, "
+    "the doors under 80 cm, the walls a requirement fails on) → `ifc_viewer`, with one highlight "
+    "group per meaning and the GlobalIds from the 'elements' rows. Set 'storey' to isolate a "
+    "single Geschoss.\n"
+    "  • a compliance run → `ifc_compliance`, listing the ids from the 'Regel <id>:' lines "
+    "above. Those are the only valid rule ids; never invent one.\n"
+    "  • one element the answer is really about → `ifc_element` with its GlobalId.\n"
+    "  • a Raumbuch / Flächenaufstellung ('schedule') → `ifc_schedule`.\n"
+    "  • a revision comparison ('compare' / 'compliance-diff') → `ifc_diff`.\n"
+    "Every id in a card must come from a row this tool returned in THIS turn. A card is an "
+    "addition to the written answer, never a replacement for it.\n"
+    "\n"
+    "'aggregate' answers HOW MANY and returns no ids, so it cannot be shown on its own. When the "
+    "count is of something worth looking at, call 'elements' with the SAME filters and emit an "
+    "`ifc_viewer` card from those rows — report the aggregate's number as the count, not the "
+    "length of the element list, which is capped.\n"
+    "\n"
     "When a compliance result comes back with a 'BCF-Export der offenen Punkte:' path, OFFER it as "
     "a link at the end of the answer — [offene Punkte als BCF](/api/projects/…/bim/checks/export?…) "
     "using that exact path. It downloads the open requirements as a BCF 2.1 file that opens in "
@@ -407,6 +427,22 @@ def _render(
             rules = ", ".join(entry.get("rules") or [])
             lines.append(f"- fehlt: {entry.get('path')} an {entry.get('elements')} Bauteilen (entscheidet: {rules})")
         for rule in (result.get("compliance") or [])[:40]:
+            # The rule id, printed for every rule that left work behind.
+            #
+            # `ifc_compliance` asks for "rule ids from ifc_query
+            # operation='compliance'" and this renderer never printed one
+            # except inside the shopping list's `entscheidet:` clause — which
+            # only covers rules with a MISSING property. For a rule that
+            # cleanly fails, the agent had no valid id to put in the card, so
+            # it either invented one (rendered as unresolved) or sent none.
+            rule_id = rule.get("ruleId")
+            failed = int(rule.get("failed") or 0)
+            undecidable = int(rule.get("undecidable") or 0)
+            if rule_id and (failed or undecidable):
+                lines.append(
+                    f"- Regel {rule_id}: {rule.get('titleDe')} — {failed} nicht erfüllt, "
+                    f"{undecidable} nicht entscheidbar"
+                )
             for verdict in (rule.get("failures") or [])[:10]:
                 link = _element_link(project_id, filename, verdict.get("globalId"))
                 suffix = f" · Link: {link}" if link else ""

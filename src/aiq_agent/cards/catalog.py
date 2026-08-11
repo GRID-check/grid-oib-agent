@@ -46,6 +46,21 @@ SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid"})
 # prefer a presentational card — there is then nothing to remember.
 INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
 
+# Card types whose fields must be COPIED from a tool result and cannot be
+# derived from prose: every one of them is addressed by IFC GlobalId, rule id
+# or file name, and an id that was not returned by ``ifc_query`` in the same
+# turn does not identify anything.
+#
+# They stay in the catalog for the ``emit_card`` tool, whose caller has the tool
+# rows in context. They are withheld from POST-HOC generation
+# (:func:`aiq_agent.cards.prompt.build_card_generation_prompt`), which sees only
+# the question and the finished answer text — no tool output at all. From that
+# context the only ids available are whatever survived into the prose, so a
+# model card generated there is built from leftovers or invented outright, and
+# an unresolvable GlobalId renders as a missing element, which tells the user
+# their model is broken when it is not.
+MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_compliance", "ifc_schedule", "ifc_diff"})
+
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
@@ -343,22 +358,32 @@ def shape_hint_for(card_type: str) -> str | None:
     return None
 
 
-def render_card_catalog() -> str:
+def render_card_catalog(*, include_model_backed: bool = True) -> str:
     """The shared catalog body: building blocks, per-card shapes, worked examples.
 
     Framing-free — callers wrap it in tool-call or batch instructions. This is
     the single source both card surfaces render from, so a new card type is
     documented identically to the model on both paths.
+
+    Args:
+        include_model_backed: Whether to advertise the cards in
+            :data:`MODEL_BACKED_CARD_TYPES`. The ``emit_card`` tool leaves this
+            on — its caller has the ``ifc_query`` rows in context. Post-hoc
+            generation turns it off, because it has no tool output to copy ids
+            from and would have to invent them.
     """
     from aiq_agent.cards.models import GridCard
+
+    withheld = SYSTEM_CARD_TYPES if include_model_backed else SYSTEM_CARD_TYPES | MODEL_BACKED_CARD_TYPES
 
     nested: list[type] = []
     card_lines: list[str] = []
     for card_cls in GridCard.__args__:
         type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
         # System cards are emitted by tools on sanctioned paths, never by the
-        # model — omit them so the model can't fabricate them.
-        if type_value in SYSTEM_CARD_TYPES:
+        # model — omit them so the model can't fabricate them. Model-backed
+        # cards are omitted on the path that cannot supply their ids.
+        if type_value in withheld:
             continue
         doc = (card_cls.__doc__ or "").strip().split("\n")[0]
         shape = _card_shape(card_cls, nested)
@@ -378,9 +403,13 @@ def render_card_catalog() -> str:
         seen.add(model_cls)
         block_lines.append(f"  {model_cls.__name__} = {_shape(model_cls, nested, with_desc=True)}")
 
+    # An example is a card description too: leaving a worked `ifc_viewer` in
+    # place would advertise the exact shape of a card the surrounding text just
+    # withheld, which is the one thing more misleading than either alone.
     examples = "\n".join(
         f"  {type_value}:\n    {json.dumps(payload, ensure_ascii=False)}"
         for type_value, payload in CARD_EXAMPLES.items()
+        if type_value not in withheld
     )
 
     # Interactive cards ASK THE USER TO AUTHORIZE A REAL WRITE, so they cost the

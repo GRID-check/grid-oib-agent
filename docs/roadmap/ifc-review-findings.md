@@ -97,6 +97,28 @@ still green.
 - `model-service.ts` — exact-match-before-substring ordering in model name
   resolution is untested.
 
+## Open — the chat surface
+
+- **The deep researcher is never asked for a model card.** Its prompts have no
+  `<cards>` block, and the async path generates cards post-hoc from the answer
+  text, which is deliberately not shown the IFC card types (it has no tool rows
+  to copy ids from). So a deep answer about the building is prose with element
+  links. Fix by giving `deep_researcher/prompts/` the same guidance the shallow
+  researcher now carries — not by relaxing the post-hoc restriction.
+- **`ifc_viewer` carries a list of ids, so it cannot show a whole set.** A
+  question about 420 external walls can only highlight the ids that fit in the
+  answer's context. The card already resolves highlights client-side against an
+  element index it fetches itself, so the right shape is a FILTER on the card
+  (`ifcTypes`, `storey`, a property predicate) evaluated in the browser —
+  exact, complete, and costing the LLM nothing.
+- **No camera in a viewer card.** `buildModelHref` encodes and parses one
+  (`model-link.ts:67`), and `ifc-viewer-card-spec.md:54` specifies it, but the
+  card model has no field and the renderer never sets one. The user lands on a
+  whole-building view with the highlights somewhere inside it.
+- **Agent deep links are always `hl=info:`** (`register.py:178`), so a failing
+  element and a neutral selection highlight the same colour even though
+  `pass|fail|warning|info` are all wired.
+
 ## Open — product
 
 - **Not one of the eight viewport screenshots shows rendered geometry.** They
