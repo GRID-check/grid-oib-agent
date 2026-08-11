@@ -503,7 +503,9 @@ describe('ModelStage — recovering from a failure', () => {
     state.sourceError = 'load-failed'
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
 
-    expect(screen.getByText('The 3D view could not be loaded')).toBeInTheDocument()
+    // Twice on purpose: once in the notice, once in the live region that
+    // announces it. `getAllByText` rather than `getByText` says so.
+    expect(screen.getAllByText('The 3D view could not be loaded')).toHaveLength(2)
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(sourceReload).toHaveBeenCalled()
   })
@@ -517,5 +519,35 @@ describe('ModelStage — recovering from a failure', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(sourceReload).toHaveBeenCalled()
+  })
+})
+
+/**
+ * What the viewport says out loud.
+ *
+ * Nielsen's first heuristic, and there was not one live region in this whole
+ * feature — a forty-second load, its arrival, a renderer that died and two
+ * transient confirmations were all carried by pixels alone. The confirmations
+ * were the worst of it: a swapped icon and a changed accessible name, neither
+ * of which any assistive technology announces.
+ */
+describe('ModelStage — the status a screen reader hears', () => {
+  const announcement = () => screen.getByRole('status').textContent
+
+  it('says when the building has arrived', () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(announcement()).toBe('The model is on screen')
+  })
+
+  it('says a load is still running rather than staying silent', () => {
+    canvasStatus = { phase: 'parsing', percent: null, meshCount: 3 }
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(announcement()).toBe('Putting the building together…')
+  })
+
+  it('reports a failure over any progress', () => {
+    canvasStatus = { phase: 'error', percent: null, meshCount: 0, message: 'device lost' }
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(announcement()).toBe('The 3D view could not be loaded')
   })
 })

@@ -301,6 +301,7 @@ export const bim: typeof en.bim = {
     notReady: 'Das Modell wird noch gelesen. Das dauert meist nur einen Moment.',
     loading: 'Modell wird geladen…',
     building: 'Gebäude wird aufgebaut…',
+    ready: 'Das Modell ist da',
     rail: {
       show: 'Leiste einblenden',
       hide: 'Leiste ausblenden',
@@ -317,6 +318,8 @@ export const bim: typeof en.bim = {
   },
   viewer: {
     canvasLabel: '3D-Ansicht des IFC-Modells',
+    keyboardHint:
+      'Pfeiltasten drehen, Umschalt mit Pfeiltaste verschiebt, Plus und Minus zoomen, F passt das Modell ein. Beim Messen setzt Eingabe einen Punkt, Esc bricht ab. Alle Bauteile stehen zusätzlich als Liste unter „Details“.',
     title: '3D-Ansicht',
     xray: 'Durchsichtig',
     view: {

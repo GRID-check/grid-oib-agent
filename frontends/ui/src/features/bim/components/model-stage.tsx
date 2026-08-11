@@ -344,6 +344,26 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   /** Whether the rail has anything in it — see the toggle in the dock. */
   const railHasContent = (models ?? []).length > 1 || levels.length > 0
 
+  /**
+   * What the viewport would tell someone who cannot see it.
+   *
+   * Ordered by urgency, most urgent first: a failure outranks a confirmation,
+   * a confirmation outranks progress. Empty while nothing has happened, so
+   * the region does not announce on mount.
+   */
+  const stageAnnouncement = useMemo(() => {
+    if (error) return t('loadFailed.title')
+    if (source.error) return t('viewer.unavailable.title')
+    if (viewport.status.phase === 'error') return t('viewer.unavailable.title')
+    if (captureFailed) return t('viewer.capture.failed')
+    if (copyFailed) return t('link.failed')
+    if (copied) return t('link.copied')
+    if (viewport.status.phase === 'parsing') return t('stage.building')
+    if (viewport.status.phase === 'downloading') return t('stage.loading')
+    if (viewport.status.phase === 'ready') return t('stage.ready')
+    return ''
+  }, [error, source.error, viewport.status.phase, captureFailed, copyFailed, copied, t])
+
   const section = viewport.section
   const cutDefault = viewport.defaultCut(levelElevation(model?.summary, storey))
 
@@ -400,6 +420,23 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         </DialogTitle>
 
         <div className="bg-muted/40 relative min-h-0 flex-1">
+          {/*
+            The one thing the viewport says out loud.
+
+            Nothing in this feature was a live region — verified by grep — so
+            a forty-second load, its arrival, a renderer that died, a copied
+            link and a capture that failed were all silent. A screen-reader
+            user could not tell a slow load from a failed one, and the two
+            transient confirmations were carried ONLY by a swapped icon and a
+            changed button name, neither of which any AT announces.
+
+            One node rather than several, `polite` rather than `assertive`:
+            these are reports, not interruptions, and a viewport that
+            interrupts on every phase change is worse than one that is quiet.
+          */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {stageAnnouncement}
+          </p>
           <StageCanvas
             isLoading={isLoading}
             error={error}

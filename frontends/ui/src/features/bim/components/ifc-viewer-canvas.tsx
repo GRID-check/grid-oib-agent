@@ -61,7 +61,7 @@
  * viewport behaves exactly as it did when it was a single element.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 /**
  * The renderer, typed by the renderer.
  *
@@ -351,6 +351,7 @@ export function IfcViewerCanvas({
   className,
 }: IfcViewerCanvasProps): JSX.Element {
   const t = useTranslations('bim')
+  const keysId = useId()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlaySvgRef = useRef<SVGSVGElement | null>(null)
   const overlayLabelsRef = useRef<HTMLDivElement | null>(null)
@@ -1405,6 +1406,36 @@ export function IfcViewerCanvas({
         event.preventDefault()
         fitModel()
       }
+      /**
+       * Enter places a measurement point where the cursor last was.
+       *
+       * Measuring was pointer-only: the toggle is keyboard-reachable, so a
+       * keyboard user could switch on a tool they then could not use. The
+       * crosshair already tracks a snapped point on every pointer move, and
+       * the arrow keys already orbit — so Enter closes the loop without a
+       * second input model.
+       */
+      if ((event.key === 'Enter' || event.key === ' ') && measuringRef.current) {
+        event.preventDefault()
+        const cursor = cursorRef.current
+        if (cursor) {
+          const pending = anchorRef.current
+          if (!pending) {
+            anchorRef.current = cursor
+            onMeasurePendingRef.current?.(true)
+          } else {
+            const measurement = completeMeasurement(pending, cursor)
+            if (measurement) {
+              anchorRef.current = null
+              onMeasurePendingRef.current?.(false)
+              onMeasureRef.current?.(measurement)
+            }
+          }
+          overlayRef.current?.setPending(anchorRef.current, cursor)
+          requestFrame()
+        }
+        return
+      }
       // Escape drops a half-placed measurement before it reaches the dialog,
       // which would otherwise close the whole model over one stray click.
       if (event.key === 'Escape' && measuringRef.current && anchorRef.current) {
@@ -1480,7 +1511,16 @@ export function IfcViewerCanvas({
         // English screen reader cannot read.
         role="img"
         aria-label={t('viewer.canvasLabel')}
+        // `role="img"` tells assistive technology this is a graphic, so the
+        // whole arrow/shift/+/-/F scheme below was undiscoverable: a focusable
+        // picture with no hint that it can be driven at all. The description
+        // is the only place those keys are written down for a reader who
+        // cannot see the building move.
+        aria-describedby={keysId}
       />
+      <p id={keysId} className="sr-only">
+        {t('viewer.keyboardHint')}
+      </p>
       <svg
         ref={overlaySvgRef}
         className="pointer-events-none absolute inset-0 size-full overflow-visible"

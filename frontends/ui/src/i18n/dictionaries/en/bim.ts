@@ -306,6 +306,7 @@ export const bim = {
     notReady: 'The model is still being read. This usually takes a few moments.',
     loading: 'Loading model…',
     building: 'Putting the building together…',
+    ready: 'The model is on screen',
     rail: {
       show: 'Show panel',
       hide: 'Hide panel',
@@ -322,6 +323,8 @@ export const bim = {
   },
   viewer: {
     canvasLabel: '3D view of the IFC model',
+    keyboardHint:
+      'Arrow keys orbit, Shift with an arrow pans, plus and minus zoom, F fits the model. While measuring, Enter places a point and Escape cancels. Every element is also listed as text under Details.',
     title: '3D view',
     xray: 'See through',
     view: {
