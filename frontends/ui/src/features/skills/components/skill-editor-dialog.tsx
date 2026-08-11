@@ -3,11 +3,17 @@
 /**
  * Org skill authoring dialog (org:skills:manage). Fields: name, description
  * and the instruction body in agentskills.io format, plus the three reserved
- * metadata controls the UI owns — execution mode (`grid-execution`, default
- * chat), the scheduling opt-out (`grid-schedulable=false`) and the preferred
- * output cards (`grid-cards`) — and the master enabled switch. Editing a clone
- * shows its source. Platform-builtin skills have no DB row and are never edited
- * here; they are cloned instead (see the toolbox).
+ * metadata controls the UI owns — where the skill applies (`grid-execution`,
+ * default chat), the scheduling opt-out (`grid-schedulable=false`) and the
+ * preferred output cards (`grid-cards`) — and the master enabled switch.
+ * Editing a clone shows its source. Platform-builtin skills have no DB row and
+ * are never edited here; they are cloned instead (see the toolbox).
+ *
+ * Laid out as one view rather than a wizard. The fields are few; what is not
+ * few is the number of things an author has to hold in mind at once — the
+ * document the fields produce, whether the description will actually be
+ * matched, and where the skill will exist. All three are live beside the
+ * fields, and a step-by-step flow could only show them after the fact.
  *
  * The server owns all final validation; this dialog only mirrors the write
  * boundary rules (name shape/lengths) for instant feedback and always sends a
@@ -18,7 +24,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
-import { useAppForm } from '@/components/form'
+import { FieldShell, useAppForm } from '@/components/form'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,17 +35,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
+import { cn } from '@/lib/utils'
 import {
   createSkill,
   deleteSkill,
@@ -53,12 +53,37 @@ import {
   parsePreferredCardTypes,
   searchCardCatalog,
 } from '../lib/card-catalog'
+import { renderSkillDocument, type ParsedSkillDocument } from '../lib/skill-document'
 import { ConfirmDeleteDialog } from './confirm-delete-dialog'
+import { MarkdownEditor, type MarkdownEditorLabels } from './MarkdownEditor'
+import { SkillRawDocumentSection } from './SkillRawDocumentSection'
 import { SkillDocumentPreview } from './SkillDocumentPreview'
 import { SkillReviewPanel } from './SkillReviewPanel'
 
 /** Rule names must satisfy server-side: lowercase a-z/0-9, single hyphens. */
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
+
+/**
+ * The description budget, mirrored from the write boundary.
+ *
+ * Shown as a live counter rather than only as a rejection: this one field is
+ * the entire basis on which an agent decides to load the skill, so an author
+ * writing it deserves to see how much room they still have while they write —
+ * not after the save bounces.
+ */
+const DESCRIPTION_MAX = 1024
+
+/** Everything except the three keys this dialog owns a control for. */
+function withoutReservedKeys(metadata: Record<string, string>): Record<string, string> {
+  const rest: Record<string, string> = {}
+  for (const key of Object.keys(metadata)) {
+    if (key === METADATA_EXECUTION || key === METADATA_SCHEDULABLE || key === METADATA_CARDS) {
+      continue
+    }
+    rest[key] = metadata[key]
+  }
+  return rest
+}
 
 /**
  * Reserved metadata keys the editor writes.
@@ -71,6 +96,9 @@ const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const METADATA_EXECUTION = 'grid-execution'
 const METADATA_SCHEDULABLE = 'grid-schedulable'
 const METADATA_CARDS = 'grid-cards'
+
+/** The two execution modes, in the order they are offered. */
+const EXECUTION_MODES = ['chat', 'deep-research'] as const
 
 interface SkillEditorDialogProps {
   open: boolean
@@ -107,6 +135,18 @@ export function SkillEditorDialog({
     isEdit ? parsePreferredCardTypes(skill.metadata[METADATA_CARDS]) : [],
   )
   const [cardQuery, setCardQuery] = useState('')
+  /**
+   * Metadata keys this UI has no control for (`grid-agents`, anything a future
+   * version adds), carried through a save untouched.
+   *
+   * Held in STATE rather than read off `skill` at build time so the raw
+   * document section can also remove one: a SKILL.md pasted without
+   * `grid-agents` means the author deleted it, and re-adding it from the
+   * original row would quietly overrule them.
+   */
+  const [extraMetadata, setExtraMetadata] = useState<Record<string, string>>(() =>
+    isEdit ? withoutReservedKeys(skill.metadata) : {},
+  )
 
   /**
    * The frontmatter `metadata` this dialog will write.
@@ -128,21 +168,8 @@ export function SkillEditorDialog({
     if (preferredCards.length > 0) {
       metadata[METADATA_CARDS] = formatPreferredCardTypes(preferredCards)
     }
-    // Preserve opaque keys (grid-agents etc.) when editing; the three reserved
-    // keys above are the only ones this UI ever writes.
-    if (isEdit) {
-      for (const key of Object.keys(skill.metadata)) {
-        if (
-          key !== METADATA_EXECUTION &&
-          key !== METADATA_SCHEDULABLE &&
-          key !== METADATA_CARDS
-        ) {
-          metadata[key] = skill.metadata[key]
-        }
-      }
-    }
-    return metadata
-  }, [execution, isEdit, preferredCards, schedulable, skill])
+    return { ...metadata, ...extraMetadata }
+  }, [execution, extraMetadata, preferredCards, schedulable])
   const [enabled, setEnabled] = useState(isEdit ? skill.enabled : true)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -227,6 +254,53 @@ export function SkillEditorDialog({
     },
   })
 
+  /**
+   * A whole SKILL.md, written back into the form.
+   *
+   * Every field the document can carry is replaced, including the ones it does
+   * NOT mention: a metadata key the author removed has to disappear, or the
+   * advanced section would be able to add settings but never take them away.
+   */
+  const applyDocument = useCallback(
+    (parsed: ParsedSkillDocument) => {
+      form.setFieldValue('name', parsed.name)
+      form.setFieldValue('description', parsed.description)
+      form.setFieldValue('body', parsed.body)
+      setExecution(
+        parsed.metadata[METADATA_EXECUTION] === 'deep-research' ? 'deep-research' : 'chat',
+      )
+      setSchedulable(parsed.metadata[METADATA_SCHEDULABLE] !== 'false')
+      setPreferredCards(parsePreferredCardTypes(parsed.metadata[METADATA_CARDS]))
+      setExtraMetadata(withoutReservedKeys(parsed.metadata))
+      toast.success(t('editor.raw.applied'))
+    },
+    [form, t],
+  )
+
+  /** Toolbar tooltips for the Markdown editor, in the UI language. */
+  const markdownLabels = useMemo<MarkdownEditorLabels>(
+    () => ({
+      h1: t('editor.markdown.h1'),
+      h2: t('editor.markdown.h2'),
+      h3: t('editor.markdown.h3'),
+      bold: t('editor.markdown.bold'),
+      italic: t('editor.markdown.italic'),
+      code: t('editor.markdown.code'),
+      codeBlock: t('editor.markdown.codeBlock'),
+      bulletList: t('editor.markdown.bulletList'),
+      numberedList: t('editor.markdown.numberedList'),
+      taskList: t('editor.markdown.taskList'),
+      link: t('editor.markdown.link'),
+      quote: t('editor.markdown.quote'),
+      table: t('editor.markdown.table'),
+      edit: t('editor.markdown.edit'),
+      split: t('editor.markdown.split'),
+      preview: t('editor.markdown.preview'),
+      fullscreen: t('editor.markdown.fullscreen'),
+    }),
+    [t],
+  )
+
   const confirmDelete = async () => {
     if (!skill) return
     setDeleting(true)
@@ -244,8 +318,15 @@ export function SkillEditorDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={(next) => !form.state.isSubmitting && onOpenChange(next)}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
+        {/* Wide on purpose. Writing a skill is writing a document: the body is
+            Markdown with headings and lists, and the settings around it only
+            make sense next to it. At `max-w-lg` the two were stacked in a
+            column narrower than the text it produced. The dialog is a flex
+            column so the header and the footer stay put while the middle
+            scrolls — a two-column form is tall enough that a footer scrolled
+            off the bottom is a footer nobody finds. */}
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+          <DialogHeader className="border-border shrink-0 border-b px-6 py-5 pr-14">
             <DialogTitle>{isEdit ? t('editor.editTitle') : t('editor.createTitle')}</DialogTitle>
             <DialogDescription>
               {isEdit ? t('editor.editSubtitle') : t('editor.createSubtitle')}
@@ -259,194 +340,291 @@ export function SkillEditorDialog({
               event.stopPropagation()
               void form.handleSubmit()
             }}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <form.AppField name="name">
-              {(field) => (
-                <field.TextField
-                  label={t('editor.nameLabel')}
-                  placeholder={t('editor.namePlaceholder')}
-                  required
-                  className="font-mono"
-                />
-              )}
-            </form.AppField>
-            <form.AppField name="description">
-              {(field) => (
-                <field.TextAreaField
-                  label={t('editor.descriptionLabel')}
-                  placeholder={t('editor.descriptionPlaceholder')}
-                  required
-                  rows={2}
-                />
-              )}
-            </form.AppField>
-            <form.AppField name="body">
-              {(field) => (
-                <field.TextAreaField
-                  label={t('editor.bodyLabel')}
-                  placeholder={t('editor.bodyPlaceholder')}
-                  required
-                  rows={12}
-                  className="font-mono"
-                />
-              )}
-            </form.AppField>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+              <div className="grid items-start gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+                {/* ---- the document being written ---- */}
+                <div className="flex min-w-0 flex-col gap-5">
+                  <form.AppField name="name">
+                    {(field) => (
+                      <field.TextField
+                        label={t('editor.nameLabel')}
+                        placeholder={t('editor.namePlaceholder')}
+                        description={t('editor.nameHint')}
+                        required
+                        className="font-mono"
+                      />
+                    )}
+                  </form.AppField>
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium">{t('editor.executionLabel')}</span>
-              <p className="text-xs text-muted-foreground">{t('editor.executionHint')}</p>
-              <Select
-                value={execution}
-                onValueChange={(value) => setExecution(value as 'chat' | 'deep-research')}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="chat">{t('toolbox.execution.chat')}</SelectItem>
-                  <SelectItem value="deep-research">{t('toolbox.execution.deepResearch')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                  {/* The description is not a caption. It is the ONLY thing an
+                      agent reads before deciding whether to load the skill, so
+                      the hint says so in those words and the budget it has to
+                      say it in is visible while it is being written. */}
+                  <form.AppField name="description">
+                    {(field) => (
+                      <div className="flex flex-col gap-1.5">
+                        <field.TextAreaField
+                          label={t('editor.descriptionLabel')}
+                          placeholder={t('editor.descriptionPlaceholder')}
+                          required
+                          rows={3}
+                        />
+                        <div className="flex items-start justify-between gap-4">
+                          <p className="text-muted-foreground text-xs leading-snug">
+                            {t('editor.descriptionHint')}
+                          </p>
+                          <span
+                            className={cn(
+                              'shrink-0 text-[11px] tabular-nums',
+                              (field.state.value ?? '').length > DESCRIPTION_MAX
+                                ? 'text-destructive'
+                                : 'text-muted-foreground',
+                            )}
+                          >
+                            {(field.state.value ?? '').length}/{DESCRIPTION_MAX}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </form.AppField>
 
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">{t('editor.schedulableLabel')}</span>
-                <p className="text-xs text-muted-foreground">{t('editor.schedulableHint')}</p>
+                  <form.AppField name="body">
+                    {(field) => {
+                      const errors = field.state.meta.isTouched
+                        ? (field.state.meta.errors as Array<string | { message: string } | undefined>)
+                        : []
+                      return (
+                        <FieldShell
+                          label={t('editor.bodyLabel')}
+                          description={t('editor.bodyHint')}
+                          required
+                          htmlFor="skill-body"
+                          errors={errors}
+                        >
+                          <MarkdownEditor
+                            id="skill-body"
+                            value={field.state.value ?? ''}
+                            onChange={field.handleChange}
+                            onBlur={field.handleBlur}
+                            placeholder={t('editor.bodyPlaceholder')}
+                            invalid={errors.length > 0}
+                            labels={markdownLabels}
+                          />
+                        </FieldShell>
+                      )
+                    }}
+                  </form.AppField>
+
+                  {/* The document these fields produce, and the reviewer's
+                      opinion of it — both directly under the body, at the
+                      width of the body, because both are about the text. */}
+                  <form.Subscribe selector={(state) => state.values}>
+                    {(values) => (
+                      <>
+                        <SkillDocumentPreview
+                          name={values.name}
+                          description={values.description}
+                          body={values.body}
+                          metadata={buildMetadata()}
+                        />
+                        {/* The same panel for everyone who can open this
+                            dialog — the author most likely to write a
+                            description that never matches anything is the one
+                            writing their first skill. */}
+                        <SkillReviewPanel
+                          name={values.name}
+                          description={values.description}
+                          body={values.body}
+                        />
+                        {/* Last, and folded away: the same document as above,
+                            but editable. It is the only control here that can
+                            rewrite every field at once, so it sits after the
+                            read-only view it mirrors rather than in place of
+                            it. */}
+                        <SkillRawDocumentSection
+                          document={renderSkillDocument({
+                            name: values.name,
+                            description: values.description,
+                            body: values.body,
+                            metadata: buildMetadata(),
+                          })}
+                          onApply={applyDocument}
+                        />
+                      </>
+                    )}
+                  </form.Subscribe>
+                </div>
+
+                {/* ---- how it behaves: the reserved metadata, in one rail ---- */}
+                <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-0">
+                  <section className="border-border flex flex-col gap-4 rounded-xl border p-4">
+                    <h3 className="text-sm font-medium">{t('editor.behaviourHeading')}</h3>
+
+                    {/* Two options, both shown. A dropdown hid the fact that
+                        this is the setting that decides WHERE the skill exists
+                        at all — a chat skill is offered in chat and under "/",
+                        a deep-research skill only inside the research run —
+                        and left the consequence of the unchosen one unread. */}
+                    <fieldset className="flex flex-col gap-1.5">
+                      <legend className="text-sm font-medium">{t('editor.executionLabel')}</legend>
+                      <p className="text-muted-foreground text-xs">{t('editor.executionHint')}</p>
+                      <div className="mt-0.5 flex flex-col gap-1.5">
+                        {EXECUTION_MODES.map((mode) => (
+                          <label
+                            key={mode}
+                            className={cn(
+                              'flex cursor-pointer gap-2.5 rounded-lg border p-2.5 transition-colors',
+                              execution === mode
+                                ? 'border-foreground/35 bg-muted'
+                                : 'border-border hover:bg-muted/50',
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              name="skill-execution"
+                              value={mode}
+                              checked={execution === mode}
+                              onChange={() => setExecution(mode)}
+                              className="accent-primary mt-0.5 size-3.5 shrink-0"
+                            />
+                            <span className="flex min-w-0 flex-col gap-1">
+                              <span className="text-sm font-medium leading-none">
+                                {t(`editor.execution.${mode === 'chat' ? 'chat' : 'deepResearch'}.label`)}
+                              </span>
+                              <span className="text-muted-foreground text-xs leading-snug">
+                                {t(`editor.execution.${mode === 'chat' ? 'chat' : 'deepResearch'}.hint`)}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-sm font-medium">{t('editor.schedulableLabel')}</span>
+                        <p className="text-muted-foreground text-xs">
+                          {t('editor.schedulableHint')}
+                        </p>
+                      </div>
+                      <Switch checked={schedulable} onCheckedChange={setSchedulable} />
+                    </div>
+
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-sm font-medium">{t('editor.enabledLabel')}</span>
+                        <p className="text-muted-foreground text-xs">{t('editor.enabledHint')}</p>
+                      </div>
+                      <Switch checked={enabled} onCheckedChange={setEnabled} />
+                    </div>
+                  </section>
+
+                  {/* Preferred output cards (`grid-cards`). Deliberately plain:
+                      the card TYPE and its own one-line description are the
+                      whole content of a row, so nothing competes with them for
+                      attention and 25 rows do not turn into 25 repeated
+                      glyphs. */}
+                  <section className="border-border flex flex-col gap-2 rounded-xl border p-4">
+                    <div className="flex flex-col gap-0.5">
+                      <h3 className="text-sm font-medium">{t('editor.cards.heading')}</h3>
+                      <p className="text-muted-foreground text-xs">{t('editor.cards.hint')}</p>
+                    </div>
+
+                    {preferredCards.length === 0 ? (
+                      <p className="text-muted-foreground text-xs">{t('editor.cards.empty')}</p>
+                    ) : (
+                      <ul className="flex flex-col gap-1">
+                        {preferredCards.map((type) => (
+                          <li
+                            key={type}
+                            className="bg-muted flex items-start justify-between gap-2 rounded-lg px-2 py-1.5"
+                          >
+                            <span className="min-w-0">
+                              <span className="font-mono text-xs">{type}</span>
+                              <span className="text-muted-foreground block text-xs">
+                                {catalogByType.get(type)?.description}
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={t('editor.cards.removeAria', { type })}
+                              onClick={() => removeCard(type)}
+                              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-md px-1 text-sm leading-none focus-visible:outline-none focus-visible:ring-2"
+                            >
+                              ×
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <Input
+                      value={cardQuery}
+                      onChange={(event) => setCardQuery(event.target.value)}
+                      placeholder={t('editor.cards.searchPlaceholder')}
+                      aria-label={t('editor.cards.searchPlaceholder')}
+                      className="h-9"
+                    />
+
+                    {cardResults.length === 0 ? (
+                      <p className="text-muted-foreground text-xs">{t('editor.cards.noMatches')}</p>
+                    ) : (
+                      <ul className="border-border max-h-44 overflow-y-auto rounded-lg border">
+                        {cardResults.map((entry) => (
+                          <li key={entry.type}>
+                            <button
+                              type="button"
+                              onClick={() => addCard(entry.type)}
+                              className="hover:bg-muted focus-visible:bg-muted flex w-full flex-col items-start gap-0.5 px-2 py-1.5 text-left focus-visible:outline-none"
+                            >
+                              <span className="font-mono text-xs">{entry.type}</span>
+                              <span className="text-muted-foreground text-xs">
+                                {entry.description}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                </aside>
               </div>
-              <Switch checked={schedulable} onCheckedChange={setSchedulable} />
             </div>
 
-            {/* Preferred output cards (`grid-cards`). Deliberately plain: the
-                card TYPE and its own one-line description are the whole
-                content of a row, so nothing competes with them for attention
-                and 25 rows do not turn into 25 repeated glyphs. */}
-            <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">{t('editor.cards.heading')}</span>
-                <p className="text-xs text-muted-foreground">{t('editor.cards.hint')}</p>
-              </div>
-
-              {preferredCards.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t('editor.cards.empty')}</p>
-              ) : (
-                <ul className="flex flex-col gap-1">
-                  {preferredCards.map((type) => (
-                    <li
-                      key={type}
-                      className="flex items-start justify-between gap-2 rounded-lg bg-muted px-2 py-1.5"
-                    >
-                      <span className="min-w-0">
-                        <span className="font-mono text-xs">{type}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          {catalogByType.get(type)?.description}
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={t('editor.cards.removeAria', { type })}
-                        onClick={() => removeCard(type)}
-                        className="shrink-0 rounded-md px-1 text-sm leading-none text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                      >
-                        ×
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+            <div className="border-border bg-popover shrink-0 border-t px-6 py-4">
+              {formError && (
+                <Alert variant="destructive" className="mb-3">
+                  <AlertDescription>{formError}</AlertDescription>
+                </Alert>
               )}
-
-              <Input
-                value={cardQuery}
-                onChange={(event) => setCardQuery(event.target.value)}
-                placeholder={t('editor.cards.searchPlaceholder')}
-                aria-label={t('editor.cards.searchPlaceholder')}
-                className="h-9"
-              />
-
-              {cardResults.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t('editor.cards.noMatches')}</p>
-              ) : (
-                <ul className="max-h-44 overflow-y-auto rounded-lg border border-border">
-                  {cardResults.map((entry) => (
-                    <li key={entry.type}>
-                      <button
-                        type="button"
-                        onClick={() => addCard(entry.type)}
-                        className="flex w-full flex-col items-start gap-0.5 px-2 py-1.5 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-                      >
-                        <span className="font-mono text-xs">{entry.type}</span>
-                        <span className="text-xs text-muted-foreground">{entry.description}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">{t('editor.enabledLabel')}</span>
-                <p className="text-xs text-muted-foreground">{t('editor.enabledHint')}</p>
-              </div>
-              <Switch checked={enabled} onCheckedChange={setEnabled} />
-            </div>
-
-            {/* The document these fields produce. Placed after the controls
-                that feed it — including the two switches, whose only visible
-                effect otherwise is a line of frontmatter nobody ever sees. */}
-            <form.Subscribe selector={(state) => state.values}>
-              {(values) => (
-                <>
-                  <SkillDocumentPreview
-                    name={values.name}
-                    description={values.description}
-                    body={values.body}
-                    metadata={buildMetadata()}
-                  />
-                  {/* The review sits directly under the document it is about,
-                      and is the same panel for everyone who can open this
-                      dialog — the author most likely to write a description
-                      that never matches anything is the one writing their
-                      first skill. */}
-                  <SkillReviewPanel
-                    name={values.name}
-                    description={values.description}
-                    body={values.body}
-                  />
-                </>
-              )}
-            </form.Subscribe>
-
-            {formError && (
-              <Alert variant="destructive">
-                <AlertDescription>{formError}</AlertDescription>
-              </Alert>
-            )}
-
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-                {t('editor.cancel')}
-              </Button>
-              {isEdit && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => setConfirmOpen(true)}
-                >
-                  {t('actions.delete')}
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+                  {t('editor.cancel')}
                 </Button>
-              )}
-              <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
-                {([canSubmit, isSubmitting]) => (
-                  <Button type="submit" disabled={!canSubmit || isSubmitting}>
-                    {isSubmitting && <Spinner size="sm" />}
-                    {isSubmitting ? t('editor.saving') : t('editor.save')}
+                {isEdit && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setConfirmOpen(true)}
+                  >
+                    {t('actions.delete')}
                   </Button>
                 )}
-              </form.Subscribe>
-            </DialogFooter>
+                <form.Subscribe
+                  selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+                >
+                  {([canSubmit, isSubmitting]) => (
+                    <Button type="submit" disabled={!canSubmit || isSubmitting}>
+                      {isSubmitting && <Spinner size="sm" />}
+                      {isSubmitting ? t('editor.saving') : t('editor.save')}
+                    </Button>
+                  )}
+                </form.Subscribe>
+              </DialogFooter>
+            </div>
           </form>
         </DialogContent>
       </Dialog>

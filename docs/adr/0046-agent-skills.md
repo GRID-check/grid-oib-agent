@@ -51,8 +51,9 @@ side and keep the deepagents-native mechanism for deep research.
 **strictly**: name (1–64 lowercase hyphenated, must match the directory name
 for filesystem skills), description (1–1024 chars), body, optional
 license/compatibility/allowed-tools, and reserved GRID metadata keys
-(`grid-execution` ∈ `chat`|`deep-research`, `grid-agents`, `grid-schedulable`).
-An invalid builtin SKILL.md is a deployment error, never a silent skip.
+(`grid-execution` ∈ `chat`|`deep-research`, `grid-agents`, `grid-schedulable`,
+`grid-cards`). An invalid builtin SKILL.md is a deployment error, never a
+silent skip.
 
 **Origins and resolution.** Two origins: **builtin** (shipped under
 `src/aiq_agent/skills/builtin/<collection>/<name>/SKILL.md`, discovered
@@ -109,6 +110,36 @@ at the point where it becomes concrete rather than in documentation nobody
 reads. Descriptions for that panel are fetched only on expand — paying an
 org-scoped read on every rendered answer to fill a panel almost nobody opens
 would be the eager loading this design exists to avoid.
+
+**Authoring is the document, not a form over it.** The org editor writes the
+three fields and the reserved metadata, but it shows the `SKILL.md` those
+fields produce, split at the progressive-disclosure seam (frontmatter labelled
+"always loaded", body "loaded on activation"), and it renders that document
+from the *same* assembly function the save uses, so the preview cannot drift
+from what is stored. Three consequences follow:
+
+- **The body gets a real Markdown editor** (`@uiw/react-md-editor`, MIT), with
+  the preview pane rendered through the app's own `MarkdownRenderer` rather
+  than the library's — a skill body *is* Markdown, and the surface that writes
+  it should agree with the surface that renders it.
+- **The description field states the mechanism.** It is the only text an agent
+  reads before deciding to load a skill, so the field says so and shows its
+  1024-character budget while it is being written, rather than rejecting it
+  afterwards.
+- **The whole document is editable, folded away under "advanced".** Skills
+  arrive as files and as pastes from agentskills.io, and retyping one field by
+  field is busywork. `parseSkillDocument` is the inverse of the renderer and is
+  round-trip-tested against it; applying is explicit (a draft, then a button)
+  because a keystroke-level sync would let a half-typed `name:` clear a field,
+  and frontmatter keys this product cannot store are named rather than dropped
+  in silence.
+
+**`grid-cards` is a preference, not a contract.** A skill may name the output
+card types it would rather produce; the value is a comma-separated list of
+generated card `type`s, SYSTEM cards excluded, and it reaches the agent as a
+preference in the loaded body. Absent means no preference — an empty
+`grid-cards:` line would read as a setting the author has to understand rather
+than one they never touched.
 
 **One agent vocabulary.** Targeting uses the `AGENT_REGISTRY` identifiers
 `shallow_researcher` / `deep_researcher` everywhere — frontmatter, resolver,

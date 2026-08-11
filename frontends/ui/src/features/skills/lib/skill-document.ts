@@ -118,3 +118,176 @@ export function renderSkillDocument(input: SkillDocumentInput): string {
   const { frontmatter, body } = renderSkillDocumentParts(input)
   return body ? `${frontmatter}\n\n${body}\n` : `${frontmatter}\n`
 }
+
+/* ---------------------------------------------------------------------------
+ * The other direction: reading a hand-written SKILL.md back into the fields.
+ *
+ * This is what lets the editor's advanced section be an EDITOR rather than a
+ * viewer — paste a SKILL.md from anywhere and the form fills itself in. It is
+ * deliberately a small, total parser rather than a YAML library: the document
+ * shapes it has to accept are the ones `renderSkillDocumentParts` emits plus
+ * what a person plausibly types by hand, and a full YAML engine would happily
+ * accept nested structures this product has nowhere to put.
+ *
+ * Every failure is a named reason, never an exception — the section reports it
+ * beside the text and applies nothing.
+ * ------------------------------------------------------------------------ */
+
+export type SkillDocumentParseError =
+  | 'missing-frontmatter'
+  | 'unterminated-frontmatter'
+  | 'malformed-frontmatter'
+  | 'missing-name'
+  | 'missing-description'
+
+export interface ParsedSkillDocument {
+  name: string
+  description: string
+  body: string
+  metadata: Record<string, string>
+  /**
+   * Frontmatter keys this product has nowhere to store (`license`,
+   * `allowed-tools`, …). Reported rather than silently dropped: a skill pasted
+   * from elsewhere often carries them, and losing them without a word is how an
+   * author ends up believing they were saved.
+   */
+  ignoredKeys: string[]
+}
+
+export type SkillDocumentParseResult =
+  | { ok: true; value: ParsedSkillDocument }
+  | { ok: false; error: SkillDocumentParseError }
+
+/** The three frontmatter keys the editor round-trips. */
+const KNOWN_KEYS = new Set(['name', 'description', 'metadata'])
+
+/** `key:` at the start of a line, with everything after it as the raw value. */
+const KEY_LINE = /^([A-Za-z0-9][A-Za-z0-9_.-]*):[ \t]?(.*)$/
+/** The same, indented — a member of the `metadata:` mapping. */
+const NESTED_KEY_LINE = /^[ \t]+([A-Za-z0-9][A-Za-z0-9_.-]*):[ \t]?(.*)$/
+
+function unquote(raw: string): string {
+  const value = raw.trim()
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    return value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+  }
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/''/g, "'")
+  }
+  return value
+}
+
+/** Is this line inside a block scalar, i.e. indented or blank? */
+function isBlockContinuation(line: string): boolean {
+  return line.trim() === '' || /^[ \t]/.test(line)
+}
+
+/**
+ * Collect the indented lines of a `>`/`|` block scalar.
+ *
+ * Folded (`>`) joins them with spaces, literal (`|`) with newlines — the two
+ * meanings YAML gives the indicators, and the reason the renderer's `>-` output
+ * survives a round trip as one string rather than as wrapped lines.
+ */
+function readBlockScalar(
+  lines: string[],
+  start: number,
+  folded: boolean,
+): { value: string; next: number } {
+  const collected: string[] = []
+  let index = start
+  while (index < lines.length && isBlockContinuation(lines[index])) {
+    collected.push(lines[index].trim())
+    index += 1
+  }
+  while (collected.length > 0 && collected[collected.length - 1] === '') collected.pop()
+  return { value: folded ? collected.join(' ').trim() : collected.join('\n'), next: index }
+}
+
+export function parseSkillDocument(raw: string): SkillDocumentParseResult {
+  const lines = raw.replace(/^﻿/, '').split(/\r?\n/)
+
+  let cursor = 0
+  while (cursor < lines.length && lines[cursor].trim() === '') cursor += 1
+  if (cursor >= lines.length || lines[cursor].trim() !== '---') {
+    return { ok: false, error: 'missing-frontmatter' }
+  }
+  cursor += 1
+
+  const open = cursor
+  let close = -1
+  for (let index = open; index < lines.length; index += 1) {
+    if (lines[index].trim() === '---') {
+      close = index
+      break
+    }
+  }
+  if (close === -1) return { ok: false, error: 'unterminated-frontmatter' }
+
+  const frontmatter = lines.slice(open, close)
+  const scalars: Record<string, string> = {}
+  const metadata: Record<string, string> = {}
+  const ignoredKeys: string[] = []
+
+  let index = 0
+  while (index < frontmatter.length) {
+    const line = frontmatter[index]
+    if (line.trim() === '' || line.trimStart().startsWith('#')) {
+      index += 1
+      continue
+    }
+    const match = KEY_LINE.exec(line)
+    // Anything that is neither a comment nor a top-level `key:` at this point
+    // is an indentation we do not understand — a nested mapping, a sequence, a
+    // stray continuation. Refuse rather than guess: half-applying a document is
+    // worse than applying none of it.
+    if (!match) return { ok: false, error: 'malformed-frontmatter' }
+
+    const [, key, rest] = match
+    index += 1
+
+    if (key === 'metadata' && rest.trim() === '') {
+      while (index < frontmatter.length) {
+        const nested = frontmatter[index]
+        if (nested.trim() === '') {
+          index += 1
+          continue
+        }
+        const nestedMatch = NESTED_KEY_LINE.exec(nested)
+        if (!nestedMatch) break
+        metadata[nestedMatch[1]] = unquote(nestedMatch[2])
+        index += 1
+      }
+      continue
+    }
+
+    let value: string
+    const indicator = rest.trim()
+    if (indicator.startsWith('>') || indicator.startsWith('|')) {
+      const block = readBlockScalar(frontmatter, index, indicator.startsWith('>'))
+      value = block.value
+      index = block.next
+    } else {
+      value = unquote(rest)
+    }
+
+    if (KNOWN_KEYS.has(key)) scalars[key] = value
+    else if (!ignoredKeys.includes(key)) ignoredKeys.push(key)
+  }
+
+  const name = (scalars.name ?? '').trim()
+  const description = (scalars.description ?? '').trim()
+  if (!name) return { ok: false, error: 'missing-name' }
+  if (!description) return { ok: false, error: 'missing-description' }
+
+  return {
+    ok: true,
+    value: {
+      name,
+      description,
+      body: lines.slice(close + 1).join('\n').trim(),
+      metadata,
+      ignoredKeys,
+    },
+  }
+}

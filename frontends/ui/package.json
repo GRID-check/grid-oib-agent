@@ -61,6 +61,7 @@
     "@tailwindcss/postcss": "^4.1.18",
     "@tanstack/react-form": "^1.33.2",
     "@tanstack/react-query": "^5.101.2",
+    "@uiw/react-md-editor": "^4.1.1",
     "@uppy/core": "^5.2.0",
     "@uppy/react": "^5.2.0",
     "@uppy/xhr-upload": "^5.2.0",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderSkillDocument, renderSkillDocumentParts } from './skill-document'
+import { parseSkillDocument, renderSkillDocument, renderSkillDocumentParts } from './skill-document'
 
 describe('renderSkillDocument', () => {
   it('renders the minimal document the spec requires', () => {
@@ -100,5 +100,90 @@ describe('renderSkillDocument', () => {
     expect(renderSkillDocument({ name: 'x', description: 'd', body: '   ' })).toBe(
       '---\nname: x\ndescription: d\n---\n',
     )
+  })
+})
+
+describe('parseSkillDocument', () => {
+  const ok = (raw: string) => {
+    const result = parseSkillDocument(raw)
+    if (!result.ok) throw new Error(`expected a parse, got ${result.error}`)
+    return result.value
+  }
+
+  it('round-trips everything the renderer emits', () => {
+    // The pair is only useful if it is a pair: whatever the form renders, the
+    // advanced section must be able to read back into the same fields.
+    const input = {
+      name: 'oib-brandschutz',
+      description:
+        'Prüft Bauteile und Fluchtwege gegen OIB-Richtlinie 2. Einsetzen, wenn ein Brandschutznachweis erstellt oder vor der Einreichung gegengeprüft werden soll.',
+      body: '# Brandschutz\n\nSchritt eins.\n\n- a\n- b',
+      metadata: { 'grid-execution': 'chat', 'grid-cards': 'summary,legal_basis' },
+    }
+    expect(ok(renderSkillDocument(input))).toEqual({ ...input, ignoredKeys: [] })
+  })
+
+  it('reads a hand-written document: quotes, folded blocks and a body with fences', () => {
+    const value = ok(
+      [
+        '---',
+        'name: "oib-check"',
+        'description: >-',
+        '  Checks the thing.',
+        '  Use when somebody asks about the thing.',
+        'metadata:',
+        "  grid-execution: 'deep-research'",
+        '---',
+        '',
+        'Body with a fence:',
+        '',
+        '```',
+        'name: not-frontmatter',
+        '```',
+      ].join('\n'),
+    )
+    expect(value.name).toBe('oib-check')
+    // A folded scalar is ONE string, not the lines it was wrapped onto.
+    expect(value.description).toBe('Checks the thing. Use when somebody asks about the thing.')
+    expect(value.metadata).toEqual({ 'grid-execution': 'deep-research' })
+    // The `---` search stops at the first closing fence, so a body that talks
+    // about frontmatter is body, not frontmatter.
+    expect(value.body).toContain('name: not-frontmatter')
+  })
+
+  it('keeps a literal block scalar as lines', () => {
+    const value = ok(['---', 'name: x', 'description: |', '  one', '  two', '---'].join('\n'))
+    expect(value.description).toBe('one\ntwo')
+  })
+
+  it('names the keys it cannot store rather than dropping them in silence', () => {
+    const value = ok(
+      [
+        '---',
+        'name: x',
+        'description: d',
+        'license: MIT',
+        'allowed-tools: Read Glob',
+        '---',
+      ].join('\n'),
+    )
+    expect(value.ignoredKeys).toEqual(['license', 'allowed-tools'])
+  })
+
+  it.each([
+    ['no frontmatter at all', 'just prose', 'missing-frontmatter'],
+    ['an unclosed block', '---\nname: x\ndescription: d', 'unterminated-frontmatter'],
+    ['a nested structure', '---\nname: x\ndescription: d\ntools:\n  - Read\n---', 'malformed-frontmatter'],
+    ['no name', '---\ndescription: d\n---', 'missing-name'],
+    ['no description', '---\nname: x\n---', 'missing-description'],
+  ])('refuses %s', (_label, raw, error) => {
+    const result = parseSkillDocument(raw)
+    expect(result.ok).toBe(false)
+    expect(result.ok === false && result.error).toBe(error)
+  })
+
+  it('tolerates a leading blank line and CRLF, which is what a paste brings', () => {
+    const value = ok('\r\n---\r\nname: x\r\ndescription: d\r\n---\r\n\r\nbody\r\n')
+    expect(value).toMatchObject({ name: 'x', description: 'd', body: 'body' })
   })
 })

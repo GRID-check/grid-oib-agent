@@ -117,8 +117,7 @@ describe('SkillEditorDialog — create', () => {
       target: { value: 'Draft the report.' },
     })
 
-    fireEvent.click(screen.getByRole('combobox'))
-    fireEvent.click(await screen.findByRole('option', { name: 'Deep research' }))
+    fireEvent.click(screen.getByRole('radio', { name: /Deep research/ }))
 
     const switches = screen.getAllByRole('switch')
     // First switch = schedulable; second = enabled.
@@ -244,7 +243,8 @@ describe('SkillEditorDialog — edit', () => {
     expect(screen.getByLabelText(/^Name/)).toHaveValue('acoustic-report')
     expect(screen.getByLabelText(/^Description/)).toHaveValue('Drafts the acoustic compliance report.')
     // Execution mode reflects the skill's reserved metadata.
-    expect(screen.getByRole('combobox')).toHaveTextContent('Deep research')
+    expect(screen.getByRole('radio', { name: /Deep research/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Chat/ })).not.toBeChecked()
 
     const saveButton = screen.getByRole('button', { name: 'Save skill' })
     await waitFor(() => expect(saveButton).toBeEnabled())
@@ -286,6 +286,69 @@ describe('SkillEditorDialog — edit', () => {
       'grid-execution': 'deep-research',
       'grid-agents': 'voice-ana',
     })
+  })
+
+  test('the advanced section rewrites every field from a pasted document', async () => {
+    updateSkillMock.mockResolvedValue(orgSkill)
+    render(<SkillEditorDialog {...dialogProps} skill={orgSkill} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Advanced/ }))
+
+    fireEvent.change(screen.getByLabelText('SKILL.md document'), {
+      target: {
+        value: [
+          '---',
+          'name: geaenderter-skill',
+          'description: A pasted description that says when to use it.',
+          'metadata:',
+          '  grid-execution: chat',
+          '  grid-cards: summary',
+          '---',
+          '',
+          '# Pasted',
+          '',
+          'Do the pasted thing.',
+        ].join('\n'),
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => expect(screen.getByLabelText(/^Name/)).toHaveValue('geaenderter-skill'))
+    expect(screen.getByLabelText(/^Description/)).toHaveValue(
+      'A pasted description that says when to use it.',
+    )
+    expect(screen.getByLabelText(/^Instruction/)).toHaveValue('# Pasted\n\nDo the pasted thing.')
+    // The reserved keys follow the document, including the ones the document
+    // DROPS — `grid-agents` was in the row and is gone from the paste.
+    expect(screen.getByRole('radio', { name: /Chat/ })).toBeChecked()
+    expect(screen.getByText('A concise overview of the answer for the user.')).toBeInTheDocument()
+
+    const saveButton = screen.getByRole('button', { name: 'Save skill' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(updateSkillMock).toHaveBeenCalledTimes(1))
+    expect(updateSkillMock.mock.calls[0][1].metadata).toEqual({
+      'grid-execution': 'chat',
+      'grid-cards': 'summary',
+    })
+  })
+
+  test('a document that does not parse applies nothing', () => {
+    render(<SkillEditorDialog {...dialogProps} skill={orgSkill} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Advanced/ }))
+    fireEvent.change(screen.getByLabelText('SKILL.md document'), {
+      target: { value: 'no frontmatter here' },
+    })
+
+    expect(
+      screen.getByText(
+        'The document does not start with a “---” block. A SKILL.md always opens with YAML frontmatter.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
+    expect(screen.getByLabelText(/^Name/)).toHaveValue('acoustic-report')
   })
 
   test('the delete flow removes the skill after confirmation', async () => {

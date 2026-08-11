@@ -195,24 +195,81 @@ export const skills: typeof en.skills = {
     editSubtitle: 'Passen Sie den Skill an. Bestehende Zeitpläne behalten ihren gespeicherten Snapshot.',
     nameLabel: 'Name',
     namePlaceholder: 'z. B. oib-fire-check',
+    nameHint: 'Kleinbuchstaben und Bindestriche. Genau so rufen Sie den Skill im Chat mit „/“ auf.',
     nameRequired: 'Ein Name ist erforderlich.',
     nameTooLong: 'Skill-Namen sind höchstens 64 Zeichen lang.',
     nameInvalid:
       'Skill-Namen bestehen aus Kleinbuchstaben a–z/0–9, getrennt durch einzelne Bindestriche (keine führenden, endenden oder doppelten Bindestriche).',
     descriptionLabel: 'Beschreibung',
     descriptionPlaceholder: 'Wann soll der Agent diesen Skill verwenden?',
+    descriptionHint:
+      'Daran erkennt der Agent den Skill: Er liest nur diesen Satz – nie die Anweisung – und entscheidet daraufhin, ob er den Skill lädt. Sagen Sie also, WAS der Skill tut und WANN er greifen soll, in den Worten, die Ihre Kolleginnen und Kollegen tatsächlich verwenden.',
     descriptionRequired: 'Eine Beschreibung ist erforderlich.',
     descriptionTooLong: 'Beschreibungen sind höchstens 1024 Zeichen lang.',
     bodyLabel: 'Anweisung',
     bodyPlaceholder: 'Die vollständige Anweisung, die der Agent bei diesem Skill befolgt.',
+    bodyHint:
+      'Markdown. Diese Anweisung erreicht den Agenten erst, wenn er den Skill lädt – bis dahin kostet ihre Länge nichts.',
     bodyRequired: 'Der Anweisungstext ist erforderlich.',
     bodyTooLong: 'Anweisungstexte sind höchstens 32000 Zeichen lang.',
-    executionLabel: 'Ausführungsmodus',
+    markdown: {
+      h1: 'Überschrift 1',
+      h2: 'Überschrift 2',
+      h3: 'Überschrift 3',
+      bold: 'Fett (Strg + B)',
+      italic: 'Kursiv (Strg + I)',
+      code: 'Code im Text',
+      codeBlock: 'Codeblock',
+      bulletList: 'Aufzählung',
+      numberedList: 'Nummerierte Liste',
+      taskList: 'Aufgabenliste',
+      link: 'Link einfügen',
+      quote: 'Zitat',
+      table: 'Tabelle einfügen',
+      edit: 'Nur Text',
+      split: 'Text und Vorschau',
+      preview: 'Nur Vorschau',
+      fullscreen: 'Vollbild',
+    },
+    behaviourHeading: 'Verfügbarkeit',
+    executionLabel: 'Einsatzbereich',
     executionHint:
-      'So führt ein Zeitplan diesen Skill aus: Chat-Modus läuft als Chat-Anfrage, Deep Research über die asynchrone Recherche-Pipeline mit Bericht.',
+      'Wo dieser Skill überhaupt existiert. Er gehört zu genau einem der beiden – die Anweisungen der beiden Laufzeiten unterscheiden sich zu stark.',
+    execution: {
+      chat: {
+        label: 'Chat',
+        hint: 'Steht im Chat zur Verfügung: Der Agent zieht den Skill selbst heran, wenn die Beschreibung zur Frage passt – und Sie rufen ihn mit „/“ direkt auf.',
+      },
+      deepResearch: {
+        label: 'Deep Research',
+        hint: 'Gilt nur in der Recherche-Pipeline, die im Hintergrund läuft und einen Bericht schreibt. Im Chat wird der Skill nicht angeboten.',
+      },
+    },
+    raw: {
+      heading: 'Erweitert: SKILL.md direkt bearbeiten',
+      subtitle:
+        'Das ganze Dokument einfügen oder ändern – die Felder oben werden daraus neu gesetzt.',
+      documentLabel: 'SKILL.md-Dokument',
+      apply: 'Übernehmen',
+      reset: 'Zurücksetzen',
+      applied: 'Dokument übernommen.',
+      ready: 'Das Dokument ist gültig. „Übernehmen“ schreibt es in die Felder oben.',
+      unchanged: 'Unverändert – identisch mit den Feldern oben.',
+      ignored:
+        'Diese Felder kann GRID nicht speichern und lässt sie beim Übernehmen weg: {keys}.',
+      errors: {
+        'missing-frontmatter':
+          'Das Dokument beginnt nicht mit einem „---“-Block. Ein SKILL.md startet immer mit YAML-Frontmatter.',
+        'unterminated-frontmatter': 'Der Frontmatter-Block wird nicht mit „---“ geschlossen.',
+        'malformed-frontmatter':
+          'Der Frontmatter enthält eine Zeile, die kein „schlüssel: wert“ ist. Außer „metadata“ sind hier keine verschachtelten Strukturen möglich.',
+        'missing-name': 'Im Frontmatter fehlt „name“.',
+        'missing-description': 'Im Frontmatter fehlt „description“.',
+      },
+    },
     schedulableLabel: 'Planbar',
     schedulableHint:
-      'Aus bedeutet: Zeitpläne können diesen Skill nicht per Cron ausführen (manuelle Ausführung bleibt möglich).',
+      'Darf zeitgesteuert laufen. Aus: Der Skill bleibt normal nutzbar, nur ein Zeitplan kann ihn nicht per Cron starten.',
     cards: {
       heading: 'Bevorzugte Ergebnis-Cards',
       hint: 'Der Agent gibt das Ergebnis bevorzugt als eine dieser Cards aus, sofern der Inhalt dazu passt – eine Präferenz, keine Vorgabe.',
@@ -223,7 +280,8 @@ export const skills: typeof en.skills = {
     },
     cloneFrom: 'Geklont von „{name}“',
     enabledLabel: 'Aktiviert',
-    enabledHint: 'Ein deaktivierter Skill kann nicht zu neuen Zeitplänen hinzugefügt werden.',
+    enabledHint:
+      'Aus: Der Skill verschwindet aus dem „/“-Menü und aus der Auswahl des Agenten. Bestehende Zeitpläne laufen mit ihrem gespeicherten Snapshot weiter.',
     save: 'Skill speichern',
     saving: 'Wird gespeichert…',
     cancel: 'Abbrechen',

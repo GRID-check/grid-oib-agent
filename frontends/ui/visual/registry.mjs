@@ -275,6 +275,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="skill-review-findings"]',
   },
   {
+    id: 'skill-editor-advanced',
+    path: '/dev/skill-editor-advanced',
+    description:
+      'The skill editor’s advanced section — the whole SKILL.md, editable, folded away under the form. Both of its open states are on one page because the section’s only output while open is which of them it is in: a document that parses and differs from the form, where applying is live, and one whose frontmatter was never closed, where the reason is named and applying is refused. It has a route of its own because it sits at the bottom of a tall dialog and never appears in the editor shot.',
+    waitFor: '[data-testid="skill-raw-document"] textarea',
+  },
+  {
     id: 'skill-activation',
     mobile: true,
     path: '/dev/skill-activation',

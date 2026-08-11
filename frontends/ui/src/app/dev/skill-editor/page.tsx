@@ -109,19 +109,18 @@ export default function SkillEditorPreviewPage(): JSX.Element {
       >
         {/* The REAL editor dialog, open. The panes below render standalone so
             each is legible on its own, but the dialog is the surface an author
-            actually meets — and the only place the card-preference control and
-            the two metadata switches appear. */}
+            actually meets — and the only place the Markdown editor, the
+            card-preference control and the two metadata switches appear.
+
+            The full instruction is used here: the settings now sit in their own
+            rail beside the form rather than below it, so nothing is pushed
+            under the fold by a body long enough to be worth writing in a real
+            Markdown editor. */}
         <SkillEditorDialog
           open
           onOpenChange={() => {}}
           skill={{
             ...SKILL,
-            // A SHORT instruction on purpose. The dialog scrolls, and with the
-            // full five-step body the card-preference control and the two
-            // metadata switches sit below the fold — invisible to a screenshot,
-            // which is the one reader this route exists for. The long body is
-            // still exercised by the standalone SKILL.md pane below.
-            body: 'Handle als Brandschutzprüfer. Nenne jede Abweichung mit Klausel und Korrekturvorschlag.',
             id: 'skill-preview',
             origin: 'org',
             enabled: true,
