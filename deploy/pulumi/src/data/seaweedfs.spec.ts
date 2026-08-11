@@ -608,13 +608,43 @@ describe("single-node topology", () => {
 
     const spec = await statefulSetSpec(t.workloads[0]);
     const args = container(spec, "seaweedfs").args!.join(" ");
-    // Byte-for-byte the pre-ADR-0043 command line. A stack still on `single`
-    // must see no change here — re-sizing volume slots restarts the only
-    // storage server it has.
+    // Pinned in full, so a change to this command line is a decision rather
+    // than a diff nobody reads: it restarts the only storage server a `single`
+    // stack has, and prod runs `single`.
     expect(args).toBe(
-      "exec weed server -dir=/data -volume.max=8 -s3 " +
+      "exec weed server -dir=/data -volume.max=64 -s3 " +
         "-s3.config=/etc/seaweedfs/s3.json -s3.port=8333 -filer.encryptVolumeData",
     );
+  });
+
+  it("takes the volume-slot cap from the operator knob, not from a literal", async () => {
+    const t = await installSingle({ volumeMaxCount: 128 });
+    const spec = await statefulSetSpec(t.workloads[0]);
+
+    expect(container(spec, "seaweedfs").args!.join(" ")).toContain("-volume.max=128");
+  });
+
+  it("gives per-org buckets far more slots than the old cap of 8", async () => {
+    // The staging outage: a bucket is a SeaweedFS COLLECTION and each one needs
+    // a writable volume, so the slot count caps how many tenants can ever be
+    // onboarded. At 8 the ninth organization's first write failed with a bare
+    // S3 `InternalError` while 9.6 GB of a 9.7 GB disk sat free — the cap, not
+    // the disk. Anything at or below 8 puts that ceiling back.
+    const t = await installSingle({ perOrgBuckets: true });
+    const spec = await statefulSetSpec(t.workloads[0]);
+    const args = container(spec, "seaweedfs").args!.join(" ");
+
+    const slots = Number(/-volume\.max=(\d+)/.exec(args)?.[1])
+    expect(slots).toBeGreaterThan(8);
+  });
+
+  it("still does not re-size the volumes a running stack already holds", async () => {
+    // `volumeSizeLimitMB` stays a split-topology knob: slots are a ceiling and
+    // cost nothing, but the size limit changes volumes that already exist.
+    const t = await installSingle({ volumeSizeLimitMB: 4096 });
+    const spec = await statefulSetSpec(t.workloads[0]);
+
+    expect(container(spec, "seaweedfs").args!.join(" ")).not.toContain("volumeSizeLimit");
   });
 });
 
