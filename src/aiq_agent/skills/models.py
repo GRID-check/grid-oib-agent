@@ -43,15 +43,20 @@ MAX_COMPATIBILITY_CHARS = 500
 GRID_METADATA_KEYS = frozenset({"grid-execution", "grid-schedulable", "grid-agents"})
 GRID_EXECUTION_VALUES = frozenset({"chat", "deep-research"})
 
-#: Words the Agent Skills spec reserves — a skill may not be named after the
-#: vendor or the model. Checked case-insensitively as a substring, which is how
-#: the spec states it ("must not contain").
-RESERVED_NAME_WORDS = ("anthropic", "claude")
-
-#: Anything that looks like an XML/HTML tag. The spec forbids tags in ``name``
-#: and ``description`` because both are interpolated into the system prompt,
-#: where a stray tag can close a structural element the harness opened and let
-#: skill text escape into a position it was never meant to occupy.
+#: Anything that looks like an XML/HTML tag.
+#:
+#: NOT an agentskills.io rule — the open format says nothing about tags. It is a
+#: GRID prompt-safety rule: ``name`` and ``description`` are interpolated into an
+#: agent's system prompt (``SkillRuntime.prompt_block``), where a stray tag can
+#: close a structural element the prompt opened and let skill text land in a
+#: position it was never meant to occupy. The body is NOT checked — it is
+#: markdown delivered through a tool result, and restricting its content would
+#: break legitimate skills that document HTML.
+#:
+#: Anthropic's platform additionally forbids the words "anthropic"/"claude" in a
+#: name. That rule governs skills uploaded to their Skills API; this product is
+#: LLM-agnostic and never uploads there, so enforcing it here would only reject
+#: names a tenant may legitimately want.
 XML_TAG_RE = re.compile(r"<[^>]+>")
 
 
@@ -98,10 +103,6 @@ def _validate_name(name: Any, expected_dir_name: str | None) -> str:
         raise SkillValidationError(
             f"Skill name {name!r} must be lowercase a-z/0-9 hyphen-separated (no leading/trailing/consecutive hyphens)"
         )
-    lowered = name.lower()
-    reserved = [word for word in RESERVED_NAME_WORDS if word in lowered]
-    if reserved:
-        raise SkillValidationError(f"Skill name {name!r} must not contain the reserved word(s) {reserved}")
     if XML_TAG_RE.search(name):
         raise SkillValidationError(f"Skill name {name!r} must not contain XML tags")
     if expected_dir_name is not None and name != expected_dir_name:

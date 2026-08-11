@@ -202,6 +202,30 @@ export const listSkills = async (): Promise<SkillListItem[]> => {
   return Array.isArray(data) ? data : (data.skills ?? [])
 }
 
+/** One entry of the composer's `/` menu — level-1 metadata only, no body. */
+export interface InvocableSkill {
+  name: string
+  description: string
+  origin: 'org' | 'platform-clone' | 'platform'
+}
+
+/**
+ * The skills this member may invoke with `/name` in chat.
+ *
+ * Separate from `listSkills` on purpose. That one serves the toolbox and
+ * carries every skill in the org WITH its instruction body; this one carries
+ * only what the composer menu shows and the agent's own catalogue holds — name
+ * and description — filtered to the skills a chat turn can actually run. A
+ * composer that downloaded every skill body to render a menu would be shipping
+ * level-2 content to draw a level-1 surface.
+ */
+export const listInvocableSkills = async (): Promise<InvocableSkill[]> => {
+  const response = await fetch(`${skillsBase}/invocable`, { headers: jsonHeaders })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to list invocable skills')
+  const data = (await response.json()) as { skills?: InvocableSkill[] } | InvocableSkill[]
+  return Array.isArray(data) ? data : (data.skills ?? [])
+}
+
 /** Author a skill in the org toolbox (requires org:skills:manage). */
 export const createSkill = async (input: CreateSkillInput): Promise<SkillListItem> => {
   const response = await fetch(skillsBase, {

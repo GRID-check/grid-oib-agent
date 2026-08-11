@@ -1,15 +1,19 @@
 /**
- * Agent Skills (Phase A) — request payload schemas and reserved-metadata
- * helpers, mirroring the workflows domain (`@/lib/workflows/types`).
+ * Agent Skills — request payload schemas and reserved-metadata helpers.
  *
- * Skill names and metadata follow the agentskills.io format:
+ * The write boundary for the agentskills.io SKILL.md contract
+ * (https://agentskills.io/specification):
  *
- *   - name: lowercase a-z/0-9/hyphens, no leading/trailing/consecutive
- *     hyphens, 1–64 chars.
- *   - description: 1–1024 chars; body 1–32000 chars.
- *   - metadata: a flat string→string map. Three keys are reserved and read at
- *     schedule/fire time (see below); every other key is opaque content the
- *     agent may consume.
+ *   - `name`: 1–64 chars, lowercase a-z/0-9 and hyphens, no leading, trailing
+ *     or consecutive hyphens.
+ *   - `description`: 1–1024 chars, non-empty. It states what the skill does AND
+ *     when to use it, because it is the only thing an agent sees about the
+ *     skill until the skill is activated (progressive disclosure level 1).
+ *   - body: the Markdown instructions loaded on activation (level 2), capped at
+ *     32000 to match the backend's job-input limit.
+ *   - `metadata`: a flat string→string map. The spec leaves it open and
+ *     recommends namespaced keys; the three `grid-*` keys below are ours and
+ *     are read at schedule/fire time. Every other key is opaque.
  */
 
 import { z } from 'zod'
@@ -61,6 +65,12 @@ export const METADATA_AGENTS = 'grid-agents'
  */
 export const KNOWN_SKILL_AGENTS = ['shallow_researcher', 'deep_researcher'] as const
 export type KnownSkillAgent = (typeof KNOWN_SKILL_AGENTS)[number]
+
+/**
+ * The agent a chat turn runs on, and therefore the one a `/name` invocation
+ * from the composer resolves against.
+ */
+export const CHAT_SKILL_AGENT: KnownSkillAgent = 'shallow_researcher'
 
 /** The execution a skill's metadata demands, deterministically. */
 export function executionOf(metadata: Record<string, string>): SkillExecution {
@@ -130,17 +140,15 @@ export function snapshotOf(skill: SkillSnapshot): SkillSnapshot {
 export const NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 /**
- * Words the Agent Skills spec reserves: a skill may not be named after the
- * vendor or the model. Matched as a case-insensitive substring, which is how
- * the spec states it ("must not contain").
- */
-export const RESERVED_NAME_WORDS = ['anthropic', 'claude'] as const
-
-/**
- * Anything shaped like an XML/HTML tag. The spec forbids tags in `name` and
- * `description` because both are interpolated into an agent's system prompt,
- * where a stray tag can close a structural element the harness opened and let
- * skill text escape into a position it was never meant to occupy.
+ * Anything shaped like an XML/HTML tag.
+ *
+ * NOT an agentskills.io rule — the open format says nothing about tags. It is a
+ * GRID prompt-safety rule, and it applies to `name` and `description` only:
+ * both are interpolated into an agent's system prompt (the level-1 catalogue in
+ * `SkillRuntime.prompt_block`), where a stray tag can close a structural
+ * element the prompt opened and let skill text land in a position it was never
+ * meant to occupy. The body is deliberately NOT checked — it arrives as a tool
+ * result, and rejecting tags there would break any skill that documents HTML.
  */
 export const XML_TAG_PATTERN = /<[^>]+>/
 
@@ -152,10 +160,6 @@ export const skillNameSchema = z
   .regex(
     NAME_PATTERN,
     'Skill names must be lowercase a-z/0-9 separated by single hyphens (no leading, trailing or consecutive hyphens).'
-  )
-  .refine(
-    (name) => !RESERVED_NAME_WORDS.some((word) => name.toLowerCase().includes(word)),
-    `Skill names must not contain the reserved words ${RESERVED_NAME_WORDS.join(' or ')}.`
   )
   .refine((name) => !XML_TAG_PATTERN.test(name), 'Skill names must not contain XML tags.')
 

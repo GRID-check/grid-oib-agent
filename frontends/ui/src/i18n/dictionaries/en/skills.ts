@@ -232,4 +232,36 @@ export const skills = {
       cancelled: 'Cancelled',
     },
   },
+
+  // The `/` invocation surface in the chat composer.
+  composer: {
+    picker: {
+      resultsAria: 'Available skills',
+      // The empty state is the one place we can teach what a skill IS, so it
+      // says where they come from rather than just reporting a count of zero.
+      empty: 'No skills available yet',
+      emptyHint: 'Skills your organization adds appear here. Manage them under Skills.',
+      noResults: 'No skill matches “{query}”',
+      noResultsHint: 'Skills are matched on their name and on what they say they are for.',
+      loading: 'Loading skills',
+      builtin: 'Built-in',
+      keyboardHint: '↑↓ to choose · ↵ to insert · esc to dismiss',
+    },
+    // The chip shown under the composer once a skill is invoked.
+    invoked: {
+      label: 'Skill: {name}',
+      hint: 'Its instructions load at the start of this turn.',
+      remove: 'Remove the {name} skill from this message',
+    },
+    // How an activated skill is reported on the answer.
+    activated: {
+      one: '1 skill used',
+      other: '{count} skills used',
+      title: 'Skills used for this answer',
+      // States the mechanism plainly: the description is always in context, the
+      // instructions were pulled in only because the skill was activated.
+      explainer:
+        'The assistant sees every skill’s name and description at the start of a turn, and loads the full instructions only for the ones it activates. These were activated.',
+    },
+  },
 }

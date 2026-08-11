@@ -53,6 +53,7 @@ import {
   isSchedulable,
   snapshotOf,
   withAlwaysOnKnowledge,
+  CHAT_SKILL_AGENT,
   KNOWN_SKILL_AGENTS,
   METADATA_AGENTS,
   METADATA_EXECUTION,
@@ -103,7 +104,11 @@ function platformToListItem(platform: ReturnType<typeof listPlatformSkills>[numb
     name: platform.name,
     description: platform.description,
     body: platform.body,
-    metadata: {},
+    // The generated module carries the frontmatter `metadata` verbatim. Sending
+    // `{}` here made the toolbox derive its badges from defaults, so every
+    // builtin skill was labelled "Chat mode / Schedulable" when the shipped set
+    // is in fact deep-research-only and explicitly not schedulable.
+    metadata: { ...platform.metadata },
     origin: 'platform',
     enabled: true,
     clonedFrom: null,
@@ -142,6 +147,41 @@ export async function listSkills(session: AuthorizedSession): Promise<{ skills: 
     byName.set(row.name, orgToListItem(row))
   }
   return { skills: [...byName.values()] }
+}
+
+/** One entry of the composer's `/` menu — progressive disclosure level 1. */
+export type InvocableSkill = {
+  name: string
+  description: string
+  origin: SkillOrigin | 'platform'
+}
+
+/**
+ * The skills a member may invoke with `/name` in chat.
+ *
+ * Deliberately level-1 ONLY: name + description, never a body. That is not an
+ * optimisation, it is the same contract the agent runs under — at turn start
+ * the model sees exactly this much about each skill, and the full instructions
+ * enter context only when something calls `use_skill`. The menu a user reads
+ * and the catalogue the model reads are therefore the same text, so a skill
+ * whose description does not explain when to use it looks equally unhelpful to
+ * both, which is the feedback a skill author needs.
+ *
+ * Filtered to what can actually run in a chat turn (`shallow_researcher`), so
+ * the menu can never offer a deep-research skill the turn cannot execute.
+ * Disabled skills are excluded. Any org member may list — invoking a skill is
+ * using the product, not administering it; authoring stays `org:skills:manage`.
+ */
+export async function listInvocableSkills(
+  session: AuthorizedSession,
+): Promise<{ skills: InvocableSkill[] }> {
+  assertSkillsFeatureOn(session)
+  const { skills } = await resolveSkillsForAgent(session.organizationId, CHAT_SKILL_AGENT)
+  return {
+    skills: skills
+      .map(({ name, description, origin }) => ({ name, description, origin }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  }
 }
 
 /**

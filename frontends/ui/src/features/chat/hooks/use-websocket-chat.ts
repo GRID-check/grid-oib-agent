@@ -91,6 +91,15 @@ export interface SendMessageOptions {
    * so a stale read costs a round trip and nothing else.
    */
   awaitingHuman?: boolean
+  /**
+   * Skill names the user invoked with `/name` in the composer.
+   *
+   * Structured, and reconciled against the composer text at send time rather
+   * than remembered — the same discipline `mentions` follows, for the same
+   * reason: the token can be edited away after it was inserted, and what is
+   * sent must be what the text still says.
+   */
+  skills?: readonly string[]
 }
 
 /** A refusal the composer can localise from `details.reason`. */
@@ -199,7 +208,15 @@ function appendLocalUserMessage(message: ChatMessage): void {
  * right `NATWebSocketClient` method.
  */
 type PendingOutgoing =
-  | { kind: 'message'; content: string; dataSources: string[]; deliveryRetryCount?: number }
+  | {
+      kind: 'message'
+      content: string
+      dataSources: string[]
+      /** Skills invoked with `/name`; travels WITH the payload so a frame that
+       *  is queued through a reconnect is replayed with its invocation intact. */
+      skills?: string[]
+      deliveryRetryCount?: number
+    }
   | { kind: 'interaction'; interactionId: string; parentId: string; response: string; deliveryRetryCount?: number }
 
 /**
@@ -1009,7 +1026,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       if (!client?.isConnected()) return false
 
       const outboundId = payload.kind === 'message'
-        ? client.sendMessage(payload.content, payload.dataSources)
+        ? client.sendMessage(
+            payload.content,
+            payload.dataSources,
+            // Omitted entirely when nothing was invoked, so an ordinary message
+            // stays the exact two-argument call it has always been.
+            payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : undefined,
+          )
         : client.sendInteractionResponse(
           payload.interactionId,
           payload.parentId,
@@ -1936,7 +1959,12 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * that nothing is started rather than started and cancelled.
    */
   const openAgentTurn = useCallback(
-    (content: string, dataSourcesForMessage: string[], conversationId: string | undefined): boolean => {
+    (
+      content: string,
+      dataSourcesForMessage: string[],
+      conversationId: string | undefined,
+      skills?: string[],
+    ): boolean => {
       // thinkingSteps are NOT cleared here -- they persist per userMessageId
       // so chat history still renders prior thinking blocks.
       clearReportContent()
@@ -1955,6 +1983,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         kind: 'message',
         content,
         dataSources: dataSourcesForMessage,
+        ...(skills && skills.length > 0 ? { skills } : {}),
       }
 
       // Helper to actually send the message
@@ -2164,7 +2193,12 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       // currentConversation may have just been created inside addUserMessage.
       const conversationId = useChatStore.getState().currentConversation?.id
 
-      return openAgentTurn(content, dataSourcesForMessage, conversationId)
+      return openAgentTurn(
+        content,
+        dataSourcesForMessage,
+        conversationId,
+        options?.skills ? [...options.skills] : undefined,
+      )
     },
     [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage],
   )

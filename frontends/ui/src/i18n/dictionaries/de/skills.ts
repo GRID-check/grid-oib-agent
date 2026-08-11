@@ -229,4 +229,30 @@ export const skills: typeof en.skills = {
       cancelled: 'Abgebrochen',
     },
   },
+
+  // Die `/`-Aufrufoberfläche im Chat-Eingabefeld.
+  composer: {
+    picker: {
+      resultsAria: 'Verfügbare Skills',
+      empty: 'Noch keine Skills verfügbar',
+      emptyHint: 'Skills, die Ihre Organisation anlegt, erscheinen hier. Verwaltung unter Skills.',
+      noResults: 'Kein Skill passt zu „{query}“',
+      noResultsHint: 'Skills werden über ihren Namen und ihren Einsatzzweck gefunden.',
+      loading: 'Skills werden geladen',
+      builtin: 'Integriert',
+      keyboardHint: '↑↓ auswählen · ↵ einfügen · esc schließen',
+    },
+    invoked: {
+      label: 'Skill: {name}',
+      hint: 'Seine Anweisungen werden zu Beginn dieser Antwort geladen.',
+      remove: 'Skill {name} aus dieser Nachricht entfernen',
+    },
+    activated: {
+      one: '1 Skill verwendet',
+      other: '{count} Skills verwendet',
+      title: 'Für diese Antwort verwendete Skills',
+      explainer:
+        'Der Assistent sieht zu Beginn einer Antwort Name und Beschreibung jedes Skills und lädt die vollständigen Anweisungen nur für die Skills, die er aktiviert. Diese wurden aktiviert.',
+    },
+  },
 }
