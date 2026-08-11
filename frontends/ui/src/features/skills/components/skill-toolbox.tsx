@@ -3,20 +3,30 @@
 /**
  * Skill toolbox — the "Skill toolbox" section of the Skills tab. Renders the
  * merged toolbox (builtin platform skills + org rows, org rows shadowing same
- * names) as cards: an origin badge, the agent scope where there is one, the
- * description, a collapsible verbatim instruction preview, and actions.
+ * names) as raised cards: the name as the token it is, the description, the
+ * agent scope where there is one, actions, and — on the card's footer tray —
+ * the origin plus a collapsible verbatim instruction preview.
  * Nothing here is about time or output: a skill says neither. Builtin platform
  * skills can be cloned into the org; org-authored/cloned rows can be edited
  * and deleted (org:skills:manage — without it the section is read-only).
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, BookOpen, Copy, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
+import {
+  AlertCircle,
+  BookOpen,
+  ChevronDown,
+  Copy,
+  Pencil,
+  Plus,
+  Sparkles,
+  Trash2,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -34,20 +44,20 @@ interface SkillToolboxProps {
   onEdit: (skill: SkillListItem | null) => void
 }
 
-function originBadge(
-  t: ReturnType<typeof useTranslations>,
-  skill: SkillListItem,
-): JSX.Element | null {
-  if (skill.origin === 'platform') return <Badge variant="secondary">{t('toolbox.origin.platform')}</Badge>
-  if (skill.origin === 'platform-clone') return <Badge variant="secondary">{t('toolbox.origin.cloned')}</Badge>
-  return <Badge variant="outline">{t('toolbox.origin.org')}</Badge>
+/**
+ * Where the skill came from. This reads as plain text on the card's footer tab
+ * rather than as a badge in the header: every row has an origin, and a badge
+ * that is always present is decoration, not signal. The header keeps the badge
+ * slot for the scope, which appears only when a skill is NOT available
+ * everywhere — the thing worth a second look.
+ */
+function originLabel(t: ReturnType<typeof useTranslations>, skill: SkillListItem): string {
+  if (skill.origin === 'platform') return t('toolbox.origin.platform')
+  if (skill.origin === 'platform-clone') return t('toolbox.origin.cloned')
+  return t('toolbox.origin.org')
 }
 
-export function SkillToolbox({
-  canManage,
-  onClone,
-  onEdit,
-}: SkillToolboxProps): JSX.Element {
+export function SkillToolbox({ canManage, onClone, onEdit }: SkillToolboxProps): JSX.Element {
   const t = useTranslations('skills')
   const [skills, setSkills] = useState<SkillListItem[] | null>(null)
   const [error, setError] = useState(false)
@@ -88,10 +98,10 @@ export function SkillToolbox({
     <section className="space-y-4" aria-labelledby="skill-toolbox-heading">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
-          <h2 id="skill-toolbox-heading" className="text-sm font-semibold text-foreground">
+          <h2 id="skill-toolbox-heading" className="text-foreground text-sm font-semibold">
             {t('toolbox.heading')}
           </h2>
-          <p className="max-w-3xl text-xs text-muted-foreground">{t('toolbox.hint')}</p>
+          <p className="text-muted-foreground max-w-3xl text-xs">{t('toolbox.hint')}</p>
         </div>
         {canManage && (
           <Button size="sm" onClick={() => onEdit(null)}>
@@ -139,52 +149,45 @@ export function SkillToolbox({
       {skills !== null && !error && skills.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
           {skills.map((skill) => (
-            <Card key={skill.name}>
-              <CardContent className="flex flex-col gap-3 p-4">
+            // The same card as a job and a file (components/ui/raised-card): a
+            // white block laid into a tray, with the quiet provenance and the
+            // instruction disclosure showing on the tray beneath it.
+            <RaisedCard key={skill.name}>
+              <RaisedCardBody className="flex flex-1 flex-col gap-3 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
-                    <h3 className="truncate font-mono text-sm font-semibold text-foreground">
+                    <h3 className="text-foreground truncate font-mono text-sm font-semibold">
                       {/* Shown as the token it is. A skill's name is not a title
                           — it is what somebody types after a slash in chat, and
                           this card is where an author learns that. */}
-                      <span aria-hidden className="text-muted-foreground">/</span>
+                      <span aria-hidden className="text-muted-foreground">
+                        /
+                      </span>
                       {skill.name}
                     </h3>
-                    <p className="line-clamp-2 text-sm text-muted-foreground">{skill.description}</p>
+                    <p className="text-muted-foreground line-clamp-2 text-sm">
+                      {skill.description}
+                    </p>
                   </div>
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                    {originBadge(t, skill)}
-                    {/* Scope, and ONLY when there is one. This used to be an
-                        execution-mode badge on every row, which said what a
-                        scheduled run would produce while reading as though it
-                        said where the skill applied — and a badge every row
-                        carries tells you nothing anyway. A skill reaches both
-                        agents unless it says otherwise, so the badge appears
-                        exactly when that is not true. */}
-                    {agentScopeLabelKey(skill.metadata['grid-agents']) && (
-                      <Badge variant="outline">
-                        {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
-                      </Badge>
-                    )}
-                  </div>
+                  {/* Scope, and ONLY when there is one. This used to be an
+                      execution-mode badge on every row, which said what a
+                      scheduled run would produce while reading as though it
+                      said where the skill applied — and a badge every row
+                      carries tells you nothing anyway. A skill reaches both
+                      agents unless it says otherwise, so the badge appears
+                      exactly when that is not true. */}
+                  {agentScopeLabelKey(skill.metadata['grid-agents']) && (
+                    <Badge variant="outline" className="shrink-0">
+                      {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
+                    </Badge>
+                  )}
                 </div>
 
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="-ml-2 w-fit text-muted-foreground">
-                      <BookOpen className="size-3.5" aria-hidden />
-                      {t('toolbox.actions.viewBody')}
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="border-t border-border pt-2">
-                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 font-mono text-xs leading-relaxed text-foreground">
-                      {skill.body}
-                    </pre>
-                  </CollapsibleContent>
-                </Collapsible>
-
+                {/* `mt-auto` pins the actions to the bottom of the white block,
+                    so they line up across a grid row whose descriptions ran to
+                    different lengths. */}
                 {canManage && (
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="mt-auto flex flex-wrap items-center gap-2">
                     {skill.origin === 'platform' ? (
                       <Button
                         size="sm"
@@ -219,8 +222,38 @@ export function SkillToolbox({
                     )}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </RaisedCardBody>
+
+              {/* The tray: where the skill came from on the left, the way into
+                  its verbatim instruction on the right — the same one-row shape
+                  a job card's tray has. */}
+              <RaisedCardFooter>
+                <Collapsible className="w-full">
+                  <div className="flex w-full items-center gap-2">
+                    <span className="min-w-0 truncate">{originLabel(t, skill)}</span>
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground group -my-1 ml-auto h-7 shrink-0 px-2"
+                      >
+                        <BookOpen className="size-3.5" aria-hidden />
+                        {t('toolbox.actions.viewBody')}
+                        <ChevronDown
+                          className="size-3.5 transition-transform group-data-[state=open]:rotate-180"
+                          aria-hidden
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
+                  </div>
+                  <CollapsibleContent className="pt-2">
+                    <pre className="bg-muted/40 text-foreground max-h-64 overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-xs leading-relaxed">
+                      {skill.body}
+                    </pre>
+                  </CollapsibleContent>
+                </Collapsible>
+              </RaisedCardFooter>
+            </RaisedCard>
           ))}
         </div>
       )}
