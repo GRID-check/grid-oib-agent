@@ -162,6 +162,20 @@ export const skills: typeof en.skills = {
   },
 
   editor: {
+    review: {
+      heading: 'Skill-Prüfung',
+      subtitle:
+        'Eine Prüfinstanz liest den Skill so, wie ein Agent ihn liest, und nennt, was seiner Auswahl im Weg steht. Beratend – sie blockiert das Speichern nie.',
+      action: 'Skill prüfen',
+      running: 'Wird geprüft…',
+      clean: 'Nichts zu beanstanden. Die Beschreibung sagt, was der Skill tut und wann er einzusetzen ist.',
+      unavailable: 'Die Prüfung konnte gerade nicht ausgeführt werden. Es wurde nichts bewertet – bitte gleich erneut versuchen.',
+      fields: {
+        name: 'Name',
+        description: 'Beschreibung',
+        body: 'Anweisungen',
+      },
+    },
     preview: {
       heading: 'SKILL.md',
       subtitle: 'Genau das wird gespeichert – und genau das liest ein Agent.',

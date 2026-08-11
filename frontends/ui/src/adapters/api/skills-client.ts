@@ -226,6 +226,45 @@ export const listInvocableSkills = async (): Promise<InvocableSkill[]> => {
   return Array.isArray(data) ? data : (data.skills ?? [])
 }
 
+/** One thing the reviewer thinks is wrong with a skill draft. */
+export interface SkillReviewFinding {
+  severity: 'error' | 'warning' | 'suggestion'
+  field: 'name' | 'description' | 'body'
+  message: string
+  fix: string
+}
+
+export interface SkillReviewResult {
+  /** `null` means the review could not run — never "the skill is perfect". */
+  findings: SkillReviewFinding[] | null
+  error?: string
+}
+
+/**
+ * Ask the backend reviewer to critique a skill draft.
+ *
+ * Never throws and never rejects: a review is advisory, so a failure resolves
+ * to `{ findings: null }` and the editor simply says it could not check this
+ * time. The caller must not treat that as "no problems found".
+ */
+export const reviewSkill = async (input: {
+  name: string
+  description: string
+  body: string
+}): Promise<SkillReviewResult> => {
+  try {
+    const response = await fetch(`${skillsBase}/review`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) return { findings: null, error: 'review_failed' }
+    return (await response.json()) as SkillReviewResult
+  } catch {
+    return { findings: null, error: 'review_request_failed' }
+  }
+}
+
 /** Author a skill in the org toolbox (requires org:skills:manage). */
 export const createSkill = async (input: CreateSkillInput): Promise<SkillListItem> => {
   const response = await fetch(skillsBase, {

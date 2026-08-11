@@ -297,6 +297,59 @@ class ConsistencyCheckResponse(BaseModel):
     )
 
 
+class SkillReviewRequest(BaseModel):
+    """Request body for the LLM review of a single Agent Skill (a SKILL.md).
+
+    The three fields are the SKILL.md contract as ``skills/models.py`` enforces
+    it: hyphenated ``name``, the one-line ``description`` an agent sees before
+    it decides to load anything, and the markdown ``body`` it only sees after.
+    The skill under review need not be valid or saved yet — this endpoint is an
+    advisory pass over a draft, not a gate.
+    """
+
+    name: str = Field(default="", description="Skill name as written in the SKILL.md frontmatter")
+    description: str = Field(default="", description="Skill description (progressive-disclosure level 1)")
+    body: str = Field(default="", description="Skill instruction markdown (progressive-disclosure level 2)")
+    organization_id: str | None = Field(
+        default=None,
+        description=(
+            "WorkOS organization id, so the review reaches the org's BYOK LLM credential. "
+            "Falls back to the X-Grid-Organization-Id header when omitted."
+        ),
+    )
+
+
+class SkillReviewFinding(BaseModel):
+    """One critique of the skill under review."""
+
+    severity: str = Field(..., description="'error' (breaks the skill), 'warning' (likely harmful), 'suggestion'")
+    field: str = Field(..., description="Which part of the SKILL.md the finding is about: name, description or body")
+    message: str = Field(..., description="What is wrong, in the language of the skill being reviewed")
+    fix: str = Field(..., description="Concrete rewrite/action that resolves the finding, in the same language")
+
+
+class SkillReviewResponse(BaseModel):
+    """Response for the skill review.
+
+    ``findings`` is an empty list when the skill needs no changes, a populated
+    list when it does, and ``None`` when the review could not run (see
+    ``error``). Always HTTP 200 — like the intake consistency check, an outage
+    of an advisory reviewer must never stop someone from saving their skill.
+    """
+
+    findings: list[SkillReviewFinding] | None = Field(
+        default=None,
+        description="Critiques ([] = the skill is good); None when the review could not complete",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code when the review could not complete "
+            "(llm_not_configured, llm_request_failed, llm_response_malformed); None on success"
+        ),
+    )
+
+
 class UploadResponse(BaseModel):
     """Response for document upload (async operation)."""
 

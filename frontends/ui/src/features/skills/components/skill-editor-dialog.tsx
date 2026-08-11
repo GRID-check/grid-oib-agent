@@ -48,6 +48,7 @@ import {
 } from '@/adapters/api/skills-client'
 import { ConfirmDeleteDialog } from './confirm-delete-dialog'
 import { SkillDocumentPreview } from './SkillDocumentPreview'
+import { SkillReviewPanel } from './SkillReviewPanel'
 
 /** Rule names must satisfy server-side: lowercase a-z/0-9, single hyphens. */
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
@@ -281,12 +282,24 @@ export function SkillEditorDialog({
                 effect otherwise is a line of frontmatter nobody ever sees. */}
             <form.Subscribe selector={(state) => state.values}>
               {(values) => (
-                <SkillDocumentPreview
-                  name={values.name}
-                  description={values.description}
-                  body={values.body}
-                  metadata={buildMetadata()}
-                />
+                <>
+                  <SkillDocumentPreview
+                    name={values.name}
+                    description={values.description}
+                    body={values.body}
+                    metadata={buildMetadata()}
+                  />
+                  {/* The review sits directly under the document it is about,
+                      and is the same panel for everyone who can open this
+                      dialog — the author most likely to write a description
+                      that never matches anything is the one writing their
+                      first skill. */}
+                  <SkillReviewPanel
+                    name={values.name}
+                    description={values.description}
+                    body={values.body}
+                  />
+                </>
               )}
             </form.Subscribe>
 

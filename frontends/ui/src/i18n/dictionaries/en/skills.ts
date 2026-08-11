@@ -163,6 +163,21 @@ export const skills = {
   },
 
   editor: {
+    review: {
+      heading: 'Skill check',
+      subtitle:
+        'A reviewer reads the skill the way an agent will and says what would stop it being picked. Advisory — it never blocks saving.',
+      action: 'Check this skill',
+      running: 'Checking…',
+      clean: 'Nothing to flag. The description says what the skill does and when to use it.',
+      // Deliberately not "looks good": the reviewer did not run.
+      unavailable: 'The check could not run just now. Nothing was assessed — try again in a moment.',
+      fields: {
+        name: 'Name',
+        description: 'Description',
+        body: 'Instructions',
+      },
+    },
     preview: {
       heading: 'SKILL.md',
       subtitle: 'Exactly what gets stored, and exactly what an agent reads.',

@@ -56,6 +56,7 @@ from .routes.jobs import register_job_routes
 from .routes.maintenance import add_maintenance_routes
 from .routes.norms import add_norm_routes
 from .routes.oib import add_oib_routes
+from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
 from .websocket_reconnect import configure_websocket_auth
 from .websocket_reconnect import install_reconnectable_handler
@@ -220,6 +221,10 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # workflows submit route): same router/middleware treatment as
         # maintenance, so it stays off the external allowlist.
         add_skill_routes(knowledge_router)
+        # Advisory LLM critique of a skill draft. Sits with the other
+        # best-effort LLM routes rather than the submit route: it writes nothing
+        # and always answers 200.
+        add_skill_review_routes(knowledge_router)
         # Workflow-default model names for the org model-config UI (ADR-0014).
         add_config_info_routes(knowledge_router, self.config.llms)
         app.include_router(knowledge_router)

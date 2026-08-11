@@ -142,6 +142,10 @@ export function SkillToolbox({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
                     <h3 className="truncate font-mono text-sm font-semibold text-foreground">
+                      {/* Shown as the token it is. A skill's name is not a title
+                          — it is what somebody types after a slash in chat, and
+                          this card is where an author learns that. */}
+                      <span aria-hidden className="text-muted-foreground">/</span>
                       {skill.name}
                     </h3>
                     <p className="line-clamp-2 text-sm text-muted-foreground">{skill.description}</p>
