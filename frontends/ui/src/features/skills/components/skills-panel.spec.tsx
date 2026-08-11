@@ -94,6 +94,14 @@ const orgSkill: client.SkillListItem = {
   updatedAt: '2026-07-16T00:00:00Z',
 }
 
+/** The one shape that earns a scope badge: an explicit `grid-agents`. */
+const deepOnlySkill: client.SkillListItem = {
+  ...platformSkill,
+  id: null,
+  name: 'long-form-report-writer',
+  metadata: { 'grid-execution': 'deep-research', 'grid-agents': 'deep_researcher' },
+}
+
 const clonedSkill: client.SkillListItem = {
   ...platformSkill,
   id: 'skill-2',
@@ -162,20 +170,25 @@ describe('SkillToolbox', () => {
     vi.clearAllMocks()
   })
 
-  test('renders the merged toolbox with origin, execution and schedulability badges', async () => {
-    listSkillsMock.mockResolvedValue([platformSkill, orgSkill, clonedSkill])
+  test('renders the merged toolbox with origin, scope and schedulability badges', async () => {
+    listSkillsMock.mockResolvedValue([platformSkill, orgSkill, clonedSkill, deepOnlySkill])
     render(<SkillToolbox canManage onClone={noop} onEdit={noop} />)
 
     expect(await screen.findByText('acoustic-report')).toBeInTheDocument()
     expect(screen.getByText('oib-fire-check')).toBeInTheDocument()
     expect(screen.getByText('oib-fire-check-adapt')).toBeInTheDocument()
-    // Origin badges for every row type.
-    expect(screen.getByText('Built-in')).toBeInTheDocument()
+    // Origin badges for every row type (two builtins in this fixture).
+    expect(screen.getAllByText('Built-in')).toHaveLength(2)
     expect(screen.getByText('In this organization')).toBeInTheDocument()
     expect(screen.getByText('Cloned')).toBeInTheDocument()
-    // Execution + schedulability come from the reserved metadata.
-    expect(screen.getAllByText('Chat mode')).toHaveLength(2)
-    expect(screen.getByText('Deep research')).toBeInTheDocument()
+    // Scope is badged ONLY where there is one. Three of these four skills
+    // reach both agents — which is the default — so a badge on each of them
+    // would be three badges saying nothing.
+    expect(screen.getAllByText('Deep research only')).toHaveLength(1)
+    expect(screen.queryByText('Chat agent only')).not.toBeInTheDocument()
+    // `grid-execution` is no longer badged at all: it says what a SCHEDULED
+    // run produces, and it read here as though it said where a skill applied.
+    expect(screen.queryByText('Chat mode')).not.toBeInTheDocument()
     expect(screen.getByText('Not schedulable')).toBeInTheDocument()
   })
 

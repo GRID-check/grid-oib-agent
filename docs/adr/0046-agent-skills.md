@@ -141,14 +141,32 @@ preference in the loaded body. Absent means no preference — an empty
 `grid-cards:` line would read as a setting the author has to understand rather
 than one they never touched.
 
-**One agent vocabulary.** Targeting uses the `AGENT_REGISTRY` identifiers
-`shallow_researcher` / `deep_researcher` everywhere — frontmatter, resolver,
-BFF. Two spellings for one agent (`deep_research_agent` vs. `deep_researcher`)
-meant a `grid-agents` value that was correct in one file and inert in the
-other. The five builtin skills declare their own
+**One agent vocabulary, and one gate.** Targeting uses the `AGENT_REGISTRY`
+identifiers `shallow_researcher` / `deep_researcher` everywhere — frontmatter,
+resolver, BFF. Two spellings for one agent (`deep_research_agent` vs.
+`deep_researcher`) meant a `grid-agents` value that was correct in one file and
+inert in the other. The five builtin skills declare their own
 `grid-execution: deep-research` + `grid-agents: deep_researcher`, and the BFF
 forwards platform metadata verbatim, so targeting travels with the skill
 instead of being asserted by whoever serves it.
+
+`grid-agents` is the ONLY thing that narrows a skill's audience. `grid-execution`
+briefly did so as well, which was a mistake: it answers "when a SCHEDULE fires
+this, do I get a chat or a report", and using it as an availability rule meant
+choosing an output format silently deleted the skill from the other agent. A
+skill is available to both agents unless it says otherwise in so many words,
+and the builtins that truly cannot run in a chat turn do say so. Because that
+key is now load-bearing on its own, `platform-skills.spec.ts` asserts every
+shipped builtin still carries it — losing it would start offering a
+`/shared/`-writing procedure in chat, and nothing else in the build would
+notice.
+
+**A schedule is a prompt on a timer.** It is not a different kind of object
+from a chat message: it fires into a fresh run the way a person opening a new
+thread and typing `/name` would. That is why the skill editor's scheduling
+section asks exactly one question — what comes back out, a chat or a report —
+and why the answer is a line of frontmatter rather than a mode the rest of the
+feature has to reason about.
 
 **Progressive disclosure, two levels.** L1 is the catalog: one
 `- \`name\`: description` line per resolved skill in the system prompt

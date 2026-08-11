@@ -21,6 +21,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
 import { deleteSkill, listSkills, type SkillListItem } from '@/adapters/api/skills-client'
+import { agentScopeLabelKey } from '../lib/agent-scope'
 import { ConfirmDeleteDialog } from './confirm-delete-dialog'
 
 interface SkillToolboxProps {
@@ -152,14 +153,18 @@ export function SkillToolbox({
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                     {originBadge(t, skill)}
-                    <Badge
-                      variant="outline"
-                      title={skill.metadata['grid-execution'] === 'deep-research' ? '' : undefined}
-                    >
-                      {skill.metadata['grid-execution'] === 'deep-research'
-                        ? t('toolbox.execution.deepResearch')
-                        : t('toolbox.execution.chat')}
-                    </Badge>
+                    {/* Scope, and ONLY when there is one. This used to be an
+                        execution-mode badge on every row, which said what a
+                        scheduled run would produce while reading as though it
+                        said where the skill applied — and a badge every row
+                        carries tells you nothing anyway. A skill reaches both
+                        agents unless it says otherwise, so the badge appears
+                        exactly when that is not true. */}
+                    {agentScopeLabelKey(skill.metadata['grid-agents']) && (
+                      <Badge variant="outline">
+                        {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
+                      </Badge>
+                    )}
                     {skill.metadata['grid-schedulable'] !== 'false' ? (
                       <Badge variant="outline">{t('toolbox.schedulable')}</Badge>
                     ) : (

@@ -25,9 +25,9 @@ export const skills: typeof en.skills = {
       org: 'In dieser Organisation',
       cloned: 'Geklont',
     },
-    execution: {
-      chat: 'Chat-Modus',
-      deepResearch: 'Deep Research',
+    scope: {
+      chatOnly: 'Nur Chat-Agent',
+      deepOnly: 'Nur Deep Research',
     },
     schedulable: 'Planbar',
     notSchedulable: 'Nicht planbar',
@@ -231,19 +231,25 @@ export const skills: typeof en.skills = {
       preview: 'Nur Vorschau',
       fullscreen: 'Vollbild',
     },
-    behaviourHeading: 'Verfügbarkeit',
-    executionLabel: 'Einsatzbereich',
-    executionHint:
-      'Wo dieser Skill überhaupt existiert. Er gehört zu genau einem der beiden – die Anweisungen der beiden Laufzeiten unterscheiden sich zu stark.',
-    execution: {
+    agents: {
+      heading: 'Verfügbarkeit',
+      hint: 'Welche Agenten diesen Skill verwenden dürfen. Standard: beide.',
       chat: {
-        label: 'Chat',
-        hint: 'Steht im Chat zur Verfügung: Der Agent zieht den Skill selbst heran, wenn die Beschreibung zur Frage passt – und Sie rufen ihn mit „/“ direkt auf.',
+        label: 'Chat-Agent',
+        hint: 'Beantwortet Fragen im Chat. Hier rufen Sie den Skill mit „/“ auf.',
       },
-      deepResearch: {
-        label: 'Deep Research',
-        hint: 'Gilt nur in der Recherche-Pipeline, die im Hintergrund läuft und einen Bericht schreibt. Im Chat wird der Skill nicht angeboten.',
+      deep: {
+        label: 'Deep-Research-Agent',
+        hint: 'Führt die ausführliche Recherche im Hintergrund aus und schreibt den Bericht.',
       },
+    },
+    scheduleHeading: 'Zeitpläne',
+    outputLabel: 'Ausgabe',
+    outputHint:
+      'Was dabei herauskommt, wenn ein Zeitplan diesen Skill auslöst: ein Chat, den Sie öffnen können, oder ein Deep-Research-Bericht.',
+    output: {
+      chat: 'Chat',
+      deepResearch: 'Deep-Research-Bericht',
     },
     raw: {
       heading: 'Erweitert: SKILL.md direkt bearbeiten',

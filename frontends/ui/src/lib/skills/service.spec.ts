@@ -99,6 +99,7 @@ import {
   fireSkillSchedule,
   fireScheduledSkillSchedule,
   resolveSkillsForAgent,
+  listInvocableSkills,
   listSkillSchedules,
   getSkillSchedule,
 } from './service'
@@ -510,8 +511,59 @@ describe('resolveSkillsForAgent', () => {
     ])
     const { skills } = await resolveSkillsForAgent('org_1', 'deep_researcher')
     expect(skills.map((s) => s.name)).toEqual(['data-table-analysis', 'for-researcher', 'for-everyone'])
-    const { skills: other } = await resolveSkillsForAgent('org_1', 'chat_agent')
+    const { skills: other } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
     expect(other.map((s) => s.name)).toEqual(['data-table-analysis', 'for-everyone'])
+  })
+
+  it('does NOT filter by grid-execution — that is what a scheduled run produces', async () => {
+    // The regression this pins: reading `grid-execution` as an availability
+    // rule meant "a scheduled run of this should write a report" also deleted
+    // the skill from chat, which is not a thing anybody asked for.
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'report-mode', metadata: { 'grid-execution': 'deep-research' } }),
+      makeSkill({ id: 's2', name: 'chat-mode', metadata: { 'grid-execution': 'chat' } }),
+    ])
+    for (const agent of ['shallow_researcher', 'deep_researcher']) {
+      const { skills } = await resolveSkillsForAgent('org_1', agent)
+      expect(skills.map((s) => s.name)).toEqual(
+        expect.arrayContaining(['report-mode', 'chat-mode']),
+      )
+    }
+  })
+
+  it('ignores an unknown grid-agents name rather than hiding the skill from everyone', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'typo', metadata: { 'grid-agents': 'shallow_reseacher' } }),
+    ])
+    const { skills } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    expect(skills.map((s) => s.name)).toContain('typo')
+  })
+})
+
+describe('listInvocableSkills', () => {
+  it('offers a skill whose scheduled runs produce a report', async () => {
+    // The `/` menu resolves against the chat agent. A skill that writes a
+    // report on a schedule is still an ordinary thing to type `/name` for.
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'monthly-report', metadata: { 'grid-execution': 'deep-research' } }),
+    ])
+    const { skills } = await listInvocableSkills(session)
+    expect(skills.map((s) => s.name)).toContain('monthly-report')
+  })
+
+  it('never offers a skill scoped away from the chat agent', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'sandbox-writer', metadata: { 'grid-agents': 'deep_researcher' } }),
+    ])
+    const { skills } = await listInvocableSkills(session)
+    expect(skills.map((s) => s.name)).not.toContain('sandbox-writer')
+  })
+
+  it('carries only level-1 metadata — a menu never fetches a body', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([makeSkill({ name: 'a-skill' })])
+    const { skills } = await listInvocableSkills(session)
+    const entry = skills.find((s) => s.name === 'a-skill')
+    expect(entry).toEqual({ name: 'a-skill', description: 'Does the thing.', origin: 'org' })
   })
 })
 

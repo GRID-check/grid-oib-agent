@@ -11,6 +11,8 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { listPlatformSkills } from './platform-skills'
+import { KNOWN_SKILL_AGENTS, METADATA_AGENTS } from './types'
 
 const here = dirname(fileURLToPath(import.meta.url))
 // src/lib/skills -> src/lib -> src -> frontends/ui
@@ -28,4 +30,33 @@ describe('sync-platform-skills --check', () => {
     }
     expect(output).toContain('ok')
   })
+})
+
+/**
+ * The shipped builtins are DeepAgents subagent skills: their instructions call
+ * `execute` and write `/shared/`, neither of which exists in a chat turn.
+ *
+ * `grid-agents: deep_researcher` is now the ONLY thing keeping them out of the
+ * composer's `/` menu — `grid-execution` stopped gating availability when it
+ * went back to meaning "what a scheduled run produces". A builtin that loses
+ * this key would start being offered in chat, where following it fails on the
+ * first tool call, and nothing else in the build would notice.
+ */
+describe('every builtin scopes itself to the agent that can run it', () => {
+  it.each(listPlatformSkills().map((skill) => [skill.name, skill] as const))(
+    '%s declares grid-agents',
+    (_name, skill) => {
+      const raw = skill.metadata[METADATA_AGENTS] ?? ''
+      const listed = raw
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+      expect(listed).not.toHaveLength(0)
+      // A name outside the known set is IGNORED by both resolvers, so a typo
+      // here is the same as declaring nothing at all.
+      expect(
+        listed.filter((name) => (KNOWN_SKILL_AGENTS as readonly string[]).includes(name)),
+      ).not.toHaveLength(0)
+    },
+  )
 })

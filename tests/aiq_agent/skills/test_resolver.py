@@ -81,15 +81,54 @@ def test_grid_agents_filter_applies_to_builtin_and_org(resolver: SkillResolver) 
     assert "org-deep" not in {s.name for s in resolved}
 
 
-def test_grid_execution_chat_excludes_deep_research(resolver: SkillResolver) -> None:
-    chat_only = Skill(
-        name="chat-only", description="chat.", body="b", origin="platform", metadata={"grid-execution": "chat"}
-    )
-    resolver._builtin_by_name["chat-only"] = chat_only
+def test_grid_execution_does_not_decide_availability(resolver: SkillResolver) -> None:
+    """``grid-execution`` says what a SCHEDULED run produces, not where the skill exists.
+
+    It used to gate availability, which meant declaring "a scheduled run of this
+    should write a report" silently removed the skill from chat. Both agents see
+    both values now; scoping is ``grid-agents`` and only ``grid-agents``.
+    """
+    for execution in ("chat", "deep-research"):
+        skill = Skill(
+            name=f"{execution}-mode",
+            description="d.",
+            body="b",
+            origin="platform",
+            metadata={"grid-execution": execution},
+        )
+        resolver._builtin_by_name[skill.name] = skill
+
     deep = SkillResolver(agent="deep_researcher")
     deep._builtin_by_name = dict(resolver._builtin_by_name)
-    assert "chat-only" not in {s.name for s in deep.resolve(None)}
-    assert "chat-only" in {s.name for s in resolver.resolve(None)}
+
+    for agent_resolver in (resolver, deep):
+        names = {s.name for s in agent_resolver.resolve(None)}
+        assert {"chat-mode", "deep-research-mode"} <= names
+
+
+def test_grid_agents_is_the_only_scope(resolver: SkillResolver) -> None:
+    """A deep-research OUTPUT plus a chat audience is a legal, useful combination."""
+    scheduled_report = Skill(
+        name="monthly-report",
+        description="d.",
+        body="b",
+        origin="platform",
+        # Produces a report when a schedule fires it, but anyone may invoke it.
+        metadata={"grid-execution": "deep-research"},
+    )
+    deep_only = Skill(
+        name="sandbox-writer",
+        description="d.",
+        body="b",
+        origin="platform",
+        metadata={"grid-execution": "deep-research", "grid-agents": "deep_researcher"},
+    )
+    resolver._builtin_by_name["monthly-report"] = scheduled_report
+    resolver._builtin_by_name["sandbox-writer"] = deep_only
+
+    names = {s.name for s in resolver.resolve(None)}
+    assert "monthly-report" in names
+    assert "sandbox-writer" not in names
 
 
 def test_fetch_failure_fails_open_to_builtins(resolver: SkillResolver) -> None:

@@ -87,16 +87,25 @@ def _agent_allows(skill: Skill, agent: str | None) -> bool:
 
 
 def _skill_applies_to_agent(skill: Skill, agent: str | None) -> bool:
-    if not _agent_allows(skill, agent):
-        return False
-    execution = skill.metadata.get("grid-execution")
-    if execution is None:
-        return True
-    if execution == "chat":
-        return agent in {None, "shallow_researcher"}
-    if execution == "deep-research":
-        return agent in {None, "deep_researcher"}
-    return True
+    """Whether ``skill`` is offered to ``agent``.
+
+    ONE gate, and it is ``grid-agents``. A skill is available to every agent
+    unless it says otherwise in so many words.
+
+    ``grid-execution`` is deliberately NOT consulted here, though it used to be.
+    It answers a different question — when a SCHEDULE fires this skill, does the
+    run produce a chat turn or a deep-research report (see
+    ``routes/skills.py::_EXECUTION_AGENT_TYPES``) — and reading it as an
+    availability rule made a skill's output format silently decide where the
+    skill existed. A skill whose scheduled runs produce a report is still a
+    perfectly ordinary skill to invoke in chat.
+
+    The five builtin skills that genuinely cannot run in a chat turn — their
+    instructions call ``execute`` and write ``/shared/`` — say so with
+    ``grid-agents: deep_researcher``, which is the mechanism for exactly this
+    and is checked by ``_agent_allows``.
+    """
+    return _agent_allows(skill, agent)
 
 
 def _build_org_skills(payload: Any) -> list[Skill]:

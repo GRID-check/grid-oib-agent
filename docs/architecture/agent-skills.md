@@ -72,16 +72,22 @@ effective skill set for one run:
 
 ### Agent targeting
 
-Two independent gates, both read from reserved frontmatter metadata, applied
-identically by the Python resolver (`_skill_applies_to_agent`) and by the BFF
-(`skillAppliesToAgent` in `frontends/ui/src/lib/skills/service.ts`) — they are
-a contract pair, and both test suites pin them against the same cases:
+ONE gate, read from reserved frontmatter metadata and applied identically by
+the Python resolver (`_skill_applies_to_agent`) and by the BFF
+(`skillTargetsAgent` in `frontends/ui/src/lib/skills/service.ts`) — they are a
+contract pair, and both test suites pin them against the same cases:
 
 - `grid-agents` — comma-separated allowlist of agent identifiers; absent means
   every agent. A name that matches no known agent is **ignored** rather than
   obeyed, so one typo cannot silently delete a skill from every agent at once.
-- `grid-execution` — `chat` skills reach `shallow_researcher`,
-  `deep-research` skills reach `deep_researcher`.
+
+`grid-execution` is **not** a gate, though it used to be. It says what a
+*scheduled* run of the skill produces — a chat turn you can open, or a
+deep-research report (`routes/skills.py::_EXECUTION_AGENT_TYPES`) — and reading
+it as an availability rule meant declaring an output format silently decided
+where the skill existed. A skill whose scheduled runs write a report is still
+an ordinary skill to invoke with `/name` in chat. A skill that genuinely cannot
+run somewhere says so with `grid-agents`.
 
 The agent vocabulary is the `AGENT_REGISTRY` identifiers
 (`frontends/aiq_api/src/aiq_api/registry.py`): **`shallow_researcher`** and
@@ -94,9 +100,11 @@ All five builtin skills declare `grid-execution: deep-research`,
 `grid-agents: deep_researcher` and `grid-schedulable: "false"` in their own
 frontmatter. They are DeepAgents subagent skills: their instructions call
 `execute`, read and write `/shared/` and return `ResearchNotes`, none of which
-exists in a chat turn. Declaring the target in the skill keeps the shallow
+exists in a chat turn. `grid-agents: deep_researcher` is what keeps the shallow
 chat researcher from being offered a procedure it cannot carry out — shallow
-chat resolves none of them, deep research resolves all five. The BFF forwards
+chat resolves none of them, deep research resolves all five. Since the
+`grid-execution` gate was removed, that key is the ONLY thing doing so, which
+is why `platform-skills.spec.ts` asserts every builtin still declares it. The BFF forwards
 platform metadata **verbatim** on the resolve endpoint (an empty `metadata: {}`
 would merge over the backend's own filesystem copy and erase this targeting),
 and the agent filter applies to platform rows as well as org rows.

@@ -56,7 +56,6 @@ import {
   CHAT_SKILL_AGENT,
   KNOWN_SKILL_AGENTS,
   METADATA_AGENTS,
-  METADATA_EXECUTION,
   type CreateSkillInput,
   type CreateSkillScheduleInput,
   type PatchSkillInput,
@@ -686,35 +685,33 @@ export async function resolveSkillsForAgent(
  * Whether a skill applies to `agent` — the mirror of the backend resolver's
  * `_skill_applies_to_agent` (`src/aiq_agent/skills/resolver.py`).
  *
- * Two independent gates, both from reserved frontmatter metadata:
+ * ONE gate: `grid-agents`, a comma-separated allowlist, absent = every agent.
+ * Names that match no known agent are ignored rather than obeyed, so a typo
+ * cannot silently delete a skill from every agent at once.
  *
- *  - `grid-agents`: a comma-separated allowlist; absent = every agent. Names
- *    that match no known agent are ignored rather than obeyed, so a typo
- *    cannot silently delete a skill from every agent at once.
- *  - `grid-execution`: `chat` skills reach the shallow/chat researcher,
- *    `deep-research` skills reach the deep researcher. A skill written for one
- *    runtime is not merely unhelpful in the other — a deep-research skill's
- *    instructions call `execute` and write `/shared/`, neither of which exists
- *    in a chat turn.
+ * `grid-execution` is deliberately NOT a gate here, though it once was. It says
+ * what a SCHEDULED run of the skill produces — a chat turn or a deep-research
+ * report — and reading that as an availability rule let a skill's output format
+ * decide where the skill existed. A skill whose scheduled runs write a report
+ * is still an ordinary skill to invoke in chat.
+ *
+ * The builtins that truly cannot run in a chat turn declare
+ * `grid-agents: deep_researcher`, which is the mechanism for precisely that.
+ * `platform-skills.spec.ts` pins that they all still do, because it is now the
+ * only thing keeping them out of the composer's `/` menu.
  *
  * Kept deliberately close to the Python in shape as well as behaviour: the two
  * are a contract pair, and `service.spec.ts` pins them against the same cases.
  */
 function skillTargetsAgent(metadata: Record<string, string>, agent: string): boolean {
   const raw = metadata[METADATA_AGENTS]
-  if (raw) {
-    const listed = raw
-      .split(',')
-      .map((part) => part.trim())
-      .filter((part) => part.length > 0)
-    const known = listed.filter((name) => (KNOWN_SKILL_AGENTS as readonly string[]).includes(name))
-    if (known.length > 0 && !known.includes(agent)) return false
-  }
-
-  const execution = metadata[METADATA_EXECUTION]
-  if (execution === 'chat') return agent === 'shallow_researcher'
-  if (execution === 'deep-research') return agent === 'deep_researcher'
-  return true
+  if (!raw) return true
+  const listed = raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+  const known = listed.filter((name) => (KNOWN_SKILL_AGENTS as readonly string[]).includes(name))
+  return known.length === 0 || known.includes(agent)
 }
 
 // ---------------------------------------------------------------------------

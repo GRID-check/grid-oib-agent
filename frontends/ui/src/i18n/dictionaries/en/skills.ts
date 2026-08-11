@@ -28,9 +28,9 @@ export const skills = {
       org: 'In this organization',
       cloned: 'Cloned',
     },
-    execution: {
-      chat: 'Chat mode',
-      deepResearch: 'Deep research',
+    scope: {
+      chatOnly: 'Chat agent only',
+      deepOnly: 'Deep research only',
     },
     schedulable: 'Schedulable',
     notSchedulable: 'Not schedulable',
@@ -233,19 +233,25 @@ export const skills = {
       preview: 'Preview only',
       fullscreen: 'Fullscreen',
     },
-    behaviourHeading: 'Availability',
-    executionLabel: 'Where it applies',
-    executionHint:
-      'Where this skill exists at all. It belongs to exactly one of the two — the instructions the two runtimes need are too different to share.',
-    execution: {
+    agents: {
+      heading: 'Availability',
+      hint: 'Which agents may use this skill. Both, by default.',
       chat: {
-        label: 'Chat',
-        hint: 'Available in chat: the agent reaches for it when the description matches the question, and you can invoke it directly with “/”.',
+        label: 'Chat agent',
+        hint: 'Answers questions in chat. This is where you invoke the skill with “/”.',
       },
-      deepResearch: {
-        label: 'Deep research',
-        hint: 'Applies only inside the research pipeline that runs in the background and writes a report. It is never offered in chat.',
+      deep: {
+        label: 'Deep research agent',
+        hint: 'Runs the long-form research in the background and writes the report.',
       },
+    },
+    scheduleHeading: 'Schedules',
+    outputLabel: 'Output',
+    outputHint:
+      'What you get when a schedule fires this skill: a chat you can open, or a deep-research report.',
+    output: {
+      chat: 'Chat',
+      deepResearch: 'Deep-research report',
     },
     raw: {
       heading: 'Advanced: edit the SKILL.md directly',
