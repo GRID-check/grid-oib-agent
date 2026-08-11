@@ -444,6 +444,53 @@ describe('FilePreviewPane', () => {
     })
   })
 
+  describe('the indexed summary', () => {
+    const LONG_SUMMARY =
+      'Brandschutzkonzept für den Wohnbau Nord (Gebäudeklasse 4) nach OIB-Richtlinie 2. ' +
+      'Zwei voneinander unabhängige Fluchtwege je Nutzungseinheit, maximale Gehweglänge 34 m, ' +
+      'Brandabschnitte REI 90, Rauchableitung über die RWA im Treppenhaus.'
+
+    /**
+     * jsdom does no layout, so an element's scrollHeight is always 0 and the
+     * clamp can never be observed to bite. Stubbing the two properties the
+     * measurement reads is the only way to exercise either branch.
+     */
+    const stubOverflow = (overflows: boolean) => {
+      vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(overflows ? 200 : 100)
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100)
+    }
+
+    it('offers no toggle when the whole summary already fits', () => {
+      stubOverflow(false)
+      render(<FilePreviewPane file={{ ...mockFile, summary: 'Kurz.' }} projectId="proj-1" />)
+
+      expect(screen.getByText('Kurz.')).toBeDefined()
+      expect(screen.queryByRole('button', { name: /full summary/i })).toBeNull()
+    })
+
+    it('clamps a long summary so the properties below it stay reachable', () => {
+      stubOverflow(true)
+      render(<FilePreviewPane file={{ ...mockFile, summary: LONG_SUMMARY }} projectId="proj-1" />)
+
+      expect(screen.getByText(LONG_SUMMARY).className).toContain('line-clamp-5')
+      expect(screen.getByRole('button', { name: /full summary/i })).toBeDefined()
+      // The rail's other sections are rendered, not pushed out of the tree.
+      expect(screen.getByText('Properties')).toBeDefined()
+    })
+
+    it('expands and collapses on request', async () => {
+      stubOverflow(true)
+      const user = userEvent.setup()
+      render(<FilePreviewPane file={{ ...mockFile, summary: LONG_SUMMARY }} projectId="proj-1" />)
+
+      await user.click(screen.getByRole('button', { name: /full summary/i }))
+      expect(screen.getByText(LONG_SUMMARY).className).not.toContain('line-clamp-5')
+
+      await user.click(screen.getByRole('button', { name: /show less/i }))
+      expect(screen.getByText(LONG_SUMMARY).className).toContain('line-clamp-5')
+    })
+  })
+
   it('surfaces the failure reason and a retry-ingestion affordance for failed documents', () => {
     render(
       <FilePreviewPane

@@ -494,11 +494,9 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
           {showMetadataPanel && (
             <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
               <SectionLabel icon={Sparkles}>{t('preview.indexed.title')}</SectionLabel>
-              {file.summary && (
-                <p className="rounded-lg border bg-card p-3 text-[13px] leading-[1.55] text-foreground shadow-2xs">
-                  {file.summary}
-                </p>
-              )}
+              {/* Keyed by file so a newly-selected document always starts
+                  collapsed and re-measures against its own text. */}
+              {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
             </section>
           )}
 
@@ -661,6 +659,71 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
           rows below the "Pages" row that already stated it, in a band that cost
           the preview column ~32px of height on every document — the definition
           of a part that could be removed without losing anything. */}
+    </div>
+  )
+}
+
+/** Lines of summary shown before it has to ask for the space. */
+const SUMMARY_CLAMP_LINES = 5
+
+/**
+ * The indexed summary, clamped until asked.
+ *
+ * The summary is the most valuable thing on the rail, which is exactly why it
+ * cannot be allowed to take the whole rail: an ingestion pass on a
+ * Brandschutzkonzept happily produces twelve lines, and unclamped that pushes
+ * the properties, the tags and the delete action off the bottom of a 280px
+ * column. The reader then has to scroll to find out that a Type row exists.
+ *
+ * Five lines is enough to know what the document is and decide whether to read
+ * the rest. The toggle appears only when text is genuinely hidden — measured,
+ * not guessed from a character count, because the same string wraps differently
+ * in the wide modal and the mobile sheet.
+ */
+function IndexedSummary({ summary }: { summary: string }) {
+  const t = useTranslations('files')
+  const [expanded, setExpanded] = useState(false)
+  const [isTruncated, setIsTruncated] = useState(false)
+  const textRef = useRef<HTMLParagraphElement>(null)
+
+  useEffect(() => {
+    const element = textRef.current
+    if (!element) return
+
+    // Only meaningful while the clamp is applied; once expanded the element is
+    // its own full height by definition and would measure as "nothing hidden".
+    const measure = () => {
+      if (expanded) return
+      setIsTruncated(element.scrollHeight - element.clientHeight > 2)
+    }
+    measure()
+
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [expanded, summary])
+
+  return (
+    <div className="rounded-lg border bg-card p-3 shadow-2xs">
+      <p
+        ref={textRef}
+        className={cn('text-[13px] leading-[1.55] text-foreground', !expanded && 'line-clamp-5')}
+        style={!expanded ? { WebkitLineClamp: SUMMARY_CLAMP_LINES } : undefined}
+      >
+        {summary}
+      </p>
+      {(isTruncated || expanded) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+          className="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target"
+        >
+          {expanded ? t('preview.summaryLess') : t('preview.summaryMore')}
+          <ChevronDown className={cn('size-3 shrink-0 transition-transform', expanded && 'rotate-180')} aria-hidden />
+        </button>
+      )}
     </div>
   )
 }

@@ -87,6 +87,8 @@ export const files: typeof en.files = {
       'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',
     status: 'Status',
     properties: 'Eigenschaften',
+    summaryMore: 'Vollständige Zusammenfassung',
+    summaryLess: 'Weniger anzeigen',
     type: 'Typ',
     size: 'Größe',
     tags: 'Schlagwörter',

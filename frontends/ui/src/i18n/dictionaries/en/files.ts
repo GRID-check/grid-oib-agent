@@ -87,6 +87,8 @@ export const files = {
     // Heading for the rail's fact list (what the FILE is), distinct from
     // "Detailed information" below it (what the VLM saw on each page).
     properties: 'Properties',
+    summaryMore: 'Show full summary',
+    summaryLess: 'Show less',
     type: 'Type',
     size: 'Size',
     tags: 'Tags',
