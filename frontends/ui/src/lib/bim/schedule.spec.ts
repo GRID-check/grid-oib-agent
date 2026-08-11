@@ -126,9 +126,12 @@ describe('buildRoomSchedule', () => {
     const csv = roomScheduleToCsv(buildRoomSchedule(SUMMARY, ROOMS))
     const lines = csv.split('\n')
     expect(lines[0]).toContain('Geschoß;Raum;Kategorie;Netto-Grundfläche (m²)')
-    expect(csv).toContain('Erdgeschoss;Wohnzimmer;INTERNAL;32;34.5;80;;g-Wohnzimmer')
-    expect(csv).toContain('Erdgeschoss — Summe;;;44.5')
-    expect(lines.at(-1)).toContain('Gesamt;;;62.5')
+    expect(csv).toContain('Erdgeschoss;Wohnzimmer;INTERNAL;32;34,5;80;;g-Wohnzimmer')
+    // Comma decimals: the separator was already chosen for German-locale
+    // Excel, and `24.5` in such a file is read as TEXT — the downloaded
+    // Raumbuch would not sum, which is the one thing anyone downloads it for.
+    expect(csv).toContain('Erdgeschoss — Summe;;;44,5')
+    expect(lines.at(-1)).toContain('Gesamt;;;62,5')
   })
 
   it('escapes a room name containing the separator', () => {

@@ -236,9 +236,18 @@ export function roomScheduleToCsv(schedule: BimRoomSchedule): string {
     `Höhe (${schedule.units.length})`,
     'GlobalId',
   ]
+  /**
+   * A semicolon file for German-locale Excel, with German decimals.
+   *
+   * The separator was already chosen for that audience — and every number went
+   * in as `String(24.5)`, which German Excel reads as TEXT. The downloaded
+   * Raumbuch would not sum, which is the one thing anyone downloads a Raumbuch
+   * to do. A comma decimal is what the same spreadsheet expects, and it is
+   * safe precisely because the separator is a semicolon.
+   */
   const escape = (value: string | number | null): string => {
     if (value === null) return ''
-    const text = String(value)
+    const text = typeof value === 'number' ? String(value).replace('.', ',') : String(value)
     return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
   }
   const lines = [header.join(';')]

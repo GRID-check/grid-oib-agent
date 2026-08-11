@@ -155,11 +155,22 @@ export function IfcRoomSchedule({
                 </tr>
               </thead>
               {schedule.storeys.map((storey) => {
+                /**
+                 * A storey is never dropped, only its rooms are.
+                 *
+                 * The budget used to cut the map itself: once 60 rooms had
+                 * been rendered every later storey returned `null` — heading,
+                 * rooms AND `Summe Geschoß` all gone — while the `Gesamt` row
+                 * below still counted them. A reader adding the visible
+                 * subtotals got a number that did not reach the total, with
+                 * nothing on screen naming the missing floors, and an expand
+                 * button that reads as "more rows in the storeys I can see".
+                 */
                 const visible = expanded
                   ? storey.rooms
                   : storey.rooms.slice(0, Math.max(0, VISIBLE_ROOMS - rendered))
                 rendered += visible.length
-                if (visible.length === 0) return null
+                const elided = storey.rooms.length - visible.length
                 return (
                   <tbody key={storey.storeyName} className="border-t">
                     <tr className="bg-muted/30">
@@ -201,6 +212,13 @@ export function IfcRoomSchedule({
                         </td>
                       </tr>
                     ))}
+                    {elided > 0 && (
+                      <tr className="border-t">
+                        <td colSpan={3} className="text-muted-foreground px-2 py-1 text-xs italic">
+                          {t('schedule.storeyElided', { count: elided })}
+                        </td>
+                      </tr>
+                    )}
                     <tr className="border-t bg-muted/20 text-xs font-medium">
                       <td className="px-2 py-1">{t('schedule.storeyTotal')}</td>
                       <td className="px-2 py-1 text-right tabular-nums">

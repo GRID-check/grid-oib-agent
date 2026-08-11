@@ -217,6 +217,7 @@ export const bim = {
     },
   },
   schedule: {
+    storeyElided: '{count} more rooms on this storey',
     truncated:
       'This model was read only in part, so the totals below cover the rooms that were stored, not the building.',
     title: 'Room schedule',

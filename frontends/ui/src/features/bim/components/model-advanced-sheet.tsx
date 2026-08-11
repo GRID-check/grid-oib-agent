@@ -27,7 +27,7 @@
  * than on a page of their own.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -108,21 +108,41 @@ export function ModelAdvancedSheet({
   // 200k-element model is a real query, and almost nobody opens this drawer.
   const [takeoffQuantity, setTakeoffQuantity] = useState<string>('NetSideArea')
   const [takeoffByMaterial, setTakeoffByMaterial] = useState(false)
-  const quantitiesOpen = open && tab === 'quantities'
+  /**
+   * A tab that has BEEN opened keeps its data.
+   *
+   * The gate used to be "is this tab open right now", so leaving Mengen and
+   * coming back re-ran the room schedule and the take-off — two full element
+   * reads — for data the browser had held a second earlier. The comment on
+   * these calls says they are "fetched only once its tab is open"; with the
+   * gate on the live tab, "once" meant once per visit.
+   *
+   * Sticky rather than eager: nothing is fetched for a tab nobody opens, which
+   * is the whole point of gating, and nothing is re-fetched for one they
+   * return to.
+   */
+  const [visited, setVisited] = useState<ReadonlySet<BimModelTab>>(() => new Set())
+  useEffect(() => {
+    if (!open) return
+    setVisited((seen) => (seen.has(tab) ? seen : new Set(seen).add(tab)))
+  }, [open, tab])
+  const opened = (candidate: BimModelTab): boolean => open && visited.has(candidate)
+
+  const quantitiesOpen = opened('quantities')
   const schedule = useBimRoomSchedule(quantitiesOpen ? modelId : null)
   const takeoff = useBimTakeoff(
     quantitiesOpen ? modelId : null,
     takeoffQuantity,
     takeoffByMaterial
   )
-  const profile = useBimProfileSuggestions(open && tab === 'overview' ? modelId : null)
+  const profile = useBimProfileSuggestions(opened('overview') ? modelId : null)
 
   // The rule catalogue reads the project brief. A fact the brief does not
   // carry arrives as null and the rules that need it stand down, visibly.
   const ruleFacts = useProjectRuleFacts(projectId)
   const compliance = useBimCompliance(
     projectId,
-    open && tab === 'compliance' ? modelId : null,
+    opened('compliance') ? modelId : null,
     ruleFacts
   )
 
@@ -206,6 +226,21 @@ export function ModelAdvancedSheet({
         </Button>
       </div>
 
+      {/*
+        `forceMount` with a `hidden` inactive state, rather than Radix's
+        default unmount.
+
+        An inactive tab used to be destroyed, and every panel here holds state
+        worth more than the render it costs: the comparison result — which read
+        two full element sets at `limit: 20_000` — the element table's search
+        text and type filter, the Raumbuch's expansion, and every panel's
+        scroll offset. Leaving Revisionen and coming back silently discarded
+        all of it and reset the base model to the first candidate.
+
+        It also refired the gated queries. The comment on those says they are
+        "fetched only once its tab is open"; with an unmounting tab, "once"
+        meant once per visit.
+      */}
       <Tabs
         value={tab}
         onValueChange={(next) => onTabChange(next as BimModelTab)}
@@ -219,7 +254,11 @@ export function ModelAdvancedSheet({
           <TabsTrigger value="revisions">{t('tabs.revisions')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="overview"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           {model.summary && <IfcModelOverview summary={model.summary} filename={model.filename} />}
           {model.summary?.health && (
             <IfcModelHealthPanel health={model.summary.health} onShowElements={onShowElements} />
@@ -232,7 +271,11 @@ export function ModelAdvancedSheet({
           />
         </TabsContent>
 
-        <TabsContent value="compliance" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="compliance"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           <IfcCompliancePanel
             rules={compliance.data?.rules ?? null}
             summary={compliance.data?.summary ?? null}
@@ -250,7 +293,11 @@ export function ModelAdvancedSheet({
           />
         </TabsContent>
 
-        <TabsContent value="structure" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="structure"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           {model.summary && (
             <IfcSpatialTree
               summary={model.summary}
@@ -266,7 +313,11 @@ export function ModelAdvancedSheet({
           />
         </TabsContent>
 
-        <TabsContent value="quantities" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="quantities"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           <IfcRoomSchedule
             schedule={schedule.data?.schedule ?? null}
             truncated={schedule.data?.truncated ?? false}
@@ -290,7 +341,11 @@ export function ModelAdvancedSheet({
           />
         </TabsContent>
 
-        <TabsContent value="revisions" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="revisions"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           <IfcRevisionTimeline
             series={series}
             currentModelId={model.id}

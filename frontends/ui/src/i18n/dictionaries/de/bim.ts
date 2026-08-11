@@ -219,6 +219,7 @@ export const bim: typeof en.bim = {
     },
   },
   schedule: {
+    storeyElided: '{count} weitere Räume in diesem Geschoß',
     truncated:
       'Dieses Modell wurde nur teilweise eingelesen — die Summen unten beziehen sich auf die gespeicherten Räume, nicht auf das Gebäude.',
     title: 'Raumbuch',
