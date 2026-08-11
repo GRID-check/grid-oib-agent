@@ -225,27 +225,6 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'main',
   },
   {
-    id: 'platform-workflow-templates',
-    path: '/dev/platform-workflow-templates',
-    description:
-      'Platform workflow-templates manager (ADR-0027) — published + draft rows, provenance chips, cadence hints, and the JSON-import dropzone.',
-    waitFor: '[data-testid="platform-template-list"]',
-  },
-  {
-    id: 'workflow-template-gallery',
-    path: '/dev/workflow-template-gallery',
-    description:
-      'Org Workflows template gallery (ADR-0027) — GRID built-in templates followed by the platform-published ones.',
-    waitFor: '[data-testid="workflow-templates"]',
-  },
-  {
-    id: 'workflow-run-history',
-    path: '/dev/workflow-run-history',
-    description:
-      'A workflow’s run history joined with live job status — a run in flight (View progress), a finished one (View report), a failed one (View thinking) and a skipped one with no job.',
-    waitFor: '[data-testid="run-history-preview"] a',
-  },
-  {
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
@@ -304,14 +283,6 @@ export const SCREENSHOT_TARGETS = [
     description:
       'Platform norms section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
     waitFor: '[data-testid="platform-norms-preview"]',
-  },
-  {
-    id: 'platform-workflows',
-    mobile: true,
-    path: '/dev/platform-workflows',
-    description:
-      'Platform workflows section, rebuilt on the shared admin primitives (SectionCard + DataToolbar + Table + Sheet).',
-    waitFor: '[data-testid="platform-workflows-preview"]',
   },
   {
     id: 'platform-overview',
