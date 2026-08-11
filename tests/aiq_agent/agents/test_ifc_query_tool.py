@@ -270,6 +270,20 @@ class TestElementLinks:
     def test_a_model_without_a_file_name_still_links_the_element(self):
         assert _element_link("p1", None, "g1") == "/app/projects/p1/model?element=g1&hl=info%3Ag1"
 
+    def test_a_failing_element_opens_red_rather_than_neutral(self):
+        # Every link this tool emitted was `info` (blue) whatever the row said,
+        # so a wall that FAILS a requirement opened in the same colour as one
+        # the user merely asked to look at. The viewer supports four verdict
+        # colours and the whole set was collapsed to one.
+        assert _element_link("p1", None, "g1", "fail") == "/app/projects/p1/model?element=g1&hl=fail%3Ag1"
+        assert _element_link("p1", None, "g1", "warning").endswith("hl=warning%3Ag1")
+
+    def test_an_unknown_status_falls_back_instead_of_reaching_the_url(self):
+        # The frontend parser DROPS a highlight whose status it cannot read
+        # (`STATUSES.has` in `model-link.ts`), so an invalid tone would not
+        # mis-colour the element — it would leave it unhighlighted entirely.
+        assert _element_link("p1", None, "g1", "rot").endswith("hl=info%3Ag1")
+
     def test_an_element_list_carries_a_link_per_row(self):
         rendered = _render(
             {
@@ -400,9 +414,92 @@ class TestComplianceOperation:
             "p1",
         )
         # The reading is what makes the row checkable, and the link is what
-        # makes it fixable.
+        # makes it fixable — and it opens RED, because this row is a breach.
         assert "Breite 0.7 m — Schwellwert ≥ 0,80 m" in rendered
         assert "element=0GridFixtureDoor00001" in rendered
+        assert "hl=fail%3A0GridFixtureDoor00001" in rendered
+
+    def test_a_rule_that_left_work_behind_prints_the_id_the_card_asks_for(self):
+        # `ifc_compliance.rule_ids` is documented as "rule ids from ifc_query
+        # operation='compliance'", and this renderer printed one nowhere except
+        # inside the shopping list's `entscheidet:` clause — which only covers
+        # rules with a MISSING property. For a rule that cleanly fails there
+        # was no valid id to put in the card, so the agent had to invent one
+        # (the card then renders it unresolved) or send an empty list.
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "compliance",
+                "model": {"filename": "haus-a.ifc"},
+                "summary": "…",
+                "compliance": [
+                    {
+                        "ruleId": "oib4-tuer-durchgangsbreite",
+                        "titleDe": "Türen — lichte Durchgangsbreite",
+                        "richtlinie": "OIB 4",
+                        "failed": 3,
+                        "undecidable": 0,
+                        "failures": [],
+                    }
+                ],
+            },
+            "p1",
+        )
+
+        assert "Regel oib4-tuer-durchgangsbreite" in rendered
+        assert "3 nicht erfüllt" in rendered
+
+    def test_a_clean_rule_is_not_offered_as_a_card_row(self):
+        # A rule with nothing outstanding is not work, and listing its id would
+        # invite a card whose whole content is "this one was fine".
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "compliance",
+                "model": {"filename": "haus-a.ifc"},
+                "summary": "…",
+                "compliance": [
+                    {
+                        "ruleId": "oib3-raumhoehe",
+                        "titleDe": "Aufenthaltsräume — lichte Raumhöhe",
+                        "richtlinie": "OIB 3",
+                        "failed": 0,
+                        "undecidable": 0,
+                        "failures": [],
+                    }
+                ],
+            },
+            "p1",
+        )
+
+        assert "oib3-raumhoehe" not in rendered
+
+    def test_an_undecidable_rule_is_work_too(self):
+        # "The model does not publish the value" is the state this whole
+        # catalogue exists to surface; a rule that reaches it must be
+        # offerable as a card row even with zero failures.
+        rendered = _render(
+            {
+                "resolved": True,
+                "op": "compliance",
+                "model": {"filename": "haus-a.ifc"},
+                "summary": "…",
+                "compliance": [
+                    {
+                        "ruleId": "oib2-feuerwiderstand",
+                        "titleDe": "Tragende Bauteile — Feuerwiderstand",
+                        "richtlinie": "OIB 2",
+                        "failed": 0,
+                        "undecidable": 34,
+                        "failures": [],
+                    }
+                ],
+            },
+            "p1",
+        )
+
+        assert "Regel oib2-feuerwiderstand" in rendered
+        assert "34 nicht entscheidbar" in rendered
 
     def test_the_open_items_come_back_as_a_bcf_download(self):
         # The list of open requirements is the answer; the BCF file is what the
@@ -525,10 +622,63 @@ class TestTheDescriptionDescribesTheRealTool:
         # Other tools and cards the description legitimately points at. The
         # list is explicit so a NEW snake_case name has to be classified rather
         # than absorbed.
-        neighbours = {"knowledge_search", "project_profile_patch"}
+        neighbours = {
+            "knowledge_search",
+            "project_profile_patch",
+            # The card surface this tool now hands its rows to. That every
+            # `ifc_*` name here is a real card type is pinned separately, by
+            # `test_the_cards_the_description_names_actually_exist`.
+            "emit_card",
+            "ifc_viewer",
+            "ifc_element",
+            "ifc_compliance",
+            "ifc_schedule",
+            "ifc_diff",
+            # A field of `IfcHighlight`, not of this tool. Pinned as a real one
+            # by `test_the_highlight_selectors_it_names_are_real_fields`.
+            "global_ids",
+        }
         named = set(re.findall(r"[a-z][a-z0-9]*_[a-z0-9_]+", description))
 
         assert sorted(named - set(parameters) - neighbours) == []
+
+    def test_the_cards_the_description_names_actually_exist(self):
+        # The description tells the agent to emit these by name. A card renamed
+        # on the Python side would leave the tool instructing the model to call
+        # `emit_card` with a type the union rejects — the failure lands as a
+        # silently dropped card, which looks like the model choosing not to
+        # emit one.
+        import re
+
+        from aiq_agent.cards.models import GridCard
+
+        description, _ = self._description_and_parameters()
+        real = {getattr(card.model_fields["type"].annotation, "__args__", ("?",))[0] for card in GridCard.__args__}
+        named = set(re.findall(r"`(ifc_[a-z]+)`", description))
+
+        assert named, "the invariant is vacuous if the description names no cards"
+        assert sorted(named - real) == []
+
+    def test_the_highlight_selectors_it_names_are_real_fields(self):
+        # The description tells the agent which of the two to reach for. A
+        # renamed field would leave it teaching a key the card rejects, and a
+        # rejected card is dropped silently.
+        from aiq_agent.cards.models import IfcHighlight
+
+        description, _ = self._description_and_parameters()
+        assert {"global_ids", "match"} <= set(IfcHighlight.model_fields)
+        assert "'match'" in description
+        assert "'global_ids'" in description
+
+    def test_it_prefers_a_filter_over_a_transcribed_id_list(self):
+        # The reason the field exists: an id list can only carry what fits in
+        # the reply, so a set answer highlighted a fraction of itself while the
+        # legend claimed the whole thing.
+        description, _ = self._description_and_parameters()
+        assert "rather than a list of ids" in description
+        # And that the two are mutually exclusive — the Python model refuses a
+        # group carrying both, so an agent told otherwise loses the card.
+        assert "exactly one of the two per group" in description
 
     def test_the_takeoff_material_split_is_documented_as_a_name_match(self):
         # It matches material NAMES, not IfcMaterialLayerSet structure, and a

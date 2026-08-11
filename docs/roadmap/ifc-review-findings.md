@@ -24,16 +24,23 @@ regression tests named beside them.
 | `NOTDEFINED` / `SPACE` silently out of scope — the majority of every real model's rooms | `lib/bim/rules.ts` `UNINFORMATIVE_SPACE_TYPES` | `rules.spec.ts` › *checks a room whose PredefinedType says nothing* |
 | Door judged on nominal width against a *lichte Durchgangsbreite* threshold | `lib/bim/rules.ts` `oib4-tuer-durchgangsbreite` | `rules.spec.ts` › *reads the CLEAR width* |
 | BCF emitted `<File IfcProject="">` and `IfcGuid="express:1421"` — both schema-invalid | `lib/bim/bcf.ts` | `bcf.spec.ts` |
+| `AcousticRating` passed on any non-empty string — a wall reading *siehe Beilage* was reported **erfüllt** under an `OIB 5` caption | `lib/bim/rules.ts` `ratedSoundReduction()` | `rules.spec.ts` › *refuses prose as a declaration* / *accepts a rated value however the exporter labelled it* |
+| `slug()` could not decompose `ß`, so `Beispielstraße` downloaded as `Beispielstra-e` — a hole in the name of roughly half of all Viennese projects | `lib/bim/bcf.ts` `GERMAN_TRANSLITERATION` | `bcf.spec.ts` › *spells an Austrian project name instead of punching holes in it* |
+| BCF zip carried no directory entries — the spec's own *Incorrect* example | `lib/bim/zip.ts`, `bcf.ts` | `bcf.spec.ts` › the folder entry is asserted in the archive layout test |
+| The model download was never aborted; leaving mid-download still transferred the whole file | `features/bim/components/ifc-viewer-canvas.tsx` | `viewer-camera` specs + the `AbortController` at `ifc-viewer-canvas.tsx:335` |
+| `ifc_viewer` could only highlight ids that fit in the answer's context, so a card about 420 external walls coloured a handful under a legend claiming all of them | `IfcHighlight.match` (`cards/models.py`), `useBimHighlightGroups`, `features/bim/lib/card-highlights.ts` | `use-bim-highlight-groups.spec.tsx` › *pages past the API cap* / `card-highlights.spec.ts` |
+| Every agent deep link was `hl=info:`, so a wall that FAILS a requirement opened the same neutral blue as one the user asked to look at | `agents/bim/register.py` `_element_link(status=…)` | `test_ifc_query_tool.py` › *a failing element opens red rather than neutral* |
+| Two highlight groups sharing a translated label collided on `key={highlight.label}` — the URL form groups by status, so `?hl=fail:A&hl=fail:B` produced two rows React treated as one | `features/bim/components/ifc-model-viewer.tsx` | `ifc-model-viewer.spec.tsx` › *keeps two groups that share a label apart* |
+
+The acoustic fix is worth a note, because the cause was subtler than the
+symptom: `numericProperty` anchors its number at the START of the string, so it
+parsed neither `Rw 30 dB` nor `siehe Beilage` — and everything it failed to
+parse fell through to `pass`. Only a literal `0` avoided passing. The rule now
+requires a rated figure in decibels (found anywhere in the string, comma
+decimals included); prose and `≤ 0` are `undecidable` and name what to author,
+so the declaration is counted only when it was actually made.
 
 ## Open — correctness
-
-**`AcousticRating` passes on any non-empty string.** `lib/bim/rules.ts`,
-`oib5-schalldaemmung-deklariert`. `0` and empty are now `undecidable`, but
-`'siehe Beilage'` and `'keine Anforderung'` still return `pass` and land in the
-same *Erfüllt* counter as the numeric threshold rules, under a row captioned
-`OIB 5`. The rule is honestly titled (*deklariert*), which is not the same as
-being honestly counted. Either parse `Rw ≥ n dB` and judge it, or give
-declaration-only rules their own counter that is not called *erfüllt*.
 
 **The U-value rules imply a Nachweis that OIB 6 does not perform.**
 `U ≤ 0,35 W/m²K` is the höchstzulässiger Bauteilwert. Meeting it on every wall
@@ -48,8 +55,6 @@ the adopted Ausgabe before an Einreichung leans on it.
 
 ## Open — standards conformance
 
-- **BCF zip has no directory entries.** The BCF 2.1 spec's own *Incorrect*
-  example is the shape we emit. Readers tolerate it; validators may not.
 - **No `<AssignedTo>`, `<DueDate>` or `<Stage>` on any topic.** In a real BCF
   loop the first action is routing *FireRating fehlt* to the Bauzeichner and
   *Schalldämmung* to the Bauphysiker. Topic-per-requirement is the right call,
@@ -58,9 +63,6 @@ the adopted Ausgabe before an Einreichung leans on it.
   but double-clicking a topic in ArchiCAD restores nothing — you land wherever
   your camera was, on a whole-building view with 34 things lit up somewhere
   inside it. Every topic also shows a blank thumbnail (no snapshot).
-- **`slug()` does not decompose `ß` under NFKD**, so `Beispielstraße` becomes
-  `Beispielstra-e` in the download filename. Roughly half of Viennese project
-  names contain *straße*. `lib/bim/bcf.ts`.
 - **The IFC test fixture violates three where-rules** —
   `IfcRelContainedInSpatialStructure.WR31` and `IfcSpatialStructureElement.WR41`
   (twice) in `tests/fixtures/ifc/sample-building-geometry.ifc`. It fails the
@@ -70,15 +72,8 @@ the adopted Ausgabe before an Einreichung leans on it.
 
 ## Open — frontend
 
-- **The model download is never aborted.** `features/bim/components/ifc-viewer-canvas.tsx`
-  — `fetch(sourceUrl)` takes no `AbortSignal`; cleanup only sets a boolean.
-  Navigating away mid-download transfers the whole model anyway, which on the
-  large models this feature exists for is tens to hundreds of MB per abandoned
-  visit.
 - **No live region for viewer load status**, while every toolbar control is
   `disabled` until `ready` — focus drops to `<body>` if a re-parse starts.
-- **Duplicate React keys in the highlight legend** — `key={highlight.label}`
-  over three translated labels, so `?hl=fail:A&hl=fail:B` collides.
 - **`bg-background/85 backdrop-blur` overlays fall below AA** over a dark scene
   in light theme (measured 3.27–3.93 against `text-muted-foreground`).
   `backdrop-blur` does not change mean luminance.
@@ -102,6 +97,19 @@ still green.
   test notices, which is the reproducible-export guarantee.
 - `model-service.ts` — exact-match-before-substring ordering in model name
   resolution is untested.
+
+## Open — the chat surface
+
+- **The deep researcher is never asked for a model card.** Its prompts have no
+  `<cards>` block, and the async path generates cards post-hoc from the answer
+  text, which is deliberately not shown the IFC card types (it has no tool rows
+  to copy ids from). So a deep answer about the building is prose with element
+  links. Fix by giving `deep_researcher/prompts/` the same guidance the shallow
+  researcher now carries — not by relaxing the post-hoc restriction.
+- **No camera in a viewer card.** `buildModelHref` encodes and parses one
+  (`model-link.ts:67`), and `ifc-viewer-card-spec.md:54` specifies it, but the
+  card model has no field and the renderer never sets one. The user lands on a
+  whole-building view with the highlights somewhere inside it.
 
 ## Open — product
 

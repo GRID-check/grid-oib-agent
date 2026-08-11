@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { formatPropertyValue } from '../lib/format-value'
+import { formatMeasure, formatPropertyValue } from '../lib/format-value'
 import type { BimModelSummary } from '@/lib/bim/types'
 import type { BimHealth } from '@/lib/bim/validate'
 import {
@@ -26,19 +26,6 @@ import {
   type BimViewerElement,
 } from '../lib/model-index'
 import type { BimElementDetail } from '../hooks/use-bim-model'
-
-/**
- * Numbers follow the INTERFACE locale, not a hard-coded Austrian one.
- *
- * A German UI writes 74,2 m² and an English one 74.2 m²; pinning `de-AT` would
- * have put a German decimal comma in an English sentence, which reads as a
- * thousands separator and changes the number by a factor of ten.
- */
-function formatMeasure(value: number | null, unit: string, locale: string): string {
-  if (value === null) return '—'
-  const rounded = Math.round(value * 100) / 100
-  return `${rounded.toLocaleString(locale)} ${unit}`
-}
 
 interface StatProps {
   label: string

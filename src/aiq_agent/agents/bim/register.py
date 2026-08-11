@@ -132,6 +132,31 @@ _TOOL_DESCRIPTION = (
     "model with that element selected and highlighted, which is the difference between telling "
     "someone about a wall and showing it to them. Copy the path verbatim — never invent one.\n"
     "\n"
+    "SHOW THE BUILDING, do not only describe it. A link names one element inside a sentence; a "
+    "card puts the model itself in the answer. After a model query, emit the matching card with "
+    "`emit_card` IN ADDITION to your prose — this is the whole reason the building was uploaded:\n"
+    "  • a set of elements the user would want to SEE (all external walls in the Erdgeschoss, "
+    "the doors under 80 cm, the walls a requirement fails on) → `ifc_viewer`, one highlight group "
+    "per meaning. Set 'storey' to isolate a single Geschoss.\n"
+    "  • a compliance run → `ifc_compliance`, listing the ids from the 'Regel <id>:' lines "
+    "above. Those are the only valid rule ids; never invent one.\n"
+    "  • one element the answer is really about → `ifc_element` with its GlobalId.\n"
+    "  • a Raumbuch / Flächenaufstellung ('schedule') → `ifc_schedule`.\n"
+    "  • a revision comparison ('compare' / 'compliance-diff') → `ifc_diff`.\n"
+    "A card is an addition to the written answer, never a replacement for it.\n"
+    "\n"
+    "In an `ifc_viewer` highlight, give 'match' — the SAME filters object you queried with — "
+    "rather than a list of ids, whenever the group is a SET. The browser re-runs the filter "
+    "against the model, so all 420 external walls light up; a list has to fit in this reply, so it "
+    "would highlight the handful you managed to transcribe while the legend claimed the whole set. "
+    "Use 'global_ids' only for the few elements your answer names one by one, copied from the "
+    "'elements' or compliance rows in THIS turn. Give exactly one of the two per group — never "
+    "both.\n"
+    "\n"
+    "'aggregate' answers HOW MANY and returns no ids at all, which is fine: pass its filters "
+    "straight into an `ifc_viewer` highlight as 'match' and the set shows without a second query. "
+    "Report the aggregate's number as the count.\n"
+    "\n"
     "When a compliance result comes back with a 'BCF-Export der offenen Punkte:' path, OFFER it as "
     "a link at the end of the answer — [offene Punkte als BCF](/api/projects/…/bim/checks/export?…) "
     "using that exact path. It downloads the open requirements as a BCF 2.1 file that opens in "
@@ -161,7 +186,12 @@ def _valid_gebaeudeklasse(value: int | None) -> int:
     return value if value and 1 <= value <= 5 else 0
 
 
-def _element_link(project_id: str | None, filename: str | None, global_id: str | None) -> str:
+def _element_link(
+    project_id: str | None,
+    filename: str | None,
+    global_id: str | None,
+    status: str = "info",
+) -> str:
     """The in-app path that opens the model on one element.
 
     Mirrors `buildModelHref` in the frontend (`features/bim/lib/model-link.ts`);
@@ -172,10 +202,19 @@ def _element_link(project_id: str | None, filename: str | None, global_id: str |
     Emitted per row rather than described as a template: a model asked to
     compose a URL from a pattern will eventually compose a wrong one, and a
     link to the wrong wall is worse than no link.
+
+    `status` colours the highlight. Every link this tool emitted was `info`
+    (blue) regardless of what the row said, so a wall that FAILS a requirement
+    opened in the same neutral colour as one the user merely asked to look at —
+    the viewer supports `pass|fail|warning|info` and the whole set was
+    collapsed to one. An unknown status falls back to `info` rather than
+    reaching the URL: the frontend parser drops a highlight it cannot read, and
+    a dropped highlight means the element does not light up at all.
     """
     if not project_id or not global_id:
         return ""
-    query = f"element={quote(global_id, safe='')}&hl=info%3A{quote(global_id, safe='')}"
+    tone = status if status in {"pass", "fail", "warning", "info"} else "info"
+    query = f"element={quote(global_id, safe='')}&hl={tone}%3A{quote(global_id, safe='')}"
     if filename:
         query = f"model={quote(filename, safe='')}&{query}"
     return f"/app/projects/{quote(project_id, safe='')}/model?{query}"
@@ -407,8 +446,26 @@ def _render(
             rules = ", ".join(entry.get("rules") or [])
             lines.append(f"- fehlt: {entry.get('path')} an {entry.get('elements')} Bauteilen (entscheidet: {rules})")
         for rule in (result.get("compliance") or [])[:40]:
+            # The rule id, printed for every rule that left work behind.
+            #
+            # `ifc_compliance` asks for "rule ids from ifc_query
+            # operation='compliance'" and this renderer never printed one
+            # except inside the shopping list's `entscheidet:` clause — which
+            # only covers rules with a MISSING property. For a rule that
+            # cleanly fails, the agent had no valid id to put in the card, so
+            # it either invented one (rendered as unresolved) or sent none.
+            rule_id = rule.get("ruleId")
+            failed = int(rule.get("failed") or 0)
+            undecidable = int(rule.get("undecidable") or 0)
+            if rule_id and (failed or undecidable):
+                lines.append(
+                    f"- Regel {rule_id}: {rule.get('titleDe')} — {failed} nicht erfüllt, "
+                    f"{undecidable} nicht entscheidbar"
+                )
             for verdict in (rule.get("failures") or [])[:10]:
-                link = _element_link(project_id, filename, verdict.get("globalId"))
+                # A breach opens RED. This is the one place the tool knows the
+                # verdict at link time, and it used to throw it away.
+                link = _element_link(project_id, filename, verdict.get("globalId"), "fail")
                 suffix = f" · Link: {link}" if link else ""
                 lines.append(
                     f"  ✗ {rule.get('richtlinie')} {verdict.get('name') or verdict.get('globalId')}: "

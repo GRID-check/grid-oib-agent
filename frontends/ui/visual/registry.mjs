@@ -152,6 +152,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'h1',
   },
   {
+    id: 'chat-welcome-model',
+    mobile: true,
+    path: '/dev/chat-welcome-model',
+    description:
+      'The same empty chat canvas in a project that HAS a readable IFC model: two building questions lead, marked with the model glyph, ahead of the OIB-corpus ones. This is where the model feature is discovered — chat is where a model is used, and nothing else on the canvas says the building can be counted, checked or compared.',
+    waitFor: 'h1',
+  },
+  {
     id: 'confirm-dialog',
     mobile: true,
     path: '/dev/confirm-dialog',
@@ -180,6 +188,14 @@ export const SCREENSHOT_TARGETS = [
     path: '/dev/file-preview',
     description:
       'File-preview modal (real FilePreviewDialog, backend-free) with rich metadata — desktop split (both columns scroll) vs. mobile full-screen sheet (preview capped, all metadata reachable).',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'file-preview-model',
+    mobile: true,
+    path: '/dev/file-preview-model',
+    description:
+      'The same file-preview modal opened on an .ifc — a model is just another file, previewed as the building rather than as a page mock, with the analytical workspace one link away. Headless Chromium has no WebGPU adapter (as on /dev/bim-model), so what this pins is the degraded state a Safari or Firefox user sees: it must read as "the picture is missing, everything else is over there", never as "this file is broken".',
     waitFor: '[role="dialog"]',
   },
   {

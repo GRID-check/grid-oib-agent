@@ -12,10 +12,34 @@ properties, quantities, materials and classifications, and writes a summary of
 the building into the knowledge base.
 
 While that runs the file shows **Modell wird gelesen…**. A typical single-building
-model takes a few seconds; a large federated one takes longer. When it finishes,
-a **Modell** entry appears in the project navigation.
+model takes a few seconds; a large federated one takes longer. The card updates
+itself — you do not have to reload to find out whether it finished — and when it
+does, a message says the model has been read and the building can now be asked
+about. A **Modell** entry appears in the project navigation at the same time.
 
-Models above 250 MB are refused with a message rather than half-read.
+Models above 250 MB are refused with a message rather than half-read. The limit
+is on the **uploaded file** — the bytes of the `.ifc` or `.ifczip` as they leave
+your machine. It is not a limit on what the file decodes to (an `.ifczip`
+expands well past it) nor on the compressed copy the 3D view downloads.
+
+## Opening a model from Files
+
+An `.ifc` opens like every other file — click it in **Dateien** and the preview
+shows the **building**, turnable, in the pane where a PDF shows its pages.
+
+The column beside it leads with **Aus dem Modell**: storeys, Bauteile, Räume,
+the IFC schema, and the net floor area *if the export published one*. A quantity
+your export does not carry is left out of that list rather than shown as `0` —
+an absent area is not an area of nothing. Below it sits the ordinary metadata:
+summary, tags, size, status.
+
+The preview is deliberately just the picture. Everything you *analyse* — the
+tabs, the element table, the requirement check, the Raumbuch — is one click
+away on **Im Modellbereich öffnen**, which opens this model (not whichever one
+the page would default to) in the model page below.
+
+While the model is still being read the preview says so, and a file whose
+extraction failed says that instead — the two are never the same message.
 
 ## The model page
 
@@ -163,6 +187,12 @@ note in place of the picture and *everything else on the page still works* — t
 structure, the elements, the properties, the quantities, the schedules, and
 every answer the assistant gives.
 
+A browser can also have WebGPU and still not be able to draw: a blocked or
+blocklisted graphics driver, a virtual machine, a remote-desktop session, or an
+interrupted download of a very large model. That produces the same kind of note
+— what is missing, what is unaffected, and the technical reason underneath, so
+a support message can quote it.
+
 ### Every view is a link
 
 Which model, which tab, which storey, which element, what is highlighted,
@@ -175,6 +205,12 @@ unnecessary: you send the wall.
 
 ## Asking questions in chat
 
+Once a model is readable, an empty chat in that project offers two questions
+about **your building** — marked with the model glyph — ahead of the usual
+Richtlinien examples. They are there because nothing else on that screen tells
+you the building can be counted and checked at all; clicking one fills the
+composer, it does not send.
+
 In a project chat, ask about the building the way you would ask a colleague:
 
 - *"Wie viele Außenwände gibt es im Erdgeschoss?"*
@@ -185,7 +221,15 @@ In a project chat, ask about the building the way you would ask a colleague:
 
 These are answered by **querying the model**, not by reading text about it — the
 counts and sums are computed, not estimated. When the answer is about specific
-parts of the building, the assistant can show them highlighted on the 3D model.
+parts of the building, the assistant shows them highlighted on the 3D model,
+right in the answer.
+
+That highlight covers the **whole** set, not a sample of it. If the answer is
+about 420 external walls, all 420 light up: the card carries the same query the
+count came from and the browser re-runs it against the model, rather than
+carrying a list of element numbers that would have to fit inside the reply.
+Each group in the legend has its own colour — red for a breach, amber for
+something the model cannot decide, green for what passes.
 
 **Element names in an answer are links.** When the assistant names a wall, the
 name is a chip — click it and the model opens with that wall selected,

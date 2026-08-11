@@ -8,17 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import {
-  BIM_CAMERA_VIEWS,
-  clampCut,
-  defaultCameraState,
-  defaultCutForStorey,
-  encodeCameraState,
-  impliesOrthographic,
-  parseCameraState,
-  rendererPreset,
-  type BimViewerCameraState,
-} from './viewer-camera'
+import { BIM_CAMERA_VIEWS, boundsCentre, clampCut, defaultCameraState, defaultCutForStorey, downloadWithProgress, encodeCameraState, impliesOrthographic, parseCameraState, rendererPreset, wheelZoomDelta, type BimViewerCameraState } from './viewer-camera'
 
 const roundTrip = (state: BimViewerCameraState): BimViewerCameraState => {
   const params = new URLSearchParams()
@@ -161,5 +151,166 @@ describe('the camera state in a link', () => {
     // Links written before `proj` existed, and links a human typed.
     expect(parseCameraState(new URLSearchParams('view=north')).orthographic).toBe(true)
     expect(parseCameraState(new URLSearchParams('')).orthographic).toBe(false)
+  })
+})
+
+describe('wheelZoomDelta', () => {
+  it('passes pixel deltas through unchanged', () => {
+    expect(wheelZoomDelta(100, 0, 800)).toBeCloseTo(1)
+    expect(wheelZoomDelta(-100, 0, 800)).toBeCloseTo(-1)
+  })
+
+  it('scales line-mode deltas, which Firefox reports instead of pixels', () => {
+    // The bug this fixes: `deltaY: 3, deltaMode: 1` is three TEXT LINES, and
+    // reading it raw moved the camera three hundredths of a unit — a wheel
+    // notch that did visibly nothing.
+    expect(wheelZoomDelta(3, 1, 800)).toBeCloseTo(0.48)
+    expect(wheelZoomDelta(3, 0, 800)).toBeCloseTo(0.03)
+    expect(wheelZoomDelta(3, 1, 800)).toBeGreaterThan(wheelZoomDelta(3, 0, 800))
+  })
+
+  it('treats page-mode as one viewport, and survives a zero-height canvas', () => {
+    expect(wheelZoomDelta(1, 2, 900)).toBeCloseTo(9)
+    // A canvas measured before layout reports 0; the step must not vanish.
+    expect(wheelZoomDelta(1, 2, 0)).toBeCloseTo(0.01)
+  })
+
+  it('keeps direction, because the sign is what zooms in rather than out', () => {
+    for (const mode of [0, 1, 2]) {
+      expect(Math.sign(wheelZoomDelta(-5, mode, 800))).toBe(-1)
+      expect(Math.sign(wheelZoomDelta(5, mode, 800))).toBe(1)
+    }
+  })
+})
+
+describe('boundsCentre', () => {
+  it('is the middle of the box, including through the origin', () => {
+    expect(boundsCentre({ min: { x: 0, y: 0, z: 0 }, max: { x: 4, y: 2, z: 10 } })).toEqual({
+      x: 2,
+      y: 1,
+      z: 5,
+    })
+    expect(boundsCentre({ min: { x: -6, y: -2, z: -1 }, max: { x: 2, y: 2, z: 3 } })).toEqual({
+      x: -2,
+      y: 0,
+      z: 1,
+    })
+  })
+
+  it('handles a degenerate box, which a zero-thickness element really has', () => {
+    const point = { x: 3, y: 3, z: 3 }
+    expect(boundsCentre({ min: point, max: point })).toEqual(point)
+  })
+})
+
+describe('downloadWithProgress', () => {
+  const streamed = (chunks: number[][], headers: Record<string, string> = {}) => ({
+    headers: { get: (name: string) => headers[name] ?? null },
+    body: {
+      getReader: () => {
+        let index = 0
+        return {
+          read: async () =>
+            index < chunks.length
+              ? { done: false, value: new Uint8Array(chunks[index++]) }
+              : { done: true, value: undefined },
+        }
+      },
+    },
+    arrayBuffer: async () => new ArrayBuffer(0),
+  })
+
+  it('reassembles the chunks in order, byte for byte', async () => {
+    const bytes = await downloadWithProgress(streamed([[1, 2], [3], [4, 5, 6]]), () => {})
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4, 5, 6])
+  })
+
+  it('reports real progress against Content-Length', async () => {
+    const seen: Array<number | null> = []
+    await downloadWithProgress(streamed([[1, 2], [3], [4, 5, 6]], { 'Content-Length': '6' }), (p) =>
+      seen.push(p)
+    )
+    expect(seen).toEqual([33, 50, 100])
+  })
+
+  it('reports null rather than a wrong number when there is no length', async () => {
+    // Chunked transfer encoding sends no Content-Length. A progress bar that
+    // invents a denominator is worse than one that admits it cannot say.
+    const seen: Array<number | null> = []
+    await downloadWithProgress(streamed([[1], [2]]), (p) => seen.push(p))
+    expect(seen).toEqual([null, null])
+  })
+
+  it('never exceeds 100 when the declared length disagrees with the bytes', async () => {
+    // A proxy that recompresses can leave Content-Length smaller than the
+    // decoded body, which used to drive a progress bar past its own end.
+    const seen: Array<number | null> = []
+    await downloadWithProgress(streamed([[1, 2, 3, 4]], { 'Content-Length': '2' }), (p) =>
+      seen.push(p)
+    )
+    expect(seen).toEqual([100])
+  })
+
+  it('falls back to a buffered read when the body cannot stream', async () => {
+    const response = {
+      headers: { get: () => null },
+      body: null,
+      arrayBuffer: async () => new Uint8Array([9, 9]).buffer,
+    }
+    const seen: Array<number | null> = []
+    const bytes = await downloadWithProgress(response, (p) => seen.push(p))
+
+    expect(Array.from(bytes)).toEqual([9, 9])
+    expect(seen).toEqual([null])
+  })
+})
+
+describe('downloadWithProgress over a gzipped response', () => {
+  const respond = (headers: Record<string, string>, chunks: number[][]) => ({
+    headers: { get: (name: string) => headers[name] ?? null },
+    body: {
+      getReader: () => {
+        let index = 0
+        return {
+          read: async () =>
+            index < chunks.length
+              ? { done: false, value: new Uint8Array(chunks[index++]) }
+              : { done: true, value: undefined },
+        }
+      },
+    },
+    arrayBuffer: async () => new ArrayBuffer(0),
+  })
+
+  it('measures against the UNCOMPRESSED length, not the wire length', async () => {
+    // The bug this guards: the reader sees inflated bytes, so dividing by the
+    // compressed Content-Length pins the bar at 100% almost immediately.
+    const seen: Array<number | null> = []
+    await downloadWithProgress(
+      respond(
+        { 'Content-Encoding': 'gzip', 'Content-Length': '2', 'x-amz-meta-uncompressed-length': '10' },
+        [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]]
+      ),
+      (p) => seen.push(p)
+    )
+    expect(seen).toEqual([50, 100])
+  })
+
+  it('is indeterminate when gzipped with no uncompressed length to divide by', async () => {
+    const seen: Array<number | null> = []
+    await downloadWithProgress(
+      respond({ 'Content-Encoding': 'gzip', 'Content-Length': '2' }, [[1, 2, 3, 4]]),
+      (p) => seen.push(p)
+    )
+    // Null, not a number computed from the wrong denominator.
+    expect(seen).toEqual([null])
+  })
+
+  it('still uses Content-Length for an uncompressed response', async () => {
+    const seen: Array<number | null> = []
+    await downloadWithProgress(respond({ 'Content-Length': '4' }, [[1, 2], [3, 4]]), (p) =>
+      seen.push(p)
+    )
+    expect(seen).toEqual([50, 100])
   })
 })

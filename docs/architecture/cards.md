@@ -22,7 +22,7 @@ Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
 | `ProjectProfilePatchCard` | A proposed change to the project profile | JSON-Patch `ops` (restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions`) + before/after preview |
 | `RequirementChecklistCard` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `ComparisonTableCard` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
-| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids`, `label`, `status`), `storey`, `note` |
+| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids` **XOR** `match`, plus `label`, `status`), `storey`, `note` |
 | `IfcScheduleCard` | The Raumbuch, optionally for one storey | `title`, `model_file`, `storey`, `note` |
 | `IfcElementCard` | One element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
 | `IfcDiffCard` | What changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |
@@ -110,6 +110,43 @@ sanctioned path, carrying **real** data:
   the document via the shared `PdfViewerDialog`. This is the difference between
   *citing* a document and *surfacing* it for the user to open. See
   [ADR-0026](../adr/) for the source-kind doctrine the provenance chips follow.
+
+**Model-backed cards** (`MODEL_BACKED_CARD_TYPES` in `cards/catalog.py`) —
+`ifc_viewer`, `ifc_element`, `ifc_compliance`, `ifc_schedule`, `ifc_diff` — are
+a second, softer restriction, and they cut the other way: the model *may* emit
+them, but only on the surface that can supply their contents. Every field that
+identifies something in them is an IFC GlobalId, a rule id or a model file name,
+all of which have to be **copied from an `ifc_query` row in the same turn**.
+
+- `emit_card` advertises them in full. Its caller has the tool rows in context.
+- **Post-hoc generation does not.** `cards/generate.py` is handed only the
+  question and the finished answer TEXT, so the only ids available there are
+  whatever survived into the prose — the rest would be invented, and an
+  unresolvable GlobalId renders as a missing element, telling the user their
+  model is broken when it is not. `build_card_generation_prompt()` therefore
+  calls `render_card_catalog(include_model_backed=False)`, which withholds both
+  the shapes *and* the worked examples.
+
+`ifc_viewer` takes this a step further. A highlight group carries **either**
+`global_ids` **or** `match` — and `match` is the same filter object the agent
+already passed to `ifc_query`, replayed by the browser
+(`features/bim/lib/card-highlights.ts` respells it into the query API's
+`camelCase`, then `useBimHighlightGroups` walks the pages). An id list can only
+carry what fits in the model's context, so a card about 420 external walls used
+to colour the handful that were transcribed while the legend claimed the whole
+set; a filter resolves against the model, so it is exact at any size and costs
+the model nothing it has not already written. A group giving both is refused by
+the Pydantic validator — the renderer would have to pick, and either choice
+silently discards half the request.
+
+Emitting one is not optional politeness: the shallow researcher's `<cards>`
+block asks for the matching card by default on any answer that came from
+`ifc_query`, and the tool description names which card goes with which
+operation. Before that existed, all five renderers were reachable only if the
+model happened to pick one unprompted out of the catalog — and the `ifc_query`
+description actively steered it the other way, toward markdown element links.
+The result was that a question about a 150 MB building was answered with three
+lines of prose.
 
 ## How cards render
 
@@ -306,7 +343,14 @@ backend-free `document_grid` surfacing card. Both are captured by the screenshot
 harness (`npm run screenshots`, see `docs/ux/visual-screenshots.md`).
 For a system card emitted by a tool (`document_grid`), that tool must be added to
 the agent's `tools:` list in the config (e.g. `shallow_research_agent`) and its
-`_type` registered — see `surface_documents` in `configs/config_oib_openrouter.yml`. Next phases: a 3D massing card
+`_type` registered — see `surface_documents` in `configs/config_oib_openrouter.yml`.
+If the new card is one the MODEL may emit and its contents must be **copied
+from a tool result** rather than written from the answer, add its type to
+`MODEL_BACKED_CARD_TYPES` as well, and say in a prompt when to emit it — a
+renderer nobody is asked for is a renderer nobody sees. This does not apply to
+a system card: `document_grid`'s contents also come from a tool, but the model
+never emits it at all, so `SYSTEM_CARD_TYPES` and its emitting tool govern it
+instead. Next phases: a 3D massing card
 (three.js/R3F) and the IFC/BIM viewer (`docs/roadmap/ifc-viewer-card-spec.md`).
 
 ## Known rough edges
@@ -318,5 +362,12 @@ the agent's `tools:` list in the config (e.g. `shallow_research_agent`) and its
 - Async deep-research answers carry cards (generated post-hoc from the final
   report in the job runner); synchronous inline deep research (no Dask) does
   not yet.
+- **An async deep-research answer therefore carries no model card**, because
+  post-hoc generation is not shown the IFC types (above) and the deep
+  researcher's own prompts have no `<cards>` block at all — it holds `emit_card`
+  with nothing but the tool description to go on. A deep answer about the
+  building comes back as prose with element links. Closing this means giving
+  the deep researcher the same `<cards>` guidance the shallow one now has, not
+  relaxing the post-hoc restriction, which would only license invented ids.
 - A silent card-generation failure is currently indistinguishable from "no cards";
   emission should surface failures.

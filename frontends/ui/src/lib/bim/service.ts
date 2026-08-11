@@ -62,13 +62,71 @@ export function buildBimDerivedKeys(storageKey: string): {
   prefix: string
   digestKey: string
   indexKey: string
+  sourceKey: string
 } | null {
   const index = storageKey.lastIndexOf('/')
   if (index <= 0 || index === storageKey.length - 1) return null
   const directory = storageKey.slice(0, index)
   const filename = storageKey.slice(index + 1)
   const prefix = `${directory}/${DERIVED_SEGMENT}/`
-  return { prefix, digestKey: `${prefix}${filename}`, indexKey: `${prefix}index.json` }
+  return {
+    prefix,
+    digestKey: `${prefix}${filename}`,
+    indexKey: `${prefix}index.json`,
+    // The viewer's copy of the source: same bytes, gzipped. See
+    // `writeCompressedSource` for why it is worth an extra object.
+    sourceKey: `${prefix}source.ifc.gz`,
+  }
+}
+
+/**
+ * Store a gzipped copy of the source for the VIEWER to download.
+ *
+ * An IFC is STEP — plain ASCII text, hugely repetitive — and compresses by
+ * roughly 5–10×. The viewer's slowest phase by a wide margin is pulling the
+ * raw file into the browser to triangulate it: a 149 MB model is 149 MB on the
+ * wire every time anyone opens the page, because a presigned URL is unique per
+ * request and therefore never cached. Serving ~20 MB instead is the single
+ * biggest improvement available to that page, and it costs one object.
+ *
+ * `ContentEncoding: gzip` is what makes it transparent: the browser inflates
+ * the body itself, so the geometry kernel still receives the exact bytes the
+ * architect uploaded and nothing downstream knows the difference.
+ *
+ * The uncompressed length travels as user metadata because `Content-Length` on
+ * a gzipped response describes the COMPRESSED body while a streaming reader
+ * counts DECODED bytes — without it a progress bar reaches 100% at a seventh of
+ * the file and stops meaning anything.
+ *
+ * Best-effort on purpose. This is an optimisation, and a model whose gzip write
+ * fails must still be viewable from the original object.
+ */
+async function writeCompressedSource(
+  bucket: string,
+  key: string,
+  buffer: Uint8Array
+): Promise<void> {
+  try {
+    const { gzip } = await import('node:zlib')
+    const { promisify } = await import('node:util')
+    // Async rather than `gzipSync`: this runs inside the upload request, and
+    // compressing a hundred megabytes on the event loop would stall every
+    // other request in the process for the duration.
+    const compressed = await promisify(gzip)(buffer)
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: compressed,
+        ContentType: 'application/octet-stream',
+        ContentEncoding: 'gzip',
+        Metadata: { 'uncompressed-length': String(buffer.byteLength) },
+      })
+    )
+  } catch {
+    // No rethrow: the viewer falls back to the original object, which is
+    // slower and completely correct.
+  }
 }
 
 export interface BimExtractionInput {
@@ -195,6 +253,7 @@ export async function runBimExtraction(input: BimExtractionInput): Promise<BimEx
           ContentType: 'text/markdown; charset=utf-8',
         })
       )
+      await writeCompressedSource(bucket, keys.sourceKey, new Uint8Array(buffer))
       indexKey = keys.indexKey
       digestKey = keys.digestKey
     }

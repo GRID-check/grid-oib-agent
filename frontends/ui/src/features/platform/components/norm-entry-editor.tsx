@@ -43,6 +43,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
+import { latinize } from '@/lib/text/latinize'
 import { cn } from '@/lib/utils'
 import type { Translator } from '@/i18n'
 import {
@@ -110,15 +111,18 @@ const splitList = (value: string): string[] =>
 
 const joinList = (value: string[] | undefined): string => (value ?? []).join(', ')
 
-/** Catalog IDs are slugs; deriving one from the short name spares the operator a decision. */
+/**
+ * Catalog IDs are slugs; deriving one from the short name spares the operator
+ * a decision.
+ *
+ * `latinize` rather than the German table alone: this field is only a
+ * suggestion the operator can overwrite, so folding the rest of the accents
+ * costs nothing and stops `ÖNORM B 1600 Dvořák` proposing an id with holes in
+ * it.
+ */
 function slugify(value: string): string {
-  return value
-    .trim()
+  return latinize(value.trim())
     .toLowerCase()
-    .replace(/ä/g, 'ae')
-    .replace(/ö/g, 'oe')
-    .replace(/ü/g, 'ue')
-    .replace(/ß/g, 'ss')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 }

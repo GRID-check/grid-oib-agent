@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -6,6 +6,18 @@ import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
 
 const mockUploadFiles = vi.fn()
+
+/**
+ * Toasts are assertions here, not decoration: the confirmation a user gets when
+ * an upload finally lands is the only place the app says what the file became.
+ */
+const toastSuccess = vi.fn()
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: vi.fn(),
+  },
+}))
 
 // Force the mobile presentation so the preview renders as a full-screen dialog.
 vi.mock('@/hooks/use-is-mobile', () => ({
@@ -214,5 +226,146 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
       expect(screen.getByRole('button', { name: 'Remove tag Brandschutz' })).toBeDefined()
     )
     expect(screen.getByRole('button', { name: 'Remove tag Grundriss' })).toBeDefined()
+  })
+})
+
+/**
+ * A file that is still being read has to stop being one on screen.
+ *
+ * The list was fetched once and never again, so a document that finished
+ * indexing after the page loaded kept its "processing" badge until a reload —
+ * and an `.ifc` never gets a second chance from the upload path at all, because
+ * extraction is detached and has no ingest job for the orchestrator to poll.
+ */
+describe('ProjectFileWorkspace — a settling document settles on screen', () => {
+  /** How many times the corpus has been asked for, across the poll. */
+  let documentCalls = 0
+
+  /** The list, served with whatever status the test has moved it to. */
+  const corpus = (status: string, filename = 'Haus-A.ifc') =>
+    HttpResponse.json({
+      documents: [
+        {
+          id: 'doc-ifc',
+          filename,
+          fileSize: 148_900_000,
+          contentType: 'application/octet-stream',
+          status,
+          folderId: null,
+          createdAt: '2026-01-01T00:00:00Z',
+          errorMessage: null,
+        },
+      ],
+    })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    documentCalls = 0
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('re-asks while a model is being read, and stops once it is', async () => {
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () => {
+        documentCalls += 1
+        // Still extracting on the first read; done by the time the poll fires.
+        return corpus(documentCalls === 1 ? 'processing' : 'ready')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await waitFor(() => expect(documentCalls).toBe(1))
+
+    await vi.advanceTimersByTimeAsync(4_100)
+    await waitFor(() => expect(documentCalls).toBe(2))
+
+    // Everything is terminal now, so the polling stops rather than asking
+    // forever about a corpus that cannot change on its own.
+    const settled = documentCalls
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(documentCalls).toBe(settled)
+  })
+
+  it('keeps at most one poll in flight, however slow the endpoint is', async () => {
+    // `setInterval` fired again whether or not the previous refresh had come
+    // back, so a slow endpoint accumulated requests and let an older response
+    // land after a newer one — overwriting a document that had just finished
+    // with its earlier "still reading" row.
+    let inFlight = 0
+    let peak = 0
+    const gate: { release: (() => void) | null } = { release: null }
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', async () => {
+        documentCalls += 1
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        // The first response returns at once; every poll after it hangs until
+        // this test lets it go.
+        if (documentCalls > 1) await new Promise<void>((resolve) => (gate.release = resolve))
+        inFlight -= 1
+        return corpus('processing')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await waitFor(() => expect(documentCalls).toBe(1))
+
+    // Three poll windows pass while the second request is still hanging.
+    await vi.advanceTimersByTimeAsync(13_000)
+    expect(documentCalls).toBe(2)
+    expect(peak).toBe(1)
+
+    gate.release?.()
+  })
+
+  it('tells the user what became possible — a building is asked, not cited', async () => {
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () => {
+        documentCalls += 1
+        return corpus(documentCalls === 1 ? 'processing' : 'ready')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await waitFor(() => expect(documentCalls).toBe(1))
+    await vi.advanceTimersByTimeAsync(4_100)
+
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith(
+        expect.stringMatching(/you can now ask about the building/i),
+        expect.anything()
+      )
+    )
+  })
+
+  it('keeps the ordinary wording for an ordinary document', async () => {
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () => {
+        documentCalls += 1
+        return corpus(documentCalls === 1 ? 'processing' : 'ready', 'Bescheid.pdf')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await waitFor(() => expect(documentCalls).toBe(1))
+    await vi.advanceTimersByTimeAsync(4_100)
+
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith(
+        expect.stringMatching(/citable/i),
+        expect.anything()
+      )
+    )
   })
 })

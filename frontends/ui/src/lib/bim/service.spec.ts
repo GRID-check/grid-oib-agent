@@ -21,11 +21,21 @@ interface StoredObject {
   key: string
   body: string
   contentType: string | undefined
+  /** Set only on the viewer's gzipped source; the mechanism, not decoration. */
+  contentEncoding: string | undefined
+  metadata: Record<string, string> | undefined
+  /** Bytes actually written, so a "compressed" object can be shown to be smaller. */
+  byteLength: number | undefined
 }
 
 const stored: StoredObject[] = []
 const deleted: string[] = []
 let sourceBytes = ''
+/** Key suffix whose next PUT should fail, for the best-effort write paths. */
+let putFailureSuffix: string | null = null
+function failNextPutFor(suffix: string): void {
+  putFailureSuffix = suffix
+}
 
 /**
  * A minimal S3 stand-in that records what was written. The command objects the
@@ -45,10 +55,17 @@ vi.mock('@/lib/s3', () => ({
         }
       }
       if (name === 'PutObjectCommand') {
+        if (putFailureSuffix && String(input.Key).endsWith(putFailureSuffix)) {
+          putFailureSuffix = null
+          throw new Error('store unavailable')
+        }
         stored.push({
           key: String(input.Key),
           body: String(input.Body),
           contentType: input.ContentType as string | undefined,
+          contentEncoding: input.ContentEncoding as string | undefined,
+          metadata: input.Metadata as Record<string, string> | undefined,
+          byteLength: (input.Body as Uint8Array | undefined)?.byteLength,
         })
         return {}
       }
@@ -124,6 +141,7 @@ beforeEach(() => {
   completed.length = 0
   failed.length = 0
   sourceBytes = VALID_IFC
+  putFailureSuffix = null
 })
 
 describe('buildBimDerivedKeys', () => {
@@ -134,6 +152,7 @@ describe('buildBimDerivedKeys', () => {
       prefix: 'org/org_1/project/p1/doc/d1/_bim/',
       digestKey: 'org/org_1/project/p1/doc/d1/_bim/haus-a.ifc',
       indexKey: 'org/org_1/project/p1/doc/d1/_bim/index.json',
+      sourceKey: 'org/org_1/project/p1/doc/d1/_bim/source.ifc.gz',
     })
   })
 
@@ -200,20 +219,57 @@ describe('runBimExtraction', () => {
 describe('deleteBimDerivedObjects', () => {
   it('removes everything under the model’s derived prefix', async () => {
     await runBimExtraction(baseInput())
-    expect(stored).toHaveLength(2)
+    expect(stored).toHaveLength(3)
 
     await deleteBimDerivedObjects(STORAGE_KEY, null)
 
     // Nested under `doc/<id>/`, so the document delete path's exact-key removals
     // never reach them — this is the only thing that does.
+    // The gzip is swept with everything else: it lives under the same prefix,
+    // so deleting a model cannot leave a compressed copy of it behind.
     expect(deleted.sort()).toEqual([
       'org/org_1/project/p1/doc/d1/_bim/haus-a.ifc',
       'org/org_1/project/p1/doc/d1/_bim/index.json',
+      'org/org_1/project/p1/doc/d1/_bim/source.ifc.gz',
     ])
   })
 
   it('does nothing for a key with no directory', async () => {
     await deleteBimDerivedObjects('haus-a.ifc', null)
     expect(deleted).toEqual([])
+  })
+})
+
+describe('the viewer’s compressed source', () => {
+  it('is stored gzipped, smaller than the original, and says how big the original was', async () => {
+    await runBimExtraction(baseInput())
+
+    const gzip = stored.find((object) => object.key.endsWith('/source.ifc.gz'))
+    expect(gzip).toBeDefined()
+    // `Content-Encoding` is the whole mechanism: it is what makes the browser
+    // inflate the body itself, so the geometry kernel still receives the exact
+    // bytes the architect uploaded.
+    expect(gzip?.contentEncoding).toBe('gzip')
+    // Without this the viewer's progress bar divides decoded bytes by the
+    // compressed length and pins itself at 100%.
+    expect(Number(gzip?.metadata?.['uncompressed-length'])).toBeGreaterThan(0)
+  })
+
+  it('actually compresses — STEP is text, and this is the point of the object', async () => {
+    await runBimExtraction(baseInput())
+
+    const gzip = stored.find((object) => object.key.endsWith('/source.ifc.gz'))
+    const original = Number(gzip?.metadata?.['uncompressed-length'])
+    expect(gzip?.byteLength).toBeLessThan(original)
+  })
+
+  it('does not fail the extraction when the compressed write fails', async () => {
+    // An optimisation must never cost a model. The gzip is best-effort and the
+    // viewer falls back to the original object.
+    failNextPutFor('/source.ifc.gz')
+
+    const outcome = await runBimExtraction(baseInput())
+
+    expect(outcome.status).toBe('ready')
   })
 })

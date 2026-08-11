@@ -100,6 +100,8 @@ export const chat = {
   examples: {
     label: 'Try asking',
     questions: {
+      modelElements: 'How many external walls are on the ground floor?',
+      modelRequirements: 'Which requirements can my model not answer yet?',
       fluchtweg: 'Escape route length per OIB-2?',
       barrierefreiheit: 'Accessibility in Vienna residential construction?',
       brandabschnitte: 'Fire compartments for building class 4?',

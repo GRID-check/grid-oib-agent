@@ -1,5 +1,6 @@
 """Tests for the post-hoc card generation prompt builder."""
 
+from aiq_agent.cards.catalog import MODEL_BACKED_CARD_TYPES
 from aiq_agent.cards.catalog import render_card_catalog
 from aiq_agent.cards.prompt import build_card_generation_prompt
 from aiq_agent.cards.register import _build_tool_description
@@ -48,9 +49,42 @@ class TestBuildCardGenerationPrompt:
 
 
 class TestCatalogSharedAcrossSurfaces:
-    """The tool and the post-hoc prompt must describe the schema identically."""
+    """Both surfaces render from the one catalog, and differ in exactly one way.
 
-    def test_both_surfaces_embed_the_same_catalog(self):
-        catalog = render_card_catalog()
-        assert catalog in build_card_generation_prompt()
-        assert catalog in _build_tool_description()
+    The rule used to be "identically". It is now "identically, except that
+    post-hoc generation is not shown the cards it cannot fill" — the IFC cards
+    are addressed by GlobalId, rule id and model file name, and that path is
+    handed only the question and the finished answer text.
+    """
+
+    def test_the_tool_embeds_the_whole_catalog(self):
+        # The `emit_card` caller has the `ifc_query` rows in context, so it is
+        # the surface that may be told about the cards those rows feed.
+        assert render_card_catalog() in _build_tool_description()
+
+    def test_post_hoc_generation_embeds_the_catalog_minus_the_model_cards(self):
+        assert render_card_catalog(include_model_backed=False) in build_card_generation_prompt()
+
+    def test_post_hoc_generation_is_not_shown_a_card_it_cannot_fill(self):
+        prompt = build_card_generation_prompt()
+        for card_type in MODEL_BACKED_CARD_TYPES:
+            # Neither the shape nor the worked example: an example is a card
+            # description too, and one left behind would advertise the exact
+            # shape the surrounding text withheld.
+            assert f'"{card_type}"' not in prompt, card_type
+            assert f"  {card_type}:" not in prompt, card_type
+
+    def test_the_tool_still_is(self):
+        # The pair matters: withholding from BOTH surfaces would silently
+        # retire five working card renderers, which is the failure this
+        # feature was fixing in the first place.
+        tool = _build_tool_description()
+        for card_type in MODEL_BACKED_CARD_TYPES:
+            assert f'"{card_type}"' in tool, card_type
+
+    def test_the_withheld_set_is_real(self):
+        # A typo here withholds nothing and reads as protection.
+        from aiq_agent.cards.models import GridCard
+
+        real = {getattr(card.model_fields["type"].annotation, "__args__", ("?",))[0] for card in GridCard.__args__}
+        assert sorted(MODEL_BACKED_CARD_TYPES - real) == []

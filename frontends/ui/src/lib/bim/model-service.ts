@@ -10,9 +10,9 @@
  */
 
 import 'server-only'
-import { GetObjectCommand } from '@aws-sdk/client-s3'
+import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { signingS3Client } from '@/lib/s3'
+import { s3Client, signingS3Client } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { isIfcModelsEnabled } from '@/lib/authz/feature-flags'
@@ -21,6 +21,7 @@ import { findDocumentInOrg } from '@/lib/documents/repository'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildComplianceBcf, type BcfExport } from './bcf'
+import { buildBimDerivedKeys } from './service'
 import { attachConfirmations } from './rules'
 import {
   deleteBimCheckConfirmation,
@@ -151,6 +152,24 @@ export interface BimModelSource {
  * bolted on, it is how the model is displayed at all. The URL is presigned with
  * the same TTL as every other document read, so it expires like one.
  */
+/**
+ * The compressed source key when one exists, else `null`.
+ *
+ * Returns the KEY rather than a boolean so the caller reads as "this, or the
+ * original". Any failure — no gzip, no permission, store unreachable — falls
+ * back to the raw object, which is slower and completely correct.
+ */
+async function hasObject(bucket: string, storageKey: string): Promise<string | null> {
+  const keys = buildBimDerivedKeys(storageKey)
+  if (!keys) return null
+  try {
+    await s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: keys.sourceKey }))
+    return keys.sourceKey
+  } catch {
+    return null
+  }
+}
+
 export async function getModelSource(
   session: AuthorizedSession,
   modelId: string
@@ -160,16 +179,23 @@ export async function getModelSource(
   if (!document?.storageKey) throw new NotFoundError('Model file not available')
 
   const expiresIn = presignTtlSeconds()
+  const bucket = resolveDocumentBucket(document.storageBucket)
+  // Prefer the gzipped sibling written at extraction. An IFC is STEP text and
+  // compresses 5–10×, and a presigned URL is unique per request so the raw
+  // object is never cached — this is the difference between the viewer pulling
+  // 149 MB and pulling ~20 MB, every time anyone opens the page.
+  //
+  // Probed rather than recorded on the row: models extracted before the gzip
+  // existed simply do not have one, and a HEAD against the same store the
+  // presign already talks to is cheaper than a migration plus a backfill.
+  const key = (await hasObject(bucket, document.storageKey)) ?? document.storageKey
   const url = await getSignedUrl(
     // The BROWSER fetches this, so it must be signed against the
     // browser-reachable endpoint. Signing with the internal client bakes the
     // Docker hostname into the URL and the viewer can never load the model —
     // the same bug that once broke PDF preview.
     signingS3Client,
-    new GetObjectCommand({
-      Bucket: resolveDocumentBucket(document.storageBucket),
-      Key: document.storageKey,
-    }),
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
     { expiresIn }
   )
   return { url, filename: document.filename, expiresInSeconds: expiresIn }

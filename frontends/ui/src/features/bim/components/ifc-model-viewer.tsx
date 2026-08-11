@@ -102,6 +102,19 @@ export function IfcModelViewer({
 }: IfcModelViewerProps): JSX.Element {
   const t = useTranslations('bim')
   const [status, setStatus] = useState<IfcViewerStatus>({ phase: 'idle', percent: null, meshCount: 0 })
+  /**
+   * A failure belongs to the source that produced it.
+   *
+   * The error fallback returns BEFORE the canvas renders, so once a status of
+   * `error` was stored the canvas never mounted again — and only the canvas
+   * can report a new status. A new `sourceUrl` (the next model, or a re-signed
+   * URL after the first one expired) therefore stayed unavailable until the
+   * whole parent unmounted. Rendering to a state derived from the current
+   * source, rather than resetting in an effect, avoids the frame where the old
+   * error is still on screen under the new URL.
+   */
+  const [statusSource, setStatusSource] = useState<string | null>(sourceUrl)
+  const current = statusSource === sourceUrl ? status : { phase: 'idle' as const, percent: null, meshCount: 0 }
   const [bounds, setBounds] = useState<{ minMetres: number; maxMetres: number } | null>(null)
   /**
    * Counters, not a ref.
@@ -227,16 +240,52 @@ export function IfcModelViewer({
     )
   }
 
+  /**
+   * The viewport started and then failed — and until this branch existed, that
+   * left an empty grey box with one line of status text in the corner, which
+   * reads as a broken feature rather than as a missing picture.
+   *
+   * It is not a rare path. `supportsWebGpu` can only ask whether the API is
+   * PRESENT; whether an adapter can actually be acquired is a separate question
+   * a browser only answers when asked. Headless Chromium, a blocked or
+   * blocklisted driver, a remote desktop session and a VM all expose
+   * `navigator.gpu` and then refuse the adapter — and an interrupted download of
+   * a hundred-megabyte model lands here too.
+   *
+   * So the same shape as the unsupported fallback, plus the raw reason: the
+   * user is told the model is unaffected, and support gets the message it needs
+   * without a console.
+   */
+  if (current.phase === 'error') {
+    return (
+      <div
+        className={cn(
+          'flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-center',
+          className
+        )}
+      >
+        <MonitorX className="size-6 text-muted-foreground" aria-hidden="true" />
+        <p className="text-sm font-medium">{t('viewer.unavailable.title')}</p>
+        <p className="max-w-prose text-sm text-muted-foreground">{t('viewer.unavailable.description')}</p>
+        {current.message && (
+          <p className="max-w-prose text-xs text-muted-foreground/80">
+            {t('viewer.unavailable.reason', { message: current.message })}
+          </p>
+        )}
+      </div>
+    )
+  }
+
   const statusLabel =
-    status.phase === 'downloading'
+    current.phase === 'downloading'
       ? t('viewer.downloading')
-      : status.phase === 'parsing'
-        ? t('viewer.parsing', { count: status.meshCount })
-        : status.phase === 'ready'
-          ? t('viewer.ready', { count: status.meshCount })
-          : status.phase === 'error'
-            ? t('viewer.failed', { message: status.message ?? '' })
-            : ''
+      : current.phase === 'parsing'
+        ? t('viewer.parsing', { count: current.meshCount })
+        : current.phase === 'ready'
+          ? t('viewer.ready', { count: current.meshCount })
+          : // `error` never reaches here: it returns the fallback above, where a
+            // failure gets a panel rather than a caption on an empty canvas.
+            ''
 
   return (
     <div className={cn('relative overflow-hidden rounded-xl border bg-muted/30', className)}>
@@ -256,13 +305,16 @@ export function IfcModelViewer({
         onBounds={setBounds}
         onSelect={handleCanvasSelect}
         zoomToSelection={zoomToSelection}
-        onStatus={setStatus}
+        onStatus={(next) => {
+          setStatusSource(sourceUrl)
+          setStatus(next)
+        }}
         className="size-full touch-none"
       />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2">
         <div className="pointer-events-auto flex items-center gap-2 rounded-lg bg-background/85 px-2 py-1 text-xs text-muted-foreground backdrop-blur">
-          {(status.phase === 'downloading' || status.phase === 'parsing') && <Spinner className="size-3" />}
+          {(current.phase === 'downloading' || current.phase === 'parsing') && <Spinner className="size-3" />}
           <span>{statusLabel}</span>
         </div>
         {variant === 'page' && (
@@ -281,16 +333,21 @@ export function IfcModelViewer({
             xray={xray}
             onXrayChange={onXrayChange}
             onFit={() => setFitNonce((n) => n + 1)}
-            disabled={status.phase !== 'ready'}
+            disabled={current.phase !== 'ready'}
           />
         )}
       </div>
 
       {resolved.length > 0 && (
         <ul className="pointer-events-none absolute bottom-2 left-2 flex max-w-[70%] flex-wrap gap-1.5">
-          {resolved.map((highlight) => (
+          {resolved.map((highlight, position) => (
             <li
-              key={highlight.label}
+              // Position, not label. The URL form groups by STATUS, so
+              // `?hl=fail:A&hl=fail:B` produces two groups sharing the
+              // translated label "nicht erfüllt" — React then treats them as
+              // one row and drops the second group's count from the legend
+              // while its elements stay coloured on the model.
+              key={`${highlight.status}-${position}`}
               className="flex items-center gap-1.5 rounded-md bg-background/85 px-2 py-1 text-xs backdrop-blur"
             >
               <span

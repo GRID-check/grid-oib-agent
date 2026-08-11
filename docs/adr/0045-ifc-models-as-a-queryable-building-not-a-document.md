@@ -34,7 +34,9 @@ named is not the one adopted, and — more importantly — it treated the proble
 
 ## Decision
 
-An uploaded `.ifc` becomes **two artefacts**, and neither is the raw file:
+An uploaded `.ifc` becomes **two artefacts**, and neither is the raw file
+(a third, purely a transport optimisation, was added later — see
+[*The viewer's compressed source*](#the-viewers-compressed-source)):
 
 1. **A structured index** — `bim_models` + `bim_elements` — extracted once at
    ingestion by [`@ifc-lite/parser`](https://github.com/LTplus-AG/ifc-lite)
@@ -55,8 +57,16 @@ other's job.
 **Geometry is never processed server-side.** The 3D viewport parses and
 triangulates in the browser (ifc-lite's WASM kernel, WebGPU renderer), streaming
 the source through a short-lived presigned URL. There is no Fragments
-conversion, no cached mesh format, and no second copy of the geometry to keep in
-step with the file.
+conversion and no cached mesh format.
+
+There is also no *derived* copy of the geometry to keep in step with the file.
+The gzip added below is the same bytes under a `Content-Encoding` header — the
+browser inflates it and the kernel receives exactly what was uploaded — so it
+cannot drift from the source the way a converted mesh would, and it is written
+once at extraction rather than maintained. It is best-effort: when it is absent
+the viewer presigns the original, so a model extracted before the gzip existed
+keeps working. It is swept by the same prefix delete as the other two artefacts,
+so a deleted model leaves no compressed copy of itself behind.
 
 ### Consequences of that split
 
@@ -206,3 +216,82 @@ matching few elements, one for a filter matching many — and `listBimElements`
 chooses between them from measured counts, because jsonb containment has no
 statistics and Postgres cannot. `docs/architecture/backend-deep-dive.md`
 carries the measurements.
+
+### The viewer's compressed source
+
+The 3D viewport is the one surface that does not read the structured index: it
+needs triangles, so it downloads the raw `.ifc` and triangulates it in the
+browser with ifc-lite's WASM kernel. That download is the page's slowest phase
+by a wide margin, and it is paid **in full on every visit** — a presigned URL is
+unique per request, so the object is never cached.
+
+Extraction therefore writes a third derived artefact beside the index and the
+digest: `_bim/source.ifc.gz`, the same bytes with `Content-Encoding: gzip`.
+STEP is repetitive ASCII and compresses roughly 5–10×, so a 149 MB model
+crosses the wire as around 20 MB. The encoding header is what makes it
+invisible: the browser inflates the body itself, and the geometry kernel
+receives exactly what the architect uploaded.
+
+Three things follow from that shape and are worth stating, because each was a
+choice:
+
+- **`getModelSource` probes rather than records.** A `HeadObject` against the
+  derived key decides whether to presign the gzip or the original. Models
+  extracted before this existed have no gzip and keep working, which a column
+  would have required a migration and a backfill to achieve.
+- **The write is best-effort.** A failed gzip must not cost an extraction; the
+  viewer falls back to the original object, which is slower and correct.
+- **The uncompressed length rides as user metadata.** On a gzipped response
+  `Content-Length` describes the compressed body while a streaming reader counts
+  decoded bytes, so a progress bar that divides one by the other reaches 100% at
+  a seventh of the file. With no metadata to divide by, progress reports
+  indeterminate rather than wrong.
+
+It costs one extra object per model, swept by the same prefix delete as the
+other two — a model cannot leave a compressed copy of itself behind.
+
+### A model previews as a file
+
+The decision above makes a model *queryable*; it left it *findable* only through
+a `Modell` entry in the project navigation. So the richest file in the system
+was the one file the file system could not show: an `.ifc` opened in **Dateien**
+rendered the same decorative page mock as a `.dwg`, captioned "no inline
+preview", while the building itself lived on a route beside the file list.
+
+An IFC is now previewed as the building, in the same pane and the same modal
+every other file opens in. Three constraints shaped how:
+
+- **The documents pane learns nothing about BIM.** It gains one conditional —
+  `inferDocumentKind(...) === 'model'`, a helper it already calls to pick card
+  thumbnails — and one dynamic import. Everything else lives in
+  `features/bim/components/ifc-file-preview.tsx`: which model belongs to this
+  document, whether the browser can draw, what to say when it cannot.
+- **The preview is not the workspace.** No tabs, no element table, no Prüfbuch.
+  The pane's question is "show me this file"; the analytical surfaces stay one
+  link away, and that link addresses the model **by file name** (`?model=`), so
+  no UUID travels through a URL a user can see (see *Alternatives considered*).
+- **Project scope only.** Models are listed per project, because that route is
+  where the `ifc-models` flag and the project-access check live. The org-wide
+  Archiv has no project in hand, so it keeps the ordinary preview rather than a
+  viewport that could never resolve a model.
+
+Four things can be true of an `.ifc` in that pane, and each gets its own
+sentence: the model is ready, it is still being read, it could not be read, or
+the model **list** did not load. The last is the one worth naming — collapsing
+it into "there is no model" would tell an architect their upload vanished.
+
+### The viewport fails after it starts, too
+
+`supportsWebGpu()` can only ask whether `navigator.gpu` is *present*. Whether an
+adapter can actually be acquired is a separate question the browser answers only
+when asked — and headless Chromium, a blocklisted driver, a VM and a remote
+desktop session all answer it with a refusal after passing the first check. An
+interrupted download of a hundred-megabyte model lands in the same place.
+
+Until this change, that path left an empty grey box with a caption in the
+corner, which reads as a broken feature rather than a missing picture. The
+viewport now renders the same shape of fallback as the unsupported-browser case
+— what is missing, what is unaffected, and the raw reason underneath so a
+support report does not need a browser console. This was found by capturing the
+screenshot for the new preview: the harness's Chromium is exactly such a
+browser.

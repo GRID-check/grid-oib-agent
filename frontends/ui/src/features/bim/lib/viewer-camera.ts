@@ -166,3 +166,110 @@ export function parseCameraState(params: URLSearchParams): BimViewerCameraState 
 
   return { view, section, orthographic }
 }
+
+/**
+ * A wheel event's zoom step, normalised across the three `deltaMode` units.
+ *
+ * Browsers do not agree on what a wheel notch is. A mouse in Chrome reports
+ * PIXELS, Firefox's line mode reports LINES, and a page-mode wheel reports
+ * SCREENS. Reading `deltaY` raw treats "3 lines" as three pixels, which is why
+ * the viewport barely moved for anyone on a trackpad or on Firefox while
+ * feeling fine on the machine it was built on.
+ *
+ * Extracted from the canvas because it is the one part of the wheel handler
+ * that is arithmetic rather than WebGPU: the component cannot run in CI (no GPU
+ * adapter), and this can.
+ */
+export function wheelZoomDelta(
+  deltaY: number,
+  deltaMode: number,
+  canvasHeight: number,
+  /** Multiplier taking normalised pixels to the camera's zoom units. */
+  scale = 0.01
+): number {
+  // 1 = lines (≈ one text line), 2 = pages (one viewport). 0 = pixels already.
+  const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? Math.max(canvasHeight, 1) : 1
+  return deltaY * unit * scale
+}
+
+/**
+ * The centre of an element's bounding box — the point orbit should rotate
+ * about when that element is selected.
+ *
+ * The renderer's default pivot is the camera target, which on a building is the
+ * middle of the whole model: inspecting a stair core in one corner swung the
+ * camera in a wide arc and threw the element off screen on every drag.
+ */
+export function boundsCentre(box: {
+  min: { x: number; y: number; z: number }
+  max: { x: number; y: number; z: number }
+}): { x: number; y: number; z: number } {
+  return {
+    x: (box.min.x + box.max.x) / 2,
+    y: (box.min.y + box.max.y) / 2,
+    z: (box.min.z + box.max.z) / 2,
+  }
+}
+
+/**
+ * Read a response body to completion, reporting real progress as it arrives.
+ *
+ * `response.arrayBuffer()` returns the same bytes in the same time, but it
+ * yields nothing until the last one lands — so a 149 MB model showed an
+ * indeterminate spinner for a minute, which is indistinguishable from a hang.
+ * Streaming does not make the download faster; it makes it legible, and on a
+ * file this size that is the difference between waiting and giving up.
+ *
+ * `Content-Length` is absent under chunked transfer encoding, and behind a
+ * proxy that recompresses it can even disagree with the decoded byte count.
+ * Progress is therefore reported as `null` when there is no length to divide
+ * by, and clamped when there is, rather than allowed to exceed 100.
+ */
+export async function downloadWithProgress(
+  response: { headers: { get(name: string): string | null }; body: unknown; arrayBuffer(): Promise<ArrayBuffer> },
+  onProgress: (percent: number | null) => void
+): Promise<Uint8Array> {
+  const body = response.body as {
+    getReader?: () => { read(): Promise<{ done: boolean; value?: Uint8Array }> }
+  } | null
+  const reader = body?.getReader?.()
+  // No streaming body (an older browser, or a mocked response): fall back to
+  // the buffered read rather than failing the load for want of a progress bar.
+  if (!reader) {
+    const buffered = new Uint8Array(await response.arrayBuffer())
+    onProgress(null)
+    return buffered
+  }
+
+  // The source is served gzipped (see `writeCompressedSource`), and on a
+  // gzipped response `Content-Length` is the COMPRESSED size while a streaming
+  // reader counts DECODED bytes. Dividing one by the other sends the bar to
+  // 100% at a seventh of the file and leaves it there. The uncompressed length
+  // travels as user metadata for exactly this; without it — an older model with
+  // no gzip sibling, or a header CORS will not expose — an encoded response
+  // reports indeterminate rather than wrong.
+  const encoded = (response.headers.get('Content-Encoding') ?? '').trim() !== ''
+  const declaredRaw =
+    response.headers.get('x-amz-meta-uncompressed-length') ??
+    (encoded ? null : response.headers.get('Content-Length'))
+  const declared = Number(declaredRaw ?? '')
+  const total = Number.isFinite(declared) && declared > 0 ? declared : 0
+  const chunks: Uint8Array[] = []
+  let received = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    chunks.push(value)
+    received += value.length
+    onProgress(total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null)
+  }
+
+  const buffer = new Uint8Array(received)
+  let at = 0
+  for (const chunk of chunks) {
+    buffer.set(chunk, at)
+    at += chunk.length
+  }
+  return buffer
+}

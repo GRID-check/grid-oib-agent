@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import Image from 'next/image'
+import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
 import {
@@ -31,7 +32,7 @@ import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime } from '@/lib/format'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
-import { extChipTint, fileExtensionLabel } from '../document-kind'
+import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
@@ -77,6 +78,33 @@ interface FilePreviewPaneProps {
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
+/**
+ * The building itself, in the well where a PDF shows its pages.
+ *
+ * `ssr: false` because the viewport underneath reaches for `navigator.gpu`, and
+ * `dynamic` because it pulls the BIM hooks and (behind one more boundary) a
+ * multi-megabyte WASM kernel — none of which belongs in the bundle of a pane
+ * that is usually opened on a PDF.
+ */
+const IfcFilePreview = dynamic(
+  () => import('@/features/bim/components/ifc-file-preview').then((module) => module.IfcFilePreview),
+  { ssr: false }
+)
+
+/**
+ * The model's own facts in the metadata rail — storeys, elements, rooms, area.
+ *
+ * The rail's job is "what did Grid make of this file", and for a model the
+ * indexed panel below can only answer with the digest's passage count, which
+ * describes the prose written about the building rather than the building.
+ * Same boundary as the viewport: one import, and nothing here knows what a
+ * storey is.
+ */
+const IfcFileFacts = dynamic(
+  () => import('@/features/bim/components/ifc-file-facts').then((module) => module.IfcFileFacts),
+  { ssr: false }
+)
+
 /** One visual chunk's VLM description (mirrors the BFF visual-details payload). */
 interface VisualDetail {
   page: number
@@ -88,7 +116,7 @@ interface VisualDetail {
 
 const VISUAL_CONTENT_TYPES = ['drawing', 'image', 'chart']
 
-export function FilePreviewPane({ file, projectName, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, projectId, projectName, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -111,6 +139,18 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [details, setDetails] = useState<VisualDetail[] | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
+  /**
+   * An `.ifc` is a building, and it previews as one. This is the ONLY thing
+   * this pane knows about the BIM subsystem — `inferDocumentKind` already
+   * classifies a model by format (it has to, for the card thumbnails), and the
+   * viewport is behind one dynamic import.
+   *
+   * Project scope only: models are listed per project, so the org-wide Archiv —
+   * which has no project in hand — keeps the ordinary preview instead of a
+   * viewport that could never resolve a model.
+   */
+  const isModel =
+    inferDocumentKind({ filename: file.filename, contentType: file.contentType, tags: file.tags }) === 'model'
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
   const isImage = (file.contentType ?? '').startsWith('image/')
   // The large viewer dialog enlarges PDFs (native iframe viewer) and images
@@ -343,7 +383,14 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             column. The Maximize2 affordance in the header still opens the
             full-screen viewer for PDFs and images. */}
         <div className="flex h-[50dvh] shrink-0 min-w-0 justify-center overflow-hidden bg-muted/40 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain">
-          {canPreview && isLoading ? (
+          {isModel && projectId ? (
+            <IfcFilePreview
+              documentId={file.id}
+              filename={file.filename}
+              projectId={projectId}
+              className="size-full"
+            />
+          ) : canPreview && isLoading ? (
             <PageMock skeleton />
           ) : canPreview && previewUrl ? (
             file.contentType === 'application/pdf' ? (
@@ -413,6 +460,17 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             The utility is scroll-driven, so the fade RETRACTS at the bottom of
             travel: its presence is the signal, not decoration. */}
         <div className="scroll-fade-bottom flex w-full flex-col border-t bg-muted/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
+          {/* The building's own numbers lead the rail: they are what the file
+              IS. Ungated by the metadata flag, which covers what INGESTION
+              derived — these come out of the IFC itself. Renders nothing until
+              a model has actually been read. */}
+          {isModel && projectId && (
+            <IfcFileFacts
+              documentId={file.id}
+              projectId={projectId}
+              className="mb-4 border-b pb-4"
+            />
+          )}
           {showMetadataPanel && (
             <section className="space-y-3" aria-label={t('preview.indexed.title')}>
               <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
