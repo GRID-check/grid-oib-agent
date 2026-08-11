@@ -330,6 +330,11 @@ export const bim: typeof en.bim = {
       parallel: 'Parallel',
       perspective: 'Perspektive',
     },
+    /** Die Ansicht als Bild sichern. */
+    capture: {
+      action: 'Bild speichern',
+      failed: 'Das Bild konnte nicht erstellt werden',
+    },
     section: {
       toggle: 'Schnitt',
       height: 'Schnitthöhe',

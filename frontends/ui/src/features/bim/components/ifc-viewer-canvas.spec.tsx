@@ -37,6 +37,11 @@ interface RecordedRender {
   isolatedIds?: Set<number> | null
   hiddenIds?: Set<number>
   selectedId?: number | null
+  contributionCull?: { pixelRadius: number } | undefined
+  lod?: { screenPx: number } | undefined
+  restoreEvictedForCapture?: boolean
+  isStreaming?: boolean
+  isInteracting?: boolean
 }
 
 /** The building the fake renderer reports: a basement at -3 m, a roof at +9 m. */
@@ -44,6 +49,16 @@ const BOUNDS = { min: { x: -10, y: -3, z: -10 }, max: { x: 10, y: 9, z: 10 } }
 
 const renders: RecordedRender[] = []
 const disposed = { renderer: 0, geometry: 0 }
+
+/**
+ * The order the load path did things in.
+ *
+ * Two of the renderer's scaling mechanisms apply only to batches built AFTER
+ * they are switched on, so "was it enabled" is the wrong question and "was it
+ * enabled before the first mesh arrived" is the right one. Only a recorded
+ * sequence can answer that.
+ */
+const loadOrder: string[] = []
 
 /**
  * What the fake raycaster answers, one entry per call.
@@ -78,7 +93,19 @@ const camera = {
 vi.mock('@ifc-lite/renderer', () => ({
   Renderer: class {
     async init(): Promise<void> {}
-    addMeshes(): void {}
+    addMeshes(): void {
+      loadOrder.push('addMeshes')
+    }
+    async enableQuantizedBatches(): Promise<boolean> {
+      loadOrder.push('enableQuantizedBatches')
+      return true
+    }
+    async captureScreenshot(): Promise<string> {
+      // Recorded so a test can assert the frame drawn immediately BEFORE the
+      // capture was the exhaustive one.
+      loadOrder.push('captureScreenshot')
+      return 'data:image/png;base64,AAA'
+    }
     fitToView(): void {}
     resize(): void {}
     render(options: RecordedRender): void {
@@ -109,6 +136,7 @@ vi.mock('@ifc-lite/renderer', () => ({
         setColorOverrides: vi.fn(),
         clearColorOverrides: vi.fn(),
         getEntityBoundingBox: () => null,
+        setLodBuildsEnabled: () => loadOrder.push('setLodBuildsEnabled'),
       }
     }
     getGPUDevice() {
@@ -149,6 +177,7 @@ const lastRender = (): RecordedRender => {
 beforeEach(() => {
   renders.length = 0
   raycasts.length = 0
+  loadOrder.length = 0
   disposed.renderer = 0
   disposed.geometry = 0
   vi.stubGlobal(
@@ -443,6 +472,88 @@ describe('taking elements out of the way', () => {
       expect(lastRender().hiddenIds).toEqual(new Set([21]))
       expect(lastRender().isolatedIds).toEqual(new Set([22, 24]))
     })
+  })
+})
+
+describe('surviving a real building', () => {
+  it('switches on quantized vertices and LOD builds BEFORE any geometry lands', async () => {
+    // Both apply to batches built from that moment on. Enabling them after
+    // `processAdaptive` starts leaves whatever already streamed in on the
+    // expensive path, which is the kind of half-applied setting that looks
+    // enabled in code review and does nothing on a cold load.
+    await mountLoaded()
+    const quantized = loadOrder.indexOf('enableQuantizedBatches')
+    const lod = loadOrder.indexOf('setLodBuildsEnabled')
+    const firstMesh = loadOrder.indexOf('addMeshes')
+
+    expect(quantized).toBeGreaterThanOrEqual(0)
+    expect(lod).toBeGreaterThanOrEqual(0)
+    expect(firstMesh).toBeGreaterThan(quantized)
+    expect(firstMesh).toBeGreaterThan(lod)
+  })
+
+  it('culls sub-pixel batches on the interactive frame', async () => {
+    await mountLoaded()
+    expect(lastRender().contributionCull?.pixelRadius).toBeGreaterThan(0)
+    expect(lastRender().lod?.screenPx).toBeGreaterThan(0)
+  })
+})
+
+describe('capturing the view', () => {
+  it('draws an exhaustive frame and captures THAT', async () => {
+    const onCapture = vi.fn()
+    const { rerender } = await mountLoaded({ captureNonce: 0, onCapture })
+
+    rerender(
+      <IfcViewerCanvas
+        sourceUrl="https://example.test/model.ifc"
+        elements={ELEMENTS}
+        captureNonce={1}
+        onCapture={onCapture}
+      />
+    )
+
+    await waitFor(() => expect(onCapture).toHaveBeenCalledWith('data:image/png;base64,AAA'))
+    // The frame immediately before the capture is the image. Culling and LOD
+    // are invisible at 60 fps and perfectly visible in a PNG someone prints.
+    const captureIndex = loadOrder.indexOf('captureScreenshot')
+    expect(captureIndex).toBeGreaterThanOrEqual(0)
+    const captured = renders.at(-2) ?? renders.at(-1)!
+    expect(captured.contributionCull).toBeUndefined()
+    expect(captured.lod).toBeUndefined()
+    expect(captured.restoreEvictedForCapture).toBe(true)
+    expect(captured.isStreaming).toBe(false)
+  })
+
+  it('does not capture itself on mount', async () => {
+    // Every mount would otherwise produce a PNG nobody asked for, and on the
+    // stage that is a download.
+    const onCapture = vi.fn()
+    await mountLoaded({ onCapture })
+    expect(onCapture).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed capture rather than doing nothing', async () => {
+    const onCapture = vi.fn()
+    const { rerender } = await mountLoaded({ onCapture })
+    // A GPU that refuses the readback answers null, and an inert button is
+    // not something the reader can be expected to interpret.
+    const renderer = (await import('@ifc-lite/renderer')) as unknown as {
+      Renderer: { prototype: { captureScreenshot: () => Promise<string | null> } }
+    }
+    const original = renderer.Renderer.prototype.captureScreenshot
+    renderer.Renderer.prototype.captureScreenshot = async () => null
+
+    rerender(
+      <IfcViewerCanvas
+        sourceUrl="https://example.test/model.ifc"
+        elements={ELEMENTS}
+        captureNonce={7}
+        onCapture={onCapture}
+      />
+    )
+    await waitFor(() => expect(onCapture).toHaveBeenCalledWith(null))
+    renderer.Renderer.prototype.captureScreenshot = original
   })
 })
 

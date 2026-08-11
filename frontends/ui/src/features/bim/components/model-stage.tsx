@@ -34,10 +34,11 @@
  * the version this replaces had four of them in three different materials.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   Boxes,
+  Camera,
   Check,
   Eye,
   Home,
@@ -74,6 +75,7 @@ import {
   stageModelLabel,
 } from '../lib/stage-model'
 import { BIM_CAMERA_VIEWS, type BimCameraView } from '../lib/viewer-camera'
+import { screenshotFilename } from '../lib/viewer-performance'
 import {
   useBimElementDetail,
   useBimElements,
@@ -172,6 +174,44 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
 
   const levels = useMemo(() => stageLevels(model?.summary), [model?.summary])
 
+  // Read inside the download handler, which is deliberately identity-stable so
+  // that renaming nothing re-mounts the viewport's capture effect.
+  const modelFilenameRef = useRef(model?.filename ?? null)
+  modelFilenameRef.current = model?.filename ?? null
+
+  /**
+   * A captured view lands in the reader's downloads.
+   *
+   * Not in the clipboard: a PNG on the clipboard is a thing you can paste into
+   * exactly one kind of application, and the reason someone captures a model
+   * view is to put it in a Befund, an email or a BCF topic — all of which want
+   * a file. A failed capture says so rather than silently doing nothing; the
+   * usual cause is a GPU that refused the readback, which is not something the
+   * reader can be expected to infer from an inert button.
+   */
+  const [captureFailed, setCaptureFailed] = useState(false)
+  const handleCapture = useCallback(
+    (dataUrl: string | null) => {
+      if (!dataUrl) {
+        setCaptureFailed(true)
+        return
+      }
+      setCaptureFailed(false)
+      const link = document.createElement('a')
+      link.href = dataUrl
+      link.download = screenshotFilename(modelFilenameRef.current, new Date())
+      link.click()
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (!captureFailed) return
+    const timer = setTimeout(() => setCaptureFailed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [captureFailed])
+
+
   const highlights = useMemo(
     () =>
       (view.highlights ?? []).map((group) => ({
@@ -223,6 +263,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     camera: view.camera,
     onCameraChange: (camera) => setView({ camera }),
     compact: false,
+    onCapture: handleCapture,
   })
 
   /**
@@ -551,6 +592,12 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               onClick={() =>
                 viewport.setSection(section ? null : { atMetres: cutDefault, flipped: false })
               }
+            />
+            <ViewerIconButton
+              label={captureFailed ? t('viewer.capture.failed') : t('viewer.capture.action')}
+              icon={captureFailed ? MonitorX : Camera}
+              disabled={viewport.status.phase !== 'ready'}
+              onClick={viewport.capture}
             />
             <ViewerIconButton
               label={t('viewer.measure.toggle')}

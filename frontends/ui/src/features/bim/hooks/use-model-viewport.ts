@@ -69,6 +69,8 @@ export interface UseModelViewportOptions {
   onCameraChange?: (camera: BimViewerCameraState) => void
   /** Cheaper shading and no hover testing, for a card-sized viewport. */
   compact?: boolean
+  /** Receives the PNG data URL produced by {@link ModelViewport.capture}. */
+  onCapture?: (dataUrl: string | null) => void
 }
 
 /**
@@ -137,6 +139,14 @@ export interface ModelViewport {
   defaultCut: (storeyElevation: number | null) => number
   measure: ModelMeasuring
   visibility: ModelVisibility
+  /**
+   * Capture the view as a PNG and hand it to `onCapture`.
+   *
+   * The viewport cannot decide what happens to the image — a stage downloads
+   * it, a report would embed it, a BCF topic would attach it — so it produces
+   * the bytes and says nothing about their destination.
+   */
+  capture: () => void
 }
 
 export function useModelViewport({
@@ -150,6 +160,7 @@ export function useModelViewport({
   camera,
   onCameraChange,
   compact = false,
+  onCapture,
 }: UseModelViewportOptions): ModelViewport {
   const [status, setStatus] = useState<IfcViewerStatus>({
     phase: 'idle',
@@ -183,6 +194,7 @@ export function useModelViewport({
    */
   const [viewNonce, setViewNonce] = useState(0)
   const [fitNonce, setFitNonce] = useState(0)
+  const [captureNonce, setCaptureNonce] = useState(0)
 
   /**
    * Controlled when the caller passes `camera` + `onCameraChange`, local
@@ -241,6 +253,7 @@ export function useModelViewport({
     [setCamera]
   )
   const fit = useCallback(() => setFitNonce((n) => n + 1), [])
+  const capture = useCallback(() => setCaptureNonce((n) => n + 1), [])
 
   /**
    * Where the cut lands when it is switched on.
@@ -412,6 +425,8 @@ export function useModelViewport({
       view: cameraState.view,
       viewNonce,
       fitNonce,
+      captureNonce,
+      onCapture,
       orthographic: cameraState.orthographic,
       section,
       onBounds: setBounds,
@@ -437,6 +452,8 @@ export function useModelViewport({
     cameraState.orthographic,
     viewNonce,
     fitNonce,
+    captureNonce,
+    onCapture,
     section,
     handleCanvasSelect,
     zoomToSelection,
@@ -463,5 +480,6 @@ export function useModelViewport({
     defaultCut,
     measure,
     visibility,
+    capture,
   }
 }

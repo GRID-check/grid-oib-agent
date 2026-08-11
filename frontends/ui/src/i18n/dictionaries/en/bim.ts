@@ -335,6 +335,11 @@ export const bim = {
       parallel: 'Parallel',
       perspective: 'Perspective',
     },
+    /** Capturing the view as an image someone will keep. */
+    capture: {
+      action: 'Save image',
+      failed: 'The image could not be captured',
+    },
     section: {
       toggle: 'Section',
       height: 'Cut at',

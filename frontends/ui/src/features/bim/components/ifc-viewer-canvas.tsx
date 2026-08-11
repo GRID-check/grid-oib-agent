@@ -66,7 +66,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * renderer's own `RenderOptions` the contract. A misspelled option is now a
  * type error at the call site, which is where it was always meant to be caught.
  */
-import type { Camera, Renderer, Scene } from '@ifc-lite/renderer'
+import type { Camera, RenderOptions, Renderer, Scene } from '@ifc-lite/renderer'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
@@ -88,6 +88,7 @@ import {
   type BimCameraView,
   type BimSection,
 } from '../lib/viewer-camera'
+import { captureFrameOptions, interactiveFrameOptions } from '../lib/viewer-performance'
 import {
   readViewerTheme,
   VIEWER_CLEAR_COLOR,
@@ -177,6 +178,16 @@ export interface IfcViewerCanvasProps {
   onMeasure?: (measurement: Measurement) => void
   /** Whether a first point is down, so the chrome can say what to click next. */
   onMeasurePending?: (pending: boolean) => void
+  /**
+   * Bumped to capture the current view as a PNG.
+   *
+   * A counter for the same reason `fitNonce` is one: a `ref` cannot cross the
+   * `next/dynamic` boundary on React 18, and capturing the same view twice is
+   * two events rather than one piece of state.
+   */
+  captureNonce?: number
+  /** The PNG data URL, or null when the capture failed. */
+  onCapture?: (dataUrl: string | null) => void
   className?: string
 }
 
@@ -212,6 +223,7 @@ type RendererLike = Pick<
   | 'getGPUDevice'
   | 'getPipeline'
   | 'captureScreenshot'
+  | 'enableQuantizedBatches'
 > & {
   getCamera(): CameraLike
   getScene(): SceneLike
@@ -264,7 +276,10 @@ type CameraLike = Pick<
   | 'moveFirstPerson'
 >
 
-type SceneLike = Pick<Scene, 'setColorOverrides' | 'clearColorOverrides' | 'getEntityBoundingBox'>
+type SceneLike = Pick<
+  Scene,
+  'setColorOverrides' | 'clearColorOverrides' | 'getEntityBoundingBox' | 'setLodBuildsEnabled'
+>
 
 /**
  * How long one synchronous hover raycast may take before hover is abandoned.
@@ -320,6 +335,8 @@ export function IfcViewerCanvas({
   measurements,
   onMeasure,
   onMeasurePending,
+  captureNonce = 0,
+  onCapture,
   className,
 }: IfcViewerCanvasProps): JSX.Element {
   const t = useTranslations('bim')
@@ -369,6 +386,8 @@ export function IfcViewerCanvas({
   onMeasurePendingRef.current = onMeasurePending
   const measuringRef = useRef(measuring)
   measuringRef.current = measuring
+  const onCaptureRef = useRef(onCapture)
+  onCaptureRef.current = onCapture
 
   /**
    * The measurement in progress, and the drawing of every finished one.
@@ -432,6 +451,54 @@ export function IfcViewerCanvas({
   }, [])
 
   /**
+   * Everything a frame is made of that is NOT a speed/quality trade.
+   *
+   * Shared by the interactive loop and the capture below, which differ only in
+   * those trades. Written as one function rather than duplicated because a
+   * capture that quietly disagreed with the viewport about what is hidden, cut
+   * or highlighted would be a picture of a building nobody was looking at.
+   */
+  const frameOptions = useCallback((): RenderOptions => {
+    const renderer = rendererRef.current
+    const theme = themeRef.current
+    return {
+      isolatedIds: isolatedRef.current,
+      // Omitted rather than empty when nothing is hidden. An empty set is a
+      // no-op to the renderer either way, but it still costs a per-frame
+      // element-wise compare against the previous snapshot on every batch.
+      ...(hiddenRef.current && hiddenRef.current.size > 0
+        ? { hiddenIds: new Set(hiddenRef.current) }
+        : {}),
+      selectedId: selectedRef.current,
+      // The renderer treats an ABSENT set as "no ghosting" and an empty one
+      // as "ghost everything", so passing an empty set through would fade
+      // the whole building the moment a highlight resolved to nothing.
+      //
+      // The option is `ghostExceptIds`. It used to be spelled
+      // `xrayContextIds` here, which is not a key the renderer has ever
+      // read — so the x-ray control was inert from the day it shipped, and
+      // looked like it worked because the button's pressed state is local.
+      ghostExceptIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
+      ghostAlpha: 0.1,
+      clearColor: VIEWER_CLEAR_COLOR[theme],
+      environment: viewerEnvironment(theme),
+      visualEnhancement: compactRef.current ? viewerEnhancementCompact() : viewerEnhancement(),
+      // Absent rather than `enabled: false` when there is no cut: the option
+      // is snapshotted per frame and a disabled plane still costs the
+      // cap/outline setup.
+      //
+      // The bounds are read from the renderer HERE rather than taken from
+      // the `onBounds` prop round-trip, so the plane is expressed against the
+      // box the renderer holds this frame — during streaming that box is
+      // still growing, and a percentage computed against a stale one would
+      // slide the cut as the building arrived.
+      sectionPlane: sectionRef.current
+        ? rendererSectionPlane(sectionRef.current, modelBoundsMetres(renderer))
+        : undefined,
+    }
+  }, [])
+
+  /**
    * Draw one frame, now. Split out of {@link requestFrame} so the camera loop
    * below can render synchronously inside its own animation frame rather than
    * scheduling a second one behind it.
@@ -440,46 +507,17 @@ export function IfcViewerCanvas({
     const renderer = rendererRef.current
     if (!renderer) return
     try {
-      const theme = themeRef.current
       renderer.render({
-        isolatedIds: isolatedRef.current,
-        // Omitted rather than empty when nothing is hidden. An empty set is a
-        // no-op to the renderer either way, but it still costs a per-frame
-        // element-wise compare against the previous snapshot on every batch.
-        ...(hiddenRef.current && hiddenRef.current.size > 0
-          ? { hiddenIds: new Set(hiddenRef.current) }
-          : {}),
-        selectedId: selectedRef.current,
-        // The renderer treats an ABSENT set as "no ghosting" and an empty one
-        // as "ghost everything", so passing an empty set through would fade
-        // the whole building the moment a highlight resolved to nothing.
-        //
-        // The option is `ghostExceptIds`. It used to be spelled
-        // `xrayContextIds` here, which is not a key the renderer has ever
-        // read — so the x-ray control was inert from the day it shipped, and
-        // looked like it worked because the button's pressed state is local.
-        ghostExceptIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
-        ghostAlpha: 0.1,
-        clearColor: VIEWER_CLEAR_COLOR[theme],
-        environment: viewerEnvironment(theme),
-        visualEnhancement: compactRef.current ? viewerEnhancementCompact() : viewerEnhancement(),
+        ...frameOptions(),
         // Both are hints the renderer uses to shed work it cannot use: a scene
         // that is still loading, and a camera that is still moving, are frames
         // nobody is inspecting closely.
         isStreaming: streamingRef.current,
         isInteracting: interactingRef.current,
-        // Absent rather than `enabled: false` when there is no cut: the option
-        // is snapshotted per frame and a disabled plane still costs the
-        // cap/outline setup.
-        //
-        // The bounds are read from the renderer HERE rather than taken from
-        // the `onBounds` prop round-trip, so the plane is expressed against the
-        // box the renderer holds this frame — during streaming that box is
-        // still growing, and a percentage computed against a stale one would
-        // slide the cut as the building arrived.
-        sectionPlane: sectionRef.current
-          ? rendererSectionPlane(sectionRef.current, modelBoundsMetres(renderer))
-          : undefined,
+        // Sub-pixel batches are skipped and distant ones draw their simplified
+        // index range. See `viewer-performance.ts` for why the thresholds are
+        // what they are — and why a capture render must not use them.
+        ...interactiveFrameOptions(),
       })
     } catch {
       // A lost device makes render() a no-op upstream; anything else here is
@@ -489,7 +527,7 @@ export function IfcViewerCanvas({
     // dimension line that trails the building by a frame reads as the
     // measurement sliding off the wall whenever the camera moves.
     drawOverlay(renderer)
-  }, [drawOverlay])
+  }, [drawOverlay, frameOptions])
 
   /** Ask for one frame. Rendering is on demand — a static model must not spin the GPU. */
   const frameRef = useRef<number | null>(null)
@@ -593,6 +631,25 @@ export function IfcViewerCanvas({
           return
         }
         rendererRef.current = renderer
+
+        // Both of these apply to batches built FROM NOW ON, so they have to be
+        // set before a single mesh arrives — after `processAdaptive` starts it
+        // is too late for the geometry that already landed.
+        //
+        // `enableQuantizedBatches` probes the pipeline variants and answers
+        // whether they exist; a backend that refuses them keeps the f32 path,
+        // which is correct and merely larger. That is not the reader's
+        // problem, so it is not reported.
+        renderer.getScene().setLodBuildsEnabled(true)
+        try {
+          await renderer.enableQuantizedBatches()
+        } catch {
+          // A probe that throws is a renderer that stays on f32 vertices.
+        }
+        if (cancelled) {
+          renderer.destroy()
+          return
+        }
 
         // A WebGPU device can be taken away — a driver reset, a laptop waking
         // from sleep, a tab backgrounded too long on a machine under memory
@@ -809,6 +866,46 @@ export function IfcViewerCanvas({
     fittedRef.current = fitNonce
     fitModel()
   }, [fitNonce, ready, fitModel])
+
+  /**
+   * Capture the view, exhaustively.
+   *
+   * `captureScreenshot` grabs what is on the swap chain, so the frame drawn
+   * immediately before it IS the image. That frame must not be an interactive
+   * one: sub-pixel culling and LOD are invisible at 60 fps and perfectly
+   * visible in a PNG somebody prints and attaches to a finding. So one
+   * complete frame is drawn first — no culling, no LOD, every evicted batch
+   * rebuilt — and the interactive loop resumes on the next request.
+   *
+   * The initial value is skipped, or every mount would capture itself.
+   */
+  const capturedRef = useRef(captureNonce)
+  useEffect(() => {
+    if (!ready || captureNonce === capturedRef.current) return
+    capturedRef.current = captureNonce
+    const renderer = rendererRef.current
+    if (!renderer) return
+    let cancelled = false
+    const run = async () => {
+      try {
+        renderer.render({
+          ...frameOptions(),
+          ...captureFrameOptions(),
+        })
+        const png = await renderer.captureScreenshot()
+        if (!cancelled) onCaptureRef.current?.(png)
+      } catch {
+        if (!cancelled) onCaptureRef.current?.(null)
+      }
+      // Back to the interactive frame, so the viewport is not left showing a
+      // capture-quality image it will never redraw at that cost again.
+      if (!cancelled) requestFrame()
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [captureNonce, ready, requestFrame, frameOptions])
 
   // Frame the selected element, when the selection came from somewhere other
   // than a click in this canvas.
