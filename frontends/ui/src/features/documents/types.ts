@@ -50,10 +50,28 @@ export interface TrackedFile {
   fileName: string
   /** File size in bytes */
   fileSize: number
-  /** Current status (includes client-only 'deleting' transient state) */
-  status: DocumentFileStatus | 'deleting'
-  /** Progress percentage (0-100) */
+  /** Current status (includes the client-only 'deleting' / 'canceled' transient states) */
+  status: DocumentFileStatus | 'deleting' | 'canceled'
+  /**
+   * Backend-reported ingestion progress (0-100).
+   *
+   * Kept because the ingest job reports it, but NOT what the upload UI draws a
+   * bar from: it is the backend's view of a queue it processes in bursts, so it
+   * holds one value for a long time and then jumps. See `lib/upload-progress.ts`
+   * for which phases have a measurable percentage and which do not.
+   */
   progress: number
+  /**
+   * Bytes of this file that have actually crossed the wire, from the browser's
+   * own upload progress events. The only measured number in the whole pipeline.
+   */
+  bytesUploaded?: number
+  /**
+   * Epoch ms at which this file got an upload slot. Absent while it is still
+   * queued behind the concurrency limit — which is how "queued" and "uploading"
+   * are told apart without guessing from the byte count.
+   */
+  uploadStartedAt?: number
   /** Error message if failed */
   errorMessage?: string | null
   /** Backend file_id once uploaded */
@@ -142,7 +160,20 @@ export interface DocumentsActions {
   // File tracking
   addTrackedFile: (file: TrackedFile) => void
   updateTrackedFile: (id: string, updates: Partial<TrackedFile>) => void
+  /**
+   * Hot-path sibling of {@link updateTrackedFile} for upload progress events,
+   * which arrive ~20×/second per in-flight file. Returns the previous state
+   * untouched when the byte count has not moved, so an unchanged value costs no
+   * re-render of the tray.
+   */
+  setUploadProgress: (id: string, bytesUploaded: number) => void
   removeTrackedFile: (id: string) => void
+  /**
+   * Drop rows from the upload surface WITHOUT tombstoning them — the user is
+   * dismissing a notice, not deleting a document. `removeTrackedFile` is the
+   * delete; conflating the two hides freshly-uploaded files from the next sync.
+   */
+  dismissTrackedFiles: (ids: string[]) => void
   /** Remove a file's IDs from recentlyDeletedIds (used to undo optimistic delete on failure) */
   unmarkRecentlyDeleted: (file: TrackedFile) => void
   /** Drop tombstone entries for these ids (e.g. backend reused file_id after a new upload) */

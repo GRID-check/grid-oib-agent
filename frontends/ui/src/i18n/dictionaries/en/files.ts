@@ -8,9 +8,50 @@ export const files = {
     dragOrBrowse: 'Drag files here or browse',
     maxSizeShort: 'max. {size} MB',
   },
-  activeUploads: {
-    heading: 'Uploads',
-    uploadFailed: 'Upload failed',
+  // The upload tray. Wording follows the surface's one rule: a number is
+  // stated only where one was measured. "Reading" is what the backend does to a
+  // document, and it has no ETA — so the copy says so instead of implying one.
+  uploads: {
+    region: 'Uploads',
+    heading: {
+      transferringOne: 'Uploading 1 document',
+      transferringOther: 'Uploading {count} documents',
+      processingOne: 'Piloti is reading 1 document',
+      processingOther: 'Piloti is reading {count} documents',
+      doneOne: '1 document added',
+      doneOther: '{count} documents added',
+      mixed: '{ready} added · {failed} failed',
+      failedOne: '1 document could not be added',
+      failedOther: '{count} documents could not be added',
+      canceled: 'Upload canceled',
+    },
+    detail: {
+      bytes: '{done} of {total}',
+      eta: '{time} left',
+      queued: '{count} waiting',
+      // Deliberately not a percentage: indexing progress is reported by the
+      // backend in bursts, so any bar drawn from it stalls and then jumps.
+      processing: 'Indexing — no time estimate, you can keep working',
+      elapsed: '{time} so far',
+      settled: '{total} transferred',
+    },
+    row: {
+      queued: 'Waiting',
+      uploading: 'Sending',
+      processing: 'Reading',
+      ready: 'Citable',
+      canceled: 'Canceled',
+      failed: 'Failed',
+    },
+    actions: {
+      expand: 'Show files',
+      collapse: 'Hide files',
+      cancelAll: 'Cancel all',
+      cancel: 'Cancel upload of {name}',
+      retryAll: 'Retry failed',
+      dismiss: 'Dismiss {name}',
+      dismissAll: 'Dismiss',
+    },
   },
   status: {
     // "Citable" (not a bare "Ready") answers the one question that matters to a
@@ -43,6 +84,9 @@ export const files = {
     noInlinePreview:
       'No inline preview for this file type. Download it to view the full document.',
     status: 'Status',
+    // Heading for the rail's fact list (what the FILE is), distinct from
+    // "Detailed information" below it (what the VLM saw on each page).
+    properties: 'Properties',
     type: 'Type',
     size: 'Size',
     tags: 'Tags',
@@ -86,12 +130,6 @@ export const files = {
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
     dialogLabel: 'File preview: {name}',
-    // Was 'Page 1 of {count}' — hardcoded to page 1, so it stated a falsehood
-    // on every page but the first. The pane has no page-tracking (the PDF renders
-    // in a native iframe we cannot observe), so it states the count it actually
-    // knows rather than a position it does not.
-    // Count-neutral: the pane renders this for a one-page document too.
-    pageCountOnly: 'Total pages: {count}',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',
@@ -144,7 +182,18 @@ export const files = {
     view: {
       label: 'View',
       cards: 'Cards',
+      list: 'List',
       tree: 'Folders',
+    },
+  },
+  // Explorer detail view — column headings for the sortable listing.
+  list: {
+    columns: {
+      name: 'Name',
+      status: 'Status',
+      pages: 'Pages',
+      size: 'Size',
+      added: 'Added',
     },
   },
   delete: {
@@ -161,6 +210,7 @@ export const files = {
     upload: 'Upload',
   },
   errors: {
+    someUploadsFailed: '{failed} of {total} documents could not be uploaded. First reason: {reason}',
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
     imageVlmUnavailable: 'Image upload requires a configured vision model (VLM) on this deployment.',

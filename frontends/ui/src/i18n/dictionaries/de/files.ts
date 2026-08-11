@@ -10,9 +10,49 @@ export const files: typeof en.files = {
     dragOrBrowse: 'Dateien hierher ziehen oder auswählen',
     maxSizeShort: 'max. {size} MB',
   },
-  activeUploads: {
-    heading: 'Uploads',
-    uploadFailed: 'Upload fehlgeschlagen',
+  // Die Upload-Leiste. Die Formulierungen folgen der Regel der Oberfläche:
+  // Eine Zahl steht nur dort, wo tatsächlich gemessen wurde. „Wird gelesen“
+  // beschreibt, was das Backend mit einem Dokument tut – dafür gibt es keine
+  // Restzeit, also sagt der Text das, statt eine zu suggerieren.
+  uploads: {
+    region: 'Uploads',
+    heading: {
+      transferringOne: '1 Dokument wird hochgeladen',
+      transferringOther: '{count} Dokumente werden hochgeladen',
+      processingOne: 'Piloti liest 1 Dokument',
+      processingOther: 'Piloti liest {count} Dokumente',
+      doneOne: '1 Dokument hinzugefügt',
+      doneOther: '{count} Dokumente hinzugefügt',
+      mixed: '{ready} hinzugefügt · {failed} fehlgeschlagen',
+      failedOne: '1 Dokument konnte nicht hinzugefügt werden',
+      failedOther: '{count} Dokumente konnten nicht hinzugefügt werden',
+      canceled: 'Upload abgebrochen',
+    },
+    detail: {
+      bytes: '{done} von {total}',
+      eta: 'noch {time}',
+      queued: '{count} in Warteschlange',
+      processing: 'Wird indexiert – keine Restzeit, Sie können weiterarbeiten',
+      elapsed: 'seit {time}',
+      settled: '{total} übertragen',
+    },
+    row: {
+      queued: 'Wartet',
+      uploading: 'Wird gesendet',
+      processing: 'Wird gelesen',
+      ready: 'Zitierbar',
+      canceled: 'Abgebrochen',
+      failed: 'Fehlgeschlagen',
+    },
+    actions: {
+      expand: 'Dateien anzeigen',
+      collapse: 'Dateien ausblenden',
+      cancelAll: 'Alle abbrechen',
+      cancel: 'Upload von {name} abbrechen',
+      retryAll: 'Fehlgeschlagene wiederholen',
+      dismiss: '{name} ausblenden',
+      dismissAll: 'Ausblenden',
+    },
   },
   status: {
     // "Zitierbar" (nicht bloß "Bereit") beantwortet die entscheidende Frage:
@@ -46,6 +86,7 @@ export const files: typeof en.files = {
     noInlinePreview:
       'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',
     status: 'Status',
+    properties: 'Eigenschaften',
     type: 'Typ',
     size: 'Größe',
     tags: 'Schlagwörter',
@@ -91,8 +132,6 @@ export const files: typeof en.files = {
     retryIngestionError:
       'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     dialogLabel: 'Dateivorschau: {name}',
-    /** Count-neutral: wird auch bei einem einseitigen Dokument gerendert. */
-    pageCountOnly: 'Seiten insgesamt: {count}',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -146,7 +185,18 @@ export const files: typeof en.files = {
     view: {
       label: 'Ansicht',
       cards: 'Kacheln',
+      list: 'Liste',
       tree: 'Ordner',
+    },
+  },
+  // Detailansicht des Explorers – Spaltenüberschriften der sortierbaren Liste.
+  list: {
+    columns: {
+      name: 'Name',
+      status: 'Status',
+      pages: 'Seiten',
+      size: 'Größe',
+      added: 'Hinzugefügt',
     },
   },
   delete: {
@@ -163,6 +213,8 @@ export const files: typeof en.files = {
     upload: 'Hochladen',
   },
   errors: {
+    someUploadsFailed:
+      '{failed} von {total} Dokumenten konnten nicht hochgeladen werden. Erster Grund: {reason}',
     uploadingSkipped:
       'Es werden {uploading} {fileLabel} hochgeladen, {skipped} übersprungen ({summary})',
     cannotRetryServerFile:

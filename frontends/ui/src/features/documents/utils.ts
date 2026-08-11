@@ -21,6 +21,27 @@ export const mapBackendStatus = (backendStatus: string): DocumentFileStatus => {
 }
 
 /**
+ * Map the durable-upload endpoint's document status onto a tracked-file status.
+ *
+ * The BFF answers with the DOCUMENT's lifecycle (`pending` / `processing` /
+ * `uploaded` / `failed`), which is a different vocabulary from the tracked
+ * file's. `uploaded` is the odd one: the bytes are stored but ingest handed
+ * back no job, so nothing will ever poll it — it is as finished as it is going
+ * to get, which is what `success` means here and what the status badge already
+ * renders it as.
+ */
+export const mapUploadResponseStatus = (status: string | null | undefined): DocumentFileStatus => {
+  switch (status) {
+    case 'failed':
+      return 'failed'
+    case 'uploaded':
+      return 'success'
+    default:
+      return 'ingesting'
+  }
+}
+
+/**
  * Map DocumentFileStatus to FileSourceCard display status
  */
 export const mapToDisplayStatus = (status: string): FileSourceStatus => {
