@@ -138,13 +138,13 @@ export function IfcModelCompare({
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2 text-xs">
             <Badge variant="success">
-              {t('compare.added')} {comparison.added.length}
+              {t('compare.added')} {comparison.counts.added}
             </Badge>
             <Badge variant="destructive">
-              {t('compare.removed')} {comparison.removed.length}
+              {t('compare.removed')} {comparison.counts.removed}
             </Badge>
             <Badge variant="warning">
-              {t('compare.changed')} {comparison.changed.length}
+              {t('compare.changed')} {comparison.counts.changed}
             </Badge>
             <Badge variant="secondary">
               {t('compare.unchanged')} {comparison.unchangedCount}

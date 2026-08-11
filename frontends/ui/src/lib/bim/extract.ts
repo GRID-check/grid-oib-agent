@@ -355,7 +355,34 @@ function roundMeasure(value: number | null): number | null {
 }
 
 function sumQuantity(element: BimElement, keys: readonly string[]): number | null {
-  for (const set of Object.values(element.quantities)) {
+  return sumQuantitySets(element.quantities, keys)
+}
+
+/**
+ * A element's quantity sets, occurrence values winning over inherited ones.
+ *
+ * That is the IFC precedence rule: a space that overrides its type's
+ * `NetFloorArea` publishes the override, not two conflicting numbers.
+ */
+function mergedQuantitySets(
+  store: Parameters<typeof extractQuantitiesOnDemand>[0],
+  expressId: number
+): ReturnType<typeof extractQuantitiesOnDemand> {
+  const own = extractQuantitiesOnDemand(store, expressId)
+  const inherited = extractTypeQuantitiesOnDemand(store, expressId)
+  if (!inherited) return own
+  return mergeInheritedPropertySets(
+    own.map((set) => ({ name: set.name, properties: set.quantities })),
+    inherited.quantities.map((set) => ({ name: set.name, properties: set.quantities }))
+  ).map((set) => ({ name: set.name, quantities: set.properties }))
+}
+
+/** The same lookup over quantity sets alone, for a space past the element cap. */
+function sumQuantitySets(
+  quantities: BimElement['quantities'],
+  keys: readonly string[]
+): number | null {
+  for (const set of Object.values(quantities)) {
     for (const key of keys) {
       const value = set[key]
       if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -415,13 +442,41 @@ export async function extractIfcModel(
     elementTotal += expressIds.length
     if (SPATIAL_ELEMENT_TYPES.has(canonical)) spaceTotal += expressIds.length
 
+    /**
+     * Whether this type feeds the building's published totals.
+     *
+     * Only spaces do — see the note at the accumulation below. It matters here
+     * because the element CAP is a cap on the stored list, not on what the
+     * building is: the overview tells the reader in as many words that "the
+     * totals are complete, the element list is capped", and until this branch
+     * existed that sentence was false. Every space past the cap was silently
+     * left out of the floor area, so a large model published a Netto-
+     * Grundfläche that was short by however much of the building did not fit —
+     * with a note beside it promising the opposite.
+     *
+     * Spaces are a few hundred rows in a model with tens of thousands of
+     * elements, so reading their quantities past the cap costs little. Nothing
+     * else about them is extracted, and they are still kept OUT of the stored
+     * list, which is what the cap is actually for.
+     */
+    const feedsTotals = canonical === 'IfcSpace'
+
     for (const expressId of expressIds) {
-      if (elements.length >= limit) {
+      const capped = elements.length >= limit
+      if (capped) {
         truncated = true
-        continue
+        if (!feedsTotals) continue
       }
       const entity = store.getEntity(expressId)
       if (!entity) continue
+
+      if (capped) {
+        const quantities = toQuantitySets(mergedQuantitySets(store, expressId))
+        netFloorArea = addTotal(netFloorArea, sumQuantitySets(quantities, NET_FLOOR_AREA_KEYS))
+        grossFloorArea = addTotal(grossFloorArea, sumQuantitySets(quantities, GROSS_FLOOR_AREA_KEYS))
+        netVolume = addTotal(netVolume, sumQuantitySets(quantities, NET_VOLUME_KEYS))
+        continue
+      }
 
       const root = extractRootAttributesFromEntity(entity)
       const named = extractAllEntityAttributes(store, expressId)
@@ -435,14 +490,7 @@ export async function extractIfcModel(
       const typeInfo = extractTypePropertiesOnDemand(store, expressId)
       const mergedSets = typeInfo ? mergeInheritedPropertySets(ownSets, typeInfo.properties) : ownSets
 
-      const ownQuantities = extractQuantitiesOnDemand(store, expressId)
-      const typeQuantities = extractTypeQuantitiesOnDemand(store, expressId)
-      const mergedQuantities = typeQuantities
-        ? mergeInheritedPropertySets(
-            ownQuantities.map((set) => ({ name: set.name, properties: set.quantities })),
-            typeQuantities.quantities.map((set) => ({ name: set.name, properties: set.quantities }))
-          ).map((set) => ({ name: set.name, quantities: set.properties }))
-        : ownQuantities
+      const mergedQuantities = mergedQuantitySets(store, expressId)
 
       const materials = toMaterialNames(extractMaterialsOnDemand(store, expressId))
       const container = containers.get(expressId) ?? null

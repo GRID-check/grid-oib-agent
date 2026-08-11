@@ -369,6 +369,10 @@ describe('IfcModelCompare', () => {
             },
           ],
           unchangedCount: 38,
+          // The badges read these, NOT the list lengths — the lists are capped
+          // at 500 rows, so a revision that added three thousand elements used
+          // to render "Neu 500".
+          counts: { added: 1, removed: 1, changed: 1 },
           totals: { base: 40, revision: 40 },
           truncated: false,
         },
@@ -399,6 +403,7 @@ describe('IfcModelCompare', () => {
             removed: [],
             changed: [],
             unchangedCount: 20_000,
+            counts: { added: 0, removed: 0, changed: 0 },
             totals: { base: 20_000, revision: 20_000 },
             truncated: true,
           },

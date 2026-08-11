@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { compareModels, renderComparison } from './compare'
+import { compareModels, MAX_COMPARISON_ROWS, renderComparison } from './compare'
 import type { BimElement } from './types'
 
 function element(overrides: Partial<BimElement> = {}): BimElement {
@@ -148,4 +148,28 @@ describe('compareModels', () => {
     })
     expect(renderComparison(result)).toBe('Vergleich: 1 neu, 1 entfallen, 1 geändert, 0 unverändert.')
   })
+
+  it('counts every change, even when the row list is capped', () => {
+    // The lists are capped at MAX_COMPARISON_ROWS so a rebuilt model does not
+    // ship 40 000 rows to a drawer. The COUNTS are what the badges and the
+    // agent's summary read: quoting the list length had a revision that added
+    // three thousand elements reported as "Neu 500" — a number produced by the
+    // cap and true of neither file.
+    const base: Parameters<typeof compareModels>[0]['base'] = []
+    const revision = Array.from({ length: MAX_COMPARISON_ROWS + 17 }, (_, index) => ({
+      globalId: `g-${index}`,
+      ifcType: 'IfcWall',
+      name: `Wand ${index}`,
+      storeyName: 'EG',
+      properties: {},
+      quantities: {},
+    })) as unknown as Parameters<typeof compareModels>[0]['revision']
+
+    const comparison = compareModels({ base, revision })
+
+    expect(comparison.added).toHaveLength(MAX_COMPARISON_ROWS)
+    expect(comparison.counts.added).toBe(MAX_COMPARISON_ROWS + 17)
+    expect(renderComparison(comparison)).toContain(`${MAX_COMPARISON_ROWS + 17} neu`)
+  })
+
 })

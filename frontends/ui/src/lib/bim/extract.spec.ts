@@ -201,4 +201,26 @@ describe('extractIfcModel', () => {
     expect(index.totals.elements).toBe(19)
     expect(index.typeCounts.IfcWall).toBe(5)
   })
+
+  it('keeps the floor-area totals whole when the element list is capped', async () => {
+    // The overview tells the reader, in as many words, "Die Summen sind
+    // vollständig, die Bauteilliste ist begrenzt". That sentence was false:
+    // the totals were accumulated INSIDE the loop, after the cap's `continue`,
+    // so every space past the cap was silently left out of the building's
+    // floor area — and the note beside the number promised the opposite.
+    //
+    // Walls sort before spaces here, so a cap of 5 excludes every space; the
+    // area must still match the uncapped run.
+    const whole = await extractIfcModel(fixtureBuffer(), 'sample-building.ifc')
+    const capped = await extractIfcModel(fixtureBuffer(), 'sample-building.ifc', {
+      elementLimit: 5,
+    })
+
+    expect(capped.truncatedAt).toBe(5)
+    expect(capped.elements.some((element) => element.ifcType === 'IfcSpace')).toBe(false)
+    expect(whole.quantityTotals.netFloorAreaM2).not.toBeNull()
+    expect(capped.quantityTotals.netFloorAreaM2).toBe(whole.quantityTotals.netFloorAreaM2)
+    expect(capped.quantityTotals.grossFloorAreaM2).toBe(whole.quantityTotals.grossFloorAreaM2)
+    expect(capped.quantityTotals.netVolumeM3).toBe(whole.quantityTotals.netVolumeM3)
+  })
 })

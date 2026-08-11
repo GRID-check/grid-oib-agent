@@ -245,7 +245,15 @@ function RuleRow({
       ? { Icon: AlertTriangle, tone: 'text-destructive' }
       : checked === 0
         ? { Icon: MinusCircle, tone: 'text-muted-foreground' }
-        : rule.passed === 0
+        : // ANY undecidable element leaves the requirement unsettled, not met.
+          // This used to read `rule.passed === 0`, so "9 erfüllt, 2 nicht
+          // entscheidbar" scored a green tick — the precise reading the
+          // three-state design exists to prevent, and the one the badge row
+          // above already refuses to give: `summarizeBimRules` counts that
+          // rule under `rulesUndecidable`, and `standing()` returns `unknown`
+          // for it. Only this icon disagreed, and the icon is what a reader
+          // scans.
+          rule.undecidable > 0
           ? { Icon: HelpCircle, tone: 'text-warning' }
           : { Icon: CheckCircle2, tone: 'text-success' }
 
@@ -284,6 +292,7 @@ function RuleRow({
               <VerdictList
                 heading={t('compliance.failures')}
                 verdicts={rule.failures}
+                total={rule.failed}
                 projectId={projectId}
                 modelFilename={modelFilename}
                 status="fail"
@@ -292,6 +301,7 @@ function RuleRow({
               <VerdictList
                 heading={t('compliance.unknowns')}
                 verdicts={rule.unknowns}
+                total={rule.undecidable}
                 projectId={projectId}
                 modelFilename={modelFilename}
                 status="info"
@@ -466,6 +476,7 @@ function Confirmation({
 function VerdictList({
   heading,
   verdicts,
+  total,
   projectId,
   modelFilename,
   status,
@@ -473,6 +484,16 @@ function VerdictList({
 }: {
   heading: string
   verdicts: BimRuleResultWithConfirmation['failures']
+  /**
+   * How many elements are in this bucket, which is NOT `verdicts.length`.
+   *
+   * The rule engine carries at most `VISIBLE_VERDICTS` (25) individual
+   * verdicts per bucket, so a rule with 300 failures arrives here with 25 of
+   * them. Counting the remainder off the array said "19 weitere" when 294
+   * were missing — a number produced entirely by two caps and true of
+   * neither the model nor the finding.
+   */
+  total: number
   projectId: string
   modelFilename: string
   status: 'fail' | 'info'
@@ -511,9 +532,9 @@ function VerdictList({
           </li>
         ))}
       </ul>
-      {verdicts.length > shown.length && (
+      {total > shown.length && (
         <p className="text-xs text-muted-foreground">
-          {t('compliance.more', { count: verdicts.length - shown.length })}
+          {t('compliance.more', { count: total - shown.length })}
         </p>
       )}
     </div>

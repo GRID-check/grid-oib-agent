@@ -22,10 +22,27 @@ import {
 } from '@/lib/db/schema'
 import { buildSearchKeys, buildStoredRuleInputs } from './rule-inputs'
 import type { StoredRuleInputs } from './rule-inputs'
+import { BIM_ELEMENTS_PAGE_LIMIT } from './types'
 import type { BimElement, BimModelStatus, BimModelSummary } from './types'
 
-/** Hard cap for any single element page the API will serve. */
-export const BIM_ELEMENT_PAGE_LIMIT = 500
+/**
+ * Hard cap for any single element page the API will serve.
+ *
+ * Re-exported from `types.ts` rather than declared here, and that is the whole
+ * point of this line. It used to be its own `500` while the query schema and
+ * the viewer's page walk both used `BIM_ELEMENTS_PAGE_LIMIT` (1 000). The two
+ * were equal in effect until the schema's ceiling was raised from 200, at
+ * which point this clamp started silently cutting every page in half — and the
+ * viewer's walk terminates on a short page, so it read 500 rows and stopped.
+ *
+ * For every model over 500 elements that meant: clicking a wall deselected
+ * instead of selecting it (the pick's expressId was not in the index), a
+ * storey filter emptied the viewport, the element table said "500 von 500",
+ * and a highlight from the agent reported real elements as "not in this
+ * model". All silently, and all from two constants that were supposed to be
+ * one number.
+ */
+export const BIM_ELEMENT_PAGE_LIMIT = BIM_ELEMENTS_PAGE_LIMIT
 
 /** Rows per INSERT when writing an extraction result. */
 const ELEMENT_INSERT_BATCH = 500

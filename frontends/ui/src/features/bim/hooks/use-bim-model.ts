@@ -8,7 +8,7 @@
  * a client that could reach the SQL would be a client that could skip them.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BimProfileSuggestion } from '@/lib/bim/profile'
 import {
   attachConfirmations,
@@ -97,14 +97,38 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
 } {
   const [state, setState] = useState<AsyncState<BimModelHeaderView[]>>(IDLE)
   const [tick, setTick] = useState(0)
+  /** Which project the list on screen belongs to — see the carry-over below. */
+  const shownFor = useRef<string | null>(null)
 
   useEffect(() => {
     if (!projectId) {
+      shownFor.current = null
       setState(IDLE)
       return
     }
     let cancelled = false
-    setState({ data: null, isLoading: true, error: null })
+    // Keep what is on screen while the next answer is in flight.
+    //
+    // This effect also runs on every poll tick below, and it used to blank
+    // `data` each time. On a project with one model still extracting — i.e.
+    // for the whole minute after somebody uploads — that emptied the model
+    // list every four seconds, which took `modelId` to null, which unmounted
+    // the canvas, which destroyed the WebGPU device and the WASM kernel. Four
+    // seconds later a fresh presigned URL was minted and the entire model, up
+    // to 149 MB, was downloaded and re-triangulated. On a loop.
+    //
+    // A refetch is not a reset: the previous list is the best answer available
+    // until a better one arrives, and a stale row is a far smaller lie than a
+    // viewport that keeps restarting. Another PROJECT's models are not a
+    // better answer than none, so the carry-over is scoped to the project the
+    // data on screen belongs to.
+    const carryOver = shownFor.current === projectId
+    shownFor.current = projectId
+    setState((previous) => ({
+      data: carryOver ? previous.data : null,
+      isLoading: true,
+      error: null,
+    }))
     fetchProjectModels(projectId)
       .then((body) => {
         if (!cancelled) setState({ data: body.models, isLoading: false, error: null })
