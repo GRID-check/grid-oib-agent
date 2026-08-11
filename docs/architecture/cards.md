@@ -22,7 +22,7 @@ Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
 | `ProjectProfilePatchCard` | A proposed change to the project profile | JSON-Patch `ops` (restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions`) + before/after preview |
 | `RequirementChecklistCard` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `ComparisonTableCard` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
-| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids`, `label`, `status`), `storey`, `note` |
+| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids` **XOR** `match`, plus `label`, `status`), `storey`, `note` |
 | `IfcScheduleCard` | The Raumbuch, optionally for one storey | `title`, `model_file`, `storey`, `note` |
 | `IfcElementCard` | One element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
 | `IfcDiffCard` | What changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |
@@ -300,10 +300,13 @@ harness (`npm run screenshots`, see `docs/ux/visual-screenshots.md`).
 For a system card emitted by a tool (`document_grid`), that tool must be added to
 the agent's `tools:` list in the config (e.g. `shallow_research_agent`) and its
 `_type` registered — see `surface_documents` in `configs/config_oib_openrouter.yml`.
-If the new card's contents must be **copied from a tool result** rather than
-written from the answer, add its type to `MODEL_BACKED_CARD_TYPES` as well, and
-say in a prompt when to emit it — a renderer nobody is asked for is a renderer
-nobody sees. Next phases: a 3D massing card
+If the new card is one the MODEL may emit and its contents must be **copied
+from a tool result** rather than written from the answer, add its type to
+`MODEL_BACKED_CARD_TYPES` as well, and say in a prompt when to emit it — a
+renderer nobody is asked for is a renderer nobody sees. This does not apply to
+a system card: `document_grid`'s contents also come from a tool, but the model
+never emits it at all, so `SYSTEM_CARD_TYPES` and its emitting tool govern it
+instead. Next phases: a 3D massing card
 (three.js/R3F) and the IFC/BIM viewer (`docs/roadmap/ifc-viewer-card-spec.md`).
 
 ## Known rough edges

@@ -73,12 +73,16 @@ export function IfcViewerCard({
   const { data: groups } = useBimHighlightGroups(model?.id ?? null, highlights)
   const resolved = useMemo(() => groups ?? [], [groups])
 
+  // Only once the elements are actually here. `useBimElements` returns `null`
+  // until its walk completes, and resolving against an empty index puts EVERY
+  // highlighted id in `unresolved` — so a normal load rendered "N elements not
+  // found in this model" at full count, then cleared it. That message states a
+  // data problem, and it was stating one that did not exist.
   const unresolvedCount = useMemo(
     () =>
-      resolveHighlights(resolved, elements ?? []).reduce(
-        (total, group) => total + group.unresolved.length,
-        0
-      ),
+      elements === null
+        ? 0
+        : resolveHighlights(resolved, elements).reduce((total, group) => total + group.unresolved.length, 0),
     [resolved, elements]
   )
 

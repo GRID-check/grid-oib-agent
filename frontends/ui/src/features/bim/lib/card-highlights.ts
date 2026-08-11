@@ -46,17 +46,50 @@ export interface HighlightPayload {
   status?: unknown
 }
 
+/**
+ * Closed enums in the card schema, and therefore in the query grammar too.
+ *
+ * Forwarding an unrecognised value would defeat the point of this module:
+ * `operator: 'like'` is rejected by the endpoint just as hard as an invented
+ * KEY is, and it takes the whole filter — and so the whole highlight group —
+ * with it. Dropping it narrows the predicate instead, which the group survives.
+ */
+const OPERATORS = ['eq', 'neq', 'contains', 'gt', 'gte', 'lt', 'lte', 'exists', 'missing'] as const
+const SOURCES = ['property', 'quantity'] as const
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const stringList = (value: unknown): string[] | undefined => {
   if (!Array.isArray(value)) return undefined
-  const strings = value.filter((entry): entry is string => typeof entry === 'string')
+  const strings = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
   return strings.length > 0 ? strings : undefined
 }
 
-const nonEmpty = (value: unknown): string | undefined =>
-  typeof value === 'string' && value.trim() !== '' ? value : undefined
+/**
+ * The trimmed value, or `undefined` when nothing is left.
+ *
+ * Trimmed on the way OUT as well as on the way in: returning the padded string
+ * after testing the trimmed one made `nameContains: ' AW '` a substring match
+ * on the spaces too, matching fewer elements than the author meant, and put
+ * the padding in the rendered legend label.
+ */
+const nonEmpty = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed === '' ? undefined : trimmed
+}
+
+/** A closed-enum field: the value if it is one of them, else `undefined`. */
+const oneOf = <T extends string>(allowed: readonly T[], value: unknown): T | undefined =>
+  allowed.find((candidate) => candidate === value)
+
+/** Either spelling of a key — see the note on `matchToFilter`. */
+const either = (raw: Record<string, unknown>, snake: string, camel: string): unknown =>
+  raw[snake] !== undefined ? raw[snake] : raw[camel]
 
 function propertyFilter(raw: unknown): Record<string, unknown> | null {
   if (!isRecord(raw)) return null
@@ -67,12 +100,12 @@ function propertyFilter(raw: unknown): Record<string, unknown> | null {
   const filter: Record<string, unknown> = { name }
   const set = nonEmpty((raw as PropertyMatchPayload).set)
   if (set) filter.set = set
-  const operator = nonEmpty(raw.operator)
+  const operator = oneOf(OPERATORS, raw.operator)
   if (operator) filter.operator = operator
   if (typeof raw.value === 'string' || typeof raw.value === 'number' || typeof raw.value === 'boolean') {
     filter.value = raw.value
   }
-  const source = nonEmpty(raw.source)
+  const source = oneOf(SOURCES, raw.source)
   if (source) filter.source = source
   return filter
 }
@@ -88,14 +121,20 @@ export function matchToFilter(raw: unknown): Record<string, unknown> | null {
   if (!isRecord(raw)) return null
   const filter: Record<string, unknown> = {}
 
-  const ifcTypes = stringList(raw.ifc_types)
+  // Both spellings are read. The card model normalises `ifcTypes` to
+  // `ifc_types` on the way in, but a card stored before those aliases existed
+  // carries whichever the agent wrote, and a message is replayed from storage
+  // long after the schema moved on.
+  const ifcTypes = stringList(either(raw, 'ifc_types', 'ifcTypes'))
   if (ifcTypes) filter.ifcTypes = ifcTypes
   const storeys = stringList(raw.storeys)
   if (storeys) filter.storeys = storeys
-  const nameContains = nonEmpty(raw.name_contains)
+  const nameContains = nonEmpty(either(raw, 'name_contains', 'nameContains'))
   if (nameContains) filter.nameContains = nameContains
   const material = nonEmpty(raw.material)
   if (material) filter.material = material
+  const classification = nonEmpty(raw.classification)
+  if (classification) filter.classification = classification
 
   if (Array.isArray(raw.properties)) {
     const properties = raw.properties.map(propertyFilter).filter((entry): entry is Record<string, unknown> => entry !== null)

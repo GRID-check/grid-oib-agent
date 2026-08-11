@@ -97,20 +97,54 @@ describe('useBimHighlightGroups', () => {
     expect(result.current.data).toEqual([{ globalIds: [], label: 'Ohne Feuerwiderstand', status: 'fail' }])
   })
 
-  it('resolves the groups it can when a filter query fails', async () => {
-    fetchMock.mockRejectedValue(new Error('boom'))
+  it('keeps a filter group that succeeded when another one fails', async () => {
+    // Two FILTER groups, deliberately: an id-only group needs no request, so
+    // pairing one with a failing filter cannot detect the bug this pins.
+    // `Promise.all` rejects on the first failure, so one bad filter used to
+    // discard the ids of every group that had already resolved — the opposite
+    // of what the fallback promises.
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ elements: rows(2), total: 2 }) })
+      .mockRejectedValueOnce(new Error('boom'))
     const specs: BimHighlightSpec[] = [
-      { globalIds: ['gid-0'], label: 'T-14', status: 'fail' },
       { match: { ifcTypes: ['IfcWall'] }, label: 'Wände', status: 'info' },
+      { match: { ifcTypes: ['IfcDoor'] }, label: 'Türen', status: 'fail' },
     ]
 
     const { result } = renderHook(() => useBimHighlightGroups(MODEL_ID, specs))
     await waitFor(() => expect(result.current.isLoading).toBe(false))
 
-    // The card still renders the building and the group that needed no query;
-    // a failed filter must not blank the viewport.
-    expect(result.current.data?.[0]).toEqual({ globalIds: ['gid-0'], label: 'T-14', status: 'fail' })
+    expect(result.current.data?.[0].globalIds).toEqual(['gid-0', 'gid-1'])
+    // The one that failed falls back to nothing rather than taking the other
+    // down with it, and the legend still names it.
+    expect(result.current.data?.[1]).toEqual({ globalIds: [], label: 'Türen', status: 'fail' })
     expect(result.current.error).toBe('load-failed')
+  })
+
+  it('resolves one group at a time, so the page-walk cap is not multiplied', async () => {
+    // `walkBimElements` caps itself at six pages in flight against a
+    // ten-connection pool. Running groups in parallel multiplied that cap by
+    // the group count — a five-group card issuing thirty concurrent queries.
+    let inFlight = 0
+    let peak = 0
+    fetchMock.mockImplementation(async () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await Promise.resolve()
+      inFlight -= 1
+      return { ok: true, json: async () => ({ elements: rows(1), total: 1 }) }
+    })
+    const specs: BimHighlightSpec[] = Array.from({ length: 5 }, (_, index) => ({
+      match: { ifcTypes: [`IfcType${index}`] },
+      label: `group-${index}`,
+      status: 'info' as const,
+    }))
+
+    const { result } = renderHook(() => useBimHighlightGroups(MODEL_ID, specs))
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(peak).toBe(1)
   })
 
   it('does not re-query when an equal-but-new array arrives', async () => {

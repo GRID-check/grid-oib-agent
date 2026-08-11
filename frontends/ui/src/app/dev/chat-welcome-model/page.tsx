@@ -37,7 +37,10 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (/\/api\/projects\/.+\/bim\/models$/.test(url)) {
+      // Scoped to this fixture's project: the shim is installed at module
+      // scope and survives client-side navigation, so a broad pattern kept
+      // answering for every project in the dev session.
+      if (url.includes(`/api/projects/${PROJECT_ID}/bim/models`)) {
         return Response.json({
           models: [
             {

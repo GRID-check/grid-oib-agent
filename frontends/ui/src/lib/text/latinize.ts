@@ -58,6 +58,39 @@ const GERMAN: ReadonlyArray<readonly [RegExp, string]> = [
 ]
 
 /**
+ * Latin letters that are not a base letter plus a mark, so NFKD cannot touch
+ * them either.
+ *
+ * Same class of bug as `ß`, one alphabet over: a stroke through the letter (`Ø`
+ * `Ł` `Đ`) and a true ligature (`Æ` `Œ`) are single code points with no
+ * decomposition, so they survived to the caller's `[^A-Za-z0-9]` pass and
+ * became hyphens. `Øresund Łódź` slugged to `resund-odz` and `Ærø` to a bare
+ * `r`. Austrian offices do work in Scandinavia and Poland, and a filename that
+ * eats the client's name is not a small thing.
+ *
+ * Handled here rather than in {@link transliterateGerman}: they are not German,
+ * and the Markdown anchors — which take the German pass alone to keep published
+ * ids stable — should not silently start renaming headings.
+ */
+const NON_DECOMPOSING_LATIN: ReadonlyArray<readonly [RegExp, string]> = [
+  [/ø/g, 'oe'],
+  [/Ø/g, 'Oe'],
+  [/æ/g, 'ae'],
+  [/Æ/g, 'Ae'],
+  [/œ/g, 'oe'],
+  [/Œ/g, 'Oe'],
+  [/ł/g, 'l'],
+  [/Ł/g, 'L'],
+  [/đ/g, 'd'],
+  [/Đ/g, 'D'],
+  [/ð/g, 'd'],
+  [/Ð/g, 'D'],
+  [/þ/g, 'th'],
+  [/Þ/g, 'Th'],
+  [/ı/g, 'i'],
+]
+
+/**
  * Spell out the German letters, per DIN 5007-2 (the passport transliteration).
  *
  * Composes first: a name that arrived decomposed — `a` + U+0308, which is what
@@ -76,7 +109,11 @@ export function transliterateGerman(value: string): string {
  * that distinction is the desired outcome.
  */
 export function foldDiacritics(value: string): string {
-  return value.normalize('NFKD').replace(/\p{M}/gu, '')
+  const spelled = NON_DECOMPOSING_LATIN.reduce(
+    (acc, [pattern, replacement]) => acc.replace(pattern, replacement),
+    value
+  )
+  return spelled.normalize('NFKD').replace(/\p{M}/gu, '')
 }
 
 /**

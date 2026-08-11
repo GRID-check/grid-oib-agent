@@ -53,6 +53,17 @@ describe('foldDiacritics', () => {
     expect(foldDiacritics('ﬁnal')).toBe('final')
   })
 
+  it('spells the Latin letters NFKD cannot decompose either', () => {
+    // Same class as `ß`, one alphabet over: a stroke through the letter and a
+    // true ligature are single code points with no decomposition, so a slug
+    // turned them into hyphens — `Øresund Łódź` became `resund-odz`.
+    expect(foldDiacritics('Øresund')).toBe('Oeresund')
+    expect(foldDiacritics('Łódź')).toBe('Lodz')
+    expect(foldDiacritics('Ærø')).toBe('Aeroe')
+    expect(foldDiacritics('Đakovo')).toBe('Dakovo')
+    expect(foldDiacritics('Œuvre')).toBe('Oeuvre')
+  })
+
   it('cannot spell German, which is why it is not used alone', () => {
     // NFKD reduces `ü` to the wrong word and cannot touch `ß` at all.
     expect(foldDiacritics('Grünanger')).toBe('Grunanger')

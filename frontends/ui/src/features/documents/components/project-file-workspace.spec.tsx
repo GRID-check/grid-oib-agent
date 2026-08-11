@@ -291,6 +291,40 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     expect(documentCalls).toBe(settled)
   })
 
+  it('keeps at most one poll in flight, however slow the endpoint is', async () => {
+    // `setInterval` fired again whether or not the previous refresh had come
+    // back, so a slow endpoint accumulated requests and let an older response
+    // land after a newer one — overwriting a document that had just finished
+    // with its earlier "still reading" row.
+    let inFlight = 0
+    let peak = 0
+    const gate: { release: (() => void) | null } = { release: null }
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', async () => {
+        documentCalls += 1
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        // The first response returns at once; every poll after it hangs until
+        // this test lets it go.
+        if (documentCalls > 1) await new Promise<void>((resolve) => (gate.release = resolve))
+        inFlight -= 1
+        return corpus('processing')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await waitFor(() => expect(documentCalls).toBe(1))
+
+    // Three poll windows pass while the second request is still hanging.
+    await vi.advanceTimersByTimeAsync(13_000)
+    expect(documentCalls).toBe(2)
+    expect(peak).toBe(1)
+
+    gate.release?.()
+  })
+
   it('tells the user what became possible — a building is asked, not cited', async () => {
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),

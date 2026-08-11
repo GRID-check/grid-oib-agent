@@ -4,7 +4,9 @@ from typing import Annotated
 from typing import Any
 from typing import Literal
 
+from pydantic import AliasChoices
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import TypeAdapter
 from pydantic import field_validator
@@ -658,7 +660,7 @@ class IfcPropertyMatch(BaseModel):
     )
     value: str | float | bool | None = Field(default=None, description="Value to compare against")
     source: Literal["property", "quantity"] = Field(
-        default="property", description="Search quantity sets instead of property sets"
+        default="property", description="Which store to search: 'property' (default) or 'quantity'"
     )
 
 
@@ -668,13 +670,46 @@ class IfcElementMatch(BaseModel):
     Exactly the ``filters`` object passed to ``ifc_query`` — the browser re-runs
     it against the model, so the highlight covers every matching element and
     nothing has to survive the model's context window.
+
+    ``ifc_query`` spells its filter keys in camelCase (``ifcTypes``,
+    ``nameContains``) and this card is authored in snake_case like every other
+    card field. The agent is told to reuse the filter it already wrote, so BOTH
+    spellings are accepted and normalise to the snake_case field: without the
+    aliases a copied filter validated cleanly with every key silently dropped,
+    leaving an empty match, and a highlight group that selects nothing.
     """
 
-    ifc_types: list[str] | None = Field(default=None, description="Canonical IFC types, e.g. ['IfcWall']")
+    model_config = ConfigDict(populate_by_name=True)
+
+    ifc_types: list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ifc_types", "ifcTypes"),
+        description="Canonical IFC types, e.g. ['IfcWall']",
+    )
     storeys: list[str] | None = Field(default=None, description="Storey names, e.g. ['Erdgeschoss']")
-    name_contains: str | None = Field(default=None, description="Case-insensitive substring of the element name")
+    name_contains: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("name_contains", "nameContains"),
+        description="Case-insensitive substring of the element name",
+    )
     material: str | None = Field(default=None, description="Case-insensitive substring of a material name")
+    classification: str | None = Field(
+        default=None, description="Case-insensitive substring of a classification code or label"
+    )
     properties: list[IfcPropertyMatch] | None = Field(default=None, description="Property predicates, all required")
+
+    def is_empty(self) -> bool:
+        """True when no criterion was given at all.
+
+        An empty filter means "every element in the building", which would
+        light up the whole model under a label like *nicht erfüllt*. The
+        frontend refuses it, so without this check the card validated, the
+        group reached the browser, and it was dropped there — the legend lost
+        an entry with no signal to anyone.
+        """
+        return not any(
+            (self.ifc_types, self.storeys, self.name_contains, self.material, self.classification, self.properties)
+        )
 
 
 class IfcHighlight(BaseModel):
@@ -717,6 +752,8 @@ class IfcHighlight(BaseModel):
         """
         if (self.global_ids is None) == (self.match is None):
             raise ValueError("give exactly one of 'global_ids' or 'match'")
+        if self.match is not None and self.match.is_empty():
+            raise ValueError("'match' needs at least one criterion — an empty filter selects the whole building")
         return self
 
 

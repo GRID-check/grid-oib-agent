@@ -429,5 +429,9 @@ describe('buildComplianceBcf', () => {
     // language, and a name with no Latin letters at all still gets a filename.
     expect(named('Rezidence Dvořák')).toBe('pruefbuch-Rezidence-Dvorak-2026-05-04.bcfzip')
     expect(named('日本橋')).toBe('pruefbuch-projekt-2026-05-04.bcfzip')
+    // Letters with a stroke or a ligature have no Unicode decomposition
+    // either, so they used to be punched out the same way `ß` was:
+    // `Øresund Łódź` downloaded as `resund-odz`.
+    expect(named('Øresund Łódź')).toBe('pruefbuch-Oeresund-Lodz-2026-05-04.bcfzip')
   })
 })

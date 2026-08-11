@@ -599,8 +599,14 @@ export function IfcViewerCanvas({
     }
     const box = renderer.getScene().getEntityBoundingBox(selectedExpressId)
     // No geometry (streaming has not reached it, or the element has none at
-    // all) leaves the previous pivot alone rather than snapping to the origin.
-    if (!box) return
+    // all) clears the pivot back to the model centre — which is what `null`
+    // means here, as the branch above shows. Keeping the PREVIOUS element's
+    // pivot would orbit the camera around a thing the user just stopped
+    // looking at.
+    if (!box) {
+      camera.setOrbitCenter(null)
+      return
+    }
     camera.setOrbitCenter(boundsCentre(box))
   }, [selectedExpressId, ready])
 
@@ -628,8 +634,13 @@ export function IfcViewerCanvas({
     const preset = rendererPreset(view)
     if (preset === null) renderer.fitToView()
     else renderer.getCamera().setPresetView(preset, renderer.getModelBounds() ?? undefined)
-    requestFrame()
-  }, [view, viewNonce, ready, requestFrame])
+    // A preset view is a TWEEN, and a tween needs `Camera.update()` stepped
+    // every frame — which is what `runCameraLoop` does. `requestFrame()` drew
+    // exactly one, so pressing a view snapped a fraction of the way there and
+    // stopped. Same bug as the one that made `zoomExtent` never animate,
+    // surviving in the one place that had not been converted.
+    runCameraLoop()
+  }, [view, viewNonce, ready, runCameraLoop])
 
   useEffect(() => {
     if (!ready) return

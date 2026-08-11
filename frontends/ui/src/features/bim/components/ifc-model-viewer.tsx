@@ -102,6 +102,19 @@ export function IfcModelViewer({
 }: IfcModelViewerProps): JSX.Element {
   const t = useTranslations('bim')
   const [status, setStatus] = useState<IfcViewerStatus>({ phase: 'idle', percent: null, meshCount: 0 })
+  /**
+   * A failure belongs to the source that produced it.
+   *
+   * The error fallback returns BEFORE the canvas renders, so once a status of
+   * `error` was stored the canvas never mounted again — and only the canvas
+   * can report a new status. A new `sourceUrl` (the next model, or a re-signed
+   * URL after the first one expired) therefore stayed unavailable until the
+   * whole parent unmounted. Rendering to a state derived from the current
+   * source, rather than resetting in an effect, avoids the frame where the old
+   * error is still on screen under the new URL.
+   */
+  const [statusSource, setStatusSource] = useState<string | null>(sourceUrl)
+  const current = statusSource === sourceUrl ? status : { phase: 'idle' as const, percent: null, meshCount: 0 }
   const [bounds, setBounds] = useState<{ minMetres: number; maxMetres: number } | null>(null)
   /**
    * Counters, not a ref.
@@ -243,7 +256,7 @@ export function IfcModelViewer({
    * user is told the model is unaffected, and support gets the message it needs
    * without a console.
    */
-  if (status.phase === 'error') {
+  if (current.phase === 'error') {
     return (
       <div
         className={cn(
@@ -254,9 +267,9 @@ export function IfcModelViewer({
         <MonitorX className="size-6 text-muted-foreground" aria-hidden="true" />
         <p className="text-sm font-medium">{t('viewer.unavailable.title')}</p>
         <p className="max-w-prose text-sm text-muted-foreground">{t('viewer.unavailable.description')}</p>
-        {status.message && (
+        {current.message && (
           <p className="max-w-prose text-xs text-muted-foreground/80">
-            {t('viewer.unavailable.reason', { message: status.message })}
+            {t('viewer.unavailable.reason', { message: current.message })}
           </p>
         )}
       </div>
@@ -264,12 +277,12 @@ export function IfcModelViewer({
   }
 
   const statusLabel =
-    status.phase === 'downloading'
+    current.phase === 'downloading'
       ? t('viewer.downloading')
-      : status.phase === 'parsing'
-        ? t('viewer.parsing', { count: status.meshCount })
-        : status.phase === 'ready'
-          ? t('viewer.ready', { count: status.meshCount })
+      : current.phase === 'parsing'
+        ? t('viewer.parsing', { count: current.meshCount })
+        : current.phase === 'ready'
+          ? t('viewer.ready', { count: current.meshCount })
           : // `error` never reaches here: it returns the fallback above, where a
             // failure gets a panel rather than a caption on an empty canvas.
             ''
@@ -292,13 +305,16 @@ export function IfcModelViewer({
         onBounds={setBounds}
         onSelect={handleCanvasSelect}
         zoomToSelection={zoomToSelection}
-        onStatus={setStatus}
+        onStatus={(next) => {
+          setStatusSource(sourceUrl)
+          setStatus(next)
+        }}
         className="size-full touch-none"
       />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2">
         <div className="pointer-events-auto flex items-center gap-2 rounded-lg bg-background/85 px-2 py-1 text-xs text-muted-foreground backdrop-blur">
-          {(status.phase === 'downloading' || status.phase === 'parsing') && <Spinner className="size-3" />}
+          {(current.phase === 'downloading' || current.phase === 'parsing') && <Spinner className="size-3" />}
           <span>{statusLabel}</span>
         </div>
         {variant === 'page' && (
@@ -317,7 +333,7 @@ export function IfcModelViewer({
             xray={xray}
             onXrayChange={onXrayChange}
             onFit={() => setFitNonce((n) => n + 1)}
-            disabled={status.phase !== 'ready'}
+            disabled={current.phase !== 'ready'}
           />
         )}
       </div>

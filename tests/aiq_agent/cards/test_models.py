@@ -201,3 +201,27 @@ class TestIfcViewerHighlightSelectors:
             )
             == []
         )
+
+    def test_a_filter_copied_from_ifc_query_is_not_silently_emptied(self):
+        # `ifc_query` writes camelCase (`ifcTypes`, `nameContains`) and the
+        # agent is told to reuse the filter it already wrote. Without aliases
+        # the card validated cleanly with every key dropped, leaving an empty
+        # match and a highlight group that selects nothing — the feature
+        # failing exactly the way it was meant to prevent.
+        [card] = self._card(
+            {
+                "match": {"ifcTypes": ["IfcWall"], "nameContains": "AW", "classification": "B.1.2"},
+                "label": "Außenwände",
+                "status": "info",
+            }
+        )
+        match = card["highlights"][0]["match"]
+        assert match["ifc_types"] == ["IfcWall"]
+        assert match["name_contains"] == "AW"
+        assert match["classification"] == "B.1.2"
+
+    def test_an_empty_match_object_is_refused(self):
+        # It satisfies the exactly-one rule (a non-None match) while selecting
+        # every element in the building. The frontend drops it, so the legend
+        # lost an entry with no signal to the agent or the user.
+        assert self._card({"match": {}, "label": "Außenwände", "status": "info"}) == []

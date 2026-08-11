@@ -268,8 +268,24 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   )
   useEffect(() => {
     if (!hasSettlingFile) return
-    const timer = setInterval(() => void loadFiles(true), SETTLING_POLL_MS)
-    return () => clearInterval(timer)
+    // Chained, not `setInterval`. An interval fires again whether or not the
+    // previous refresh came back, so a slow endpoint accumulated requests and
+    // let an older response land after a newer one — overwriting a document
+    // that had just finished with its earlier "still reading" row. Scheduling
+    // the next poll only once the current one settles makes at most one in
+    // flight and puts them in order by construction.
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const tick = () => {
+      void loadFiles(true).finally(() => {
+        if (!cancelled) timer = setTimeout(tick, SETTLING_POLL_MS)
+      })
+    }
+    timer = setTimeout(tick, SETTLING_POLL_MS)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   }, [hasSettlingFile, loadFiles])
 
   // Refetch the corpus when an upload batch settles (covers non-orchestrated paths).

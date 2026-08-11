@@ -109,6 +109,24 @@ describe('IfcModelViewer with WebGPU', () => {
     expect(screen.getByText('(1)')).toBeInTheDocument()
   })
 
+  it('gives a new source its own chance, rather than staying broken', async () => {
+    // The error fallback returns BEFORE the canvas renders, so once `error`
+    // was stored the canvas never mounted again — and only the canvas can
+    // report a new status. The next model, or a re-signed URL after the first
+    // expired, stayed unavailable until the whole parent unmounted.
+    setWebGpu(true)
+    canvas.status = { phase: 'error', percent: null, meshCount: 0, message: 'Failed to get GPU adapter' }
+    const { rerender } = render(
+      <IfcModelViewer sourceUrl="https://example.test/a.ifc" elements={ELEMENTS} />
+    )
+    expect(await screen.findByText('The 3D view could not be loaded')).toBeInTheDocument()
+
+    canvas.status = null
+    rerender(<IfcModelViewer sourceUrl="https://example.test/b.ifc" elements={ELEMENTS} />)
+
+    expect(await screen.findByTestId('ifc-canvas')).toHaveAttribute('data-source', 'https://example.test/b.ifc')
+  })
+
   it('keeps two groups that share a label apart', () => {
     // The URL form groups by STATUS (`?hl=fail:A&hl=fail:B`) and the workspace
     // labels each group from its status, so two `fail` groups arrive with the

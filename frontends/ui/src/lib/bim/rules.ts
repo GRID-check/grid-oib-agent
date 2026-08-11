@@ -575,27 +575,51 @@ const isOccupiedSpace = (element: BimElement): boolean => {
 }
 
 /**
- * The rated sound reduction a value declares, in decibels, or `null`.
+ * A number that IS a rated sound reduction, in one of the forms a real export
+ * writes it: `Rw 53 dB`, `R'w = 55 dB`, `DnT,w 52`, `53 dB`, or a bare `53`.
  *
- * Austrian and German models write this half a dozen ways — `Rw 53 dB`,
- * `R'w = 55 dB`, `DnT,w 52`, `53`, `53 dB` — so the number is found ANYWHERE in
- * the string rather than at its start. That matters more than it looks:
- * `numericProperty` is anchored with `^`, so it parsed none of the labelled
- * forms, and the rule treated "did not parse" as "fine".
+ * Deliberately NOT "the first number anywhere in the string". That was the
+ * first attempt at this and it recreated the bug it was fixing from the other
+ * side: `siehe OIB 5` parsed as 5, `ÖNORM B 8115-2` as 8115, and both were
+ * then reported **erfüllt** under an OIB 5 caption. A number has to be
+ * introduced by an acoustic label, followed by `dB`, or be the entire value —
+ * three shapes, each of which means the author wrote a rating.
  *
- * A bare number is accepted because a decibel figure is the only quantity this
- * property carries. Text with no number at all — `siehe Beilage`,
- * `keine Anforderung`, `tbd`, `n/a` — is not a declaration and must not read as
- * one.
+ * The single-index alternation matters: `R'w = 55 dB` matches the labelled
+ * branch on the first number after `R'w`, so a reference standing BEFORE a real
+ * rating (`gemäß ÖNORM B 8115-2, Rw 55 dB`) still reads 55 rather than 8115.
  */
+const ACOUSTIC_LABEL = /\b(?:R['´’]?\s*w|DnT\s*,?\s*w|D\s*n\s*T|Rw|SRI|Schalld[äa]mm[- ]?Ma[sß]{1,2})\b/i
+const NUMBER = /-?\d+(?:[.,]\d+)?/
+
 function ratedSoundReduction(raw: string | number | boolean | null): number | null {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
   if (typeof raw !== 'string') return null
-  // Comma decimals are ordinary here: `Rw 52,5 dB`.
-  const match = /(-?\d+(?:[.,]\d+)?)/.exec(raw)
-  if (!match) return null
-  const value = Number(match[1].replace(',', '.'))
-  return Number.isFinite(value) ? value : null
+  const text = raw.trim()
+  if (text === '') return null
+
+  const parse = (token: string): number | null => {
+    const value = Number(token.replace(',', '.'))
+    return Number.isFinite(value) ? value : null
+  }
+
+  // 1. The whole value is the number — `53`, `52,5`.
+  const bare = new RegExp(`^${NUMBER.source}$`).exec(text)
+  if (bare) return parse(bare[0])
+
+  // 2. Introduced by an acoustic label — `Rw 53 dB`, `R'w = 55`, `DnT,w 52`.
+  const labelled = ACOUSTIC_LABEL.exec(text)
+  if (labelled) {
+    const after = new RegExp(NUMBER.source).exec(text.slice(labelled.index + labelled[0].length))
+    if (after) return parse(after[0])
+  }
+
+  // 3. Followed by the unit — `53 dB`, `53dB`. A standard reference such as
+  //    `ÖNORM B 8115-2` carries no `dB`, which is what keeps it out.
+  const withUnit = new RegExp(`(${NUMBER.source})\\s*dB\\b`, 'i').exec(text)
+  if (withUnit) return parse(withUnit[1])
+
+  return null
 }
 
 export const BIM_RULES: RuleDefinition[] = [

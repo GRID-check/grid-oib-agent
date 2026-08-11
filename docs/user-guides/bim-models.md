@@ -17,7 +17,10 @@ itself — you do not have to reload to find out whether it finished — and whe
 does, a message says the model has been read and the building can now be asked
 about. A **Modell** entry appears in the project navigation at the same time.
 
-Models above 250 MB are refused with a message rather than half-read.
+Models above 250 MB are refused with a message rather than half-read. The limit
+is on the **uploaded file** — the bytes of the `.ifc` or `.ifczip` as they leave
+your machine. It is not a limit on what the file decodes to (an `.ifczip`
+expands well past it) nor on the compressed copy the 3D view downloads.
 
 ## Opening a model from Files
 

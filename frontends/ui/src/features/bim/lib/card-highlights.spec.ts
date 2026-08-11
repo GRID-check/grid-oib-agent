@@ -44,6 +44,37 @@ describe('matchToFilter', () => {
     })
   })
 
+  it('reads either spelling of a key', () => {
+    // `ifc_query` writes camelCase and the card is authored in snake_case. The
+    // Python model normalises on the way in, but a card stored before those
+    // aliases existed carries whichever the agent wrote, and a message is
+    // replayed from storage long after the schema moved on.
+    expect(matchToFilter({ ifcTypes: ['IfcWall'], nameContains: 'AW' })).toEqual({
+      ifcTypes: ['IfcWall'],
+      nameContains: 'AW',
+    })
+  })
+
+  it('carries a classification filter, which the query grammar supports', () => {
+    expect(matchToFilter({ classification: 'B.1.2' })).toEqual({ classification: 'B.1.2' })
+  })
+
+  it('trims what it forwards, not only what it tests', () => {
+    // `nameContains: ' AW '` is a substring match on the spaces too, so it
+    // matches fewer elements than the author meant.
+    expect(matchToFilter({ name_contains: '  AW  ' })).toEqual({ nameContains: 'AW' })
+    expect(matchToFilter({ ifc_types: [' IfcWall ', '  '] })).toEqual({ ifcTypes: ['IfcWall'] })
+  })
+
+  it('drops an invented enum VALUE, not just an invented key', () => {
+    // The endpoint rejects `operator: 'like'` exactly as hard as an unknown
+    // key, and it takes the whole filter — and the whole group — with it.
+    // Dropping it narrows the predicate instead, which the group survives.
+    expect(matchToFilter({ properties: [{ name: 'FireRating', operator: 'like', source: 'blob' }] })).toEqual({
+      properties: [{ name: 'FireRating' }],
+    })
+  })
+
   it('drops a key the endpoint does not know rather than losing the query', () => {
     // Strict validation server-side: forwarding an invented key would reject
     // the whole filter and blank a group over the one field that was wrong.

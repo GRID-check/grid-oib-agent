@@ -309,25 +309,45 @@ export function useBimHighlightGroups(
     const controller = new AbortController()
     setResolved({ data: null, isLoading: true, error: null })
 
-    Promise.all(
-      groups.map(async (group, index) => {
-        if (!group.match) return literal[index]
-        const elements = await walkBimElements(modelId, group.match, controller.signal)
-        return {
-          globalIds: elements.map((element) => element.globalId),
-          label: group.label,
-          status: group.status,
+    // SEQUENTIAL across groups, concurrent within one.
+    //
+    // `walkBimElements` caps itself at six pages in flight, a number chosen
+    // against a ten-connection pool and the `bim-query` burst clause. Running
+    // the groups in parallel would multiply that cap by the number of groups —
+    // a five-group card issuing thirty concurrent queries, and a thread with
+    // several cards multiplying it again — which is exactly the pool the cap
+    // exists to protect.
+    const run = async (): Promise<{ next: BimHighlightGroup[]; failed: boolean }> => {
+      const next: BimHighlightGroup[] = []
+      let failed = false
+      for (const [index, group] of groups.entries()) {
+        if (!group.match) {
+          next.push(literal[index])
+          continue
         }
-      })
-    )
-      .then((next) => {
-        if (!cancelled) setResolved({ data: next, isLoading: false, error: null })
-      })
-      .catch(() => {
-        // The card still renders the building and the groups it could resolve
-        // without a query; a failed filter must not blank the viewport.
-        if (!cancelled) setResolved({ data: literal, isLoading: false, error: 'load-failed' })
-      })
+        try {
+          const elements = await walkBimElements(modelId, group.match, controller.signal)
+          next.push({
+            globalIds: elements.map((element) => element.globalId),
+            label: group.label,
+            status: group.status,
+          })
+        } catch {
+          // Per group, not per card. `Promise.all` rejects on the first
+          // failure, so one bad filter used to discard every group that had
+          // already resolved — the opposite of what this fallback promises.
+          failed = true
+          next.push(literal[index])
+        }
+      }
+      return { next, failed }
+    }
+
+    run().then(({ next, failed }) => {
+      // The card still renders the building and every group that did resolve;
+      // a failed filter must not blank the viewport.
+      if (!cancelled) setResolved({ data: next, isLoading: false, error: failed ? 'load-failed' : null })
+    })
 
     return () => {
       cancelled = true

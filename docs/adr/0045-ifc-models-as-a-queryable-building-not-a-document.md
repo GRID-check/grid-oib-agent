@@ -34,7 +34,9 @@ named is not the one adopted, and — more importantly — it treated the proble
 
 ## Decision
 
-An uploaded `.ifc` becomes **two artefacts**, and neither is the raw file:
+An uploaded `.ifc` becomes **two artefacts**, and neither is the raw file
+(a third, purely a transport optimisation, was added later — see
+[*The viewer's compressed source*](#the-viewers-compressed-source)):
 
 1. **A structured index** — `bim_models` + `bim_elements` — extracted once at
    ingestion by [`@ifc-lite/parser`](https://github.com/LTplus-AG/ifc-lite)
@@ -55,8 +57,16 @@ other's job.
 **Geometry is never processed server-side.** The 3D viewport parses and
 triangulates in the browser (ifc-lite's WASM kernel, WebGPU renderer), streaming
 the source through a short-lived presigned URL. There is no Fragments
-conversion, no cached mesh format, and no second copy of the geometry to keep in
-step with the file.
+conversion and no cached mesh format.
+
+There is also no *derived* copy of the geometry to keep in step with the file.
+The gzip added below is the same bytes under a `Content-Encoding` header — the
+browser inflates it and the kernel receives exactly what was uploaded — so it
+cannot drift from the source the way a converted mesh would, and it is written
+once at extraction rather than maintained. It is best-effort: when it is absent
+the viewer presigns the original, so a model extracted before the gzip existed
+keeps working. It is swept by the same prefix delete as the other two artefacts,
+so a deleted model leaves no compressed copy of itself behind.
 
 ### Consequences of that split
 

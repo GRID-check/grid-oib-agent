@@ -1532,8 +1532,21 @@
       "type": "object"
     },
     "IfcElementMatch": {
-      "description": "The SET of elements to highlight, as a filter rather than a list of ids.\n\nExactly the ``filters`` object passed to ``ifc_query`` \u2014 the browser re-runs\nit against the model, so the highlight covers every matching element and\nnothing has to survive the model's context window.",
+      "description": "The SET of elements to highlight, as a filter rather than a list of ids.\n\nExactly the ``filters`` object passed to ``ifc_query`` \u2014 the browser re-runs\nit against the model, so the highlight covers every matching element and\nnothing has to survive the model's context window.\n\n``ifc_query`` spells its filter keys in camelCase (``ifcTypes``,\n``nameContains``) and this card is authored in snake_case like every other\ncard field. The agent is told to reuse the filter it already wrote, so BOTH\nspellings are accepted and normalise to the snake_case field: without the\naliases a copied filter validated cleanly with every key silently dropped,\nleaving an empty match, and a highlight group that selects nothing.",
       "properties": {
+        "classification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Case-insensitive substring of a classification code or label",
+          "title": "Classification"
+        },
         "ifc_types": {
           "anyOf": [
             {
@@ -1710,7 +1723,7 @@
         },
         "source": {
           "default": "property",
-          "description": "Search quantity sets instead of property sets",
+          "description": "Which store to search: 'property' (default) or 'quantity'",
           "enum": [
             "property",
             "quantity"

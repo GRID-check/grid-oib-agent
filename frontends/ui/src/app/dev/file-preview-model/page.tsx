@@ -23,6 +23,8 @@ import type { BimModelHeaderView } from '@/features/bim/hooks/use-bim-model'
 import type { BimModelSummary } from '@/lib/bim/types'
 import { SAMPLE_IFC } from './sample-model'
 
+const PROJECT_ID = 'proj-demo'
+
 const FIXTURE: FileItem = {
   id: 'dev-model-1',
   filename: 'Wohnhaus-Grungasse-14_V3.ifc',
@@ -89,7 +91,7 @@ const SUMMARY: BimModelSummary = {
 const MODEL: BimModelHeaderView = {
   id: 'dev-bim-1',
   documentId: FIXTURE.id,
-  projectId: 'proj-demo',
+  projectId: PROJECT_ID,
   filename: FIXTURE.filename,
   status: 'ready',
   schemaVersion: 'IFC4',
@@ -106,17 +108,22 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (/\/api\/projects\/.+\/bim\/models$/.test(url)) {
+      // Scoped to THIS fixture's ids. The shim is installed at module scope
+      // and survives client-side navigation, so a broad pattern went on
+      // answering for every project and model in the dev session — a real dev
+      // page opened afterwards would be served this fixture instead of its own
+      // data.
+      if (url.includes(`/api/projects/${PROJECT_ID}/bim/models`)) {
         return Response.json({ models: [MODEL] })
       }
-      if (/\/api\/bim\/models\/.+\/query$/.test(url)) {
+      if (/\/api\/bim\/models\/dev-bim-1\/query$/.test(url)) {
         // Empty on purpose: the pane shows the building, and every table that
         // would need element rows lives in the workspace one link away.
         return Response.json({ elements: [], total: 0 })
       }
       // A real (tiny) IFC, handed over as a blob the viewport can fetch and
       // parse exactly as it would the presigned object-store URL.
-      if (/\/api\/bim\/models\/.+\/source$/.test(url)) {
+      if (/\/api\/bim\/models\/dev-bim-1\/source$/.test(url)) {
         return Response.json({ url: URL.createObjectURL(new Blob([SAMPLE_IFC])) })
       }
       return real(input, init)
@@ -132,7 +139,7 @@ export default function FilePreviewModelDevPage(): JSX.Element {
   return (
     <FilePreviewDialog
       file={FIXTURE}
-      projectId="proj-demo"
+      projectId={PROJECT_ID}
       projectName="Wohnbau Nord — Linz"
       canManage
       onClose={() => {}}

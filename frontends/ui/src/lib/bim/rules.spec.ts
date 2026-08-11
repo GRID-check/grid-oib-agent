@@ -996,6 +996,32 @@ describe('oib5-schalldaemmung-deklariert', () => {
     }
   })
 
+  it('refuses prose that merely CONTAINS a number', () => {
+    // The first fix for the bug above recreated it from the other side: taking
+    // the first number anywhere in the string read `siehe OIB 5` as 5 dB and
+    // `ÖNORM B 8115-2` as 8115 dB, and reported both **erfüllt**. A number
+    // counts only when an acoustic label introduces it, `dB` follows it, or it
+    // is the entire value.
+    for (const prose of [
+      'siehe OIB 5',
+      'ÖNORM B 8115-2',
+      'gemäß ÖNORM B 8115-2',
+      'siehe Beiblatt 3',
+      'Anforderung laut Bauteilkatalog 2019',
+    ]) {
+      const rule = verdict(prose)
+      expect(rule.passed, prose).toBe(0)
+      expect(rule.undecidable, prose).toBe(1)
+    }
+  })
+
+  it('reads the rating, not the standard number standing in front of it', () => {
+    // The realistic authored string: a reference AND the value. Taking the
+    // first number would report this wall at 8115 dB.
+    expect(verdict('gemäß ÖNORM B 8115-2, Rw 55 dB').passed).toBe(1)
+    expect(verdict('ÖNORM B 8115-2 / 55 dB').passed).toBe(1)
+  })
+
   it('accepts a rated value however the exporter labelled it', () => {
     // The other half of the same anchoring bug: these are real declarations and
     // all of them failed to parse.
