@@ -252,6 +252,26 @@ values render "fehlende Angabe", never a guess. See
 **(interactive)** marks a card whose answer is a commitment and is therefore
 persisted on the message; see [Interactive cards](#interactive-cards-the-answer-must-be-persisted).
 
+### The live catalog: `GET /api/platform/cards`
+
+The table above is prose and goes stale between edits; the endpoint does not.
+`GET /api/platform/cards` (platform owners; backend `GET /v1/platform/cards`,
+`routes/cards.py`) serves the catalog **derived from the `GridCard` union**:
+every type with its purpose, its fields (type, requiredness, description,
+constraints), the shapes those fields reference, and the worked example where
+one exists. Adding a card type to the union is the only step needed to make it
+appear there.
+
+Two differences from the model-facing catalog (`render_card_catalog`), which is
+rendered from the same models for the `emit_card` tool: system cards are
+**included** and flagged `emittedBy: "system"` rather than hidden (a model that
+learns they exist can fabricate them; a person asking "can Grid show me X?" is
+misled by a list with holes in it), and every entry is data rather than prose.
+
+The response also carries `featureRequest` — the repository plus a link to the
+enhancement issue form — because the question that follows "here is what Grid
+can render" is "and how do I get the one thing that is missing?".
+
 The card-generation LLM is `card_llm` (config `reasoning_effort: medium`). Adding a
 card type = define the Pydantic model (`cards/models.py`), regenerate the schema
 (`scripts/generate_card_schema.py` → `npm run generate:cards`), add a renderer, and

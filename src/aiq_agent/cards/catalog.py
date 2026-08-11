@@ -15,6 +15,7 @@ surface without triggering tool registration side effects.
 import json
 import types
 import typing
+from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
@@ -311,6 +312,76 @@ def _shape(model_cls: type, nested: list[type], *, with_desc: bool) -> str:
 def _card_shape(card_cls: type, nested: list[type]) -> str:
     """The one-line shape spec for a card body (top-level fields, no descriptions)."""
     return _shape(card_cls, nested, with_desc=False)
+
+
+def _field_specs(model_cls: type, nested: list[type]) -> list[dict[str, Any]]:
+    """The same per-field information ``_shape`` renders as prose, as data."""
+    specs: list[dict[str, Any]] = []
+    for field_name, field_info in model_cls.model_fields.items():
+        if field_name == "type":
+            continue
+        specs.append(
+            {
+                "name": field_name,
+                "type": _annotation_str(field_info.annotation, nested),
+                "required": field_info.is_required(),
+                "description": field_info.description or "",
+                "constraints": _field_constraints(field_info),
+            }
+        )
+    return specs
+
+
+def describe_card_catalog() -> dict[str, Any]:
+    """The card catalog as data, for surfaces that show it to PEOPLE.
+
+    :func:`render_card_catalog` renders the same models as prose for the model
+    and omits the system cards, because a model that reads about them can
+    fabricate them. A human catalog has the opposite need: it must list every
+    card the product can render — a platform owner asking "can Grid show me X?"
+    is not served by a list with holes in it — so system cards are included and
+    flagged (``emittedBy``) rather than hidden.
+
+    Derived from the Pydantic union like every other card surface, so a new card
+    type appears here the moment it is added to ``GridCard`` and cannot drift.
+    Keys are camelCase because this is a wire shape, not a Python one.
+    """
+    from aiq_agent.cards.models import GridCard
+
+    nested: list[type] = []
+    cards: list[dict[str, Any]] = []
+    for card_cls in GridCard.__args__:
+        type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
+        doc = (card_cls.__doc__ or "").strip()
+        cards.append(
+            {
+                "type": type_value,
+                "model": card_cls.__name__,
+                # First paragraph only: the rest of a card docstring is guidance
+                # for contributors, not a description of what the card shows.
+                "summary": " ".join(doc.split("\n\n")[0].split()),
+                "emittedBy": "system" if type_value in SYSTEM_CARD_TYPES else "agent",
+                "interaction": ("interactive" if type_value in INTERACTIVE_CARD_TYPES else "presentational"),
+                "fields": _field_specs(card_cls, nested),
+                "example": CARD_EXAMPLES.get(type_value),
+            }
+        )
+
+    # Shapes the card bodies reference by name (NormReference, DimensionCheck,
+    # …), each defined once. `nested` grows while the cards above are described
+    # and again while the blocks themselves are, so walk it as a queue.
+    seen: set[type] = set()
+    building_blocks: dict[str, list[dict[str, Any]]] = {}
+    i = 0
+    while i < len(nested):
+        model_cls = nested[i]
+        i += 1
+        if model_cls in seen:
+            continue
+        seen.add(model_cls)
+        building_blocks[model_cls.__name__] = _field_specs(model_cls, nested)
+
+    return {"cards": cards, "buildingBlocks": building_blocks}
 
 
 def shape_hint_for(card_type: str) -> str | None:

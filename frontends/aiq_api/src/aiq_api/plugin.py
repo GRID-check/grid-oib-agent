@@ -43,6 +43,7 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
+from .routes.cards import add_card_catalog_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
@@ -221,6 +222,8 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_workflow_routes(knowledge_router)
         # Workflow-default model names for the org model-config UI (ADR-0014).
         add_config_info_routes(knowledge_router, self.config.llms)
+        # The card catalog for the platform surface: what the agent can render.
+        add_card_catalog_routes(knowledge_router)
         app.include_router(knowledge_router)
         logger.info("Knowledge API routes registered")
 
