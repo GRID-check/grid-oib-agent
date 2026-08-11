@@ -52,7 +52,7 @@ function Stage({
         <h2 className="text-sm font-semibold">{title}</h2>
         <p className="text-muted-foreground text-xs">{description}</p>
       </div>
-      <div className="bg-muted/30 relative h-72 overflow-hidden rounded-2xl border">{children}</div>
+      <div className="bg-muted/30 relative h-[26rem] overflow-hidden rounded-2xl border">{children}</div>
     </section>
   )
 }

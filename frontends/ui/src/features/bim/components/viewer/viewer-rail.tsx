@@ -31,9 +31,17 @@ export function ViewerRail({ children, className }: ViewerRailProps): JSX.Elemen
   return (
     <ViewerSurface
       className={cn(
-        // Capped height with its own scroll: a building with forty storeys must
-        // not push the rail past the bottom of the dialog and under the dock.
-        'flex max-h-[calc(100%-1.5rem)] w-56 flex-col overflow-hidden',
+        // ONE scroller for the whole card, not one per section.
+        //
+        // Each section used to cap itself at `max-h-52` with its own overflow,
+        // which produced two independent scrollbars inside a 14 rem card and —
+        // worse — let a section's content run past its own bottom border, so
+        // the divider drew straight through a model name. A building with
+        // forty storeys is one long list; scrolling it as one is both simpler
+        // and what a reader expects.
+        // The fade says "there is more" without a scrollbar. A hard cut across
+        // a half-height row reads as a rendering fault; a fade reads as a list.
+        'scroll-fade-bottom flex max-h-[calc(100%-1.5rem)] w-56 flex-col overflow-y-auto overscroll-contain',
         className
       )}
     >
@@ -60,14 +68,27 @@ export interface ViewerRailSectionProps {
  */
 export function ViewerRailSection({ label, action, children }: ViewerRailSectionProps): JSX.Element {
   return (
-    <section aria-label={label} className="min-h-0 border-b border-border last:border-b-0">
-      <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-1.5">
-        <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-          {label}
-        </h3>
+    <section aria-label={label} className="border-border shrink-0 border-b last:border-b-0">
+      {/*
+        Sticky, so scrolling a forty-storey list never leaves the reader
+        looking at rows with no idea whether they are models or levels.
+        Deliberately a SOLID fill and not the card's own translucent blur: a
+        `backdrop-filter` nested inside the mask that draws the rail's scroll
+        fade has no backdrop to sample, and Chromium paints the undefined
+        result — on a phone it came out as a solid red bar across the heading.
+        The rail is already blurred; a second blur inside it buys nothing.
+      */}
+      <div className="bg-card sticky top-0 z-10 flex items-center justify-between gap-2 px-3 pt-3 pb-1.5">
+        {/*
+          Sentence case, not uppercase. Shouted micro-labels are a habit from
+          dashboards, and this rail is a list of buildings and floors — the
+          reference this design follows labels the same thing "Models" and
+          "Layers", quietly.
+        */}
+        <h3 className="text-muted-foreground text-[11px] font-semibold tracking-wide">{label}</h3>
         {action}
       </div>
-      <div className="max-h-52 overflow-y-auto px-1.5 pb-2">{children}</div>
+      <div className="px-1.5 pb-2">{children}</div>
     </section>
   )
 }

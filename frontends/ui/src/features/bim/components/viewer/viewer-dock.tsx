@@ -46,10 +46,17 @@ export function ViewerDock({ lead, children, trail, above, className }: ViewerDo
       )}
     >
       {above}
-      <div className="pointer-events-auto flex max-w-full items-center gap-2 overflow-x-auto">
-        {lead && <ViewerSurface className="flex items-center gap-1 p-1">{lead}</ViewerSurface>}
-        <ViewerSurface className="flex items-center gap-1 p-1">{children}</ViewerSurface>
-        {trail && <ViewerSurface className="flex items-center gap-1 p-1">{trail}</ViewerSurface>}
+      {/*
+        `w-full justify-center` rather than a shrink-to-fit row: at 390 px the
+        three pills are wider than the viewport, and a centred row that cannot
+        scroll simply loses its ends. This way the bar scrolls, and the
+        scrollbar itself is hidden because a visible one under a floating pill
+        reads as a rendering artefact.
+      */}
+      <div className="pointer-events-auto flex w-full max-w-full items-center justify-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {lead && <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">{lead}</ViewerSurface>}
+        <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">{children}</ViewerSurface>
+        {trail && <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">{trail}</ViewerSurface>}
       </div>
     </div>
   )

@@ -171,7 +171,7 @@ function ModelInspectorDetails({
 
   return (
     <details className="border-border mt-3 border-t pt-2">
-      <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 marker:content-none cursor-pointer rounded text-[11px] font-semibold tracking-wide uppercase outline-none focus-visible:ring-2">
+      <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 marker:content-none cursor-pointer rounded text-[11px] font-semibold tracking-wide outline-none focus-visible:ring-2">
         {label}
       </summary>
 

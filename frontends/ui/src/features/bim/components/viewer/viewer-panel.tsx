@@ -105,9 +105,13 @@ export function ViewerField({ label, children }: ViewerFieldProps): JSX.Element 
 export function ViewerFieldGroup({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (
     <div className="mb-3 last:mb-0">
-      <h3 className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-        {label}
-      </h3>
+      {/*
+        Not uppercased. Half of these headings are exporter-authored set names
+        — `Qto_WallBaseQuantities` — and `text-transform` turns those into
+        QTO_WALLBASEQUANTITIES, which is louder than anything under it and
+        shreds the only casing that made the name readable.
+      */}
+      <h3 className="text-muted-foreground mb-1 text-[11px] font-semibold tracking-wide">{label}</h3>
       <dl>{children}</dl>
     </div>
   )
