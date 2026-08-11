@@ -55,6 +55,7 @@ const FINDINGS = {
     {
       severity: 'error',
       field: 'description',
+      check: '4.8-description-trigger-style',
       message:
         'Die Beschreibung sagt nicht, WANN der Skill einzusetzen ist — der Agent kann ihn dadurch kaum von „einreichplan-checkliste“ unterscheiden.',
       fix: 'Ergänzen Sie den Anlass: „Einsetzen, wenn ein Brandschutznachweis nach OIB-Richtlinie 2 erstellt oder vor der Einreichung gegengeprüft werden soll.“',
@@ -62,6 +63,7 @@ const FINDINGS = {
     {
       severity: 'warning',
       field: 'name',
+      check: '2-naming-quality',
       message:
         'Der Name nennt die Richtlinie nicht, obwohl die Anweisung ausschließlich gegen OIB 2 prüft.',
       fix: 'Benennen Sie den Skill in „oib-brandschutznachweis“ um, damit er im /-Menü neben den übrigen OIB-Skills gefunden wird.',
@@ -69,6 +71,7 @@ const FINDINGS = {
     {
       severity: 'suggestion',
       field: 'body',
+      check: '3-ambiguous-terms',
       message:
         'Schritt 2 setzt die Gebäudeklasse voraus, sagt aber nicht, was zu tun ist, wenn das Projekt keine angibt.',
       fix: 'Halten Sie den Abbruchfall fest: ohne Gebäudeklasse keine Beurteilung, sondern eine Rückfrage.',

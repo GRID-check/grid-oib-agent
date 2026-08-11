@@ -7,7 +7,8 @@ The agentskills.io format contract:
 - ``license``: optional free-form string.
 - ``compatibility``: optional, at most 500 chars.
 - ``metadata``: map of strings; reserved GRID keys are validated
-  (``grid-execution`` must be ``chat`` | ``deep-research``).
+  (``grid-execution`` must be ``chat`` | ``deep-research``; ``grid-cards`` must
+  name known, non-system Grid card types).
 - ``allowed-tools``: optional free-form string (tool-level allowlist).
 - Body: markdown; <500 lines recommended, not enforced.
 
@@ -39,9 +40,20 @@ MAX_COMPATIBILITY_CHARS = 500
 
 #: Reserved GRID metadata keys. ``grid-agents`` is a comma-separated agent
 #: name list (absent = all agents). ``grid-schedulable`` is a schedulability
-#: marker. ``grid-execution`` selects the execution mode.
-GRID_METADATA_KEYS = frozenset({"grid-execution", "grid-schedulable", "grid-agents"})
+#: marker. ``grid-execution`` selects the execution mode. ``grid-cards`` is a
+#: comma-separated list of preferred Grid output card types.
+GRID_METADATA_KEYS = frozenset({"grid-execution", "grid-schedulable", "grid-agents", "grid-cards"})
 GRID_EXECUTION_VALUES = frozenset({"chat", "deep-research"})
+
+#: ``grid-cards`` — the card types a skill would LIKE its answers rendered as.
+#:
+#: A preference, not a contract: it costs nothing until the skill is activated,
+#: at which point ``SkillRuntime`` appends a short block naming these types to
+#: the skill body. Values are card ``type`` literals from the ``GridCard``
+#: union, minus ``SYSTEM_CARD_TYPES`` — a system card is emitted by a tool on a
+#: sanctioned path, so naming one here would be asking the model to fabricate
+#: something it must never produce.
+GRID_CARDS_KEY = "grid-cards"
 
 #: Anything that looks like an XML/HTML tag.
 #:
@@ -137,7 +149,62 @@ def _pop_allowed_tools(payload: dict[str, Any]) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _validate_metadata(metadata: Any) -> dict[str, str]:
+def split_metadata_list(raw: str) -> list[str]:
+    """Split a reserved comma-list value: trimmed, empties dropped, order kept.
+
+    Deduplicated because these lists are read as sets of preferences, and a name
+    repeated in the frontmatter should not be repeated back at the model.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in raw.split(","):
+        name = part.strip()
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def _validate_grid_cards(value: str, *, strict: bool) -> str | None:
+    """Validate ``grid-cards`` against the model-facing card catalog.
+
+    Returns the value to store, or ``None`` when nothing usable is left and the
+    key should be dropped entirely.
+
+    Two tolerances, matching how the two sources of skills fail. A SKILL.md is
+    authored in this repo and reviewed, so a name that no longer exists is a
+    typo we want to hear about at parse time (``strict``). A BFF-served org row
+    is tenant data arriving over the wire, where one stale name must not delete
+    the whole skill from the toolbox — so the bad entries are logged and dropped
+    and the rest of the row survives, exactly as the resolver treats an unknown
+    ``grid-agents`` name.
+
+    A SYSTEM card is rejected on both paths and never merely downgraded: it is
+    emitted by a tool on a sanctioned path, and telling the model to produce one
+    would be inviting it to fabricate a card the product treats as trustworthy.
+    """
+    from aiq_agent.cards.catalog import model_facing_card_types
+
+    known = model_facing_card_types()
+    names = split_metadata_list(value)
+    unknown = [name for name in names if name not in known]
+    if unknown and strict:
+        raise SkillValidationError(
+            f"Skill metadata {GRID_CARDS_KEY} names unknown or system card type(s) {unknown}; "
+            f"allowed: {sorted(known)}"
+        )
+    if unknown:
+        logger.warning(
+            "Dropping unknown or system card type(s) from %s: %s (known: %s)",
+            GRID_CARDS_KEY,
+            unknown,
+            sorted(known),
+        )
+    kept = [name for name in names if name in known]
+    return ",".join(kept) if kept else None
+
+
+def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
     if metadata is None:
         return {}
     if not isinstance(metadata, dict):
@@ -150,8 +217,30 @@ def _validate_metadata(metadata: Any) -> dict[str, str]:
             raise SkillValidationError(
                 f"Skill metadata grid-execution must be one of {sorted(GRID_EXECUTION_VALUES)}, got {value!r}"
             )
+        if key == GRID_CARDS_KEY:
+            cards = _validate_grid_cards(value, strict=strict)
+            if cards is None:
+                continue
+            validated[key] = cards
+            continue
         validated[key] = value
     return validated
+
+
+def preferred_cards(metadata: dict[str, str]) -> tuple[str, ...]:
+    """The card types a skill prefers, in author order; ``()`` when unset.
+
+    Filtered against the catalog on read as well as on write: a skill snapshot
+    persisted before a card type was retired would otherwise name a card the
+    renderer no longer has.
+    """
+    from aiq_agent.cards.catalog import model_facing_card_types
+
+    raw = metadata.get(GRID_CARDS_KEY)
+    if not raw:
+        return ()
+    known = model_facing_card_types()
+    return tuple(name for name in split_metadata_list(raw) if name in known)
 
 
 def build_skill_from_payload(
@@ -164,11 +253,15 @@ def build_skill_from_payload(
 
     Raises :class:`SkillValidationError` on any contract violation — the shared
     strict path for both builtin files and org rows.
+
+    The one deliberate softening is ``origin="org"``: a tenant row's reserved
+    comma-lists are validated leniently (unknown entries logged and dropped)
+    rather than taking the whole skill down. Everything structural still errors.
     """
     payload = dict(payload)
     name = _validate_name(payload.get("name"), expected_dir_name=None)
     description = _validate_description(payload.get("description"))
-    metadata = _validate_metadata(payload.get("metadata"))
+    metadata = _validate_metadata(payload.get("metadata"), strict=origin != "org")
     body = payload.get("body")
     if not isinstance(body, str):
         raise SkillValidationError(f"Skill {name!r} body must be a string")

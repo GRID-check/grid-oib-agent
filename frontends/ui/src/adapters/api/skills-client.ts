@@ -232,6 +232,8 @@ export interface SkillReviewFinding {
   field: 'name' | 'description' | 'body'
   message: string
   fix: string
+  /** The rulebook check that produced this, or '' when none was named. */
+  check?: string
 }
 
 export interface SkillReviewResult {

@@ -146,6 +146,15 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
                   {finding.fix && (
                     <p className="text-muted-foreground text-[11px] leading-snug">{finding.fix}</p>
                   )}
+                  {/* The rule that produced this, quietly. It is what turns a
+                      complaint into a citation — an author who disagrees can go
+                      read the rule instead of arguing with a verdict. Muted and
+                      last, because it is provenance, not the point. */}
+                  {finding.check && (
+                    <p className="text-muted-foreground/70 font-mono text-[10px] leading-snug">
+                      {finding.check}
+                    </p>
+                  )}
                 </div>
               </li>
             )

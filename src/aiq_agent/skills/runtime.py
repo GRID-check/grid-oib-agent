@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 
 from .models import Skill
+from .models import preferred_cards
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,30 @@ _TOOL_DESCRIPTION = (
     "Load the full instructions of a skill by name before following them. "
     "Call this once per skill you intend to use; it returns the complete skill body."
 )
+
+_CARDS_HEADING = "## Bevorzugte Cards"
+_CARDS_DOCTRINE = (
+    "Wenn der Inhalt es hergibt, gib das Ergebnis als eine dieser Cards aus: {types}. "
+    "Das ist eine Präferenz des Skill-Autors, keine Vorgabe — passt keine davon zum "
+    "Ergebnis, wähle die passende Card oder antworte in Prosa. Erfinde nie Inhalte, "
+    "nur damit eine dieser Cards ausgefüllt werden kann."
+)
+
+
+def _preferred_cards_block(skill: Skill) -> str | None:
+    """The ``grid-cards`` block appended to a body on activation, or None.
+
+    Deliberately appended HERE and not in ``prompt_block``: the level-1 catalog
+    is paid for on every turn by every skill, and a card preference is worth
+    nothing until the skill is actually in play. The phrasing stays a preference
+    on purpose — an author naming three cards must not be able to force a
+    ``comparison_table`` onto an answer that has nothing to compare.
+    """
+    cards = preferred_cards(skill.metadata)
+    if not cards:
+        return None
+    types = ", ".join(f"`{card}`" for card in cards)
+    return f"{_CARDS_HEADING}\n{_CARDS_DOCTRINE.format(types=types)}"
 
 
 class SkillRuntime:
@@ -118,7 +143,8 @@ class SkillRuntime:
                     f"Rufe `{_TOOL_NAME}` mit einem dieser Namen auf."
                 )
             runtime._record_activation(skill_name)
-            return skill.body
+            cards_block = _preferred_cards_block(skill)
+            return f"{skill.body}\n\n{cards_block}" if cards_block else skill.body
 
         use_skill.description = _TOOL_DESCRIPTION
         return [use_skill]

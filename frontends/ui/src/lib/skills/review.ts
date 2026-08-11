@@ -43,6 +43,14 @@ export interface SkillReviewFinding {
   message: string
   /** What to do about it. */
   fix: string
+  /**
+   * The rulebook check this came from (e.g. `4.8-description-trigger-style`),
+   * or `''` when the reviewer named none.
+   *
+   * Carried through rather than dropped: it is what makes a finding a citation
+   * instead of an opinion. An author who disagrees can go read the rule.
+   */
+  check: string
 }
 
 export interface SkillReviewResult {
@@ -60,6 +68,8 @@ export interface SkillReviewInput {
 /** Defensive bounds on a model-authored list, applied before it reaches a UI. */
 const MAX_FINDINGS = 12
 const MAX_TEXT = 400
+/** A check id is a short token; anything longer is not one. */
+const MAX_CHECK = 64
 
 function toFinding(raw: unknown): SkillReviewFinding | null {
   if (!raw || typeof raw !== 'object') return null
@@ -71,11 +81,15 @@ function toFinding(raw: unknown): SkillReviewFinding | null {
   if (!SKILL_FINDING_SEVERITIES.includes(severity as SkillFindingSeverity)) return null
   if (!SKILL_FINDING_FIELDS.includes(field as SkillFindingField)) return null
   if (typeof message !== 'string' || !message.trim()) return null
+  // A TRUNCATED id would point at a rule that does not exist, so an over-long
+  // one is dropped rather than cut — the finding survives without provenance.
+  const check = typeof entry.check === 'string' ? entry.check.trim() : ''
   return {
     severity: severity as SkillFindingSeverity,
     field: field as SkillFindingField,
     message: message.trim().slice(0, MAX_TEXT),
     fix: typeof fix === 'string' ? fix.trim().slice(0, MAX_TEXT) : '',
+    check: check.length <= MAX_CHECK ? check : '',
   }
 }
 

@@ -62,6 +62,30 @@ describe('SkillReviewPanel', () => {
     expect(items[0].textContent).toContain('Add one.')
   })
 
+  it('cites the rule that produced a finding, when the reviewer named one', async () => {
+    reviewSkill.mockResolvedValue({
+      findings: [
+        {
+          severity: 'warning',
+          field: 'description',
+          message: 'No WHEN clause.',
+          fix: 'Add one.',
+          check: '4.8-description-trigger-style',
+        },
+        { severity: 'suggestion', field: 'body', message: 'Add an example.', fix: '', check: '' },
+      ],
+    })
+    const user = userEvent.setup()
+    render(<SkillReviewPanel {...DRAFT} />)
+    await user.click(screen.getByRole('button'))
+
+    expect(await screen.findByText('4.8-description-trigger-style')).toBeInTheDocument()
+    // …and a finding without a named rule simply carries none, rather than an
+    // empty line pretending to be provenance.
+    const items = screen.getAllByRole('listitem')
+    expect(items[1].textContent).not.toContain('4.8')
+  })
+
   it('says the skill is clean only when the reviewer actually returned nothing', async () => {
     reviewSkill.mockResolvedValue({ findings: [] })
     const user = userEvent.setup()
