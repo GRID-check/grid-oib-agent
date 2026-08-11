@@ -13,10 +13,12 @@ const mockUploadFiles = vi.fn()
  * surface in the app does.
  */
 const routerReplace = vi.fn()
+/** Opening the stage PUSHES, so the back button closes it. */
+const routerPush = vi.fn()
 let searchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push: (...args: unknown[]) => routerPush(...args),
     replace: (...args: unknown[]) => routerReplace(...args),
     refresh: vi.fn(),
     back: vi.fn(),
@@ -449,7 +451,12 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
 
     // The name, not the id: `?model=` is resolved by file name so the link
     // survives a re-ingestion and stays readable in a chat message.
-    const href = routerReplace.mock.calls.at(-1)?.[0] as string
+    //
+    // And PUSHED, not replaced: with `replace` the stage added no history
+    // entry, so the back button left the Files page entirely — discarding the
+    // camera, the cut, the selection, the hidden set and every measurement.
+    // On a phone, back is how anyone dismisses a full-screen overlay.
+    const href = routerPush.mock.calls.at(-1)?.[0] as string
     expect(new URLSearchParams(href.split('?')[1]).get('model')).toBe('Haus-A.ifc')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })

@@ -293,7 +293,49 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   const isMobile = useIsMobile()
   const [railChoice, setRailChoice] = useState<boolean | null>(null)
   const railOpen = railChoice ?? !isMobile
-  const [advancedOpen, setAdvancedOpen] = useState(view.tab !== undefined)
+  /**
+   * The drawer is open exactly when the link says which tab.
+   *
+   * It used to be local state seeded from the URL once, at mount, and never
+   * written back — so three things disagreed. Closing the drawer left `tab=`
+   * behind, and "Ansicht verlinken" then handed the recipient a drawer the
+   * sender had shut. Selecting Überblick DELETED the parameter (it was encoded
+   * as "the default"), so the link lost the drawer entirely. And arriving at
+   * `?tab=compliance` while the stage was already mounted left it closed.
+   *
+   * Deriving it makes the drawer behave like every other control in this file:
+   * its state is the link, and the link is the state.
+   *
+   * Gated on `modelId`, because the drawer only renders when there is a model.
+   * A compliance card linking into a model that is still being read otherwise
+   * produced a pressed AND disabled toolbar button with no panel anywhere —
+   * and an Escape that appeared to do nothing, because it took the
+   * close-the-drawer branch for a drawer that was not there.
+   */
+  const linkedOpen = view.tab !== undefined && modelId !== null
+  /**
+   * An echo, so the drawer opens on the click rather than on the round trip.
+   *
+   * The URL is the durable record — that is what makes the state shareable and
+   * what lets an incoming link, or the back button, open the drawer on the
+   * right tab. But `router.replace` re-runs the server tree, so deriving the
+   * drawer purely from the URL would leave a couple of hundred milliseconds
+   * between pressing the button and anything happening. That is the same
+   * mistake the cut slider was making, one event instead of sixty a second,
+   * and it is exactly the lag that makes an interface feel cheap.
+   *
+   * So: local state answers immediately, the URL is written alongside, and
+   * the effect re-syncs whenever the link changes under it.
+   */
+  const [advancedOpen, setAdvancedOpenEcho] = useState(linkedOpen)
+  useEffect(() => setAdvancedOpenEcho(linkedOpen), [linkedOpen])
+  const setAdvancedOpen = useCallback(
+    (open: boolean) => {
+      setAdvancedOpenEcho(open)
+      setView({ tab: open ? (view.tab ?? 'overview') : undefined })
+    },
+    [setView, view.tab]
+  )
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -717,7 +759,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   label={t('stage.advanced')}
                   icon={SlidersHorizontal}
                   active={advancedOpen}
-                  onClick={() => setAdvancedOpen((open) => !open)}
+                  onClick={() => setAdvancedOpen(!advancedOpen)}
                   disabled={!modelId}
                 />
               </>

@@ -551,3 +551,45 @@ describe('ModelStage — the status a screen reader hears', () => {
     expect(announcement()).toBe('The 3D view could not be loaded')
   })
 })
+
+/**
+ * The drawer's open state is the link, and the link is the state.
+ *
+ * It used to be local state seeded from the URL once and never written back,
+ * so three things disagreed: closing left `tab=` behind and "Ansicht
+ * verlinken" handed the recipient a drawer the sender had shut; selecting
+ * Überblick deleted the parameter and the link lost the drawer entirely; and
+ * arriving at `?tab=compliance` while the stage was already mounted left it
+ * closed.
+ */
+describe('ModelStage — the drawer travels in the link', () => {
+  it('writes the tab when the drawer is opened', async () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details & checks' }))
+    expect(lastQuery().get('tab')).toBe('overview')
+  })
+
+  it('clears the tab when the drawer is closed', async () => {
+    searchParams = new URLSearchParams('model=Haus-A.ifc&tab=quantities')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details & checks' }))
+    expect(lastQuery().has('tab')).toBe(false)
+  })
+
+  it('keeps the drawer shut for a model that is still being read', async () => {
+    // A compliance card links in as `?tab=compliance`. With the model still
+    // extracting the sheet cannot render, and the toolbar button used to be
+    // pressed AND disabled with no panel anywhere — and the first Escape
+    // appeared to do nothing, because it took the close-the-drawer branch for
+    // a drawer that was not there.
+    searchParams = new URLSearchParams('model=Haus-A.ifc&tab=compliance')
+    state.models = [model({ status: 'extracting' })]
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    expect(screen.queryByTestId('advanced-sheet')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Details & checks' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+  })
+})

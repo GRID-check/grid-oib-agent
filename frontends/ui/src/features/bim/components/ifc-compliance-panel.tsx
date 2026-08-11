@@ -92,6 +92,11 @@ function verdictHref(
     element: globalIds[0],
     highlights: [{ status, globalIds }],
     xray: true,
+    // Without this the link carries no tab, the drawer falls back to
+    // Überblick, and the finding the reader clicked — with its scroll
+    // position and its half-filled confirmation form — is gone. There is no
+    // back button either: the stage navigates with `replace`.
+    tab: 'compliance',
   })
 }
 

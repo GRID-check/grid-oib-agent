@@ -149,7 +149,15 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     (filename: string) => {
       const params = new URLSearchParams(searchParams?.toString() ?? '')
       params.set('model', filename)
-      router.replace(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
+      // `push`, not `replace`. The comment above says the back button closes
+      // the stage; with `replace` it pushed no history entry, so back left the
+      // Files page entirely and discarded the camera, the cut, the selection,
+      // the hidden set and every measurement. On a phone, back is the primary
+      // way anyone dismisses a full-screen overlay.
+      //
+      // Closing still REPLACES, so shutting the stage does not leave an entry
+      // that back would re-open.
+      router.push(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
     },
     [pathname, router, searchParams]
   )

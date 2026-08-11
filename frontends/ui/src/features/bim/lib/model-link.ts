@@ -84,7 +84,12 @@ export function buildModelQuery(view: BimModelView): string {
   if (view.model) params.set('model', view.model)
   // `overview` is the default, so it stays out of the URL — a bare link should
   // look bare.
-  if (view.tab && view.tab !== 'overview') params.set('tab', view.tab)
+  // `overview` is encoded like any other tab. It used to be dropped as "the
+  // default", which made it impossible to say "the drawer is open on the
+  // overview" in a link — and since the drawer's open state is exactly
+  // "`tab` is set", selecting Überblick silently closed the drawer for
+  // whoever the link was sent to.
+  if (view.tab) params.set('tab', view.tab)
   if (view.storey) params.set('storey', view.storey)
   if (view.element) params.set('element', view.element)
   for (const group of view.highlights ?? []) {
@@ -128,7 +133,7 @@ export function parseModelView(search: string | URLSearchParams): BimModelView {
   const model = params.get('model')?.trim()
   if (model) view.model = model
   const tab = params.get('tab')?.trim()
-  if (tab && TABS.has(tab) && tab !== 'overview') view.tab = tab as BimModelTab
+  if (tab && TABS.has(tab)) view.tab = tab as BimModelTab
   const storey = params.get('storey')?.trim()
   if (storey) view.storey = storey
   const element = params.get('element')?.trim()
