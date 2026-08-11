@@ -593,3 +593,40 @@ describe('ModelStage — the drawer travels in the link', () => {
     )
   })
 })
+
+/**
+ * A link that could not be honoured says so.
+ *
+ * The stage falls back to the newest ready model when `?model=` names
+ * something the project does not have — right thing to do, wrong thing to do
+ * silently. The answer said "3 Wände im Erdgeschoss von Haus-A", the viewer
+ * opened Haus-B, the storey filter matched nothing, the legend read "(0)", and
+ * with one model in the project the rail is hidden so the filename appears
+ * nowhere on screen.
+ */
+describe('ModelStage — when the link and the project disagree', () => {
+  it('names the model it opened instead', () => {
+    searchParams = new URLSearchParams('model=Haus-Z.ifc')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    expect(
+      screen.getByText(/This link names “Haus-Z.ifc”.*Showing “Haus-A.ifc” instead/)
+    ).toBeInTheDocument()
+  })
+
+  it('says nothing when the link named the model that opened', () => {
+    searchParams = new URLSearchParams('model=Haus-A.ifc')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.queryByText(/This link names/)).not.toBeInTheDocument()
+  })
+
+  it('still opens after a rename the link could not know about', () => {
+    // The documented recovery, which only ever worked in a test: a real link
+    // carries `Haus-A.ifc`, and `'haus-a (final).ifc'.includes('haus-a.ifc')`
+    // is false, so the substring match never fired and the fallback did.
+    state.models = [model({ filename: 'Haus-A (final).ifc' })]
+    searchParams = new URLSearchParams('model=Haus-A.ifc')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.queryByText(/This link names/)).not.toBeInTheDocument()
+  })
+})

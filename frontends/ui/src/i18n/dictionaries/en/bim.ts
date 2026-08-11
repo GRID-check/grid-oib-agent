@@ -306,6 +306,8 @@ export const bim = {
     models: 'Models',
     levels: 'Levels',
     allLevels: 'All levels',
+    otherModel:
+      'This link names “{wanted}”, which is not in this project. Showing “{opened}” instead.',
     showEverything: 'Restore hidden components',
     elevation: '{value} m',
     notReady: 'The model is still being read. This usually takes a few moments.',

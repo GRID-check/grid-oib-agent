@@ -301,6 +301,8 @@ export const bim: typeof en.bim = {
     models: 'Modelle',
     levels: 'Geschoße',
     allLevels: 'Alle Geschoße',
+    otherModel:
+      'Dieser Link nennt „{wanted}“ — dieses Modell gibt es in diesem Projekt nicht. Angezeigt wird „{opened}“.',
     showEverything: 'Ausgeblendetes wiederherstellen',
     elevation: '{value} m',
     notReady: 'Das Modell wird noch gelesen. Das dauert meist nur einen Moment.',

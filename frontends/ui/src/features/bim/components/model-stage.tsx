@@ -51,6 +51,7 @@ import {
   Ruler,
   Scissors,
   SlidersHorizontal,
+  TriangleAlert,
   Video,
   X,
 } from 'lucide-react'
@@ -61,7 +62,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { supportsWebGpu, type BimViewerElement } from '../lib/model-index'
+import { storeyKey, supportsWebGpu, type BimViewerElement } from '../lib/model-index'
 import {
   buildModelQuery,
   parseModelView,
@@ -75,6 +76,7 @@ import {
   pickStageModel,
   stageLevels,
   stageModelLabel,
+  stageModelMatched,
 } from '../lib/stage-model'
 import { BIM_CAMERA_VIEWS, type BimCameraView } from '../lib/viewer-camera'
 import { measurementText } from '../lib/measure-overlay'
@@ -171,6 +173,16 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
 
   const { data: models, isLoading, error, reload: reloadModels } = useProjectBimModels(projectId)
   const model = useMemo(() => pickStageModel(models ?? [], view.model), [models, view.model])
+  /**
+   * The link named a model this project does not have.
+   *
+   * `pickStageModel` falls back to the newest ready one, which is the right
+   * thing to DO and the wrong thing to do silently: the answer said "3 Wände
+   * im Erdgeschoss von Haus-A", the viewer opened Haus-B, the storey filter
+   * matched nothing, the legend read "(0)", and the model's name appears
+   * nowhere on screen when the project has only one model.
+   */
+  const openedAnother = models !== null && !stageModelMatched(model, view.model)
   const modelId = model?.status === 'ready' ? model.id : null
 
   const storey = view.storey ?? null
@@ -406,6 +418,12 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     return ''
   }, [error, source.error, viewport.status.phase, captureFailed, copyFailed, copied, t])
 
+  /** Highlighted ids the loaded model does not contain. */
+  const unresolvedHighlights = viewport.highlights.reduce(
+    (sum, group) => sum + group.unresolved.length,
+    0
+  )
+
   const section = viewport.section
   const cutDefault = viewport.defaultCut(levelElevation(model?.summary, storey))
 
@@ -545,14 +563,17 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                         // The elevation is context, not identity: it must not
                         // become part of the row's spoken name.
                         ariaLabel={level.name}
-                        selected={storey === level.name}
+                        selected={storeyKey(storey) === storeyKey(level.name)}
                         // The selection stays. `handleSelect` already keeps
                         // the filter and the selected element on the same
                         // level, so nothing here can become invisible — and
                         // "All levels" one row above did not drop it either,
                         // so the list behaved differently row by row.
                         onClick={() =>
-                          setView({ storey: storey === level.name ? undefined : level.name })
+                          setView({
+                            storey:
+                              storeyKey(storey) === storeyKey(level.name) ? undefined : level.name,
+                          })
                         }
                       />
                     ))}
@@ -606,6 +627,30 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 onClose={() => setView({ element: undefined })}
                 {...visibilityActions(viewport, () => setView({ element: undefined }))}
               />
+            </div>
+          )}
+
+          {/*
+            Two things the reader has to know about a link they followed, and
+            neither was said anywhere. `unresolved` is documented in
+            `model-index.ts` as "not a diagnostic detail — it is shown", and
+            it was shown only by the chat card: click through to the full
+            screen and the warning disappeared while the legend quietly
+            counted fewer elements than the answer named.
+          */}
+          {(openedAnother || unresolvedHighlights > 0) && (
+            <div className="absolute top-16 left-1/2 z-20 -translate-x-1/2 sm:top-20">
+              <ViewerSurface className="flex items-start gap-2 px-3 py-2 text-xs">
+                <TriangleAlert className="text-warning mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                <span className="max-w-[28rem]">
+                  {openedAnother
+                    ? t('stage.otherModel', {
+                        wanted: view.model ?? '',
+                        opened: model?.filename ?? '',
+                      })
+                    : t('card.unresolved', { count: unresolvedHighlights })}
+                </span>
+              </ViewerSurface>
             </div>
           )}
 

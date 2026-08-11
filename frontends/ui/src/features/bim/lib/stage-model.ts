@@ -14,6 +14,7 @@
  * before they can look at their own building.
  */
 
+import { storeyKey } from './model-index'
 import type { BimModelSummary, BimStorey } from '@/lib/bim/types'
 
 /** One row of the rail's level list. */
@@ -63,7 +64,11 @@ export function levelElevation(
   name: string | null
 ): number | null {
   if (!name) return null
-  const match = stageLevels(summary).find((level) => level.name === name)
+  // The same comparison the isolation uses — see `storeyKey`. `===` here meant
+  // a link with a differently-cased storey isolated the right floor and then
+  // cut the building at a third of its height, because the elevation lookup
+  // silently returned null.
+  const match = stageLevels(summary).find((level) => storeyKey(level.name) === storeyKey(name))
   return match?.elevation ?? null
 }
 
@@ -87,6 +92,13 @@ export function stageModelLabel(filename: string): string {
  * `Haus-A.ifc` still opens after someone renames the upload to
  * `Haus-A (final).ifc`.
  *
+ * When the link names a model this project does not have, the newest ready
+ * model is opened instead — and {@link stageModelMatched} is how a caller
+ * finds out, so it can say so. Silently showing a DIFFERENT building than the
+ * answer described is the one outcome this must not produce without a word:
+ * the storey filter then matches nothing, the legend reads "(0)", and nothing
+ * on screen names the model that was actually loaded.
+ *
  * @param preferred The `?model=` value, if the link carried one.
  */
 export function pickStageModel<T extends { filename: string; status: string; updatedAt: string }>(
@@ -99,7 +111,14 @@ export function pickStageModel<T extends { filename: string; status: string; upd
   if (wanted) {
     const exact = models.find((model) => model.filename.toLowerCase() === wanted)
     if (exact) return exact
-    const partial = models.find((model) => model.filename.toLowerCase().includes(wanted))
+    // The stem, not the whole name. The docstring above promises that a link
+    // written against `Haus-A.ifc` survives a rename to `Haus-A (final).ifc`,
+    // and `'haus-a (final).ifc'.includes('haus-a.ifc')` is false — so the
+    // recovery never fired for a real link, which always carries the
+    // extension. It only ever worked in the test, which passes `'Haus-A'`.
+    const stem = wanted.replace(/\.(ifc|ifczip|zip)$/i, '')
+    const partial =
+      stem === '' ? undefined : models.find((model) => model.filename.toLowerCase().includes(stem))
     if (partial) return partial
   }
 
@@ -155,4 +174,23 @@ export function humaniseIfcType(ifcType: string): string {
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
     .trim()
+}
+
+
+/**
+ * Whether the link's `?model=` was honoured.
+ *
+ * `false` only when the link named something and the project has something
+ * else — not when it named nothing, which is the ordinary case.
+ */
+export function stageModelMatched<T extends { filename: string }>(
+  opened: T | null,
+  preferred: string | null | undefined
+): boolean {
+  const wanted = preferred?.trim().toLowerCase()
+  if (!wanted) return true
+  if (!opened) return false
+  const name = opened.filename.toLowerCase()
+  const stem = wanted.replace(/\.(ifc|ifczip|zip)$/i, '')
+  return name === wanted || (stem !== '' && name.includes(stem))
 }

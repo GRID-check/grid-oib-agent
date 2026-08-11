@@ -156,6 +156,27 @@ export function highlightedExpressIds(highlights: readonly ResolvedHighlight[]):
 }
 
 /**
+ * One storey name, reduced to the form every comparison uses.
+ *
+ * Three places matched storey names three different ways: this module
+ * lowercased without trimming, the rail publishes `name.trim()`, and the
+ * elevation lookup used `===`. Both differences bite:
+ *
+ * - An IFC storey named `' Erdgeschoss '` — trailing whitespace is common in
+ *   exports — makes the rail write `?storey=Erdgeschoss` while every element
+ *   carries the padded name. Nothing matches, the model DOES assign storeys,
+ *   so the answer is an empty set, which the renderer reads as "draw
+ *   nothing". The app's own rail blanks the building.
+ * - A link carrying `?storey=erdgeschoss` isolates correctly but finds no
+ *   elevation, so switching on the cut lands a third of the way up the
+ *   building instead of a metre above that floor, and no rail row shows as
+ *   selected.
+ */
+export function storeyKey(name: string | null | undefined): string {
+  return (name ?? '').trim().toLowerCase()
+}
+
+/**
  * Express ids of everything on one storey, matched by name (case-insensitive).
  *
  * ## Three answers, and why they are three
@@ -182,12 +203,12 @@ export function expressIdsForStorey(
   storeyName: string | null
 ): Set<number> | null {
   if (!storeyName) return null
-  const needle = storeyName.toLowerCase()
+  const needle = storeyKey(storeyName)
   const ids = new Set<number>()
   let anyStoreyAssignment = false
   for (const element of elements) {
     if (element.storeyName) anyStoreyAssignment = true
-    if ((element.storeyName ?? '').toLowerCase() === needle) ids.add(element.expressId)
+    if (storeyKey(element.storeyName) === needle) ids.add(element.expressId)
   }
   // Nothing to match against — the rows have not arrived, or this model does
   // not assign elements to storeys. Either way the filter is unanswerable, and
