@@ -98,20 +98,39 @@ export function installSingleNodeSeaweedFS(
                 imagePullPolicy: pullPolicyFor(cfg.seaweedfs.image),
                 command: ["/bin/sh", "-c"],
                 args: [
-                  // Byte-for-byte the pre-ADR-0043 command line. The split
-                  // topology's `volumeMaxCount` / `volumeSizeLimitMB` knobs are
-                  // deliberately NOT read here: changing either on a running
-                  // single-node stack re-sizes its volume slots and restarts the
-                  // only storage server it has, which is not something a
-                  // refactor gets to do.
-                  //
                   // `-volume.max=0` is a trap: the volume server derives the
                   // number of slots from diskSize / volumeSizeLimit, so a small
                   // PVC yields 0 writable volumes and every upload fails with
-                  // "No writable volumes and no free volumes left". Use an
-                  // explicit, modest cap; SeaweedFS grows volumes lazily, so the
-                  // slots aren't pre-allocated.
-                  "exec weed server -dir=/data -volume.max=8 -s3 " +
+                  // "No writable volumes and no free volumes left". Hence an
+                  // explicit cap; SeaweedFS grows volumes lazily, so the slots
+                  // are not pre-allocated and the number is a ceiling, not a
+                  // reservation.
+                  //
+                  // That cap was hardcoded at 8, and 8 turned out to be a
+                  // different version of the same failure. `perOrgBuckets`
+                  // makes every organization its own bucket, and a bucket is a
+                  // SeaweedFS COLLECTION that needs a writable volume of its
+                  // own — so the slot count is an upper bound on how many
+                  // tenants can ever be onboarded. Staging hit it exactly:
+                  // `/dir/status` reporting `Max:8 Free:0` with 9.6 GB of the
+                  // 9.7 GB disk still free, the new org's collection listed
+                  // with `writables: null`, and every upload — a 149 MB model
+                  // and a 2 MB PDF alike — failing on the first write into it
+                  // with a bare S3 `InternalError`. Disk space was never the
+                  // constraint, so growing the PVC would have changed nothing.
+                  //
+                  // The count now comes from `volumeMaxCount` (64 by default,
+                  // matching the split topology) so it is an operator knob on
+                  // both topologies rather than a number only a code change can
+                  // move.
+                  //
+                  // `volumeSizeLimitMB` is still deliberately NOT read here.
+                  // Slots are a ceiling and cost nothing until used, but the
+                  // size limit re-sizes the volumes a running single-node stack
+                  // already holds — and prod runs `single`. That one stays a
+                  // split-topology knob until someone wants it enough to write
+                  // the migration note.
+                  `exec weed server -dir=/data -volume.max=${cfg.seaweedfs.volumeMaxCount} -s3 ` +
                     "-s3.config=/etc/seaweedfs/s3.json -s3.port=8333" +
                     // Chunk encryption is a FILER concern — the volume server
                     // has no concept of it and stores the ciphertext as opaque
