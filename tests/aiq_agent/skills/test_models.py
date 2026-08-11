@@ -19,7 +19,6 @@ description: >-
 license: Proprietary
 compatibility: R1 line and B2 zone
 metadata:
-  grid-execution: chat
   grid-agents: shallow_researcher
 ---
 
@@ -39,7 +38,7 @@ def test_parse_valid_skill_md() -> None:
     assert len(skill.description) > 10
     assert skill.origin == "platform"
     assert skill.collection is None
-    assert skill.metadata == {"grid-execution": "chat", "grid-agents": "shallow_researcher"}
+    assert skill.metadata == {"grid-agents": "shallow_researcher"}
     assert skill.compatibility == "R1 line and B2 zone"
     assert skill.license == "Proprietary"
     assert skill.body.startswith("# Prognose")
@@ -103,14 +102,41 @@ def test_description_length_limit() -> None:
         )
 
 
-def test_bad_grid_execution_value_is_rejected() -> None:
-    with pytest.raises(SkillValidationError, match="grid-execution"):
-        parse_skill_md(VALID_MD.replace("chat", "browser"))
+def test_grid_execution_is_ignored_not_rejected() -> None:
+    """A leftover ``grid-execution`` must not take a skill down.
+
+    Scheduling stopped being a property of a skill: the output kind is a column
+    on the JOB now. The key is therefore unreserved rather than forbidden —
+    stored org rows and un-migrated SKILL.md files still carry it (with any
+    value, including ones the old validator rejected), and resolving one has to
+    keep working. It survives as an ordinary free-form entry that nothing reads.
+    """
+    for value in ("chat", "deep-research", "browser", "gibt-es-nicht"):
+        md = VALID_MD.replace(
+            "  grid-agents: shallow_researcher",
+            f"  grid-agents: shallow_researcher\n  grid-execution: {value}",
+        )
+        skill = parse_skill_md(md)
+        assert skill.metadata == {"grid-agents": "shallow_researcher", "grid-execution": value}
+
+
+def test_grid_schedulable_is_ignored_not_rejected() -> None:
+    """``grid-schedulable`` is gone with no replacement; a leftover is inert."""
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-schedulable": "false", "grid-agents": "deep_researcher"},
+        },
+        origin="org",
+    )
+    assert skill.metadata == {"grid-schedulable": "false", "grid-agents": "deep_researcher"}
 
 
 def test_metadata_must_map_strings_to_strings() -> None:
     with pytest.raises(SkillValidationError, match="metadata"):
-        parse_skill_md(VALID_MD.replace("grid-execution: chat", "grid-execution: 42"))
+        parse_skill_md(VALID_MD.replace("grid-agents: shallow_researcher", "grid-agents: 42"))
 
 
 def test_compatibility_too_long_is_rejected() -> None:
@@ -148,7 +174,14 @@ def test_build_skill_from_payload_rejects_garbage() -> None:
 
 
 def test_reserved_key_registry() -> None:
-    assert GRID_METADATA_KEYS == {"grid-execution", "grid-schedulable", "grid-agents", "grid-cards"}
+    """Two reserved keys, and neither one says anything about when a skill runs.
+
+    ``grid-execution`` and ``grid-schedulable`` were removed outright when
+    scheduling became a property of the job.
+    """
+    assert GRID_METADATA_KEYS == {"grid-agents", "grid-cards"}
+    assert "grid-execution" not in GRID_METADATA_KEYS
+    assert "grid-schedulable" not in GRID_METADATA_KEYS
 
 
 def _with_cards(value: str) -> str:

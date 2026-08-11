@@ -302,6 +302,13 @@
       "when": 1786147200005,
       "tag": "0042_drop_workflows",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786233600005,
+      "tag": "0043_jobs",
+      "breakpoints": true
     }
   ]
 }

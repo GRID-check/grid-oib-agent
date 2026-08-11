@@ -7,8 +7,7 @@ The agentskills.io format contract:
 - ``license``: optional free-form string.
 - ``compatibility``: optional, at most 500 chars.
 - ``metadata``: map of strings; reserved GRID keys are validated
-  (``grid-execution`` must be ``chat`` | ``deep-research``; ``grid-cards`` must
-  name known, non-system Grid card types).
+  (``grid-cards`` must name known, non-system Grid card types).
 - ``allowed-tools``: optional free-form string (tool-level allowlist).
 - Body: markdown; <500 lines recommended, not enforced.
 
@@ -39,11 +38,17 @@ MAX_DESCRIPTION_CHARS = 1024
 MAX_COMPATIBILITY_CHARS = 500
 
 #: Reserved GRID metadata keys. ``grid-agents`` is a comma-separated agent
-#: name list (absent = all agents). ``grid-schedulable`` is a schedulability
-#: marker. ``grid-execution`` selects the execution mode. ``grid-cards`` is a
-#: comma-separated list of preferred Grid output card types.
-GRID_METADATA_KEYS = frozenset({"grid-execution", "grid-schedulable", "grid-agents", "grid-cards"})
-GRID_EXECUTION_VALUES = frozenset({"chat", "deep-research"})
+#: name list (absent = all agents). ``grid-cards`` is a comma-separated list of
+#: preferred Grid output card types.
+#:
+#: A skill says nothing about WHEN or HOW it runs. ``grid-execution`` and
+#: ``grid-schedulable`` used to live here; scheduling is a property of a JOB
+#: now (a prompt on a timer, with a skill optionally attached), so the output
+#: kind is the job's ``output`` column and there is no schedulability marker at
+#: all. Both keys are simply unreserved: a stored org row or an old SKILL.md
+#: still carrying one keeps it as an ordinary free-form metadata entry, and
+#: nothing reads it.
+GRID_METADATA_KEYS = frozenset({"grid-agents", "grid-cards"})
 
 #: ``grid-cards`` — the card types a skill would LIKE its answers rendered as.
 #:
@@ -212,10 +217,6 @@ def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
     for key, value in metadata.items():
         if not isinstance(key, str) or not isinstance(value, str):
             raise SkillValidationError(f"Skill metadata key {key!r} must map a string to a string")
-        if key == "grid-execution" and value not in GRID_EXECUTION_VALUES:
-            raise SkillValidationError(
-                f"Skill metadata grid-execution must be one of {sorted(GRID_EXECUTION_VALUES)}, got {value!r}"
-            )
         if key == GRID_CARDS_KEY:
             cards = _validate_grid_cards(value, strict=strict)
             if cards is None:

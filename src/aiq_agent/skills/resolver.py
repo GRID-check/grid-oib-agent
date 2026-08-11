@@ -92,13 +92,12 @@ def _skill_applies_to_agent(skill: Skill, agent: str | None) -> bool:
     ONE gate, and it is ``grid-agents``. A skill is available to every agent
     unless it says otherwise in so many words.
 
-    ``grid-execution`` is deliberately NOT consulted here, though it used to be.
-    It answers a different question — when a SCHEDULE fires this skill, does the
-    run produce a chat turn or a deep-research report (see
-    ``routes/skills.py::_EXECUTION_AGENT_TYPES``) — and reading it as an
-    availability rule made a skill's output format silently decide where the
-    skill existed. A skill whose scheduled runs produce a report is still a
-    perfectly ordinary skill to invoke in chat.
+    Nothing else narrows a skill, and no other key may: a skill knows nothing
+    about time or output format. Which agent a JOB runs on follows from the
+    job's own ``output`` choice (see ``routes/skills.py::_OUTPUT_AGENT_TYPES``),
+    and the picker then offers only the skills this gate resolves for that
+    agent. Unreserved leftovers such as ``grid-execution`` in a stored org row
+    are ignored here, exactly as any other free-form metadata key is.
 
     The five builtin skills that genuinely cannot run in a chat turn — their
     instructions call ``execute`` and write ``/shared/`` — say so with

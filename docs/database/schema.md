@@ -30,7 +30,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `inbox.ts` | `inbox_items` |
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
-| `skills.ts` | `skills`, `skill_schedules`, `skill_runs` |
+| `jobs.ts` | `skills`, `jobs`, `job_runs` |
 
 ---
 
@@ -403,38 +403,61 @@ LLM budgets and the usage ledger (ADR-0015).
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
 
-## skills / skill_schedules / skill_runs (migration 0041)
+## skills / jobs / job_runs (migrations 0041, 0043)
 
-Agent Skills (ADR-0046, `docs/architecture/agent-skills.md`) — the successor
-to the removed Workflows tables. Schema:
-`frontends/ui/src/lib/db/schema/skills.ts`.
+Jobs and Agent Skills (ADR-0046, `docs/architecture/agent-skills.md`) — the
+successor to the removed Workflows tables. Schema:
+`frontends/ui/src/lib/db/schema/jobs.ts`.
+
+**A job is a prompt on a timer**; a skill may be attached on top, exactly as
+typing `/name` before a message would attach it. 0041 created these as
+`skill_schedules`/`skill_runs`, where the skill was the subject and the prompt
+was derived from it; 0043 renamed them and inverted that relationship (see
+"migration 0043" below).
 
 - `skills`: the org toolbox — denormalized `organization_id`, the SKILL.md
   contract (`name`, `description`, `body`, `metadata` jsonb with the reserved
-  `grid-execution` / `grid-schedulable` / `grid-agents` keys), `origin`
+  `grid-agents` / `grid-cards` keys), `origin`
   (`org` | `platform-clone`) + `cloned_from`, `enabled`,
   `created_by`/`created_by_email`. Unique index `idx_skills_org_name` on
   `(organization_id, name)`: one skill per name per org, and the point query
   the fire/resolve paths make. Platform-authored skills are **not** rows — they
   ship as files under `src/aiq_agent/skills/builtin/<collection>/`.
-- `skill_schedules`: a project-scoped schedule firing one named skill —
-  `project_id` (cascade FK) + denormalized `organization_id`, `name`,
-  `skill_name`, `skill_snapshot` jsonb (`{name, description, body, metadata,
-  origin}` copied at save time, so a run is a deterministic copy that cannot
-  drift when the skill is edited), `execution` (denormalized from the
-  snapshot's `grid-execution`; it picks the agent), `data_sources` jsonb
+- `jobs`: a project-scoped prompt on a timer — `project_id` (cascade FK) +
+  denormalized `organization_id`, `name`, `prompt` (**NOT NULL** — the message
+  the job fires; the attached skill's body is appended to it), the optional
+  skill pair `skill_name` + `skill_snapshot` jsonb (`{name, description, body,
+  metadata, origin}` copied at save time, so a run is a deterministic copy that
+  cannot drift when the skill is edited), `output` (`chat` | `deep-research` —
+  the user's choice on the job; it picks the agent and decides whether the
+  finished run becomes a conversation or a report), `data_sources` jsonb
   (NULL = all; `knowledge_layer` always included otherwise), `enabled`,
   `schedule_cron` (5-field, NULL = manual-only) + `schedule_timezone` (IANA),
-  `next_run_at`/`last_run_at`, author columns. Partial index
-  `idx_skill_schedules_due` on `next_run_at` (WHERE scheduled AND enabled)
-  serves the scheduler's FOR UPDATE SKIP LOCKED due-scan.
-- `skill_runs`: append-only submission history — `schedule_id` (cascade FK),
-  denormalized `project_id`/`organization_id`, `job_id` (backend async job;
-  NULL when skipped/error), `trigger` (`manual`/`schedule`), `status`
-  (`submitted`/`skipped`/`error`), `detail`, its own `skill_snapshot` copy so
-  history stays self-describing, `triggered_by`. Live job progress/results stay
-  in the backend job store. `idx_skill_runs_created_at` serves the scheduler's
-  retention prune, `(schedule_id, created_at DESC)` the newest-first history.
+  `next_run_at`/`last_run_at`, author columns. CHECK `jobs_skill_pair_check`
+  enforces `(skill_name IS NULL) = (skill_snapshot IS NULL)`: the skill is
+  optional as a pair, never half-present. Partial index `idx_jobs_due` on
+  `next_run_at` (WHERE scheduled AND enabled) serves the scheduler's
+  FOR UPDATE SKIP LOCKED due-scan.
+- `job_runs`: append-only submission history — `schedule_id` (cascade FK to
+  `jobs`; **not** renamed to `job_id`, because `job_id` on this table already
+  means the backend async job id), denormalized `project_id`/`organization_id`,
+  `job_id` (backend async job; NULL when skipped/error), `trigger`
+  (`manual`/`schedule`), `status` (`submitted`/`skipped`/`error`), `detail`,
+  `conversation_id` (the conversation an `output='chat'` run was materialised
+  into; NULL otherwise — composite FK to `conversations (id, organization_id)`
+  per the 0032 pattern, `ON DELETE SET NULL (conversation_id)` so a deleted
+  conversation does not take run history with it), its own `skill_snapshot`
+  copy so history stays self-describing, `triggered_by`. Live job
+  progress/results stay in the backend job store. `idx_job_runs_created_at`
+  serves the scheduler's retention prune, `idx_job_runs_job_created` on
+  `(schedule_id, created_at DESC)` the newest-first history.
+
+**Migration 0043** renames rather than recreates, so every scheduled row keeps
+its id, its cron and its attached skill. It renames the tables, their indexes
+and their PK/FK constraints (a table rename renames none of those), renames
+`execution` -> `output`, backfills `prompt` from each row's pinned
+`skill_snapshot->>'body'`, drops the NOT NULL from the skill pair, and
+re-secures both tables under the new names.
 
 ---
 

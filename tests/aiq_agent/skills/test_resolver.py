@@ -81,12 +81,14 @@ def test_grid_agents_filter_applies_to_builtin_and_org(resolver: SkillResolver) 
     assert "org-deep" not in {s.name for s in resolved}
 
 
-def test_grid_execution_does_not_decide_availability(resolver: SkillResolver) -> None:
-    """``grid-execution`` says what a SCHEDULED run produces, not where the skill exists.
+def test_a_leftover_grid_execution_is_ignored_not_honoured(resolver: SkillResolver) -> None:
+    """``grid-execution`` is gone from the model, and a stored one changes nothing.
 
-    It used to gate availability, which meant declaring "a scheduled run of this
-    should write a report" silently removed the skill from chat. Both agents see
-    both values now; scoping is ``grid-agents`` and only ``grid-agents``.
+    It used to gate availability, then it meant "what a scheduled run produces",
+    and now scheduling is a property of the JOB and the key is not part of a
+    skill at all. Org rows written before the change still carry it, so
+    resolution must neither honour it nor choke on it: both agents see both
+    values. Scoping is ``grid-agents`` and only ``grid-agents``.
     """
     for execution in ("chat", "deep-research"):
         skill = Skill(
@@ -106,14 +108,41 @@ def test_grid_execution_does_not_decide_availability(resolver: SkillResolver) ->
         assert {"chat-mode", "deep-research-mode"} <= names
 
 
+def test_org_row_with_a_stored_grid_execution_still_resolves(resolver: SkillResolver) -> None:
+    """The whole point of dropping validation: a stale stored key must not 404 a skill.
+
+    Org rows are not migrated in lockstep with the code. A row still carrying
+    ``grid-execution`` (or ``grid-schedulable``) has to travel the full BFF
+    payload -> ``build_skill_from_payload`` path intact instead of being dropped
+    as an invalid row, which is what a still-reserved key would have done.
+    """
+    with mock.patch.object(
+        resolver,
+        "_fetch_org_skills",
+        return_value=[
+            _row(
+                "legacy-row",
+                metadata={
+                    "grid-execution": "deep-research",
+                    "grid-schedulable": "true",
+                    "grid-agents": "shallow_researcher",
+                },
+            )
+        ],
+    ):
+        resolved = {s.name: s for s in resolver.resolve("org-1")}
+    assert "legacy-row" in resolved
+    assert resolved["legacy-row"].metadata["grid-execution"] == "deep-research"
+
+
 def test_grid_agents_is_the_only_scope(resolver: SkillResolver) -> None:
-    """A deep-research OUTPUT plus a chat audience is a legal, useful combination."""
+    """An un-migrated org row is scoped by ``grid-agents`` alone, nothing else."""
     scheduled_report = Skill(
         name="monthly-report",
         description="d.",
         body="b",
         origin="platform",
-        # Produces a report when a schedule fires it, but anyone may invoke it.
+        # A stale key from before the rename. Anyone may still invoke the skill.
         metadata={"grid-execution": "deep-research"},
     )
     deep_only = Skill(

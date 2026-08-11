@@ -5,11 +5,13 @@ and manual skill runs. It must:
 
 - fail closed on the shared internal token (missing/wrong -> 403; well-known
   dev default outside a dev APP_ENV -> 503) — the maintenance.py pattern;
-- reject malformed payloads (missing organization_id, invalid execution enum,
-  empty skills, oversized input) with 422;
-- select the agent type DETERMINISTICALLY from the skill's declared
-  ``grid-execution`` mode: ``chat`` -> shallow_researcher, ``deep-research`` ->
-  deep_researcher, with an explicit ``agent_type`` as the only override;
+- reject malformed payloads (missing organization_id, invalid output enum,
+  neither output nor execution, oversized input) with 422;
+- select the agent type DETERMINISTICALLY from the JOB's chosen output kind:
+  ``chat`` -> shallow_researcher, ``deep-research`` -> deep_researcher, with an
+  explicit ``agent_type`` as the only override;
+- accept the pre-rename ``execution`` spelling for one release, with ``output``
+  winning when both arrive (the BFF and this service deploy separately);
 - thread the forced skill names through to ``submit_agent_job`` as
   ``force_skills`` (the same path ``data_sources`` travels);
 - reconstitute the skill owner's identity into the Principal, owner, and
@@ -44,7 +46,7 @@ def _valid_body(**overrides) -> dict:
     body = {
         "input": "Act as a building-physics advisor: check the OIB thermal requirements.",
         "skills": ["oib-thermal-check", "building-physics-advisor"],
-        "execution": "deep-research",
+        "output": "deep-research",
         "organization_id": "org_123",
         "user_id": "user_abc",
         "project_id": "proj-uuid-1",
@@ -127,8 +129,22 @@ def test_missing_organization_id_422(client, prod_token):
 
 
 def test_oversized_input_422(client, prod_token):
-    resp = _post(client, _valid_body(input="x" * 32001))
+    resp = _post(client, _valid_body(input="x" * 48001))
     assert resp.status_code == 422
+
+
+def test_composed_input_above_the_old_skill_body_limit_is_accepted(client, prod_token, submit_mock):
+    """The input is a COMPOSED prompt now: job prompt + the attached skill body.
+
+    Each half fits inside MAX_SKILL_BODY_LENGTH (32000) on its own, so the sum
+    routinely will not. 32001 chars used to be a 422; the ceiling is 48000, and
+    the prompt arrives whole rather than truncated.
+    """
+    composed = "j" * 16000 + "s" * 16001
+    assert len(composed) == 32001
+    resp = _post(client, _valid_body(input=composed))
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["input_text"] == composed
 
 
 def test_empty_input_422(client, prod_token):
@@ -141,42 +157,107 @@ def test_bad_job_id_pattern_422(client, prod_token):
     assert resp.status_code == 422
 
 
-def test_unknown_execution_mode_422(client, prod_token):
-    resp = _post(client, _valid_body(execution="overnight"))
+def test_unknown_output_kind_422(client, prod_token):
+    resp = _post(client, _valid_body(output="overnight"))
     assert resp.status_code == 422
 
 
-def test_missing_skills_422(client, prod_token):
-    body = _valid_body()
-    del body["skills"]
+def test_unknown_legacy_execution_value_422(client, prod_token):
+    body = _valid_body(execution="overnight")
+    del body["output"]
     resp = _post(client, body)
     assert resp.status_code == 422
 
 
-def test_empty_skills_422(client, prod_token):
+# --- skills are optional: a job is a prompt, a skill is attached on top -----
+
+
+def test_missing_skills_submits_with_no_forced_skills(client, prod_token, submit_mock):
+    """A job need not have a skill at all — the prompt runs on its own."""
+    body = _valid_body()
+    del body["skills"]
+    resp = _post(client, body)
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["force_skills"] == []
+
+
+def test_empty_skills_submits_with_no_forced_skills(client, prod_token, submit_mock):
+    """An empty list is "no skill attached", not a malformed payload.
+
+    It is forwarded as-is rather than normalised to None: everything downstream
+    already treats an empty force list identically to no list
+    (``SkillRuntime(force_names=[])`` iterates ``force_names or ()``, and the
+    shallow register layer's wiring check is a plain truthiness test).
+    """
     resp = _post(client, _valid_body(skills=[]))
-    assert resp.status_code == 422
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["force_skills"] == []
 
 
 # --- deterministic agent selection ----------------------------------------
 
 
-def test_chat_execution_selects_shallow_researcher(client, prod_token, submit_mock):
-    resp = _post(client, _valid_body(execution="chat", agent_type=None))
+def test_chat_output_selects_shallow_researcher(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(output="chat", agent_type=None))
     assert resp.status_code == 200
     assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
 
 
-def test_deep_research_execution_selects_deep_researcher(client, prod_token, submit_mock):
-    resp = _post(client, _valid_body(execution="deep-research", agent_type=None))
+def test_deep_research_output_selects_deep_researcher(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(output="deep-research", agent_type=None))
     assert resp.status_code == 200
     assert submit_mock.await_args.kwargs["agent_type"] == "deep_researcher"
 
 
-def test_explicit_agent_type_overrides_execution_default(client, prod_token, submit_mock):
-    resp = _post(client, _valid_body(execution="chat", agent_type="deep_researcher"))
+def test_explicit_agent_type_overrides_the_output_default(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(output="chat", agent_type="deep_researcher"))
     assert resp.status_code == 200
     assert submit_mock.await_args.kwargs["agent_type"] == "deep_researcher"
+
+
+# --- the output/execution rename window ------------------------------------
+#
+# `execution` became `output` on both sides, but the BFF and this service
+# deploy separately. For one release the route accepts either spelling, so a
+# scheduled run fired by the not-yet-deployed half of the system still lands.
+# These four cases are the whole tolerance: output only, execution only, both,
+# neither.
+
+
+def test_output_only_is_the_new_contract(client, prod_token, submit_mock):
+    body = _valid_body(output="chat")
+    assert "execution" not in body
+    resp = _post(client, body)
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+
+
+def test_execution_only_still_works_during_the_deploy_window(client, prod_token, submit_mock):
+    body = _valid_body(execution="chat")
+    del body["output"]
+    resp = _post(client, body)
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+
+
+def test_output_wins_when_both_are_sent(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(output="chat", execution="deep-research"))
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+
+
+def test_neither_output_nor_execution_is_422_not_500(client, prod_token, submit_mock):
+    """Both fields are Optional, so "neither" is structurally legal — and useless.
+
+    Without the validator this reached the handler and blew up indexing the
+    agent table with None: a 500 for a payload the caller simply got wrong.
+    """
+    body = _valid_body()
+    del body["output"]
+    assert "execution" not in body
+    resp = _post(client, body)
+    assert resp.status_code == 422
+    submit_mock.assert_not_awaited()
 
 
 def test_unknown_agent_type_maps_to_400(client, prod_token, submit_mock):
@@ -241,8 +322,8 @@ def test_owner_falls_back_to_user_id_when_no_email(client, prod_token, submit_mo
     assert kwargs["principal"].email is None
 
 
-def test_chat_execution_has_no_force_skills_when_none_requested(client, prod_token, submit_mock):
-    resp = _post(client, _valid_body(execution="chat", skills=["only-one"]))
+def test_chat_output_forwards_a_single_forced_skill(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(output="chat", skills=["only-one"]))
     assert resp.status_code == 200
     assert submit_mock.await_args.kwargs["force_skills"] == ["only-one"]
 

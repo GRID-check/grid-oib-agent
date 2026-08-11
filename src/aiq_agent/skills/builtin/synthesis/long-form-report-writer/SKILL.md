@@ -5,11 +5,12 @@ description: >
 metadata:
   # These are DeepAgents subagent skills: their instructions call `execute`,
   # read and write `/shared/`, and return `ResearchNotes` — capabilities that
-  # exist only inside a deep-research job. Declaring the target here keeps the
-  # shallow chat agent from being offered a skill it cannot carry out.
-  grid-execution: deep-research
+  # exist only inside a deep-research job. `grid-agents: deep_researcher` is now
+  # the ONE thing keeping this skill out of a chat turn: it is the single
+  # availability gate, so removing it would offer the shallow chat agent a skill
+  # it cannot carry out. A skill declares WHO may use it and nothing else — when
+  # and how a run happens is a property of the job, not of the skill.
   grid-agents: deep_researcher
-  grid-schedulable: "false"
 ---
 
 # Long-Form Report Writer Skill

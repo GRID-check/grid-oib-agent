@@ -46,6 +46,19 @@ def test_discovery_parses_metadata_and_body() -> None:
     assert len(skill.body) > 0
 
 
+def test_builtin_frontmatter_declares_only_its_audience() -> None:
+    """All five say WHO may use them, and nothing about when or how they run.
+
+    ``grid-agents: deep_researcher`` is the single reason these stay out of a
+    chat turn — their instructions call ``execute`` and write ``/shared/``, which
+    only exist inside a deep-research job. The scheduling keys that used to sit
+    beside it (``grid-execution``, ``grid-schedulable``) are gone from the model,
+    so a builtin file must not reintroduce them.
+    """
+    for skill in discover_builtin_skills():
+        assert skill.metadata == {"grid-agents": "deep_researcher"}, skill.name
+
+
 def test_discovery_rejects_name_mismatch(tmp_path: Path) -> None:
     root = tmp_path / "builtin"
     skill_dir = root / "research" / "wrong-name"

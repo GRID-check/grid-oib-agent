@@ -36,6 +36,12 @@ const BOUNDARY_MIGRATIONS = [
   // belongs in this list as much as one that adds it — without it the orphan
   // check below reads the drop as a schema/migration disagreement.
   '0042_drop_workflows.sql',
+  // Renames two secured tables (skill_schedules -> jobs, skill_runs ->
+  // job_runs) and re-secures them under the new names. Both halves matter here:
+  // the new names need their own grid_secure_table() lines or they are outside
+  // the boundary, and the old names need the rename to be visible or they look
+  // orphaned. See removedTables() below.
+  '0043_jobs.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
@@ -71,23 +77,46 @@ function securedTables(): { tenant: string[]; platform: string[] } {
 }
 
 /**
- * Tables a later migration DROPPED.
+ * Table names a later migration REMOVED — by dropping the table, or by renaming
+ * it to something else.
  *
  * A secured table that is no longer in the schema is normally a stale migration
  * entry — someone removed a table's declaration and left its `grid_secure_table`
  * line behind. But it is also what a legitimate removal looks like, and the
- * difference is whether a migration actually drops it. Without this the orphan
- * check could only be satisfied by editing an already-applied migration, which
- * is the one thing a migration history must never do.
+ * difference is whether a migration actually removes it. Without this the
+ * orphan check could only be satisfied by editing an already-applied migration,
+ * which is the one thing a migration history must never do.
+ *
+ * A rename removes a name exactly as a drop does: `skill_schedules` stops
+ * existing the moment 0043 renames it to `jobs`, so its 0041 `grid_secure_table`
+ * line describes a table that is gone, and reading that as a disagreement is
+ * wrong for the same reason it is wrong after a DROP.
+ *
+ * This does NOT weaken the check the way "ignore anything a migration mentions"
+ * would. Only the OLD name is excused, and only when a migration says in SQL
+ * where it went. The NEW name gets no exemption at all: `jobs` has to be in the
+ * schema or secured like any other table, so a rename that forgets to re-secure
+ * still fails — on the new name, in the "secures every table" test above. The
+ * one thing that stops being an error is the old name, which by then refers to
+ * nothing.
  */
-function droppedTables(): Set<string> {
-  const dropped = new Set<string>()
+function removedTables(): Set<string> {
+  const removed = new Set<string>()
   for (const source of MIGRATION_SOURCES) {
     for (const match of source.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?([a-z_]+)"?/gi)) {
-      dropped.add(match[1])
+      removed.add(match[1])
+    }
+    // `RENAME` immediately followed by `TO` is the whole-table form. The column
+    // and constraint forms (`RENAME COLUMN x TO y`, `RENAME CONSTRAINT a TO b`)
+    // put a keyword in between and must not match — they leave the table right
+    // where it was.
+    for (const match of source.matchAll(
+      /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?"?([a-z_]+)"?\s+RENAME\s+TO\s+/gi
+    )) {
+      removed.add(match[1])
     }
   }
-  return dropped
+  return removed
 }
 
 /** Tables secured more than once WITHIN one migration — a genuine duplicate. */
@@ -117,17 +146,17 @@ describe('row-level security coverage', () => {
 
   it('secures no table that no longer exists', () => {
     const declared = new Set(declaredTables())
-    const dropped = droppedTables()
+    const removed = removedTables()
     const { tenant, platform } = securedTables()
     const orphaned = [...tenant, ...platform].filter(
-      (table) => !declared.has(table) && !dropped.has(table)
+      (table) => !declared.has(table) && !removed.has(table)
     )
 
     expect(
       orphaned,
-      'Secured tables that are neither in the schema nor dropped by a migration — ' +
-        'either the declaration was removed without a DROP, or a grid_secure_table() ' +
-        'line was left behind.'
+      'Secured tables that are neither in the schema nor dropped/renamed away by a ' +
+        'migration — either the declaration was removed without a DROP or a RENAME, ' +
+        'or a grid_secure_table() line was left behind.'
     ).toEqual([])
   })
 

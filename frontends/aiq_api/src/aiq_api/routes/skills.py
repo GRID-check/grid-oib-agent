@@ -12,17 +12,18 @@ The route wraps ``submit_agent_job`` exactly like the public
 cost tracking, ownership (``job_access``), the ghost reaper, SSE and
 cancellation for free.
 
-Agent selection is DETERMINISTIC and derived from the skill's declared
-``grid-execution`` mode — a skill never implicitly creates a deep-research
-run:
+Agent selection is DETERMINISTIC and derived from the JOB's chosen output kind.
+A skill no longer declares how it runs — scheduling is a property of the job (a
+prompt on a timer), and the output kind is the user's choice on that job:
 
-* ``execution='chat'``         → ``shallow_researcher`` (quick single-turn job)
-* ``execution='deep-research'`` → ``deep_researcher`` (the deep research agent)
+* ``output='chat'``          → ``shallow_researcher`` (quick single-turn job)
+* ``output='deep-research'`` → ``deep_researcher`` (the deep research agent)
 
-``agent_type`` is an explicit escape hatch for future execution modes; when
+``agent_type`` is an explicit escape hatch for future output kinds; when
 omitted the table above decides. The submitted job carries the skill names in
 ``force_skills`` so the worker force-activates them (the agent-side consumer
-lives in ``src/aiq_agent``).
+lives in ``src/aiq_agent``); a job may legitimately attach NO skill at all, in
+which case the list is empty and the run is the prompt alone.
 
 Guarded by ``GRID_INTERNAL_API_TOKEN`` (the ``maintenance.py`` pattern) and,
 critically, NOT added to ``AuthMiddleware.EXTERNAL_ALLOWED_PATHS`` — so it is
@@ -41,6 +42,7 @@ from fastapi import HTTPException
 from fastapi import Request
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import model_validator
 
 from aiq_agent.auth import Principal
 from aiq_agent.common.job_admission import JobAdmissionError
@@ -50,11 +52,16 @@ from .internal_auth import _require_internal_token
 
 logger = logging.getLogger(__name__)
 
-# The skill's declared ``grid-execution`` metadata value maps onto exactly one
-# async-job-capable agent type. Both entries are registered in AGENT_REGISTRY
-# at import time (deep_researcher, shallow_researcher). Deterministic by
-# construction: there is no path from an execution mode to "some other agent".
-_EXECUTION_AGENT_TYPES: dict[str, str] = {
+# The JOB's chosen output kind maps onto exactly one async-job-capable agent
+# type. Both entries are registered in AGENT_REGISTRY at import time
+# (deep_researcher, shallow_researcher). Deterministic by construction: there is
+# no path from an output kind to "some other agent".
+#
+# The mapping itself is unchanged; only where the value comes from moved. It
+# used to be read off the skill's ``grid-execution`` metadata, which made a
+# skill declare how it ran. It is now a column on the job row, chosen by the
+# user, and a skill is merely attached on top.
+_OUTPUT_AGENT_TYPES: dict[str, str] = {
     "chat": "shallow_researcher",
     "deep-research": "deep_researcher",
 }
@@ -67,22 +74,43 @@ class SkillSubmitPayload(BaseModel):
     / BFF, not the skill's owner — there is no request JWT to read them from.
     ``organization_id`` is required so per-org admission counting and cost
     attribution always have a tenant to key on. ``input`` is the deterministic
-    prompt built BFF-side (it includes the full skill body).
+    prompt built BFF-side.
     """
 
-    input: str = Field(..., min_length=1, max_length=32000, description="Compiled skill prompt (incl. full skill body)")
-    skills: list[str] = Field(
+    # `input` is a COMPOSED prompt: the job's own prompt, plus the full body of
+    # the attached skill when there is one. Either part alone fits inside the
+    # 32000-char skill-body limit (MAX_SKILL_BODY_LENGTH), but their sum need
+    # not, so the ceiling is 48000 here. It is a ceiling, not a target: an
+    # over-long prompt is rejected with a 422 and never silently truncated,
+    # because a run that quietly drops half its instructions is worse than one
+    # that refuses to start.
+    input: str = Field(
         ...,
         min_length=1,
-        description="Skill names to force-activate for this run (forced skills)",
+        max_length=48000,
+        description="Composed job prompt (job prompt + the attached skill's body, when a skill is attached)",
     )
-    execution: Literal["chat", "deep-research"] = Field(
-        ...,
-        description="Deterministic execution mode declared by the skill (grid-execution metadata)",
+    skills: list[str] = Field(
+        default_factory=list,
+        description="Skill names to force-activate for this run; empty = no skill attached, the prompt runs alone",
+    )
+    # The wire field is `output`; `execution` is the pre-rename spelling, kept
+    # readable for ONE release. The BFF and this service deploy separately, and
+    # a hard rename would fail every scheduled run in the window between the two
+    # deploys — precisely the window nobody is watching. Delete `execution`
+    # (and `_resolved_output`'s fallback) once the BFF that sends `output` is
+    # deployed everywhere.
+    output: Literal["chat", "deep-research"] | None = Field(
+        None,
+        description="The job's chosen output kind; decides the agent",
+    )
+    execution: Literal["chat", "deep-research"] | None = Field(
+        None,
+        description="Deprecated pre-rename alias for `output`; used only when `output` is absent",
     )
     agent_type: str | None = Field(
         None,
-        description="Explicit agent type override; defaults to the execution-mode agent",
+        description="Explicit agent type override; defaults to the output-kind agent",
     )
     job_id: str | None = Field(
         None,
@@ -111,6 +139,39 @@ class SkillSubmitPayload(BaseModel):
         None,
         description="Per-org runtime model overrides ({agent_group: model})",
     )
+
+    @model_validator(mode="after")
+    def _require_an_output_kind(self) -> SkillSubmitPayload:
+        """One of ``output`` / ``execution`` must be present.
+
+        Both are Optional so either spelling satisfies the schema during the
+        rename window, which leaves "neither" structurally legal — and reading
+        an absent key straight out of the agent table would be a KeyError, i.e.
+        a 500 on a payload the caller got wrong. Rejecting it here makes it the
+        422 it always was.
+        """
+        if self.output is None and self.execution is None:
+            raise ValueError("one of 'output' or 'execution' is required")
+        return self
+
+    @property
+    def resolved_output(self) -> str:
+        """The output kind to run: ``output`` when sent, else ``execution``.
+
+        The validator guarantees at least one is set. When a caller sends both
+        (it should not), ``output`` wins — it is the field that survives the
+        rename — and a disagreement is logged rather than guessed at silently.
+        """
+        if self.output is not None:
+            if self.execution is not None and self.execution != self.output:
+                logger.warning(
+                    "Skill submit sent conflicting output=%s and execution=%s; using output",
+                    self.output,
+                    self.execution,
+                )
+            return self.output
+        assert self.execution is not None  # noqa: S101 - guaranteed by _require_an_output_kind
+        return self.execution
 
 
 class SkillSubmitResponse(BaseModel):
@@ -150,10 +211,11 @@ def add_skill_routes(router: APIRouter) -> None:
         from ..jobs.submit import submit_agent_job as submit_authorized_job
         from .builder_state import get_active_builder
 
-        # Deterministic agent selection (see module docstring): the execution
-        # mode declared by the skill decides the agent, unless an explicit
-        # override arrived. Never substitutes one execution mode for another.
-        agent_type = body.agent_type or _EXECUTION_AGENT_TYPES[body.execution]
+        # Deterministic agent selection (see module docstring): the job's chosen
+        # output kind decides the agent, unless an explicit override arrived.
+        # Never substitutes one output kind for another.
+        output = body.resolved_output
+        agent_type = body.agent_type or _OUTPUT_AGENT_TYPES[output]
 
         # Validate agent_type against the registry, like the public submit route.
         try:
@@ -242,12 +304,12 @@ def add_skill_routes(router: APIRouter) -> None:
             raise HTTPException(500, "Failed to persist skill job authorization metadata")
 
         logger.info(
-            "Submitted skill %s job %s for org %s (owner %s, execution %s, %d forced skill(s))",
+            "Submitted skill %s job %s for org %s (owner %s, output %s, %d forced skill(s))",
             agent_type,
             job_id,
             body.organization_id,
             owner,
-            body.execution,
+            output,
             len(body.skills),
         )
         return SkillSubmitResponse(job_id=job_id)
