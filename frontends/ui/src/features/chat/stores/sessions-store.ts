@@ -414,6 +414,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           // sidebar sorting behave the same as locally created sessions.
           createdAt: new Date(serverConv.createdAt as unknown as string),
           updatedAt: new Date(serverConv.updatedAt as unknown as string),
+          // Provenance, and the ONLY thing that distinguishes a thread a job
+          // produced from one a person started. This mapping is explicit
+          // field by field, so a column left out here is silently dropped —
+          // and dropping this one makes `isJobConversation` permanently false,
+          // which quietly re-fills the owner's chat history with 52 job
+          // threads a year while every test still passes.
+          jobId: serverConv.jobId ?? null,
         }
         if (idx >= 0) {
           merged[idx] = local

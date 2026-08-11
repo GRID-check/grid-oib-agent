@@ -224,6 +224,76 @@ describe('loadServerConversations merge', () => {
     expect(merged.updatedAt).toBeInstanceOf(Date)
   })
 
+  it('carries jobId through the merge, so job threads stay out of the chat list', async () => {
+    // Regression with a silent failure mode. The merge maps the server row
+    // field by field, so a column left out is dropped without a type error and
+    // without a failing test — and dropping THIS one makes `isJobConversation`
+    // permanently false, which puts every scheduled job's output back into its
+    // owner's personal history (a weekly job is 52 threads a year).
+    useChatStore.setState({ conversations: [] })
+    mockConversationsClient.list.mockResolvedValue([
+      {
+        id: 's_from_a_job',
+        title: 'Weekly OIB scan',
+        createdBy: 'user-1',
+        projectId: 'proj-1',
+        jobId: 'job-1',
+        createdAt: '2026-07-01T09:00:00.000Z',
+        updatedAt: '2026-07-02T09:00:00.000Z',
+      },
+      {
+        id: 's_from_a_person',
+        title: 'A real chat',
+        createdBy: 'user-1',
+        projectId: 'proj-1',
+        createdAt: '2026-07-01T09:00:00.000Z',
+        updatedAt: '2026-07-02T09:00:00.000Z',
+      },
+    ])
+
+    await useChatStore.getState().loadServerConversations()
+
+    const stored = useChatStore.getState().conversations
+    expect(stored.find((c) => c.id === 's_from_a_job')?.jobId).toBe('job-1')
+    // A conversation a person started must carry null, not undefined-by-accident.
+    expect(stored.find((c) => c.id === 's_from_a_person')?.jobId).toBeNull()
+  })
+
+  it('hides job threads from the chat list without making them unreachable', async () => {
+    // The two halves of "hiding, not withholding". A job's output is not a
+    // chat this person started, so it is not in their list — but it is still
+    // in the store, so `?session=<id>` and the job's run-history link both
+    // still open it.
+    useChatStore.setState({ conversations: [], currentUserId: 'user-1', projectId: 'proj-1' })
+    mockConversationsClient.list.mockResolvedValue([
+      {
+        id: 's_from_a_job',
+        title: 'Weekly OIB scan',
+        createdBy: 'user-1',
+        projectId: 'proj-1',
+        jobId: 'job-1',
+        createdAt: '2026-07-01T09:00:00.000Z',
+        updatedAt: '2026-07-02T09:00:00.000Z',
+      },
+      {
+        id: 's_from_a_person',
+        title: 'A real chat',
+        createdBy: 'user-1',
+        projectId: 'proj-1',
+        createdAt: '2026-07-01T09:00:00.000Z',
+        updatedAt: '2026-07-02T09:00:00.000Z',
+      },
+    ])
+
+    await useChatStore.getState().loadServerConversations()
+
+    const listed = useChatStore.getState().getUserConversations().map((c) => c.id)
+    expect(listed).toContain('s_from_a_person')
+    expect(listed).not.toContain('s_from_a_job')
+    // Still present in the store — hidden from a list, not withheld.
+    expect(useChatStore.getState().conversations.map((c) => c.id)).toContain('s_from_a_job')
+  })
+
   it('preserves the local per-session data-source selection across the merge', async () => {
     // Regression: dropping enabledDataSourceIds re-enables every default data
     // source on the next select, sending messages with sources the user

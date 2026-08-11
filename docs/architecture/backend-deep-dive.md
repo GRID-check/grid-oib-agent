@@ -1184,14 +1184,19 @@ LangGraph checkpointing for the deep-research graph, configured via
 default) — see §9's "Async deep-research jobs are not restart-safe" bullet
 for the full mechanism and its manual-resubmit resume contract.
 
-**Agent Skills (ADR-0046)**: project-level skill schedules can fire this same
-async pipeline on a cron schedule — a dedicated `skill-scheduler` container
-claims due rows in `grid_app` (`FOR UPDATE SKIP LOCKED`) and fires through the
-BFF's internal endpoint into `POST /v1/internal/skills/submit`
-(internal-token-guarded wrapper around `submit_agent_job`, so admission control
-and cost tracking apply unchanged). The job carries `force_skills`, so the
-worker force-activates the scheduled skill. This replaces the ADR-0023
-Workflows scheduler, which was removed. See
+**Agent Skills and Jobs (ADR-0046)**: project-level **jobs** — a prompt on a
+timer, with a skill optionally attached — can fire this same async pipeline on
+a cron schedule. A dedicated `skill-scheduler` container claims due `jobs` rows
+in `grid_app` (`FOR UPDATE SKIP LOCKED`) and fires through the BFF's internal
+endpoint into `POST /v1/internal/skills/submit` (internal-token-guarded wrapper
+around `submit_agent_job`, so admission control and cost tracking apply
+unchanged). The agent follows the job's `output` (`chat` →
+`shallow_researcher`, `deep-research` → `deep_researcher`), and the submitted
+job carries `force_skills` — the attached skill's name, or an empty list when
+the prompt runs alone. A `chat` job additionally carries a `conversation_id`,
+and the worker writes the question and answer into that thread at completion
+(`aiq_api/jobs/conversation_output.py`, best-effort — it can never fail a run).
+This replaces the ADR-0023 Workflows scheduler, which was removed. See
 `docs/architecture/agent-skills.md`.
 
 **Deep-research agent graph internals**: the orchestrator/planner/researcher/

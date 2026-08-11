@@ -1,12 +1,28 @@
 # ADR-0046: Agent skills — user-selected, progressive-disclosure instruction packages
 
 - **Status:** Proposed
-- **Date:** 2026-08-10
+- **Date:** 2026-08-10, amended 2026-08-11
 - **Deciders:** Platform
 - **Related:** ADR-0018 (per-run state), ADR-0020 (Dragonfly shared cache),
   ADR-0022 (org BYOK), ADR-0023 (Workflows — **superseded by this ADR**),
   ADR-0027 (platform workflow templates — **superseded by this ADR**),
-  ADR-0026 (unified source-kind model)
+  ADR-0026 (unified source-kind model), ADR-0032 (shareable resource model),
+  ADR-0041 (row-level security)
+
+> **Amended 2026-08-11, in place** — this ADR is still Proposed, so it is
+> corrected rather than superseded. Three things changed, and one of them is a
+> reversal that is deliberately still written down instead of edited away:
+>
+> 1. **`grid-execution` as an availability gate was a mistake and was reverted.**
+>    See "One agent vocabulary, and one gate" — the reversal is the most
+>    instructive paragraph in this document, so it stays.
+> 2. **`grid-execution` and `grid-schedulable` left the skill model entirely.**
+>    A skill declares who may use it and which cards it prefers; when and how a
+>    run happens belongs to the thing that schedules it.
+> 3. **Schedules became jobs.** A job is a prompt on a timer that MAY attach a
+>    skill (migrations 0043/0044). New sections: "A job is a prompt on a timer",
+>    "A chat job lands in a real conversation" and "The wire rename is tolerated
+>    for one deploy window".
 
 ## Context
 
@@ -21,8 +37,9 @@ domain-specific procedures. Two prior mechanisms shaped the design space:
    application is the model's own choice.
 2. The workflow scheduler (ADR-0023) fired scheduled deep-research runs but
    had no notion of skills at all. That feature is superseded here and has
-   been removed: a skill schedule is what a saved brief was, and the
-   skill-scheduler is that scheduler under a name that matches what it fires.
+   been removed: a job is what a saved brief was, and the `skill-scheduler`
+   container is that scheduler, claiming due rows out of `jobs` instead of out
+   of `workflows`.
 
 Two forces drove a new design:
 
@@ -50,10 +67,19 @@ side and keep the deepagents-native mechanism for deep research.
 (`src/aiq_agent/skills/models.py`), the agentskills.io contract validated
 **strictly**: name (1–64 lowercase hyphenated, must match the directory name
 for filesystem skills), description (1–1024 chars), body, optional
-license/compatibility/allowed-tools, and reserved GRID metadata keys
-(`grid-execution` ∈ `chat`|`deep-research`, `grid-agents`, `grid-schedulable`,
-`grid-cards`). An invalid builtin SKILL.md is a deployment error, never a
+license/compatibility/allowed-tools, and exactly two reserved GRID metadata
+keys — `grid-agents` (who may use it) and `grid-cards` (which output cards it
+would prefer). An invalid builtin SKILL.md is a deployment error, never a
 silent skip.
+
+A skill therefore says **nothing about time and nothing about output format**.
+`grid-execution` and `grid-schedulable` used to be reserved here as well; both
+were removed (see "A job is a prompt on a timer"). They are not rejected —
+they are simply unreserved, so a stored org row or a pasted SKILL.md still
+carrying one keeps it as ordinary free-form metadata and nothing reads it.
+Rejecting them would turn a deployed row into a validation error at read time
+and take a working skill out of the toolbox to punish a key that costs nothing
+to ignore.
 
 **Origins and resolution.** Two origins: **builtin** (shipped under
 `src/aiq_agent/skills/builtin/<collection>/<name>/SKILL.md`, discovered
@@ -69,9 +95,10 @@ additive capability and must never take chat down.
 **Selection is user-driven.** `_extract_query_and_sources` /
 `_extract_query_from_text` parse a `skills` array out of the chat envelope,
 exactly mirroring `data_sources`. `/v1/internal/skills/submit` carries
-`force_skills` for scheduled/manual runs. Unknown names are dropped silently
-— a typo never errors a turn. Skill application is a *request decision*, not
-a model decision.
+`force_skills` for job runs — an **empty list** when the job attaches no skill,
+in which case the prompt runs alone. Unknown names are dropped silently — a
+typo never errors a turn. Skill application is a *request decision*, not a
+model decision.
 
 **Invocation is `/name` in the composer.** The `skills` envelope field needs a
 way in from a conversation, and it is a slash command: typing `/` as the first
@@ -145,28 +172,166 @@ than one they never touched.
 identifiers `shallow_researcher` / `deep_researcher` everywhere — frontmatter,
 resolver, BFF. Two spellings for one agent (`deep_research_agent` vs.
 `deep_researcher`) meant a `grid-agents` value that was correct in one file and
-inert in the other. The five builtin skills declare their own
-`grid-execution: deep-research` + `grid-agents: deep_researcher`, and the BFF
-forwards platform metadata verbatim, so targeting travels with the skill
-instead of being asserted by whoever serves it.
+inert in the other. The five builtin skills declare `grid-agents:
+deep_researcher` and nothing else, and the BFF forwards platform metadata
+verbatim, so targeting travels with the skill instead of being asserted by
+whoever serves it.
 
-`grid-agents` is the ONLY thing that narrows a skill's audience. `grid-execution`
-briefly did so as well, which was a mistake: it answers "when a SCHEDULE fires
-this, do I get a chat or a report", and using it as an availability rule meant
-choosing an output format silently deleted the skill from the other agent. A
-skill is available to both agents unless it says otherwise in so many words,
-and the builtins that truly cannot run in a chat turn do say so. Because that
-key is now load-bearing on its own, `platform-skills.spec.ts` asserts every
-shipped builtin still carries it — losing it would start offering a
-`/shared/`-writing procedure in chat, and nothing else in the build would
-notice.
+`grid-agents` is the ONLY thing that narrows a skill's audience, and it is the
+only thing that ever may be. The rule is written twice — `_skill_applies_to_agent`
+in `src/aiq_agent/skills/resolver.py` and the module-private `skillTargetsAgent`
+in `frontends/ui/src/lib/skills/service.ts` — as a deliberate contract pair,
+pinned against the same cases on both sides. Absent means every agent; names
+matching no known agent are ignored rather than obeyed, so one typo cannot
+delete a skill from every agent at once.
 
-**A schedule is a prompt on a timer.** It is not a different kind of object
-from a chat message: it fires into a fresh run the way a person opening a new
-thread and typing `/name` would. That is why the skill editor's scheduling
-section asks exactly one question — what comes back out, a chat or a report —
-and why the answer is a line of frontmatter rather than a mode the rest of the
-feature has to reason about.
+**This reverses an earlier decision in this ADR, and the reversal is the point.**
+`grid-execution` briefly gated availability too. It answered a different
+question — "when this is fired on a timer, do I get a chat or a report" — and
+wiring an *output format* into an *availability rule* meant that choosing
+`deep-research` silently deleted the skill from the chat agent, and choosing
+`chat` deleted it from the deep researcher. Nothing in the product said so: the
+skill simply stopped appearing in the other surface, with no error, no log a
+user could see, and a plausible-looking frontmatter line that read like a
+routing hint. The general lesson, and the reason this paragraph survives rather
+than being edited out: a key that answers "what comes out" must never be read
+as "who may run it". A skill that genuinely cannot run somewhere says so with
+`grid-agents`, in so many words, which is exactly what the five builtins do —
+their instructions call `execute` and write `/shared/`, neither of which exists
+in a chat turn. Because that key is now load-bearing on its own,
+`platform-skills.spec.ts` asserts every shipped builtin still carries it: losing
+it would start offering a `/shared/`-writing procedure in chat, and nothing else
+in the build would notice.
+
+**A job is a prompt on a timer.** The scheduled object is not a skill and never
+was. It is a *prompt* — what a person would have typed into a new thread — that
+MAY attach a skill on top, exactly as typing `/name` before that message would
+attach it. That is the whole relationship, and it replaces the earlier framing
+("a schedule fires one named skill"), which made the skill mandatory, derived
+the prompt from it, and left "ask this question every Monday" unexpressible
+without first inventing a skill nobody wanted.
+
+Concretely (migration `0043_jobs.sql`, schema `lib/db/schema/jobs.ts`):
+
+- `skill_schedules` → `jobs`, `skill_runs` → `job_runs`, by **RENAME rather
+  than recreate**: every already-scheduled row keeps its id, its cron and its
+  attached skill, and the ids that run history and the scheduler's claim
+  already reference stay valid. A rename carries data, policies, grants and
+  indexes but renames none of the indexes or constraints, so each of those is
+  renamed explicitly in the same transaction — otherwise `\d jobs` would go on
+  calling itself `skill_schedules` in every constraint.
+- `jobs.prompt` is **NOT NULL** — it is what a job now IS. It was added
+  nullable, backfilled from each row's pinned `skill_snapshot->>'body'` (with a
+  COALESCE chain, because nothing in the database guaranteed that key was
+  present) and only then made NOT NULL. A column default would have been a lie
+  that survived into every future row.
+- `skill_name` and `skill_snapshot` are nullable **as a pair**, enforced in the
+  database by `CHECK (skill_name IS NULL) = (skill_snapshot IS NULL)`
+  (`jobs_skill_pair_check`). A name with no body is unrunnable and a body from
+  nowhere is unattributable; the invariant is about the row rather than about
+  one writer of it, so it lives in Postgres and not in the BFF.
+- `execution` → `output`, same `chat` | `deep-research` domain, same job at fire
+  time (it picks the agent). Only the *source* of the value moved: from a
+  denormalised copy of a skill's metadata to a column the user chooses.
+  "Output" is what they are actually choosing — a conversation they can
+  continue, or a report.
+- `job_runs.schedule_id` was deliberately NOT renamed to `job_id`: that name is
+  taken on the same table by the unrelated backend async-job id, and a
+  `job_runs_job_id_fkey` pointing at `jobs` would read as a foreign key on the
+  wrong column. Recorded as a `COMMENT ON COLUMN`, because the next reader is
+  looking at `\d+ job_runs`, not at migration history.
+
+The fire prompt follows from this: it is the job's prompt, with the attached
+skill's body appended only when a skill is attached — no `Skill:`/`Beschreibung:`
+block and no dangling fences for a plain prompt (`buildFirePrompt`,
+`lib/jobs/service.ts`). Because the builder previews that text as WYSIWYG, the
+client mirror (`features/jobs/lib/fire-prompt-preview.ts`) is a byte-identical
+transcription and a spec pins the two against each other; the backend's pinned
+`input` ceiling (48000 chars) is sized for the composed result rather than for
+either half.
+
+**A chat job lands in a real conversation.** An `output: 'chat'` run
+materialises into a thread the team opens, reads and keeps typing into — not a
+rendering of a report. The BFF creates that conversation at fire time (before
+submission, because the backend needs its id), threads the id through the
+submit payload to the worker, and the worker writes the question and the answer
+into it at completion over the internal messages route
+(`aiq_api/jobs/conversation_output.py`) — Python never touches Postgres.
+
+Three properties of that conversation, each forced rather than chosen:
+
+- **`created_by` is the JOB'S OWNER — a real user id, never `'scheduler'` and
+  never synthetic.** Four mechanisms read `conversations.created_by` as a
+  person, and a synthetic id breaks all four: the sharing roster lists the
+  creator as a participant, the last-owner invariant refuses to leave a
+  resource ownerless and needs a real user to hold that role,
+  `attributeLegacyAuthor` names them as the author of pre-collaboration
+  messages, and `recordAuditEvent` requires an actor with a `userId: string`. A
+  conversation owned by nobody is one nobody can act as, that notifies nobody,
+  and that cannot be audited. It is also the identity the run already carries
+  (`user_id` on the payload and in the signed context envelope), so this adds
+  no attribution — it stops the conversation from disagreeing with the run.
+- **`visibility: 'project'` at creation, not the `'private'` column default.**
+  ADR-0032 made `private` the default so that sharing is a deliberate act; this
+  IS that act, made at schedule time by someone holding `project:skills:manage`
+  on a project whose runs are already readable to anyone with `project:view`. A
+  thread only its nominal owner could open would hide a team artefact behind one
+  person's account and 404 every colleague following the run-history link. The
+  interactive path still passes no visibility and still gets `private`.
+- **`conversations.job_id` stamps the provenance** (migration
+  `0044_conversation_job_provenance.sql`). Provenance, not ownership: it is what
+  lets a list render "Weekly OIB scan" with a job glyph instead of the owner's
+  face, and what lets these threads be kept out of the owner's personal chat
+  history — a weekly job is 52 of them a year. (The column and its writer are
+  in place; the two consumers are follow-up.) Answering either question from `job_runs`
+  would mean a join on the hottest list read in the product, per row, to
+  establish a fact that never changes after insert. Both foreign keys are
+  `ON DELETE SET NULL` in both directions: deleting a job must not delete its
+  output, and deleting a conversation must not delete run history. Neither side
+  owns the other.
+
+Every conversation write is **best-effort and can never fail a run**. Creation
+failure is logged and swallowed and the run submits with no `conversation_id`,
+which is exactly the shape of every run that predates the feature; the reverse
+trade — refusing to fire because a row could not be written — is the one
+outcome nobody wants at 03:00. Nor is the conversation cleaned up when
+submission then fails: a submit error is not proof the backend did not receive
+the run, and deleting the thread a run is about to write into would destroy the
+output to tidy up a row. Because it is created before the outcome is known, a
+failed or cancelled run writes a short German notice into it — otherwise
+someone opens the thread to find it mysteriously empty, which reads as a broken
+product rather than as a failed run. Message ids are `uuid5`-deterministic per
+(conversation, job, role) and the internal route upserts, so a retried write is
+a no-op rather than a second copy of the answer.
+
+**Jobs get their own project tab; the skills page is the org toolbox alone.**
+They sit next to each other in the project rail (`G`+`W`, `G`+`J`) under the
+same `showSkills` gate, because they ship together and a job builder whose
+skill picker resolves nothing is not worth having. But they are not one page:
+the toolbox is organization-wide and asks "what procedures do we have", while
+jobs are project-scoped and ask "what should run, and when". Folding the second
+into the first is what produced a schedule that had to name a skill.
+
+**The wire rename is tolerated for one deploy window.** `execution` → `output`
+is a database rename and a BFF rename, but it is also a *wire* rename on
+`POST /v1/internal/skills/submit` — and the BFF and the Python service deploy
+separately. A hard rename would 422 every scheduled run in the window between
+the two deploys, which is precisely the window nobody is watching. So the
+payload accepts both spellings: `output` when present, `execution` as a
+deprecated alias, both Optional in the schema with a model validator rejecting
+"neither" (structurally legal, and reading an absent key out of the agent table
+would be a `KeyError`, i.e. a 500 on a payload the caller got wrong). When both
+arrive and disagree, `output` wins and the disagreement is logged rather than
+guessed at. The alias and its fallback are deleted once every BFF sending
+`output` is deployed — it is a shim with an expiry, not a second name for the
+field.
+
+The same reasoning keeps the internal fire contract at its pre-jobs spelling:
+the scheduler container still POSTs `{ scheduleId }` to
+`/api/internal/skills/fire`, path and field unchanged, because the scheduler
+and the BFF also deploy separately. `scheduleId` names a `jobs.id`. Unlike the
+`execution` alias this one has no expiry attached — it is a stable internal
+contract, not a migration shim.
 
 **Progressive disclosure, two levels.** L1 is the catalog: one
 `- \`name\`: description` line per resolved skill in the system prompt
@@ -215,14 +380,29 @@ and strict validation are shared.
   placed to fix it.
 - Activation is auditable from the answer itself, so "did the skill actually
   run?" stops being a question only a log can answer.
+- "Ask this question every Monday" is expressible without inventing a skill for
+  it, because the scheduled object is a prompt and the skill is optional.
+- Choosing what a job produces can no longer change which skills exist. The one
+  gate (`grid-agents`) is the same rule in both resolvers, and the job's
+  `output` only picks the agent that rule is evaluated against.
+- A scheduled chat run leaves something a person can continue, rather than a
+  report they can only read.
 
 ### Negative
 
 - Two skill mechanisms (chat `use_skill` vs. deepagents sources) instead of
   one; a skill author must know which surface a skill targets
-  (`grid-execution`).
+  (`grid-agents`).
 - The catalog is only as good as descriptions: a poor L1 line hides a skill
   from the model (mitigated by forced selection, which bypasses the catalog).
+- Two vocabularies survive in the plumbing where a rename would have cost more
+  than it bought: `job_runs.schedule_id`, and `{ scheduleId }` on the internal
+  fire route. Both are documented at the point of use (column comments, route
+  docstring) rather than left to be rediscovered.
+- A job conversation is created before its outcome is known, so a failed run
+  leaves a thread containing only a notice. That is the deliberate trade against
+  a mysteriously empty thread, but it does mean job runs can produce threads
+  with no answer in them.
 
 ### Risks
 
@@ -238,6 +418,15 @@ and strict validation are shared.
 - **Description drift.** A renamed skill leaves stale `skills:` mentions in
   requests; fail-open means they no-op, which is visible on the wire but not
   loud. The `use_skill` error message lists available names to self-correct.
+- **Silent service-to-service auth.** The internal submit route is guarded by a
+  shared token, and its guard once read only `x-internal-token` while every
+  caller in the repo sends `x-grid-internal-token` — so every scheduled run
+  403'd in a real deployment, and nothing caught it because the two sides are
+  tested separately and each test pinned its own spelling. The guard now accepts
+  both (`routes/internal_auth.py::_TOKEN_HEADERS`), matching the ASGI envelope
+  middleware that already did. The general risk stands: a fire path with no
+  human on it fails silently, so its contract needs a test that crosses the
+  service boundary rather than two that agree with themselves.
 
 ## Alternatives Considered
 
@@ -261,13 +450,31 @@ and strict validation are shared.
 - **Always showing which skills were available** — rejected as noise: the
   disclosure reports what was *loaded*, because availability is the constant
   and activation is the event.
+- **Keeping `grid-execution` as a gate and adding an override** — rejected: it
+  would have kept an output format in the availability rule and added a second
+  key to explain why the first one did not apply. Removing the reading was
+  cheaper than documenting it.
+- **Recreating the tables under the new names (CREATE / COPY / DROP)** —
+  rejected: it would have thrown away the ids that `skill_runs` rows and the
+  scheduler's claim already reference, to gain nothing a rename does not give.
+- **Rejecting stored rows that still carry `grid-execution`/`grid-schedulable`**
+  — rejected: a deployed row would become a validation error at read time and
+  vanish from the toolbox, to punish a key that costs nothing to ignore.
+- **Rendering a job's report as a pseudo-conversation** — rejected: the point of
+  `output: 'chat'` is a thread somebody can *continue*. A rendering cannot be
+  replied to, and it would need its own access rules instead of reusing
+  ADR-0032's.
 
 ## Open Questions / Follow-ups
 
 - Embeddings/execution sandboxes for org skills (Modal token env vars exist;
   execution is not yet wired).
-- Whether `grid-execution: chat` skills should also be surfaced to the deep
-  researcher's writer — currently they are not.
+- Delete the `execution` alias on `/v1/internal/skills/submit` (and the
+  `resolved_output` fallback) once every BFF sending `output` is deployed.
+- The scheduler's environment variables still carry skill-era names
+  (`GRID_SKILL_SCHEDULER_POLL_MS`, `GRID_SKILL_RUNS_RETENTION_DAYS`), as does
+  the compose service `skill-scheduler`. Renaming them is a deployment change
+  with no product value; it is a follow-up, not an omission.
 - Scheduler-side per-skill `allowed_tools` enforcement is declarative today;
   enforcement semantics for the `use_skill` path are follow-up.
 
@@ -275,8 +482,14 @@ and strict validation are shared.
 
 - `docs/architecture/agent-skills.md` (subsystem doc)
 - `docs/api/python-endpoints.md` (`/v1/internal/skills/submit`)
-- `docs/api/bff-routes.md` (`/api/internal/skills/*`, `/api/skills/*`)
+- `docs/api/bff-routes.md` (`/api/internal/skills/*`, `/api/skills/*`,
+  `/api/projects/{id}/jobs/*`)
 - `docs/api/websocket-protocol.md` (`skills` on the message envelope,
   `skills_activated` on the terminal frame)
+- `docs/database/schema.md` (`skills` / `jobs` / `job_runs`, and
+  `conversations.job_id`)
+- `frontends/ui/drizzle/0043_jobs.sql` and
+  `0044_conversation_job_provenance.sql` — the rename and the provenance
+  column, each with the reasoning in its header
 - ADR-0023 / ADR-0027 (Workflows and its template gallery, superseded here)
 - agentskills.io format spec (SKILL.md frontmatter contract)

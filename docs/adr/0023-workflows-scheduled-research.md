@@ -9,7 +9,8 @@
 > below — the `workflows` / `workflow_runs` tables, the BFF routes and pages,
 > the `workflow` authorization tier, `POST /v1/internal/workflows/submit` and
 > the `workflow-scheduler` service — was removed from the tree. Agent Skills
-> replaces it: a skill schedule is what a saved brief was, the `skill-scheduler`
+> replaces it: a **job** — a prompt on a timer, with a skill optionally
+> attached — is what a saved brief was, the `skill-scheduler`
 > is this scheduler (same claim-then-fire design, same at-most-once property,
 > same misfire coalescing), and the subsystem doc is
 > [`../architecture/agent-skills.md`](../architecture/agent-skills.md). What

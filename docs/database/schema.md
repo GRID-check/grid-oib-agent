@@ -90,11 +90,12 @@ export const conversations = pgTable('conversations', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID |
 | `title` | `text` | | Auto-generated or user-set title |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
+| `job_id` | `uuid` | FK → `jobs.id` ON DELETE SET NULL (migration `0044`) | **Provenance, not ownership**: the job whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours are meant to hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. The column and the fire path that writes it exist; those two consumers are follow-up. `SET NULL`, because deleting a job must never delete its output. |
 | `visibility` | `text` | NOT NULL, default `'private'` | `private` \| `project` \| `organization` (ADR-0032). Read on the hot path with the row, so access resolution costs no join. **Migration 0027 backfilled pre-existing rows with a `project_id` to `'project'`** — conversations used to be resolved org-scoped only, so any org member with an id could read any thread; `'project'` keeps access for everyone inside the project and withdraws the accidental org-wide read. Rows with a NULL `project_id` stayed `'private'` (no project membership could describe their audience). |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
-**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`).
+**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM jobs` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
 
 ---
 
@@ -403,7 +404,7 @@ LLM budgets and the usage ledger (ADR-0015).
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
 
-## skills / jobs / job_runs (migrations 0041, 0043)
+## skills / jobs / job_runs (migrations 0041, 0043, 0044)
 
 Jobs and Agent Skills (ADR-0046, `docs/architecture/agent-skills.md`) — the
 successor to the removed Workflows tables. Schema:
@@ -456,8 +457,22 @@ was derived from it; 0043 renamed them and inverted that relationship (see
 its id, its cron and its attached skill. It renames the tables, their indexes
 and their PK/FK constraints (a table rename renames none of those), renames
 `execution` -> `output`, backfills `prompt` from each row's pinned
-`skill_snapshot->>'body'`, drops the NOT NULL from the skill pair, and
-re-secures both tables under the new names.
+`skill_snapshot->>'body'` (through a COALESCE chain — nothing guaranteed that
+key was present, and one malformed row would have failed the subsequent
+`SET NOT NULL` and aborted the migration), drops the NOT NULL from the skill
+pair, and re-secures both tables under the new names. The re-securing is not
+belt-and-braces: `job_runs`' RLS predicate names its parent table in an EXISTS
+subquery, and the stored form of that policy was written against
+`skill_schedules`; re-emitting it is what makes the catalog and the migration
+history provably say the same thing, and `rls-coverage.spec.ts` reads
+`grid_secure_table` calls as the definition of "inside the tenant boundary".
+
+**Migration 0044** adds `conversations.job_id` (see the `conversations` section
+above) — the other direction of the link, answering "who is this thread" rather
+than "where did this run land". Deliberately makes no `grid_secure_table` call
+and is deliberately absent from `rls-coverage.spec.ts`'s `BOUNDARY_MIGRATIONS`:
+`conversations` was secured by 0031, and adding a column does not move a table
+in or out of the boundary.
 
 ---
 
