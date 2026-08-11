@@ -5,7 +5,7 @@
  *   platform  → cert-manager (+ Let's Encrypt issuer), Envoy Gateway, metrics-server
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
  *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
- *               (Deployment + HPA), purger, workflow-scheduler, a migration Job
+ *               (Deployment + HPA), purger, skill-scheduler, a migration Job
  *               and a WorkOS audit-schema reconcile Job
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app, the landing site and the public S3 endpoint
@@ -329,7 +329,7 @@ export const webService = web.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
 export const schedulerDeployment = workers.scheduler
   ? workers.scheduler.metadata.name
-  : pulumi.output("(none: workflows disabled)");
+  : pulumi.output("(none: skills disabled)");
 export const appRoute = routes.app.metadata.name;
 export const webRoute = routes.web.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;

@@ -177,7 +177,10 @@ config:
   grid-oib:requireAuth: "true"
   grid-oib:workosClientId: client_REPLACE_ME
   grid-oib:enforceFeatureFlags: "false"
-  grid-oib:workflowsEnabled: "false"
+  # Agent Skills + Jobs (ADR-0046) stay dark in prod until they have run in
+  # staging. Flip to "true" to show the Skills and Jobs tabs and bring the job
+  # scheduler up.
+  grid-oib:skillsEnabled: "false"
   # Collaboration (ADR-0032…0035) stays dark in prod until it has run in staging.
   grid-oib:collaborationEnabled: "false"
 

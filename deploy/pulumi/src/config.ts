@@ -770,8 +770,28 @@ export interface GridConfig {
     jobPayloadKek: pulumi.Output<string>;
   };
 
-  workflows: {
+  skills: {
+    /**
+     * Dark-launch gate for Agent Skills and the project Jobs that may attach
+     * them (ADR-0046). Reaches the frontend and the scheduler worker as
+     * `GRID_SKILLS_ENABLED`, which they only consult while
+     * `enforceFeatureFlags` is off; with enforcement on, the per-org `skills`
+     * WorkOS flag decides instead. Default-deny.
+     *
+     * This is the ONLY switch that makes the Skills and Jobs tabs appear on a
+     * deployment carrying their code: with it off, every `/api/skills` and
+     * `/api/projects/[id]/jobs` route answers 403 `feature-disabled` and the
+     * scheduler container exits 0 as a no-op. It replaced `workflowsEnabled`,
+     * which kept being emitted as `GRID_WORKFLOWS_ENABLED` after the code that
+     * read that name was deleted — so the feature shipped with no way to turn
+     * it on.
+     */
     enabled: boolean;
+    /**
+     * Floor on how often a job may be scheduled to fire, in minutes. Reaches
+     * the frontend as `GRID_SKILL_MIN_INTERVAL_MINUTES` and is enforced at
+     * save time.
+     */
     minIntervalMinutes: number;
   };
 
@@ -2242,9 +2262,9 @@ export function loadConfig(): GridConfig {
       jobPayloadKek: jobPayloadKek ?? pulumi.output(""),
     },
 
-    workflows: {
-      enabled: bool(cfg, "workflowsEnabled", false),
-      minIntervalMinutes: num(cfg, "workflowMinIntervalMinutes", 15),
+    skills: {
+      enabled: bool(cfg, "skillsEnabled", false),
+      minIntervalMinutes: num(cfg, "skillMinIntervalMinutes", 15),
     },
 
     storageAlerts: {

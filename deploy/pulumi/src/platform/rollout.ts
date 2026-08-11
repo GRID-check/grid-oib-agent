@@ -196,7 +196,7 @@ export const ROLLOUT = {
   },
 
   /**
-   * purger / workflow-scheduler: single-replica poll loops behind no Service.
+   * purger / skill-scheduler: single-replica poll loops behind no Service.
    * `Recreate` is correct for them (never two at once), so there is no rolling
    * window to protect — only a clean stop between poll ticks.
    */

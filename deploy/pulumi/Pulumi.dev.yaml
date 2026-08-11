@@ -147,7 +147,10 @@ config:
   grid-oib:requireAuth: "true"
   grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K # pragma: allowlist secret (public OAuth client id)
   grid-oib:enforceFeatureFlags: "false"
-  grid-oib:workflowsEnabled: "true"
+  # Agent Skills + Jobs (ADR-0046). On in staging so the feature can actually be
+  # exercised. With enforceFeatureFlags off, this env gate is the only thing
+  # that turns the Skills and Jobs tabs on and the job scheduler up.
+  grid-oib:skillsEnabled: "true"
   # Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox. On in
   # staging so the feature can actually be exercised; prod stays dark until it
   # ships. With enforceFeatureFlags off, this env gate is the only thing that

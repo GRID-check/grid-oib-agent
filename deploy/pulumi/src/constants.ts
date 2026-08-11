@@ -360,11 +360,11 @@ export const APP_DEFAULTS = {
   projectPurgeGraceDays: 7,
   /** Purger poll interval (ms). */
   purgerPollMs: 60_000,
-  /** Workflow-scheduler poll interval (ms) and per-tick claim batch. */
+  /** Skill-scheduler poll interval (ms) and per-tick claim batch. */
   schedulerPollMs: 30_000,
   schedulerBatch: 20,
-  /** Workflow run history retention (days). */
-  workflowRunsRetentionDays: 90,
+  /** Job run history retention (days). */
+  skillRunsRetentionDays: 90,
 } as const;
 
 /** Postgres server tuning (fixed; storage size and instance count are knobs). */

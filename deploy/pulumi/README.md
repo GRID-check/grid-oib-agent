@@ -2,7 +2,7 @@
 
 TypeScript Pulumi program that deploys the entire Grid OIB stack to a Kubernetes
 cluster: the `aiq-agent` backend, the Next.js frontend/BFF, the purger and
-workflow-scheduler workers, plus CloudNativePG Postgres, a Dragonfly cache, and
+skill-scheduler workers, plus CloudNativePG Postgres, a Dragonfly cache, and
 SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic Let's Encrypt TLS.
 
 > Operator walkthrough (prereqs, DNS, day-2, scaling roadmap):
@@ -14,7 +14,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 |-------|-----------|
 | Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap, `aspire-dashboard` Deployment + Service + HTTPRoute + Secret — only when `observabilityEnabled` **and** its config deps are set), Langfuse (ADR-0044: `langfuse-web` + `langfuse-worker` Deployments, `clickhouse` StatefulSet, a dedicated ingestion queue, HTTPRoute + SecurityPolicy — only when `langfuseEnabled` **and** its config deps are set; flag **on by default**), (metrics-server only on bare clusters) |
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS (one StatefulSet under `seaweedfsTopology=single`; master + volume + filer StatefulSets, and a `seaweedfs_filer` CNPG database + role, under `split`) + bucket-init Job |
-| App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
+| App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 | DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
 
@@ -238,9 +238,9 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `byokSecretBackend` / 🔒 `byokLocalKek` | — | BYOK backends |
 | `allowAgentOrgMemory` | `false` | Org-memory write path |
 | 🔒 **`gridInternalApiToken`** / 🔒 **`gridAdminToken`** | — | Cross-service tokens |
-| **Workflows** | | |
-| `workflowsEnabled` | `false` | Scheduled workflows feature; the `workflow-scheduler` Deployment is only created when `true` |
-| `workflowMinIntervalMinutes` | `15` | Minimum schedule interval |
+| **Agent Skills & Jobs** | | |
+| `skillsEnabled` | `false` | Agent Skills + the project Jobs that attach them (ADR-0046). Reaches the frontend and the scheduler as `GRID_SKILLS_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `skills` WorkOS flag decides). With it off both tabs are invisible, every `/api/skills` and `/api/projects/[id]/jobs` route answers 403, and the `skill-scheduler` Deployment is not created at all |
+| `skillMinIntervalMinutes` | `15` | Floor on how often a job may be scheduled to fire |
 | **Collaboration** (ADR-0032…0035) | | |
 | `collaborationEnabled` | `false` | Shared chats, `@`-mentions and the inbox. Reaches the frontend as `GRID_COLLABORATION_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `collaboration` WorkOS flag decides). Default-deny — the feature changes who can see a conversation |
 | `ifcModelsEnabled` | `true` | `.ifc` upload, the model workspace, the 3D viewer, the Prüfbuch and the agent's `ifc_query` tool (ADR-0045). Reaches the frontend as `GRID_IFC_MODELS_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `ifc-models` WorkOS flag decides). Defaults ON; set `false` to withdraw the feature without enabling flag enforcement globally |
