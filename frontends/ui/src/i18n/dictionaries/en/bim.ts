@@ -300,6 +300,7 @@ export const bim = {
     models: 'Models',
     levels: 'Levels',
     allLevels: 'All levels',
+    showEverything: 'Show everything again',
     elevation: '{value} m',
     notReady: 'The model is still being read. This usually takes a few moments.',
     loading: 'Loading model…',
@@ -312,6 +313,8 @@ export const bim = {
       close: 'Close',
       loading: 'Loading…',
       about: 'Component',
+      hide: 'Hide',
+      isolate: 'Isolate',
       technical: 'Technical details',
       ask: 'Ask Piloti about this',
     },
@@ -338,6 +341,21 @@ export const bim = {
       metres: '{value} m',
       down: 'Looking down',
       up: 'Looking up',
+    },
+    /**
+     * Measuring. `hint` sits in the dock while the tool is live — a measure
+     * tool that does not say where the next click goes is a crosshair you have
+     * to experiment with.
+     */
+    measure: {
+      toggle: 'Measure',
+      horizontal: 'horizontal',
+      vertical: 'vertical',
+      first: 'Click the first point',
+      second: 'Click the second point — Esc cancels',
+      clear: 'Clear measurements',
+      count: '{count} measurements',
+      countOne: '1 measurement',
     },
     unavailable: {
       title: 'The 3D view could not be loaded',

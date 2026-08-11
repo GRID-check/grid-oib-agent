@@ -295,6 +295,7 @@ export const bim: typeof en.bim = {
     models: 'Modelle',
     levels: 'Geschoße',
     allLevels: 'Alle Geschoße',
+    showEverything: 'Wieder alles anzeigen',
     elevation: '{value} m',
     notReady: 'Das Modell wird noch gelesen. Das dauert meist nur einen Moment.',
     loading: 'Modell wird geladen…',
@@ -307,6 +308,8 @@ export const bim: typeof en.bim = {
       close: 'Schließen',
       loading: 'Wird geladen…',
       about: 'Bauteil',
+      hide: 'Ausblenden',
+      isolate: 'Isolieren',
       technical: 'Technische Details',
       ask: 'Piloti dazu fragen',
     },
@@ -333,6 +336,21 @@ export const bim: typeof en.bim = {
       metres: '{value} m',
       down: 'Blick nach unten',
       up: 'Blick nach oben',
+    },
+    /**
+     * Messen. `hint` steht im Dock, solange das Werkzeug aktiv ist — ein
+     * Messwerkzeug ohne Ansage, wohin der nächste Klick gehört, ist ein
+     * Fadenkreuz, mit dem man erst einmal experimentieren muss.
+     */
+    measure: {
+      toggle: 'Messen',
+      horizontal: 'horizontal',
+      vertical: 'vertikal',
+      first: 'Ersten Punkt anklicken',
+      second: 'Zweiten Punkt anklicken — Esc bricht ab',
+      clear: 'Messungen löschen',
+      count: '{count} Messungen',
+      countOne: '1 Messung',
     },
     unavailable: {
       title: 'Die 3D-Ansicht konnte nicht geladen werden',

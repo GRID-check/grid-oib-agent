@@ -70,6 +70,14 @@ import type { Camera, Renderer, Scene } from '@ifc-lite/renderer'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
+import { MeasureOverlay } from '../lib/measure-overlay'
+import {
+  completeMeasurement,
+  MEASURE_SNAP_OPTIONS,
+  type MeasureAnchor,
+  type MeasureSnapKind,
+  type Measurement,
+} from '../lib/viewer-measure'
 import {
   boundsCentre,
   downloadWithProgress,
@@ -97,6 +105,15 @@ export interface IfcViewerCanvasProps {
   colorOverrides?: Map<number, Rgba>
   /** Only these elements are drawn. `null` shows everything. */
   isolatedExpressIds?: Set<number> | null
+  /**
+   * Elements the reader has taken out of the way.
+   *
+   * Not the inverse of {@link isolatedExpressIds} and not interchangeable with
+   * it: hiding removes the slab in front of the stair and leaves the rest
+   * alone, isolating removes everything that is not the stair. Both are live
+   * at once when the reader has done both.
+   */
+  hiddenExpressIds?: ReadonlySet<number> | null
   /** Currently selected element, highlighted and used as the orbit pivot. */
   selectedExpressId?: number | null
   /**
@@ -145,6 +162,21 @@ export interface IfcViewerCanvasProps {
    * nobody can see.
    */
   compact?: boolean
+  /**
+   * Measuring: a click places a dimension point instead of selecting.
+   *
+   * The two cannot both be on the primary click. A reviewer measuring the
+   * clear width of a corridor clicks two wall faces, and if those clicks also
+   * selected the walls the inspector would open over the thing being measured
+   * and the second pick would land on the panel.
+   */
+  measuring?: boolean
+  /** Finished measurements, drawn over the model. */
+  measurements?: readonly Measurement[]
+  /** A measurement the reader just closed. The parent owns the list. */
+  onMeasure?: (measurement: Measurement) => void
+  /** Whether a first point is down, so the chrome can say what to click next. */
+  onMeasurePending?: (pending: boolean) => void
   className?: string
 }
 
@@ -271,6 +303,7 @@ export function IfcViewerCanvas({
   elements,
   colorOverrides,
   isolatedExpressIds = null,
+  hiddenExpressIds = null,
   selectedExpressId = null,
   xrayKeepIds = null,
   onSelect,
@@ -283,10 +316,16 @@ export function IfcViewerCanvas({
   fitNonce = 0,
   zoomToSelection = false,
   compact = false,
+  measuring = false,
+  measurements,
+  onMeasure,
+  onMeasurePending,
   className,
 }: IfcViewerCanvasProps): JSX.Element {
   const t = useTranslations('bim')
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const overlaySvgRef = useRef<SVGSVGElement | null>(null)
+  const overlayLabelsRef = useRef<HTMLDivElement | null>(null)
   const rendererRef = useRef<RendererLike | null>(null)
   // The geometry kernel is a WASM instance with its own heap, and it outlives
   // the parse: `processAdaptive` returns but the module stays resident. Only
@@ -302,6 +341,7 @@ export function IfcViewerCanvas({
   // frame callback on every prop change would restart the loop mid-orbit.
   const overridesRef = useRef(colorOverrides)
   const isolatedRef = useRef(isolatedExpressIds)
+  const hiddenRef = useRef(hiddenExpressIds)
   const selectedRef = useRef(selectedExpressId)
   const xrayRef = useRef(xrayKeepIds)
   const sectionRef = useRef(section)
@@ -309,6 +349,7 @@ export function IfcViewerCanvas({
   sectionRef.current = section
   overridesRef.current = colorOverrides
   isolatedRef.current = isolatedExpressIds
+  hiddenRef.current = hiddenExpressIds
   selectedRef.current = selectedExpressId
   xrayRef.current = xrayKeepIds
   compactRef.current = compact
@@ -322,6 +363,26 @@ export function IfcViewerCanvas({
   onSelectRef.current = onSelect
   const onBoundsRef = useRef(onBounds)
   onBoundsRef.current = onBounds
+  const onMeasureRef = useRef(onMeasure)
+  onMeasureRef.current = onMeasure
+  const onMeasurePendingRef = useRef(onMeasurePending)
+  onMeasurePendingRef.current = onMeasurePending
+  const measuringRef = useRef(measuring)
+  measuringRef.current = measuring
+
+  /**
+   * The measurement in progress, and the drawing of every finished one.
+   *
+   * Both are refs, and deliberately so. The first point of a measurement and
+   * the live cursor change on every pointer move; routing either through React
+   * would re-render the whole stage sixty times a second to move a line end.
+   * The overlay writes coordinates straight into the DOM instead, from inside
+   * the same frame the model is drawn in, so the dimension line cannot lag a
+   * frame behind the building it is measuring.
+   */
+  const overlayRef = useRef<MeasureOverlay | null>(null)
+  const anchorRef = useRef<MeasureAnchor | null>(null)
+  const cursorRef = useRef<MeasureAnchor | null>(null)
 
   /**
    * The theme the model is lit for, captured once per mount.
@@ -337,6 +398,39 @@ export function IfcViewerCanvas({
   /** Still receiving geometry — the renderer skips work that a partial scene invalidates. */
   const streamingRef = useRef(true)
 
+  /** `hiddenIds` for a pick query, or nothing when the reader has hidden nothing. */
+  const hiddenPickOption = useCallback(
+    (): { hiddenIds?: Set<number> } =>
+      hiddenRef.current && hiddenRef.current.size > 0
+        ? { hiddenIds: new Set(hiddenRef.current) }
+        : {},
+    []
+  )
+
+  /**
+   * Put the measurement drawing where the camera now says it goes.
+   *
+   * `projectToScreen` wants CSS pixels, and the drawing buffer is in DEVICE
+   * pixels — the ResizeObserver below multiplies by the device pixel ratio. On
+   * a retina display, projecting against the buffer size would put every
+   * dimension line at twice its coordinates, i.e. off the bottom-right of the
+   * viewport. So the CSS box is measured here, not `canvas.width`.
+   */
+  const drawOverlay = useCallback((renderer: RendererLike) => {
+    const overlay = overlayRef.current
+    const canvas = canvasRef.current
+    if (!overlay || !canvas) return
+    const width = canvas.clientWidth
+    const height = canvas.clientHeight
+    if (width === 0 || height === 0) return
+    try {
+      const camera = renderer.getCamera()
+      overlay.update((point) => camera.projectToScreen(point, width, height))
+    } catch {
+      // A camera mid-teardown is a frame without an overlay, not a crash.
+    }
+  }, [])
+
   /**
    * Draw one frame, now. Split out of {@link requestFrame} so the camera loop
    * below can render synchronously inside its own animation frame rather than
@@ -349,6 +443,12 @@ export function IfcViewerCanvas({
       const theme = themeRef.current
       renderer.render({
         isolatedIds: isolatedRef.current,
+        // Omitted rather than empty when nothing is hidden. An empty set is a
+        // no-op to the renderer either way, but it still costs a per-frame
+        // element-wise compare against the previous snapshot on every batch.
+        ...(hiddenRef.current && hiddenRef.current.size > 0
+          ? { hiddenIds: new Set(hiddenRef.current) }
+          : {}),
         selectedId: selectedRef.current,
         // The renderer treats an ABSENT set as "no ghosting" and an empty one
         // as "ghost everything", so passing an empty set through would fade
@@ -385,7 +485,11 @@ export function IfcViewerCanvas({
       // A lost device makes render() a no-op upstream; anything else here is
       // a frame we skip rather than an error we surface mid-orbit.
     }
-  }, [])
+    // In the SAME frame the model was drawn in, never one behind it: a
+    // dimension line that trails the building by a frame reads as the
+    // measurement sliding off the wall whenever the camera moves.
+    drawOverlay(renderer)
+  }, [drawOverlay])
 
   /** Ask for one frame. Rendering is on demand — a static model must not spin the GPU. */
   const frameRef = useRef<number | null>(null)
@@ -577,7 +681,7 @@ export function IfcViewerCanvas({
 
   useEffect(() => {
     if (ready) requestFrame()
-  }, [isolatedExpressIds, selectedExpressId, xrayKeepIds, ready, requestFrame])
+  }, [isolatedExpressIds, hiddenExpressIds, selectedExpressId, xrayKeepIds, ready, requestFrame])
 
   // Keep the drawing buffer in step with the element's CSS box, in device
   // pixels — a canvas sized only by CSS renders blurry on every retina display.
@@ -813,6 +917,113 @@ export function IfcViewerCanvas({
     if (ready) requestFrame()
   }, [section, ready, requestFrame])
 
+  // ---------------------------------------------------------------------------
+  // Measuring
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The overlay lives as long as the two host elements do.
+   *
+   * Built here rather than at module scope because it holds DOM: one per
+   * mounted viewport, torn down with it. The labels are read out of the
+   * dictionary at construction — the overlay writes text into the DOM itself
+   * and has no translation context of its own.
+   */
+  useEffect(() => {
+    const svg = overlaySvgRef.current
+    const labels = overlayLabelsRef.current
+    if (!svg || !labels) return
+    const overlay = new MeasureOverlay(svg, labels, {
+      horizontal: t('viewer.measure.horizontal'),
+      vertical: t('viewer.measure.vertical'),
+    })
+    overlayRef.current = overlay
+    return () => {
+      overlay.destroy()
+      overlayRef.current = null
+    }
+  }, [t])
+
+  useEffect(() => {
+    overlayRef.current?.setMeasurements(measurements ?? [])
+    requestFrame()
+  }, [measurements, requestFrame])
+
+  /**
+   * Leaving measure mode drops the half-finished measurement.
+   *
+   * The alternative — keeping the anchor so it resumes when the tool comes
+   * back — sounds helpful and is not: the reader turned the tool off, orbited
+   * somewhere else, and the next click would silently close a measurement
+   * against a point they had forgotten was down.
+   */
+  useEffect(() => {
+    if (measuring) return
+    anchorRef.current = null
+    cursorRef.current = null
+    overlayRef.current?.setPending(null, null)
+    onMeasurePendingRef.current?.(false)
+    requestFrame()
+  }, [measuring, requestFrame])
+
+  /**
+   * Where a click would land, and what it would lock onto.
+   *
+   * `raycastScene` with snap options does the whole job in one synchronous
+   * call: the exact surface point AND the nearest vertex/edge/face target
+   * within the screen radius. Falling back to the raw intersection rather than
+   * to nothing is deliberate — a reader measuring a corridor is pointing at
+   * two wall faces, and "no corner nearby" must not mean "no measurement".
+   */
+  const measureAt = useCallback((clientX: number, clientY: number): MeasureAnchor | null => {
+    const renderer = rendererRef.current
+    const canvas = canvasRef.current
+    if (!renderer?.raycastScene || !canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    try {
+      const hit = renderer.raycastScene(clientX - rect.left, clientY - rect.top, {
+        isolatedIds: isolatedRef.current,
+        ...hiddenPickOption(),
+        snapOptions: MEASURE_SNAP_OPTIONS,
+      })
+      if (!hit) return null
+      const snapped = hit.snap
+      return snapped
+        ? { point: snapped.position, snap: snapped.type as MeasureSnapKind }
+        : { point: hit.intersection.point, snap: 'none' }
+    } catch {
+      // A BVH that cannot be built is a viewport that cannot measure, not one
+      // that crashes mid-drag.
+      return null
+    }
+  }, [hiddenPickOption])
+
+  /** Place a point: the first arms the measurement, the second closes it. */
+  const placeMeasurePoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const anchor = measureAt(clientX, clientY)
+      if (!anchor) return
+      const pending = anchorRef.current
+      if (!pending) {
+        anchorRef.current = anchor
+        onMeasurePendingRef.current?.(true)
+      } else {
+        const measurement = completeMeasurement(pending, anchor)
+        // A rejected measurement (the two picks landed on the same corner)
+        // leaves the anchor armed rather than clearing it, so a mis-click
+        // costs one more click instead of the whole measurement.
+        if (measurement) {
+          anchorRef.current = null
+          onMeasurePendingRef.current?.(false)
+          onMeasureRef.current?.(measurement)
+        }
+      }
+      overlayRef.current?.setPending(anchorRef.current, cursorRef.current)
+      requestFrame()
+    },
+    [measureAt, requestFrame]
+  )
+
   /**
    * Hover testing, and the budget that can switch it off.
    *
@@ -838,6 +1049,7 @@ export function IfcViewerCanvas({
       try {
         const hit = active.raycastScene(clientX - rect.left, clientY - rect.top, {
           isolatedIds: isolatedRef.current,
+          ...hiddenPickOption(),
         })
         setHovering(hit?.intersection?.expressId !== undefined)
       } catch {
@@ -849,7 +1061,7 @@ export function IfcViewerCanvas({
         setHovering(false)
       }
     })
-  }, [])
+  }, [hiddenPickOption])
 
   useEffect(() => {
     hoverAffordableRef.current = !compact
@@ -902,7 +1114,17 @@ export function IfcViewerCanvas({
 
     const drag = dragRef.current
     if (!drag) {
-      if (ready) testHover(event.clientX, event.clientY)
+      if (!ready) return
+      // While measuring, the pointer is a crosshair looking for a corner
+      // rather than a cursor looking for an element: the same raycast answers
+      // both, and running the hover test as well would pay for it twice.
+      if (measuringRef.current) {
+        cursorRef.current = measureAt(event.clientX, event.clientY)
+        overlayRef.current?.setPending(anchorRef.current, cursorRef.current)
+        requestFrame()
+        return
+      }
+      testHover(event.clientX, event.clientY)
       return
     }
     const dx = event.clientX - drag.x
@@ -939,12 +1161,16 @@ export function IfcViewerCanvas({
     const hit = await renderer.pick(
       Math.round((clientX - rect.left) * ratio),
       Math.round((clientY - rect.top) * ratio),
-      { isolatedIds: isolatedRef.current }
+      // Both filters travel with the query. Without them the pick pass
+      // considers geometry that is not on screen, so clicking empty space
+      // selects a wall the reader deliberately took out of the way — the
+      // selection is real, the element is invisible, and nothing explains it.
+      { isolatedIds: isolatedRef.current, ...hiddenPickOption() }
     )
     const expressId = hit?.expressId
     if (expressId === undefined) return null
     return elementsRef.current.find((candidate) => candidate.expressId === expressId) ?? null
-  }, [])
+  }, [hiddenPickOption])
 
   const handlePointerUp = async (event: React.PointerEvent<HTMLCanvasElement>) => {
     const wasPinching = pinchRef.current !== null
@@ -956,6 +1182,14 @@ export function IfcViewerCanvas({
     // A click is a pointer-up that did not drag: orbiting past an element must
     // not select it.
     if (!rendererRef.current || !drag || drag.moved || drag.button !== 0) return
+
+    // Measuring owns the primary click. Selecting as well would open the
+    // inspector over the wall being measured, and the second pick would land
+    // on the panel rather than on the building.
+    if (measuringRef.current) {
+      placeMeasurePoint(event.clientX, event.clientY)
+      return
+    }
 
     try {
       onSelectRef.current?.(await pickAt(event.clientX, event.clientY))
@@ -973,6 +1207,10 @@ export function IfcViewerCanvas({
   const handleDoubleClick = async (event: React.MouseEvent<HTMLCanvasElement>) => {
     const renderer = rendererRef.current
     if (!renderer || !ready) return
+    // Two measurement points in quick succession are also a double-click. Not
+    // guarding here would fly the camera to whatever the second point landed
+    // on, at exactly the moment the reader is reading the number.
+    if (measuringRef.current) return
     try {
       const element = await pickAt(event.clientX, event.clientY)
       if (!element) {
@@ -1059,6 +1297,16 @@ export function IfcViewerCanvas({
         event.preventDefault()
         fitModel()
       }
+      // Escape drops a half-placed measurement before it reaches the dialog,
+      // which would otherwise close the whole model over one stray click.
+      if (event.key === 'Escape' && measuringRef.current && anchorRef.current) {
+        event.preventDefault()
+        event.stopPropagation()
+        anchorRef.current = null
+        onMeasurePendingRef.current?.(false)
+        overlayRef.current?.setPending(null, cursorRef.current)
+        requestFrame()
+      }
       return
     }
     event.preventDefault()
@@ -1075,34 +1323,64 @@ export function IfcViewerCanvas({
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      className={cn(
-        'touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
-        // The cursor IS the affordance. A canvas with a text caret over it
-        // reads as a picture; a grab hand reads as something you can turn.
-        dragging ? 'cursor-grabbing' : hovering ? 'cursor-pointer' : 'cursor-grab',
-        className
-      )}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
-      onPointerLeave={() => setHovering(false)}
-      onDoubleClick={handleDoubleClick}
-      onKeyDown={handleKeyDown}
-      // Right-drag pans, so the browser's menu must not appear on top of it.
-      onContextMenu={(event) => event.preventDefault()}
-      // Focusable so the keyboard controls above can be reached at all.
-      tabIndex={0}
-      // The canvas is a graphical view of data that is also available as text in
-      // the element table beside it, so it is labelled rather than described.
-      // Through the dictionary like every other string a reader sees: a
-      // hardcoded German label is the one piece of the page an English screen
-      // reader cannot read.
-      role="img"
-      aria-label={t('viewer.canvasLabel')}
-    />
+    /*
+      The canvas, and the two layers that draw ON it.
+
+      A wrapper rather than a bare `<canvas>` because a dimension line has to
+      be drawn in the page, not in the scene — see `measure-overlay.ts` for
+      why. Both layers are `pointer-events-none`, so every gesture still
+      reaches the canvas underneath and the viewport behaves exactly as it did
+      when it was one element.
+    */
+    <div className={cn('relative', className)}>
+      <canvas
+        ref={canvasRef}
+        className={cn(
+          'size-full touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+          // The cursor IS the affordance. A canvas with a text caret over it
+          // reads as a picture; a grab hand reads as something you can turn.
+          // Measuring gets the crosshair every CAD tool uses, because the
+          // click means something completely different there.
+          measuring
+            ? 'cursor-crosshair'
+            : dragging
+              ? 'cursor-grabbing'
+              : hovering
+                ? 'cursor-pointer'
+                : 'cursor-grab'
+        )}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={() => setHovering(false)}
+        onDoubleClick={handleDoubleClick}
+        onKeyDown={handleKeyDown}
+        // Right-drag pans, so the browser's menu must not appear on top of it.
+        onContextMenu={(event) => event.preventDefault()}
+        // Focusable so the keyboard controls above can be reached at all.
+        tabIndex={0}
+        // The canvas is a graphical view of data that is also available as text
+        // in the element table beside it, so it is labelled rather than
+        // described. Through the dictionary like every other string a reader
+        // sees: a hardcoded German label is the one piece of the page an
+        // English screen reader cannot read.
+        role="img"
+        aria-label={t('viewer.canvasLabel')}
+      />
+      <svg
+        ref={overlaySvgRef}
+        className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        // The measurements are also published as text in the list beside the
+        // dock, so the drawing itself is decorative to a screen reader.
+        aria-hidden="true"
+      />
+      <div
+        ref={overlayLabelsRef}
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        aria-hidden="true"
+      />
+    </div>
   )
 }
 

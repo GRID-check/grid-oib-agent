@@ -23,15 +23,20 @@
  * hand-copied props.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   buildColorOverrides,
   expressIdsForStorey,
+  hasVisibilityEdits,
+  NOTHING_HIDDEN,
   resolveHighlights,
+  resolveIsolation,
+  selectionSurvives,
   supportsWebGpu,
   type BimHighlightGroup,
   type BimViewerElement,
   type ResolvedHighlight,
+  type ViewerVisibility,
 } from '../lib/model-index'
 import {
   clampCut,
@@ -40,7 +45,11 @@ import {
   type BimSection,
   type BimViewerCameraState,
 } from '../lib/viewer-camera'
+import { addMeasurement, type Measurement } from '../lib/viewer-measure'
 import type { IfcViewerCanvasProps, IfcViewerStatus } from '../components/ifc-viewer-canvas'
+
+/** One shared empty list, so "nothing measured" has a stable identity. */
+const EMPTY_MEASUREMENTS: readonly Measurement[] = []
 
 export interface UseModelViewportOptions {
   /** Presigned `.ifc` URL, or null until one has been minted. */
@@ -62,6 +71,45 @@ export interface UseModelViewportOptions {
   compact?: boolean
 }
 
+/**
+ * Measuring, as viewport state.
+ *
+ * Owned here rather than in the stage for the same reason the cut is: two
+ * surfaces show the same building, and a control that works on one and
+ * silently does nothing on the other is worse than one that exists in neither.
+ *
+ * Deliberately NOT in the URL, unlike the camera and the cut. A measurement is
+ * a working note taken while reading — a reviewer takes six of them checking
+ * one corridor and discards all six — and putting them in the query string
+ * would make every pick a history entry and every shared link carry someone
+ * else's scratch marks. The camera is a VIEW, which is worth sending; a
+ * measurement is a question already answered.
+ */
+export interface ModelMeasuring {
+  active: boolean
+  /** A first point is down and the tool is waiting for the second. */
+  pending: boolean
+  measurements: readonly Measurement[]
+  setActive: (active: boolean) => void
+  clear: () => void
+}
+
+/**
+ * Taking things out of the way, as viewport state.
+ *
+ * Like measuring and unlike the camera, this stays out of the URL. Hiding the
+ * roof slab to see the stair is a working move, not a view worth sending — and
+ * a link that arrives with three elements silently missing is a link whose
+ * recipient is looking at a different building from the one they think.
+ */
+export interface ModelVisibility extends ViewerVisibility {
+  /** Whether anything has been hidden or isolated — drives "show everything". */
+  edited: boolean
+  hide: (expressId: number) => void
+  isolate: (expressIds: readonly number[]) => void
+  showEverything: () => void
+}
+
 export interface ModelViewport {
   /** False when the browser has no WebGPU at all — the canvas cannot mount. */
   webGpu: boolean
@@ -70,6 +118,11 @@ export interface ModelViewport {
   bounds: { minMetres: number; maxMetres: number } | null
   /** The cut, clamped into this model's extent. */
   section: BimSection | null
+  /**
+   * The renderer id of the selection, or null when there is none — including
+   * when the reader has just hidden the thing they had selected.
+   */
+  selectedExpressId: number | null
   camera: BimViewerCameraState
   highlights: ResolvedHighlight[]
   /** Spread onto `IfcViewerCanvas`. Null when there is nothing to render. */
@@ -82,6 +135,8 @@ export interface ModelViewport {
   fit: () => void
   /** Where a cut should land when it is switched on, in metres. */
   defaultCut: (storeyElevation: number | null) => number
+  measure: ModelMeasuring
+  visibility: ModelVisibility
 }
 
 export function useModelViewport({
@@ -206,21 +261,101 @@ export function useModelViewport({
     [bounds]
   )
 
+  const [measuring, setMeasuring] = useState(false)
+  const [measurePending, setMeasurePending] = useState(false)
+  const [measurements, setMeasurements] = useState<readonly Measurement[]>(EMPTY_MEASUREMENTS)
+
+  const handleMeasure = useCallback((measurement: Measurement) => {
+    setMeasurements((existing) => addMeasurement(existing, measurement))
+  }, [])
+
+  /**
+   * Turning the tool off keeps the measurements on screen.
+   *
+   * They are what the reader took them for: they have to survive orbiting to
+   * another corner of the building to look at the thing they just measured.
+   * `clear` is a separate, deliberate act.
+   */
+  const setMeasureActive = useCallback((active: boolean) => {
+    setMeasuring(active)
+    if (!active) setMeasurePending(false)
+  }, [])
+
+  const clearMeasurements = useCallback(() => {
+    setMeasurements(EMPTY_MEASUREMENTS)
+    setMeasurePending(false)
+  }, [])
+
+  const measure = useMemo<ModelMeasuring>(
+    () => ({
+      active: measuring,
+      pending: measurePending,
+      measurements,
+      setActive: setMeasureActive,
+      clear: clearMeasurements,
+    }),
+    [measuring, measurePending, measurements, setMeasureActive, clearMeasurements]
+  )
+
+  // A model that is being replaced takes its measurements with it: a dimension
+  // taken on one revision means nothing floating over the next one, and the
+  // points would land wherever those coordinates happen to be in the new file.
+  useEffect(() => {
+    setMeasurements(EMPTY_MEASUREMENTS)
+    setMeasurePending(false)
+  }, [sourceUrl])
+
   // Evaluated once per mount rather than per render: it cannot change without a
   // page reload, and calling it during render on the server would be wrong.
   const webGpu = useMemo(() => supportsWebGpu(), [])
 
   const resolved = useMemo(() => resolveHighlights(highlights, elements), [highlights, elements])
   const colorOverrides = useMemo(() => buildColorOverrides(resolved), [resolved])
-  const isolatedExpressIds = useMemo(
+
+  const [edits, setEdits] = useState<ViewerVisibility>(NOTHING_HIDDEN)
+
+  // A new model starts from a clean building. Express ids are per-file, so a
+  // hidden set carried over would take out whichever elements happen to hold
+  // those numbers in the next one.
+  useEffect(() => {
+    setEdits(NOTHING_HIDDEN)
+  }, [sourceUrl])
+
+  const visibility = useMemo<ModelVisibility>(
+    () => ({
+      ...edits,
+      edited: hasVisibilityEdits(edits),
+      hide: (expressId) =>
+        setEdits((current) => ({
+          ...current,
+          hidden: new Set(current.hidden).add(expressId),
+        })),
+      // Isolating REPLACES any previous isolation rather than intersecting
+      // with it. "Isolate this" is a fresh question every time; narrowing an
+      // existing isolation by clicking a second element would empty the
+      // viewport, which is the opposite of what the click looked like it did.
+      isolate: (expressIds) => setEdits((current) => ({ ...current, isolated: new Set(expressIds) })),
+      showEverything: () => setEdits(NOTHING_HIDDEN),
+    }),
+    [edits]
+  )
+
+  const storeyExpressIds = useMemo(
     () => expressIdsForStorey(elements, isolatedStorey),
     [elements, isolatedStorey]
   )
-
-  const selectedExpressId = useMemo(
-    () => elements.find((element) => element.globalId === selectedGlobalId)?.expressId ?? null,
-    [elements, selectedGlobalId]
+  const isolatedExpressIds = useMemo(
+    () => resolveIsolation(storeyExpressIds, edits.isolated),
+    [storeyExpressIds, edits.isolated]
   )
+
+  const selectedExpressId = useMemo(() => {
+    const found = elements.find((element) => element.globalId === selectedGlobalId)?.expressId ?? null
+    // A selection the reader has just hidden stops being a selection. Keeping
+    // it would leave the camera orbiting an invisible pivot and the highlight
+    // pass painting a component that is not on screen.
+    return selectionSurvives(found, edits) ? found : null
+  }, [elements, selectedGlobalId, edits])
 
   // X-ray keeps the highlighted set solid and fades the rest to context. With
   // nothing highlighted there is nothing to keep solid, so the toggle has no
@@ -271,6 +406,7 @@ export function useModelViewport({
       elements,
       colorOverrides,
       isolatedExpressIds,
+      hiddenExpressIds: edits.hidden,
       selectedExpressId,
       xrayKeepIds,
       view: cameraState.view,
@@ -282,6 +418,10 @@ export function useModelViewport({
       onSelect: handleCanvasSelect,
       zoomToSelection,
       compact,
+      measuring,
+      measurements,
+      onMeasure: handleMeasure,
+      onMeasurePending: setMeasurePending,
       onStatus: handleStatus,
     }
   }, [
@@ -290,6 +430,7 @@ export function useModelViewport({
     elements,
     colorOverrides,
     isolatedExpressIds,
+    edits.hidden,
     selectedExpressId,
     xrayKeepIds,
     cameraState.view,
@@ -300,6 +441,9 @@ export function useModelViewport({
     handleCanvasSelect,
     zoomToSelection,
     compact,
+    measuring,
+    measurements,
+    handleMeasure,
     handleStatus,
   ])
 
@@ -308,6 +452,7 @@ export function useModelViewport({
     status: current,
     bounds,
     section,
+    selectedExpressId,
     camera: cameraState,
     highlights: resolved,
     canvasProps,
@@ -316,5 +461,7 @@ export function useModelViewport({
     setOrthographic,
     fit,
     defaultCut,
+    measure,
+    visibility,
   }
 }

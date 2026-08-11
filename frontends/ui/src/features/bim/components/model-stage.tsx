@@ -41,9 +41,11 @@ import {
   Check,
   Eye,
   Home,
+  Layers,
   Link2,
   MonitorX,
   PanelLeft,
+  Ruler,
   Scissors,
   SlidersHorizontal,
   Video,
@@ -98,6 +100,26 @@ import {
 
 /** One shared empty array, so "no elements yet" has a stable identity. */
 const NO_ELEMENTS: readonly BimViewerElement[] = []
+
+/**
+ * Hide and isolate, bound to whatever is selected right now.
+ *
+ * Both are omitted rather than disabled when nothing is selected: the card
+ * they live on only exists when there IS a selection, so a disabled pair would
+ * be a state the reader can never reach — except in the one frame between
+ * hiding the selected element and the selection clearing itself, which is
+ * exactly when a live button would act on a component that is already gone.
+ */
+function visibilityActions(
+  viewport: ReturnType<typeof useModelViewport>
+): { onHide?: () => void; onIsolate?: () => void } {
+  const expressId = viewport.selectedExpressId
+  if (expressId === null) return {}
+  return {
+    onHide: () => viewport.visibility.hide(expressId),
+    onIsolate: () => viewport.visibility.isolate([expressId]),
+  }
+}
 
 export interface ModelStageProps {
   projectId: string
@@ -397,6 +419,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 projectId={projectId}
                 modelFilename={model?.filename ?? null}
                 onClose={() => setView({ element: undefined })}
+                {...visibilityActions(viewport)}
               />
             </div>
           )}
@@ -421,8 +444,42 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               />
             }
             above={
-              section &&
-              viewport.bounds && (
+              <>
+                {/*
+                  What to click next, and a way out of the measurements once
+                  they have been read. A measure tool with no running commentary
+                  is a crosshair the reader has to experiment with — and one
+                  with no way to clear leaves the building covered in someone
+                  else's arithmetic.
+                */}
+                {viewport.measure.active && (
+                  <ViewerSurface className="pointer-events-auto flex items-center gap-2 px-3 py-1.5">
+                    <span className="text-muted-foreground text-xs">
+                      {t(viewport.measure.pending ? 'viewer.measure.second' : 'viewer.measure.first')}
+                    </span>
+                    {viewport.measure.measurements.length > 0 && (
+                      <>
+                        <span className="text-muted-foreground/60 text-xs tabular-nums">
+                          {viewport.measure.measurements.length === 1
+                            ? t('viewer.measure.countOne')
+                            : t('viewer.measure.count', {
+                                count: viewport.measure.measurements.length,
+                              })}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={viewport.measure.clear}
+                        >
+                          {t('viewer.measure.clear')}
+                        </Button>
+                      </>
+                    )}
+                  </ViewerSurface>
+                )}
+                {section && viewport.bounds && (
                 <ViewerSlider
                   label={t('viewer.section.height')}
                   min={viewport.bounds.minMetres}
@@ -443,10 +500,25 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                     </Button>
                   }
                 />
-              )
+                )}
+              </>
             }
             trail={
               <>
+                {/*
+                  The way back. It appears only once something is out of the
+                  way, because a viewport nobody has edited has nothing to
+                  restore — and a permanently-visible "show everything" is a
+                  control that is wrong about the state it describes most of
+                  the time.
+                */}
+                {viewport.visibility.edited && (
+                  <ViewerIconButton
+                    label={t('stage.showEverything')}
+                    icon={Layers}
+                    onClick={viewport.visibility.showEverything}
+                  />
+                )}
                 <ViewerIconButton
                   label={railOpen ? t('stage.rail.hide') : t('stage.rail.show')}
                   icon={PanelLeft}
@@ -479,6 +551,13 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               onClick={() =>
                 viewport.setSection(section ? null : { atMetres: cutDefault, flipped: false })
               }
+            />
+            <ViewerIconButton
+              label={t('viewer.measure.toggle')}
+              icon={Ruler}
+              active={viewport.measure.active}
+              disabled={viewport.status.phase !== 'ready'}
+              onClick={() => viewport.measure.setActive(!viewport.measure.active)}
             />
             <ViewerIconButton
               label={t('viewer.xray')}

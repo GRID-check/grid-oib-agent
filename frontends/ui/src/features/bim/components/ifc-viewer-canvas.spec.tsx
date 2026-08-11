@@ -17,9 +17,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 import { IfcViewerCanvas } from './ifc-viewer-canvas'
 import type { BimViewerElement } from '../lib/model-index'
+import type { Measurement } from '../lib/viewer-measure'
 
 interface RecordedRender {
   sectionPlane?: {
@@ -34,6 +35,7 @@ interface RecordedRender {
   }
   ghostExceptIds?: Set<number> | null
   isolatedIds?: Set<number> | null
+  hiddenIds?: Set<number>
   selectedId?: number | null
 }
 
@@ -42,6 +44,16 @@ const BOUNDS = { min: { x: -10, y: -3, z: -10 }, max: { x: 10, y: 9, z: 10 } }
 
 const renders: RecordedRender[] = []
 const disposed = { renderer: 0, geometry: 0 }
+
+/**
+ * What the fake raycaster answers, one entry per call.
+ *
+ * A queue rather than a fixed value, because the measurement path is a
+ * SEQUENCE — a pointer move, a first click, another move, a second click — and
+ * the interesting failures are in how those compose.
+ */
+const raycasts: ({ point: { x: number; y: number; z: number }; snap?: string } | null)[] = []
+
 const camera = {
   orbit: vi.fn(),
   pan: vi.fn(),
@@ -55,6 +67,12 @@ const camera = {
   setProjectionMode: vi.fn(),
   fitBoundsAdaptive: vi.fn(),
   setSceneBounds: vi.fn(),
+  // The flat projector: world X/Y straight to pixels, Z ignored. Enough to
+  // assert that a measurement lands where the camera says it does.
+  projectToScreen: vi.fn((point: { x: number; y: number }) => ({
+    x: point.x * 10,
+    y: point.y * 10,
+  })),
 }
 
 vi.mock('@ifc-lite/renderer', () => ({
@@ -71,6 +89,14 @@ vi.mock('@ifc-lite/renderer', () => ({
     }
     async pick(): Promise<null> {
       return null
+    }
+    raycastScene() {
+      const next = raycasts.shift()
+      if (!next) return null
+      return {
+        intersection: { point: next.point, expressId: 21 },
+        ...(next.snap ? { snap: { type: next.snap, position: next.point, expressId: 21 } } : {}),
+      }
     }
     getCamera() {
       return camera
@@ -122,6 +148,7 @@ const lastRender = (): RecordedRender => {
 
 beforeEach(() => {
   renders.length = 0
+  raycasts.length = 0
   disposed.renderer = 0
   disposed.geometry = 0
   vi.stubGlobal(
@@ -140,6 +167,23 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/**
+ * happy-dom has no layout and no pointer capture.
+ *
+ * Both are load-bearing here rather than incidental: the overlay bails out on
+ * a zero-sized canvas (it would divide a projection by nothing), and every
+ * gesture starts by capturing the pointer so a drag that leaves the element
+ * still orbits.
+ */
+function stubCanvasHost(): void {
+  const canvas = HTMLCanvasElement.prototype as unknown as Record<string, unknown>
+  Object.defineProperty(canvas, 'clientWidth', { value: 800, configurable: true })
+  Object.defineProperty(canvas, 'clientHeight', { value: 600, configurable: true })
+  canvas.setPointerCapture = () => {}
+  canvas.releasePointerCapture = () => {}
+  canvas.hasPointerCapture = () => false
+}
+
 /** Mount, and wait until the model has streamed in and a frame has been drawn. */
 async function mountLoaded(props: Partial<Parameters<typeof IfcViewerCanvas>[0]> = {}) {
   const result = render(
@@ -147,6 +191,12 @@ async function mountLoaded(props: Partial<Parameters<typeof IfcViewerCanvas>[0]>
   )
   await waitFor(() => expect(renders.length).toBeGreaterThan(0))
   return result
+}
+
+/** A click: press and release without travelling, which is what selects. */
+function clickCanvas(canvas: Element, at: { clientX: number; clientY: number }): void {
+  fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, ...at })
+  fireEvent.pointerUp(canvas, { pointerId: 1, button: 0, ...at })
 }
 
 describe('the cut the renderer is actually given', () => {
@@ -236,6 +286,163 @@ describe('the x-ray set', () => {
   it('reaches the renderer under the key the renderer reads', async () => {
     await mountLoaded({ xrayKeepIds: new Set([21]) })
     await waitFor(() => expect(lastRender().ghostExceptIds).toEqual(new Set([21])))
+  })
+})
+
+describe('measuring', () => {
+  beforeEach(() => {
+    stubCanvasHost()
+  })
+
+  it('closes a measurement on the second click, not the first', async () => {
+    const onMeasure = vi.fn()
+    raycasts.push(
+      { point: { x: 0, y: 0, z: 0 }, snap: 'vertex' },
+      { point: { x: 3, y: 0, z: 4 }, snap: 'vertex' }
+    )
+    const { container } = await mountLoaded({ measuring: true, onMeasure })
+    const canvas = container.querySelector('canvas')!
+
+    clickCanvas(canvas, { clientX: 10, clientY: 10 })
+    expect(onMeasure).not.toHaveBeenCalled()
+
+    clickCanvas(canvas, { clientX: 90, clientY: 10 })
+    await waitFor(() => expect(onMeasure).toHaveBeenCalledTimes(1))
+    const measured = onMeasure.mock.calls[0][0] as Measurement
+    expect(measured.from.point).toEqual({ x: 0, y: 0, z: 0 })
+    expect(measured.to.point).toEqual({ x: 3, y: 0, z: 4 })
+  })
+
+  it('does not select the element it measured', async () => {
+    // Selecting would open the inspector over the wall being measured, and
+    // the second pick would land on the panel rather than the building.
+    const onSelect = vi.fn()
+    raycasts.push({ point: { x: 0, y: 0, z: 0 }, snap: 'vertex' })
+    const { container } = await mountLoaded({ measuring: true, onSelect })
+
+    clickCanvas(container.querySelector('canvas')!, { clientX: 10, clientY: 10 })
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('still selects when the tool is off', async () => {
+    const onSelect = vi.fn()
+    const { container } = await mountLoaded({ onSelect })
+
+    clickCanvas(container.querySelector('canvas')!, { clientX: 10, clientY: 10 })
+    await waitFor(() => expect(onSelect).toHaveBeenCalled())
+  })
+
+  it('says when a first point is down, so the chrome can say what to click next', async () => {
+    const onMeasurePending = vi.fn()
+    raycasts.push(
+      { point: { x: 0, y: 0, z: 0 }, snap: 'vertex' },
+      { point: { x: 1, y: 0, z: 0 }, snap: 'vertex' }
+    )
+    const { container } = await mountLoaded({ measuring: true, onMeasurePending })
+    const canvas = container.querySelector('canvas')!
+
+    clickCanvas(canvas, { clientX: 10, clientY: 10 })
+    expect(onMeasurePending).toHaveBeenLastCalledWith(true)
+
+    clickCanvas(canvas, { clientX: 40, clientY: 10 })
+    await waitFor(() => expect(onMeasurePending).toHaveBeenLastCalledWith(false))
+  })
+
+  it('drops a half-placed measurement when the tool is switched off', async () => {
+    // Keeping it would mean the next click, after the reader had orbited
+    // somewhere else entirely, silently closes a measurement against a point
+    // they had forgotten was down.
+    const onMeasure = vi.fn()
+    raycasts.push(
+      { point: { x: 0, y: 0, z: 0 }, snap: 'vertex' },
+      { point: { x: 1, y: 0, z: 0 }, snap: 'vertex' }
+    )
+    const { container, rerender } = await mountLoaded({ measuring: true, onMeasure })
+    const canvas = container.querySelector('canvas')!
+    clickCanvas(canvas, { clientX: 10, clientY: 10 })
+
+    rerender(
+      <IfcViewerCanvas
+        sourceUrl="https://example.test/model.ifc"
+        elements={ELEMENTS}
+        measuring={false}
+        onMeasure={onMeasure}
+      />
+    )
+    rerender(
+      <IfcViewerCanvas
+        sourceUrl="https://example.test/model.ifc"
+        elements={ELEMENTS}
+        measuring
+        onMeasure={onMeasure}
+      />
+    )
+    clickCanvas(canvas, { clientX: 40, clientY: 10 })
+
+    expect(onMeasure).not.toHaveBeenCalled()
+  })
+
+  it('draws the finished measurement over the model', async () => {
+    const { container } = await mountLoaded({
+      measuring: true,
+      measurements: [
+        {
+          id: 'a',
+          from: { point: { x: 0, y: 0, z: 0 }, snap: 'vertex' },
+          to: { point: { x: 2, y: 1, z: 0 }, snap: 'vertex' },
+        },
+      ],
+    })
+
+    // Projected by the fake camera at ten pixels per metre.
+    await waitFor(() => {
+      const line = container.querySelector('svg line')
+      expect(line?.getAttribute('x2')).toBe('20')
+      expect(line?.getAttribute('y2')).toBe('10')
+    })
+    expect(container.textContent).toContain('2.24 m')
+  })
+
+  it('leaves every gesture reaching the canvas underneath', async () => {
+    // The overlay covers the whole viewport. If it took pointer events the
+    // model would stop orbiting the moment a measurement existed.
+    const { container } = await mountLoaded({ measurements: [] })
+    const svg = container.querySelector('svg')!
+    const labels = svg.nextElementSibling as HTMLElement
+    expect(svg.getAttribute('class')).toContain('pointer-events-none')
+    expect(labels.className).toContain('pointer-events-none')
+  })
+})
+
+describe('taking elements out of the way', () => {
+  it('sends the hidden set under the key the renderer reads', async () => {
+    await mountLoaded({ hiddenExpressIds: new Set([21, 22]) })
+    await waitFor(() => expect(lastRender().hiddenIds).toEqual(new Set([21, 22])))
+  })
+
+  it('sends nothing at all when nothing is hidden', async () => {
+    // An empty set is a no-op to the renderer either way, but it still costs a
+    // per-frame element-wise compare against the previous snapshot on every
+    // batch in the scene.
+    await mountLoaded({ hiddenExpressIds: new Set() })
+    expect(lastRender().hiddenIds).toBeUndefined()
+
+    await mountLoaded()
+    expect(lastRender().hiddenIds).toBeUndefined()
+  })
+
+  it('keeps hiding separate from isolating', async () => {
+    // They are two different verbs and the renderer reads them as two
+    // different options. Collapsing either into the other would make "hide
+    // this slab" mean "show only this slab".
+    await mountLoaded({
+      hiddenExpressIds: new Set([21]),
+      isolatedExpressIds: new Set([22, 24]),
+    })
+    await waitFor(() => {
+      expect(lastRender().hiddenIds).toEqual(new Set([21]))
+      expect(lastRender().isolatedIds).toEqual(new Set([22, 24]))
+    })
   })
 })
 

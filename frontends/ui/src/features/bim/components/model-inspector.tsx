@@ -29,7 +29,7 @@
  */
 
 import Link from 'next/link'
-import { MessageSquarePlus } from 'lucide-react'
+import { EyeOff, MessageSquarePlus, Scan } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
@@ -46,6 +46,16 @@ export interface ModelInspectorProps {
   projectId: string
   modelFilename: string | null
   onClose: () => void
+  /**
+   * Take this component out of the way, or look at nothing but it.
+   *
+   * On the card rather than in the dock because both act on THIS element, and
+   * a dock button whose meaning depends on an invisible selection is a control
+   * that does something different every time it is pressed. Omitted by
+   * surfaces that have nowhere to put the building back.
+   */
+  onHide?: () => void
+  onIsolate?: () => void
   className?: string
 }
 
@@ -56,6 +66,8 @@ export function ModelInspector({
   projectId,
   modelFilename,
   onClose,
+  onHide,
+  onIsolate,
   className,
 }: ModelInspectorProps): JSX.Element {
   const t = useTranslations('bim')
@@ -79,6 +91,39 @@ export function ModelInspector({
       className={className}
       footer={
         element && (
+          <div className="space-y-1">
+            {/*
+              Two verbs, and they are different verbs: hiding takes THIS out
+              of the way, isolating takes everything else. Side by side
+              because the reader is choosing between them, not working down a
+              list.
+            */}
+            {(onHide || onIsolate) && (
+              <div className="flex gap-1">
+                {onIsolate && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="flex-1 justify-start gap-2"
+                    onClick={onIsolate}
+                  >
+                    <Scan className="size-4" aria-hidden="true" />
+                    {t('stage.selection.isolate')}
+                  </Button>
+                )}
+                {onHide && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="flex-1 justify-start gap-2"
+                    onClick={onHide}
+                  >
+                    <EyeOff className="size-4" aria-hidden="true" />
+                    {t('stage.selection.hide')}
+                  </Button>
+                )}
+              </div>
+            )}
           <Button asChild variant="ghost" size="sm" className="w-full justify-start gap-2">
             <Link
               href={elementQuestionHref(
@@ -96,6 +141,7 @@ export function ModelInspector({
               {t('stage.selection.ask')}
             </Link>
           </Button>
+          </div>
         )
       }
     >
