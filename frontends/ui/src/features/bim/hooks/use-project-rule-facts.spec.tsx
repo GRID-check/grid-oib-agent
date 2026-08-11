@@ -42,14 +42,39 @@ describe('useProjectRuleFacts', () => {
     // Clamping 9 to 5 would invent a requirement the project never stated.
     stubProfile({ facts: { gebaeudeklasse: { value: 9 } } })
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
-    await waitFor(() => expect(result.current.missing).toContain('Gebäudeklasse'))
+    await waitFor(() => expect(result.current.ready).toBe(true))
     expect(result.current.gebaeudeklasse).toBeNull()
+    expect(result.current.missing).toContain('Gebäudeklasse')
   })
 
-  it('refuses a non-numeric Gebäudeklasse', async () => {
-    stubProfile({ facts: { gebaeudeklasse: { value: 'GK 4' } } })
+  it('reads the canonical GK form the brief actually stores', async () => {
+    // `GK1`…`GK5` is the vocabulary the card schema publishes and the chat
+    // writes. `Number('GK4')` is NaN, so a CORRECTLY filled brief read as "no
+    // Gebäudeklasse" — every rule depending on it stood down as "nicht
+    // einschlägig" here while the agent, which passes the number, returned
+    // real verdicts. The card and the answer above it disagreed on screen.
+    stubProfile({ facts: { gebaeudeklasse: { value: 'GK4' } } })
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
-    await waitFor(() => expect(result.current.missing).toContain('Gebäudeklasse'))
+    await waitFor(() => expect(result.current.gebaeudeklasse).toBe(4))
+    expect(result.current.missing).not.toContain('Gebäudeklasse')
+  })
+
+  it('accepts a bare number, which nothing forbids', async () => {
+    stubProfile({ facts: { gebaeudeklasse: { value: 4 } } })
+    const { result } = renderHook(() => useProjectRuleFacts('p1'))
+    await waitFor(() => expect(result.current.gebaeudeklasse).toBe(4))
+  })
+
+  it('refuses a Gebäudeklasse it cannot read', async () => {
+    // Asserted on `ready`, not on `missing`: `missing` contains everything
+    // before the fetch resolves, so a `waitFor` on it passes at mount whatever
+    // the answer turns out to be. This test used to do exactly that, and
+    // therefore pinned nothing.
+    stubProfile({ facts: { gebaeudeklasse: { value: 'Klasse vier' } } })
+    const { result } = renderHook(() => useProjectRuleFacts('p1'))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.gebaeudeklasse).toBeNull()
+    expect(result.current.missing).toContain('Gebäudeklasse')
   })
 
   it('treats an empty Hauptnutzung as absent', async () => {

@@ -52,6 +52,7 @@ import {
   diffBimCompliance,
   missingPropertyShoppingList,
   renderBimComplianceDiff,
+  ifcTypeVariants,
   renderBimRules,
   runBimRules,
   summarizeBimRules,
@@ -67,7 +68,7 @@ import {
 } from './schedule'
 import { healthCaveat, type BimHealth } from './validate'
 import { BIM_ELEMENTS_PAGE_LIMIT } from './types'
-import type { BimModelSummary } from './types'
+import type { BimModelSummary, BimUnits } from './types'
 
 /** Comparison operators a property filter may use. */
 export const BIM_FILTER_OPERATORS = [
@@ -278,6 +279,8 @@ export interface BimQueryResult {
    */
   propertyScan?: { scanned: number; total: number; complete: boolean }
   groups?: BimGroupedCount[]
+  /** The model's own unit assignment, so an aggregate can name its unit. */
+  units?: BimUnits
   total?: number
   /**
    * `total` is a LOWER BOUND, not the count: past `COUNT_CEILING` matches the
@@ -554,10 +557,14 @@ function sharedConditions(filter: BimFilter): SQL[] {
   const conditions: Array<SQL | undefined> = []
 
   if (filter.ifcTypes?.length) {
+    // Every spelling of each requested type — see `ifcTypeVariants`. An IFC4
+    // export whose walls are `IfcWallStandardCase` used to answer a filter for
+    // `IfcWall` with nothing at all, and the agent read that as a building
+    // with no walls.
     conditions.push(
       inArray(
         sql`lower(${bimElements.ifcType})`,
-        filter.ifcTypes.map((type) => type.toLowerCase())
+        [...new Set(filter.ifcTypes.flatMap(ifcTypeVariants))]
       )
     )
   }
@@ -675,6 +682,12 @@ function quantityExpression(quantity: string, quantitySet: string | undefined): 
   return sql`(SELECT (p.prop_value)::numeric FROM ${unnestedProperties('quantity')} WHERE ${sql.join(conditions, sql` AND `)} LIMIT 1)`
 }
 
+/** The per-element value the metric aggregates, or null for a bare count. */
+function metricValueExpression(request: z.infer<typeof aggregateSchema>): SQL | null {
+  if (request.metric === 'count' || !request.quantity) return null
+  return quantityExpression(request.quantity, request.quantitySet)
+}
+
 function metricExpression(request: z.infer<typeof aggregateSchema>): SQL | null {
   if (request.metric === 'count' || !request.quantity) return null
   const value = quantityExpression(request.quantity, request.quantitySet)
@@ -695,6 +708,37 @@ function formatNumber(value: number): string {
 }
 
 /** German one-liner the agent can quote verbatim without doing arithmetic. */
+/**
+ * The unit symbol a quantity is measured in, per the model's own
+ * `IfcUnitAssignment`.
+ *
+ * Deliberately conservative: the dimension is inferred from the quantity's
+ * NAME, and a name this does not recognise gets no symbol rather than a
+ * guessed one. A missing unit makes the agent quote a bare number, which is
+ * what it did for every aggregate until now; a WRONG unit would have it write
+ * "4 120 000 m²" for a model in millimetres, which is worse than silent.
+ *
+ * The IFC quantity vocabulary is small and stable — `Qto_*` sets use
+ * `…Area`, `…Volume`, `…Length`/`Width`/`Height`/`Perimeter`/`Depth`/
+ * `Thickness` — so this covers the quantities anyone aggregates.
+ */
+function quantityUnit(
+  request: BimQuery,
+  units: BimUnits | undefined
+): string {
+  if (request.op !== 'aggregate' || request.metric === 'count' || !request.quantity) return ''
+  if (!units) return ''
+  const name = request.quantity.toLowerCase()
+  const unit = name.includes('area')
+    ? units.area
+    : name.includes('volume')
+      ? units.volume
+      : /length|width|height|perimeter|depth|thickness/.test(name)
+        ? units.length
+        : null
+  return unit?.symbol ? ` ${unit.symbol}` : ''
+}
+
 function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'>): string {
   switch (request.op) {
     case 'overview': {
@@ -804,19 +848,41 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
     case 'aggregate': {
       const groups = result.groups ?? []
       if (groups.length === 0) return 'Kein Bauteil erfüllt die Abfrage.'
-      const unit = request.metric === 'count' ? '' : ''
+      // The model's own unit symbol, the way `overview` and `schedule` already
+      // attach one. This used to be `request.metric === 'count' ? '' : ''` — a
+      // placeholder never filled — so a model declaring millimetres answered
+      // "4120000" and the agent wrote m².
+      const unit = quantityUnit(request, result.units)
+      /**
+       * How many elements CARRIED the quantity, beside how many matched.
+       *
+       * `sum`/`avg` skip elements that publish nothing, so a hundred rooms of
+       * which ten have a floor area produced "250 über 100 Bauteile" — a sum
+       * of ten values asserted over a hundred elements. `takeoff` and
+       * `schedule` have carried this distinction from the start; the operation
+       * the tool description calls "how you answer how much" did not.
+       */
+      const over = (group: { elements: number; measured: number }): string =>
+        group.measured === group.elements
+          ? `${group.elements} Bauteile`
+          : `${group.measured} von ${group.elements} Bauteilen ` +
+            `(${group.elements - group.measured} ohne Wert)`
+
       if (!request.groupBy) {
         const only = groups[0]
         return request.metric === 'count'
           ? `${only.elements} Bauteil${only.elements === 1 ? '' : 'e'}.`
-          : `${request.metric}(${request.quantity}) = ${only.metric === null ? '—' : formatNumber(only.metric)}${unit} über ${only.elements} Bauteile.`
+          : `${request.metric}(${request.quantity}) = ${only.metric === null ? '—' : formatNumber(only.metric)}${unit} über ${over(only)}.`
       }
       const rendered = groups
         .map((group) => {
           const label = group.key ?? '(ohne Angabe)'
-          return request.metric === 'count'
-            ? `${label}: ${group.elements}`
-            : `${label}: ${group.metric === null ? '—' : formatNumber(group.metric)} (${group.elements})`
+          if (request.metric === 'count') return `${label}: ${group.elements}`
+          const measured =
+            group.measured === group.elements
+              ? `${group.elements}`
+              : `${group.measured}/${group.elements}`
+          return `${label}: ${group.metric === null ? '—' : formatNumber(group.metric)}${unit} (${measured})`
         })
         .join(', ')
       return `${rendered}.`
@@ -862,7 +928,40 @@ export async function runBimQuery(
   // or the vocabulary, which orphaning does not distort — attaching the caveat
   // there would train the agent to ignore it.
   const CAVEATED_OPS = new Set(['overview', 'types', 'elements', 'aggregate'])
-  const caveat = health && CAVEATED_OPS.has(request.op) ? healthCaveat(health) : null
+  const healthNote = health && CAVEATED_OPS.has(request.op) ? healthCaveat(health) : null
+
+  /**
+   * The extraction cap, said out loud to the agent.
+   *
+   * `summary.truncatedAt` records that the file was bigger than the stored
+   * element list. Every op that reads ROWS therefore answers over part of the
+   * building, while `overview` — which reads the summary — answers over all of
+   * it. The agent could put both in one reply and had no way to know they
+   * disagreed: "350 000 Bauteile" from the overview, and a filtered count over
+   * the 200 000 that were stored.
+   *
+   * `compliance` already carried this. The rest did not, though the digest and
+   * the viewer both say it plainly.
+   */
+  const ROW_READING_OPS = new Set([
+    'types',
+    'elements',
+    'aggregate',
+    'schedule',
+    'takeoff',
+    'compare',
+    'compliance-diff',
+    'profile',
+    'properties',
+  ])
+  const truncatedAt = model.summary?.truncatedAt ?? null
+  const capNote =
+    truncatedAt !== null && ROW_READING_OPS.has(request.op)
+      ? `Achtung: von diesem Modell sind nur ${truncatedAt} Bauteile gespeichert — die Datei ist größer. ` +
+        `Jede Zahl aus dieser Abfrage bezieht sich auf den gespeicherten Teil, nicht auf das ganze Gebäude.`
+      : null
+
+  const caveat = [capNote, healthNote].filter(Boolean).join(' ') || null
 
   const finish = (partial: Omit<BimQueryResult, 'summary'>): BimQueryResult => ({
     ...partial,
@@ -1047,9 +1146,13 @@ export async function runBimQuery(
         where: buildBimPredicate(request.filter, { searchKeysIndexed: model.searchKeysIndexed }),
         groupExpression: groupExpression(request.groupBy, request.groupProperty),
         metricExpression: metricExpression(request),
+        metricValueExpression: metricValueExpression(request),
         limit: request.limit,
       })
-      return finish({ ...modelBase, groups })
+      // The model's units travel with the answer so the summary can name
+      // them — the aggregate is the one quantity operation that reported bare
+      // numbers.
+      return finish({ ...modelBase, groups, units: model.summary?.units })
     }
   }
 }

@@ -554,6 +554,15 @@ export interface BimGroupedCount {
   key: string | null
   elements: number
   metric: number | null
+  /**
+   * How many of {@link elements} actually published the aggregated quantity.
+   *
+   * Equal to `elements` for a `count` metric. Lower whenever some elements do
+   * not carry the quantity — which is the normal case, and the difference
+   * between "250 m² über 100 Räume" and the truth, "250 m² über 10 von 100
+   * Räumen; 90 führen keine Fläche".
+   */
+  measured: number
 }
 
 /**
@@ -569,6 +578,11 @@ export async function aggregateBimElements(input: {
   where?: ReturnType<typeof and>
   groupExpression: ReturnType<typeof sql> | null
   metricExpression: ReturnType<typeof sql> | null
+  /**
+   * The per-element value the metric aggregates, for counting how many
+   * elements actually CARRIED one. See `measured` on the row.
+   */
+  metricValueExpression: ReturnType<typeof sql> | null
   limit: number
 }): Promise<BimGroupedCount[]> {
   const db = getDb()
@@ -583,6 +597,15 @@ export async function aggregateBimElements(input: {
         key: sql<string | null>`${groupKey}`.as('group_key'),
         elements: count(),
         metric: sql<string | null>`${metric}`.as('metric'),
+        // How many of those elements published the quantity at all.
+        //
+        // `sum()` and `avg()` skip nulls, so a hundred rooms of which ten
+        // carry a `NetFloorArea` produced "250 über 100 Bauteile" — a sum of
+        // ten values, asserted over a hundred elements. `count(expr)` counts
+        // non-nulls, which is exactly the contributor count.
+        measured: input.metricValueExpression
+          ? sql<number>`count(${input.metricValueExpression})`.as('measured')
+          : count(),
       })
       .from(bimElements)
       .where(predicate)
@@ -599,6 +622,7 @@ export async function aggregateBimElements(input: {
     key: row.key ?? null,
     elements: Number(row.elements),
     metric: row.metric === null || row.metric === undefined ? null : Number(row.metric),
+    measured: Number(row.measured ?? row.elements),
   }))
 }
 

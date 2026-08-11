@@ -20,6 +20,7 @@ import {
   outstandingRules,
   BIM_RULES,
   diffBimCompliance,
+  ifcTypeVariants,
   renderBimComplianceDiff,
   missingPropertyShoppingList,
   renderBimRules,
@@ -365,6 +366,34 @@ describe('false verdicts a reviewer found by running the catalogue', () => {
     ).filter((r) => r.ruleId === 'oib5-schalldaemmung-deklariert')
 
     expect(rule.passed).toBe(1)
+  })
+})
+
+/**
+ * The same normalisation, one layer out.
+ *
+ * The catalogue learned to read `IfcDoorStandardCase` as a door; the QUERY
+ * layer — which every question the agent asks goes through — kept matching
+ * `lower(ifc_type)` exactly. An IFC4 export whose walls are
+ * `IfcWallStandardCase` answered a filter for `IfcWall` with nothing, and the
+ * agent reported a building with no walls in it.
+ */
+describe('the spellings one requested IFC type can have', () => {
+  it('expands a plain type to the IFC4 subtypes an exporter may have written', () => {
+    expect(ifcTypeVariants('IfcWall')).toEqual([
+      'ifcwall',
+      'ifcwallstandardcase',
+      'ifcwallelementedcase',
+    ])
+  })
+
+  it('matches the plain type when the caller named a subtype', () => {
+    // The caller is naming a kind of component, not an exporter's choice.
+    expect(ifcTypeVariants('IfcDoorStandardCase')).toContain('ifcdoor')
+  })
+
+  it('is case-insensitive, like the column comparison it feeds', () => {
+    expect(ifcTypeVariants('IFCSLAB')).toContain('ifcslab')
   })
 })
 

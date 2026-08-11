@@ -1000,6 +1000,30 @@ const CASE_SUFFIX = /(standardcase|elementedcase)$/
 
 const normaliseType = (ifcType: string): string => ifcType.toLowerCase().replace(CASE_SUFFIX, '')
 
+/**
+ * Every stored spelling of one requested IFC type, lowercased.
+ *
+ * The same problem as {@link normaliseType}, one layer out. A filter asking
+ * for `IfcWall` is asking about walls, and an IFC4 exporter that wrote
+ * `IfcWallStandardCase` has written walls — but the query layer matched
+ * `lower(ifc_type)` exactly, so the answer was "Kein Bauteil erfüllt die
+ * Abfrage" and the agent reported a building with no walls in it.
+ *
+ * Expanded to a variant LIST rather than normalising the column, because
+ * `regexp_replace(lower(ifc_type), …)` on every row cannot use the index the
+ * element table is read through, and this is the hot path for every question
+ * anyone asks about a building. Normalisation only ever strips these two
+ * suffixes, so the expansion is exactly equivalent.
+ *
+ * Asking for `IfcWallStandardCase` matches plain `IfcWall` too, for the same
+ * reason in the other direction: the caller is naming a kind of component,
+ * not an exporter's choice of subtype.
+ */
+export function ifcTypeVariants(ifcType: string): string[] {
+  const base = normaliseType(ifcType)
+  return [base, `${base}standardcase`, `${base}elementedcase`]
+}
+
 const matchesType = (element: BimElement, types: readonly string[]): boolean =>
   types.some((type) => normaliseType(type) === normaliseType(element.ifcType))
 

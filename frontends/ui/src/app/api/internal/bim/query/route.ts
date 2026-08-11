@@ -22,7 +22,7 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
-import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { bimQuerySchema, runBimQuery, BimModelNotReadyError } from '@/lib/bim/query'
 import { listBimModels, type BimModelHeader } from '@/lib/bim/repository'
 import { FEATURE_FLAGS, enforcementOn, ifcModelsEnvEnabled } from '@/lib/authz/feature-flags'
@@ -202,7 +202,14 @@ export const POST = internalApiRoute(
           models: [describe(selected)],
         }
       }
-      throw new BadRequestError('BIM query could not be executed')
+      // Anything else is OURS, not the caller's. Turning a statement timeout
+      // or an exhausted pool into a `BadRequestError` told the agent it had
+      // sent a malformed request — and because an `ApiError` is returned
+      // directly, it also skipped the handler's logging, so the operator saw
+      // nothing at all. Rethrowing lets the factory log it and answer 500,
+      // which is the difference between "your query is wrong" and "we are
+      // broken".
+      throw error
     }
   },
   { tenancy: { fromPayload: 'body.organizationId' } }

@@ -744,7 +744,17 @@ export function useProjectRuleFacts(projectId: string | null): {
       .then((profile) => {
         if (cancelled) return
         const raw = profile.facts ?? {}
-        const klasse = Number(raw.gebaeudeklasse?.value)
+        // The brief stores the canonical `GK1`…`GK5` — that is the vocabulary
+        // the card schema publishes and the one the chat writes. `Number()`
+        // over it is NaN, so a CORRECTLY filled brief read as "no
+        // Gebäudeklasse": every rule that depends on it stood down as "nicht
+        // einschlägig" on this side, while the agent — which passes the number
+        // — returned real verdicts. The compliance card and the answer above
+        // it contradicted each other on the same screen.
+        //
+        // A bare number is still accepted: nothing forbids one, and refusing
+        // it would trade one silent stand-down for another.
+        const klasse = Number(String(raw.gebaeudeklasse?.value ?? '').trim().replace(/^GK\s*/i, ''))
         const nutzung = raw.hauptnutzung?.value
         setFacts({
           gebaeudeklasse: Number.isInteger(klasse) && klasse >= 1 && klasse <= 5 ? klasse : null,
