@@ -4,10 +4,24 @@
  * Every control in the viewport's chrome.
  *
  * An icon with no visible text is a control with no name, and a viewport made
- * of them is a puzzle. So the label is REQUIRED and it does three jobs from one
- * prop: the tooltip a mouse sees, the accessible name a screen reader hears,
- * and the `title` a touch device gets on long-press. There is no way to add a
- * control here and forget to name it.
+ * of them is a puzzle. So the label is REQUIRED and it does two jobs from one
+ * prop: the tooltip a mouse sees and the accessible name a screen reader
+ * hears. There is no way to add a control here and forget to name it.
+ *
+ * ## What the label does NOT reach: a finger
+ *
+ * `title` renders nothing on iOS Safari or Android Chrome, and Radix's tooltip
+ * trigger returns early on `pointerType === 'touch'` — a tap cannot open it
+ * either, because its `onFocus` path is gated on a preceding pointer-down. So
+ * on a touch device these controls are unlabelled glyphs, and no amount of
+ * wiring here changes that: it is what every touch drawing tool ships, and
+ * icons in a bottom dock are learned by pressing them.
+ *
+ * What that rules out is putting INFORMATION in a label. A state a reader can
+ * only discover by hovering does not exist on a phone, so anything the reader
+ * has to know — a capture that failed, why a toggle is disabled — needs a
+ * carrier of its own. `model-stage.tsx` puts those in the warning pill and the
+ * live region rather than swapping a name here and hoping.
  *
  * Built on the shared `Button` rather than a bespoke element, so the focus
  * ring, the coarse-pointer target size and the press animation are the app's
@@ -28,7 +42,8 @@ import { cn } from '@/lib/utils'
 
 export interface ViewerIconButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'title' | 'children'> {
-  /** The control's name. Tooltip, accessible name and long-press title. */
+  /** The control's name: the tooltip, and the accessible name. Not a channel
+   * for anything a touch reader has to know — see the note above. */
   label: string
   icon: ComponentType<{ className?: string }>
   onClick?: () => void

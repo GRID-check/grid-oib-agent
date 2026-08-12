@@ -10,9 +10,9 @@
  *
  * A native `<input type="range">`, not a Radix slider. It is the pattern the
  * repo already uses, it is keyboard-operable and screen-reader-labelled for
- * free, and it drags correctly on a touchscreen without a line of code. The
- * `<output>` beside it is what turns "somewhere around there" into a number a
- * reader can put in an email.
+ * free, and it drags correctly on a touchscreen once it is tall enough to be
+ * acquired by a finger (see the class list). The `<output>` beside it is what
+ * turns "somewhere around there" into a number a reader can put in an email.
  *
  * ## Two callbacks, because a drag is not one event
  *
@@ -122,7 +122,20 @@ export function ViewerSlider({
       <input
         id={id}
         type="range"
-        className="accent-foreground h-1 w-24 min-w-0 flex-1 cursor-pointer sm:w-56 sm:flex-none"
+        /*
+          `pointer-coarse:h-11` rather than the `touch-target` utility: that
+          one works through an `::after` overlay, and a pseudo-element on a
+          replaced element like `<input>` is never rendered. The box itself has
+          to grow.
+
+          It has to grow because pointer hit-testing on a range is bounded by
+          the ELEMENT box, not by the drawn thumb — so a `h-1` slider gives a
+          finger a 4 px band to land on, and at `flex-1` on a phone that band
+          is a 4 px × 150 px sliver between the readout and the flip button.
+          The track and thumb stay centred in the taller box, so nothing about
+          the control looks different.
+        */
+        className="accent-foreground h-1 w-24 min-w-0 flex-1 cursor-pointer pointer-coarse:h-11 sm:w-56 sm:flex-none"
         min={min}
         max={max}
         step={step}

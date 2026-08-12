@@ -456,10 +456,37 @@ describe('downloadWithProgress', () => {
     // A proxy that recompresses can leave Content-Length smaller than the
     // decoded body, which used to drive a progress bar past its own end.
     const seen: Array<number | null> = []
-    await downloadWithProgress(streamed([[1, 2, 3, 4]], { 'Content-Length': '2' }), (p) =>
+    const bytes = await downloadWithProgress(streamed([[1, 2, 3, 4]], { 'Content-Length': '2' }), (p) =>
       seen.push(p)
     )
     expect(seen).toEqual([100])
+    // And every byte still arrives. The declared length now sizes a single
+    // pre-allocated buffer, so a body longer than declared is the case that
+    // would truncate the model if the spill back to the chunk list were wrong
+    // — and a short IFC parses into a building with pieces missing rather
+    // than failing.
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4])
+  })
+
+  it('writes into one buffer when the length is known, rather than copying twice', async () => {
+    // The reason this matters is memory, which no assertion here can see: the
+    // old path kept every chunk AND allocated a second full-size array, so a
+    // 149 MB model peaked at 300 MB of JS heap and took phones with it. What
+    // is observable is that the single-buffer path returns exactly the bytes.
+    const bytes = await downloadWithProgress(
+      streamed([[1, 2], [3], [4, 5, 6]], { 'Content-Length': '6' }),
+      () => {}
+    )
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(bytes).toHaveLength(6)
+  })
+
+  it('returns only the bytes that arrived when the body is shorter than declared', async () => {
+    // A truncated transfer, or metadata written for a different revision. The
+    // pre-allocated buffer is full-size and zero-filled, so returning it whole
+    // would hand the parser a tail of zeroes as if it were geometry.
+    const bytes = await downloadWithProgress(streamed([[1, 2, 3]], { 'Content-Length': '10' }), () => {})
+    expect(Array.from(bytes)).toEqual([1, 2, 3])
   })
 
   it('falls back to a buffered read when the body cannot stream', async () => {

@@ -935,6 +935,32 @@ export function IfcViewerCanvas({
     if (pointersRef.current.size === 0) {
       interactingRef.current = false
       setDragging(false)
+      return
+    }
+    /*
+      One finger left of a pinch — re-arm the orbit for it.
+
+      `handlePointerDown` nulls `dragRef` when the second finger lands, because
+      a pinch is not an orbit. Nothing put it back: the surviving finger fell
+      through to the hover branch in `handlePointerMove` and did NOTHING, so
+      the natural tablet gesture — pinch to frame, then keep dragging to turn —
+      stopped dead and the reader had to lift and re-place.
+
+      `moved: true` because this finger has already travelled: the release must
+      not be read as a click and select whatever it happens to be over.
+    */
+    if (pointersRef.current.size === 1 && dragRef.current === null) {
+      const [survivor] = [...pointersRef.current.values()]
+      if (survivor) {
+        dragRef.current = {
+          x: survivor.x,
+          y: survivor.y,
+          originX: survivor.x,
+          originY: survivor.y,
+          button: 0,
+          moved: true,
+        }
+      }
     }
   }
 
@@ -969,8 +995,12 @@ export function IfcViewerCanvas({
    * jumps, or a selection that never fires because `moved` is still true.
    */
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    endPointer(event)
+    // Cleared BEFORE `endPointer`, not after: with a second finger still on the
+    // glass `endPointer` re-arms the drag for it, and clearing afterwards threw
+    // that away — a palm rejection during a two-finger gesture then left the
+    // remaining finger inert.
     dragRef.current = null
+    endPointer(event)
   }
 
   /**
@@ -1684,7 +1714,12 @@ export function IfcViewerCanvas({
           // the viewport is the primary keyboard target and had no visible
           // focus at all. Same fix the repo already uses on `FileCard` and
           // `CodeBlock`.
-          'size-full touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
+          // `[-webkit-touch-callout:none]`: `select-none` and the suppressed
+          // context menu below cover Android and the desktop right-drag, but
+          // not Safari's image action sheet — a `<canvas>` with `role="img"`
+          // is an image to iOS, so a finger resting while its owner decides
+          // where to measure got "Save Image / Copy" over the building.
+          'size-full touch-none select-none [-webkit-touch-callout:none] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
           // The cursor IS the affordance. A canvas with a text caret over it
           // reads as a picture; a grab hand reads as something you can turn.
           // Measuring gets the crosshair every CAD tool uses, because the

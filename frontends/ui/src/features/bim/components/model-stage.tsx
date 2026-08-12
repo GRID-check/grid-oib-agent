@@ -109,6 +109,19 @@ import {
 const NO_ELEMENTS: readonly BimViewerElement[] = []
 
 /**
+ * Where the legend sits, given how many pills the dock has stacked above
+ * itself.
+ *
+ * Written out as whole class strings rather than composed, because Tailwind
+ * scans source text: a computed `bottom-${n}` produces no CSS at all.
+ */
+const DOCK_ABOVE_OFFSET: Record<0 | 1 | 2, string> = {
+  0: 'bottom-20 sm:bottom-24',
+  1: 'bottom-36 sm:bottom-40',
+  2: 'bottom-52 sm:bottom-56',
+}
+
+/**
  * Hide and isolate, bound to whatever is selected right now.
  *
  * Both are omitted rather than disabled when nothing is selected: the card
@@ -393,6 +406,28 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     },
     [setView, view.tab]
   )
+  /**
+   * Close the drawer and put focus back on the button that opened it.
+   *
+   * Deferred to an effect rather than called straight after `setAdvancedOpen`,
+   * because on a phone the drawer covers the dock and the dock is therefore
+   * `max-sm:hidden` while it is open: React has not re-rendered yet inside the
+   * handler, so a synchronous `focus()` was called on a `display:none` button
+   * and silently did nothing, dropping the reader at the top of a
+   * fifteen-control dialog. After the commit the dock is back and the same
+   * call lands.
+   */
+  const restoreAdvancedFocus = useRef(false)
+  const closeAdvanced = useCallback(() => {
+    restoreAdvancedFocus.current = true
+    setAdvancedOpen(false)
+  }, [setAdvancedOpen])
+  useEffect(() => {
+    if (advancedOpen || !restoreAdvancedFocus.current) return
+    restoreAdvancedFocus.current = false
+    advancedToggleRef.current?.focus()
+  }, [advancedOpen])
+
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -488,33 +523,59 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
    * block exists to prevent, and until now it was prevented only for people
    * who can see a small pill at the top of a full-screen 3D view.
    */
-  const stageWarning = useMemo(() => {
-    // First, because it is the only one of these that means the reader cannot
-    // USE the building. Without the rows a pick resolves to nothing, so every
-    // click on a wall silently clears the selection: the model is on screen
-    // and completely inert, and until now nothing said why.
-    if (elementsError !== null) return t('stage.elementsFailed')
+  const stageWarning = useMemo((): { text: string; retry: boolean } | null => {
+    /*
+      The two failures that had no visible words at all.
+
+      A failed capture and a failed copy were carried ONLY by a swapped icon
+      and a swapped accessible name — and the name reaches a tooltip a touch
+      device never opens and a `title` a phone never shows. So on the surface
+      this feature is most likely to be read on, pressing Capture and having
+      nothing happen looked exactly like pressing Capture and having nothing
+      happen. They outrank the standing warnings for the two seconds they
+      last, which is the order the live region already speaks them in: a thing
+      that just happened outranks a condition that was already true.
+    */
+    if (captureFailed) return { text: t('viewer.capture.failed'), retry: false }
+    if (copyFailed) return { text: t('link.failed'), retry: false }
+    // First of the standing warnings, because it is the only one that means
+    // the reader cannot USE the building. Without the rows a pick resolves to
+    // nothing, so every click on a wall silently clears the selection: the
+    // model is on screen and completely inert, and until now nothing said why.
+    if (elementsError !== null) return { text: t('stage.elementsFailed'), retry: true }
     if (openedAnother) {
-      return t('stage.otherModel', { wanted: view.model ?? '', opened: model?.filename ?? '' })
+      return {
+        text: t('stage.otherModel', { wanted: view.model ?? '', opened: model?.filename ?? '' }),
+        retry: false,
+      }
     }
     if (unresolvedHighlights > 0) {
       // The translator does no plural selection — it is `{token}` substitution
       // — so "1 der hervorgehobenen Bauteile SIND nicht enthalten" is what a
       // single missing element produced. One sibling key per counted string,
       // which is the precedent `viewer.measure.countOne` already set.
-      return unresolvedHighlights === 1
-        ? t('card.unresolvedOne')
-        : t('card.unresolved', { count: unresolvedHighlights })
+      return {
+        text:
+          unresolvedHighlights === 1
+            ? t('card.unresolvedOne')
+            : t('card.unresolved', { count: unresolvedHighlights }),
+        retry: false,
+      }
     }
     if (cappedHighlights > 0) {
       const groups = view.highlights ?? []
-      return t('stage.highlightCapped', {
-        shown: groups.reduce((sum, group) => sum + group.globalIds.length, 0),
-        total: groups.reduce((sum, group) => sum + (group.total ?? group.globalIds.length), 0),
-      })
+      return {
+        text: t('stage.highlightCapped', {
+          shown: groups.reduce((sum, group) => sum + group.globalIds.length, 0),
+          total: groups.reduce((sum, group) => sum + (group.total ?? group.globalIds.length), 0),
+        }),
+        retry: false,
+      }
     }
     return null
   }, [
+    captureFailed,
+    copyFailed,
     elementsError,
     openedAnother,
     unresolvedHighlights,
@@ -554,7 +615,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     if (viewport.status.phase === 'downloading') return t('stage.loading')
     // Above "the building is here", because "the building is here, but it is
     // not the one the link named" is the more important half of that sentence.
-    if (stageWarning) return stageWarning
+    if (stageWarning) return stageWarning.text
     if (viewport.status.phase === 'ready') return t('stage.ready')
     return ''
   }, [
@@ -581,6 +642,15 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   const section = viewport.section
   const cutDefault = viewport.defaultCut(levelElevation(model?.summary, storey))
 
+  /**
+   * How many pills the dock is currently stacking above itself — the measuring
+   * strip and the section slider, each rendered under its own condition below.
+   * The legend has to clear them; see `DOCK_ABOVE_OFFSET`.
+   */
+  const dockAboveRows = ((viewport.measure.active || viewport.measure.measurements.length > 0
+    ? 1
+    : 0) + (section && viewport.bounds ? 1 : 0)) as 0 | 1 | 2
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
@@ -596,6 +666,20 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         // breakpoint where it matters.
         className={cn(
           'flex h-[100dvh] max-h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border p-0',
+          /*
+            The safe area, once, for everything inside.
+
+            The app sets `viewportFit: 'cover'` and leaves the insets to each
+            surface; this one is the only full-bleed `100dvh` dialog in the
+            product and it had none. On an iPhone that put the dock's pill row
+            inside the home-indicator strip — where the system swallows the
+            taps — and the Close/Copy pill under the sensor housing in one
+            landscape rotation. Every absolutely-positioned child measures from
+            the padding box, so padding here moves the dock, the rail, the
+            drawer and the close pill together. Only below `sm`: above it the
+            dialog is already inset by 3rem on every side.
+          */
+          'max-sm:pt-[env(safe-area-inset-top)] max-sm:pr-[env(safe-area-inset-right)] max-sm:pb-[env(safe-area-inset-bottom)] max-sm:pl-[env(safe-area-inset-left)]',
           'sm:h-[calc(100dvh-3rem)] sm:max-h-[calc(100dvh-3rem)] sm:w-[calc(100vw-3rem)] sm:max-w-[calc(100vw-3rem)] sm:rounded-3xl'
         )}
         showCloseButton={false}
@@ -623,12 +707,11 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
             viewport.measure.setActive(false)
           } else if (advancedOpen) {
             event.preventDefault()
-            setAdvancedOpen(false)
             // The same restore the drawer's X does. Without it, closing with
             // Escape unmounted the focused heading and left the reader at the
             // top of a fifteen-control dialog, while closing with the button
             // put them back on the toolbar — one action, two behaviours.
-            advancedToggleRef.current?.focus()
+            closeAdvanced()
           } else if (selectedGlobalId) {
             event.preventDefault()
             setView({ element: undefined })
@@ -805,8 +888,11 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 'absolute top-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] pt-12 sm:top-4 sm:right-4',
                 // Steps aside for the advanced drawer rather than hiding under
                 // it: clicking a wall while the Prüfbuch is open is exactly
-                // when you want both.
-                advancedOpen && 'sm:right-[28rem]'
+                // when you want both. Below `sm` there is nowhere to step —
+                // the drawer is `calc(100% - 1.5rem)` wide — so the card
+                // yields instead of rendering invisibly behind it. That is
+                // the state the drawer's own "show elements" action produces.
+                advancedOpen && 'max-sm:hidden sm:right-[28rem]'
               )}
             >
               <ModelInspector
@@ -839,9 +925,23 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
             <div className="absolute top-16 left-1/2 z-20 -translate-x-1/2 sm:top-20">
               <ViewerSurface className="flex items-start gap-2 px-3 py-2 text-xs">
                 <TriangleAlert className="text-warning mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                <span className="max-w-[28rem]">{stageWarning}</span>
-                {/* The one warning here that has something to press. */}
-                {elementsError !== null && (
+                {/*
+                  Clamped to the viewport, not only to 28rem. Centred on
+                  `left-1/2` with a 448 px cap, the pill measured about 490 px
+                  with its icon and padding — some 50 px off each side of a
+                  390 px phone, unscrollable, on the one sentence that says the
+                  view is not the view that was sent.
+                */}
+                <span className="max-w-[min(28rem,calc(100vw-6rem))]">{stageWarning.text}</span>
+                {/*
+                  The one warning here that has something to press — and only
+                  when that is the warning being shown. Keyed off the message
+                  rather than off `elementsError` directly, because a capture
+                  that fails while the element walk is also broken would
+                  otherwise put "try again" next to a sentence about a
+                  screenshot, wired to reload something else.
+                */}
+                {stageWarning.retry && (
                   <Button
                     type="button"
                     size="sm"
@@ -858,7 +958,19 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
 
           {/* What the colours mean, when something coloured them. */}
           <ViewerLegend
-            className="absolute bottom-20 left-3 z-20 sm:bottom-24 sm:left-4"
+            className={cn(
+              'absolute left-3 z-20 sm:left-4',
+              /*
+                Pinned above the dock — including whatever the dock has stacked
+                on top of itself. At a fixed `bottom-20` the legend sat exactly
+                where the section slider lands: same `z-20`, legend painted
+                first, so the slider covered it. That is not an exotic state,
+                it is what a compliance deep link produces — highlights (so a
+                legend) plus a cut. Widths do not save it either; the slider is
+                `max-w-full` on a phone.
+              */
+              DOCK_ABOVE_OFFSET[dockAboveRows]
+            )}
             // Nothing until the rows land, for the same reason the warning
             // above waits: a count is resolved against the element list, so
             // rendering one early states "Aussenwände (0)" beside an answer
@@ -884,7 +996,12 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
             // the drawer was intercepting the click. On a phone it covered
             // every viewer control. The inspector was taught to step aside;
             // the dock never was.
-            className={cn(advancedOpen && 'sm:pr-[27rem]')}
+            //
+            // Below `sm` the drawer is effectively full-screen, so there is no
+            // padding that helps: the dock yields entirely rather than
+            // presenting nine glyphs that cannot be pressed. Escape and the
+            // drawer's own X are the ways back, and both restore focus here.
+            className={cn(advancedOpen && 'max-sm:hidden sm:pr-[27rem]')}
             lead={
               <ViewerIconButton
                 label={t('stage.home')}
@@ -1106,13 +1223,10 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           {modelId && model && (
             <ModelAdvancedSheet
               open={advancedOpen}
-              onClose={() => {
-                setAdvancedOpen(false)
-                // Back to the button that opened it. The drawer's X unmounts
-                // itself, so without this closing a panel put the reader at
-                // the top of the dialog instead of back on the toolbar.
-                advancedToggleRef.current?.focus()
-              }}
+              // Back to the button that opened it. The drawer's X unmounts
+              // itself, so without this closing a panel put the reader at the
+              // top of the dialog instead of back on the toolbar.
+              onClose={closeAdvanced}
               projectId={projectId}
               model={model}
               models={models ?? []}
@@ -1392,7 +1506,10 @@ function StageViewMenu({
                 setOpen(false)
               }}
               className={cn(
-                'focus-visible:ring-ring/60 flex items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2',
+                // `pointer-coarse:min-h-11`: these are raw buttons, so they
+                // never see the floor `Button` applies. ~30 px rows two pixels
+                // apart are the only route to a plan or an elevation.
+                'focus-visible:ring-ring/60 pointer-coarse:min-h-11 flex items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2',
                 view === candidate
                   ? 'bg-accent text-foreground font-medium'
                   : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
@@ -1408,7 +1525,7 @@ function StageViewMenu({
             type="button"
             aria-pressed={orthographic}
             onClick={() => onOrthographicChange(!orthographic)}
-            className="focus-visible:ring-ring/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2"
+            className="focus-visible:ring-ring/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground pointer-coarse:min-h-11 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2"
           >
             {t('viewer.projection.parallel')}
             {orthographic && <Check className="size-3.5" aria-hidden="true" />}

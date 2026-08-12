@@ -229,7 +229,17 @@ function ModelInspectorDetails({
 
   return (
     <details className="border-border mt-3 border-t pt-2">
-      <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 marker:content-none cursor-pointer rounded text-[11px] font-semibold tracking-wide outline-none focus-visible:ring-2">
+      {/*
+        `pointer-coarse:min-h-11`: an 11 px line of text was the entire hit
+        area, and behind it sit the GlobalId, the classifications and every
+        property set — everything this card deliberately folds away. On a phone
+        that is a door the size of its own label.
+
+        Grown with padding rather than `min-h` and a flex centre: changing a
+        `<summary>`'s display has a history of costing it its toggle in Safari,
+        and padding needs no display change at all.
+      */}
+      <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 marker:content-none pointer-coarse:min-h-11 pointer-coarse:py-3.5 cursor-pointer rounded text-[11px] font-semibold tracking-wide outline-none focus-visible:ring-2">
         {label}
       </summary>
 

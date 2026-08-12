@@ -472,6 +472,22 @@ export async function downloadWithProgress(
     (encoded ? null : response.headers.get('Content-Length'))
   const declared = Number(declaredRaw ?? '')
   const total = Number.isFinite(declared) && declared > 0 ? declared : 0
+  /**
+   * One buffer when the size is known, a chunk list when it is not.
+   *
+   * Accumulating every chunk and then copying the lot into a second full-size
+   * array peaks at TWICE the file in the JS heap — 300 MB for a 149 MB model,
+   * before the WASM kernel has allocated its own arena. On a phone that is the
+   * difference between a load and the tab being killed, and a killed tab
+   * reports nothing: the `catch` around this never runs.
+   *
+   * `total` is the decoded length the server published for exactly this kind
+   * of use. If it turns out to be wrong — a re-encoding proxy, a stale
+   * metadata header — the spill below drops back to the two-pass path rather
+   * than truncating the model, because a silently short IFC parses into a
+   * building with pieces missing.
+   */
+  let single = total > 0 ? new Uint8Array(total) : null
   const chunks: Uint8Array[] = []
   let received = 0
   /**
@@ -490,13 +506,27 @@ export async function downloadWithProgress(
     const { done, value } = await reader.read()
     if (done) break
     if (!value) continue
-    chunks.push(value)
+    if (single === null) {
+      chunks.push(value)
+    } else if (received + value.length <= single.length) {
+      single.set(value, received)
+    } else {
+      // Longer than declared. Keep what has been written and carry on the
+      // slow way; `subarray` is a view, so this costs no extra copy.
+      chunks.push(single.subarray(0, received), value)
+      single = null
+    }
     received += value.length
     const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : -2
     if (percent === reported) continue
     reported = percent
     onProgress(percent === -2 ? null : percent)
   }
+
+  // Shorter than declared — a truncated transfer, or metadata written for a
+  // different revision. The bytes that did arrive are returned and the parser
+  // decides; the alternative is handing it a tail of zeroes.
+  if (single !== null) return received === single.length ? single : single.subarray(0, received)
 
   const buffer = new Uint8Array(received)
   let at = 0
