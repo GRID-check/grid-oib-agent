@@ -100,6 +100,13 @@ Gebäude → Geschoß → Raum → Bauteil. Für „passt dieses Fenster mit dem
 
 Jeder Schritt liefert die Eingabe des nächsten. Nicht mit dem Prisma anfangen.
 
+Ein Sonderfall, der sonst jedes Fenster als verbaut meldet: die **eigene Wand**
+wird beim Prisma nicht automatisch ausgenommen, denn ein tief in einer dicken
+Wand sitzendes Fenster wird tatsächlich von seiner eigenen Leibung verschattet.
+Kommt die Wand aus Schritt 2 als einziges Hindernis zurück, den Aufruf mit
+`other_global_id` = diese Wand wiederholen — und in der Antwort sagen, dass und
+warum sie ausgenommen wurde.
+
 ## 7. Geometrie ist kein Urteil
 
 Die Werkzeuge liefern Maße. Ob ein Maß eine Anforderung erfüllt, entscheidet die
