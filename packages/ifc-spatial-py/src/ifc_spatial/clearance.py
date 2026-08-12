@@ -69,7 +69,7 @@ from .operators import _wrong_kind
 #: The pre-filter is a per-triangle box test, so the work is bounded by
 #: ``len(A) × len(B)`` box comparisons however well the pruning goes. Measured on
 #: the sample house: the worst pair of real elements in it is chair against chair
-#: at 3 618 × 3 618 ≈ 13.1 M, and that pair costs 0.041 s. The limit sits two
+#: at 3 618 × 3 618 ≈ 13.1 M, and that pair costs under 0.05 s. The limit sits two
 #: orders of magnitude above it, which is roughly 40 000 × 40 000 — around a
 #: second of pure box arithmetic before a single exact triangle test — because
 #: past that point the honest answer is that this operator is the wrong tool and
@@ -349,7 +349,7 @@ def _soup_distance(
        bound is not below the best proves that no LATER one can beat it either, so
        the loop stops instead of continuing. Note the second row of the chair
        pair: the break saves barely any exact TESTS (4 250 → 3 678) and still
-       makes it 20× faster, because what it really saves is 3 600 outer
+       makes it about 20× faster, because what it really saves is 3 600 outer
        iterations, each of which was computing a 3 618-element bound array for a
        triangle that could not win.
 

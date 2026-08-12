@@ -89,7 +89,10 @@ RUN uv pip install --no-deps -e . \
 # deployment that never answers a geometric question should be able to drop
 # this one line. `ifc_measure` degrades to a plain refusal when the import
 # fails — it never reports a missing engine as an unreadable building.
-RUN uv pip install -e ./packages/ifc-spatial-py
+# `[ids]` pulls ifctester for the IDS shopping-list export. Optional in the
+# package because the tool degrades to a named refusal without it; installed
+# here because on THIS deployment the capability is wanted.
+RUN uv pip install -e './packages/ifc-spatial-py[ids]'
 
 RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; import ris_adapter.register; print('✓ Base packages installed')" \
     && /app/.venv/bin/python -c "import ifc_spatial.tools; print('✓ Spatial engine installed')"

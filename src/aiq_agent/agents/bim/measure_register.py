@@ -75,6 +75,7 @@ VALID_OPERATIONS = {
     "room_inventory",
     "draw",
     "view",
+    "shopping_list",
     "overhang",
     "light_incidence",
 }
@@ -105,11 +106,13 @@ RELATIONS: dict[str, str] = {
     "containerOf": "which storey or room this element sits in",
     "adjacentSpaces": "which rooms border this room  [geometry, see below]",
     "elementsOfStorey": "every element of this storey, including those in rooms",
+    "above": "what is directly ABOVE this element or room  [geometry, rays; furniture excluded]",
+    "below": "what is directly BELOW it  [geometry, rays]",
 }
 
 #: The four relations that fall back to a geometric contact map when the export
 #: declares no ``IfcRelSpaceBoundary`` — which is the ordinary case.
-GEOMETRIC_RELATIONS = frozenset({"bounds", "enclosedBy", "opensTo", "adjacentSpaces"})
+GEOMETRIC_RELATIONS = frozenset({"bounds", "enclosedBy", "opensTo", "adjacentSpaces", "above", "below"})
 
 #: measure → what it answers.
 MEASURES: dict[str, str] = {
@@ -141,6 +144,19 @@ MEASURES: dict[str, str] = {
     "reachableFrom": (
         "every room reachable from this one through doors, with door counts. Answers 'which rooms are "
         "behind this door', and finds rooms with no way out at all — itself a finding"
+    ),
+    "clearWidth": (
+        "the LICHTE Breite and Höhe of an opening, measured on the aperture itself. THIS is what a "
+        "door-width or escape-route-width check needs — 'distance' measures centroids and boxes and "
+        "gives an Achsabstand"
+    ),
+    "orientedExtent": (
+        "length/width/height along the ELEMENT's own axes plus its bearing from north. Use for anything "
+        "skewed to the model grid, where 'extent' is axis-aligned and systematically too large"
+    ),
+    "roomDepth": (
+        "how deep a room runs back from its daylight facade, the width along that facade, and the ratio "
+        "to the clear height. Names which facade it chose and, for a corner room, the runner-up"
     ),
 }
 
@@ -246,6 +262,12 @@ _TOOL_DESCRIPTION = (
     "even when it happens to be right.\n"
     "  'draw'           — the same plan as an SVG FILE for the USER (~5 s). It returns a path, not an "
     "image: you cannot see it. Use 'view' when YOU need to look, 'draw' when the user wants the file.\n"
+    "  'shopping_list'  — writes the model's blind spots as a buildingSMART IDS 1.0 file the architect "
+    "can run in Solibri/BIMcollab/ifctester against their own model, and re-run after fixing to prove "
+    "it landed. Offer it when several answers came back undecidable, or when asked what to fix in the "
+    "export. It requires only that a property EXISTS and is evaluable, never what value it must have — "
+    "the thresholds are in the OIB Bestimmung. Not every blind spot is expressible; the summary says "
+    "how many are and names the rest.\n"
     "\n"
     "PROVENANCE — the reason this tool exists. Every answer says HOW it was obtained, and the three "
     "are three different sentences in German that must not be swapped:\n"
@@ -407,6 +429,9 @@ def _build_call(
         if wanted not in ROOM_KINDS:
             return f"Error: room_kind '{room_kind}' does not exist. Use one of: {', '.join(ROOM_KINDS)}."
         return "room_inventory", {"kind": wanted}
+
+    if op == "shopping_list":
+        return "shopping_list", {}
 
     if op == "view":
         # `global_id` carries a comma-separated list here rather than one id,
@@ -907,6 +932,23 @@ def _render(
             lines.append("Vorhandene Relationen: " + ", ".join(str(name) for name in available))
         if payload.get("hinweis"):
             lines.append(f"Hinweis: {payload['hinweis']}")
+        return "\n".join(line for line in lines if line)
+
+    if operation == "shopping_list" and isinstance(payload, dict):
+        lines.append(str(payload.get("summary") or ""))
+        if payload.get("path"):
+            lines.append(
+                f"IDS-Datei geschrieben: {payload['path']} "
+                f"({payload.get('specifications')} Spezifikationen, {payload.get('bytes')} Bytes)."
+            )
+        for entry in payload.get("exported") or []:
+            lines.append(f"- enthalten: {entry}")
+        for entry in payload.get("notExportable") or []:
+            lines.append(f"- NICHT als IDS ausdrückbar: {entry.get('what')} — {entry.get('why')}")
+        lines.append(
+            "Die Datei verlangt nur, DASS ein Merkmal vorhanden ist, nie welchen Wert es haben muss. "
+            "Grenzwerte kommen aus der Bestimmung."
+        )
         return "\n".join(line for line in lines if line)
 
     if operation == "draw" and isinstance(payload, dict):

@@ -495,7 +495,17 @@ class SpatialModel:
         site = self.file.by_type("IfcSite")
         if any(s.RefLatitude and s.RefLongitude for s in site):
             return True
-        return bool(self.file.by_type("IfcMapConversion"))
+        # `by_type` RAISES for a class the file's schema does not define, and
+        # `IfcMapConversion` is IFC4+. So on every IFC2X3 export this property
+        # threw `RuntimeError: Entity with name 'IfcMapConversion' not found in
+        # schema 'IFC2X3'` instead of returning False — and being a
+        # `cached_property`, it took its caller with it rather than degrading.
+        # An older schema is not a georeferencing failure; it is a schema that
+        # cannot express one.
+        try:
+            return bool(self.file.by_type("IfcMapConversion"))
+        except RuntimeError:
+            return False
 
     # ── geometry ────────────────────────────────────────────────────────────
 

@@ -55,6 +55,8 @@ from typing import Any
 import numpy as np
 
 from . import circulation as circ
+from . import clearance as clr
+from . import daylight as dl
 from . import operators as op
 from . import relations as extra
 from .briefing import briefing as build_briefing
@@ -101,6 +103,8 @@ RELATIONS: dict[str, str] = {
     "containerOf": "In welchem Geschoß oder Raum liegt dieses Bauteil?",
     "adjacentSpaces": "Welche Räume grenzen an diesen Raum?",
     "elementsOfStorey": "Alle Bauteile dieses Geschoßes (auch die in Räumen).",
+    "above": "Was liegt direkt über diesem Bauteil oder Raum? (Strahlen nach oben, Möblierung ausgenommen)",
+    "below": "Was liegt direkt darunter?",
 }
 
 RELATION_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
@@ -115,6 +119,8 @@ RELATION_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
     "containerOf": op.container_of,
     "adjacentSpaces": op.adjacent_spaces,
     "elementsOfStorey": extra.elements_of_storey,
+    "above": dl.above,
+    "below": dl.below,
 }
 
 #: The relations that fall back to the geometric contact map when the export
@@ -124,7 +130,20 @@ RELATION_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
 #: warning in the ``relations`` description, and ``element``'s refusal to probe
 #: them just to list what is available. A six-second contact map is a reasonable
 #: price for an answer somebody asked for and an unreasonable one for a menu.
-GEOMETRIC_RELATIONS = frozenset({"bounds", "enclosedBy", "opensTo", "adjacentSpaces"})
+GEOMETRIC_RELATIONS = frozenset(
+    {
+        "bounds",
+        "enclosedBy",
+        "opensTo",
+        "adjacentSpaces",
+        # `above`/`below` cast rays, so they need the OCCT tree. Left out of this
+        # set they were probed by `element` to build its "available relations"
+        # menu — which ran the geometry pass on a model whose caller had only
+        # asked what an element is called. That is the one rule this file has.
+        "above",
+        "below",
+    }
+)
 
 #: The measurements ``measure`` exposes, and what each one answers.
 MEASURES: dict[str, str] = {
@@ -164,6 +183,21 @@ MEASURES: dict[str, str] = {
         "Alle über Türen erreichbaren Räume mit Anzahl der Türen dazwischen. Beantwortet „welche "
         "Räume liegen hinter dieser Tür, und findet Räume ganz ohne Ausgang — was selbst ein Befund ist."
     ),
+    "clearWidth": (
+        "LICHTE Breite und Höhe einer Öffnung, an der Öffnung selbst gemessen (Rohbaulichte) — die "
+        "Zahl, die eine Durchgangs- oder Fluchtwegbreite verlangt. NICHT distance: dessen Modi messen "
+        "Schwerpunkte und Hüllboxen und liefern einen Achsabstand."
+    ),
+    "orientedExtent": (
+        "Länge, Breite und Höhe entlang der EIGENEN Achsen des Bauteils, plus seine Verdrehung gegen "
+        "Norden. Für alles, was schräg im Modell steht: extent() ist achsparallel und meldet dort "
+        "systematisch zu große Werte, die weder Länge noch Dicke sind."
+    ),
+    "roomDepth": (
+        "Raumtiefe senkrecht zur belichtenden Fassade, dazu die Breite entlang dieser Fassade und das "
+        "Verhältnis zur lichten Raumhöhe — für Tageslichtfragen, bei denen die Tiefe zählt. Die "
+        "gewählte Fassade wird genannt; bei einem Eckraum steht die zweitbeste dabei."
+    ),
 }
 
 MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
@@ -176,6 +210,9 @@ MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
     "lightEntryArea": op.light_entry_area,
     "egressPath": circ.egress_path,
     "reachableFrom": circ.reachable_from,
+    "clearWidth": clr.clear_opening_width,
+    "orientedExtent": clr.oriented_extent,
+    "roomDepth": dl.room_depth,
 }
 
 KINDS = ["project", "site", "building", "storey", "space", "element", "opening", "group"]
@@ -387,6 +424,40 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         model = resolve(args.get("model"))
         mode = str(args.get("mode") or "min")
         return run(lambda: op.distance(model, str(args.get("a") or ""), str(args.get("b") or ""), mode))
+
+    # ── ids ─────────────────────────────────────────────────────────────────
+
+    def shopping_list(args: dict[str, Any]) -> Any:
+        """The model's blind spots as a buildingSMART IDS file.
+
+        The one output of this package that leaves the conversation and keeps
+        working. Everything else is a sentence an architect reads once; this is
+        a file they run in their own checker, on their own schedule, and re-run
+        after the fix to prove it landed.
+        """
+        # Imported HERE, not at module scope. `ids_export` needs `ifctester`,
+        # which ships with IfcOpenShell as a separate distribution and is not
+        # guaranteed present — and a module-level import made a missing optional
+        # dependency take down the ENTIRE tool surface, so a deployment without
+        # it could not measure a wall either. One tool degrading is a fact about
+        # one capability; eleven tools vanishing is an outage.
+        try:
+            from . import ids_export as ids
+        except ImportError as error:
+            raise ToolError(
+                "Die IDS-Ausgabe steht in dieser Installation nicht zur Verfügung (ifctester fehlt). "
+                "Die fehlenden Angaben stehen weiterhin im Briefing unter FEHLT und BLIND und können "
+                "dort berichtet werden."
+            ) from error
+
+        model = resolve(args.get("model"))
+        document = ids.blind_spots_as_ids(
+            model,
+            title=(str(args["title"]).strip() if args.get("title") else None),
+            author=(str(args["author"]).strip() if args.get("author") else None),
+        )
+        written = ids.write_ids(document)
+        return {**written, "summary": document.summary()}
 
     # ── view ────────────────────────────────────────────────────────────────
 
@@ -650,6 +721,33 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 "required": ["model", "a", "b"],
             },
             handler=distance,
+        ),
+        ToolDef(
+            name="shopping_list",
+            title="Fehlende Angaben als IDS-Datei",
+            description=(
+                "Schreibt die blinden Flecken dieses Modells als buildingSMART-IDS-Datei (Version 1.0) "
+                "— also das, was der Export NICHT hergibt, in einem Format, das die Architektin in "
+                "Solibri, BIMcollab oder ifctester gegen ihr eigenes Modell laufen lassen kann. Nach der "
+                "Korrektur nochmals laufen lassen beweist, dass die Ergänzung angekommen ist.\n\n"
+                "Die Datei verlangt nur, DASS ein Merkmal vorhanden und auswertbar ist, nie WELCHEN WERT "
+                "es haben muss: Grenzwerte stehen in der OIB-Richtlinie, und einen erfundenen Grenzwert "
+                "in das Prüfwerkzeug einer Architektin zu schreiben wäre der schwerste Fehler, den "
+                "dieses Werkzeug machen könnte.\n\n"
+                "Nicht jeder blinde Fleck lässt sich als IDS ausdrücken — fehlende IfcRelSpaceBoundary "
+                "etwa nicht. Was nicht ausdrückbar ist, wird gemeldet und NICHT stillschweigend "
+                "weggelassen; die Zusammenfassung nennt beide Zahlen."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "title": {"type": "string", "description": "Titel der IDS-Datei"},
+                    "author": {"type": "string", "description": "E-Mail oder Name für den IDS-Kopf"},
+                },
+                "required": ["model"],
+            },
+            handler=shopping_list,
         ),
         ToolDef(
             name="view",

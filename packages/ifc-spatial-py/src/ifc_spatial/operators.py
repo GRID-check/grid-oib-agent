@@ -1352,7 +1352,12 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
             tested += 1
             for hit in tree.select_ray((x, y, floor_z), (0.0, 0.0, 1.0), length=modelled + 5.0):
                 element = model.file.by_id(hit.instance.id())
-                if element.is_a() in AIR_TYPES or element.is_a(FURNISHING[0]):
+                # Every entry of FURNISHING, not just the first. `is_a(
+                # "IfcFurnishingElement")` happens to catch the other two in
+                # IFC4 because they are subtypes — but that subtype relation
+                # does not exist in IFC2X3, where the tuple's remaining names
+                # were dead code and a chair could stop a clear-height ray.
+                if element.is_a() in AIR_TYPES or any(element.is_a(name) for name in FURNISHING):
                     continue
                 if element.GlobalId == space_global_id:
                     continue
@@ -2028,6 +2033,21 @@ def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]
     ``None`` means neither route decided, and the caller must report that rather
     than picking a side.
     """
+    # The element's OWN declaration first. A window carries
+    # `Pset_WindowCommon.IsExternal` and a curtain-wall pane carries
+    # `Pset_PlateCommon.IsExternal`, and both outrank anything inferred — this
+    # is the architect saying which side it faces.
+    #
+    # It also fixes a case the wall route cannot reach. A plate sits in no wall,
+    # so `hosted_in` is empty and the space-count fallback decided it. That
+    # fallback is a DOOR heuristic ("joins two rooms, therefore interior"), and
+    # the sample house's glazed facade touches the living room AND the loft
+    # above it — so every pane of a 4.49 m² glass wall was classified interior
+    # and the room's largest daylight source counted as zero.
+    own = model.declared_property(element, ("IsExternal",))
+    if isinstance(own, bool):
+        return own, "Pset_*Common.IsExternal am Bauteil selbst (deklariert)"
+
     hosts_ = hosted_in(model, element.GlobalId)
     if hosts_.decidable:
         for ref in hosts_.value or []:
@@ -2109,8 +2129,19 @@ def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[s
 
     openings: list[dict[str, Any]] = []
     without_geometry: list[str] = []
+    # `IfcPlate` is here because of a real hole: the sample house's living room
+    # is glazed with a curtain wall, and a curtain wall is exported as members
+    # and PLATES, not as windows. Counting only IfcWindow/IfcDoor made the
+    # largest glazed surface in the building contribute exactly nothing — a
+    # fully glazed room reporting 0 % daylight. That is the safe direction for a
+    # threshold and still a false finding, and an architect shown 0 % on a glass
+    # wall stops trusting the number that is right.
+    #
+    # Plates carry no IfcOpeningElement (they fill no void; they ARE the wall),
+    # so they land on the element-body route below and are labelled as such.
+    GLAZING = ("IfcWindow", "IfcDoor", "IfcPlate")
     for ref in bounding.value or []:
-        if ref.ifc_type not in ("IfcWindow", "IfcDoor"):
+        if ref.ifc_type not in GLAZING:
             continue
         element = model.file.by_guid(ref.global_id)
         voids = [rel.RelatingOpeningElement for rel in (getattr(element, "FillsVoids", []) or [])]
@@ -2125,7 +2156,11 @@ def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[s
             # own aperture is the next best thing and is NOT the same number —
             # it includes the frame — so it is labelled, not silently mixed in.
             area = _clear_opening_area(model, element)
-            via = "Bauteilkörper (Rahmen enthalten)"
+            via = (
+                "Verglasungsfeld (Vorhangfassade, Rahmen enthalten)"
+                if ref.ifc_type == "IfcPlate"
+                else "Bauteilkörper (Rahmen enthalten)"
+            )
         if not area:
             without_geometry.append(ref.global_id)
             continue

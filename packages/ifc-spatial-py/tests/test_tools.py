@@ -180,6 +180,7 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
         "relations",
         "measure",
         "distance",
+        "shopping_list",
         "view",
         "draw",
         "overhang",
