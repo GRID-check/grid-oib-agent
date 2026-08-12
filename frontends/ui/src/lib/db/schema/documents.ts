@@ -38,7 +38,7 @@ export const documents = pgTable('documents', {
    */
   filename: text('filename').notNull(),
   /**
-   * What a reader sees, when somebody has renamed the document (migration 0046).
+   * What a reader sees, when somebody has renamed the document (migration 0048).
    *
    * NULL means "never renamed": the file's own name is shown, which is what
    * every row written before renaming existed means. Resolve it with

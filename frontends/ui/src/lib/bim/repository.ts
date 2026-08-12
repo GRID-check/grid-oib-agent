@@ -59,7 +59,7 @@ export interface BimModelHeader {
    */
   filename: string
   /**
-   * The document's rename, when it has one (0046). NULL means the file name is
+   * The document's rename, when it has one (0048). NULL means the file name is
    * the name. Carried on the header so the viewer's model rail and title can
    * call a building what its owner called it without a second round trip —
    * resolve the pair with `documentDisplayName`.

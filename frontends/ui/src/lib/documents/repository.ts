@@ -23,7 +23,7 @@ export const DOCUMENT_LIST_LIMIT = 500
 export interface DocumentListRow {
   id: string
   filename: string
-  /** The rename, when there is one; NULL means "show `filename`" (0046). */
+  /** The rename, when there is one; NULL means "show `filename`" (0048). */
   displayName: string | null
   fileSize: number | null
   contentType: string | null
@@ -166,7 +166,7 @@ export async function deleteProjectDocument(
  *
  * Writes `display_name` and nothing else — `filename` is the join key to the
  * stored object and to the document's chunks in the retrieval index, so a
- * rename must not touch it (migration 0046 has the full reasoning). `null`
+ * rename must not touch it (migration 0048 has the full reasoning). `null`
  * clears the rename, restoring the file's own name.
  *
  * Scoped by organization alone, deliberately: this serves both a project

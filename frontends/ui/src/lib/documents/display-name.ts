@@ -10,7 +10,7 @@
  *
  * The split it enforces: `filename` is the document's IDENTITY — the key to its
  * stored object and to its chunks in the retrieval index — and `displayName` is
- * its LABEL. Renaming writes the label. See migration 0046 for why editing the
+ * its LABEL. Renaming writes the label. See migration 0048 for why editing the
  * identity is not on offer.
  */
 

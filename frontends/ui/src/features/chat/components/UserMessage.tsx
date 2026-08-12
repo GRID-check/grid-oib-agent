@@ -45,8 +45,9 @@
 
 'use client'
 
-import { type FC } from 'react'
-import { User } from 'lucide-react'
+import { type FC, useState } from 'react'
+import { User, Copy, Check } from 'lucide-react'
+import { toast } from 'sonner'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLocale, useTranslations } from '@/i18n'
@@ -101,10 +102,21 @@ export const UserMessage: FC<UserMessageProps> = ({
   currentUserId,
 }) => {
   const t = useTranslations('chat')
+  const [copied, setCopied] = useState(false)
   // `formatTime` without a locale falls back to the RUNTIME default, so a
   // German user on an en-US browser read "03:35 PM" here while the HITL prompt
   // directly below it read "15:35". Every research card already passes it.
   const { locale } = useLocale()
+
+  const handleCopyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      toast.error(t('copyMessage.failed'))
+    }
+  }
 
   /**
    * Message text. A message carrying structured mentions renders through
@@ -130,8 +142,20 @@ export const UserMessage: FC<UserMessageProps> = ({
         </div>
 
         {/* Bubble — width 400, asymmetric corners, hairline border, trace shadow */}
-        <div className="w-[400px] max-w-full rounded-[12px_4px_12px_12px] border border-input bg-card px-[14px] py-[11px] text-[13.5px] leading-[1.55] text-default shadow-xs">
+        <div className="group relative w-[400px] max-w-full rounded-[12px_4px_12px_12px] border border-input bg-card px-[14px] py-[11px] text-[13.5px] leading-[1.55] text-default shadow-xs">
           {body}
+          <button
+            type="button"
+            onClick={() => void handleCopyMessage()}
+            aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
+            className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2 p-1.5 rounded-md bg-accent/80 hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {copied ? (
+              <Check className="size-4" aria-hidden="true" />
+            ) : (
+              <Copy className="size-4" aria-hidden="true" />
+            )}
+          </button>
         </div>
 
         {timestamp && (
@@ -169,7 +193,7 @@ export const UserMessage: FC<UserMessageProps> = ({
         className={cn(
           // Identical for every human, yours and a colleague's alike: the header
           // says who is speaking, the layout says "a person is asking Piloti".
-          'w-[400px] max-w-full rounded-[12px_4px_12px_12px] border border-input bg-card',
+          'group relative w-[400px] max-w-full rounded-[12px_4px_12px_12px] border border-input bg-card',
           'px-[14px] py-[11px] text-[13.5px] leading-[1.55] text-default shadow-xs',
           // A grouped follow-up squares off the corner that pointed at the header
           // it no longer draws, so a run reads as one block of speech. It stays
@@ -180,6 +204,18 @@ export const UserMessage: FC<UserMessageProps> = ({
         )}
       >
         {body}
+        <button
+          type="button"
+          onClick={() => void handleCopyMessage()}
+          aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
+          className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2 p-1.5 rounded-md bg-accent/80 hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {copied ? (
+            <Check className="size-4" aria-hidden="true" />
+          ) : (
+            <Copy className="size-4" aria-hidden="true" />
+          )}
+        </button>
       </div>
 
       {/* The header carries the time; a grouped follow-up has no header, so it

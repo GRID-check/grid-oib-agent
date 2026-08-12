@@ -284,10 +284,17 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'main',
   },
   {
+    id: 'platform-skills',
+    path: '/dev/platform-skills',
+    description:
+      'Platform \u2192 Skills \u2014 the catalogue Piloti curates for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Two row states, because they are the whole model: a PUBLISHED skill (offered to every org, each deciding whether to switch it on) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch here means published, not enabled \u2014 publishing offers, it does not impose.',
+    waitFor: '[data-testid="platform-skills-preview"] [role="switch"]',
+  },
+  {
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
-      'Agent Skills tab (ADR-0045) — the merged skill toolbox (builtin, org, cloned) with badges and instruction bodies, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab, so this shot is the proof that the page is the toolbox alone. The fixture covers all three origins plus a disabled clone, because origin is what decides whether a row can be edited or only cloned.',
+      'Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org\'s own skills, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab. The pipeline\'s builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.',
     waitFor: '[data-testid="skills-panel-preview"]',
   },
   {
@@ -705,7 +712,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/bim-viewport',
     description:
-      'The model viewer\'s chrome, over the muted panel the stage itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but every control is now an atom that owns no canvas, so the whole of what an architect touches is capturable. Four states: the stage (rail of models and levels on the left, a floating dock of six controls at the bottom, nothing at all in the middle — the building is the surface), the selection card that does not exist until something is selected and leads with "Wall" rather than with IfcWallStandardCase, and the two loading states, which differ on purpose: a download reports its real percentage, and geometry-building reports none, because it has no honest one and the mesh count it used to show measured the exporter\'s tessellation settings rather than the wait.',
+      'The model viewer\'s chrome, over the muted panel the stage itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but every control is now an atom that owns no canvas, so the whole of what an architect touches is capturable. Four states: the stage (rail of models and levels on the left, a floating dock at the bottom, nothing at all in the middle — the building is the surface), the selection card that does not exist until something is selected and leads with "Wall" rather than with IfcWallStandardCase, and the two loading states, which differ on purpose: a download reports its real percentage, and geometry-building reports none, because it has no honest one and the mesh count it used to show measured the exporter\'s tessellation settings rather than the wait. The three ways back are drawn together on purpose, because their names are the whole distinction between them: Undo takes back the last thing the reader did (a level, a cut, a hide, an isolate — one press, one act), the camera button re-frames the building without changing anything, and the reset drops every hide and isolation at once. All three used to be reachable and two of them were called some version of "show everything".',
     waitFor: '[data-testid="bim-viewport-preview"]',
   },
 ]

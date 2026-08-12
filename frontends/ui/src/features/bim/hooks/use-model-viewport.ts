@@ -23,7 +23,7 @@
  * hand-copied props.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildColorOverrides,
   expressIdsForStorey,
@@ -31,6 +31,7 @@ import {
   NOTHING_HIDDEN,
   resolveHighlights,
   resolveIsolation,
+  sameVisibility,
   selectionSurvives,
   supportsWebGpu,
   type BimHighlightGroup,
@@ -71,6 +72,17 @@ export interface UseModelViewportOptions {
   compact?: boolean
   /** Receives the PNG data URL produced by {@link ModelViewport.capture}. */
   onCapture?: (dataUrl: string | null) => void
+  /**
+   * Called just before a hide / isolate / show-everything lands, with the
+   * state it replaces — so a surface keeping its own history can record the
+   * step and hand it back to {@link ModelVisibility.restore}.
+   *
+   * The hook fires it rather than letting the caller record on the click,
+   * because only the hook can tell an edit from a no-op: isolating the same
+   * element twice is a press with nothing behind it, and a step recorded for
+   * it is an Undo that appears to do nothing.
+   */
+  onVisibilityEdit?: (previous: ViewerVisibility) => void
 }
 
 /**
@@ -103,6 +115,13 @@ export interface ModelMeasuring {
  * roof slab to see the stair is a working move, not a view worth sending — and
  * a link that arrives with three elements silently missing is a link whose
  * recipient is looking at a different building from the one they think.
+ *
+ * Staying out of the URL is also why undo cannot come for free here the way it
+ * does for the view: there is no query string to step back through. So the
+ * hook reports each edit and accepts a state back — see `onVisibilityEdit` and
+ * {@link ModelVisibility.restore} — and whichever surface owns a history owns
+ * this too. The stage does; the card-sized preview has no way to edit
+ * visibility at all and passes neither.
  */
 export interface ModelVisibility extends ViewerVisibility {
   /** Whether anything has been hidden or isolated — drives "show everything". */
@@ -110,6 +129,16 @@ export interface ModelVisibility extends ViewerVisibility {
   hide: (expressId: number) => void
   isolate: (expressIds: readonly number[]) => void
   showEverything: () => void
+  /**
+   * Put a previous state back, without recording the restore as an edit.
+   *
+   * The counterpart to {@link UseModelViewportOptions.onVisibilityEdit}: the
+   * host holds the history, so undo is a state it hands back rather than a
+   * stack the hook keeps. Taking one step back and "show everything" are
+   * different acts — the reader who hid four things and then isolated a fifth
+   * wants the four back, not a fresh building.
+   */
+  restore: (edits: ViewerVisibility) => void
 }
 
 export interface ModelViewport {
@@ -168,6 +197,7 @@ export function useModelViewport({
   onCameraChange,
   compact = false,
   onCapture,
+  onVisibilityEdit,
 }: UseModelViewportOptions): ModelViewport {
   const [status, setStatus] = useState<IfcViewerStatus>({
     phase: 'idle',
@@ -405,24 +435,45 @@ export function useModelViewport({
     setEdits(NOTHING_HIDDEN)
   }, [sourceUrl])
 
-  const visibility = useMemo<ModelVisibility>(
-    () => ({
+  /*
+    Through a ref, so the memo below stays keyed on `edits` alone.
+
+    Every caller writes this as an inline arrow, which is a new function on
+    every render; depending on it directly would rebuild the whole visibility
+    object each time and change the identity of three callbacks the canvas and
+    the inspector hold.
+  */
+  const onVisibilityEditRef = useRef(onVisibilityEdit)
+  onVisibilityEditRef.current = onVisibilityEdit
+
+  const visibility = useMemo<ModelVisibility>(() => {
+    /*
+      Computed against the CURRENT edits rather than inside a functional
+      updater, because the decision "is this a step" needs the previous state
+      in the same breath as the new one: the host is told what it replaces,
+      and an edit that replaces nothing is not announced at all. `edits` is
+      this memo's only dependency, so it is never stale.
+    */
+    const apply = (next: ViewerVisibility): void => {
+      if (sameVisibility(edits, next)) return
+      onVisibilityEditRef.current?.(edits)
+      setEdits(next)
+    }
+    return {
       ...edits,
       edited: hasVisibilityEdits(edits),
-      hide: (expressId) =>
-        setEdits((current) => ({
-          ...current,
-          hidden: new Set(current.hidden).add(expressId),
-        })),
+      hide: (expressId) => apply({ ...edits, hidden: new Set(edits.hidden).add(expressId) }),
       // Isolating REPLACES any previous isolation rather than intersecting
       // with it. "Isolate this" is a fresh question every time; narrowing an
       // existing isolation by clicking a second element would empty the
       // viewport, which is the opposite of what the click looked like it did.
-      isolate: (expressIds) => setEdits((current) => ({ ...current, isolated: new Set(expressIds) })),
-      showEverything: () => setEdits(NOTHING_HIDDEN),
-    }),
-    [edits]
-  )
+      isolate: (expressIds) => apply({ ...edits, isolated: new Set(expressIds) }),
+      showEverything: () => apply(NOTHING_HIDDEN),
+      // Not through `apply`: an undo must not record itself as a step, or
+      // pressing Undo twice oscillates between two states forever.
+      restore: (restored) => setEdits(restored),
+    }
+  }, [edits])
 
   const storeyExpressIds = useMemo(
     () => expressIdsForStorey(elements, isolatedStorey),

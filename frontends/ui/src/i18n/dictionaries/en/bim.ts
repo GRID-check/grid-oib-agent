@@ -371,12 +371,15 @@ export const bim = {
     close: 'Close',
     home: 'Fit the whole model',
     /**
-     * One step back through the VIEW, not through the browser.
+     * One step back through the STAGE, not through the browser.
      *
-     * Named for what it restores rather than "Back", which on a full-screen
-     * surface reads as "leave" — and this one never leaves the model.
+     * Not "Back", which on a full-screen surface reads as "leave" — and this
+     * one never leaves the model. Not "the previous view" either, which it
+     * used to say: the step it takes back is just as often a hide or an
+     * isolate, and those are not views. "The last change" is the only phrase
+     * that is true of every step in the stack.
      */
-    back: 'Back to the previous view',
+    back: 'Undo the last change',
     views: 'View',
     advanced: 'Details & checks',
     models: 'Models',
@@ -386,7 +389,15 @@ export const bim = {
       'A link can carry {shown} of the {total} highlighted elements. The rest are in the model but not marked here.',
     otherModel:
       'This link names “{wanted}”, which is not in this project. Showing “{opened}” instead.',
-    showEverything: 'Restore hidden elements',
+    /**
+     * The reset, next to the undo — and it had to stop saying "hidden".
+     *
+     * It clears isolation too, and isolating hides nothing: it takes away
+     * everything else. A reader who had isolated one wall was offered
+     * "restore hidden elements" for the one control that would give them
+     * their building back, and nothing they had done was called hiding.
+     */
+    showEverything: 'Show all elements again',
     elevation: '{value} m',
     notReady: 'The model is still being read. This usually takes a few moments.',
     elementsFailed:

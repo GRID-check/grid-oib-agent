@@ -811,7 +811,7 @@ export async function updateDocumentTags(
  * different names depending on which surface you are looking at.
  *
  * `filename` is untouched. It is the join key to the stored object and to every
- * chunk in the retrieval index (see migration 0046), so renaming it would
+ * chunk in the retrieval index (see migration 0048), so renaming it would
  * detach the document from its own content. That is also why this needs no
  * re-ingestion: nothing about the indexed document changed.
  *
