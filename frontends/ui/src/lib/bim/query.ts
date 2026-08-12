@@ -865,7 +865,7 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
       const parts = [
         `Modell „${overview.projectName ?? result.model.filename}“ (${overview.schema ?? 'IFC'})`,
         `${overview.totals.elements} Bauteile`,
-        `${overview.totals.storeys} Geschosse`,
+        `${overview.totals.storeys} Geschoße`,
         `${overview.totals.spaces} Räume`,
       ]
       if (overview.quantityTotals.netFloorAreaM2 !== null) {
@@ -896,7 +896,7 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
           ? ` ${schedule.totals.roomsWithoutArea} Räume ohne Flächenangabe sind darin NICHT enthalten.`
           : ''
       return (
-        `Raumbuch: ${schedule.totals.rooms} Räume in ${schedule.storeys.length} Geschossen, ` +
+        `Raumbuch: ${schedule.totals.rooms} Räume in ${schedule.storeys.length} Geschoßen, ` +
         `Netto-Grundfläche ${schedule.totals.netFloorArea ?? '—'} ${schedule.units.area}.${missing}`
       )
     }

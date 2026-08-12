@@ -1096,8 +1096,12 @@ describe('missingPropertyShoppingList', () => {
     const fireRating = list.find((entry) => entry.path.includes('FireRating'))
     expect(fireRating?.elements).toBe(2)
     expect(fireRating?.rules).toContain('oib2-feuerwiderstand-tragend')
-    // Ordered by how much is blocked, so the biggest win is first.
-    expect(list[0].elements).toBeGreaterThanOrEqual(list[list.length - 1].elements)
+    // Ordered by how much is blocked, so the biggest win is first. Comparing
+    // only the endpoints caught a full reversal and nothing else — a
+    // misplaced middle entry passed, and a one-entry list compared a number
+    // with itself.
+    const counts = list.map((entry) => entry.elements)
+    expect(counts).toEqual([...counts].sort((a, b) => b - a))
   })
 })
 
@@ -1358,6 +1362,10 @@ describe('outstandingRules', () => {
 
   it('never lists a rule that passed or stood down', () => {
     const outstanding = outstandingRules(attachConfirmations(run, [], 'rev-3'))
+    // Or the loop below runs zero times and this test asserts nothing — and
+    // an empty list is exactly the regression that would silently empty the
+    // "still needs a human" list.
+    expect(outstanding.length).toBeGreaterThan(0)
     for (const rule of outstanding) {
       expect(rule.applicable).toBe(true)
       expect(rule.failed + rule.undecidable).toBeGreaterThan(0)

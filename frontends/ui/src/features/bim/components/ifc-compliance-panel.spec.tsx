@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IfcCompliancePanel } from './ifc-compliance-panel'
 import type { BimRuleResult, BimRuleResultWithConfirmation } from '@/lib/bim/rules'
@@ -334,10 +334,23 @@ describe('IfcCompliancePanel', () => {
       await userEvent.type(screen.getByLabelText('Why this is settled'), 'Geprüft')
       await userEvent.click(screen.getByRole('button', { name: 'Save confirmation' }))
 
-      expect(screen.getByText(/cannot be added or withdrawn/)).toBeInTheDocument()
+      expect(await screen.findByText(/cannot be added or withdrawn/)).toBeInTheDocument()
       expect(screen.queryByTestId('bim-confirmation-failed')).not.toBeInTheDocument()
       // And the note survives, so nothing they typed is lost.
       expect(screen.getByLabelText('Why this is settled')).toHaveValue('Geprüft')
+    })
+
+    it('says a brief it could not READ was not read, rather than naming gaps in it', () => {
+      // Untested on both sides until now: the hook's `failed` had no assertion
+      // and no caller passed `factsFailed`. The two sentences send the reader
+      // to different places, and only one of them can help.
+      panel({
+        rules: [rule({ ruleId: 'oib3-raumhoehe', passed: 9 })],
+        factsFailed: true,
+        missingFacts: [],
+      })
+      expect(screen.getByText(/project brief could not be read/)).toBeInTheDocument()
+      expect(screen.queryByText(/Some rules depend on project data/)).not.toBeInTheDocument()
     })
 
     it('offers nothing to confirm on a rule the model settled cleanly', () => {
@@ -407,11 +420,18 @@ describe('a confirmation that could not be saved', () => {
 
   it('says nothing when the confirmation saved', async () => {
     const user = userEvent.setup()
-    panel(() => Promise.resolve())
+    const onConfirm = vi.fn().mockResolvedValue(undefined)
+    panel(onConfirm)
 
     await user.click(screen.getByTestId('bim-confirm-open'))
     await user.click(screen.getByTestId('bim-confirm-save'))
 
+    // Awaited on a POSITIVE signal first. Its sibling above needs
+    // `findByRole('alert')` to see the failure, i.e. the alert arrives a tick
+    // later — so asserting its ABSENCE synchronously would stay green for a
+    // regression that surfaced it on the next tick.
+    await waitFor(() => expect(onConfirm).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByTestId('bim-confirm-save')).not.toBeInTheDocument())
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

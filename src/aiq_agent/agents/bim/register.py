@@ -243,7 +243,10 @@ def _element_link(
 def _bcf_link(
     project_id: str | None,
     filename: str | None,
-    gebaeudeklasse: int = 0,
+    # `None` as well as an out-of-range int: `_valid_gebaeudeklasse` is the one
+    # place that decides what an impossible value means, and the annotation
+    # should admit what callers actually pass it.
+    gebaeudeklasse: int | None = 0,
     hauptnutzung: str = "",
 ) -> str:
     """The download path for the open items as a BCF 2.1 file.
@@ -279,7 +282,7 @@ def _build_query(
     global_id: str,
     ifc_type: str,
     limit: int,
-    gebaeudeklasse: int = 0,
+    gebaeudeklasse: int | None = 0,
     hauptnutzung: str = "",
 ) -> dict[str, Any] | str:
     """Assemble the endpoint's query object, or return an error string.

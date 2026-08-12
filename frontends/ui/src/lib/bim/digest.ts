@@ -197,7 +197,7 @@ export function buildModelDigest(
   lines.push('')
   lines.push(
     `Dieses Dokument ist die automatisch erzeugte Zusammenfassung des IFC-Modells \`${options.filename}\`. ` +
-      'Es beschreibt den Inhalt des Modells (Bauteile, Geschosse, Räume, Kennwerte) und dient als ' +
+      'Es beschreibt den Inhalt des Modells (Bauteile, Geschoße, Räume, Kennwerte) und dient als ' +
       'Grundlage für Fragen zum Gebäude.'
   )
   lines.push('')
@@ -216,7 +216,7 @@ export function buildModelDigest(
     ['Längeneinheit', summary.units.length?.symbol ?? '—'],
     ['Bauteile gesamt', String(summary.totals.elements)],
     ['Räume gesamt', String(summary.totals.spaces)],
-    ['Geschosse gesamt', String(summary.totals.storeys)],
+    ['Geschoße gesamt', String(summary.totals.storeys)],
   ]
   lines.push(...table(['Angabe', 'Wert'], facts.map(([key, value]) => [key, value])))
   lines.push('')
@@ -236,7 +236,7 @@ export function buildModelDigest(
     lines.push('')
   }
 
-  lines.push('## Geschosse')
+  lines.push('## Geschoße')
   lines.push('')
   const breakdown = buildStoreyBreakdown(summary, elements)
   const storeyRows = summary.storeys.map((storey) => {
@@ -252,7 +252,7 @@ export function buildModelDigest(
         : `${formatNumber(entry.netFloorArea)} ${area}`,
     ]
   })
-  lines.push(...table(['Geschoss', 'Höhenlage', 'Bauteile', 'Räume', 'Netto-Grundfläche'], storeyRows))
+  lines.push(...table(['Geschoß', 'Höhenlage', 'Bauteile', 'Räume', 'Netto-Grundfläche'], storeyRows))
   lines.push('')
 
   lines.push('## Bauteile nach Typ')
@@ -268,11 +268,11 @@ export function buildModelDigest(
   for (const type of NAMED_INSTANCE_TYPES) {
     const named = elements.filter((element) => element.ifcType === type && element.name)
     if (named.length === 0) continue
-    lines.push(`## ${type === 'IfcSpace' ? 'Räume' : 'Geschosse (Bauteile)'}`)
+    lines.push(`## ${type === 'IfcSpace' ? 'Räume' : 'Geschoße (Bauteile)'}`)
     lines.push('')
     lines.push(
       ...table(
-        ['Name', 'Geschoss', 'Netto-Grundfläche'],
+        ['Name', 'Geschoß', 'Netto-Grundfläche'],
         named.map((element) => {
           const netArea = firstQuantity(element, ['NetFloorArea', 'NetArea'])
           return [

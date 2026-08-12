@@ -150,7 +150,7 @@ describe('IfcModelViewer with WebGPU', () => {
     })
 
     try {
-      render(
+      const { rerender } = render(
         <IfcModelViewer
           sourceUrl="https://example.test/model.ifc"
           elements={[
@@ -165,11 +165,36 @@ describe('IfcModelViewer with WebGPU', () => {
         />
       )
 
+      // The warning is a canary, not the assertion. It depends on React
+      // emitting this exact substring through `console.error`, so a reword or
+      // a production-mode build turns it into a line that can never fail.
       expect(warnings.flat().join(' ')).not.toContain('same key')
-      // Both rows are there, each with its own count.
+
+      // These are the assertion: both rows, each with its own count.
       expect(screen.getAllByText('nicht erfüllt')).toHaveLength(2)
       expect(screen.getByText('(1)')).toBeInTheDocument()
       expect(screen.getByText('(2)')).toBeInTheDocument()
+
+      // And the counts FOLLOW the groups through an update, which is the
+      // reconciliation the shared key actually broke: keyed by label, React
+      // treats these as one row and reuses the first one's subtree, so the
+      // reordered pair renders with the old counts.
+      rerender(
+        <IfcModelViewer
+          sourceUrl="https://example.test/model.ifc"
+          elements={[
+            ...ELEMENTS,
+            { globalId: 'g-w2', expressId: 22, ifcType: 'IfcWall', name: 'Innenwand', storeyName: 'Erdgeschoss' },
+            { globalId: 'g-w3', expressId: 23, ifcType: 'IfcWall', name: 'Trennwand', storeyName: 'Erdgeschoss' },
+          ]}
+          highlights={[
+            { globalIds: ['g-w2', 'g-w3'], label: 'nicht erfüllt', status: 'fail' },
+            { globalIds: ['g-w1'], label: 'nicht erfüllt', status: 'fail' },
+          ]}
+        />
+      )
+      const counts = screen.getAllByText(/^\(\d\)$/).map((node) => node.textContent)
+      expect(counts).toEqual(['(2)', '(1)'])
     } finally {
       spy.mockRestore()
     }

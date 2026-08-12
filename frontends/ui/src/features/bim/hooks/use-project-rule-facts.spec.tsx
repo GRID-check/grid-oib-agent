@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { useProjectRuleFacts } from './use-bim-model'
 
 function stubProfile(body: unknown, ok = true): void {
@@ -78,24 +78,50 @@ describe('useProjectRuleFacts', () => {
   })
 
   it('treats an empty Hauptnutzung as absent', async () => {
+    // On `ready`, for the reason spelled out two tests up — and asserting the
+    // VALUE, which is the distinction: `missing` says the same thing at mount
+    // whatever the answer turns out to be.
     stubProfile({ facts: { hauptnutzung: { value: '  ' } } })
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
-    await waitFor(() => expect(result.current.missing).toContain('Hauptnutzung'))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.hauptnutzung).toBeNull()
+    expect(result.current.missing).toContain('Hauptnutzung')
   })
 
   it('names both gaps when the profile carries neither', async () => {
     stubProfile({ facts: {} })
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
-    await waitFor(() => expect(result.current.missing).toEqual(['Gebäudeklasse', 'Hauptnutzung']))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.failed).toBe(false)
+    expect(result.current.missing).toEqual(['Gebäudeklasse', 'Hauptnutzung'])
   })
 
-  it('treats an unreadable profile the same as one carrying nothing', async () => {
-    // The rules then stand down and say so, which is the honest outcome — never
-    // a default that quietly picks thresholds.
+  it('reports a profile it could not READ as that, not as a brief with gaps', async () => {
+    // The rules stand down either way, which is the honest outcome — never a
+    // default that quietly picks thresholds. But "diese Angaben fehlen im
+    // Briefing", with a link to go and set them, sends the reader to re-enter
+    // values that are already there, and coming back changes nothing.
+    //
+    // This test used to assert the OPPOSITE of what the hook does, and passed
+    // because `missing` holds both strings at mount: `waitFor` resolved on its
+    // first poll, before the rejection had landed.
     stubProfile({}, false)
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
-    await waitFor(() => expect(result.current.missing).toEqual(['Gebäudeklasse', 'Hauptnutzung']))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.failed).toBe(true)
+    expect(result.current.missing).toEqual([])
     expect(result.current.gebaeudeklasse).toBeNull()
+  })
+
+  it('clears the failure when the retry succeeds', async () => {
+    stubProfile({}, false)
+    const { result } = renderHook(() => useProjectRuleFacts('p1'))
+    await waitFor(() => expect(result.current.failed).toBe(true))
+
+    stubProfile({ facts: { gebaeudeklasse: { value: 'GK4' } } })
+    act(() => result.current.reload())
+    await waitFor(() => expect(result.current.gebaeudeklasse).toBe(4))
+    expect(result.current.failed).toBe(false)
   })
 
   it('fetches nothing without a project', () => {

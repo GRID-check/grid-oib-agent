@@ -59,6 +59,8 @@ const disposed = { renderer: 0, geometry: 0 }
  * sequence can answer that.
  */
 const loadOrder: string[] = []
+/** Index into `renders` of the frame `captureScreenshot` actually grabbed. */
+let capturedFrame = -1
 
 /**
  * What the fake raycaster answers, one entry per call.
@@ -104,6 +106,13 @@ vi.mock('@ifc-lite/renderer', () => ({
       // Recorded so a test can assert the frame drawn immediately BEFORE the
       // capture was the exhaustive one.
       loadOrder.push('captureScreenshot')
+      // WHICH frame, not "some frame". The assertion used to read
+      // `renders.at(-2)`, which is the capture frame only because exactly one
+      // interactive frame happens to follow it — and its `?? renders.at(-1)`
+      // fallback silently pointed at a different frame rather than failing if
+      // that ever changed. Recording the index here ties the assertion to the
+      // frame the renderer actually captured.
+      capturedFrame = renders.length - 1
       return 'data:image/png;base64,AAA'
     }
     fitToView(): void {}
@@ -178,6 +187,7 @@ beforeEach(() => {
   renders.length = 0
   raycasts.length = 0
   loadOrder.length = 0
+  capturedFrame = -1
   disposed.renderer = 0
   disposed.geometry = 0
   vi.stubGlobal(
@@ -516,9 +526,8 @@ describe('capturing the view', () => {
     await waitFor(() => expect(onCapture).toHaveBeenCalledWith('data:image/png;base64,AAA'))
     // The frame immediately before the capture is the image. Culling and LOD
     // are invisible at 60 fps and perfectly visible in a PNG someone prints.
-    const captureIndex = loadOrder.indexOf('captureScreenshot')
-    expect(captureIndex).toBeGreaterThanOrEqual(0)
-    const captured = renders.at(-2) ?? renders.at(-1)!
+    expect(capturedFrame).toBeGreaterThanOrEqual(0)
+    const captured = renders[capturedFrame]
     expect(captured.contributionCull).toBeUndefined()
     expect(captured.lod).toBeUndefined()
     expect(captured.restoreEvictedForCapture).toBe(true)

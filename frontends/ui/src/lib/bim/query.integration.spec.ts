@@ -917,9 +917,22 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     const result = await run(bimQuerySchema.parse({ op: 'takeoff', quantity: 'NetSideArea' }))
     const walls = result.takeoff?.find((row) => row.group === 'IfcWall')
     expect(walls?.elements).toBe(5)
-    // Whatever the fixture publishes, the row must account for every element
-    // in it: a sum plus its blind spot, never a sum alone.
-    expect((walls?.missing ?? 0) + (walls?.value === null ? 0 : 1)).toBeGreaterThan(0)
+    /*
+      The conservation law, actually checked.
+
+      This used to read `missing + (value === null ? 0 : 1) > 0`, which is `≥ 1`
+      for any row that exists at all — the fixture's walls do publish
+      `NetSideArea`, so the right-hand term was always 1 and no implementation
+      could fail it. The invariant it claimed to test — that a row accounts for
+      every element in it, a sum plus its blind spot — was never checked, and
+      this is the only place it runs against real SQL.
+    */
+    expect(walls?.missing).toBeLessThanOrEqual(walls?.elements ?? 0)
+    // Three of the fixture's five walls publish no `NetSideArea` — a figure
+    // the old assertion could not have caught either way, and exactly the
+    // "sum plus its blind spot" the comment above is about.
+    expect(walls?.missing).toBe(3)
+    expect(walls?.value).toBeGreaterThan(0)
     expect(result.summary).toContain('Massenermittlung')
   })
 

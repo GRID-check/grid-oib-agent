@@ -122,6 +122,24 @@ describe('projected rule inputs', () => {
 
     expect(missing).toEqual([])
 
+    /*
+      And the scan has to have SEEN something.
+
+      The regex only matches an inline array literal. A rule written as
+      `quantity(element, DOOR_WIDTH_KEYS)` contributes nothing to `read`,
+      `missing` is `[]`, and the guard whose entire purpose is "this fails the
+      moment a new rule needs a new key" passes having checked nothing at all.
+
+      Two floors: the scan found at least as many keys as the projection
+      declares, and no catalogue read is written in a form the scan cannot
+      see. The second is the one that keeps the first honest.
+    */
+    expect(read.size).toBeGreaterThanOrEqual(RULE_INPUT_KEYS.length)
+    const catalogue = source.slice(source.indexOf('const BIM_RULES'))
+    // `[^[\s]` rather than a lookahead: `\s*(?!\[)` backtracks to zero width
+    // and then succeeds against the space itself, so it matched every call.
+    expect(catalogue).not.toMatch(/(?:property|numericProperty|quantity)\(element,\s*[^[\s]/)
+
     // And the fields read straight off the element, not through a Pset. This
     // is the one that actually bit: the door rule reads
     // `element.predefinedType`, which no property-key scan would ever see.
