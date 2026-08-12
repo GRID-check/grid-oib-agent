@@ -11,15 +11,20 @@
  * `citation-wire-contract.spec.ts`.
  */
 
-import { SCOPE_QUALIFIERS, scopeForQualifier, type CollectionScope } from '../source-kinds'
+import { LEGACY_SCOPE_QUALIFIERS, scopeForQualifier, type Shelf } from '../source-kinds'
 import { stripOriginToken } from './model'
 
 /** A knowledge-layer citation locator: filename + optional page + optional shelf. */
 export interface KbCitationLocator {
   filename: string
   page?: number
-  /** Scope named by the key's `(Projektwissen)` qualifier, when it carries one. */
-  scope?: CollectionScope
+  /**
+   * Shelf named by a LEGACY key's `(Projektwissen)` qualifier, when it carries
+   * one. New payloads carry the shelf as data (ADR-0047) and a reader must
+   * prefer that field; this is only how keys already persisted in messages
+   * still name their shelf.
+   */
+  shelf?: Shelf
 }
 
 /**
@@ -33,15 +38,16 @@ const PAGE_REF_RE = /[,\s]\s*(?:p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))/i
 const FILENAME_RE = /^.+\.\w{2,5}$/
 
 /**
- * Trailing scope qualifier of a citation key (`Plan.pdf (Projektwissen)`) —
- * mirrors the backend's `_SCOPE_QUALIFIER_RE`. Only the KNOWN qualifiers match,
- * so a parenthetical that is genuinely part of a filename ("Bescheid
- * (Kopie).pdf") is never mistaken for one.
+ * Trailing qualifier of a LEGACY citation key (`Plan.pdf (Projektwissen)`) —
+ * mirrors the backend's `_SCOPE_QUALIFIER_RE`. Only the three qualifiers the
+ * legacy writer could emit match, so a parenthetical that is genuinely part of
+ * a filename ("Bescheid (Kopie).pdf") is never mistaken for one — and a display
+ * label renamed on the rendering side cannot start eating filenames.
  */
 const SCOPE_QUALIFIER_RE = new RegExp(
-  `\\s*\\((${Object.values(SCOPE_QUALIFIERS)
-    .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|')})\\)\\s*$`,
+  `\\s*\\((${LEGACY_SCOPE_QUALIFIERS.map(([label]) =>
+    label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  ).join('|')})\\)\\s*$`,
   'i'
 )
 
@@ -60,12 +66,12 @@ export const parseKbLocator = (text: string): KbCitationLocator | null => {
   const page = pageMatch ? Number(pageMatch[1]) : undefined
   let filename = (pageMatch ? line.slice(0, pageMatch.index) : line).replace(/[\s,]+$/, '').trim()
   const qualifierMatch = SCOPE_QUALIFIER_RE.exec(filename)
-  const scope = qualifierMatch ? scopeForQualifier(qualifierMatch[1]) : undefined
+  const shelf = qualifierMatch ? scopeForQualifier(qualifierMatch[1]) : undefined
   if (qualifierMatch) {
     filename = filename.slice(0, qualifierMatch.index).replace(/[\s,]+$/, '').trim()
   }
   if (!FILENAME_RE.test(filename)) return null
-  return { filename, page, scope }
+  return { filename, page, shelf }
 }
 
 /** Filename carried by a pseudo-URL (`kb://corpus/Plan.pdf`), if any. */

@@ -101,19 +101,20 @@ describe('parseKbLocator', () => {
     expect(parseKbLocator('')).toBeNull()
   })
 
-  test('reads the shelf out of a qualified key and keeps the filename bare', () => {
+  test('reads the shelf out of a LEGACY qualified key and keeps the filename bare', () => {
     // Emitted only when one filename was retrieved from two collections in the
     // same turn — the qualifier is the collection half of the document's
-    // identity, not part of its name.
+    // identity, not part of its name. New payloads carry the shelf as data
+    // (ADR-0047); this parse survives for keys already persisted in messages.
     expect(parseKbLocator('Plan.pdf (Projektwissen), p.3')).toEqual({
       filename: 'Plan.pdf',
       page: 3,
-      scope: 'projekt',
+      shelf: 'project',
     })
     expect(parseKbLocator('Plan.pdf (Büroarchiv)')).toEqual({
       filename: 'Plan.pdf',
       page: undefined,
-      scope: 'buero',
+      shelf: 'archiv',
     })
   })
 
@@ -123,7 +124,7 @@ describe('parseKbLocator', () => {
     expect(parseKbLocator('Bescheid (Kopie).pdf, p.2')).toEqual({
       filename: 'Bescheid (Kopie).pdf',
       page: 2,
-      scope: undefined,
+      shelf: undefined,
     })
   })
 })
@@ -228,64 +229,91 @@ describe('resolveCitationTarget', () => {
 
   describe('a citation names its own shelf', () => {
     // Ordering ("project first") is a tie-break, not an identity. When the
-    // citation knows which collection it came from, that wins — otherwise a
-    // Büroarchiv citation opens the project's unrelated file of the same name.
-    const scopedDocuments: StoredDocumentRef[] = [
-      { id: 'doc-1', filename: 'Plan.pdf', contentType: 'application/pdf', scope: 'projekt' },
-      { id: 'archiv-9', filename: 'Plan.pdf', contentType: 'application/pdf', scope: 'buero' },
+    // citation CARRIES its shelf, that wins — otherwise a Büroarchiv citation
+    // opens the project's unrelated file of the same name. The shelf arrives as
+    // data (ADR-0047); the collection id is never prefix-matched for it.
+    const shelvedDocuments: StoredDocumentRef[] = [
+      { id: 'doc-1', filename: 'Plan.pdf', contentType: 'application/pdf', shelf: 'project' },
+      { id: 'archiv-9', filename: 'Plan.pdf', contentType: 'application/pdf', shelf: 'archiv' },
     ]
 
-    test('the wire collection resolves to the Archiv copy', () => {
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf, p.2', collection: 'archiv_org1' }, scopedDocuments
+    test('the wire shelf resolves to the Archiv copy', () => {
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 'archiv_org1', shelf: 'archiv' },
+        shelvedDocuments
       )
 
       expect(target).toMatchObject({ document: { id: 'archiv-9' } })
     })
 
-    test("a key's qualifier resolves it too, with no collection on the wire", () => {
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf (Büroarchiv), p.2' }, scopedDocuments
+    test("a LEGACY key's qualifier resolves it too, with no shelf on the wire", () => {
+      const target = targetFor({ url: '', content: '[KB] Plan.pdf (Büroarchiv), p.2' }, shelvedDocuments
       )
 
       expect(target).toMatchObject({ fileName: 'Plan.pdf', document: { id: 'archiv-9' } })
     })
 
     test('the project copy is still reachable', () => {
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf, p.2', collection: 'proj_alpha' }, scopedDocuments
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 'proj_alpha', shelf: 'project' },
+        shelvedDocuments
       )
 
       expect(target).toMatchObject({ document: { id: 'doc-1' } })
     })
 
     test('a shelf holding no such document falls back rather than failing', () => {
-      // Fail-open, matching the backend: a scope that matches nothing must never
+      // Fail-open, matching the backend: a shelf that matches nothing must never
       // turn a document that opens today into a dead info popover.
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf, p.2', collection: 'oib_knowledge' }, scopedDocuments
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 'oib_knowledge', shelf: 'base' },
+        shelvedDocuments
       )
 
       expect(target).toMatchObject({ kind: 'document', document: { id: 'doc-1' } })
     })
 
-    test('a Basiswissen citation opens the base corpus, not a same-named upload', () => {
-      // The base corpus has no StoredDocumentRef row, so the base-corpus shelf
-      // was the one scope that resolved to the wrong document whenever a project
-      // upload shared the filename.
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' }, scopedDocuments,
+    test('a collection id no longer decides the shelf on its own', () => {
+      // The prefix table is gone: `archiv_org1` with no shelf on the wire is an
+      // UNKNOWN shelf, which resolves by filename alone (project first) rather
+      // than by a guess. This is the fail-open inference ADR-0047 deletes.
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 'archiv_org1' },
+        shelvedDocuments
+      )
+
+      expect(target).toMatchObject({ document: { id: 'doc-1' } })
+    })
+
+    test('a base-shelf citation opens the base corpus, not a same-named upload', () => {
+      // The base corpus has no StoredDocumentRef row, so `base` was the one shelf
+      // that resolved to the wrong document whenever a project upload shared the
+      // filename.
+      const target = targetFor({ url: '', content: '[KB] Plan.pdf, p.2', shelf: 'base' }, shelvedDocuments,
         ['Plan.pdf']
       )
 
       expect(target).toMatchObject({ document: { type: 'base', fileName: 'Plan.pdf' } })
     })
 
-    test('a Basiswissen citation with no base-corpus copy still falls back', () => {
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' }, scopedDocuments,
+    test('a legacy Basiswissen key opens the base corpus too', () => {
+      const target = targetFor({ url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' }, shelvedDocuments,
+        ['Plan.pdf']
+      )
+
+      expect(target).toMatchObject({ document: { type: 'base', fileName: 'Plan.pdf' } })
+    })
+
+    test('a base-shelf citation with no base-corpus copy still falls back', () => {
+      const target = targetFor({ url: '', content: '[KB] Plan.pdf, p.2', shelf: 'base' }, shelvedDocuments,
         ['oib-rl_2.pdf']
       )
 
       expect(target).toMatchObject({ document: { type: 'stored', id: 'doc-1' } })
     })
 
-    test('untagged rows still resolve for callers that supply no scope', () => {
-      const target = targetFor({ url: '', content: '[KB] Brandschutzkonzept.pdf', collection: 'proj_alpha' }, storedDocuments
+    test('untagged rows still resolve for callers that supply no shelf', () => {
+      const target = targetFor({ url: '', content: '[KB] Brandschutzkonzept.pdf', shelf: 'project' }, storedDocuments
       )
 
       expect(target).toMatchObject({ document: { id: 'doc-1' } })

@@ -114,7 +114,9 @@ const addWireCitations = (
       title: citation.title,
       fileName,
       collection: citation.collection,
-      scope: parsed?.scope,
+      // Explicit shelf first (ADR-0047); a legacy key's German qualifier is the
+      // fallback for messages persisted before the wire carried the field.
+      shelf: citation.shelf ?? parsed?.shelf,
       url: isHttpUrl(citation.url) ? citation.url : undefined,
       kind: citation.kind,
       lane: citation.lane,
@@ -185,7 +187,9 @@ const addWrittenEntries = (
       // raw filename, which is the exact regression this list used to cause.
       title: locator ? undefined : title || undefined,
       fileName: locator?.filename,
-      scope: locator?.scope,
+      // A written entry is prose the model wrote: the only shelf it can name is
+      // a legacy qualifier inside the locator it quotes.
+      shelf: locator?.shelf,
       url: isHttpUrl(url) ? url : undefined,
       origin,
       locus: {

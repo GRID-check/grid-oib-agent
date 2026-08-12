@@ -13,7 +13,7 @@
  * than opening a viewer that cannot render.
  */
 
-import type { CollectionScope } from '../source-kinds'
+import type { Shelf } from '../source-kinds'
 import { citedLoci, isHttpUrl, type CitationLocus, type CitedDocument } from './model'
 import { parseKbLocator, type KbCitationLocator } from './locator'
 
@@ -23,7 +23,7 @@ import { parseKbLocator, type KbCitationLocator } from './locator'
  * (`GET /api/archiv/documents`). Both are DB-backed rows opened through the
  * same scope-aware `/api/documents/{id}/preview`, so they share one list.
  *
- * `scope` says which of the two a row came from, so a citation that knows its
+ * `shelf` says which of the two a row came from, so a citation that knows its
  * own shelf resolves to the right copy of a name held on both. Ordering is only
  * the tie-break when it does not.
  */
@@ -31,7 +31,8 @@ export interface StoredDocumentRef {
   id: string
   filename: string
   contentType?: string | null
-  scope?: CollectionScope
+  /** The shelf this row was listed from (ADR-0047), when the caller tagged it. */
+  shelf?: Shelf
 }
 
 /**
@@ -80,12 +81,14 @@ const isPreviewableContentType = (contentType: string | null | undefined): boole
 
 /** The document's filename + shelf, however it can be recovered. */
 const documentLocator = (doc: CitedDocument): KbCitationLocator | null => {
-  if (doc.fileName?.trim()) return { filename: doc.fileName.trim(), scope: doc.scope }
+  if (doc.fileName?.trim()) return { filename: doc.fileName.trim(), shelf: doc.shelf }
   // A document that reached the model without a filename can still name one in
   // a locus key (legacy messages whose wire carried no structured `file_name`).
   for (const locus of doc.loci) {
     const parsed = locus.citationKey ? parseKbLocator(locus.citationKey) : null
-    if (parsed) return { ...parsed, scope: parsed.scope ?? doc.scope }
+    // The document's own shelf came from the wire; the key's is a legacy parse,
+    // so it only fills a gap.
+    if (parsed) return { ...parsed, shelf: doc.shelf ?? parsed.shelf }
   }
   return null
 }
@@ -127,15 +130,15 @@ export const resolveCitationTarget = (
       options?.storedDocuments?.filter((row) => row.filename.toLowerCase() === wanted) ?? []
     const baseFile = options?.baseCorpusFiles?.find((name) => name.toLowerCase() === wanted)
     // Narrow to the shelf the citation names — the same document identity the
-    // backend registry keys on. FAIL-OPEN: a scope that matches nothing falls
+    // backend registry keys on. FAIL-OPEN: a shelf that matches nothing falls
     // back to the plain filename match, so nothing that opens today stops
-    // opening because a scope was missing, stale, or wrong.
-    const scoped = locator.scope ? named.filter((row) => row.scope === locator.scope) : []
-    // `Basiswissen` names the base corpus, which `storedDocuments` cannot hold
-    // (it is project + Archiv rows only). Without this the base-corpus shelf
-    // would be the one scope that resolves to the WRONG document whenever a
-    // project upload shares the filename.
-    const storedDoc = locator.scope === 'baurecht' && baseFile ? undefined : (scoped[0] ?? named[0])
+    // opening because a shelf was missing, stale, or wrong.
+    const shelved = locator.shelf ? named.filter((row) => row.shelf === locator.shelf) : []
+    // The `base` shelf is the base corpus, which `storedDocuments` cannot hold
+    // (it is project + Archiv rows only). Without this it would be the one shelf
+    // that resolves to the WRONG document whenever a project upload shares the
+    // filename.
+    const storedDoc = locator.shelf === 'base' && baseFile ? undefined : (shelved[0] ?? named[0])
 
     if (storedDoc && isPreviewableContentType(storedDoc.contentType)) {
       return {

@@ -37,9 +37,8 @@ import {
   accentForLane,
   authorityTag,
   asSourceKind,
-  collectionScope,
   kindForLane,
-  type CollectionScope,
+  type Shelf,
   type SourceKind,
 } from '../source-kinds'
 import { documentDisplayName } from '../document-names'
@@ -89,16 +88,20 @@ export interface CitedDocument {
   /** Retrieval collection — the other half of a document's true identity. */
   collection?: string
   /**
-   * The SHELF the document sits on (Basiswissen / Projektwissen / Büroarchiv).
+   * The SHELF the document sits on — `archiv | project | session | base`
+   * (ADR-0047), a different axis from `kind` above.
    *
-   * Normally derived from `collection`, but a citation key can name it directly
-   * (`Plan.pdf (Büroarchiv), p.3`) when the wire carried no collection — which
-   * is exactly when it matters, because the qualifier only appears at all when
-   * one filename was retrieved from more than one shelf in the same turn.
-   * Losing it means an Archiv citation opens the project's unrelated file of
-   * the same name.
+   * It ARRIVES AS DATA on the citation payload; it is never derived from the
+   * collection id, and the German label a surface renders is derived FROM it
+   * (`shelfLabel`), not the other way round. A legacy key's `(Büroarchiv)`
+   * qualifier is the only fallback, for messages persisted before the wire
+   * carried the field.
+   *
+   * Undefined means UNKNOWN — the document renders unattributed. It is never
+   * defaulted to `base`: an unknown document claiming to be authoritative base
+   * law is the fail-open defect ADR-0047 removes.
    */
-  scope?: CollectionScope
+  shelf?: Shelf
   /** Outbound link, for web/RIS sources. */
   url?: string
   /** Coarse kind (ADR-0026) — the provenance/trust family. */
@@ -470,8 +473,11 @@ export class CitationAccumulator {
     title?: string | null
     fileName?: string | null
     collection?: string | null
-    /** Shelf named by a citation key's qualifier, when the collection is unknown. */
-    scope?: CollectionScope
+    /**
+     * The shelf, explicit from the wire — or, for legacy messages only, the one
+     * a citation key's German qualifier names.
+     */
+    shelf?: Shelf
     url?: string | null
     kind?: string | null
     lane?: string | null
@@ -529,10 +535,11 @@ export class CitationAccumulator {
     // it, permanently.
     doc.fileName = doc.fileName || observation.fileName?.trim() || undefined
     doc.collection = doc.collection || observation.collection?.trim() || undefined
-    // The collection is the stronger statement; a key's qualifier is only the
-    // model's rendering of it, so structured beats parsed — but either is
-    // better than none.
-    doc.scope = collectionScope(doc.collection) ?? doc.scope ?? observation.scope
+    // The shelf is taken, never guessed: whichever observation CARRIED one wins,
+    // first non-empty. The collection id is deliberately not consulted — that
+    // prefix match is what filed a private session attachment under
+    // "Projektwissen" and an unknown collection under base law (ADR-0047).
+    doc.shelf = doc.shelf ?? observation.shelf
     doc.url = doc.url ?? (observation.url?.trim() || undefined)
     doc.tool = doc.tool ?? (observation.tool?.trim() || undefined)
     doc.bindingNote = doc.bindingNote ?? (observation.bindingNote?.trim() || undefined)

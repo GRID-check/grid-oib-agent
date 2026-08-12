@@ -52,7 +52,7 @@ import {
   type CitedDocument,
   type StoredDocumentRef,
 } from '../lib/citations'
-import type { CollectionScope, SourceKind } from '../lib/source-kinds'
+import type { Shelf, SourceKind } from '../lib/source-kinds'
 import { AuthorityTag } from './AuthorityTag'
 
 // ---------------------------------------------------------------------------
@@ -102,7 +102,9 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
     const archivDocs = archivResult.status === 'fulfilled' ? archivResult.value?.documents : null
     const files = corpusResult.status === 'fulfilled' ? corpusResult.value?.files : null
 
-    const toRefs = (rows: unknown, scope: CollectionScope): StoredDocumentRef[] =>
+    // The shelf is stated by the LIST the rows came from — the project document
+    // route or the org Archiv route — not guessed from a collection id.
+    const toRefs = (rows: unknown, shelf: Shelf): StoredDocumentRef[] =>
       Array.isArray(rows)
         ? rows
             .filter(
@@ -113,7 +115,7 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
               id: doc.id,
               filename: doc.filename,
               contentType: doc.contentType ?? null,
-              scope,
+              shelf,
             }))
         : []
 
@@ -121,8 +123,8 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
     // shelf resolves to the right copy of a filename held on both. Project
     // uploads still come first, as the tie-break for a citation that does not.
     const storedDocuments: StoredDocumentRef[] = [
-      ...toRefs(docs, 'projekt'),
-      ...toRefs(archivDocs, 'buero'),
+      ...toRefs(docs, 'project'),
+      ...toRefs(archivDocs, 'archiv'),
     ]
 
     // Only corpus files whose PDF actually exists on this deployment are

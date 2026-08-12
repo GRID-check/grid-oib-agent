@@ -4,11 +4,14 @@
 import { describe, test, expect } from 'vitest'
 import {
   KIND_TO_SIGNAL,
-  SCOPE_QUALIFIERS,
+  LEGACY_SCOPE_QUALIFIERS,
+  SHELVES,
+  asShelf,
   asSourceKind,
   authorityTag,
-  collectionScope,
   scopeForQualifier,
+  shelfLabel,
+  type Shelf,
   type SourceKind,
 } from './source-kinds'
 
@@ -70,32 +73,81 @@ describe('authorityTag', () => {
   })
 })
 
-describe('collectionScope', () => {
-  test('maps a collection id to the shelf it lives on', () => {
-    expect(collectionScope('archiv_org1')).toBe('buero')
-    expect(collectionScope('proj_alpha')).toBe('projekt')
-    expect(collectionScope('s_9f2a4c')).toBe('projekt')
-    // A named collection that is neither project/session nor Archiv is the base
-    // knowledge corpus — same branch order as the backend's lane_for_hit.
-    expect(collectionScope('oib_knowledge')).toBe('baurecht')
+describe('Shelf (ADR-0047)', () => {
+  test('is exactly the four wire shelves', () => {
+    expect([...SHELVES]).toEqual(['archiv', 'project', 'session', 'base'])
   })
 
-  test('no collection means no scope (never a wrong guess)', () => {
-    expect(collectionScope('')).toBeUndefined()
-    expect(collectionScope(null)).toBeUndefined()
-    expect(collectionScope(undefined)).toBeUndefined()
+  test('accepts a shelf the wire states, case- and whitespace-tolerantly', () => {
+    for (const shelf of SHELVES) expect(asShelf(shelf)).toBe(shelf)
+    expect(asShelf(' Session ')).toBe('session')
   })
 
-  test('every qualifier round-trips back to its scope', () => {
-    for (const scope of Object.keys(SCOPE_QUALIFIERS) as (keyof typeof SCOPE_QUALIFIERS)[]) {
-      expect(scopeForQualifier(SCOPE_QUALIFIERS[scope])).toBe(scope)
+  test('an unknown or missing shelf is UNKNOWN — never a default', () => {
+    // The predecessor of this narrowing (`collectionScope`) failed OPEN and
+    // returned `baurecht`, so an unrecognised collection claimed to be
+    // authoritative base law. Unknown must stay unknown.
+    expect(asShelf('baurecht')).toBeUndefined()
+    expect(asShelf('projekt')).toBeUndefined()
+    expect(asShelf('archiv_org1')).toBeUndefined()
+    expect(asShelf('')).toBeUndefined()
+    expect(asShelf(null)).toBeUndefined()
+    expect(asShelf(undefined)).toBeUndefined()
+  })
+
+  test('the shelf is never inferred from a collection-id prefix', async () => {
+    // ADR-0047's acceptance test: the prefix table is DELETED, not synchronised.
+    // While a `('s_', 'projekt')` row existed, a private session attachment could
+    // only ever be guessed into the project shelf.
+    const source = await import('./source-kinds')
+    expect('collectionScope' in source).toBe(false)
+    expect('COLLECTION_SCOPE_PREFIXES' in source).toBe(false)
+    expect('SCOPE_QUALIFIERS' in source).toBe(false)
+  })
+})
+
+describe('shelfLabel', () => {
+  test('renders each shelf in German', () => {
+    expect(shelfLabel('archiv')).toBe('Büroarchiv')
+    expect(shelfLabel('project')).toBe('Projektwissen')
+    expect(shelfLabel('base')).toBe('Basiswissen')
+  })
+
+  test('a private session attachment is NOT labelled Projektwissen', () => {
+    // The headline defect: a file the user attached to one chat was told to the
+    // user as a "Private Sitzung" and then cited as project knowledge.
+    expect(shelfLabel('session')).toBe('Private Sitzung')
+    expect(shelfLabel('session')).not.toBe(shelfLabel('project'))
+  })
+
+  test('every shelf has a distinct label', () => {
+    const labels = SHELVES.map((shelf: Shelf) => shelfLabel(shelf))
+    expect(new Set(labels).size).toBe(SHELVES.length)
+  })
+})
+
+describe('scopeForQualifier (legacy citation keys)', () => {
+  test('every legacy qualifier still parses back to its shelf', () => {
+    for (const [qualifier, shelf] of LEGACY_SCOPE_QUALIFIERS) {
+      expect(scopeForQualifier(qualifier)).toBe(shelf)
     }
+    expect(LEGACY_SCOPE_QUALIFIERS.map(([, shelf]) => shelf)).toEqual([
+      'archiv',
+      'project',
+      'base',
+    ])
   })
 
   test('qualifiers are matched case-insensitively', () => {
     // The qualifier survives a round trip through an LLM, which may recase it.
-    expect(scopeForQualifier('projektwissen')).toBe('projekt')
-    expect(scopeForQualifier('  BÜROARCHIV  ')).toBe('buero')
+    expect(scopeForQualifier('projektwissen')).toBe('project')
+    expect(scopeForQualifier('  BÜROARCHIV  ')).toBe('archiv')
     expect(scopeForQualifier('Internal')).toBeUndefined()
+    expect(scopeForQualifier('')).toBeUndefined()
+    expect(scopeForQualifier(null)).toBeUndefined()
+  })
+
+  test('the legacy reader knows no session qualifier — no key ever carried one', () => {
+    expect(scopeForQualifier('Private Sitzung')).toBeUndefined()
   })
 })
