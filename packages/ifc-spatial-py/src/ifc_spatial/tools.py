@@ -54,6 +54,7 @@ from typing import Any
 
 import numpy as np
 
+from . import circulation as circ
 from . import operators as op
 from . import relations as extra
 from .briefing import briefing as build_briefing
@@ -153,6 +154,16 @@ MEASURES: dict[str, str] = {
         "(Innentüren belichten nicht) und misst die Rohbaulichte, nicht die Glasfläche. Kein Grenzwert "
         "angewandt — der Prozentsatz steht im Regelwerk, nicht im Modell."
     ),
+    "egressPath": (
+        "Kürzester begehbarer Weg eines RAUMS ins Freie, über Türen — Räume, Türen und eine Länge. "
+        "Nachbarschaft ist keine Begehbarkeit: zwei Räume an derselben Wand ohne Tür dazwischen "
+        "grenzen aneinander und sind unerreichbar. Die Länge ist ein Streckenzug über Raum- und "
+        "Türmittelpunkte und damit eine UNTERGRENZE, keine Fluchtweglänge im Sinne der OIB 2."
+    ),
+    "reachableFrom": (
+        "Alle über Türen erreichbaren Räume mit Anzahl der Türen dazwischen. Beantwortet „welche "
+        "Räume liegen hinter dieser Tür, und findet Räume ganz ohne Ausgang — was selbst ein Befund ist."
+    ),
 }
 
 MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
@@ -163,6 +174,8 @@ MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
     "clearHeight": op.clear_height,
     "azimuth": op.azimuth,
     "lightEntryArea": op.light_entry_area,
+    "egressPath": circ.egress_path,
+    "reachableFrom": circ.reachable_from,
 }
 
 KINDS = ["project", "site", "building", "storey", "space", "element", "opening", "group"]

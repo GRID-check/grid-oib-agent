@@ -240,3 +240,24 @@ angewandt, sondern übersprungen.
 Eine gute Antwort auf eine Maßfrage nennt die Zahl mit Einheit und Toleranz,
 ihre Herkunft, die beteiligten Bauteile — und was offen bleibt, mit dem, was es
 beheben würde.
+
+## Gemessenes sichtbar machen
+
+Jede Antwort endet mit einer `Bezug:`-Zeile — genau die GlobalIds, aus denen die
+Zahl gebildet wurde. Das ist die Vorlage für die Karte: eine `ifc_viewer`-Karte
+mit **diesen** Ids unter `global_ids` zeigt der Architektin das gemessene
+Bauteil im Modell, statt es zu beschreiben. Ein Überstand wird so vom Satz zum
+markierten Dach über der markierten Wand.
+
+Zwei Regeln dazu:
+
+- Ids **nie erfinden** und nie aus dem Gedächtnis ergänzen — nur die aus
+  `Bezug:` oder aus `find_elements`. Eine falsche Id markiert das falsche
+  Bauteil und sieht dabei genauso richtig aus wie eine echte.
+- `status` folgt der **Bestimmung**, nicht der Messung. Solange kein Grenzwert
+  angewandt wurde, ist er `info`. Ein rotes `fail` an einem Bauteil ist ein
+  Befund, und ein Befund braucht eine Klausel dahinter.
+
+Zum eigenen Hinsehen ist `operation: "view"` das Mittel, zum Zeigen die Karte.
+Das eine ersetzt das andere nicht: die Karte kann der Nutzer drehen und
+anklicken, das Bild nicht.

@@ -132,6 +132,16 @@ MEASURES: dict[str, str] = {
         "nothing) and measures the structural clear opening, not the glazed area. Applies no "
         "threshold: the percentage is in the Bestimmung, not in the model"
     ),
+    "egressPath": (
+        "a ROOM's shortest WALKABLE route to the outside through doors, with the rooms, the doors "
+        "and a length. Adjacency is not walkability — two rooms sharing a wall with no door between "
+        "them are adjacent and unreachable. The length is a polyline through room and door centres, "
+        "so it is a LOWER BOUND and explicitly not a Fluchtweglänge under OIB 2"
+    ),
+    "reachableFrom": (
+        "every room reachable from this one through doors, with door counts. Answers 'which rooms are "
+        "behind this door', and finds rooms with no way out at all — itself a finding"
+    ),
 }
 
 # NONE of these is a clear dimension, and saying otherwise was a defect. The
@@ -655,6 +665,33 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
                     f"- {label}: {entry.get('ifcType')} „{entry.get('name')}“ "
                     f"· {_num(entry.get('area'), 3)} m² · {entry.get('because')}"
                 )
+        if answer.get("caveat"):
+            lines.append(f"Hinweis: {answer['caveat']}")
+        if answer.get("method"):
+            lines.append(f"Methode: {answer['method']}")
+        return lines
+
+    # `egressPath` returns a route, and a route flattened by `_value_text` reads
+    # „space=…, reachesOutside=True, doorCount=3, length=15.492, legs=3 Einträge"
+    # — the number present and the way out invisible. The legs ARE the answer:
+    # which door, into which room, how far, in order.
+    if isinstance(value, dict) and "legs" in value and "reachesOutside" in value:
+        room = (value.get("space") or {}).get("name") or "der Raum"
+        if not value.get("reachesOutside"):
+            lines[0] = f"gemessen: von „{room}“ führt KEINE Türverbindung ins Freie."
+        else:
+            lines[0] = (
+                f"gemessen: „{room}“ erreicht das Freie über {value.get('doorCount')} Tür(en), "
+                f"Weglänge {_num(value.get('length'), 2)} m — aus der Geometrie berechnet, nicht deklariert."
+            )
+        for leg in value.get("legs") or []:
+            door = leg.get("tuer") or {}
+            outside = (leg.get("nach") or {}).get("kind") == "outside"
+            lines.append(
+                f"- {(leg.get('von') or {}).get('name')} → "
+                f"{'INS FREIE' if outside else (leg.get('nach') or {}).get('name')} "
+                f"durch „{door.get('name')}“ ({_num(leg.get('length'), 2)} m) · GlobalId {door.get('globalId')}"
+            )
         if answer.get("caveat"):
             lines.append(f"Hinweis: {answer['caveat']}")
         if answer.get("method"):

@@ -87,6 +87,37 @@ PARAMETERS = {
 }
 
 
+def _card_field_names() -> set[str]:
+    """Field and literal names of the Grid cards this skill is allowed to emit.
+
+    The skill teaches the hand-off from a measurement to a card — every answer
+    ends with a `Bezug:` line naming exactly the elements the number came from,
+    and those are the ids to highlight in the viewer. That teaching names card
+    fields, which are not `ifc_measure` parameters and would otherwise read as
+    inventions.
+
+    Read from the card MODELS rather than written out, so a renamed card field
+    fails here the same way a renamed operator does.
+    """
+    from aiq_agent.cards import models as card_models
+
+    names: set[str] = set()
+    for card in ("IfcViewerCard", "IfcHighlight", "IfcElementCard", "IfcScheduleCard"):
+        model = getattr(card_models, card, None)
+        if model is None:
+            continue
+        names |= set(getattr(model, "model_fields", {}))
+        literal = getattr(model, "model_fields", {}).get("type")
+        for value in getattr(getattr(literal, "annotation", None), "__args__", ()):
+            if isinstance(value, str):
+                names.add(value)
+    # The verdict vocabulary, which the skill constrains rather than merely names.
+    return names | {"pass", "fail", "warning", "info"}
+
+
+_CARD_FIELDS = _card_field_names()
+
+
 @pytest.fixture(scope="module")
 def text() -> str:
     return SKILL.read_text(encoding="utf-8")
@@ -149,6 +180,7 @@ def test_no_backticked_identifier_is_an_invention(backticked: set[str], text: st
             "height",
             "centroid",
         }
+        | _CARD_FIELDS
     )
     unknown = sorted(token for token in backticked if token not in known)
     assert not unknown, (

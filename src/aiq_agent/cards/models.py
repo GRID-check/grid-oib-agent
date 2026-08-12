@@ -740,8 +740,12 @@ class IfcHighlight(BaseModel):
         default=None,
         min_length=1,
         description=(
-            "IFC GlobalIds returned by ifc_query. NEVER invent these — an id you did not see is a wrong answer. "
-            "Use for a handful of elements the answer names; use 'match' for a set."
+            "IFC GlobalIds returned by ifc_query OR by ifc_measure. NEVER invent these — an id you did "
+            "not see is a wrong answer. Use for a handful of elements the answer names; use 'match' for "
+            "a set. When the answer came from a MEASUREMENT, the ids to highlight are the ones the "
+            "measurement itself names: every ifc_measure answer ends with a 'Bezug:' line listing exactly "
+            "the elements the number was derived from, and highlighting those shows the user the thing "
+            "that was measured rather than a description of it."
         ),
     )
     match: IfcElementMatch | None = Field(
