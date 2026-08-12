@@ -62,12 +62,17 @@ let geometry: GeometryIndex
 interface DrawnPath {
   id: string | null
   d: string
+  /** The whole `<path …/>` tag, so a test can read fill and weight too. */
+  raw: string
 }
 
 function paths(svg: string): DrawnPath[] {
   const out: DrawnPath[] = []
+  // `raw` keeps the whole tag: fill, fill-rule and stroke weight are as much
+  // part of what a drawing says as its coordinates are, and a test that only
+  // reads `d` cannot tell a filled section from a wireframe.
   for (const m of svg.matchAll(/<path d="([^"]*)"[^>]*?(?:data-id="([^"]*)")?\/>/g)) {
-    out.push({ d: m[1]!, id: m[2] ?? null })
+    out.push({ d: m[1]!, id: m[2] ?? null, raw: m[0] })
   }
   return out
 }
@@ -336,10 +341,26 @@ describe('project() on Ifc4_SampleHouse.ifc', () => {
       const polylines = paths(view.svg).reduce((sum, p) => sum + subpaths(p.d), 0)
       expect(polylines).toBeLessThan(segments(view.svg) / 3)
 
-      // A section is lines, not areas — no poché, no fill.
-      for (const p of paths(view.svg).filter((q) => q.id !== null)) {
-        expect(p.d).not.toContain('Z')
+      // Cut material is filled; profiles the mesh left open are not.
+      //
+      // This asserted the opposite — that a section never closes a path and
+      // never fills — on the reasoning that a greedy chaining walk cannot know
+      // which side of a profile is solid. That is true of an OPEN profile and
+      // does not apply once the walk returns to its start: a closed ring
+      // encloses the same region whichever way round it is walked, and it is
+      // exactly the material the plane passed through. Refusing to fill it
+      // turned every section into a wireframe of fragments.
+      const drawn = paths(view.svg).filter((q) => q.id !== null)
+      const closed = drawn.filter((p) => p.d.includes('Z'))
+      const open = drawn.filter((p) => !p.d.includes('Z'))
+      expect(closed.length).toBeGreaterThan(0)
+      for (const p of closed) {
+        expect(p.raw).toMatch(/fill="#/)
+        expect(p.raw).toContain('fill-rule="evenodd"')
       }
+      // Openings must read as holes in the cut face, not as a second slab
+      // sitting inside the first — which is what a non-zero fill rule would do.
+      for (const p of open) expect(p.raw).toContain('fill="none"')
 
       // The window's cut spans exactly its opening, sill to head …
       const window_ = boxOf(byId(view.svg, WINDOW).d)

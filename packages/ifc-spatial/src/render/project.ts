@@ -298,7 +298,15 @@ export function project(
 
   if (view === 'section') {
     drawn = sectionElements(drawable, frame, sliceDepth, extent)
-    const segments = drawn.reduce((sum, d) => sum + d.lines.length, 0)
+    // Both halves of the cut count. This read `d.lines` alone, which was right
+    // while a section could only ever produce open polylines and became wrong
+    // the moment closed rings started going to `d.polys` instead: a section
+    // consisting entirely of closed profiles — which is to say, a good one
+    // through solid material — reported that the plane met nothing at all. An
+    // emptiness check that looks at one of two output channels turns a correct
+    // answer into a confident "impossible", which is the failure this whole
+    // library is built to prevent.
+    const segments = drawn.reduce((sum, d) => sum + d.lines.length + d.polys.length, 0)
     if (segments === 0) {
       return undecidable<ProjectedView>({
         from: drawable.map((d) => d.id).slice(0, 50),
@@ -573,6 +581,8 @@ interface DrawnElement {
   depth: number
   /** Closed rings, flat `[u, v, u, v, …]`. */
   polys: number[][]
+  /** True for elements produced by a section cut — they carry poché. */
+  cut?: boolean
   /** Open polylines, flat `[u, v, u, v, …]` — sections only. */
   lines: number[][]
   /** True when the shape shown is the bounding box, not the element. */
@@ -748,15 +758,36 @@ function sectionElements(
     }
 
     if (segments.length === 0) continue
-    const lines = chain(segments)
-    for (const line of lines) for (let k = 0; k < line.length; k += 2) extent.add(line[k]!, line[k + 1]!)
+    const chained = chain(segments)
+
+    // A CLOSED loop is the outline of solid material the plane passed through,
+    // and filling it is what makes a section a section rather than a wireframe
+    // of fragments. The reason this used to draw lines only was that a greedy
+    // walk cannot say which side of an OPEN profile is solid — true, and it
+    // does not apply once the walk returns to where it started: a closed ring's
+    // interior is the same region whichever way round you walk it.
+    //
+    // Rings are emitted together under `fill-rule: evenodd`, so a wall cut
+    // through a window reads as a hole rather than as a second slab of
+    // material sitting inside the first.
+    const rings: number[][] = []
+    const open: number[][] = []
+    for (const line of chained) {
+      const closed =
+        line.length >= 8 &&
+        Math.hypot(line[0]! - line[line.length - 2]!, line[1]! - line[line.length - 1]!) <= CHAIN_TOLERANCE * 2
+      ;(closed ? rings : open).push(line)
+    }
+
+    for (const line of chained) for (let k = 0; k < line.length; k += 2) extent.add(line[k]!, line[k + 1]!)
     out.push({
       id,
       role,
       depth: frame.depth(geo.centroid[0], geo.centroid[1], geo.centroid[2]),
-      polys: [],
-      lines,
+      polys: rings,
+      lines: open,
       boxOnly: geo.triangles === null,
+      cut: true,
     })
   }
 
@@ -1130,26 +1161,39 @@ function titleOf(view: ViewKind, drawn: DrawnElement[], graph: BuildingGraph): s
 
 function pathFor(element: DrawnElement, layout: Layout): string {
   const style = ROLE_STYLE[element.role]
-  const d: string[] = []
-  for (const ring of element.polys) d.push(ringPath(ring, true))
-  for (const line of element.lines) d.push(ringPath(line, false))
-  if (d.length === 0) return ''
+  const out: string[] = []
+  const id = escape_(element.id)
 
-  // Sections are lines, not areas: filling the chained profile would shade
-  // whichever side the greedy walk happened to enclose, which is not a claim
-  // this module can make about which side is solid.
-  const isLine = element.lines.length > 0
-  const strokeWidth = n(Math.max(style.strokePx, isLine ? 1.1 : 0) * layout.unitsPerPx)
-  const fill = isLine ? 'none' : style.colour
-  const fillOpacity = isLine ? '' : ` fill-opacity="${style.fillOpacity}"`
-  // A section is nothing but its lines — the faintness that keeps a filled plan
-  // readable would leave a section with nothing to read.
-  const strokeOpacity = isLine ? Math.max(style.strokeOpacity, 0.9) : style.strokeOpacity
+  // Cut material is drawn heavy and filled; everything else keeps the lighter
+  // weight. That hierarchy is not decoration — it is how a section is read. A
+  // drawing where the cut wall and a projected handrail share one line weight
+  // makes the reader work out which is which, and they will sometimes get it
+  // wrong.
+  const cutWeight = element.cut ? 2.2 : 1
+  const fillOpacity = element.cut ? Math.min(0.55, style.fillOpacity + 0.25) : style.fillOpacity
 
-  return (
-    `<path d="${d.join('')}" fill="${fill}"${fillOpacity} stroke="${style.colour}" ` +
-    `stroke-width="${strokeWidth}" stroke-opacity="${strokeOpacity}" data-id="${escape_(element.id)}"/>`
-  )
+  const rings = element.polys.map((ring) => ringPath(ring, true)).join('')
+  if (rings) {
+    out.push(
+      `<path d="${rings}" fill="${style.colour}" fill-opacity="${fillOpacity}" fill-rule="evenodd" ` +
+        `stroke="${style.colour}" stroke-width="${n(style.strokePx * cutWeight * layout.unitsPerPx)}" ` +
+        `stroke-opacity="${Math.max(style.strokeOpacity, element.cut ? 0.95 : style.strokeOpacity)}" data-id="${id}"/>`
+    )
+  }
+
+  // Open profiles keep the old treatment, and for the old reason: where the
+  // mesh did not close, nothing here knows which side is solid, so it stays a
+  // line rather than becoming a guess with a fill behind it.
+  const lines = element.lines.map((line) => ringPath(line, false)).join('')
+  if (lines) {
+    out.push(
+      `<path d="${lines}" fill="none" stroke="${style.colour}" ` +
+        `stroke-width="${n(Math.max(style.strokePx, 1.1) * layout.unitsPerPx)}" ` +
+        `stroke-opacity="${Math.max(style.strokeOpacity, 0.9)}" data-id="${id}"/>`
+    )
+  }
+
+  return out.join('')
 }
 
 function ringPath(flat: number[], close: boolean): string {
