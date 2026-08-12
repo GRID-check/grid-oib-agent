@@ -182,8 +182,16 @@ export function rendererSectionPlane(
     normal: [0, 1, 0],
     distance: atMetres,
     ...(bounds ? { min: bounds.minMetres, max: bounds.maxMetres } : {}),
-    // The hatched cap is what makes a section read as a drawing rather than as
-    // a model with its front wall deleted.
+    // `showCap` asks the renderer to fill the cut face — and it only draws
+    // one when a 2D overlay has been uploaded for it
+    // (`Renderer.uploadSection2DOverlay`), which nothing in this app calls.
+    // So the flag is a request that is currently answered with nothing, and
+    // a cut shows the open shells of the solids it passes through: the "model
+    // with its front wall deleted" look this comment used to claim was
+    // prevented. Left ON deliberately — the moment the caps are generated and
+    // uploaded, the section becomes a drawing with no further change here —
+    // and stated honestly in the meantime rather than promising a hatch that
+    // is not on screen.
     showCap: true,
     showOutlines: true,
   }
@@ -300,12 +308,52 @@ export function wheelZoomDelta(
   deltaY: number,
   deltaMode: number,
   canvasHeight: number,
-  /** Multiplier taking normalised pixels to the camera's zoom units. */
-  scale = 0.01
+  /**
+   * Multiplier taking normalised pixels to the camera's zoom units.
+   *
+   * The camera's own unit is the PIXEL, the same convention `orbit` uses: it
+   * multiplies by `ZOOM_SENSITIVITY = 0.001` and caps the result at
+   * `MAX_ZOOM_DELTA = 0.1`, so a 100 px wheel notch at scale 1 is the 10 %
+   * ceiling. At the old `0.01` a notch became `delta = 1`, i.e. a 0.1 % change
+   * in camera distance — roughly seven hundred notches to halve it, and below
+   * the `minVelocity` threshold that carries inertia, so nothing coasted
+   * either. The wheel did not appear slow; it appeared broken.
+   *
+   * `0.5` and not `1` so a notch is 5 % and a fast flick still reaches the
+   * cap — a scale that saturates on every event has no dynamic range, and a
+   * trackpad sends many small deltas where a mouse sends one big one.
+   */
+  scale = 0.5
 ): number {
   // 1 = lines (≈ one text line), 2 = pages (one viewport). 0 = pixels already.
   const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? Math.max(canvasHeight, 1) : 1
   return deltaY * unit * scale
+}
+
+/**
+ * Was that a click, or the end of a drag?
+ *
+ * Measured from where the press LANDED, never from the previous pointer
+ * event. A per-event threshold looks equivalent and is not: a slow, careful
+ * orbit moves a pixel at a time — pointer events are coalesced, so a
+ * deliberate hand produces many small deltas rather than a few large ones —
+ * and never trips it however far the camera ends up turning. Releasing after
+ * lining up a view then selected whatever happened to be under the cursor and
+ * opened the inspector on an element nobody clicked.
+ *
+ * Manhattan distance rather than Euclidean: it needs no square root, it is
+ * strictly more generous on the diagonal, and at a two-pixel slop the
+ * difference is not something a hand can feel.
+ *
+ * Extracted for the reason `wheelZoomDelta` is — it is arithmetic, and the
+ * component around it cannot run without a GPU adapter.
+ */
+export function pointerDragged(
+  origin: { x: number; y: number },
+  current: { x: number; y: number },
+  slopPx = 2
+): boolean {
+  return Math.abs(current.x - origin.x) + Math.abs(current.y - origin.y) > slopPx
 }
 
 /**
@@ -328,8 +376,15 @@ export type CameraKeyStep =
   | { kind: 'move'; x: number; y: number }
   | { kind: 'zoom'; amount: number }
 
-/** Zoom units per keypress. Roughly one wheel notch — a press should be a step, not a leap. */
-const KEY_ZOOM_STEP = 0.6
+/**
+ * Zoom units per keypress. Roughly one wheel notch — a step, not a leap.
+ *
+ * In the camera's pixel-scale units (see `wheelZoomDelta`): 60 is a 6 %
+ * change in distance. It was `0.6`, which is 0.06 % — pressing `+` did
+ * nothing a person could see, which for the only zoom a keyboard has is the
+ * whole control missing.
+ */
+const KEY_ZOOM_STEP = 60
 
 export function keyboardCameraStep(key: string): CameraKeyStep | null {
   switch (key) {
@@ -419,13 +474,28 @@ export async function downloadWithProgress(
   const total = Number.isFinite(declared) && declared > 0 ? declared : 0
   const chunks: Uint8Array[] = []
   let received = 0
+  /**
+   * The last percentage actually reported.
+   *
+   * `onProgress` sets React state in the stage, so calling it per CHUNK
+   * re-rendered the rail, the dock and the inspector a few thousand times
+   * during a 149 MB download — the great majority of them carrying the same
+   * integer, and all of them during the one stretch this bar exists to keep
+   * feeling responsive. `-1` so the first report always lands, including
+   * `0%`; `-2` is the sentinel for the indeterminate case, which is reported
+   * exactly once.
+   */
+  let reported = -1
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
     if (!value) continue
     chunks.push(value)
     received += value.length
-    onProgress(total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null)
+    const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : -2
+    if (percent === reported) continue
+    reported = percent
+    onProgress(percent === -2 ? null : percent)
   }
 
   const buffer = new Uint8Array(received)

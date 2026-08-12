@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { BIM_CAMERA_VIEWS, boundsCentre, clampCut, defaultCameraState, defaultCutForStorey, downloadWithProgress, encodeCameraState, impliesOrthographic, keyboardCameraStep, parseCameraState, rendererPreset, rendererSectionPlane, wheelZoomDelta, type BimViewerCameraState } from './viewer-camera'
+import { BIM_CAMERA_VIEWS, boundsCentre, pointerDragged, clampCut, defaultCameraState, defaultCutForStorey, downloadWithProgress, encodeCameraState, impliesOrthographic, keyboardCameraStep, parseCameraState, rendererPreset, rendererSectionPlane, wheelZoomDelta, type BimViewerCameraState } from './viewer-camera'
 
 const roundTrip = (state: BimViewerCameraState): BimViewerCameraState => {
   const params = new URLSearchParams()
@@ -291,25 +291,50 @@ describe('a link written by the old encoding', () => {
   })
 })
 
+/**
+ * The camera's zoom unit is the PIXEL — the same convention `orbit` uses.
+ *
+ * `Camera.zoom` computes `min(|delta| × 0.001, 0.1)`, so a delta of 100 is the
+ * 10 % ceiling and a delta of 1 is a tenth of a percent. Every assertion here
+ * is really about that: the numbers this function produces have to land in a
+ * range the camera can act on, and the old scale put them three orders of
+ * magnitude below it.
+ */
 describe('wheelZoomDelta', () => {
-  it('passes pixel deltas through unchanged', () => {
-    expect(wheelZoomDelta(100, 0, 800)).toBeCloseTo(1)
-    expect(wheelZoomDelta(-100, 0, 800)).toBeCloseTo(-1)
+  /** What the camera will actually do with a delta — its own arithmetic. */
+  const cameraFactor = (delta: number): number =>
+    1 + Math.sign(delta) * Math.min(Math.abs(delta) * 0.001, 0.1)
+
+  it('turns one wheel notch into a step a person can see', () => {
+    // 100 px is one notch on a mouse. At the old scale this produced `1`, i.e.
+    // a 0.1 % change in camera distance — about seven hundred notches to halve
+    // it, and below the velocity floor that carries inertia, so nothing
+    // coasted either. The wheel did not read as slow; it read as broken.
+    expect(wheelZoomDelta(100, 0, 800)).toBeCloseTo(50)
+    expect(cameraFactor(wheelZoomDelta(100, 0, 800))).toBeCloseTo(1.05)
+    expect(wheelZoomDelta(-100, 0, 800)).toBeCloseTo(-50)
+  })
+
+  it('leaves headroom above one notch rather than saturating on every event', () => {
+    // A scale that hits the camera's 10 % cap on a single notch has no
+    // dynamic range: a flick and a nudge become the same gesture.
+    const notch = Math.abs(wheelZoomDelta(100, 0, 800)) * 0.001
+    expect(notch).toBeLessThan(0.1)
+    expect(Math.abs(wheelZoomDelta(400, 0, 800)) * 0.001).toBeGreaterThanOrEqual(0.1)
   })
 
   it('scales line-mode deltas, which Firefox reports instead of pixels', () => {
-    // The bug this fixes: `deltaY: 3, deltaMode: 1` is three TEXT LINES, and
-    // reading it raw moved the camera three hundredths of a unit — a wheel
-    // notch that did visibly nothing.
-    expect(wheelZoomDelta(3, 1, 800)).toBeCloseTo(0.48)
-    expect(wheelZoomDelta(3, 0, 800)).toBeCloseTo(0.03)
+    // `deltaY: 3, deltaMode: 1` is three TEXT LINES, and reading it raw moved
+    // the camera by three units where a notch moves it by fifty.
+    expect(wheelZoomDelta(3, 1, 800)).toBeCloseTo(24)
+    expect(wheelZoomDelta(3, 0, 800)).toBeCloseTo(1.5)
     expect(wheelZoomDelta(3, 1, 800)).toBeGreaterThan(wheelZoomDelta(3, 0, 800))
   })
 
   it('treats page-mode as one viewport, and survives a zero-height canvas', () => {
-    expect(wheelZoomDelta(1, 2, 900)).toBeCloseTo(9)
+    expect(wheelZoomDelta(1, 2, 900)).toBeCloseTo(450)
     // A canvas measured before layout reports 0; the step must not vanish.
-    expect(wheelZoomDelta(1, 2, 0)).toBeCloseTo(0.01)
+    expect(wheelZoomDelta(1, 2, 0)).toBeCloseTo(0.5)
   })
 
   it('keeps direction, because the sign is what zooms in rather than out', () => {
@@ -317,6 +342,43 @@ describe('wheelZoomDelta', () => {
       expect(Math.sign(wheelZoomDelta(-5, mode, 800))).toBe(-1)
       expect(Math.sign(wheelZoomDelta(5, mode, 800))).toBe(1)
     }
+  })
+})
+
+describe('pointerDragged', () => {
+  it('calls a press that did not move a click', () => {
+    expect(pointerDragged({ x: 100, y: 100 }, { x: 100, y: 100 })).toBe(false)
+    expect(pointerDragged({ x: 100, y: 100 }, { x: 101, y: 100 })).toBe(false)
+  })
+
+  it('calls a press that travelled a drag', () => {
+    expect(pointerDragged({ x: 100, y: 100 }, { x: 110, y: 100 })).toBe(true)
+    expect(pointerDragged({ x: 100, y: 100 }, { x: 98, y: 98 })).toBe(true)
+  })
+
+  it('sees a slow drag that never moved more than a pixel at a time', () => {
+    // The bug. The threshold used to be applied to the delta between
+    // CONSECUTIVE pointer events, and events are coalesced — so a deliberate,
+    // careful orbit arrives as a hundred one-pixel moves and never trips it,
+    // however far the camera turns. Releasing then selected whatever was
+    // under the cursor and opened the inspector on an element nobody clicked.
+    const origin = { x: 400, y: 300 }
+    let current = { ...origin }
+    let trippedPerEvent = false
+    for (let step = 0; step < 120; step += 1) {
+      const next = { x: current.x + 1, y: current.y }
+      // What the old code asked: did THIS event move more than the slop?
+      trippedPerEvent ||= pointerDragged(current, next)
+      current = next
+    }
+    expect(trippedPerEvent).toBe(false)
+    // What it asks now.
+    expect(pointerDragged(origin, current)).toBe(true)
+  })
+
+  it('takes the slop as a parameter, in Manhattan pixels', () => {
+    expect(pointerDragged({ x: 0, y: 0 }, { x: 3, y: 3 }, 10)).toBe(false)
+    expect(pointerDragged({ x: 0, y: 0 }, { x: 6, y: 6 }, 10)).toBe(true)
   })
 })
 
@@ -375,7 +437,19 @@ describe('downloadWithProgress', () => {
     // invents a denominator is worse than one that admits it cannot say.
     const seen: Array<number | null> = []
     await downloadWithProgress(streamed([[1], [2]]), (p) => seen.push(p))
-    expect(seen).toEqual([null, null])
+    // ONCE, not once per chunk. `onProgress` sets React state in the stage,
+    // and "still indeterminate" said a few thousand times over a 149 MB
+    // download re-renders the whole viewer chrome for no new information.
+    expect(seen).toEqual([null])
+  })
+
+  it('reports a percentage only when it has actually changed', async () => {
+    // Same reason. A hundred chunks that all round to 3 % are one report.
+    const chunks = Array.from({ length: 50 }, () => [1])
+    const seen: Array<number | null> = []
+    await downloadWithProgress(streamed(chunks, { 'Content-Length': '50' }), (p) => seen.push(p))
+    expect(seen).toEqual([...new Set(seen)])
+    expect(seen.at(-1)).toBe(100)
   })
 
   it('never exceeds 100 when the declared length disagrees with the bytes', async () => {
@@ -473,6 +547,11 @@ describe('keyboardCameraStep', () => {
     expect(zoomOut).toMatchObject({ kind: 'zoom' })
     expect((zoomIn as { amount: number }).amount).toBeLessThan(0)
     expect((zoomOut as { amount: number }).amount).toBeGreaterThan(0)
+    // And by an amount the camera can act on. `Camera.zoom` multiplies by
+    // 0.001, so the step has to be tens of units, not fractions of one — at
+    // `0.6` a keypress changed the distance by six hundredths of a percent,
+    // which is the keyboard's only zoom doing visibly nothing.
+    expect(Math.abs((zoomIn as { amount: number }).amount) * 0.001).toBeGreaterThan(0.01)
   })
 
   it('accepts both faces of the same physical key', () => {

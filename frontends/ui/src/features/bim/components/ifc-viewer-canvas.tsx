@@ -93,6 +93,7 @@ import {
   boundsCentre,
   downloadWithProgress,
   keyboardCameraStep,
+  pointerDragged,
   rendererPreset,
   rendererSectionPlane,
   wheelZoomDelta,
@@ -290,7 +291,16 @@ type CameraLike = Pick<
 
 type SceneLike = Pick<
   Scene,
-  'setColorOverrides' | 'clearColorOverrides' | 'getEntityBoundingBox' | 'setLodBuildsEnabled'
+  | 'setColorOverrides'
+  | 'clearColorOverrides'
+  | 'getEntityBoundingBox'
+  | 'setLodBuildsEnabled'
+  /**
+   * What turns the streaming fragments into batches that can carry an LOD1
+   * range — without it `setLodBuildsEnabled` above has nothing to build for.
+   * See the call in the load effect.
+   */
+  | 'finalizeStreamingAsync'
 >
 
 /**
@@ -304,6 +314,15 @@ type SceneLike = Pick<
  * stutters whenever the mouse moves.
  */
 const HOVER_BUDGET_MS = 24
+
+/**
+ * How far a pointer may travel between press and release and still be a click.
+ *
+ * Manhattan distance in CSS pixels, measured from the ORIGIN of the press.
+ * Two pixels is the usual allowance for a hand that is not perfectly still on
+ * a button.
+ */
+const DRAG_SLOP_PX = 2
 
 /** Pixels of orbit per arrow-key press. One press should be visible, not violent. */
 const KEY_ORBIT_PX = 24
@@ -498,6 +517,18 @@ export function IfcViewerCanvas({
       // read — so the x-ray control was inert from the day it shipped, and
       // looked like it worked because the button's pressed state is local.
       ghostExceptIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
+      // Co-selected, which is what actually keeps them solid.
+      //
+      // Ghosting resolves per COLOUR BATCH, at the minimum alpha among the
+      // batch's non-selected entities — the renderer's own docs say so and
+      // prescribe the fix. Highlighted walls almost always share a batch with
+      // un-highlighted ones, so x-ray faded most of the very elements it
+      // exists to keep solid: the control looked half-broken rather than
+      // simply off. The selection highlight pass then repaints them opaque,
+      // which is exactly what the clash viewer relies on.
+      ...(xrayRef.current && xrayRef.current.size > 0
+        ? { selectedIds: xrayRef.current }
+        : {}),
       ghostAlpha: 0.1,
       clearColor: VIEWER_CLEAR_COLOR[theme],
       environment: viewerEnvironment(theme),
@@ -662,12 +693,26 @@ export function IfcViewerCanvas({
         // renames a method lands here as a type error rather than as a
         // viewport that silently stops responding.
         const renderer: RendererLike = new Renderer(canvas)
-        await Promise.all([geometry.init(), renderer.init()])
+        // Stored BEFORE the awaits. It used to be assigned after them, so a
+        // rejection from either `init()` left the local `renderer`
+        // unreachable and the cleanup's `rendererRef.current?.destroy()` was a
+        // no-op — a `geometry.init()` failure in particular orphaned a fully
+        // initialised device, swap chain and pipelines. A retry loop over a
+        // bad model then walked through VRAM, which is the exact failure this
+        // component's lifecycle note says every path out of it prevents.
+        rendererRef.current = renderer
+        try {
+          await Promise.all([geometry.init(), renderer.init()])
+        } catch (error) {
+          renderer.destroy()
+          if (rendererRef.current === renderer) rendererRef.current = null
+          throw error
+        }
         if (cancelled) {
           renderer.destroy()
+          if (rendererRef.current === renderer) rendererRef.current = null
           return
         }
-        rendererRef.current = renderer
 
         // Both of these apply to batches built FROM NOW ON, so they have to be
         // set before a single mesh arrives — after `processAdaptive` starts it
@@ -685,6 +730,10 @@ export function IfcViewerCanvas({
         }
         if (cancelled) {
           renderer.destroy()
+          // And out of the ref, or the ResizeObserver — which this effect's
+          // cleanup does not tear down — goes on calling `resize()` on a
+          // destroyed renderer and throws out of the observer callback.
+          if (rendererRef.current === renderer) rendererRef.current = null
           return
         }
 
@@ -712,12 +761,48 @@ export function IfcViewerCanvas({
         if (cancelled) return
 
         streamingRef.current = false
+
+        /*
+          Merge the streaming fragments into real batches.
+
+          Every batch arrived through `addMeshes(…, true)`, which builds
+          STREAMING FRAGMENTS: no bucket key, and therefore — `scene.ts` only
+          builds LOD1 when a bucket key is present — no LOD1 index range. So
+          `setLodBuildsEnabled(true)` above and `lod: { screenPx: 12 }` in
+          `viewer-performance.ts` were both inert, and the scene kept a CPU
+          copy of the geometry alongside every fragment's GPU buffers. On the
+          150 MB models this path exists for that is the difference the
+          performance module claims to make, not made.
+
+          The async form: it re-groups in time slices and yields between them,
+          so a reader who starts orbiting the moment the building appears is
+          not blocked while thousands of fragments are merged.
+        */
+        const device = renderer.getGPUDevice?.()
+        const pipeline = renderer.getPipeline?.()
+        if (device && pipeline) {
+          try {
+            await renderer.getScene().finalizeStreamingAsync?.(device, pipeline)
+          } catch {
+            // Fragments render correctly, they are just never merged. A
+            // failure here costs memory and LOD, not the building.
+          }
+          if (cancelled) return
+        }
+
         // Tight near/far planes in parallel projection need the scene's extent.
         // Without it an orthographic plan z-fights against itself, which reads
         // as a model with holes punched through the slabs.
         const bounds = renderer.getModelBounds()
         if (bounds) renderer.getCamera().setSceneBounds?.(bounds)
+        // Instant, and the only fit on load — see `fittedOnLoadRef`. The view
+        // effect used to fit AGAIN the moment `ready` flipped, with
+        // `animate: true` and the adaptive policy, so every load framed the
+        // building and then visibly travelled to a different pose. On an
+        // elongated model, where the adaptive policy picks an along-axis view
+        // and this picks an isometric, the two are nowhere near each other.
         renderer.fitToView()
+        fittedOnLoadRef.current = true
         setReady(true)
         report({ phase: 'ready', percent: 100, meshCount })
         requestFrame()
@@ -801,7 +886,22 @@ export function IfcViewerCanvas({
     return () => observer.disconnect()
   }, [requestFrame])
 
-  const dragRef = useRef<{ x: number; y: number; button: number; moved: boolean } | null>(null)
+  /**
+   * The pointer gesture in progress.
+   *
+   * `x`/`y` are the LAST position, which is what the camera deltas are taken
+   * from; `originX`/`originY` are where the press landed, which is what
+   * decides whether this was a click or a drag. They have to be separate —
+   * see `moved` below.
+   */
+  const dragRef = useRef<{
+    x: number
+    y: number
+    originX: number
+    originY: number
+    button: number
+    moved: boolean
+  } | null>(null)
   /**
    * Every pointer currently down, by id — the whole of touch support.
    *
@@ -852,7 +952,14 @@ export function IfcViewerCanvas({
       dragRef.current = null
       return
     }
-    dragRef.current = { x: event.clientX, y: event.clientY, button: event.button, moved: false }
+    dragRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      originX: event.clientX,
+      originY: event.clientY,
+      button: event.button,
+      moved: false,
+    }
   }
 
   /**
@@ -1021,6 +1128,15 @@ export function IfcViewerCanvas({
     onBoundsRef.current?.(modelBoundsMetres(rendererRef.current))
   }, [ready])
 
+  /**
+   * Whether the load path has already framed this model.
+   *
+   * Only the DEFAULT view is skipped: a link carrying `?view=north` still has
+   * to move the camera when the building arrives, and only `iso` is what
+   * `fitToView` already produced.
+   */
+  const fittedOnLoadRef = useRef(false)
+
   // A named view is declarative state, not a one-shot action: arriving on a
   // link with `?view=north` must land on the north elevation, and so must
   // pressing the button afterwards.
@@ -1029,8 +1145,14 @@ export function IfcViewerCanvas({
     const renderer = rendererRef.current
     if (!renderer) return
     const preset = rendererPreset(view)
-    if (preset === null) fitModel()
-    else {
+    if (preset === null) {
+      if (fittedOnLoadRef.current) {
+        fittedOnLoadRef.current = false
+        return
+      }
+      fitModel()
+    } else {
+      fittedOnLoadRef.current = false
       renderer.getCamera().setPresetView(preset, renderer.getModelBounds() ?? undefined)
       // A preset view is a TWEEN, and a tween needs `Camera.update()` stepped
       // every frame — which is what `runCameraLoop` does. `requestFrame()` drew
@@ -1265,7 +1387,12 @@ export function IfcViewerCanvas({
         renderer
           .getCamera()
           .zoom(
-            Math.log(previous.distance / current.distance) * 4,
+            // `× 1000` puts the log ratio into the camera's pixel-scale units
+            // (it multiplies by 0.001), so the camera distance changes by the
+            // same proportion the fingers did — which is what a pinch means.
+            // At `× 4` a ten-percent pinch moved the camera by four
+            // hundredths of a percent.
+            Math.log(previous.distance / current.distance) * 1000,
             false,
             current.centreX - rect.left,
             current.centreY - rect.top,
@@ -1295,7 +1422,17 @@ export function IfcViewerCanvas({
     }
     const dx = event.clientX - drag.x
     const dy = event.clientY - drag.y
-    if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true
+    // From where the press LANDED, not from the previous event — see
+    // `pointerDragged` for why the two are not equivalent.
+    if (
+      pointerDragged(
+        { x: drag.originX, y: drag.originY },
+        { x: event.clientX, y: event.clientY },
+        DRAG_SLOP_PX
+      )
+    ) {
+      drag.moved = true
+    }
     drag.x = event.clientX
     drag.y = event.clientY
     // Right or middle button pans, and so does shift-drag; anything else
@@ -1323,10 +1460,17 @@ export function IfcViewerCanvas({
     const canvas = canvasRef.current
     if (!renderer || !canvas) return null
     const rect = canvas.getBoundingClientRect()
-    const ratio = Math.min(window.devicePixelRatio || 1, 2)
+    // CSS pixels, NOT device pixels. `PickingManager.pick` divides by
+    // `canvas.width / rect.width` itself — "scaled internally", says the
+    // contract — so pre-multiplying by the device pixel ratio squared the
+    // scale. On any HiDPI display, which is most laptops, a click resolved to
+    // a point twice as far from the top-left as the cursor: the right and
+    // bottom halves of the viewport selected nothing at all, everywhere else
+    // selected the wrong element, and hover (which already used CSS pixels,
+    // two functions down) highlighted one wall while the click took another.
     const hit = await renderer.pick(
-      Math.round((clientX - rect.left) * ratio),
-      Math.round((clientY - rect.top) * ratio),
+      Math.round(clientX - rect.left),
+      Math.round(clientY - rect.top),
       // Both filters travel with the query. Without them the pick pass
       // considers geometry that is not on screen, so clicking empty space
       // selects a wall the reader deliberately took out of the way — the
