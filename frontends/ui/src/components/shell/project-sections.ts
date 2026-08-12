@@ -25,8 +25,19 @@ import {
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Ask Piloti · Skills* · Jobs* · Files · History · Archiv* ·
- * Inbox*. There is deliberately no Model entry: an IFC is a file, it opens
+ * separately): Files · Ask Piloti · History · Skills* · Jobs* · Archiv* ·
+ * Inbox*.
+ *
+ * The order is a claim about importance, and it was wrong. Skills and Jobs sat
+ * second and third — above the project's documents — because they were built
+ * last and got appended after the thing they were near in the code. They are
+ * the two sections a project can go months without opening: a skill is a
+ * convenience for people who write skills, and a job is a timer. Files is what
+ * a project IS. So Files leads, the work surfaces follow, and the two
+ * configuration-shaped sections sit at the bottom, just above the cross-project
+ * doorways (Archiv, Inbox) that have always hugged the pinned Settings.
+ *
+ * There is deliberately no Model entry: an IFC is a file, it opens
  * from the Files grid, and a second rail item for one file type was a
  * destination nobody navigated to. The palette additionally surfaces the palette-only destinations
  * Knowledge* and Setup (intake). A `*` marks a flag-gated section.
@@ -113,6 +124,17 @@ export interface ProjectSection {
 // the shared order (and any future insertion) stays consistent everywhere.
 const PROJECT_SECTIONS: readonly ProjectSection[] = [
   {
+    // First, because it is what a project is: its documents. This used to be
+    // fourth, behind two flag-gated sections most orgs never switch on.
+    key: 'files',
+    segment: 'files',
+    icon: Folder,
+    i18nKey: 'files',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'f',
+  },
+  {
     key: 'chat',
     segment: 'chat',
     icon: MessageSquare,
@@ -122,6 +144,29 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'c',
   },
   {
+    key: 'knowledge',
+    segment: 'knowledge',
+    icon: BookOpenCheck,
+    i18nKey: 'knowledge',
+    gate: 'showKnowledge',
+    // Palette-only: the rail's project IA does not carry a Knowledge section.
+    inRail: false,
+    inPalette: true,
+    shortcutKey: 'k',
+  },
+  {
+    key: 'history',
+    segment: 'history',
+    icon: Clock,
+    i18nKey: 'history',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'h',
+  },
+  {
+    // Skills and Jobs are the bottom of the project sections, and they are
+    // there on purpose: both are things you set up once and then rarely look
+    // at again. Neither is where the work happens.
     key: 'skills',
     segment: 'skills',
     icon: Sparkles,
@@ -144,35 +189,6 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'j',
-  },
-  {
-    key: 'files',
-    segment: 'files',
-    icon: Folder,
-    i18nKey: 'files',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'f',
-  },
-  {
-    key: 'knowledge',
-    segment: 'knowledge',
-    icon: BookOpenCheck,
-    i18nKey: 'knowledge',
-    gate: 'showKnowledge',
-    // Palette-only: the rail's project IA does not carry a Knowledge section.
-    inRail: false,
-    inPalette: true,
-    shortcutKey: 'k',
-  },
-  {
-    key: 'history',
-    segment: 'history',
-    icon: Clock,
-    i18nKey: 'history',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'h',
   },
   {
     // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the entry is a

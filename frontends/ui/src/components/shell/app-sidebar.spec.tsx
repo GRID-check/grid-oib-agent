@@ -138,10 +138,13 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     expect(nav).not.toBeNull()
     const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
     // Inbox last, per the documented rail order in `project-sections.ts`
-    // ("Ask Piloti · Skills* · Files · History · Archiv* · Inbox*"). This
-    // expectation omitted it because the fixture omitted `canAccessInbox` and the
-    // prop defaulted to `false` — the test was pinning the hidden state.
-    expect(labels).toEqual(['Ask Piloti', 'Files', 'History', 'Archiv', 'Inbox'])
+    // ("Files · Ask Piloti · History · Skills* · Jobs* · Archiv* · Inbox*").
+    // This expectation omitted Inbox because the fixture omitted
+    // `canAccessInbox` and the prop defaulted to `false` — the test was pinning
+    // the hidden state. Skills and Jobs are absent here for the same reason
+    // (`showSkills` off), which is exactly why Files leads: they are the two
+    // sections most orgs never switch on, and they used to outrank it.
+    expect(labels).toEqual(['Files', 'Ask Piloti', 'History', 'Archiv', 'Inbox'])
   })
 })
 

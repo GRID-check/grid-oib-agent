@@ -18,6 +18,8 @@ vi.mock('./repository', () => ({
   findSkillByName: vi.fn(),
   updateSkill: vi.fn(),
   deleteSkill: vi.fn(),
+  listCuratedSkillActivations: vi.fn(),
+  upsertCuratedSkillActivation: vi.fn(),
 }))
 
 vi.mock('./platform-skills', () => ({
@@ -39,6 +41,7 @@ import {
   resolveSkillSnapshot,
   resolveSkillsForAgent,
   listInvocableSkills,
+  setCuratedSkillEnabled,
 } from './service'
 
 type Session = Parameters<typeof listSkills>[0]
@@ -55,6 +58,10 @@ const session: Session = {
   featureFlags: null,
 }
 
+/**
+ * The pipeline's own machinery: no `grid-catalog`, so it is not an offer.
+ * Never listed on the Skills tab, never switchable, always resolved.
+ */
 const PLATFORM_SKILL = {
   name: 'data-table-analysis',
   description: 'Analyze tables.',
@@ -62,6 +69,28 @@ const PLATFORM_SKILL = {
   metadata: {},
   origin: 'platform' as const,
   collection: 'research' as const,
+}
+
+/** A skill the platform OFFERS organizations — off until one switches it on. */
+const CURATED_SKILL = {
+  name: 'oib-fire-check',
+  description: 'Checks the project against OIB fire safety.',
+  body: '# Fire check\n\nAct as a fire-safety reviewer.',
+  metadata: { 'grid-catalog': 'curated' },
+  origin: 'platform' as const,
+  collection: 'research' as const,
+}
+
+/** The org switched `name` on (or off) — what the activations table holds. */
+function activation(name: string, enabled: boolean) {
+  return {
+    organizationId: 'org_1',
+    skillName: name,
+    enabled,
+    updatedBy: 'user_1',
+    updatedByEmail: null,
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+  }
 }
 
 function makeSkill(overrides: Partial<Skill> = {}): Skill {
@@ -86,11 +115,13 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
 beforeEach(() => {
   vi.mocked(requireSkillsEnabled).mockReturnValue(null)
   vi.mocked(canManageSkills).mockReturnValue(true)
-  vi.mocked(listPlatformSkills).mockReturnValue([PLATFORM_SKILL])
-  vi.mocked(findPlatformSkill).mockImplementation((name) =>
-    name === PLATFORM_SKILL.name ? PLATFORM_SKILL : null
+  vi.mocked(listPlatformSkills).mockReturnValue([PLATFORM_SKILL, CURATED_SKILL])
+  vi.mocked(findPlatformSkill).mockImplementation(
+    (name) => [PLATFORM_SKILL, CURATED_SKILL].find((skill) => skill.name === name) ?? null
   )
   vi.mocked(repository.listSkillsInOrg).mockResolvedValue([])
+  // No decision recorded: every curated skill is off, machinery is on.
+  vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([])
   vi.mocked(repository.findSkill).mockResolvedValue(null)
   vi.mocked(repository.findSkillByName).mockResolvedValue(null)
 })
@@ -110,16 +141,84 @@ describe('feature gate', () => {
 })
 
 describe('listSkills', () => {
-  it('merges platform skills with org rows, org rows shadowing same names', async () => {
+  /**
+   * The Skills tab is what an organization HAS, plus what it is offered.
+   *
+   * The pipeline's machinery used to be merged in here as equal rows, each
+   * with a clone button — five instructions nobody installs, nobody can edit
+   * and nobody can invoke from chat, in front of an org with two skills of its
+   * own. It is gone from this list and still resolves for every run, which is
+   * the pair of facts the next two tests hold apart.
+   */
+  it('lists org rows and the platform OFFERS, never the pipeline machinery', async () => {
     vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
-      makeSkill({ name: 'data-table-analysis', description: 'org shadow' }),
       makeSkill({ id: 'skill-2', name: 'org-only' }),
     ])
     const { skills } = await listSkills(session)
-    expect(skills).toHaveLength(2)
-    expect(skills.find((s) => s.name === 'data-table-analysis')?.description).toBe('org shadow')
-    expect(skills.find((s) => s.name === 'data-table-analysis')?.origin).toBe('org')
+    expect(skills.map((s) => s.name)).toEqual(['oib-fire-check', 'org-only'])
+    expect(skills.map((s) => s.name)).not.toContain('data-table-analysis')
     expect(skills.find((s) => s.name === 'org-only')?.id).toBe('skill-2')
+  })
+
+  it('offers a curated skill switched OFF until the org decides otherwise', async () => {
+    const { skills } = await listSkills(session)
+    const offer = skills.find((s) => s.name === 'oib-fire-check')
+    // No id: it is still a file, and the switch addresses it by name.
+    expect(offer).toMatchObject({ id: null, origin: 'platform', enabled: false })
+
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('oib-fire-check', true),
+    ])
+    const { skills: after } = await listSkills(session)
+    expect(after.find((s) => s.name === 'oib-fire-check')?.enabled).toBe(true)
+  })
+
+  it('lets an org row shadow an offer of the same name, as it always has', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'oib-fire-check', description: 'org shadow' }),
+    ])
+    const { skills } = await listSkills(session)
+    expect(skills).toHaveLength(1)
+    expect(skills[0]).toMatchObject({ description: 'org shadow', origin: 'org' })
+  })
+})
+
+describe('setCuratedSkillEnabled', () => {
+  it('requires org:skills:manage', async () => {
+    vi.mocked(canManageSkills).mockReturnValue(false)
+    await expect(setCuratedSkillEnabled(session, 'oib-fire-check', true)).rejects.toBeInstanceOf(
+      ForbiddenError
+    )
+  })
+
+  it('stores the decision by name and reports the new state', async () => {
+    vi.mocked(repository.upsertCuratedSkillActivation).mockResolvedValue(
+      activation('oib-fire-check', true)
+    )
+    const { skill } = await setCuratedSkillEnabled(session, 'oib-fire-check', true)
+    expect(repository.upsertCuratedSkillActivation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org_1',
+        skillName: 'oib-fire-check',
+        enabled: true,
+      })
+    )
+    expect(skill).toMatchObject({ name: 'oib-fire-check', enabled: true })
+  })
+
+  /**
+   * The rule that keeps deep research working. Machinery is not an offer, so
+   * it is not addressable — and the check is HERE, not only in the UI that
+   * declines to draw a switch for it.
+   */
+  it('refuses to switch the pipeline machinery, and stores nothing', async () => {
+    await expect(
+      setCuratedSkillEnabled(session, 'data-table-analysis', false)
+    ).rejects.toBeInstanceOf(NotFoundError)
+    await expect(setCuratedSkillEnabled(session, 'no-such-skill', true)).rejects.toBeInstanceOf(
+      NotFoundError
+    )
+    expect(repository.upsertCuratedSkillActivation).not.toHaveBeenCalled()
   })
 })
 
@@ -187,6 +286,23 @@ describe('resolveSkillSnapshot', () => {
 
     await expect(resolveSkillSnapshot('nope', 'org_1')).rejects.toBeInstanceOf(NotFoundError)
   })
+
+  /**
+   * A job cannot newly attach an offer the org has not taken up. Jobs that
+   * attached one BEFORE it was switched off keep running — they pinned a
+   * snapshot at save time and never come back through here.
+   */
+  it('will not pin an offer the org has not switched on', async () => {
+    vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+    await expect(resolveSkillSnapshot('oib-fire-check', 'org_1')).rejects.toBeInstanceOf(
+      NotFoundError
+    )
+
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('oib-fire-check', true),
+    ])
+    expect((await resolveSkillSnapshot('oib-fire-check', 'org_1')).origin).toBe('platform')
+  })
 })
 
 describe('resolveSkillsForAgent', () => {
@@ -223,6 +339,33 @@ describe('resolveSkillsForAgent', () => {
     ])
     const { skills } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
     expect(skills.map((s) => s.name)).toContain('typo')
+  })
+
+  /**
+   * The two halves of the platform set, and the whole reason they are separate.
+   *
+   * Machinery resolves for everyone — it is how deep research computes a table
+   * and writes its report, not a capability anyone opted into. An offer
+   * resolves only for an org that switched it on, so a switch on the Skills tab
+   * actually reaches the agent instead of being decoration.
+   */
+  it('runs the machinery for every org and an offer only once switched on', async () => {
+    const { skills } = await resolveSkillsForAgent('org_1')
+    expect(skills.map((s) => s.name)).toEqual(['data-table-analysis'])
+
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('oib-fire-check', true),
+    ])
+    const { skills: after } = await resolveSkillsForAgent('org_1')
+    expect(after.map((s) => s.name)).toEqual(['data-table-analysis', 'oib-fire-check'])
+  })
+
+  it('drops an offer again when the org switches it back off', async () => {
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('oib-fire-check', false),
+    ])
+    const { skills } = await resolveSkillsForAgent('org_1')
+    expect(skills.map((s) => s.name)).not.toContain('oib-fire-check')
   })
 })
 

@@ -23,11 +23,12 @@ import {
   CHAT_SKILL_AGENT,
   KNOWN_SKILL_AGENTS,
   METADATA_AGENTS,
+  isCuratedPlatformSkill,
   type CreateSkillInput,
   type PatchSkillInput,
   type SkillSnapshot,
 } from './types'
-import { findPlatformSkill, listPlatformSkills } from './platform-skills'
+import { findPlatformSkill, listPlatformSkills, type PlatformSkill } from './platform-skills'
 
 // ---------------------------------------------------------------------------
 // Feature gate + authorization helpers
@@ -62,7 +63,26 @@ export type SkillListItem = {
   updatedAt: Date | null
 }
 
-function platformToListItem(platform: ReturnType<typeof listPlatformSkills>[number]): SkillListItem {
+/**
+ * The platform skills OFFERED to organizations — `grid-catalog: curated`.
+ *
+ * Everything else under `builtin/` is the deep-research pipeline's machinery
+ * and is nobody's decision: it never appears on the Skills tab, never carries a
+ * switch, and always resolves. Machinery is the default (see METADATA_CATALOG),
+ * so a builtin becomes org-facing only by saying so.
+ */
+function curatedPlatformSkills(): PlatformSkill[] {
+  return listPlatformSkills().filter((skill) => isCuratedPlatformSkill(skill.metadata))
+}
+
+/**
+ * A curated platform skill as a toolbox row.
+ *
+ * `id` stays null — it is still a file, not a row, and the switch addresses it
+ * by NAME. `enabled` is the org's decision, and its default is OFF: the
+ * platform publishes the skill, the organization chooses to run it.
+ */
+function platformToListItem(platform: PlatformSkill, enabled: boolean): SkillListItem {
   return {
     id: null,
     name: platform.name,
@@ -73,11 +93,24 @@ function platformToListItem(platform: ReturnType<typeof listPlatformSkills>[numb
     // rather than deriving badges from defaults.
     metadata: { ...platform.metadata },
     origin: 'platform',
-    enabled: true,
+    enabled,
     clonedFrom: null,
     createdAt: null,
     updatedAt: null,
   }
+}
+
+/**
+ * Whether a curated skill is switched on for an org.
+ *
+ * No row means no decision, and no decision means OFF — a curated skill is an
+ * offer, not an installation.
+ */
+function isActivated(
+  activations: { skillName: string; enabled: boolean }[],
+  name: string,
+): boolean {
+  return activations.find((activation) => activation.skillName === name)?.enabled ?? false
 }
 
 function orgToListItem(skill: Skill): SkillListItem {
@@ -96,20 +129,76 @@ function orgToListItem(skill: Skill): SkillListItem {
 }
 
 /**
- * The merged toolbox list: every platform builtin PLUS every org row, org rows
- * shadowing platform entries of the same name. Any member may read.
+ * What this organization has: its own skills, plus the platform skills offered
+ * to it. Any member may read.
+ *
+ * The pipeline's MACHINERY is deliberately not here, though it used to be —
+ * all five builtins were merged in as equal rows, each with a "clone" button.
+ * Nobody installs one, nobody can edit one, and none of them is an
+ * organization's decision: every builtin shipping today declares
+ * `grid-agents: deep_researcher`, so none can even be invoked from chat. They
+ * are how deep research analyses figures and writes its report. Listing five of
+ * those in front of an org with two skills of its own made the page look mostly
+ * like ours, and the only action they offered produced a frozen copy of an
+ * instruction the org never wrote and would never maintain. They still resolve,
+ * unchanged, for every run (`resolveSkillsForAgent`).
+ *
+ * What IS here is anything the platform curates for organizations
+ * (`grid-catalog: curated`), carrying the org's own on/off decision. A curated
+ * skill is an offer: it arrives switched off, and the org turns it on. That is
+ * what replaces clone — no copy, no drift, and an improvement we ship reaches
+ * every org that wants it.
  */
 export async function listSkills(session: AuthorizedSession): Promise<{ skills: SkillListItem[] }> {
   assertSkillsFeatureOn(session)
-  const rows = await repository.listSkillsInOrg(session.organizationId)
+  const [rows, activations] = await Promise.all([
+    repository.listSkillsInOrg(session.organizationId),
+    repository.listCuratedSkillActivations(session.organizationId),
+  ])
   const byName = new Map<string, SkillListItem>()
-  for (const platform of listPlatformSkills()) {
-    byName.set(platform.name, platformToListItem(platform))
+  for (const platform of curatedPlatformSkills()) {
+    byName.set(platform.name, platformToListItem(platform, isActivated(activations, platform.name)))
   }
+  // An org row of the same name still shadows the offer, as it always has.
   for (const row of rows) {
     byName.set(row.name, orgToListItem(row))
   }
   return { skills: [...byName.values()] }
+}
+
+/**
+ * Switch a platform-curated skill on or off for this organization.
+ *
+ * `org:skills:manage`, same as authoring: deciding what the agent may reach for
+ * is the same authority as writing it.
+ *
+ * Addressed by NAME because a platform skill has no id — it is a file. Only a
+ * CURATED name is addressable: the pipeline's machinery is not an offer, so
+ * asking to switch it off is a 404 rather than a stored row that would quietly
+ * break deep research. That check is here, in the service, and not only in the
+ * UI that hides those skills.
+ */
+export async function setCuratedSkillEnabled(
+  session: AuthorizedSession,
+  name: string,
+  enabled: boolean,
+): Promise<{ skill: SkillListItem }> {
+  assertSkillsFeatureOn(session)
+  if (!canManageSkills(session)) throw new ForbiddenError('You need org skills management rights.')
+
+  const platform = findPlatformSkill(name)
+  if (!platform || !isCuratedPlatformSkill(platform.metadata)) {
+    throw new NotFoundError(`Unknown platform skill "${name}".`)
+  }
+
+  await repository.upsertCuratedSkillActivation({
+    organizationId: session.organizationId,
+    skillName: platform.name,
+    enabled,
+    updatedBy: session.userId,
+    updatedByEmail: session.email,
+  })
+  return { skill: platformToListItem(platform, enabled) }
 }
 
 /** One entry of the composer's `/` menu — progressive disclosure level 1. */
@@ -237,6 +326,16 @@ export async function resolveSkillSnapshot(
   }
   const platform = findPlatformSkill(name)
   if (platform) {
+    // A curated skill this org has not switched on is not resolvable, so a job
+    // cannot newly attach one. Jobs that attached it BEFORE it was switched off
+    // keep running: they pinned a snapshot at save time and never come back
+    // through here. Machinery has no such gate — it is always available.
+    if (isCuratedPlatformSkill(platform.metadata)) {
+      const activations = await repository.listCuratedSkillActivations(organizationId)
+      if (!isActivated(activations, platform.name)) {
+        throw new NotFoundError(`Unknown skill "${name}".`)
+      }
+    }
     return {
       name: platform.name,
       description: platform.description,
@@ -264,9 +363,18 @@ export async function resolveSkillsForAgent(
 ): Promise<{
   skills: { name: string; description: string; body: string; metadata: Record<string, string>; origin: SkillOrigin | 'platform' }[]
 }> {
-  const rows = await repository.listSkillsInOrg(organizationId)
+  const [rows, activations] = await Promise.all([
+    repository.listSkillsInOrg(organizationId),
+    repository.listCuratedSkillActivations(organizationId),
+  ])
   const byName = new Map<string, { name: string; description: string; body: string; metadata: Record<string, string>; origin: SkillOrigin | 'platform' }>()
   for (const platform of listPlatformSkills()) {
+    // A curated skill is an OFFER: it reaches a run only once the org has
+    // switched it on. The pipeline's machinery carries no such gate — it is
+    // how deep research works, not a capability anyone opted into.
+    if (isCuratedPlatformSkill(platform.metadata) && !isActivated(activations, platform.name)) {
+      continue
+    }
     // Platform metadata rides along VERBATIM. Sending `{}` here dropped the
     // reserved `grid-*` keys, and because the backend resolver merges this
     // payload OVER its own filesystem copy, the shipped

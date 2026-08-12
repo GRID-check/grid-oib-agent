@@ -42,6 +42,9 @@ const BOUNDARY_MIGRATIONS = [
   // the boundary, and the old names need the rename to be visible or they look
   // orphaned. See removedTables() below.
   '0043_jobs.sql',
+  // Adds curated_skill_activations — whether an organization switched a
+  // platform-curated skill on. Org-scoped data, so inside the boundary.
+  '0045_curated_skill_activations.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

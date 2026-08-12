@@ -9,35 +9,43 @@
 export const skills = {
   title: 'Skills',
   subtitle:
-    'Reusable instructions your organization can invoke with “/” in chat, or attach to a job. Editing a skill never changes a job that already uses it — the job keeps its saved snapshot.',
+    'Reusable instructions your organization writes once, then invokes with “/” in chat or attaches to a job. Editing one never changes a job that already uses it — the job keeps the snapshot it saved.',
   tryAgain: 'Try again',
 
   toolbox: {
-    heading: 'Skill toolbox',
-    hint: 'Built-in skills from Piloti plus skills your organization authored or cloned. A job may attach one of these — editing a skill never changes a job that already uses it (its snapshot is preserved).',
     newSkill: 'New skill',
-    loadError: 'The skill toolbox could not be loaded.',
+    loadError: 'Your skills could not be loaded.',
     empty: {
       title: 'No skills yet',
       description:
-        'Author a skill for your organization, or clone a built-in one to adapt it. A skill is a reusable instruction (agentskills.io format) that chats and jobs can invoke.',
+        'Write one for your organization, or start from a built-in below. A skill is a name, a description saying when it applies, and the instruction itself.',
       action: 'New skill',
     },
     origin: {
-      platform: 'Built-in',
-      org: 'In this organization',
-      cloned: 'Cloned',
+      // Said on the card only when it is true. A skill that IS in play needs no
+      // label saying so — the switch already shows it.
+      disabled: 'Switched off',
     },
     scope: {
       chatOnly: 'Chat agent only',
       deepOnly: 'Deep research only',
     },
     actions: {
-      clone: 'Clone',
-      cloneAria: 'Clone skill “{name}” into this organization',
       edit: 'Edit',
       delete: 'Delete',
       viewBody: 'View instruction',
+      enabledAria: 'Use the skill “{name}” in this organization',
+    },
+  },
+
+  // What Piloti offers the organization: below everything, folded away. Not the
+  // page — the page is what this organization wrote.
+  curated: {
+    heading: 'From Piloti',
+    count: '{active} of {total} on',
+    hint: 'Skills Piloti maintains and offers your organization. Switch one on and the agent may use it; switch it off and it is gone from the “/” menu and from what the agent can pick. There is nothing to copy or keep up to date — improvements reach you as we make them.',
+    actions: {
+      enabledAria: 'Use the Piloti skill “{name}” in this organization',
     },
   },
 
@@ -156,7 +164,6 @@ export const skills = {
       noMatches: 'No card matches that search.',
       removeAria: 'Remove card type “{type}” from the preference',
     },
-    cloneFrom: 'Cloned from “{name}”',
     enabledLabel: 'Enabled',
     enabledHint:
       'Off: the skill disappears from the “/” menu and from what the agent can pick. Jobs that already use it keep running from their saved snapshot.',

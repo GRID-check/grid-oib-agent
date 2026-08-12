@@ -59,6 +59,40 @@ export const METADATA_AGENTS = 'grid-agents'
 export const METADATA_CARDS = 'grid-cards'
 
 /**
+ * `grid-catalog` — whether a PLATFORM skill is offered to organizations.
+ *
+ * Only meaningful on a platform skill (a file under
+ * `src/aiq_agent/skills/builtin/`), because only those have two possible
+ * audiences:
+ *
+ *   absent            Machinery. The deep-research pipeline's own instructions
+ *                     for computing a table or writing its report. Never listed
+ *                     on the Skills tab, never switchable, always resolved.
+ *
+ *   `curated`         A capability published TO organizations. Listed on the
+ *                     Skills tab with a switch, and OFF until the org turns it
+ *                     on (`curated_skill_activations`).
+ *
+ * Machinery is the DEFAULT, deliberately: a new builtin that says nothing about
+ * itself stays invisible, and exposing one to every tenant has to be a sentence
+ * somebody wrote. Every builtin shipping today is machinery, and none of them
+ * says this key.
+ */
+export const METADATA_CATALOG = 'grid-catalog'
+
+/** The one `grid-catalog` value that means "offer this to organizations". */
+export const CATALOG_CURATED = 'curated'
+
+/**
+ * Whether a platform skill is offered to organizations rather than being
+ * pipeline machinery. Case- and whitespace-insensitive; anything unrecognised
+ * reads as machinery, which is the closed default.
+ */
+export function isCuratedPlatformSkill(metadata: Record<string, string>): boolean {
+  return (metadata[METADATA_CATALOG] ?? '').trim().toLowerCase() === CATALOG_CURATED
+}
+
+/**
  * The agents a skill may name in `grid-agents`.
  *
  * These are the backend `AGENT_REGISTRY` identifiers — the same strings a
@@ -202,6 +236,17 @@ export const patchSkillSchema = z.object({
 })
 
 export type PatchSkillInput = z.infer<typeof patchSkillSchema>
+
+/**
+ * Body of `PATCH /api/skills/platform/[name]` — an org switching a curated
+ * platform skill on or off. The NAME is in the path (a platform skill has no
+ * id), so the decision is the whole body.
+ */
+export const curatedSkillActivationSchema = z.object({
+  enabled: z.boolean(),
+})
+
+export type CuratedSkillActivationInput = z.infer<typeof curatedSkillActivationSchema>
 
 /** Query of the internal resolve endpoint (skills available to an agent). */
 export const resolveQuerySchema = z.object({

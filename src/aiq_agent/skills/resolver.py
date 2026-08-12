@@ -62,6 +62,28 @@ def _cache_ttl_seconds() -> float:
     return float(ttl) if ttl > 0 else float(_DEFAULT_TTL_SECONDS)
 
 
+#: ``grid-catalog`` — whether a PLATFORM skill is offered to organizations.
+#:
+#: Absent (the default) means the skill is pipeline machinery: never listed on
+#: the Skills tab, never switchable, always resolved. ``curated`` means it is a
+#: capability published to organizations, off until one switches it on. The
+#: mirror of ``frontends/ui/src/lib/skills/types.ts::isCuratedPlatformSkill``,
+#: and the two are a contract pair — ``test_resolver.py`` and
+#: ``service.spec.ts`` pin them against the same cases.
+METADATA_CATALOG = "grid-catalog"
+CATALOG_CURATED = "curated"
+
+
+def _is_curated(skill: Skill) -> bool:
+    """Whether a platform skill is an offer rather than machinery.
+
+    Anything unrecognised reads as machinery, which is the closed default: a
+    typo in this key must not silently expose an internal instruction to every
+    tenant as something they can switch off.
+    """
+    return (skill.metadata.get(METADATA_CATALOG) or "").strip().lower() == CATALOG_CURATED
+
+
 def _agent_allows(skill: Skill, agent: str | None) -> bool:
     """Respect the ``grid-agents`` metadata: absent = all agents."""
     if agent is None:
@@ -151,12 +173,33 @@ class SkillResolver:
             self._builtin_by_name = {s.name: s for s in discover_builtin_skills()}
         return tuple(self._builtin_by_name.values())
 
-    def resolve(self, organization_id: str | None = None) -> tuple[Skill, ...]:
-        """Builtin + org skills for the current org, org rows shadowing builtins.
+    @property
+    def always_on(self) -> tuple[Skill, ...]:
+        """The builtins that run for every org: the pipeline's own machinery.
 
-        Fails open to the builtin set on any fetch/validation error.
+        A builtin marked ``grid-catalog: curated`` is NOT machinery — it is a
+        capability the platform offers organizations, and it runs only for the
+        ones that switched it on. That decision lives in the BFF
+        (``platform_skill_activations``), so an activated curated skill arrives
+        through the org payload like any other row and an un-activated one
+        simply does not arrive.
+
+        Which is why it has to be excluded HERE as well: this baseline is the
+        filesystem, and a curated skill left in it would be on for everybody
+        regardless of what any org decided — the payload can add to this map,
+        never subtract from it. Machinery is the default, so a builtin that says
+        nothing about itself stays exactly as always-on as it was.
         """
-        merged_by_name: dict[str, Skill] = {s.name: s for s in self.builtin}
+        return tuple(skill for skill in self.builtin if not _is_curated(skill))
+
+    def resolve(self, organization_id: str | None = None) -> tuple[Skill, ...]:
+        """Machinery + org skills for the current org, org rows shadowing builtins.
+
+        Fails open to the always-on set on any fetch/validation error — which
+        deliberately drops curated skills rather than guessing that an org
+        wanted them: they are additive, and chat must never go down for one.
+        """
+        merged_by_name: dict[str, Skill] = {s.name: s for s in self.always_on}
         if organization_id:
             merged_by_name.update({s.name: s for s in self._resolve_org_skills(organization_id)})
         return tuple(skill for skill in merged_by_name.values() if _skill_applies_to_agent(skill, self.agent))

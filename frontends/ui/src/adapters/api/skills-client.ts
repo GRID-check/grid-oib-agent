@@ -222,6 +222,27 @@ export const updateSkill = async (skillId: string, input: UpdateSkillInput): Pro
   return (await response.json()) as SkillListItem
 }
 
+/**
+ * Switch a platform-CURATED skill on or off for this organization.
+ *
+ * By name, not by id: a platform skill is a file, and what is stored is only
+ * the org's decision about it. The pipeline's own machinery is not addressable
+ * here — the server 404s anything that is not curated.
+ */
+export const setCuratedSkillEnabled = async (
+  name: string,
+  enabled: boolean,
+): Promise<SkillListItem> => {
+  const response = await fetch(`${skillsBase}/platform/${encodeURIComponent(name)}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify({ enabled }),
+  })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to update platform skill')
+  const data = (await response.json()) as { skill?: SkillListItem } | SkillListItem
+  return 'skill' in data && data.skill ? data.skill : (data as SkillListItem)
+}
+
 /** Delete an org skill (jobs keep their saved snapshot). */
 export const deleteSkill = async (skillId: string): Promise<void> => {
   const response = await fetch(`${skillsBase}/${encodeURIComponent(skillId)}`, {

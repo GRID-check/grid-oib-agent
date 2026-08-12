@@ -108,10 +108,8 @@ const METADATA_AGENTS = 'grid-agents'
 interface SkillEditorDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** The skill being edited, or null when creating (optionally from a clone). */
+  /** The skill being edited, or null when creating. */
   skill: SkillListItem | null
-  /** Builtin platform skill name this new skill is cloned from. */
-  cloneFrom?: string | null
   onSaved: () => void
 }
 
@@ -125,13 +123,20 @@ export function SkillEditorDialog({
   open,
   onOpenChange,
   skill,
-  cloneFrom = null,
   onSaved,
 }: SkillEditorDialogProps): JSX.Element {
   const t = useTranslations('skills')
   const isEdit = skill !== null
+  /**
+   * The row every field starts from. Null for a new skill.
+   *
+   * Read in state INITIALISERS, which run once per mount — so this dialog is
+   * remounted per open (`skills-panel.tsx` keys it). Seeding in an effect
+   * instead would fight the author for the fields they had already typed into.
+   */
+  const source: SkillListItem | null = skill
   const [preferredCards, setPreferredCards] = useState<string[]>(() =>
-    isEdit ? parsePreferredCardTypes(skill.metadata[METADATA_CARDS]) : [],
+    parsePreferredCardTypes(source?.metadata[METADATA_CARDS]),
   )
   const [cardQuery, setCardQuery] = useState('')
   /**
@@ -142,7 +147,7 @@ export function SkillEditorDialog({
    * that are not say so.
    */
   const [agents, setAgents] = useState<AgentScope>(() =>
-    parseAgentScope(isEdit ? skill.metadata[METADATA_AGENTS] : undefined),
+    parseAgentScope(source?.metadata[METADATA_AGENTS]),
   )
   /**
    * Metadata keys this UI has no control for (anything a future version adds),
@@ -154,7 +159,7 @@ export function SkillEditorDialog({
    * quietly overrule them.
    */
   const [extraMetadata, setExtraMetadata] = useState<Record<string, string>>(() =>
-    isEdit ? withoutReservedKeys(skill.metadata) : {},
+    source ? withoutReservedKeys(source.metadata) : {},
   )
 
   /**
@@ -227,9 +232,9 @@ export function SkillEditorDialog({
 
   const form = useAppForm({
     defaultValues: {
-      name: skill?.name ?? '',
-      description: skill?.description ?? '',
-      body: skill?.body ?? '',
+      name: source?.name ?? '',
+      description: source?.description ?? '',
+      body: source?.body ?? '',
     } satisfies EditorValues,
     validators: { onChange: schema },
     onSubmit: async ({ value }) => {
@@ -242,7 +247,6 @@ export function SkillEditorDialog({
         body: value.body.trim(),
         metadata,
         enabled,
-        clonedFrom: cloneFrom ?? undefined,
       }
 
       try {
@@ -334,7 +338,6 @@ export function SkillEditorDialog({
             <DialogTitle>{isEdit ? t('editor.editTitle') : t('editor.createTitle')}</DialogTitle>
             <DialogDescription>
               {isEdit ? t('editor.editSubtitle') : t('editor.createSubtitle')}
-              {cloneFrom ? ` ${t('editor.cloneFrom', { name: cloneFrom })}` : ''}
             </DialogDescription>
           </DialogHeader>
 
