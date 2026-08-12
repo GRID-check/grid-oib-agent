@@ -163,7 +163,10 @@ describe('IfcElementTable', () => {
         onSelect={vi.fn()}
       />
     )
-    expect(screen.getByText('4 of 4 elements')).toBeInTheDocument()
+    // `total` is the FILTERED row count, so "of 4 elements" claimed the
+    // building has four; with a type selected it read "300 of 812 elements"
+    // about 812 walls.
+    expect(screen.getByText('4 of 4 matches')).toBeInTheDocument()
   })
 
   it('narrows to the storey the tree selected', () => {
@@ -175,7 +178,7 @@ describe('IfcElementTable', () => {
         onSelect={vi.fn()}
       />
     )
-    expect(screen.getByText('1 of 1 elements')).toBeInTheDocument()
+    expect(screen.getByText('1 of 1 matches')).toBeInTheDocument()
     expect(screen.getByText('Aussenwand OG')).toBeInTheDocument()
     expect(screen.queryByText('Innenwand EG')).not.toBeInTheDocument()
   })
@@ -184,7 +187,7 @@ describe('IfcElementTable', () => {
     render(
       <IfcElementTable elements={ELEMENTS} storeyFilter={null} selectedGlobalId={null} onSelect={vi.fn()} />
     )
-    await userEvent.type(screen.getByLabelText('Search by name…'), 'innen')
+    await userEvent.type(screen.getByLabelText('Search by name, tag or GlobalId…'), 'innen')
     expect(screen.getByText('Innenwand EG')).toBeInTheDocument()
     expect(screen.queryByText('Aussenwand Nord')).not.toBeInTheDocument()
   })
@@ -202,7 +205,7 @@ describe('IfcElementTable', () => {
     render(
       <IfcElementTable elements={ELEMENTS} storeyFilter={null} selectedGlobalId={null} onSelect={vi.fn()} />
     )
-    await userEvent.type(screen.getByLabelText('Search by name…'), 'zzz')
+    await userEvent.type(screen.getByLabelText('Search by name, tag or GlobalId…'), 'zzz')
     expect(screen.getByText('No element matches this filter.')).toBeInTheDocument()
   })
 
@@ -318,7 +321,7 @@ describe('IfcModelHealthPanel', () => {
   it('offers to show the affected elements when it has ids for them', async () => {
     const onShowElements = vi.fn()
     render(<IfcModelHealthPanel health={HEALTH} onShowElements={onShowElements} />)
-    await userEvent.click(screen.getAllByRole('button', { name: 'show in model' })[0])
+    await userEvent.click(screen.getAllByRole('button', { name: 'Show elements' })[0])
     expect(onShowElements).toHaveBeenCalledWith(['g-w4'])
   })
 

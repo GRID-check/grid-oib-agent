@@ -1,8 +1,6 @@
 /** IFC/BIM model surfaces: the viewer, the model explorer, the viewer card. */
 export const bim = {
   title: 'Model',
-  subtitle:
-    'The IFC models uploaded to this project. Everything shown here is read from the model itself — the assistant answers questions about the building from the same data.',
   tabs: {
     overview: 'Overview',
     compliance: 'Requirements',
@@ -19,7 +17,7 @@ export const bim = {
   empty: {
     title: 'No IFC model yet',
     description:
-      'Upload an .ifc file under Files. Grid reads its structure, makes the building queryable in chat, and shows it here in 3D.',
+      'Upload an .ifc file under Files. Piloti reads its structure, makes the building queryable in chat, and shows it here in 3D.',
     action: 'Go to files',
   },
   status: {
@@ -50,7 +48,8 @@ export const bim = {
   health: {
     title: 'Model check',
     score: 'Model quality {score}/100',
-    clean: 'No findings. Every element is placed, identified and described.',
+    clean: 'No findings in these checks. Every element is placed, uniquely identified and named.',
+    showElements: 'Show elements',
     affected: '{count} of {total}',
     affectedAbsolute: '{count}',
     severity: {
@@ -90,20 +89,18 @@ export const bim = {
   tree: {
     title: 'Spatial structure',
     allStoreys: 'All storeys',
-    elements: '{count} elements',
   },
   elements: {
     title: 'Elements',
-    search: 'Search by name…',
+    search: 'Search by name, tag or GlobalId…',
     allTypes: 'All types',
     columns: {
       type: 'Type',
       name: 'Name',
       storey: 'Storey',
-      tag: 'Tag',
     },
     empty: 'No element matches this filter.',
-    count: '{shown} of {total} elements',
+    count: '{shown} of {total} matches',
     unnamed: '(unnamed)',
   },
   properties: {
@@ -113,14 +110,11 @@ export const bim = {
     globalId: 'GlobalId',
     ifcType: 'IFC type',
     predefinedType: 'Predefined type',
-    objectType: 'Object type',
     typeName: 'Type',
     tag: 'Tag',
     storey: 'Storey',
     materials: 'Materials',
     classifications: 'Classifications',
-    quantities: 'Quantities',
-    ask: 'Ask the assistant',
     loadFailed: 'The element could not be loaded.',
   },
   compare: {
@@ -149,7 +143,7 @@ export const bim = {
     truncatedModel:
       'This model is too large to check in full — the catalogue saw only part of it. Every count below is a count over that part, not over the building.',
     disclaimer:
-      'Orientierende Prüfung — no legal advice and no Nachweis. “Not decidable” means the model does not publish the value, not that the building fails.',
+      'An orienting check — no legal advice and no Nachweis. “Not decidable” means the model does not publish the value, not that the building fails.',
     counts: '{passed} met · {failed} not met · {undecidable} not decidable',
     notApplicable: 'Not applicable',
     noElements: 'No affected elements in this model.',
@@ -172,7 +166,7 @@ export const bim = {
       by: 'Confirmed by {who} on {when}',
       stale: 'Older revision',
       staleHint:
-        'This confirmation was made against an earlier revision of the model. It still counts as a record, but no longer as cover for the current one.',
+        'This confirmation was made against an earlier revision of the model. It stays on the record, but it does not apply to the current revision.',
       failed: 'The confirmation could not be saved. It is NOT recorded \u2014 please try again.',
       confirm: 'Confirm manually',
       reconfirm: 'Confirm again for this revision',
@@ -185,6 +179,7 @@ export const bim = {
     card: {
       export: 'Open items as BCF',
       unresolved: '{count} of the requested rule ids are not in the catalogue.',
+      unresolvedOne: 'One of the requested rule ids is not in the catalogue.',
       none: 'None of the requested requirements are in the catalogue.',
     },
     shoppingList: {
@@ -195,6 +190,7 @@ export const bim = {
     },
     export: {
       action: '{count} open items as BCF',
+      actionOne: 'One open item as BCF',
       hint: 'BCF 2.1 — opens in ArchiCAD, Revit, Solibri or BIMcollab as a task list and selects the affected elements in the model. Requirements you have confirmed arrive marked done.',
     },
   },
@@ -220,6 +216,7 @@ export const bim = {
   },
   schedule: {
     storeyElided: '{count} more rooms on this storey',
+    storeyElidedOne: 'One more room on this storey',
     truncated:
       'This model was read only in part, so the totals below cover the rooms that were stored, not the building.',
     title: 'Room schedule',
@@ -232,12 +229,16 @@ export const bim = {
     missing: 'Rooms with no published area: {count} — not included in these totals.',
     storeyMissing: '{count} without area',
     expand: 'Show {count} more rooms',
+    expandOne: 'Show one more room',
     collapse: 'Show fewer',
     empty: 'This model contains no rooms (IfcSpace).',
     failed: 'The room schedule could not be loaded.',
   },
   takeoff: {
     showAll: 'Show {count} more groups',
+    showAllOne: 'Show one more group',
+    truncated:
+      'This model was read only in part, so the totals below cover the elements that were stored, not the building.',
     collapse: 'Show fewer',
     title: 'Quantity take-off',
     description:
@@ -256,7 +257,7 @@ export const bim = {
     description:
       'Derived from storey elevations and the room mix. Proposals, not measurements — the assistant applies them to the project brief only after you confirm.',
     ask: 'Apply via the assistant',
-    empty: 'This model supports no project data.',
+    empty: 'No project data can be derived from this model.',
     failed: 'The project data could not be derived.',
     key: {
       geschosse_oberirdisch: 'Storeys above ground',
@@ -274,7 +275,7 @@ export const bim = {
   timeline: {
     title: 'Revisions',
     description: '{count} revisions of {name}, newest first.',
-    revision: 'Upload {index}',
+    revision: 'Revision {index}',
     latest: 'Current',
     compare: 'Compare with {previous}',
     noDelta: 'No comparable figures for this revision.',
@@ -317,6 +318,8 @@ export const bim = {
     showEverything: 'Restore hidden components',
     elevation: '{value} m',
     notReady: 'The model is still being read. This usually takes a few moments.',
+    readFailed:
+      'The extractor could not read this file. Re-export it from your authoring tool and upload it again.',
     loading: 'Loading model…',
     building: 'Putting the building together…',
     ready: 'The model is on screen',
@@ -338,7 +341,6 @@ export const bim = {
     canvasLabel: '3D view of the IFC model',
     keyboardHint:
       'Arrow keys orbit, Shift with an arrow pans, plus and minus zoom, F fits the model. While measuring, Enter places a point and Escape cancels. Every element is also listed as text under Details.',
-    title: '3D view',
     xray: 'See through',
     xrayNeedsTarget: 'See through — select a component or open a highlighted answer first',
     view: {
@@ -351,7 +353,6 @@ export const bim = {
     },
     projection: {
       parallel: 'Parallel',
-      perspective: 'Perspective',
     },
     /** Capturing the view as an image someone will keep. */
     capture: {
@@ -405,22 +406,24 @@ export const bim = {
    */
   preview: {
     loading: 'Loading model…',
-    extracting: 'Grid is still reading this model. The building appears here as soon as that finishes.',
+    extracting: 'Piloti is still reading this model. The building appears here as soon as that finishes.',
     extractionFailed:
       'This model could not be read. The file itself is unchanged and can still be downloaded.',
     noModel: 'No model has been read from this file.',
     loadFailed:
       'The models for this project are temporarily unavailable. That does NOT mean this file has no model.',
+    sourceFailed:
+      'The 3D preview could not be loaded. The model itself is read — structure, elements and quantities are available in the model workspace.',
     noWebGpu:
       'The 3D view needs WebGPU, which this browser does not provide. Everything read from the model — structure, elements, properties and quantities — is available in the model workspace.',
     open: 'Open in model workspace',
   },
   card: {
     openModel: 'Open model',
-    openElement: 'Open element {name} in the model',
+    openElement: 'Open in the model',
     openStorey: 'Open storey {name} in the model',
     unresolved: '{count} of the highlighted elements are not in this model.',
+    unresolvedOne: 'One of the highlighted elements is not in this model.',
     noModel: 'The referenced model is not available in this project.',
-    highlights: 'Highlighted',
   },
 }

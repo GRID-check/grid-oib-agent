@@ -480,7 +480,15 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     if (openedAnother) {
       return t('stage.otherModel', { wanted: view.model ?? '', opened: model?.filename ?? '' })
     }
-    if (unresolvedHighlights > 0) return t('card.unresolved', { count: unresolvedHighlights })
+    if (unresolvedHighlights > 0) {
+      // The translator does no plural selection — it is `{token}` substitution
+      // — so "1 der hervorgehobenen Bauteile SIND nicht enthalten" is what a
+      // single missing element produced. One sibling key per counted string,
+      // which is the precedent `viewer.measure.countOne` already set.
+      return unresolvedHighlights === 1
+        ? t('card.unresolvedOne')
+        : t('card.unresolved', { count: unresolvedHighlights })
+    }
     if (cappedHighlights > 0) {
       const groups = view.highlights ?? []
       return t('stage.highlightCapped', {
@@ -634,6 +642,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
             isLoading={isLoading}
             error={error}
             onRetry={reloadModels}
+            onClose={onClose}
             hasModels={(models?.length ?? 0) > 0}
             model={model}
             source={source}
@@ -1109,6 +1118,7 @@ function StageCanvas({
   isLoading,
   error,
   onRetry,
+  onClose,
   hasModels,
   model,
   source,
@@ -1117,6 +1127,8 @@ function StageCanvas({
   isLoading: boolean
   error: string | null
   onRetry: () => void
+  /** Closes the stage — the way back to Dateien, where a model is uploaded. */
+  onClose: () => void
   hasModels: boolean
   model: { status: string; errorMessage: string | null } | null
   source: { data: string | null; error: string | null; reload: () => void }
@@ -1144,7 +1156,21 @@ function StageCanvas({
   }
   if (!hasModels || !model) {
     return (
-      <ViewerNotice icon={Boxes} title={t('empty.title')} description={t('empty.description')} />
+      <ViewerNotice
+        icon={Boxes}
+        title={t('empty.title')}
+        description={t('empty.description')}
+        // A project with no model got a sentence and no way forward: the
+        // notice says "upload an .ifc under Dateien" while sitting on top of
+        // Dateien, with the × in the corner as the only exit anyone could
+        // find. `empty.action` has existed in both dictionaries the whole
+        // time with nothing rendering it.
+        action={
+          <Button type="button" size="sm" variant="secondary" onClick={onClose}>
+            {t('empty.action')}
+          </Button>
+        }
+      />
     )
   }
   if (model.status !== 'ready') {
@@ -1152,7 +1178,15 @@ function StageCanvas({
       <ViewerNotice
         icon={Boxes}
         title={t(`status.${model.status}`)}
-        description={model.errorMessage ?? t('stage.notReady')}
+        description={
+          model.errorMessage ??
+          // A FAILED extraction that stored no message used to fall through to
+          // "Das Modell wird noch gelesen" — printed directly under "Modell
+          // konnte nicht gelesen werden", so the notice contradicted its own
+          // heading and the reader was left waiting for something that had
+          // already stopped.
+          (model.status === 'failed' ? t('stage.readFailed') : t('stage.notReady'))
+        }
       />
     )
   }

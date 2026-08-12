@@ -265,7 +265,7 @@ describe('IfcCompliancePanel', () => {
     it('marks a confirmation from an older revision as no longer covering', () => {
       panel({ rules: [{ ...CONFIRMED, confirmationStale: true }] })
       expect(screen.getByText('Older revision')).toBeInTheDocument()
-      expect(screen.getByText(/no longer as cover for the current one/)).toBeInTheDocument()
+      expect(screen.getByText(/does not apply to the current revision/)).toBeInTheDocument()
       // Still recorded: a signature is not deleted by a re-export.
       expect(screen.getByText(/Confirmed by a.muster/)).toBeInTheDocument()
     })

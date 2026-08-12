@@ -24,7 +24,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import type { BimComparison } from '@/lib/bim/compare'
 import { rulesWithOpenWork, type BimRuleResult } from '@/lib/bim/rules'
-import type { BimRoomSchedule } from '@/lib/bim/schedule'
+import { roomScheduleToCsv, type BimRoomSchedule } from '@/lib/bim/schedule'
 import { buildModelHref } from '@/features/bim/lib/model-link'
 import { formatPropertyValue } from '@/features/bim/lib/format-value'
 import { shortIfcType } from '@/features/bim/lib/model-index'
@@ -145,8 +145,20 @@ function NoModel(): JSX.Element {
 // Raumbuch
 // ---------------------------------------------------------------------------
 
+/**
+ * The Raumbuch AND whether it covers the whole model.
+ *
+ * `truncated` was dropped here, so the chat card printed a
+ * Netto-Grundfläche computed over part of a building with none of the
+ * warning the model page refuses to show the same number without.
+ */
 const pickSchedule = (payload: Record<string, unknown>) =>
-  payload.schedule as BimRoomSchedule | undefined
+  payload.schedule
+    ? {
+        schedule: payload.schedule as BimRoomSchedule,
+        truncated: payload.truncated === true,
+      }
+    : undefined
 
 export interface IfcScheduleCardProps {
   title: string
@@ -166,11 +178,12 @@ export function IfcScheduleCard({
   const t = useTranslations('bim')
   const { locale } = useLocale()
   const { model } = useResolvedModel(projectId, modelFile)
-  const { data: schedule, isLoading, error } = useModelQuery(
+  const { data: payload, isLoading, error } = useModelQuery(
     model?.id ?? null,
     { op: 'schedule' },
     pickSchedule
   )
+  const schedule = payload?.schedule ?? null
 
   const storeys = useMemo(() => {
     if (!schedule) return []
@@ -184,21 +197,25 @@ export function IfcScheduleCard({
 
   const download = () => {
     if (!schedule) return
-    // Built in the browser from the data already on screen: the export is
-    // exactly the table the user is looking at, with no second round trip that
-    // could disagree with it.
-    const rows = storeys.flatMap((entry) =>
-      entry.rooms.map((room) =>
-        [entry.storeyName, room.name, room.netFloorArea ?? '', room.grossFloorArea ?? '', room.netVolume ?? '', room.globalId]
-          .map((cell) => (/[";\n]/.test(String(cell)) ? `"${String(cell).replace(/"/g, '""')}"` : cell))
-          .join(';')
-      )
-    )
-    const csv = [
-      ['Geschoß', 'Raum', `NGF (${schedule.units.area})`, `BGF (${schedule.units.area})`, `Rauminhalt (${schedule.units.volume})`, 'GlobalId'].join(';'),
-      ...rows,
-    ].join('\n')
-    const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' }))
+    /*
+      `roomScheduleToCsv`, not a second hand-rolled writer.
+
+      This one hard-coded German headers, so an English-locale reader
+      downloaded a German file; it abbreviated them differently —
+      `NGF`/`BGF` against the model page's `Netto-Grundfläche` /
+      `Brutto-Grundfläche` — and left out the Kategorie column and the
+      per-storey subtotals entirely. Two files both called "Raumbuch", of the
+      same rooms, with different columns and different names for the columns
+      they shared. It also wrote `24.5` where the shared writer writes `24,5`,
+      which the German-locale Excel this export targets reads as TEXT: the
+      downloaded Raumbuch would not sum, which is the one thing anyone
+      downloads it for.
+
+      The storey filter is applied to the schedule, so the file is still
+      exactly the table on screen.
+    */
+    const csv = roomScheduleToCsv({ ...schedule, storeys })
+    const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }))
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = `raumbuch-${model?.filename ?? 'modell'}.csv`
@@ -278,19 +295,35 @@ export function IfcScheduleCard({
                   </tr>
                 </tbody>
               ))}
-              <tfoot>
-                <tr className="border-t-2 font-semibold">
-                  <td className="py-1 pr-2">{t('schedule.total')}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {number(schedule.totals.netFloorArea)} {schedule.units.area}
-                  </td>
-                  <td className="py-1 text-right tabular-nums">
-                    {number(schedule.totals.netVolume)} {schedule.units.volume}
-                  </td>
-                </tr>
-              </tfoot>
+              {/*
+                Only when the table IS the building. With `storey` set the rows
+                are one floor and `schedule.totals` is still the whole model,
+                so a row labelled "Gesamt" under a single storey's rooms
+                reported the building's Netto-Grundfläche as that floor's —
+                the one number in this product that could do real damage, in
+                the surface that ends up pasted into an email.
+              */}
+              {!storey && (
+                <tfoot>
+                  <tr className="border-t-2 font-semibold">
+                    <td className="py-1 pr-2">{t('schedule.total')}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">
+                      {number(schedule.totals.netFloorArea)} {schedule.units.area}
+                    </td>
+                    <td className="py-1 text-right tabular-nums">
+                      {number(schedule.totals.netVolume)} {schedule.units.volume}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
+          {payload?.truncated && (
+            // Above everything it invalidates. The model page refuses to show
+            // these numbers without this sentence; a card in a chat thread is
+            // read by the same person about the same building.
+            <p className="text-xs text-destructive">{t('schedule.truncated')}</p>
+          )}
           {schedule.totals.roomsWithoutArea > 0 && (
             // Stated beside the total, not in a tooltip: a Flächenaufstellung
             // that silently omits four rooms is the failure this whole
@@ -406,8 +439,21 @@ export function IfcElementCard({
 // Prüfbuch
 // ---------------------------------------------------------------------------
 
+/**
+ * The rule run AND whether it saw the whole model.
+ *
+ * `truncated` was discarded, so "9 erfüllt · 0 nicht erfüllt" over a capped
+ * model was presented in chat as a fact about the building. The model page
+ * refuses to print the same counts without `compliance.truncatedModel` above
+ * them; the counts do not become safer for being in a card.
+ */
 const pickCompliance = (payload: Record<string, unknown>) =>
-  payload.compliance as BimRuleResult[] | undefined
+  payload.compliance
+    ? {
+        rules: payload.compliance as BimRuleResult[],
+        truncated: payload.truncated === true,
+      }
+    : undefined
 
 export interface IfcComplianceCardProps {
   title: string
@@ -453,10 +499,11 @@ export function IfcComplianceCard({
   // contradicts the model page about the same building. It also costs a
   // measured ~1.5 s and ~126 MB of server work per card, thrown away.
   const {
-    data: rules,
+    data: run,
     isLoading: queryLoading,
     error,
   } = useModelQuery(facts.ready ? (model?.id ?? null) : null, request, pickCompliance)
+  const rules = run?.rules ?? null
   const isLoading = queryLoading || !facts.ready
 
   const selected = useMemo(() => {
@@ -517,9 +564,15 @@ export function IfcComplianceCard({
         <p className="text-sm text-destructive">{t('compliance.failed')}</p>
       ) : (
         <div className="space-y-2">
+          {/* Above the verdicts, because it is what they are worth. */}
+          {run?.truncated && (
+            <p className="text-xs text-destructive">{t('compliance.truncatedModel')}</p>
+          )}
           {unresolved > 0 && (
             <p className="text-xs text-warning">
-              {t('compliance.card.unresolved', { count: unresolved })}
+              {unresolved === 1
+                ? t('compliance.card.unresolvedOne')
+                : t('compliance.card.unresolved', { count: unresolved })}
             </p>
           )}
           {selected?.length === 0 ? (
@@ -586,6 +639,7 @@ function DiffGroup({
   status,
   projectId,
   filename,
+  total,
 }: {
   label: string
   entries: readonly DiffEntry[]
@@ -593,6 +647,15 @@ function DiffGroup({
   projectId: string | null
   /** The revision this group's elements exist in. */
   filename: string
+  /**
+   * How many elements the comparison actually found.
+   *
+   * `entries` is capped at `MAX_COMPARISON_ROWS` by `compare.ts`, so its
+   * length is a property of the cap rather than of the revision. "… 492
+   * weitere" computed from it is a remainder of a cap presented as a count of
+   * the building.
+   */
+  total: number
 }): JSX.Element | null {
   const t = useTranslations('bim')
   if (entries.length === 0) return null
@@ -637,9 +700,9 @@ function DiffGroup({
           )
         })}
       </ul>
-      {entries.length > DIFF_ROWS && (
+      {total > DIFF_ROWS && (
         <p className="text-xs text-muted-foreground">
-          {t('compare.more', { count: entries.length - DIFF_ROWS })}
+          {t('compare.more', { count: total - DIFF_ROWS })}
         </p>
       )}
     </div>
@@ -693,14 +756,22 @@ export function IfcDiffCard({
             {model.filename}
           </p>
           <div className="flex flex-wrap gap-2 text-xs">
+            {/*
+              `counts`, not the array lengths. `compare.ts` slices each list to
+              `MAX_COMPARISON_ROWS = 500` and keeps the real figures on
+              `counts` — the model page reads them, this card read the capped
+              arrays. A revision that added 1 300 elements was reported to an
+              architect as "Neu 500", on the surface that ends up in a
+              screenshot.
+            */}
             <Badge variant="success">
-              {t('compare.added')} {comparison.added.length}
+              {t('compare.added')} {comparison.counts.added}
             </Badge>
             <Badge variant="destructive">
-              {t('compare.removed')} {comparison.removed.length}
+              {t('compare.removed')} {comparison.counts.removed}
             </Badge>
             <Badge variant="warning">
-              {t('compare.changed')} {comparison.changed.length}
+              {t('compare.changed')} {comparison.counts.changed}
             </Badge>
             <Badge variant="secondary">
               {t('compare.unchanged')} {comparison.unchangedCount}
@@ -715,6 +786,7 @@ export function IfcDiffCard({
           <DiffGroup
             label={t('compare.added')}
             entries={comparison.added}
+            total={comparison.counts.added}
             status="info"
             projectId={projectId}
             filename={model.filename}
@@ -722,6 +794,7 @@ export function IfcDiffCard({
           <DiffGroup
             label={t('compare.removed')}
             entries={comparison.removed}
+            total={comparison.counts.removed}
             status="fail"
             projectId={projectId}
             filename={baseModel.filename}
@@ -729,6 +802,7 @@ export function IfcDiffCard({
           <DiffGroup
             label={t('compare.changed')}
             entries={comparison.changed}
+            total={comparison.counts.changed}
             status="warning"
             projectId={projectId}
             filename={model.filename}

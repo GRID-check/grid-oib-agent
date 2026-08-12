@@ -140,7 +140,11 @@ export function IfcViewerCard({
       )}
 
       {unresolvedCount > 0 && (
-        <p className="mt-2 text-xs text-warning">{t('card.unresolved', { count: unresolvedCount })}</p>
+        <p className="mt-2 text-xs text-warning">
+          {unresolvedCount === 1
+            ? t('card.unresolvedOne')
+            : t('card.unresolved', { count: unresolvedCount })}
+        </p>
       )}
       {note && <p className="mt-2 text-sm text-muted-foreground">{note}</p>}
     </section>

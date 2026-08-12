@@ -308,6 +308,6 @@ describe('IfcProfileSuggestions', () => {
     render(
       <IfcProfileSuggestions suggestions={[]} isLoading={false} error={null} askHref="/x" />
     )
-    expect(screen.getByText('This model supports no project data.')).toBeInTheDocument()
+    expect(screen.getByText('No project data can be derived from this model.')).toBeInTheDocument()
   })
 })

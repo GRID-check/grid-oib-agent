@@ -3,8 +3,6 @@ import type { en } from '../en'
 /** IFC/BIM-Oberflächen: Viewer, Modell-Explorer, Viewer-Karte. */
 export const bim: typeof en.bim = {
   title: 'Modell',
-  subtitle:
-    'Die IFC-Modelle dieses Projekts. Alles hier wird aus dem Modell selbst gelesen — der Assistent beantwortet Fragen zum Gebäude aus denselben Daten.',
   tabs: {
     overview: 'Überblick',
     compliance: 'Anforderungen',
@@ -53,6 +51,7 @@ export const bim: typeof en.bim = {
     title: 'Modellprüfung',
     score: 'Modellqualität {score}/100',
     clean: 'Keine Auffälligkeiten in diesen Prüfpunkten. Jedes Bauteil ist verortet, eindeutig identifiziert und benannt.',
+    showElements: 'Bauteile zeigen',
     affected: '{count} von {total}',
     affectedAbsolute: '{count}',
     severity: {
@@ -92,7 +91,6 @@ export const bim: typeof en.bim = {
   tree: {
     title: 'Räumliche Struktur',
     allStoreys: 'Alle Geschoße',
-    elements: '{count} Bauteile',
   },
   elements: {
     title: 'Bauteile',
@@ -102,10 +100,9 @@ export const bim: typeof en.bim = {
       type: 'Typ',
       name: 'Name',
       storey: 'Geschoß',
-      tag: 'Kennzeichen',
     },
     empty: 'Kein Bauteil entspricht diesem Filter.',
-    count: '{shown} von {total} Bauteilen',
+    count: '{shown} von {total} Treffern',
     unnamed: '(ohne Namen)',
   },
   properties: {
@@ -115,20 +112,17 @@ export const bim: typeof en.bim = {
     globalId: 'GlobalId',
     ifcType: 'IFC-Typ',
     predefinedType: 'Vordefinierter Typ',
-    objectType: 'Objekttyp',
     typeName: 'Typ',
     tag: 'Kennzeichen',
     storey: 'Geschoß',
     materials: 'Materialien',
     classifications: 'Klassifikationen',
-    quantities: 'Mengen',
-    ask: 'Assistenten fragen',
     loadFailed: 'Das Bauteil konnte nicht geladen werden.',
   },
   compare: {
     title: 'Stände vergleichen',
     description:
-      'Abgeglichen über die IFC-GlobalId — ein Re-Export, der alles neu nummeriert, meldet daher keine Änderung.',
+      'Abgeglichen über die IFC-GlobalId: Ein Re-Export, bei dem sich nur die internen Nummern der Datei ändern, meldet daher keine Änderung.',
     against: 'Vergleichen mit',
     ranAgainst: 'Verglichen mit {model}',
     none: 'Laden Sie einen zweiten Stand hoch, um zu vergleichen.',
@@ -140,7 +134,8 @@ export const bim: typeof en.bim = {
     changed: 'Geändert',
     unchanged: 'Unverändert',
     more: '… {count} weitere',
-    truncated: 'Mindestens ein Stand ist gekürzt indiziert — der Vergleich kann unvollständig sein.',
+    truncated:
+      'Mindestens eine Revision wurde nur teilweise eingelesen — der Vergleich kann unvollständig sein.',
     empty: 'Keine Unterschiede zwischen diesen beiden Ständen.',
   },
   compliance: {
@@ -161,7 +156,7 @@ export const bim: typeof en.bim = {
     more: '{count} weitere',
     truncated: 'Weitere Bauteile betroffen — siehe Anzahl oben.',
     missingFacts:
-      'Einige Regeln hängen an Projektangaben, die hier fehlen: {facts}. Diese Regeln wurden nicht angewendet, statt zu raten.',
+      'Einige Regeln hängen an Projektangaben, die im Projekt-Briefing fehlen: {facts}. Diese Regeln wurden nicht angewendet, statt zu raten.',
     setFacts: 'Über den Assistenten ergänzen',
     badge: {
       passing: 'Erfüllt',
@@ -174,7 +169,7 @@ export const bim: typeof en.bim = {
       by: 'Bestätigt von {who} am {when}',
       stale: 'Älterer Stand',
       staleHint:
-        'Diese Bestätigung wurde gegen eine frühere Revision des Modells abgegeben. Sie bleibt als Eintrag erhalten, deckt die aktuelle Revision aber nicht mehr ab.',
+        'Diese Bestätigung wurde gegen eine frühere Revision des Modells abgegeben. Sie bleibt als Eintrag erhalten, gilt aber nicht für die aktuelle Revision.',
       failed: 'Die Bestätigung konnte nicht gespeichert werden. Sie ist NICHT hinterlegt — bitte erneut versuchen.',
       confirm: 'Manuell bestätigen',
       reconfirm: 'Für diesen Stand erneut bestätigen',
@@ -187,16 +182,18 @@ export const bim: typeof en.bim = {
     card: {
       export: 'Offene Punkte als BCF',
       unresolved: '{count} der angefragten Regeln sind nicht im Katalog.',
+      unresolvedOne: 'Eine der angefragten Regeln ist nicht im Katalog.',
       none: 'Keine der angeforderten Anforderungen ist im Katalog.',
     },
     shoppingList: {
       title: 'Was dem Modell fehlt',
       description:
-        'Diese Werte im CAD ergänzen, dann werden die Anforderungen oben entscheidbar. Das ist die Liste, keine Note.',
+        'Ergänzen Sie diese Werte im CAD, dann werden die Anforderungen oben entscheidbar. Das ist die Liste, keine Note.',
       count: 'an {count} Bauteilen',
     },
     export: {
       action: '{count} offene Punkte als BCF',
+      actionOne: 'Ein offener Punkt als BCF',
       hint: 'BCF 2.1 — öffnet in ArchiCAD, Revit, Solibri oder BIMcollab als Aufgabenliste und markiert die betroffenen Bauteile im Modell. Bereits bestätigte Anforderungen sind darin als erledigt markiert.',
     },
   },
@@ -222,6 +219,7 @@ export const bim: typeof en.bim = {
   },
   schedule: {
     storeyElided: '{count} weitere Räume in diesem Geschoß',
+    storeyElidedOne: 'Ein weiterer Raum in diesem Geschoß',
     truncated:
       'Dieses Modell wurde nur teilweise eingelesen — die Summen unten beziehen sich auf die gespeicherten Räume, nicht auf das Gebäude.',
     title: 'Raumbuch',
@@ -234,12 +232,16 @@ export const bim: typeof en.bim = {
     missing: 'Räume ohne Flächenangabe: {count} — in diesen Summen nicht enthalten.',
     storeyMissing: '{count} ohne Fläche',
     expand: 'Weitere {count} Räume anzeigen',
+    expandOne: 'Einen weiteren Raum anzeigen',
     collapse: 'Weniger anzeigen',
     empty: 'Dieses Modell enthält keine Räume (IfcSpace).',
     failed: 'Das Raumbuch konnte nicht geladen werden.',
   },
   takeoff: {
     showAll: 'Weitere {count} Gruppen anzeigen',
+    showAllOne: 'Eine weitere Gruppe anzeigen',
+    truncated:
+      'Dieses Modell wurde nur teilweise eingelesen — die Summen unten beziehen sich auf die gespeicherten Bauteile, nicht auf das Gebäude.',
     collapse: 'Weniger anzeigen',
     title: 'Massenermittlung',
     description:
@@ -312,6 +314,8 @@ export const bim: typeof en.bim = {
     showEverything: 'Ausgeblendetes wiederherstellen',
     elevation: '{value} m',
     notReady: 'Das Modell wird noch gelesen. Das dauert meist nur einen Moment.',
+    readFailed:
+      'Diese Datei konnte nicht eingelesen werden. Bitte exportieren Sie sie erneut aus Ihrem CAD und laden Sie sie noch einmal hoch.',
     loading: 'Modell wird geladen…',
     building: 'Gebäude wird aufgebaut…',
     ready: 'Das Modell ist da',
@@ -333,8 +337,7 @@ export const bim: typeof en.bim = {
     canvasLabel: '3D-Ansicht des IFC-Modells',
     keyboardHint:
       'Pfeiltasten drehen, Umschalt mit Pfeiltaste verschiebt, Plus und Minus zoomen, F passt das Modell ein. Beim Messen setzt Eingabe einen Punkt, Esc bricht ab. Alle Bauteile stehen zusätzlich als Liste unter „Details“.',
-    title: '3D-Ansicht',
-    xray: 'Transparent',
+    xray: 'Durchsichtig',
     xrayNeedsTarget: 'Durchsichtig — zuerst ein Bauteil auswählen oder eine markierte Antwort öffnen',
     view: {
       iso: 'Frei',
@@ -346,7 +349,6 @@ export const bim: typeof en.bim = {
     },
     projection: {
       parallel: 'Parallel',
-      perspective: 'Perspektive',
     },
     /** Die Ansicht als Bild sichern. */
     capture: {
@@ -395,22 +397,24 @@ export const bim: typeof en.bim = {
   preview: {
     loading: 'Modell wird geladen…',
     extracting:
-      'Grid liest dieses Modell gerade ein. Sobald das abgeschlossen ist, erscheint das Gebäude hier.',
+      'Piloti liest dieses Modell gerade ein. Sobald das abgeschlossen ist, erscheint das Gebäude hier.',
     extractionFailed:
       'Dieses Modell konnte nicht eingelesen werden. Die Datei selbst ist unverändert und kann weiterhin heruntergeladen werden.',
     noModel: 'Zu dieser Datei wurde kein Modell eingelesen.',
     loadFailed:
       'Die Modelle dieses Projekts sind gerade nicht abrufbar. Das heißt NICHT, dass zu dieser Datei kein Modell vorliegt.',
+    sourceFailed:
+      'Die 3D-Vorschau konnte nicht geladen werden. Das Modell selbst ist eingelesen — Struktur, Bauteile und Mengen stehen im Modellbereich zur Verfügung.',
     noWebGpu:
       'Die 3D-Ansicht benötigt WebGPU, das dieser Browser nicht bereitstellt. Alles, was aus dem Modell gelesen wurde — Struktur, Bauteile, Eigenschaften und Mengen — steht im Modellbereich zur Verfügung.',
     open: 'Im Modellbereich öffnen',
   },
   card: {
     openModel: 'Modell öffnen',
-    openElement: 'Bauteil {name} im Modell öffnen',
+    openElement: 'Im Modell öffnen',
     openStorey: 'Geschoß {name} im Modell öffnen',
     unresolved: '{count} der hervorgehobenen Bauteile sind in diesem Modell nicht enthalten.',
+    unresolvedOne: 'Eines der hervorgehobenen Bauteile ist in diesem Modell nicht enthalten.',
     noModel: 'Das referenzierte Modell ist in diesem Projekt nicht verfügbar.',
-    highlights: 'Hervorgehoben',
   },
 }

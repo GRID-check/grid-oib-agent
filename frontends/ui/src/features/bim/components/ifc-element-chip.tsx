@@ -35,8 +35,12 @@ export function IfcElementChip({ link, children }: IfcElementChipProps): JSX.Ele
   // Through the dictionary, like every other string a reader sees. These were
   // three hardcoded German sentences with no `useTranslations` in the file, so
   // an English reader's screen reader announced them in German.
+  // `view.element` is a GlobalId, not a name (`model-link.ts`), so
+  // interpolating it announced "Bauteil 1kTvQ9x8n5RfBW2$hK0aZq im Modell
+  // öffnen" — 22 characters of base64 read out one at a time. The chip's own
+  // text is the name, and a screen reader reads it with the link.
   const target = view.element
-    ? t('card.openElement', { name: view.element })
+    ? t('card.openElement')
     : view.storey
       ? t('card.openStorey', { name: view.storey })
       : t('card.openModel')

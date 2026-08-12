@@ -125,7 +125,17 @@ export function IfcFilePreview({ documentId, filename, projectId, className }: I
     // that was provably false at this point in the tree. The model is fine;
     // the short-lived URL that streams it could not be minted.
     return (
-      <PreviewNote className={className} text={t('preview.loadFailed')} href={href} label={t('preview.open')} />
+      <PreviewNote
+        className={className}
+        // NOT `preview.loadFailed`, which says the project's models are
+        // unavailable. At this point the list loaded, the model is `ready`,
+        // and only the short-lived URL that streams it could not be minted —
+        // the comment above says exactly that while the string said the
+        // opposite.
+        text={t('preview.sourceFailed')}
+        href={href}
+        label={t('preview.open')}
+      />
     )
   }
 

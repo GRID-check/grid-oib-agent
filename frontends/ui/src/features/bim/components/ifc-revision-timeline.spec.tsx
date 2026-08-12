@@ -101,14 +101,14 @@ describe('IfcRevisionTimeline', () => {
     )
     const entries = screen
       .getAllByRole('button')
-      .filter((button) => /^Upload \d/.test(button.textContent ?? ''))
+      .filter((button) => /^Revision \d/.test(button.textContent ?? ''))
       .map((button) => button.textContent)
     expect(entries).toEqual([
-      'Upload 3 · Haus-A_V3.ifc',
-      'Upload 2 · Haus-A_V2.ifc',
-      'Upload 1 · Haus-A.ifc',
+      'Revision 3 · Haus-A_V3.ifc',
+      'Revision 2 · Haus-A_V2.ifc',
+      'Revision 1 · Haus-A.ifc',
     ])
-    expect(screen.getByRole('button', { name: 'Upload 2 · Haus-A_V2.ifc' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Revision 2 · Haus-A_V2.ifc' })).toHaveAttribute(
       'aria-current',
       'true'
     )
@@ -176,7 +176,7 @@ describe('IfcRevisionTimeline', () => {
         onCompareWithPrevious={noop}
       />
     )
-    await userEvent.click(screen.getByRole('button', { name: /Upload 1 · Haus-A\.ifc/ }))
+    await userEvent.click(screen.getByRole('button', { name: /Revision 1 · Haus-A\.ifc/ }))
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ filename: 'Haus-A.ifc' }))
   })
 })

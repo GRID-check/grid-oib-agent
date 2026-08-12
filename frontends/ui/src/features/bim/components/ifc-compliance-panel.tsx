@@ -132,7 +132,9 @@ export function IfcCompliancePanel({
                 knows which revision was exported. */}
             <a href={bcfHref} download>
               <Download className="size-3.5" aria-hidden="true" />
-              {t('compliance.export.action', { count: openWork })}
+              {openWork === 1
+                ? t('compliance.export.actionOne')
+                : t('compliance.export.action', { count: openWork })}
             </a>
           </Button>
         )}

@@ -778,7 +778,7 @@ describe('ModelStage — the highlights a link carries', () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
 
     expect(
-      screen.getAllByText(/1 of the highlighted elements are not in this model/)
+      screen.getAllByText(/One of the highlighted elements is not in this model/)
     ).toHaveLength(2)
   })
 })

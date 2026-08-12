@@ -107,6 +107,10 @@ const COMPARISON = {
     added: [{ globalId: 'g-new', ifcType: 'IfcDoor', name: 'T-14', storeyName: 'Erdgeschoss' }],
     removed: [],
     changed: [],
+    // The badges read `counts`, not the array lengths: `compare.ts` slices
+    // each list at 500 and keeps the real figures here, so a revision that
+    // added 1 300 elements used to be reported as "Neu 500".
+    counts: { added: 1, removed: 0, changed: 0 },
     unchangedCount: 99,
     totals: { base: 100, revision: 100 },
     truncated: false,
@@ -325,6 +329,7 @@ describe('IfcDiffCard', () => {
             { globalId: 'g-gone', ifcType: 'IfcWall', name: 'Innenwand OG', storeyName: 'OG' },
           ],
           changed: [],
+          counts: { added: 0, removed: 1, changed: 0 },
           unchangedCount: 99,
           totals: { base: 100, revision: 99 },
           truncated: false,
@@ -359,6 +364,7 @@ describe('IfcDiffCard', () => {
           })),
           removed: [],
           changed: [],
+          counts: { added: 9, removed: 0, changed: 0 },
           unchangedCount: 99,
           totals: { base: 100, revision: 109 },
           truncated: false,
@@ -496,7 +502,7 @@ describe('IfcComplianceCard', () => {
       />
     )
     expect(
-      await screen.findByText('1 of the requested rule ids are not in the catalogue.')
+      await screen.findByText('One of the requested rule ids is not in the catalogue.')
     ).toBeInTheDocument()
   })
 

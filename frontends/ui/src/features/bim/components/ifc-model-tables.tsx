@@ -251,7 +251,9 @@ export function IfcRoomSchedule({
                     {elided > 0 && (
                       <tr className="border-t">
                         <td colSpan={3} className="text-muted-foreground px-2 py-1 text-xs italic">
-                          {t('schedule.storeyElided', { count: elided })}
+                          {elided === 1
+                            ? t('schedule.storeyElidedOne')
+                            : t('schedule.storeyElided', { count: elided })}
                         </td>
                       </tr>
                     )}
@@ -285,7 +287,9 @@ export function IfcRoomSchedule({
             <Button type="button" size="sm" variant="ghost" onClick={() => setExpanded(!expanded)}>
               {expanded
                 ? t('schedule.collapse')
-                : t('schedule.expand', { count: totalRooms - VISIBLE_ROOMS })}
+                : totalRooms - VISIBLE_ROOMS === 1
+                  ? t('schedule.expandOne')
+                  : t('schedule.expand', { count: totalRooms - VISIBLE_ROOMS })}
             </Button>
           )}
         </>
@@ -381,7 +385,7 @@ export function IfcQuantityTakeoff({
           {truncated && (
             <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              {t('schedule.truncated')}
+              {t('takeoff.truncated')}
             </p>
           )}
           {incomplete > 0 && (
@@ -439,7 +443,9 @@ export function IfcQuantityTakeoff({
             >
               {expandedRows
                 ? t('takeoff.collapse')
-                : t('takeoff.showAll', { count: (rows?.length ?? 0) - visibleRows.length })}
+                : (rows?.length ?? 0) - visibleRows.length === 1
+                  ? t('takeoff.showAllOne')
+                  : t('takeoff.showAll', { count: (rows?.length ?? 0) - visibleRows.length })}
             </Button>
           )}
         </>

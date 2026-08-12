@@ -203,7 +203,13 @@ export function IfcModelHealthPanel({
                     onClick={() => onShowElements(issue.sampleGlobalIds)}
                     className="shrink-0 rounded-md px-2 py-0.5 text-xs underline-offset-2 hover:underline"
                   >
-                    {t('compliance.showInModel')}
+                    {/*
+                      `health.showElements`, not `compliance.showInModel`. The
+                      latter is a fragment written to trail a heading ("Nicht
+                      erfüllt: im Modell zeigen"); here it is a button on its
+                      own, and a lowercase fragment is not a control's name.
+                    */}
+                    {t('health.showElements')}
                   </button>
                 )}
               </li>
