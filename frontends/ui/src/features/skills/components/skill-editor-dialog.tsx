@@ -105,11 +105,41 @@ function withoutReservedKeys(metadata: Record<string, string>): Record<string, s
 const METADATA_CARDS = 'grid-cards'
 const METADATA_AGENTS = 'grid-agents'
 
+/**
+ * Where the document this dialog writes actually goes, and what its master
+ * switch means.
+ *
+ * A seam, not a generalisation for its own sake. A skill curated in Platform →
+ * Skills is the SAME agentskills.io document as one authored in an
+ * organization — same name rules, same description budget, same reviewer, same
+ * preview — and the only differences are the endpoint it is saved to and
+ * whether the switch reads "enabled for this org" or "published to the fleet".
+ * Writing a second dialog for those two differences would fork the SKILL.md
+ * authoring experience in two, and the copy that gets less use is the one that
+ * would quietly rot.
+ *
+ * Omitted, everything below defaults to the org toolbox.
+ */
+export interface SkillPersistence {
+  /** Persist the document. `enabled` carries the master switch's position. */
+  save: (input: CreateSkillInput, enabled: boolean) => Promise<void>
+  /** Remove it while editing. Omitted = the dialog offers no delete. */
+  remove?: () => Promise<void>
+  /** Copy for the master switch. */
+  switchLabels?: { label: string; hint: string }
+  /** Copy for the header. */
+  titles?: { create: string; edit: string; createSubtitle: string; editSubtitle: string }
+  /** Toast on a successful save. */
+  successMessage?: { create: string; edit: string }
+}
+
 interface SkillEditorDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The skill being edited, or null when creating. */
   skill: SkillListItem | null
+  /** Where the document goes. Defaults to this organization's toolbox. */
+  persistence?: SkillPersistence
   onSaved: () => void
 }
 
@@ -123,6 +153,7 @@ export function SkillEditorDialog({
   open,
   onOpenChange,
   skill,
+  persistence,
   onSaved,
 }: SkillEditorDialogProps): JSX.Element {
   const t = useTranslations('skills')
@@ -250,7 +281,14 @@ export function SkillEditorDialog({
       }
 
       try {
-        if (isEdit) {
+        if (persistence) {
+          await persistence.save(payload, enabled)
+          toast.success(
+            isEdit
+              ? (persistence.successMessage?.edit ?? t('editor.updateSuccess'))
+              : (persistence.successMessage?.create ?? t('editor.createSuccess')),
+          )
+        } else if (isEdit) {
           await updateSkill(skill.id!, payload)
           toast.success(t('editor.updateSuccess'))
         } else {
@@ -309,11 +347,15 @@ export function SkillEditorDialog({
     [t],
   )
 
+  /** Deletable only while editing, and only where the caller says how. */
+  const canDelete = isEdit && (persistence ? Boolean(persistence.remove) : true)
+
   const confirmDelete = async () => {
     if (!skill) return
     setDeleting(true)
     try {
-      await deleteSkill(skill.id!)
+      if (persistence?.remove) await persistence.remove()
+      else await deleteSkill(skill.id!)
       setConfirmOpen(false)
       onSaved()
     } catch {
@@ -335,9 +377,15 @@ export function SkillEditorDialog({
             off the bottom is a footer nobody finds. */}
         <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
           <DialogHeader className="border-border shrink-0 border-b px-6 py-5 pr-14">
-            <DialogTitle>{isEdit ? t('editor.editTitle') : t('editor.createTitle')}</DialogTitle>
+            <DialogTitle>
+              {isEdit
+                ? (persistence?.titles?.edit ?? t('editor.editTitle'))
+                : (persistence?.titles?.create ?? t('editor.createTitle'))}
+            </DialogTitle>
             <DialogDescription>
-              {isEdit ? t('editor.editSubtitle') : t('editor.createSubtitle')}
+              {isEdit
+                ? (persistence?.titles?.editSubtitle ?? t('editor.editSubtitle'))
+                : (persistence?.titles?.createSubtitle ?? t('editor.createSubtitle'))}
             </DialogDescription>
           </DialogHeader>
 
@@ -524,9 +572,11 @@ export function SkillEditorDialog({
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <Label htmlFor="skill-enabled" className="text-sm font-medium">
-                          {t('editor.enabledLabel')}
+                          {persistence?.switchLabels?.label ?? t('editor.enabledLabel')}
                         </Label>
-                        <p className="text-muted-foreground text-xs">{t('editor.enabledHint')}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {persistence?.switchLabels?.hint ?? t('editor.enabledHint')}
+                        </p>
                       </div>
                       <Switch id="skill-enabled" checked={enabled} onCheckedChange={setEnabled} />
                     </div>
@@ -614,7 +664,7 @@ export function SkillEditorDialog({
                 <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
                   {t('editor.cancel')}
                 </Button>
-                {isEdit && (
+                {canDelete && (
                   <Button
                     type="button"
                     variant="outline"

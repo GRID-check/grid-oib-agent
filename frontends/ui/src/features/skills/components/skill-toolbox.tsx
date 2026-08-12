@@ -1,8 +1,12 @@
 'use client'
 
 /**
- * The Skills tab's content: the skills THIS ORGANIZATION wrote, as cards, and
- * — folded away beneath them — the ones Piloti offers it (`curated-skills.tsx`).
+ * The Skills tab's content: the skills Piloti curates for every organization
+ * (`curated-skills.tsx`), and then the ones this one wrote itself.
+ *
+ * Featured leads. An organization gets more out of switching one of ours on
+ * than out of writing its first skill from a blank editor, so the curated set
+ * is the top of the page rather than an appendix to it.
  *
  * The pipeline's own machinery used to sit in this same grid as equal cards,
  * each offering a "clone". Both were wrong. Those are hardcoded files, not
@@ -150,6 +154,29 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
         </Alert>
       )}
 
+      {skills !== null && !error && (
+        <CuratedSkills
+          skills={curated}
+          canManage={canManage}
+          onToggled={(name, enabled) =>
+            setSkills(
+              (prev) =>
+                prev?.map((row) => (row.name === name ? { ...row, enabled } : row)) ?? prev,
+            )
+          }
+        />
+      )}
+
+      {/* The org's own, under a heading of their own — but ONLY once the
+          featured section is there to be distinguished from. On a page with
+          nothing curated yet, a lone "Your skills" heading over the only list
+          on the page is a label for the page, which the page already has. */}
+      {skills !== null && !error && curated.length > 0 && (
+        <h2 className="text-foreground mt-8 text-sm font-semibold tracking-[-0.01em]">
+          {t('toolbox.ownHeading')}
+        </h2>
+      )}
+
       {skills !== null && !error && orgSkills.length === 0 && (
         <EmptyState
           icon={Sparkles}
@@ -290,19 +317,6 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
             </RaisedCard>
           ))}
         </div>
-      )}
-
-      {skills !== null && !error && (
-        <CuratedSkills
-          skills={curated}
-          canManage={canManage}
-          onToggled={(name, enabled) =>
-            setSkills(
-              (prev) =>
-                prev?.map((row) => (row.name === name ? { ...row, enabled } : row)) ?? prev,
-            )
-          }
-        />
       )}
 
       <ConfirmDeleteDialog

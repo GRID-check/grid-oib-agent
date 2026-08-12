@@ -27,9 +27,14 @@ vi.mock('./platform-skills', () => ({
   findPlatformSkill: vi.fn(),
 }))
 
+vi.mock('./platform-repository', () => ({
+  listPublishedPlatformSkillRows: vi.fn(),
+}))
+
 import { canManageSkills } from '@/lib/authz/organizations'
 import { requireSkillsEnabled } from '@/lib/authz/feature-flags'
 import * as repository from './repository'
+import * as platformRepository from './platform-repository'
 import { findPlatformSkill, listPlatformSkills } from './platform-skills'
 import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { Skill } from '@/lib/db/schema'
@@ -122,6 +127,8 @@ beforeEach(() => {
   vi.mocked(repository.listSkillsInOrg).mockResolvedValue([])
   // No decision recorded: every curated skill is off, machinery is on.
   vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([])
+  // The DB catalogue is empty unless a test publishes something into it.
+  vi.mocked(platformRepository.listPublishedPlatformSkillRows).mockResolvedValue([])
   vi.mocked(repository.findSkill).mockResolvedValue(null)
   vi.mocked(repository.findSkillByName).mockResolvedValue(null)
 })
@@ -171,6 +178,35 @@ describe('listSkills', () => {
     ])
     const { skills: after } = await listSkills(session)
     expect(after.find((s) => s.name === 'oib-fire-check')?.enabled).toBe(true)
+  })
+
+  /**
+   * The delivery channel the platform dashboard writes into: a published
+   * `platform_skills` row reaches every organization, with the body staying
+   * ours. This is what replaced clone.
+   */
+  it('offers a published platform_skills row to the organization', async () => {
+    vi.mocked(platformRepository.listPublishedPlatformSkillRows).mockResolvedValue([
+      {
+        id: 'ps-1',
+        name: 'energy-check',
+        description: 'Reviews the energy certificate.',
+        body: 'Compare the certificate against OIB 6.',
+        metadata: { 'grid-agents': 'deep_researcher' },
+        published: true,
+        createdBy: 'owner',
+        createdByEmail: null,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-01T00:00:00Z'),
+      },
+    ])
+    const { skills } = await listSkills(session)
+    const offer = skills.find((s) => s.name === 'energy-check')
+    // The catalogue's id is deliberately NOT handed to a tenant: it addresses
+    // the fleet's copy, and only the platform tier may write it.
+    expect(offer).toMatchObject({ id: null, origin: 'platform', enabled: false })
+    expect(offer?.body).toBe('Compare the certificate against OIB 6.')
+    expect(offer?.metadata['grid-agents']).toBe('deep_researcher')
   })
 
   it('lets an org row shadow an offer of the same name, as it always has', async () => {
@@ -357,7 +393,9 @@ describe('resolveSkillsForAgent', () => {
       activation('oib-fire-check', true),
     ])
     const { skills: after } = await resolveSkillsForAgent('org_1')
-    expect(after.map((s) => s.name)).toEqual(['data-table-analysis', 'oib-fire-check'])
+    // Offers are merged before machinery, so a curated row could never replace
+    // the pipeline's own — sorted here because the ORDER is not the claim.
+    expect(after.map((s) => s.name).sort()).toEqual(['data-table-analysis', 'oib-fire-check'])
   })
 
   it('drops an offer again when the org switches it back off', async () => {

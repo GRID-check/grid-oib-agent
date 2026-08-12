@@ -80,19 +80,21 @@ describe('SkillToolbox', () => {
     vi.clearAllMocks()
   })
 
-  test('the page is what the org wrote; what Piloti offers is folded away', async () => {
+  test('featured leads, the org’s own follow, and both are on the page', async () => {
     listSkillsMock.mockResolvedValue([curatedSkill, orgSkill, secondOrgSkill, deepOnlyCurated])
     render(<SkillToolbox canManage onEdit={noop} />)
 
-    // The org's own skills are the page.
-    expect(await screen.findByText('acoustic-report')).toBeInTheDocument()
+    // Both halves are visible: what Piloti curates is the point of the page,
+    // not an appendix folded behind a chevron.
+    expect(await screen.findByRole('heading', { name: 'Featured skills' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Your skills' })).toBeInTheDocument()
+    expect(screen.getByText('oib-fire-check')).toBeInTheDocument()
+    expect(screen.getByText('acoustic-report')).toBeInTheDocument()
     expect(screen.getByText('escape-routes')).toBeInTheDocument()
-    // Piloti's are behind the disclosure — and the count that carries
-    // information is how many are ON, not how many exist.
-    expect(screen.getByRole('button', { name: /From Piloti/ })).toBeInTheDocument()
+    // The count that carries information is how many are ON, not how many exist.
     expect(screen.getByText('1 of 2 on')).toBeInTheDocument()
-    expect(screen.queryByText('oib-fire-check')).not.toBeInTheDocument()
-    expect(screen.queryByText('long-form-report-writer')).not.toBeInTheDocument()
+    // Featured, and only featured, names who maintains it.
+    expect(screen.getAllByText('Curated by Piloti')).toHaveLength(2)
     // Nothing on a skill card says anything about time or output any more:
     // a skill does not know when it runs, and a job decides what a run makes.
     expect(screen.queryByText(/schedulable/i)).not.toBeInTheDocument()
@@ -101,11 +103,9 @@ describe('SkillToolbox', () => {
     expect(screen.queryByRole('button', { name: /clone|copy/i })).not.toBeInTheDocument()
   })
 
-  test('opening the offers reveals them, with a scope badge only where there is one', async () => {
+  test('a featured card badges its scope only where there is one', async () => {
     listSkillsMock.mockResolvedValue([curatedSkill, deepOnlyCurated])
     render(<SkillToolbox canManage onEdit={noop} />)
-
-    fireEvent.click(await screen.findByRole('button', { name: /From Piloti/ }))
 
     expect(await screen.findByText('oib-fire-check')).toBeInTheDocument()
     expect(screen.getByText('long-form-report-writer')).toBeInTheDocument()
@@ -120,7 +120,6 @@ describe('SkillToolbox', () => {
     setCuratedSkillEnabledMock.mockResolvedValue({ ...curatedSkill, enabled: true })
     render(<SkillToolbox canManage onEdit={noop} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /From Piloti/ }))
     const toggle = await screen.findByRole('switch', {
       name: /Use the Piloti skill .oib-fire-check./,
     })
@@ -139,7 +138,6 @@ describe('SkillToolbox', () => {
     setCuratedSkillEnabledMock.mockRejectedValue(new Error('boom'))
     render(<SkillToolbox canManage onEdit={noop} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /From Piloti/ }))
     const toggle = await screen.findByRole('switch', {
       name: /Use the Piloti skill .oib-fire-check./,
     })
@@ -201,7 +199,18 @@ describe('SkillToolbox', () => {
     render(<SkillToolbox canManage onEdit={noop} />)
 
     expect(await screen.findByText('No skills yet')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /From Piloti/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Featured skills' })).toBeInTheDocument()
+  })
+
+  test('with nothing curated, the page carries no section headings at all', async () => {
+    listSkillsMock.mockResolvedValue([orgSkill])
+    render(<SkillToolbox canManage onEdit={noop} />)
+
+    expect(await screen.findByText('acoustic-report')).toBeInTheDocument()
+    // "Your skills" over the only list on the page is a label for the page,
+    // which the page already has.
+    expect(screen.queryByRole('heading', { name: 'Featured skills' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Your skills' })).not.toBeInTheDocument()
   })
 
   test('re-fetches when the panel bumps the reload key', async () => {
@@ -218,8 +227,7 @@ describe('SkillToolbox', () => {
     render(<SkillToolbox canManage={false} onEdit={noop} />)
 
     expect(await screen.findByText('acoustic-report')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /From Piloti/ }))
-    expect(await screen.findByText('oib-fire-check')).toBeInTheDocument()
+    expect(screen.getByText('oib-fire-check')).toBeInTheDocument()
     // Reading stays available; deciding does not — neither half has a switch.
     expect(screen.getAllByRole('button', { name: /View instruction/ })).toHaveLength(2)
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()

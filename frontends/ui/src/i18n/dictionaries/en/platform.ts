@@ -366,9 +366,39 @@ export const platform = {
     failed: 'Reconcile failed',
     failedHint: 'The request did not complete, so nothing was deleted. Please try again.',
   },
+  /** Platform → Skills: the catalogue curated for every organization. */
+  skills: {
+    hint: 'A skill written here is offered to every organization. Each one decides whether to switch it on. Drafts stay invisible until you publish them.',
+    new: 'New curated skill',
+    draft: 'Draft',
+    edit: 'Edit',
+    withdraw: 'Withdraw',
+    withdrawn: '“{name}” withdrawn from the fleet.',
+    publishLabel: 'Published',
+    publishHint:
+      'On: every organization sees this skill on its Skills tab and can switch it on. Off: it is a draft nobody outside this dashboard can see, and organizations that had it switched on stop running it.',
+    publishAria: 'Publish the curated skill “{name}” to every organization',
+    createTitle: 'New curated skill',
+    editTitle: 'Edit curated skill',
+    createSubtitle:
+      'A skill in the agentskills.io format, offered to every organization on the platform.',
+    editSubtitle:
+      'An edit reaches every organization that switched this skill on, immediately.',
+    createSuccess: 'Curated skill created.',
+    updateSuccess: 'Curated skill saved.',
+    saveError: 'The curated skill could not be saved.',
+    loadError: 'The curated catalogue could not be loaded.',
+    tryAgain: 'Try again',
+    empty: {
+      title: 'Nothing curated yet',
+      description:
+        'A curated skill is written once and offered to every organization on the platform. Improvements you make reach everyone who switched it on.',
+    },
+  },
   nav: {
     label: 'Platform sections',
     overview: 'Overview',
+    skills: 'Skills',
     models: 'Models',
     retrieval: 'Retrieval',
     quality: 'Answer quality',
@@ -462,6 +492,11 @@ export const platform = {
     overview: {
       title: 'Overview',
       subtitle: 'Every organization on the platform, with projects and LLM spend.',
+    },
+    skills: {
+      title: 'Skills',
+      subtitle:
+        'The skills Piloti curates for every organization. Publish one and it is offered to all of them; each decides whether to switch it on.',
     },
     models: {
       title: 'Models',

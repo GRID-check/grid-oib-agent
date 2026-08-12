@@ -45,6 +45,9 @@ const BOUNDARY_MIGRATIONS = [
   // Adds curated_skill_activations — whether an organization switched a
   // platform-curated skill on. Org-scoped data, so inside the boundary.
   '0045_curated_skill_activations.sql',
+  // Adds platform_skills — the fleet-wide curated catalogue. A PLATFORM table:
+  // every tenant reads it, only the platform role writes it.
+  '0046_platform_skills.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
@@ -184,6 +187,7 @@ describe('row-level security coverage', () => {
       'platform_model_defaults',
       'platform_reasoning_efforts',
       'platform_retrieval_settings',
+      'platform_skills',
       'platform_workflow_templates',
     ])
     expect(tenant.filter((table) => table.startsWith('platform_'))).toEqual([])

@@ -19,6 +19,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Skill, SkillOrigin } from '@/lib/db/schema'
 import * as repository from './repository'
+import * as platformRepository from './platform-repository'
 import {
   CHAT_SKILL_AGENT,
   KNOWN_SKILL_AGENTS,
@@ -63,26 +64,55 @@ export type SkillListItem = {
   updatedAt: Date | null
 }
 
+/** A skill the platform offers organizations, whichever tier it came from. */
+type CuratedSkill = Pick<PlatformSkill, 'name' | 'description' | 'body' | 'metadata'>
+
 /**
- * The platform skills OFFERED to organizations — `grid-catalog: curated`.
+ * Everything the platform OFFERS organizations, from both sources:
+ *
+ *   - published rows of `platform_skills`, written in Platform → Skills. This
+ *     is the one that matters day to day: we author a skill there and every
+ *     organization can switch it on, with the body staying ours.
+ *   - builtin FILES that opt in with `grid-catalog: curated`. None ship today;
+ *     the door exists so a builtin can become org-facing without becoming a
+ *     database row first.
  *
  * Everything else under `builtin/` is the deep-research pipeline's machinery
  * and is nobody's decision: it never appears on the Skills tab, never carries a
- * switch, and always resolves. Machinery is the default (see METADATA_CATALOG),
- * so a builtin becomes org-facing only by saying so.
+ * switch, and always resolves. Machinery is the DEFAULT, so a builtin becomes
+ * org-facing only by saying so (see METADATA_CATALOG).
+ *
+ * Names cannot collide across the two: `platform-service.ts::assertNameIsFree`
+ * refuses a curated row named after any builtin, precisely so that switching a
+ * curated skill on can never shadow the machinery.
  */
-function curatedPlatformSkills(): PlatformSkill[] {
-  return listPlatformSkills().filter((skill) => isCuratedPlatformSkill(skill.metadata))
+async function curatedOffers(): Promise<CuratedSkill[]> {
+  const rows = await platformRepository.listPublishedPlatformSkillRows()
+  const byName = new Map<string, CuratedSkill>()
+  for (const file of listPlatformSkills()) {
+    if (isCuratedPlatformSkill(file.metadata)) byName.set(file.name, file)
+  }
+  for (const row of rows) {
+    byName.set(row.name, {
+      name: row.name,
+      description: row.description,
+      body: row.body,
+      metadata: { ...row.metadata },
+    })
+  }
+  return [...byName.values()]
 }
 
 /**
- * A curated platform skill as a toolbox row.
+ * An offer as a toolbox row.
  *
- * `id` stays null — it is still a file, not a row, and the switch addresses it
- * by NAME. `enabled` is the org's decision, and its default is OFF: the
- * platform publishes the skill, the organization chooses to run it.
+ * `id` stays null even for a `platform_skills` row: that id belongs to the
+ * platform catalogue, and handing it to a tenant would invite a PATCH against
+ * `/api/skills/{id}` — an org editing the fleet's copy. The switch addresses an
+ * offer by NAME instead. `enabled` is the org's own decision, and its default
+ * is OFF: the platform publishes, the organization chooses.
  */
-function platformToListItem(platform: PlatformSkill, enabled: boolean): SkillListItem {
+function platformToListItem(platform: CuratedSkill, enabled: boolean): SkillListItem {
   return {
     id: null,
     name: platform.name,
@@ -151,13 +181,14 @@ function orgToListItem(skill: Skill): SkillListItem {
  */
 export async function listSkills(session: AuthorizedSession): Promise<{ skills: SkillListItem[] }> {
   assertSkillsFeatureOn(session)
-  const [rows, activations] = await Promise.all([
+  const [rows, activations, offers] = await Promise.all([
     repository.listSkillsInOrg(session.organizationId),
     repository.listCuratedSkillActivations(session.organizationId),
+    curatedOffers(),
   ])
   const byName = new Map<string, SkillListItem>()
-  for (const platform of curatedPlatformSkills()) {
-    byName.set(platform.name, platformToListItem(platform, isActivated(activations, platform.name)))
+  for (const offer of offers) {
+    byName.set(offer.name, platformToListItem(offer, isActivated(activations, offer.name)))
   }
   // An org row of the same name still shadows the offer, as it always has.
   for (const row of rows) {
@@ -186,19 +217,17 @@ export async function setCuratedSkillEnabled(
   assertSkillsFeatureOn(session)
   if (!canManageSkills(session)) throw new ForbiddenError('You need org skills management rights.')
 
-  const platform = findPlatformSkill(name)
-  if (!platform || !isCuratedPlatformSkill(platform.metadata)) {
-    throw new NotFoundError(`Unknown platform skill "${name}".`)
-  }
+  const offer = (await curatedOffers()).find((skill) => skill.name === name)
+  if (!offer) throw new NotFoundError(`Unknown platform skill "${name}".`)
 
   await repository.upsertCuratedSkillActivation({
     organizationId: session.organizationId,
-    skillName: platform.name,
+    skillName: offer.name,
     enabled,
     updatedBy: session.userId,
     updatedByEmail: session.email,
   })
-  return { skill: platformToListItem(platform, enabled) }
+  return { skill: platformToListItem(offer, enabled) }
 }
 
 /** One entry of the composer's `/` menu — progressive disclosure level 1. */
@@ -324,18 +353,29 @@ export async function resolveSkillSnapshot(
       origin: orgSkill.origin,
     }
   }
-  const platform = findPlatformSkill(name)
-  if (platform) {
-    // A curated skill this org has not switched on is not resolvable, so a job
-    // cannot newly attach one. Jobs that attached it BEFORE it was switched off
-    // keep running: they pinned a snapshot at save time and never come back
-    // through here. Machinery has no such gate — it is always available.
-    if (isCuratedPlatformSkill(platform.metadata)) {
-      const activations = await repository.listCuratedSkillActivations(organizationId)
-      if (!isActivated(activations, platform.name)) {
-        throw new NotFoundError(`Unknown skill "${name}".`)
-      }
+  // An OFFER resolves only for an org that switched it on, so a job cannot
+  // newly attach one the org has not taken up. Jobs that attached it BEFORE it
+  // was switched off keep running: they pinned a snapshot at save time and
+  // never come back through here.
+  const offer = (await curatedOffers()).find((skill) => skill.name === name)
+  if (offer) {
+    const activations = await repository.listCuratedSkillActivations(organizationId)
+    if (!isActivated(activations, offer.name)) {
+      throw new NotFoundError(`Unknown skill "${name}".`)
     }
+    return {
+      name: offer.name,
+      description: offer.description,
+      body: offer.body,
+      metadata: { ...offer.metadata },
+      origin: 'platform',
+    }
+  }
+
+  // Machinery has no such gate — it is how deep research works, not a
+  // capability anyone opted into.
+  const platform = findPlatformSkill(name)
+  if (platform && !isCuratedPlatformSkill(platform.metadata)) {
     return {
       name: platform.name,
       description: platform.description,
@@ -363,18 +403,20 @@ export async function resolveSkillsForAgent(
 ): Promise<{
   skills: { name: string; description: string; body: string; metadata: Record<string, string>; origin: SkillOrigin | 'platform' }[]
 }> {
-  const [rows, activations] = await Promise.all([
+  const [rows, activations, offers] = await Promise.all([
     repository.listSkillsInOrg(organizationId),
     repository.listCuratedSkillActivations(organizationId),
+    curatedOffers(),
   ])
   const byName = new Map<string, { name: string; description: string; body: string; metadata: Record<string, string>; origin: SkillOrigin | 'platform' }>()
-  for (const platform of listPlatformSkills()) {
-    // A curated skill is an OFFER: it reaches a run only once the org has
-    // switched it on. The pipeline's machinery carries no such gate — it is
-    // how deep research works, not a capability anyone opted into.
-    if (isCuratedPlatformSkill(platform.metadata) && !isActivated(activations, platform.name)) {
-      continue
-    }
+  // The offers this org took up, then the machinery. Machinery LAST on purpose:
+  // the catalogue already refuses a curated name that collides with a builtin
+  // (`platform-service.ts::assertNameIsFree`), and this ordering means that
+  // even if such a row somehow existed it could not replace how deep research
+  // writes its report.
+  const machinery = listPlatformSkills().filter((skill) => !isCuratedPlatformSkill(skill.metadata))
+  const taken = offers.filter((offer) => isActivated(activations, offer.name))
+  for (const platform of [...taken, ...machinery]) {
     // Platform metadata rides along VERBATIM. Sending `{}` here dropped the
     // reserved `grid-*` keys, and because the backend resolver merges this
     // payload OVER its own filesystem copy, the shipped

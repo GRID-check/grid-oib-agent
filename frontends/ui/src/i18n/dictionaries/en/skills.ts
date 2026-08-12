@@ -13,12 +13,13 @@ export const skills = {
   tryAgain: 'Try again',
 
   toolbox: {
+    ownHeading: 'Your skills',
     newSkill: 'New skill',
     loadError: 'Your skills could not be loaded.',
     empty: {
       title: 'No skills yet',
       description:
-        'Write one for your organization, or start from a built-in below. A skill is a name, a description saying when it applies, and the instruction itself.',
+        'Write one for your organization. A skill is a name, a description saying when it applies, and the instruction itself.',
       action: 'New skill',
     },
     origin: {
@@ -38,12 +39,13 @@ export const skills = {
     },
   },
 
-  // What Piloti offers the organization: below everything, folded away. Not the
-  // page — the page is what this organization wrote.
+  // What Piloti curates for every organization — the top of the page, because
+  // switching one of ours on beats starting from a blank editor.
   curated: {
-    heading: 'From Piloti',
+    heading: 'Featured skills',
+    origin: 'Curated by Piloti',
     count: '{active} of {total} on',
-    hint: 'Skills Piloti maintains and offers your organization. Switch one on and the agent may use it; switch it off and it is gone from the “/” menu and from what the agent can pick. There is nothing to copy or keep up to date — improvements reach you as we make them.',
+    hint: 'Skills Piloti maintains for your organization. Switch one on and the agent may use it; switch it off and it disappears from the “/” menu and from what the agent can pick.',
     actions: {
       enabledAria: 'Use the Piloti skill “{name}” in this organization',
     },

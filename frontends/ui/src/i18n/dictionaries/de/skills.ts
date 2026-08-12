@@ -15,12 +15,13 @@ export const skills: typeof en.skills = {
   tryAgain: 'Erneut versuchen',
 
   toolbox: {
+    ownHeading: 'Ihre Skills',
     newSkill: 'Neuer Skill',
     loadError: 'Ihre Skills konnten nicht geladen werden.',
     empty: {
       title: 'Noch keine Skills',
       description:
-        'Schreiben Sie einen für Ihre Organisation oder beginnen Sie mit einem der Skills von Piloti weiter unten. Ein Skill ist ein Name, eine Beschreibung, wann er gilt, und die Anweisung selbst.',
+        'Schreiben Sie einen für Ihre Organisation. Ein Skill ist ein Name, eine Beschreibung, wann er gilt, und die Anweisung selbst.',
       action: 'Neuer Skill',
     },
     origin: {
@@ -39,9 +40,10 @@ export const skills: typeof en.skills = {
   },
 
   curated: {
-    heading: 'Von Piloti',
+    heading: 'Empfohlene Skills',
+    origin: 'Von Piloti kuratiert',
     count: '{active} von {total} aktiv',
-    hint: 'Skills, die Piloti pflegt und Ihrer Organisation anbietet. Eingeschaltet darf der Agent sie verwenden; ausgeschaltet verschwinden sie aus dem „/“-Menü und aus der Auswahl des Agenten. Es gibt nichts zu kopieren und nichts nachzupflegen — Verbesserungen erreichen Sie, sobald wir sie ausliefern.',
+    hint: 'Skills, die Piloti für Ihre Organisation pflegt. Eingeschaltet darf der Agent sie verwenden; ausgeschaltet verschwinden sie aus dem „/“-Menü und aus der Auswahl des Agenten.',
     actions: {
       enabledAria: 'Piloti-Skill „{name}“ in dieser Organisation verwenden',
     },

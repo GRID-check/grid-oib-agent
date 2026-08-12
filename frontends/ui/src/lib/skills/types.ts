@@ -248,6 +248,28 @@ export const curatedSkillActivationSchema = z.object({
 
 export type CuratedSkillActivationInput = z.infer<typeof curatedSkillActivationSchema>
 
+/**
+ * Platform → Skills write boundary: the fleet-wide curated catalogue.
+ *
+ * The same SKILL.md rules as an org skill, because it is the same document —
+ * a curated skill is not a privileged shape, it is the same thing written one
+ * tier up. `published` is the extra field, and it defaults to false: the
+ * dashboard is a writing surface, and a draft must not reach every tenant.
+ */
+export const createPlatformSkillSchema = z.object({
+  name: skillNameSchema,
+  description: descriptionSchema,
+  body: bodySchema,
+  metadata: metadataSchema.optional(),
+  published: z.boolean().optional(),
+})
+
+export type CreatePlatformSkillInput = z.infer<typeof createPlatformSkillSchema>
+
+export const patchPlatformSkillSchema = createPlatformSkillSchema.partial()
+
+export type PatchPlatformSkillInput = z.infer<typeof patchPlatformSkillSchema>
+
 /** Query of the internal resolve endpoint (skills available to an agent). */
 export const resolveQuerySchema = z.object({
   organization_id: z.string().trim().min(1),

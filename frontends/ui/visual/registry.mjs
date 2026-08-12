@@ -257,10 +257,17 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'main',
   },
   {
+    id: 'platform-skills',
+    path: '/dev/platform-skills',
+    description:
+      'Platform \u2192 Skills \u2014 the catalogue Piloti curates for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Two row states, because they are the whole model: a PUBLISHED skill (offered to every org, each deciding whether to switch it on) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch here means published, not enabled \u2014 publishing offers, it does not impose.',
+    waitFor: '[data-testid="platform-skills-preview"] [role="switch"]',
+  },
+  {
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
-      'Agent Skills tab (ADR-0045) — the merged skill toolbox (builtin, org, cloned) with badges and instruction bodies, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab, so this shot is the proof that the page is the toolbox alone. The fixture covers all three origins plus a disabled clone, because origin is what decides whether a row can be edited or only cloned.',
+      'Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org\'s own skills, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab. The pipeline\'s builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.',
     waitFor: '[data-testid="skills-panel-preview"]',
   },
   {

@@ -1,13 +1,16 @@
 'use client'
 
 /**
- * The platform-curated skills, folded away at the foot of the Skills tab.
+ * Featured skills: what Piloti curates for every organization, at the TOP of
+ * the Skills tab.
  *
- * These are skills Piloti publishes to every organization. They are not the
- * page — the page is what this organization wrote — so they sit under one line
- * of text and a chevron, opened on demand, presented as a plain divided list
- * rather than as cards. The difference in surface IS the statement about which
- * of the two matters here.
+ * These are written once in Platform → Skills and offered to the whole fleet,
+ * and they are the point of the page rather than an appendix to it — an
+ * organization gets more out of switching one of ours on than out of writing
+ * its first one from a blank editor. So they lead, as cards, above the org's
+ * own; the first draft of this buried them behind a chevron, which was the same
+ * misjudgement in the other direction as the one that put the pipeline's
+ * machinery in the main grid.
  *
  * The action is a switch, not a copy. Cloning a platform skill produced a
  * second skill frozen at the moment it was copied: an org ended up maintaining
@@ -22,11 +25,12 @@
  */
 
 import { useState } from 'react'
-import { BookOpen, ChevronRight } from 'lucide-react'
+import { BookOpen, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -72,100 +76,98 @@ export function CuratedSkills({
   }
 
   return (
-    <Collapsible className="border-border/60 mt-10 border-t pt-4">
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="group text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mx-2 flex w-[calc(100%+1rem)] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2"
+    <section className="flex flex-col gap-3" aria-labelledby="featured-skills-heading">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2
+          id="featured-skills-heading"
+          className="text-foreground text-sm font-semibold tracking-[-0.01em]"
         >
-          <ChevronRight
-            className="size-3.5 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-90 motion-reduce:transition-none"
-            aria-hidden
-          />
-          <span className="font-medium">{t('curated.heading')}</span>
-          {/* The count that carries information is how many are ON, not how
-              many exist — "2 of 6" tells you where you stand; "6" is furniture. */}
-          <span className="tabular-nums opacity-60">
-            {t('curated.count', { active: activeCount, total: skills.length })}
-          </span>
-        </button>
-      </CollapsibleTrigger>
+          {t('curated.heading')}
+        </h2>
+        {/* The count that carries information is how many are ON, not how many
+            exist — "2 of 6" tells you where you stand; "6" is furniture. */}
+        <span className="text-muted-foreground text-xs tabular-nums">
+          {t('curated.count', { active: activeCount, total: skills.length })}
+        </span>
+      </div>
+      <p className="text-muted-foreground max-w-3xl text-xs leading-relaxed">
+        {t('curated.hint')}
+      </p>
 
-      <CollapsibleContent>
-        <p className="text-muted-foreground mt-2 max-w-3xl text-xs leading-relaxed">
-          {t('curated.hint')}
-        </p>
-
-        <ul className="border-border/60 divide-border/60 mt-4 divide-y rounded-xl border">
-          {skills.map((skill) => (
-            <li key={skill.name}>
-              {/* One collapsible per row: the instruction is the only thing to
-                  show, and it opens where it belongs rather than in a dialog
-                  that would imply something here is editable. */}
-              <Collapsible className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div
-                    className={cn(
-                      'min-w-0 space-y-1 transition-opacity duration-200 motion-reduce:transition-none',
-                      !skill.enabled && 'opacity-55',
-                    )}
-                  >
-                    <p className="text-foreground truncate font-mono text-sm">
-                      <span aria-hidden className="text-muted-foreground">
-                        /
-                      </span>
-                      {skill.name}
-                    </p>
-                    <p className="text-muted-foreground line-clamp-2 text-sm">
-                      {skill.description}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {/* Same rule as a skill card: a scope badge only where the
-                        skill does NOT reach every agent. */}
-                    {agentScopeLabelKey(skill.metadata['grid-agents']) && (
-                      <Badge variant="outline">
-                        {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
-                      </Badge>
-                    )}
-                    {canManage && (
-                      <Switch
-                        checked={skill.enabled}
-                        disabled={pending.includes(skill.name)}
-                        onCheckedChange={(next) => void toggle(skill, next)}
-                        aria-label={t('curated.actions.enabledAria', { name: skill.name })}
-                      />
-                    )}
-                  </div>
+      <div className="mt-1 grid gap-4 lg:grid-cols-2">
+        {skills.map((skill) => (
+          // The same card as an org skill, on purpose: a curated skill is not a
+          // lesser thing to be listed, it is the same kind of object with a
+          // different author. What distinguishes it is the tray's one word.
+          <RaisedCard key={skill.name}>
+            <RaisedCardBody className="flex flex-1 flex-col gap-3 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div
+                  className={cn(
+                    'min-w-0 space-y-1 transition-opacity duration-200 motion-reduce:transition-none',
+                    !skill.enabled && 'opacity-50',
+                  )}
+                >
+                  <h3 className="text-foreground truncate font-mono text-sm font-semibold">
+                    <span aria-hidden className="text-muted-foreground">
+                      /
+                    </span>
+                    {skill.name}
+                  </h3>
+                  <p className="text-muted-foreground line-clamp-2 text-sm">{skill.description}</p>
                 </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {/* Same rule as an org card: a scope badge only where the
+                      skill does NOT reach every agent. */}
+                  {agentScopeLabelKey(skill.metadata['grid-agents']) && (
+                    <Badge variant="outline">
+                      {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
+                    </Badge>
+                  )}
+                  {canManage && (
+                    <Switch
+                      checked={skill.enabled}
+                      disabled={pending.includes(skill.name)}
+                      onCheckedChange={(next) => void toggle(skill, next)}
+                      aria-label={t('curated.actions.enabledAria', { name: skill.name })}
+                    />
+                  )}
+                </div>
+              </div>
+            </RaisedCardBody>
 
-                <div className="-mx-2 mt-2">
+            <RaisedCardFooter>
+              <Collapsible className="w-full">
+                <div className="flex w-full items-center gap-2">
+                  {/* Provenance, always, and only here: on this half of the page
+                      it is the thing that distinguishes a card — somebody else
+                      wrote and maintains this one. */}
+                  <span className="min-w-0 truncate">{t('curated.origin')}</span>
                   <CollapsibleTrigger asChild>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-muted-foreground group h-7 px-2"
+                      className="text-muted-foreground group -my-1 ml-auto h-7 shrink-0 px-2"
                     >
                       <BookOpen className="size-3.5" aria-hidden />
                       {t('toolbox.actions.viewBody')}
-                      <ChevronRight
-                        className="size-3.5 transition-transform duration-200 group-data-[state=open]:rotate-90 motion-reduce:transition-none"
+                      <ChevronDown
+                        className="size-3.5 transition-transform group-data-[state=open]:rotate-180"
                         aria-hidden
                       />
                     </Button>
                   </CollapsibleTrigger>
                 </div>
-
                 <CollapsibleContent className="pt-2">
                   <pre className="bg-muted/40 text-foreground max-h-64 overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-xs leading-relaxed">
                     {skill.body}
                   </pre>
                 </CollapsibleContent>
               </Collapsible>
-            </li>
-          ))}
-        </ul>
-      </CollapsibleContent>
-    </Collapsible>
+            </RaisedCardFooter>
+          </RaisedCard>
+        ))}
+      </div>
+    </section>
   )
 }
