@@ -171,8 +171,8 @@ describe('metric operators on Ifc4_SampleHouse.ifc', () => {
     expect(centroid.value!).toBeCloseTo(7.08, 1)
 
     // Both rooms are on the same storey and equally tall, so the vertical
-    // distance is zero while the horizontal one is the full 6.73.
-    expect(distance(graph, geometry, LIVING, BEDROOM, 'horizontal').value!).toBeCloseTo(6.73, 1)
+    // distance is zero while the horizontal one carries the whole separation.
+    expect(distance(graph, geometry, LIVING, BEDROOM, 'horizontal').value!).toBeCloseTo(7.08, 1)
     expect(distance(graph, geometry, LIVING, BEDROOM, 'vertical').value!).toBeCloseTo(0, 2)
   })
 

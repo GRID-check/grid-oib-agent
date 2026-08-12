@@ -34,7 +34,10 @@
  */
 
 import { computed, declared, undecidable, type Answer, type Provenance } from '../envelope.js'
-import { around, into, node, out, type BuildingGraph, type EdgeKind, type GraphNode, type NodeKind } from '../graph/types.js'
+import { around, into, node, out, type BuildingGraph, type EdgeKind, type GraphNode, type NodeKind,
+  provenanceOf,
+  edgeBetween,
+} from '../graph/types.js'
 import { toRef, toRefs, type ElementRef } from './refs.js'
 
 /**
@@ -104,6 +107,44 @@ const VIA_OPENS_TO = 'hostedIn+interfaceOf'
 // ── operators ───────────────────────────────────────────────────────────────
 
 /**
+ * An answer built from graph edges, carrying the edges' OWN provenance.
+ *
+ * Every edge-derived operator routes through here rather than calling
+ * `declared(...)` directly. The reason is the defect this replaced: `bounds()`
+ * stamped `declared` unconditionally, so the moment geometry-derived boundaries
+ * were folded into a graph, a 30 cm measurement was presented to the reader as
+ * a statement the file makes. An operator must not be the place where
+ * provenance is decided — the edge already knows, and the operator's job is to
+ * carry it out intact.
+ *
+ * A mixed set reports as the weaker kind AND says so, because a list rendered
+ * under one heading is read as one kind of claim about all of it.
+ */
+function fromEdges(
+  graph: BuildingGraph,
+  kind: EdgeKind,
+  subject: string,
+  ids: string[],
+  method: string
+): Answer<ElementRef[]> {
+  const { provenance, mixed, vias } = provenanceOf(graph, kind, subject, ids)
+  const refs = ids.map((id) => {
+    const edge = edgeBetween(graph, kind, subject, id) ?? edgeBetween(graph, kind, id, subject)
+    return toRef(graph, id, edge?.via)
+  }).filter((ref): ref is ElementRef => ref !== null)
+
+  const base = { from: [subject, ...ids], method }
+  if (provenance === 'declared') return declared(refs, base)
+
+  const via = vias.length ? vias.join(' / ') : 'abgeleitet'
+  const caveat = mixed
+    ? `Gemischte Herkunft: ein Teil dieser Beziehungen steht in der Datei, ein Teil ist gemessen (${via}). ` +
+      'Die gemessenen tragen eine Toleranz und können danebenliegen.'
+    : `Aus der Geometrie abgeleitet (${via}), nicht in der Datei deklariert.`
+  return computed(refs, { ...base, caveat })
+}
+
+/**
  * Openings cut out of this element — the window and door reveals in a wall, the
  * stair opening in a slab.
  *
@@ -126,7 +167,7 @@ export function hosts(graph: BuildingGraph, globalId: string): Answer<ElementRef
   if (blocked) return blocked
 
   const ids = out(graph, 'voids', globalId)
-  return declared(toRefs(graph, ids), { from: [globalId, ...ids], method })
+  return fromEdges(graph, 'voids', globalId, ids, method)
 }
 
 /**
@@ -160,7 +201,7 @@ export function hostedIn(graph: BuildingGraph, globalId: string): Answer<Element
   if (blocked) return blocked
 
   const ids = out(graph, 'hostedIn', globalId)
-  return computed(toRefs(graph, ids, VIA_HOSTED_IN), { from: [globalId, ...ids], method })
+  return fromEdges(graph, 'hostedIn', globalId, ids, method)
 }
 
 /**
@@ -181,7 +222,7 @@ export function fillerOf(graph: BuildingGraph, openingGlobalId: string): Answer<
   if (blocked) return blocked
 
   const ids = out(graph, 'fills', openingGlobalId)
-  return declared(toRefs(graph, ids), { from: [openingGlobalId, ...ids], method })
+  return fromEdges(graph, 'fills', openingGlobalId, ids, method)
 }
 
 /**
@@ -210,7 +251,7 @@ export function bounds(graph: BuildingGraph, spaceGlobalId: string): Answer<Elem
   if (blocked) return blocked
 
   const ids = out(graph, 'interfaceOf', spaceGlobalId)
-  return declared(toRefs(graph, ids), { from: [spaceGlobalId, ...ids], method })
+  return fromEdges(graph, 'interfaceOf', spaceGlobalId, ids, method)
 }
 
 /**
@@ -238,7 +279,7 @@ export function enclosedBy(graph: BuildingGraph, elementGlobalId: string): Answe
   if (blocked) return blocked
 
   const ids = into(graph, 'interfaceOf', elementGlobalId)
-  return declared(toRefs(graph, ids), { from: [elementGlobalId, ...ids], method })
+  return fromEdges(graph, 'interfaceOf', elementGlobalId, ids, method)
 }
 
 /**
@@ -271,7 +312,7 @@ export function opensTo(graph: BuildingGraph, globalId: string): Answer<ElementR
   if (blocked) return blocked
 
   const ids = out(graph, 'opensTo', globalId)
-  return computed(toRefs(graph, ids, VIA_OPENS_TO), { from: [globalId, ...ids], method })
+  return fromEdges(graph, 'opensTo', globalId, ids, method)
 }
 
 /**
@@ -326,7 +367,7 @@ export function contains(graph: BuildingGraph, containerGlobalId: string): Answe
   if (blocked) return blocked
 
   const ids = out(graph, 'containsElement', containerGlobalId)
-  return declared(toRefs(graph, ids), { from: [containerGlobalId, ...ids], method })
+  return fromEdges(graph, 'containsElement', containerGlobalId, ids, method)
 }
 
 /**
@@ -400,7 +441,7 @@ export function adjacentSpaces(graph: BuildingGraph, spaceGlobalId: string): Ans
   if (blocked) return blocked
 
   const ids = around(graph, 'adjacentZone', spaceGlobalId)
-  return computed(toRefs(graph, ids, VIA_ADJACENT_ZONE), { from: [spaceGlobalId, ...ids], method })
+  return fromEdges(graph, 'adjacentZone', spaceGlobalId, ids, method)
 }
 
 /**

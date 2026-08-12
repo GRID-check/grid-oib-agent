@@ -73,6 +73,18 @@
  * without our help still needs to hear so. Deleting the blind spot because we
  * papered over it would be the library telling a user their file is fine
  * because we compensated.
+ *
+ * ## A caveat about the operators that read these edges
+ *
+ * `bounds()` and `enclosedBy()` in `operators/topology.ts` return
+ * `declared(...)` for whatever `interfaceOf` edges they find, and stamp the refs
+ * with a fixed `via` constant rather than the edge's own. Fold these edges in
+ * and those two operators will therefore present a MEASURED boundary as a
+ * declared one — the provenance is right here on the edge and lost at the
+ * operator. Nothing in this module can fix that from the outside; a caller that
+ * cares (and every caller should) must read `graph.edges` for the `via`, and
+ * topology.ts needs to carry per-edge provenance through before this is fit to
+ * put in front of a building authority.
  */
 
 import type { BuildingGraph, EdgeKind, GraphEdge } from '../graph/types.js'

@@ -199,6 +199,64 @@ export interface BuildingGraph {
   }
 }
 
+/**
+ * The edge itself, when a caller needs its provenance rather than its target.
+ *
+ * The adjacency indexes store GlobalIds only, so an operator reading them knows
+ * WHICH elements bound a room and not whether the file said so or we measured
+ * it. That gap produced the library's worst class of defect in miniature:
+ * `bounds()` stamped every result `declared`, so once geometry-derived
+ * boundaries were folded in, a measurement with a 30 cm tolerance was reported
+ * to the reader as something the model states. The provenance was correct on
+ * the edge and thrown away at the operator.
+ *
+ * The lookup is built once per graph and cached against it. A `WeakMap` rather
+ * than a field because `withDerivedBoundaries` returns a NEW graph object: a
+ * cache on the old object cannot leak into the new one, which is exactly the
+ * invalidation behaviour wanted and none of the bookkeeping.
+ */
+const EDGE_LOOKUP = new WeakMap<BuildingGraph, Map<string, GraphEdge>>()
+
+export function edgeBetween(graph: BuildingGraph, kind: EdgeKind, from: string, to: string): GraphEdge | null {
+  let lookup = EDGE_LOOKUP.get(graph)
+  if (!lookup) {
+    lookup = new Map()
+    for (const edge of graph.edges) lookup.set(`${edge.kind} ${edge.from} ${edge.to}`, edge)
+    EDGE_LOOKUP.set(graph, lookup)
+  }
+  return lookup.get(`${kind} ${from} ${to}`) ?? null
+}
+
+/**
+ * The provenance a set of edges of one kind collectively carries.
+ *
+ * `declared` only when EVERY edge is declared. One measured boundary in a set
+ * makes the whole answer a measurement, because a reader given a mixed list
+ * under a "the model states" heading has been told something false about part
+ * of it.
+ */
+export function provenanceOf(
+  graph: BuildingGraph,
+  kind: EdgeKind,
+  from: string,
+  targets: readonly string[],
+  fallback: Provenance = 'declared'
+): { provenance: Provenance; mixed: boolean; vias: string[] } {
+  const seen = new Set<Provenance>()
+  const vias = new Set<string>()
+  for (const target of targets) {
+    const edge = edgeBetween(graph, kind, from, target) ?? edgeBetween(graph, kind, target, from)
+    seen.add(edge?.provenance ?? fallback)
+    if (edge?.via) vias.add(edge.via)
+  }
+  const provenance: Provenance = seen.has('inferred')
+    ? 'inferred'
+    : seen.has('computed')
+      ? 'computed'
+      : (seen.values().next().value ?? fallback)
+  return { provenance, mixed: seen.size > 1, vias: [...vias] }
+}
+
 /** Targets of `kind` leaving `globalId`. */
 export function out(graph: BuildingGraph, kind: EdgeKind, globalId: string): string[] {
   return graph.out.get(kind)?.get(globalId) ?? []
