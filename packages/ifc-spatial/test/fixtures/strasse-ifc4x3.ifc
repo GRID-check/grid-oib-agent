@@ -1,0 +1,47 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [ReferenceView]'),'2;1');
+FILE_NAME('strasse-ifc4x3.ifc','2026-08-12T09:00:00',('A. Muster'),('Musterbuero ZT GmbH'),'GRID Fixture Writer','GRID','');
+FILE_SCHEMA(('IFC4X3_ADD2'));
+ENDSEC;
+DATA;
+/* ─────────────────────────────────────────────────────────────────────────────
+   IFC4X3 renamed the spatial spine, and a road model is where that shows.
+   `IfcRoad` is an IfcFacility — what IfcBuilding is for a building — and
+   `IfcRoadPart` is an IfcFacilityPart, what IfcBuildingStorey is. Neither is a
+   physical component; both are IfcSpatialStructureElement.
+
+   Classified as building elements, they turned an infrastructure model into a
+   pile of components: `KIT-Simple-Road-Test-Web-IFC4x3_RC2.ifc` came back with
+   118 "elements" of which 52 were IfcFacilityPart and one the IfcRoad itself,
+   and `Infra-Road.ifc` (buildingSMART PCERT) with 31 of 86.
+
+   Here: one IfcRoad with two IfcRoadPart, carrying one real component each.
+   ───────────────────────────────────────────────────────────────────────────── */
+#1=IFCPERSON($,'Muster','Anna',$,$,$,$,$);
+#2=IFCORGANIZATION($,'Musterbuero ZT GmbH',$,$,$);
+#3=IFCPERSONANDORGANIZATION(#1,#2,$);
+#4=IFCAPPLICATION(#2,'1.0','GRID Fixture Writer','GFW');
+#5=IFCOWNERHISTORY(#3,#4,$,.ADDED.,$,$,$,0);
+#6=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#7=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#8=IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.);
+#9=IFCUNITASSIGNMENT((#6,#7,#8));
+#10=IFCCARTESIANPOINT((0.,0.,0.));
+#11=IFCAXIS2PLACEMENT3D(#10,$,$);
+#12=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#11,$);
+#13=IFCPROJECT('5Strasse000Project001',#5,'Landesstrasse L52',$,$,$,$,(#12),#9);
+#14=IFCSITE('5Strasse000Site000001',#5,'Trasse km 0+000',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);
+#15=IFCROAD('5Strasse000Road000001',#5,'L52 Abschnitt Nord',$,$,$,$,$,.USERDEFINED.,$);
+#16=IFCROADPART('5Strasse000RoadPart01',#5,'Fahrbahn km 0+000-0+500',$,$,$,$,$,.USERDEFINED.,.ROADSEGMENT.);
+#17=IFCROADPART('5Strasse000RoadPart02',#5,'Fahrbahn km 0+500-1+000',$,$,$,$,$,.USERDEFINED.,.ROADSEGMENT.);
+#18=IFCRELAGGREGATES('5Strasse000Aggr000001',#5,'Projekt-Trasse',$,#13,(#14));
+#19=IFCRELAGGREGATES('5Strasse000Aggr000002',#5,'Trasse-Strasse',$,#14,(#15));
+#20=IFCRELAGGREGATES('5Strasse000Aggr000003',#5,'Strasse-Abschnitte',$,#15,(#16,#17));
+/* ── The only physical components in the file ────────────────────────────── */
+#21=IFCPAVEMENT('5Strasse000Pavement01',#5,'Deckschicht AC 11',$,$,$,$,'B-01',.FLEXIBLE.);
+#22=IFCKERB('5Strasse000Kerb000001',#5,'Randstein rechts',$,$,$,$,'R-01',.USERDEFINED.);
+#23=IFCRELCONTAINEDINSPATIALSTRUCTURE('5Strasse000Cont000001',#5,'Bauteile Abschnitt 1',$,(#21),#16);
+#24=IFCRELCONTAINEDINSPATIALSTRUCTURE('5Strasse000Cont000002',#5,'Bauteile Abschnitt 2',$,(#22),#17);
+ENDSEC;
+END-ISO-10303-21;

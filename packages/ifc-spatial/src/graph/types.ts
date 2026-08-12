@@ -185,6 +185,15 @@ export interface BuildingGraph {
   storeys: GraphNode[]
 
   dialect: DialectEntry[]
+  /**
+   * The sample size {@link dialect} was measured on, or `null` when every
+   * candidate was read.
+   *
+   * Carried so the blind-spot list can be recomputed later — after the geometry
+   * pass, which is the only moment the geometric blind spots are knowable —
+   * without re-measuring the dialect to find out whether it was sampled.
+   */
+  dialectSampleSize: number | null
   blindSpots: BlindSpot[]
 
   stats: {

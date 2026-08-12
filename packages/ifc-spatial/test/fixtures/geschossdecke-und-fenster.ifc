@@ -1,0 +1,77 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView_V2.0]'),'2;1');
+FILE_NAME('geschossdecke-und-fenster.ifc','2026-08-12T09:00:00',('A. Muster'),('Musterbuero ZT GmbH'),'GRID Fixture Writer','GRID','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+/* ─────────────────────────────────────────────────────────────────────────────
+   The two shapes a real corpus produces that `haus-mit-raeumen.ifc` cannot.
+
+   (a) ONE SLAB UNDER MANY ROOMS. #26 is the floor of all three rooms and is
+       declared as a boundary of each. Two rooms that share only this slab are
+       stacked or side by side — they are NOT neighbours. `Wohnen` and `Bad`
+       share nothing else, so they must not come back adjacent; `Wohnen` and
+       `Kueche` also share the party wall #24 and must.
+
+       In `Trapelo_Design_Intent.ifc` one slab carried boundaries to 93 of 139
+       spaces and the unrestricted rule made 4 278 pairs of it.
+
+   (b) A LONG WALL BEHIND SEVERAL ROOMS. #22 runs behind both Wohnen and Kueche
+       and the window #28 sits in it. The file states which room the window
+       serves — boundary #41, Kueche — and that statement must beat the wall's
+       two.
+
+       In `C20-Institute-Var-2.ifc` every one of 283 openings carried such a
+       statement and the union reported a mean of 5.7 rooms per opening.
+   ───────────────────────────────────────────────────────────────────────────── */
+#1=IFCPERSON($,'Muster','Anna',$,$,$,$,$);
+#2=IFCORGANIZATION($,'Musterbuero ZT GmbH',$,$,$);
+#3=IFCPERSONANDORGANIZATION(#1,#2,$);
+#4=IFCAPPLICATION(#2,'1.0','GRID Fixture Writer','GFW');
+#5=IFCOWNERHISTORY(#3,#4,$,.ADDED.,$,$,$,0);
+#6=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#7=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#8=IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.);
+#9=IFCUNITASSIGNMENT((#6,#7,#8));
+#10=IFCCARTESIANPOINT((0.,0.,0.));
+#11=IFCAXIS2PLACEMENT3D(#10,$,$);
+#12=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#11,$);
+#13=IFCPROJECT('4Decke00000Project001',#5,'Decke und Fenster',$,$,$,$,(#12),#9);
+#14=IFCSITE('4Decke00000Site000001',#5,'Grundstueck',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);
+#15=IFCBUILDING('4Decke00000Building01',#5,'Haus B',$,$,$,$,$,.ELEMENT.,$,$,$);
+#16=IFCBUILDINGSTOREY('4Decke00000Storey0001',#5,'Erdgeschoss',$,$,$,$,'EG',.ELEMENT.,0.);
+#17=IFCRELAGGREGATES('4Decke00000Aggr000001',#5,'Projekt-Grundstueck',$,#13,(#14));
+#18=IFCRELAGGREGATES('4Decke00000Aggr000002',#5,'Grundstueck-Gebaeude',$,#14,(#15));
+#19=IFCRELAGGREGATES('4Decke00000Aggr000003',#5,'Gebaeude-Geschoss',$,#15,(#16));
+/* ── Rooms ───────────────────────────────────────────────────────────────── */
+#20=IFCSPACE('4Decke00000Space00001',#5,'R.01',$,$,$,$,'Wohnen',.ELEMENT.,.INTERNAL.,$);
+#21=IFCSPACE('4Decke00000Space00002',#5,'R.02',$,$,$,$,'Kueche',.ELEMENT.,.INTERNAL.,$);
+#22=IFCWALL('4Decke00000Wall000001',#5,'Aussenwand Sued (durchlaufend)',$,$,$,$,'W-01',.SOLIDWALL.);
+#23=IFCSPACE('4Decke00000Space00003',#5,'R.03',$,$,$,$,'Bad',.ELEMENT.,.INTERNAL.,$);
+#24=IFCWALL('4Decke00000Wall000002',#5,'Trennwand Wohnen-Kueche',$,$,$,$,'W-02',.SOLIDWALL.);
+#25=IFCWALL('4Decke00000Wall000003',#5,'Aussenwand Bad Nord',$,$,$,$,'W-03',.SOLIDWALL.);
+#26=IFCSLAB('4Decke00000Slab000001',#5,'Geschossdecke EG',$,$,$,$,'D-01',.FLOOR.);
+#27=IFCOPENINGELEMENT('4Decke00000Openin0001',#5,'Fensteroeffnung Kueche',$,$,$,$,'O-01',.OPENING.);
+#28=IFCWINDOW('4Decke00000Window0001',#5,'Fenster Kueche',$,$,$,$,'F-01',1400.,1200.,.WINDOW.,.SINGLE_PANEL.,$);
+#29=IFCRELAGGREGATES('4Decke00000Aggr000004',#5,'Geschoss-Raeume',$,#16,(#20,#21,#23));
+#30=IFCRELCONTAINEDINSPATIALSTRUCTURE('4Decke00000Cont000001',#5,'Bauteile EG',$,(#22,#24,#25,#26,#28),#16);
+#31=IFCRELVOIDSELEMENT('4Decke00000Void000001',#5,'Fenster in Sued',$,#22,#27);
+#32=IFCRELFILLSELEMENT('4Decke00000Fill000001',#5,'Fensterfuellung',$,#27,#28);
+/* ── (a) the one slab, declared under every room ─────────────────────────── */
+#33=IFCRELSPACEBOUNDARY('4Decke00000Bnd000001',#5,'Wohnen-Decke',$,#20,#26,$,.PHYSICAL.,.INTERNAL.);
+#34=IFCRELSPACEBOUNDARY('4Decke00000Bnd000002',#5,'Kueche-Decke',$,#21,#26,$,.PHYSICAL.,.INTERNAL.);
+#35=IFCRELSPACEBOUNDARY('4Decke00000Bnd000003',#5,'Bad-Decke',$,#23,#26,$,.PHYSICAL.,.INTERNAL.);
+/* ── (b) the one long wall, declared behind Wohnen and Kueche alike ──────── */
+#36=IFCRELSPACEBOUNDARY('4Decke00000Bnd000004',#5,'Wohnen-Sued',$,#20,#22,$,.PHYSICAL.,.EXTERNAL.);
+#37=IFCRELSPACEBOUNDARY('4Decke00000Bnd000005',#5,'Kueche-Sued',$,#21,#22,$,.PHYSICAL.,.EXTERNAL.);
+/* Bad stands away from the south wall: the slab is ALL it shares with Wohnen. */
+/* ── The party wall: the ONLY vertical separator two rooms share ─────────── */
+#39=IFCRELSPACEBOUNDARY('4Decke00000Bnd000007',#5,'Wohnen-Trennwand',$,#20,#24,$,.PHYSICAL.,.INTERNAL.);
+#40=IFCRELSPACEBOUNDARY('4Decke00000Bnd000008',#5,'Kueche-Trennwand',$,#21,#24,$,.PHYSICAL.,.INTERNAL.);
+/* ── The window's own boundary: the file says it serves the Kueche alone ─── */
+#41=IFCRELSPACEBOUNDARY('4Decke00000Bnd000009',#5,'Kueche-Fenster',$,#21,#28,$,.PHYSICAL.,.EXTERNAL.);
+/* ── Bad's own external wall: it borders nobody through it ──────────────── */
+#42=IFCRELSPACEBOUNDARY('4Decke00000Bnd000010',#5,'Bad-Nord',$,#23,#25,$,.PHYSICAL.,.EXTERNAL.);
+ENDSEC;
+END-ISO-10303-21;

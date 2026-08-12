@@ -54,7 +54,7 @@
  * decimals turns that comparison into noise.
  */
 
-import { computed, declared, triangulate, undecidable, type Answer } from '../envelope.js'
+import { computed, declared, triangulate, undecidable, type Answer, type MissingFact } from '../envelope.js'
 import { boxGap, boxesOverlap, type Box, type ElementGeometry, type GeometryIndex, type Vec3 } from '../geometry/pass.js'
 import { label, node, type BuildingGraph, type GraphNode } from '../graph/types.js'
 import { UnknownElementError } from './topology.js'
@@ -281,7 +281,13 @@ export function elevation(
 
   const bottom = geo.geometry.box.min[2]
   const top = geo.geometry.box.max[2]
-  const datum = storeyDatum(graph, subject)
+  // A storey whose declared elevation is on another vertical reference is no
+  // datum at all, so it is dropped here rather than subtracted. `bottom` and
+  // `top` stay measured and useful — which is exactly why this field is nulled
+  // and the whole answer is not, per this operator's contract above.
+  const drift = storeyDatumDrift(graph, geometry)
+  const datum = drift > 0 ? null : storeyDatum(graph, subject)
+  const mismatch = drift > 0 ? datumMismatch(drift, graph, geometry) : null
 
   return computed(
     { bottom, top, heightAboveStorey: datum ? bottom - datum.elevation : null },
@@ -293,9 +299,10 @@ export function elevation(
       ...(datum
         ? {}
         : {
-            caveat:
-              'Dieses Bauteil ist keinem Geschoss mit Höhenangabe zugeordnet — die Höhe über dem Geschoss ' +
-              'ist deshalb offen. Die absoluten Höhen beziehen sich auf den Projektnullpunkt.',
+            caveat: mismatch
+              ? `${mismatch.what}. ${mismatch.remedy}`
+              : 'Dieses Bauteil ist keinem Geschoss mit Höhenangabe zugeordnet — die Höhe über dem Geschoss ' +
+                'ist deshalb offen. Die absoluten Höhen beziehen sich auf den Projektnullpunkt.',
           }),
     }
   )
@@ -361,6 +368,19 @@ export function sillAndHead(
           'Projektnullpunkt liefert elevation().',
         elements: [globalId],
       },
+    })
+  }
+
+  // The storey datum is DECLARED and the box is MEASURED; nothing in IFC makes
+  // them share a reference, and a file where they do not produced sills 58 m
+  // below their own floor. See `storeyDatumDrift`.
+  const drift = storeyDatumDrift(graph, geometry)
+  if (drift > 0) {
+    return undecidable<{ sill: number; head: number; height: number }>({
+      from: [globalId, datum.storey.globalId],
+      method,
+      provenance: 'computed',
+      missing: datumMismatch(drift, graph, geometry),
     })
   }
 
@@ -741,6 +761,76 @@ function storeyDatum(graph: BuildingGraph, subject: GraphNode): { storey: GraphN
   const storey = graph.storeys.find((s) => s.globalId === wanted)
   if (!storey || storey.elevation === null) return null
   return { storey, elevation: storey.elevation }
+}
+
+/**
+ * How far the declared storey elevations sit outside the model's measured
+ * height, in metres — `0` when they sit inside it.
+ *
+ * ## The number this exists to stop
+ *
+ * `IfcBuildingStorey.Elevation` is a DECLARED datum and the geometry pass
+ * reports a MEASURED z. Every operator that answers "how high above the floor"
+ * subtracts one from the other, and nothing in IFC guarantees the two share a
+ * reference. `Trapelo_Design_Intent.ifc` (Revit 2015, feet) declares its storeys
+ * at 182.67…231.875 ft — 55.68…70.68 m, on the survey datum — while its
+ * geometry, re-based by the kernel, spans −3.62…12.29 m. `sillAndHead` on every
+ * one of its 68 windows therefore returned
+ *
+ *     sill = −58.353 m   head = −56.556 m   height = 1.797 m
+ *
+ * — a window whose head is fifty-six metres below its own floor, with a unit
+ * attached, a tolerance of 10 mm and a `computed` provenance. The height is
+ * right (both terms carry the same error), which is what makes it look like a
+ * measurement. That is the single worst kind of output this library can produce,
+ * and it produced it on the first foot-based file it was ever shown.
+ *
+ * ## The test
+ *
+ * Purely a comparison of two ranges the library already holds. The storeys of a
+ * building must lie within its own measured height — a storey below the lowest
+ * vertex or above the highest is not a storey of this geometry. The slack is
+ * generous (one storey height) so that a roof datum above the ridge, or a
+ * foundation datum below the lowest slab, is not mistaken for a datum error: the
+ * failure being caught is off by tens of metres, not by one.
+ *
+ * `0` on the twelve other files of the corpus, including the ones whose storeys
+ * are negative (`duplex.ifc` −1.25 m) or numerous (`Snowdon_IFC2x3.ifc`, 18
+ * storeys spanning −5.16…21.59 m against geometry −4.34…24.69 m).
+ */
+const DATUM_SLACK_METRES = 5
+
+function storeyDatumDrift(graph: BuildingGraph, geometry: GeometryIndex): number {
+  const bounds = geometry.bounds
+  if (!bounds) return 0
+  const elevations = graph.storeys.map((s) => s.elevation).filter((e): e is number => e !== null)
+  if (elevations.length === 0) return 0
+  const low = Math.min(...elevations)
+  const high = Math.max(...elevations)
+  const below = bounds.min[2] - DATUM_SLACK_METRES - low
+  const above = high - (bounds.max[2] + DATUM_SLACK_METRES)
+  return Math.max(0, below, above)
+}
+
+/**
+ * The refusal {@link sillAndHead} and {@link elevation} share when the two
+ * datums disagree. Named once so both say the same thing about the same file.
+ */
+function datumMismatch(drift: number, graph: BuildingGraph, geometry: GeometryIndex): MissingFact {
+  const bounds = geometry.bounds!
+  const elevations = graph.storeys.map((s) => s.elevation).filter((e): e is number => e !== null)
+  return {
+    what: 'IfcBuildingStorey.Elevation und die Modellgeometrie liegen auf verschiedenen Höhenbezügen',
+    remedy:
+      `Die Geschosshöhen der Datei laufen von ${Math.min(...elevations).toFixed(2)} m bis ` +
+      `${Math.max(...elevations).toFixed(2)} m, die gemessene Geometrie von ${bounds.min[2].toFixed(2)} m bis ` +
+      `${bounds.max[2].toFixed(2)} m — sie verfehlen einander um ${drift.toFixed(2)} m. Eine Höhe über ` +
+      'Geschossebene wäre um diesen Betrag falsch und wird deshalb nicht ausgegeben. Ursache ist fast immer ein ' +
+      'Export, dessen Geschosshöhen auf Meereshöhe bzw. den Vermessungspunkt bezogen sind, während die ' +
+      'Bauteilkoordinaten auf dem Projektnullpunkt stehen. Abhilfe: im CAD Projekt- und Vermessungspunkt ' +
+      'angleichen oder die Geschosshöhen auf den Projektnullpunkt beziehen. Die absoluten Höhen im Modellbezug ' +
+      'liefert elevation() unverändert.',
+  }
 }
 
 /**

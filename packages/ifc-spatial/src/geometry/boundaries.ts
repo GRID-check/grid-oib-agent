@@ -74,17 +74,16 @@
  * papered over it would be the library telling a user their file is fine
  * because we compensated.
  *
- * ## A caveat about the operators that read these edges
+ * ## The operators that read these edges do carry the provenance through
  *
- * `bounds()` and `enclosedBy()` in `operators/topology.ts` return
- * `declared(...)` for whatever `interfaceOf` edges they find, and stamp the refs
- * with a fixed `via` constant rather than the edge's own. Fold these edges in
- * and those two operators will therefore present a MEASURED boundary as a
- * declared one — the provenance is right here on the edge and lost at the
- * operator. Nothing in this module can fix that from the outside; a caller that
- * cares (and every caller should) must read `graph.edges` for the `via`, and
- * topology.ts needs to carry per-edge provenance through before this is fit to
- * put in front of a building authority.
+ * This section used to warn that `bounds()` and `enclosedBy()` stamped every
+ * `interfaceOf` edge as `declared`, so a measured boundary would be presented as
+ * one the file states. They no longer do: `fromEdges` in `operators/topology.ts`
+ * reads each edge's own provenance and `via`, returns `computed` when any of
+ * them is measured, and writes the mixed-origin caveat when only some are.
+ * Verified on `Building-Architecture.ifc` (buildingSMART PCERT, SketchUp), whose
+ * 10 `interfaceOf` edges are all derived here — `bounds()` on its living room
+ * answers `computed` and names `geometry: box adjacency ±0.30 m (z, 18.81 m²)`.
  */
 
 import type { BuildingGraph, EdgeKind, GraphEdge } from '../graph/types.js'

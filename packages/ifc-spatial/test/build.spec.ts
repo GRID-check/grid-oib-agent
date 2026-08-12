@@ -288,7 +288,9 @@ describe('adjacentZone', () => {
     expect(pair(adjacent[0]!)).toEqual(new Set([ID.wohnzimmer, ID.kueche]))
     for (const e of adjacent) expect(e.from).not.toBe(e.to)
     expect(adjacent[0]!.provenance).toBe('computed')
-    expect(adjacent[0]!.via).toBe('shared bounding element')
+    // Names the TYPE of the separator, because only a vertical one may create
+    // an adjacency at all — a shared floor slab must not.
+    expect(adjacent[0]!.via).toBe('shared bounding IfcWall')
   })
 })
 
@@ -323,7 +325,18 @@ describe('opensTo', () => {
     for (const e of opens) {
       expect(kindOf(e.to)).toBe('space')
       expect(e.provenance).toBe('computed')
-      expect(e.via).toBe(kindOf(e.from) === 'opening' ? 'voids+interfaceOf' : 'hostedIn+interfaceOf')
+      // The route names itself, and which one ran is decided by whether the
+      // subject carries a boundary of its OWN: that one is precise (the file
+      // says which room this opening serves) and beats the host wall's, which
+      // is every room along the wall.
+      const own = into(graph, 'interfaceOf', e.from)
+      expect(e.via).toBe(
+        own.length > 0
+          ? 'interfaceOf (eigene Raumbegrenzung)'
+          : kindOf(e.from) === 'opening'
+            ? 'voids+interfaceOf (Gastbauteil)'
+            : 'hostedIn+interfaceOf (Gastbauteil)'
+      )
     }
   })
 })
@@ -392,11 +405,20 @@ describe('blindSpots', () => {
     expect(what()).not.toContain('keine IfcSpace-Elemente')
   })
 
-  it('carries the geometry blind spot', () => {
-    expect(what()).toContain('keine Geometrie in dieser Ausbaustufe')
-    const spot = graph.blindSpots.find((b) => b.what === 'keine Geometrie in dieser Ausbaustufe')!
+  /**
+   * `buildGraph` is the topological half and really has run no geometry, so it
+   * must say so — but it must say THAT, and not the old sentence "keine
+   * Geometrie in dieser Ausbaustufe", which was appended unconditionally and
+   * therefore survived into every `openModel` result as well. See
+   * `corpus.spec.ts` for the other half of this: after the pass has run, the
+   * spot must be gone.
+   */
+  it('reports that no geometry pass has run — and does not claim the stage has none', () => {
+    expect(what()).toContain('kein Geometrie-Pass gelaufen (nur Topologie)')
+    expect(what()).not.toContain('keine Geometrie in dieser Ausbaustufe')
+    const spot = graph.blindSpots.find((b) => b.what === 'kein Geometrie-Pass gelaufen (nur Topologie)')!
     expect(spot.consequence).toMatch(/nicht berechenbar/)
-    expect(spot.remedy.length).toBeGreaterThan(0)
+    expect(spot.remedy).toMatch(/openModel/)
   })
 
   it('reports the north and georeferencing gaps this file really has', () => {

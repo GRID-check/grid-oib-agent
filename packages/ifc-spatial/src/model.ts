@@ -28,7 +28,7 @@
  * answer.
  */
 
-import { buildGraph, type BuildOptions } from './graph/build.js'
+import { buildGraph, findBlindSpots, type BuildOptions, type GeometryStatus } from './graph/build.js'
 import { runGeometryPass, type GeometryIndex, type GeometryOptions } from './geometry/pass.js'
 import { withDerivedBoundaries, type BoundaryOptions } from './geometry/boundaries.js'
 import type { BuildingGraph } from './graph/types.js'
@@ -54,19 +54,26 @@ export async function openModel(bytes: Uint8Array, options: OpenOptions = {}): P
   const base = await buildGraph(bytes, options)
 
   if (options.skipGeometry) {
-    return { graph: base, geometry: null, geometryUnavailable: 'Geometrie-Pass wurde übersprungen', contentHash: base.contentHash }
+    const unavailable = 'Geometrie-Pass wurde übersprungen'
+    return {
+      graph: withBlindSpots(base, { unavailable, elementsWithGeometry: 0, spacesWithGeometry: 0, spaces: countSpaces(base), truncated: false, triangles: 0, retainedTriangles: 0 }),
+      geometry: null,
+      geometryUnavailable: unavailable,
+      contentHash: base.contentHash,
+    }
   }
 
   let geometry: GeometryIndex
   try {
     geometry = await runGeometryPass(bytes, base, options.geometry ?? {})
   } catch (error) {
+    const unavailable =
+      `Geometrie konnte nicht gelesen werden: ${error instanceof Error ? error.message : String(error)}. ` +
+      'Topologische Fragen sind unverändert beantwortbar, alle Maße nicht.'
     return {
-      graph: base,
+      graph: withBlindSpots(base, { unavailable, elementsWithGeometry: 0, spacesWithGeometry: 0, spaces: countSpaces(base), truncated: false, triangles: 0, retainedTriangles: 0 }),
       geometry: null,
-      geometryUnavailable:
-        `Geometrie konnte nicht gelesen werden: ${error instanceof Error ? error.message : String(error)}. ` +
-        'Topologische Fragen sind unverändert beantwortbar, alle Maße nicht.',
+      geometryUnavailable: unavailable,
       contentHash: base.contentHash,
     }
   }
@@ -74,8 +81,42 @@ export async function openModel(bytes: Uint8Array, options: OpenOptions = {}): P
   // Only when the file itself declares no boundaries is anything derived —
   // `withDerivedBoundaries` refuses to duplicate a declared relation, so this is
   // safe on a file that has them and load-bearing on the many that do not.
-  const graph = withDerivedBoundaries(base, geometry, options.boundaries ?? {})
+  const bounded = withDerivedBoundaries(base, geometry, options.boundaries ?? {})
+
+  // Blind spots are recomputed HERE and not left as `buildGraph` wrote them.
+  //
+  // `buildGraph` runs before the geometry pass by construction, so the list it
+  // produces has to assume the worst about geometry — and the assumption it
+  // used to bake in ("keine Geometrie in dieser Ausbaustufe") was then reported
+  // verbatim on models whose every element had just been tessellated. An agent
+  // reading that stops asking exactly the questions this library exists to
+  // answer. What replaces it is what the pass actually found: whether it ran,
+  // whether retention was capped, and which rooms came back without a solid.
+  const spaces = countSpaces(bounded)
+  let spacesWithGeometry = 0
+  for (const node of bounded.nodes.values()) {
+    if (node.kind === 'space' && geometry.elements.has(node.globalId)) spacesWithGeometry++
+  }
+  const graph = withBlindSpots(bounded, {
+    unavailable: null,
+    elementsWithGeometry: geometry.stats.elementsWithGeometry,
+    spacesWithGeometry,
+    spaces,
+    truncated: geometry.stats.trianglesTruncated,
+    triangles: geometry.stats.triangles,
+    retainedTriangles: geometry.stats.retainedTriangles,
+  })
   return { graph, geometry, contentHash: base.contentHash }
+}
+
+function countSpaces(graph: BuildingGraph): number {
+  let n = 0
+  for (const node of graph.nodes.values()) if (node.kind === 'space') n++
+  return n
+}
+
+function withBlindSpots(graph: BuildingGraph, status: GeometryStatus): BuildingGraph {
+  return { ...graph, blindSpots: findBlindSpots(graph, graph.dialectSampleSize, status) }
 }
 
 /**

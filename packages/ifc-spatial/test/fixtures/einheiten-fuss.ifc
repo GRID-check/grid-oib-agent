@@ -1,0 +1,55 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('einheiten-fuss.ifc','2026-08-12T09:00:00',('A. Muster'),('Musterbuero ZT GmbH'),'GRID Fixture Writer','GRID','');
+FILE_SCHEMA(('IFC2X3'));
+ENDSEC;
+DATA;
+/* ─────────────────────────────────────────────────────────────────────────────
+   A file authored in FEET, with the two traps a real corpus sprang on
+   `lengthUnitOf`. Both are answered by walking IfcProject.UnitsInContext instead
+   of scanning the file for the first IfcSIUnit.
+
+   Trap 1 — the stray unit. #6 is a decimetre length unit that belongs to a
+   property somewhere and is NOT in the unit assignment. It is written first on
+   purpose: a scan in file order finds it before anything else and reports
+   decimetres. Seen for real in `ifcbridge-model01.ifc` (IFC Java Toolbox),
+   which declares a DECI metre at #40917 and assigns a plain metre at #283069.
+
+   Trap 2 — the SI base of a conversion-based unit. #8 is the metre that the
+   foot at #10 is DEFINED against, so a scan that accepts any LENGTHUNIT/METRE
+   pair reports metres for a foot file. Seen for real in
+   `Trapelo_Design_Intent.ifc` (Revit 2015) and, as inches over millimetres, in
+   `AISC_Sculpture_param.ifc` (SDS/2).
+
+   Correct answer: ft, 0.3048 m.
+   ───────────────────────────────────────────────────────────────────────────── */
+#1=IFCPERSON($,'Muster','Anna',$,$,$,$,$);
+#2=IFCORGANIZATION($,'Musterbuero ZT GmbH',$,$,$);
+#3=IFCPERSONANDORGANIZATION(#1,#2,$);
+#4=IFCAPPLICATION(#2,'1.0','GRID Fixture Writer','GFW');
+#5=IFCOWNERHISTORY(#3,#4,$,.ADDED.,$,$,$,0);
+/* Trap 1: a length unit that is NOT assigned to the project. */
+#6=IFCSIUNIT(*,.LENGTHUNIT.,.DECI.,.METRE.);
+#7=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);
+/* Trap 2: the SI metre the foot below is defined against. */
+#8=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#9=IFCMEASUREWITHUNIT(IFCRATIOMEASURE(0.3048),#8);
+#10=IFCCONVERSIONBASEDUNIT(#7,.LENGTHUNIT.,'FOOT',#9);
+#11=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#12=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);
+#13=IFCUNITASSIGNMENT((#10,#11,#12));
+#14=IFCCARTESIANPOINT((0.,0.,0.));
+#15=IFCAXIS2PLACEMENT3D(#14,$,$);
+#16=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#15,$);
+#17=IFCPROJECT('3Fuss000000Project001',#5,'Projekt in Fuss',$,$,$,$,(#16),#13);
+#18=IFCSITE('3Fuss000000Site000001',#5,'Grundstueck',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);
+#19=IFCBUILDING('3Fuss000000Building01',#5,'Haus',$,$,$,$,$,.ELEMENT.,$,$,$);
+#20=IFCBUILDINGSTOREY('3Fuss000000Storey0001',#5,'Level 1',$,$,$,$,'L1',.ELEMENT.,0.);
+#21=IFCRELAGGREGATES('3Fuss000000Aggr000001',#5,'Projekt-Grundstueck',$,#17,(#18));
+#22=IFCRELAGGREGATES('3Fuss000000Aggr000002',#5,'Grundstueck-Gebaeude',$,#18,(#19));
+#23=IFCRELAGGREGATES('3Fuss000000Aggr000003',#5,'Gebaeude-Geschoss',$,#19,(#20));
+#24=IFCWALL('3Fuss000000Wall000001',#5,'Aussenwand',$,$,$,$,'W-01');
+#25=IFCRELCONTAINEDINSPATIALSTRUCTURE('3Fuss000000Cont000001',#5,'Bauteile',$,(#24),#20);
+ENDSEC;
+END-ISO-10303-21;

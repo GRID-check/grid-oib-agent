@@ -170,6 +170,15 @@ const MIN_TRIANGLE_PX2 = 0.25
 const CHAIN_TOLERANCE = 0.001
 
 /**
+ * Font size annotations are drawn at, in px.
+ *
+ * Shared between the extent reservation and the emission, so a label cannot be
+ * measured at one size and drawn at another — which would put the clipping back
+ * quietly, the first time somebody tuned one of the two.
+ */
+const ANNOTATION_FONT_PX = 12
+
+/**
  * Ink.
  *
  * A drawing that is only legible on the background it was designed for gets
@@ -338,6 +347,49 @@ export function project(
 
   for (const annotation of annotations) {
     for (const p of annotation.points) extent.add(frame.toU(p[0], p[1], p[2]), frame.toV(p[0], p[1], p[2]))
+  }
+
+  // Labels are wider than the thing they label, and the drawing has to hold
+  // them. Feeding only the annotation ENDPOINTS to the extent was enough to
+  // keep a dimension's line on the sheet and not its text: on the first
+  // section this produced, "Dachüberstand 0.65 m" — twenty characters over a
+  // 0.65 m dimension — ran off the top edge, and a 45° ray's label was cut to
+  // "45° L" at the right.
+  //
+  // The width is estimated rather than measured because there is no font
+  // metric here and there will not be one: this must stay a string-producing
+  // module with no rendering dependency. Half the font size per character is
+  // the usual approximation for a proportional sans, and it is deliberately
+  // generous — a drawing with too much air costs nothing, a clipped dimension
+  // costs the reader the number.
+  if (annotations.length > 0) {
+    // Provisional scale, from the geometry alone: the labels cannot influence
+    // the scale they are measured in without going round in circles, and one
+    // pass is close enough at these text sizes.
+    const provisional = Math.max(extent.width(), 1e-6) / Math.max(widthPx, 1)
+    const lineHeight = ANNOTATION_FONT_PX * provisional
+    for (const annotation of annotations) {
+      if (!annotation.text) continue
+      const anchor = annotation.points[annotation.kind === 'dimension' ? 0 : annotation.points.length - 1]
+      if (!anchor) continue
+      const u = frame.toU(anchor[0], anchor[1], anchor[2])
+      const v = frame.toV(anchor[0], anchor[1], anchor[2])
+      // Reserve the way the label is ANCHORED, not symmetrically. A dimension
+      // is centred on its midpoint and needs half the width each side; a ray or
+      // a free label is left-anchored at its tip and needs the whole width to
+      // the right. Reserving symmetrically for both under-reserves the right
+      // side of every left-anchored label by half its width, which is precisely
+      // how "45° Prismengrenze" came back off the edge as "45° Prismen".
+      // 0.6 em per character, not 0.5: the usual rule of thumb is an average
+      // over lowercase English, and these labels carry capitals, digits, units
+      // and German compounds. The last character of "45° Prismengrenze" was
+      // still shaving the edge at 0.5. Plus the offset the label itself is
+      // drawn at, which is part of where it ends up and was not counted.
+      const width = annotation.text.length * ANNOTATION_FONT_PX * 0.6 * provisional + ANNOTATION_FONT_PX * 0.5 * provisional
+      const centred = annotation.kind === 'dimension'
+      extent.add(u - (centred ? width / 2 : 0), v - lineHeight)
+      extent.add(u + (centred ? width / 2 : width), v + lineHeight)
+    }
   }
 
   if (extent.empty()) {
@@ -1050,7 +1102,7 @@ function layoutView(
 
   const viewW = contentW + 2 * pad
   const unitsPerPx = viewW / widthPx
-  const fontSize = 12 * unitsPerPx
+  const fontSize = ANNOTATION_FONT_PX * unitsPerPx
 
   const footer =
     (opts.scaleBar ? fontSize * 2.8 : fontSize * 0.4) + opts.captions.length * fontSize * 1.25
@@ -1231,7 +1283,18 @@ function annotationSvg(annotation: Annotation, frame: Frame, layout: Layout): st
       `<path d="${ringPath(flat, false)}" fill="none" stroke="${colour}" stroke-width="${stroke}" ` +
         `stroke-dasharray="${dash} ${dash}"/>`
     )
-    if (text) out.push(textSvg(flat[flat.length - 2]!, flat[flat.length - 1]!, text, colour, layout, 'start'))
+    // Set off the tip so the label does not sit on the ray it names.
+    if (text)
+      out.push(
+        textSvg(
+          flat[flat.length - 2]! + layout.fontSize * 0.4,
+          flat[flat.length - 1]! - layout.fontSize * 0.25,
+          text,
+          colour,
+          layout,
+          'start'
+        )
+      )
     return out
   }
 
@@ -1263,8 +1326,30 @@ function annotationSvg(annotation: Annotation, frame: Frame, layout: Layout): st
   if (text) {
     // Offset off the line rather than haloed with a white outline: a halo is a
     // background assumption, and this drawing does not get to make one.
-    const off = layout.fontSize * 0.5
-    out.push(textSvg((u1 + u2) / 2 + px * off, (v1 + v2) / 2 + py * off, text, colour, layout, 'middle'))
+    //
+    // The offset used to be half a font size along the perpendicular, applied
+    // the same way whatever the line's direction, and both cases came out
+    // struck through. SVG's `y` is the BASELINE, so half a font size below a
+    // horizontal line puts the glyph bodies across it; and a vertical dimension
+    // with `text-anchor="middle"` centres the label on the line no matter what
+    // the perpendicular offset is. On the first sections this produced, both
+    // "Überstand 0.65 m" and "Fenster 1,21 m" read as struck out, which is
+    // exactly how a drawing marks a dimension as WRONG.
+    //
+    // So the two orientations are handled as a draughtsman handles them: above
+    // the line when it runs horizontally, beside it when it runs vertically.
+    const horizontal = Math.abs(v2 - v1) <= Math.abs(u2 - u1)
+    if (horizontal) {
+      // A full font size clears the descenders; `min` puts it on the upper side
+      // in SVG's downward-growing y, which is where a dimension value belongs.
+      const v = Math.min(v1, v2) - layout.fontSize * 0.45
+      out.push(textSvg((u1 + u2) / 2, v, text, colour, layout, 'middle'))
+    } else {
+      // 0.35 em down from the midpoint centres the x-height on the line rather
+      // than hanging the whole glyph below it.
+      const u = Math.max(u1, u2) + layout.fontSize * 0.45
+      out.push(textSvg(u, (v1 + v2) / 2 + layout.fontSize * 0.35, text, colour, layout, 'start'))
+    }
   }
   return out
 }

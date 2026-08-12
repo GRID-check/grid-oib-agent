@@ -74,6 +74,69 @@ const CONTAINER_KIND: Record<string, NodeKind> = {
   IfcSite: 'site',
   IfcBuilding: 'building',
   IfcBuildingStorey: 'storey',
+  // IFC4X3 renamed the spatial spine. `IfcFacility` and its subtypes are what
+  // `IfcBuilding` is for a road, a bridge, a railway or a marine structure, and
+  // `IfcFacilityPart` is what `IfcBuildingStorey` is — both are
+  // IfcSpatialStructureElement, neither is a physical component.
+  //
+  // Left out, they fell through to `element`, and an infrastructure model came
+  // back as a pile of building components: `KIT-Simple-Road-Test-Web-IFC4x3.ifc`
+  // reported 118 elements of which 52 were `IfcFacilityPart` and one was the
+  // `IfcRoad` itself — 45 % of the "inventory" was the spatial structure. On
+  // `Infra-Road.ifc` (buildingSMART PCERT, IFC4X3_ADD2) it was 31 of 86.
+  //
+  // They map to `building`/`storey` rather than to new kinds because that is
+  // what they ARE structurally, and because every operator that asks "which
+  // container is this in" then keeps working on infrastructure without knowing
+  // the word "road".
+  IfcFacility: 'building',
+  IfcBridge: 'building',
+  IfcRoad: 'building',
+  IfcRailway: 'building',
+  IfcMarineFacility: 'building',
+  IfcFacilityPart: 'storey',
+  IfcBridgePart: 'storey',
+  IfcRoadPart: 'storey',
+  IfcRailwayPart: 'storey',
+  IfcMarinePart: 'storey',
+}
+
+/** The building spine the parser's own spatial hierarchy already walks. */
+const SPATIAL_SPINE = new Set(['IfcProject', 'IfcSite', 'IfcBuilding', 'IfcBuildingStorey'])
+
+/**
+ * The element types that can put two rooms next to each other.
+ *
+ * A separator you walk through, not one you stand on. See the `adjacentZone`
+ * derivation for the measurements that forced this list to exist; the same
+ * distinction is made geometrically in `geometry/boundaries.ts` by rejecting a
+ * contact across Z.
+ *
+ * A closed list of vertical separators rather than a blocklist of horizontal
+ * ones, because a type nobody anticipated should fail to create an adjacency
+ * rather than silently create one — a missing neighbour is visible as a short
+ * list, a phantom neighbour is invisible.
+ */
+const VERTICAL_SEPARATOR_TYPES = new Set([
+  'IfcWall',
+  'IfcWallStandardCase',
+  'IfcWallElementedCase',
+  'IfcCurtainWall',
+  'IfcDoor',
+  'IfcDoorStandardCase',
+  'IfcWindow',
+  'IfcWindowStandardCase',
+  'IfcColumn',
+  'IfcColumnStandardCase',
+  'IfcVirtualElement',
+  'IfcOpeningElement',
+  'IfcOpeningStandardCase',
+  'IfcPlate',
+  'IfcMember',
+])
+
+function isVerticalSeparator(ifcType: string): boolean {
+  return VERTICAL_SEPARATOR_TYPES.has(ifcType)
 }
 
 export interface BuildOptions {
@@ -268,7 +331,15 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
       if (!otherId || otherId === globalId || !nodes.get(otherId)) continue
       // The spatial walk above already covered project → site → building →
       // storey → space, so this adds element assemblies without duplicating it.
-      if (CONTAINER_KIND[nodes.get(globalId)!.ifcType]) continue
+      //
+      // Deliberately the four classic spine types and NOT every key of
+      // CONTAINER_KIND: the parser's `spatialHierarchy` is built for the
+      // building spine, and an IFC4X3 `IfcRoad`/`IfcFacilityPart` reaches its
+      // children only through IfcRelAggregates. Skipping those here on the
+      // grounds that they are containers would have deleted the containment
+      // structure of every infrastructure model. Where both routes DO produce
+      // the edge, `dedupe` collapses it.
+      if (SPATIAL_SPINE.has(nodes.get(globalId)!.ifcType)) continue
       edges.push({ kind: 'hasSubElement', from: globalId, to: otherId, provenance: 'declared' })
     }
   }
@@ -307,12 +378,31 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
     }
   }
 
-  // adjacentZone: two spaces bounded by the same element are neighbours. Pure
-  // topology — no geometry, no tolerance, and true whenever the export wrote
-  // space boundaries at all.
+  // adjacentZone: two spaces bounded by the same element are neighbours —
+  // provided the element is something you could walk THROUGH, not something you
+  // stand on.
+  //
+  // The unrestricted rule is what this used to do, and a real corpus destroys
+  // it. One `IfcSlab` in `Trapelo_Design_Intent.ifc` (Revit) carries declared
+  // boundaries to 93 of the file's 139 spaces, because it is the floor of a
+  // whole storey; pairing them all produced 4 278 "adjacencies" from that one
+  // slab. Across the file the rule reported 6 876 neighbour pairs out of 9 591
+  // possible — 72 % of every pair of rooms in the building — and 4 014 of them
+  // joined rooms on DIFFERENT storeys. On `AC20-FZK-Haus.ifc` all 21 of the 21
+  // possible pairs came back adjacent, i.e. the operator said nothing at all.
+  //
+  // `deriveBoundaries` in geometry/boundaries.ts already refuses this: it drops
+  // any pair whose only shared element is a contact across Z. That test needs
+  // geometry, which this function does not have — the type of the shared
+  // element is the same distinction available topologically, and it is the one
+  // applied here. Coarser than the geometric test and in the same direction:
+  // a slab, roof, covering or footing shared by two rooms says they are stacked
+  // or on one floor, never that they are neighbours.
   const spacesByBoundary = index.in.get('interfaceOf') ?? new Map<string, string[]>()
-  for (const [, spaces] of spacesByBoundary) {
+  for (const [element, spaces] of spacesByBoundary) {
     if (spaces.length < 2) continue
+    const separator = nodes.get(element)
+    if (!separator || !isVerticalSeparator(separator.ifcType)) continue
     for (let i = 0; i < spaces.length; i++) {
       for (let j = i + 1; j < spaces.length; j++) {
         edges.push({
@@ -320,20 +410,44 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
           from: spaces[i]!,
           to: spaces[j]!,
           provenance: 'computed',
-          via: 'shared bounding element',
+          via: `shared bounding ${separator.ifcType}`,
         })
       }
     }
   }
 
-  // opensTo: a window or door opens into every space bounded by its host wall,
-  // and into any space that bounds it directly.
+  // opensTo: which rooms a window or door serves.
   //
   // Openings are subjects here too, not only their fillers. An
   // IfcOpeningElement reaches its host through `voids` rather than `hostedIn`,
   // and restricting this to `kind === 'element'` meant asking an opening what
   // it opens into always answered "nothing" — a confident empty result for a
   // question the file can answer.
+  //
+  // ## The element's OWN boundary wins over its host's
+  //
+  // This used to UNION the spaces bounded by the host wall with the spaces
+  // bounding the element itself. A window's own 2nd-level boundary names the
+  // one room it serves; its host wall bounds every room along that wall. The
+  // union therefore drowned the precise answer in the coarse one, and the
+  // damage is not marginal:
+  //
+  //   - `C20-Institute-Var-2.ifc` (ArchiCAD 20): all 283 windows and doors
+  //     carry their own `IfcRelSpaceBoundary`, naming exactly one room each.
+  //     The union reported a mean of 5.7 rooms per opening and up to 10 — the
+  //     window of `Labor K5` was reported as opening into `Labor K1`…`K4` and
+  //     `WC Damen` as well.
+  //   - `Trapelo_Design_Intent.ifc` (Revit): 182 of 190 fillers carry their own
+  //     boundary; the union reported up to 11 rooms per window.
+  //
+  // geometry/boundaries.ts states the same rule for the measured path — "a
+  // window's OWN box beats its host wall's boundaries" — and applies it. This
+  // is that rule on the declared path, where the file states the answer
+  // outright and the fallback is not needed at all.
+  //
+  // The host route survives for the fillers that carry no boundary of their
+  // own, where it is the only route there is, and says which one it took in
+  // `via` so a reader can tell a one-room answer from a whole-wall one.
   dedupe(edges)
   const index2 = buildIndex(edges)
   for (const [globalId, node] of nodes) {
@@ -347,19 +461,18 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
     // branch below fires for every bounding element, so each wall "opened
     // into" the rooms it encloses — true of a doorway, nonsense about a wall.
     if (hosts.length === 0) continue
-    const spaces = new Set<string>()
-    for (const host of hosts) {
-      for (const space of index2.in.get('interfaceOf')?.get(host) ?? []) spaces.add(space)
+
+    const own = index2.in.get('interfaceOf')?.get(globalId) ?? []
+    const spaces = new Set<string>(own)
+    let via = 'interfaceOf (eigene Raumbegrenzung)'
+    if (spaces.size === 0) {
+      for (const host of hosts) {
+        for (const space of index2.in.get('interfaceOf')?.get(host) ?? []) spaces.add(space)
+      }
+      via = node.kind === 'opening' ? 'voids+interfaceOf (Gastbauteil)' : 'hostedIn+interfaceOf (Gastbauteil)'
     }
-    for (const space of index2.in.get('interfaceOf')?.get(globalId) ?? []) spaces.add(space)
     for (const space of spaces) {
-      edges.push({
-        kind: 'opensTo',
-        from: globalId,
-        to: space,
-        provenance: 'computed',
-        via: node.kind === 'opening' ? 'voids+interfaceOf' : 'hostedIn+interfaceOf',
-      })
+      edges.push({ kind: 'opensTo', from: globalId, to: space, provenance: 'computed', via })
     }
   }
 
@@ -394,6 +507,7 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
     byType,
     storeys,
     dialect,
+    dialectSampleSize: null,
     blindSpots: [],
     stats: {
       entities: store.entityCount,
@@ -406,6 +520,7 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
     },
   }
 
+  graph.dialectSampleSize = sampled ? dialectSampleSize : null
   graph.blindSpots = findBlindSpots(graph, sampled ? dialectSampleSize : null)
   return graph
 }
@@ -559,7 +674,8 @@ const SI_PREFIX: Record<string, number> = {
 }
 
 /**
- * The file's declared length unit.
+ * The file's declared length unit — the one the PROJECT assigns, not the first
+ * one that happens to appear in the file.
  *
  * Worth reading even though the parser hands storey elevations back already
  * converted: an answer that prints a number has to name a unit, and "the
@@ -567,22 +683,137 @@ const SI_PREFIX: Record<string, number> = {
  * authored in millimetres" — which is what an architect recognises their own
  * model by.
  *
- * A file using `IfcConversionBasedUnit` (feet, inches) yields `null` rather
- * than a wrong metre factor. Saying nothing is recoverable; saying `1.0` about
- * a file drawn in feet is not.
+ * ## Why it walks the unit assignment instead of scanning
+ *
+ * This used to scan every `IfcSIUnit` in the file and return the first
+ * `LENGTHUNIT`/`METRE` it found. That is wrong in two ways that a real corpus
+ * produces immediately, and both produce a plausible unit rather than an error:
+ *
+ *   - **A stray unit shadows the assigned one.** `ifcbridge-model01.ifc`
+ *     (IFC Java Toolbox) declares `#40917 = IFCSIUNIT(*,.LENGTHUNIT.,.DECI.,
+ *     .METRE.)` for a property somewhere in the file, while its
+ *     `IfcUnitAssignment` names `#283069 = IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)`.
+ *     The scan returned decimetres for a metre file: a factor of ten, stated as
+ *     fact.
+ *   - **A conversion-based unit is shadowed by its own SI base.** A file drawn
+ *     in feet declares `IFCCONVERSIONBASEDUNIT(…,.LENGTHUNIT.,'FOOT',#44)` and
+ *     `#44 = IFCMEASUREWITHUNIT(IFCRATIOMEASURE(0.3048), #42)` where `#42` is
+ *     the metre it is defined against. The scan found `#42` first and reported
+ *     metres for a foot file (`Trapelo`, Revit 2015); the same shape reported
+ *     millimetres for an inch file (`AISC_Sculpture_param`, SDS/2). The old doc
+ *     comment claimed such files yielded `null`. They did not.
+ *
+ * So the assignment is walked: `IfcProject.UnitsInContext` → `IfcUnitAssignment`
+ * → the member whose UnitType is `LENGTHUNIT`. A conversion-based unit is
+ * resolved through its `IfcMeasureWithUnit` to a real factor and reported under
+ * its own name (`ft`, `in`), which is strictly better than the `null` the old
+ * comment promised: an architect recognises "ft" and a downstream check can use
+ * `toMetres`.
+ *
+ * `null` remains the answer when the file names no length unit at all, or names
+ * one this code cannot resolve to a factor. Saying nothing is recoverable;
+ * saying `1.0` about a file drawn in feet is not.
  */
 function lengthUnitOf(store: IfcStoreLike): UnitInfo | null {
-  for (const expressId of typeIds(store, 'IFCSIUNIT')) {
-    const entity = store.getEntity(expressId)
-    if (!entity) continue
-    const [, unitType, prefix, name] = entity.attributes as Array<unknown>
-    if (unitType !== '.LENGTHUNIT.' || name !== '.METRE.') continue
-    const prefixName = typeof prefix === 'string' ? prefix.replace(/^\.|\.$/g, '') : ''
-    const scale = prefixName ? SI_PREFIX[prefixName] : 1
-    if (!scale) continue
-    return { symbol: prefixName ? `${prefixName.slice(0, 1).toLowerCase()}m` : 'm', toMetres: scale }
+  for (const projectId of typeIds(store, 'IFCPROJECT')) {
+    const project = store.getEntity(projectId)
+    if (!project) continue
+    const assignmentRef = attributeOf(project, 'IfcProject', 'UnitsInContext')
+    if (typeof assignmentRef !== 'number') continue
+    const assignment = store.getEntity(assignmentRef)
+    const units = assignment?.attributes?.[0]
+    if (!Array.isArray(units)) continue
+    for (const unitRef of units) {
+      if (typeof unitRef !== 'number') continue
+      const resolved = resolveLengthUnit(store, unitRef, 0)
+      if (resolved) return resolved
+    }
   }
   return null
+}
+
+/**
+ * One unit entity → a length factor, or `null` when it is not a length unit.
+ *
+ * Depth-limited because `IfcConversionBasedUnit` points at another unit and a
+ * damaged file could point in a circle. Two hops is all any real chain needs
+ * (inch → millimetre, foot → metre).
+ */
+function resolveLengthUnit(store: IfcStoreLike, expressId: number, depth: number): UnitInfo | null {
+  if (depth > 3) return null
+  const entity = store.getEntity(expressId)
+  if (!entity) return null
+  const attributes = entity.attributes as unknown[]
+  const ifcType = normalizeIfcTypeName(entity.type ?? '')
+  if (attributes[1] !== '.LENGTHUNIT.') return null
+
+  // IfcSIUnit(Dimensions, UnitType, Prefix, Name)
+  if (ifcType === 'IfcSIUnit') {
+    if (attributes[3] !== '.METRE.') return null
+    const prefix = attributes[2]
+    const prefixName = typeof prefix === 'string' ? prefix.replace(/^\.|\.$/g, '') : ''
+    const scale = prefixName ? SI_PREFIX[prefixName] : 1
+    if (!scale) return null
+    return { symbol: prefixName ? `${prefixName.slice(0, 1).toLowerCase()}m` : 'm', toMetres: scale }
+  }
+
+  // IfcConversionBasedUnit(Dimensions, UnitType, Name, ConversionFactor)
+  if (ifcType === 'IfcConversionBasedUnit' || ifcType === 'IfcConversionBasedUnitWithOffset') {
+    const name = attributes[2]
+    const factorRef = attributes[3]
+    if (typeof name !== 'string' || typeof factorRef !== 'number') return null
+    const measure = store.getEntity(factorRef)
+    // IfcMeasureWithUnit(ValueComponent, UnitComponent). The value arrives as a
+    // wrapped measure (`IFCRATIOMEASURE(0.3048)`) in some parser paths and as a
+    // bare number in others, so both are accepted rather than assumed.
+    const value = numberOf(measure?.attributes?.[0])
+    const baseRef = measure?.attributes?.[1]
+    if (value === null || !(value > 0) || typeof baseRef !== 'number') return null
+    const base = resolveLengthUnit(store, baseRef, depth + 1)
+    if (!base) return null
+    return { symbol: unitSymbol(name), toMetres: value * base.toMetres }
+  }
+
+  return null
+}
+
+/**
+ * A number, whether the parser handed back a bare one or a wrapped measure.
+ *
+ * `IFCRATIOMEASURE(0.3048)` arrives from this parser as the tuple
+ * `['IFCRATIOMEASURE', 0.3048]`, and other producers hand back `{value: …}` or
+ * the raw literal. Accepting all three is cheaper than depending on which.
+ */
+function numberOf(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = numberOf(item)
+      if (found !== null) return found
+    }
+    return null
+  }
+  if (typeof value === 'string') {
+    const match = value.match(/-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?/)
+    if (match) return Number(match[0])
+  }
+  if (value && typeof value === 'object' && 'value' in value) return numberOf((value as { value: unknown }).value)
+  return null
+}
+
+/** The short symbol an architect writes for a named conversion-based unit. */
+const CONVERSION_SYMBOL: Record<string, string> = {
+  FOOT: 'ft',
+  FEET: 'ft',
+  INCH: 'in',
+  INCHES: 'in',
+  YARD: 'yd',
+  MILE: 'mi',
+}
+
+function unitSymbol(name: string): string {
+  const cleaned = name.replace(/^'|'$/g, '').trim()
+  return CONVERSION_SYMBOL[cleaned.toUpperCase()] ?? cleaned
 }
 
 /**
@@ -626,7 +857,7 @@ function typeIds(store: IfcStoreLike, upperType: string): number[] {
 
 interface IfcStoreLike {
   entityIndex: { byType: { get(key: string): number[] | undefined } }
-  getEntity(expressId: number): { attributes: unknown[] } | null
+  getEntity(expressId: number): { attributes: unknown[]; type?: string } | null
 }
 
 /**
@@ -686,6 +917,105 @@ function measureDialect(
 }
 
 /**
+ * What the geometry pass did or did not deliver, as far as the blind-spot list
+ * needs to know.
+ *
+ * `buildGraph` never has one of these — it is the topological half and by
+ * definition has no geometry yet. {@link openModel} passes one once the pass
+ * has run, which is why blind spots are recomputed there.
+ */
+export interface GeometryStatus {
+  /** Why there is no geometry, when there is none; `null` when there is. */
+  unavailable: string | null
+  /** Elements the kernel produced a mesh for. */
+  elementsWithGeometry: number
+  /** Spaces the kernel produced a mesh for, of {@link spaces}. */
+  spacesWithGeometry: number
+  spaces: number
+  /** Triangles retained, and whether retention was capped. */
+  truncated: boolean
+  triangles: number
+  retainedTriangles: number
+}
+
+/**
+ * The geometry-related blind spots, which depend on whether geometry ran.
+ *
+ * ## The bug this shape exists to kill
+ *
+ * `findBlindSpots` used to append, unconditionally,
+ *
+ *     keine Geometrie in dieser Ausbaustufe → Abstände, lichte Maße,
+ *     Auskragungen, Flächen aus Geometrie und der freie Lichteinfall sind noch
+ *     nicht berechenbar
+ *
+ * because the list is assembled in `buildGraph`, which by construction runs
+ * before the geometry pass. It was written when there WAS no geometry pass, and
+ * it survived the one that arrived. Every model this library has ever opened
+ * therefore carries a sentence telling the reader that the geometric answers are
+ * impossible — printed by `renderBriefing` under `BLIND`, in front of an agent
+ * whose whole job is to decide what it can and cannot answer. On
+ * `Snowdon_IFC2x3.ifc` it appeared beside a geometry pass that had just
+ * tessellated 6 436 elements into 2 452 915 triangles.
+ *
+ * A false "undecidable" is the exact failure this library was built to end, and
+ * the library was emitting one about itself on every file.
+ *
+ * ## What replaces it
+ *
+ * The real gaps, when they are real: geometry that could not run at all,
+ * retention that was capped (so surface tests silently degrade to boxes for the
+ * dropped elements), and rooms the kernel produced no solid for — which is why
+ * `floorArea` on them is undecidable, and which no other line in the briefing
+ * would tell anybody.
+ */
+function geometryBlindSpots(graph: BuildingGraph, geometry?: GeometryStatus): BlindSpot[] {
+  if (!geometry) {
+    return [
+      {
+        what: 'kein Geometrie-Pass gelaufen (nur Topologie)',
+        consequence:
+          'Abstände, lichte Maße, Auskragungen, Flächen aus Geometrie und der freie Lichteinfall sind nicht berechenbar',
+        remedy: 'openModel() statt buildGraph() verwenden — der Geometrie-Pass liefert diese Maße',
+      },
+    ]
+  }
+
+  const spots: BlindSpot[] = []
+  if (geometry.unavailable) {
+    spots.push({
+      what: 'keine Geometrie verfügbar',
+      consequence: `${geometry.unavailable} Alle Maße sind deshalb nicht bestimmbar, alle topologischen Antworten unverändert gültig.`,
+      remedy: 'Geometrie-Kernel (WASM) im Host lauffähig machen',
+    })
+    return spots
+  }
+
+  if (geometry.truncated) {
+    const dropped = geometry.triangles - geometry.retainedTriangles
+    spots.push({
+      what: `Dreiecksnetz gekappt (${geometry.retainedTriangles.toLocaleString('de-DE')} von ${geometry.triangles.toLocaleString('de-DE')} Dreiecken behalten)`,
+      consequence:
+        `Für die Bauteile hinter der Kappung (${dropped.toLocaleString('de-DE')} Dreiecke) sind Flächen, Ebenen und ` +
+        'Sichtverbindungen nicht gemessen; diese Bauteile tragen complete: false und liefern höchstens Hüllbox-Genauigkeit',
+      remedy: 'maxRetainedTriangles erhöhen oder das Modell aufteilen',
+    })
+  }
+
+  const withoutSolid = geometry.spaces - geometry.spacesWithGeometry
+  if (geometry.spaces > 0 && withoutSolid > 0) {
+    spots.push({
+      what: `${withoutSolid} von ${geometry.spaces} Räumen ohne Volumenkörper`,
+      consequence:
+        'für diese Räume sind Grundfläche, lichte Höhe und die aus Geometrie abgeleiteten Raumbegrenzungen ' +
+        'nicht bestimmbar — die Räume existieren, ihre Geometrie wurde nicht exportiert oder nicht ausgewertet',
+      remedy: 'Räume mit Körpergeometrie (Body-Representation) exportieren',
+    })
+  }
+  return spots
+}
+
+/**
  * What this file cannot answer, worked out before anybody asks.
  *
  * The point is to move the discovery of a gap from the end of a long agent turn
@@ -694,7 +1024,11 @@ function measureDialect(
  * report "the building has no rooms" when the truth is "this export omitted a
  * relation".
  */
-function findBlindSpots(graph: BuildingGraph, dialectSample: number | null): BlindSpot[] {
+export function findBlindSpots(
+  graph: BuildingGraph,
+  dialectSample: number | null,
+  geometry?: GeometryStatus
+): BlindSpot[] {
   const spots: BlindSpot[] = []
   const count = (kind: EdgeKind) => graph.stats.edgesByKind[kind] ?? 0
   const spaces = (graph.byType.get('IfcSpace') ?? []).length + (graph.byType.get('IfcSpatialZone') ?? []).length
@@ -735,12 +1069,7 @@ function findBlindSpots(graph: BuildingGraph, dialectSample: number | null): Bli
       remedy: 'IfcMapConversion bzw. RefLatitude/RefLongitude setzen',
     })
   }
-  spots.push({
-    what: 'keine Geometrie in dieser Ausbaustufe',
-    consequence:
-      'Abstände, lichte Maße, Auskragungen, Flächen aus Geometrie und der freie Lichteinfall sind noch nicht berechenbar',
-    remedy: 'Phase 1 dieses Dienstes (Geometrie-Pass) aktivieren',
-  })
+  spots.push(...geometryBlindSpots(graph, geometry))
   if (dialectSample !== null) {
     spots.push({
       what: `Dialekt aus einer Stichprobe von ${dialectSample} Bauteilen`,

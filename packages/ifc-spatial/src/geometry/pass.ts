@@ -18,16 +18,56 @@
  *
  * ## The frame, which is where this goes wrong silently
  *
- * The kernel emits **Y-up** (the glTF convention) while IFC is **Z-up**, and it
- * may shift coordinates toward the origin for far-from-origin models. Every
- * vertex is therefore converted once, here, into the file's own frame:
+ * The kernel emits **Y-up** (the glTF convention) while IFC is **Z-up**. Every
+ * vertex is therefore converted once, here, by the axis swap alone:
  *
- *     ifc.x = k.x + shift.x     ifc.y = -(k.z + shift.z)     ifc.z = k.y + shift.y
+ *     ifc.x = k.x     ifc.y = -k.z     ifc.z = k.y
  *
  * Verified rather than assumed: on a sample house whose storeys are declared at
  * 0.00 and 2.50, the ground-floor walls come back spanning ifc.z 0.00–2.47. A
  * frame error would put them somewhere plausible and wrong, and every answer
  * downstream would inherit it with full confidence.
+ *
+ * ## The RTC shift, which used to be read from the wrong field and applied in
+ * the wrong frame
+ *
+ * For a model authored in survey coordinates the kernel re-bases geometry near
+ * the origin — float32 has ~7 significant digits and an easting of 417 596 m
+ * leaves nothing for millimetres. It reports what it subtracted, and this
+ * module used to add back `coordinateInfo.originShift` **before** the axis swap:
+ *
+ *     ifc.x = k.x + shift.x   ifc.y = -(k.z + shift.z)   ifc.z = k.y + shift.y
+ *
+ * Two defects, neither of which the sample house could show, because its shift
+ * is zero:
+ *
+ *  1. `originShift` is the field the kernel's JS batch path uses and it is `0`
+ *     whenever the WASM path did the re-basing — which is the case for every
+ *     real far-from-origin file. The offset actually applied is reported
+ *     separately as `wasmRtcOffset`, which this never read.
+ *     `Trapelo_Design_Intent.ifc` (Revit, feet) carries
+ *     `wasmRtcOffset = (219 917.23, 907 157.92, 59.13)` m and
+ *     `Snowdon_IFC2x3.ifc` (Revit 2024) `(417 596.05, 78 709.95, 235.86)` m.
+ *     Both were read as zero.
+ *  2. Both fields are documented by the kernel as **IFC coordinates (Z-up)**,
+ *     and the code added them in the kernel's **Y-up** frame. Had defect 1 been
+ *     fixed alone, Trapelo's 907 157 m northing would have been added to the
+ *     vertical axis.
+ *
+ * The offset is now read from `wasmRtcOffset` (falling back to `originShift`)
+ * and **recorded rather than baked in** — see {@link GeometryIndex.frameOffset}.
+ * Baking it in would be the arithmetically obvious move and the wrong one:
+ * `IfcBuildingStorey.Elevation` is measured from the building's own datum, which
+ * is usually the very origin the kernel re-based onto, so the re-based frame is
+ * the one storey elevations are comparable with. On `Snowdon_IFC2x3.ifc` the
+ * kernel's offset (235.8644 m) IS the building datum — its storeys run
+ * −5.16…21.59 m and its geometry −4.34…23.62 m in the re-based frame, and adding
+ * the offset would have put the building 236 m above its own ground floor.
+ *
+ * Every measurement this library makes is a difference between two points in one
+ * frame, so a rigid translation cannot affect any of them. What the offset IS
+ * needed for is naming an absolute position — georeferencing, federating two
+ * models — and for that it is published rather than lost.
  *
  * ## What a "floor area" is here
  *
@@ -138,6 +178,20 @@ export interface GeometryIndex {
    * is the known limit of the rule.
    */
   planCentre: [number, number] | null
+  /**
+   * What the kernel subtracted to re-base a far-from-origin model, in the IFC
+   * frame (Z-up, metres) — `null` when it re-based nothing.
+   *
+   * Add it to any coordinate here to get the file's absolute coordinate. It is
+   * NOT applied to the geometry: see the module header for why the re-based
+   * frame is the one storey elevations are comparable with, and why every
+   * measurement is a difference and therefore indifferent to it.
+   *
+   * A non-`null` value is also the honest answer to "is this model far from the
+   * origin" — `Trapelo_Design_Intent.ifc` and `Snowdon_IFC2x3.ifc` both are, by
+   * 220 km and 418 km respectively, and nothing else in the index says so.
+   */
+  frameOffset: Vec3 | null
   stats: {
     elementsWithGeometry: number
     /** Entities the kernel produced meshes for that no graph node claims. */
@@ -240,11 +294,25 @@ export async function runGeometryPass(
   let totalTriangles = 0
   let retained = 0
   let truncated = false
-  let shift: Vec3 = [0, 0, 0]
+  /**
+   * The kernel's own re-basing offset, in the IFC frame — recorded, never baked
+   * into a vertex. `wasmRtcOffset` first because it is the field the WASM path
+   * actually fills; `originShift` is the batch path's, and is zero whenever the
+   * WASM path did the work.
+   */
+  let frameOffset: Vec3 | null = null
 
   for await (const event of processor.processStreaming(bytes)) {
-    const info = (event as { coordinateInfo?: { originShift?: { x: number; y: number; z: number } } }).coordinateInfo
-    if (info?.originShift) shift = [info.originShift.x, info.originShift.y, info.originShift.z]
+    const info = (event as {
+      coordinateInfo?: {
+        originShift?: { x: number; y: number; z: number }
+        wasmRtcOffset?: { x: number; y: number; z: number }
+      }
+    }).coordinateInfo
+    const reported = info?.wasmRtcOffset ?? info?.originShift
+    if (reported && (reported.x !== 0 || reported.y !== 0 || reported.z !== 0)) {
+      frameOffset = [reported.x, reported.y, reported.z]
+    }
     options.onProgress?.('geometry', null)
 
     // The stream is a union — `start`, progress and batch events — and only the
@@ -287,9 +355,9 @@ export async function runGeometryPass(
       const vertexCount = positions.length / 3
       const world = new Float64Array(vertexCount * 3)
       for (let v = 0; v < vertexCount; v++) {
-        const kx = positions[v * 3]! + origin[0]! + shift[0]
-        const ky = positions[v * 3 + 1]! + origin[1]! + shift[1]
-        const kz = positions[v * 3 + 2]! + origin[2]! + shift[2]
+        const kx = positions[v * 3]! + origin[0]!
+        const ky = positions[v * 3 + 1]! + origin[1]!
+        const kz = positions[v * 3 + 2]! + origin[2]!
         const x = kx
         const y = -kz
         const z = ky
@@ -373,6 +441,7 @@ export async function runGeometryPass(
     elements,
     bounds: hasBounds ? bounds : null,
     planCentre: hasBounds ? [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2] : null,
+    frameOffset,
     stats: {
       elementsWithGeometry: elements.size,
       unmatched,
