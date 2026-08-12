@@ -9,7 +9,7 @@
  */
 import { describe, expect, it, beforeAll } from 'vitest'
 import { fileURLToPath } from 'node:url'
-import { GraphCache } from '../src/cache.js'
+import { SpatialCache } from '../src/model.js'
 import { createTools, type ToolDef } from '../src/mcp/tools.js'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/haus-mit-raeumen.ifc', import.meta.url))
@@ -21,7 +21,7 @@ describe('mcp tools', () => {
   const call = (name: string, args: Record<string, unknown> = {}) => tools.get(name)!.handler(args)
 
   beforeAll(async () => {
-    tools = new Map(createTools(new GraphCache()).map((t) => [t.name, t]))
+    tools = new Map(createTools(new SpatialCache()).map((t) => [t.name, t]))
     const opened = (await call('open_model', { path: FIXTURE })) as { model: string }
     model = opened.model
   })

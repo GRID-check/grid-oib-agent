@@ -80,6 +80,17 @@ export interface ElementGeometry {
   dominant: Plane | null
   triangleCount: number
   /**
+   * Whether the surface-derived measures above were computed from the element's
+   * COMPLETE geometry.
+   *
+   * `false` means retention was capped before this element, so `floorArea`,
+   * `surfaceArea`, `facade` and `dominant` are withheld (`0` / `null`) and must
+   * not be read as measurements. `box` and `centroid` stay valid either way:
+   * they are accumulated from every vertex the kernel produced, before any
+   * retention decision.
+   */
+  complete: boolean
+  /**
    * World-space triangles, 9 floats each, in the file's frame.
    *
    * Retained because ray casts, prisms and obstruction tests need real surfaces
@@ -116,8 +127,19 @@ export interface GeometryOptions {
    * Ceiling on retained triangles across the model.
    *
    * 2 million is roughly 150 MB of float64 and covers a large single building.
-   * Past it the boxes, areas and planes are still exact — only the surface
-   * tests lose resolution, and `trianglesTruncated` says so.
+   *
+   * Past it, elements are dropped WHOLE. This used to be a per-mesh decision
+   * while the derived measures were per element, so an element whose first mesh
+   * was kept and whose second was dropped reported a floor area computed from
+   * half a solid — as a plain number, with `triangleCount` still reporting the
+   * full count and nothing on the element saying anything was missing. A
+   * confidently wrong area is the exact failure this library exists to prevent,
+   * and it would have appeared only on models large enough that nobody checks
+   * by hand.
+   *
+   * Now an element either has all its triangles or none, and one that has none
+   * carries `complete: false` with its areas and planes withheld rather than
+   * approximated.
    */
   maxRetainedTriangles?: number
   onProgress?: (phase: string, percent: number | null) => void
@@ -166,6 +188,7 @@ export async function runGeometryPass(
     vertexCount: number
     triangles: number[]
     triangleCount: number
+    abandoned: boolean
   }
   const accumulators = new Map<string, Accumulator>()
   let unmatched = 0
@@ -206,6 +229,7 @@ export async function runGeometryPass(
           vertexCount: 0,
           triangles: [],
           triangleCount: 0,
+          abandoned: false,
         }
         accumulators.set(globalId, acc)
       }
@@ -243,7 +267,14 @@ export async function runGeometryPass(
       acc.triangleCount += triangleCount
       totalTriangles += triangleCount
 
-      if (retained + triangleCount <= maxTriangles) {
+      // All-or-nothing per element. Once an element has been abandoned it stays
+      // abandoned even if a later mesh of it would fit, because a solid built
+      // from the meshes that happened to fit is not the solid.
+      if (acc.abandoned || retained + triangleCount > maxTriangles) {
+        acc.abandoned = true
+        acc.triangles.length = 0
+        truncated = true
+      } else {
         for (let t = 0; t < indices.length; t += 3) {
           for (let corner = 0; corner < 3; corner++) {
             const base = indices[t + corner]! * 3
@@ -251,8 +282,6 @@ export async function runGeometryPass(
           }
         }
         retained += triangleCount
-      } else {
-        truncated = true
       }
     }
   }
@@ -262,7 +291,8 @@ export async function runGeometryPass(
 
   for (const [globalId, acc] of accumulators) {
     if (acc.vertexCount === 0) continue
-    const triangles = acc.triangles.length > 0 ? Float64Array.from(acc.triangles) : null
+    const complete = !acc.abandoned && acc.triangles.length > 0
+    const triangles = complete ? Float64Array.from(acc.triangles) : null
     const measures = triangles ? measureTriangles(triangles) : null
 
     elements.set(globalId, {
@@ -282,6 +312,7 @@ export async function runGeometryPass(
       facade: measures?.facade ?? null,
       dominant: measures?.dominant ?? null,
       triangleCount: acc.triangleCount,
+      complete,
       triangles,
     })
 

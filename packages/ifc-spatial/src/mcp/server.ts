@@ -24,18 +24,18 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { GraphCache } from '../cache.js'
+import { SpatialCache } from '../model.js'
 import { createTools, type ToolDef } from './tools.js'
 
 export interface ServerOptions {
   /** Share a cache across servers, or let each own one. */
-  cache?: GraphCache
+  cache?: SpatialCache
   name?: string
   version?: string
 }
 
 export function createSpatialServer(options: ServerOptions = {}): { server: Server; tools: ToolDef[] } {
-  const cache = options.cache ?? new GraphCache()
+  const cache = options.cache ?? new SpatialCache()
   const tools = createTools(cache)
   const byName = new Map(tools.map((tool) => [tool.name, tool]))
 

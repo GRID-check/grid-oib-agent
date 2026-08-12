@@ -27,7 +27,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import type { GraphCache } from '../cache.js'
+import type { SpatialCache, SpatialModel } from '../model.js'
 import type { Answer } from '../envelope.js'
 import type { BuildingGraph } from '../graph/types.js'
 import { node as findNode } from '../graph/types.js'
@@ -47,6 +47,8 @@ import {
 } from '../operators/topology.js'
 import { toRef, toRefs, type ElementRef } from '../operators/refs.js'
 import { inventory, renderBriefing, storeyHeights } from '../operators/model.js'
+import { azimuth, clearHeight, distance, elevation, extent, floorArea, sillAndHead } from '../operators/metric.js'
+import type { GeometryIndex } from '../geometry/pass.js'
 
 /** JSON-Schema-shaped input description. Deliberately plain objects. */
 export interface ToolDef {
@@ -88,16 +90,51 @@ const RELATION_FN: Record<RelationName, (graph: BuildingGraph, id: string) => An
   elementsOfStorey,
 }
 
-export function createTools(cache: GraphCache): ToolDef[] {
+/** The measurements `measure` exposes, and what each one answers. */
+const MEASURES = {
+  extent: 'Abmessungen und Schwerpunkt: Breite, Tiefe, Höhe, Mittelpunkt.',
+  floorArea: 'Bodenfläche aus der Geometrie — auch wenn das Modell keine Raumfläche deklariert.',
+  sillAndHead: 'Brüstungs- und Sturzhöhe eines Fensters oder einer Tür über SEINEM Geschoß.',
+  elevation: 'Unter- und Oberkante, absolut und über dem eigenen Geschoß.',
+  clearHeight: 'Höhe des Raumkörpers (nicht die lichte Höhe unter Unterzügen).',
+  azimuth: 'Himmelsrichtung der Fassadenebene. Ohne TrueNorth in der Datei nicht entscheidbar.',
+} as const
+
+type MeasureName = keyof typeof MEASURES
+
+export function createTools(cache: SpatialCache): ToolDef[] {
   /**
    * Models are addressed by the sha256 of their bytes, abbreviated the way a
    * git object is. A handle that IS the content means two uploads of the same
    * file are one model without anybody comparing filenames, and it means a
    * stale handle cannot silently resolve to a different building.
    */
-  const models = new Map<string, BuildingGraph>()
+  const models = new Map<string, SpatialModel>()
 
   function resolve(raw: unknown): BuildingGraph {
+    return resolveModel(raw).graph
+  }
+
+  /**
+   * The geometry, or a German reason there is none.
+   *
+   * Every measurement routes through here so that "this container could not run
+   * the geometry kernel" and "this element has no shape in the file" stay
+   * different sentences. Collapsing them would tell an architect their building
+   * is missing something when the truth is that our machine is.
+   */
+  function requireGeometry(raw: unknown): { model: SpatialModel; geometry: GeometryIndex } {
+    const model = resolveModel(raw)
+    if (!model.geometry) {
+      throw new Error(
+        `Für dieses Modell liegt keine Geometrie vor: ${model.geometryUnavailable ?? 'unbekannter Grund'}. ` +
+          'Topologische Fragen (relations) sind unverändert beantwortbar.'
+      )
+    }
+    return { model, geometry: model.geometry }
+  }
+
+  function resolveModel(raw: unknown): SpatialModel {
     const id = String(raw ?? '').trim().toLowerCase()
     if (!id) throw new Error('model fehlt — zuerst open_model aufrufen')
     const exact = models.get(id)
@@ -147,13 +184,21 @@ export function createTools(cache: GraphCache): ToolDef[] {
       },
       handler: async (args) => {
         const bytes = await readSource(args)
-        const graph = await cache.load(bytes)
-        models.set(graph.contentHash, graph)
+        const model = await cache.load(bytes)
+        models.set(model.contentHash, model)
         return {
-          model: short(graph.contentHash),
-          contentHash: graph.contentHash,
-          briefing: renderBriefing(graph),
-          stats: graph.stats,
+          model: short(model.contentHash),
+          contentHash: model.contentHash,
+          briefing: renderBriefing(model.graph),
+          stats: model.graph.stats,
+          geometry: model.geometry
+            ? {
+                elementsWithGeometry: model.geometry.stats.elementsWithGeometry,
+                triangles: model.geometry.stats.triangles,
+                ms: model.geometry.stats.ms,
+                truncated: model.geometry.stats.trianglesTruncated,
+              }
+            : { unavailable: model.geometryUnavailable },
         }
       },
     },
@@ -286,6 +331,83 @@ export function createTools(cache: GraphCache): ToolDef[] {
         const fn = RELATION_FN[relation]
         if (!fn) throw new Error(`relation "${relation}" gibt es nicht. Erlaubt: ${Object.keys(RELATIONS).join(', ')}`)
         return run(() => fn(graph, String(args.globalId)))
+      },
+    },
+
+    {
+      name: 'measure',
+      title: 'Maße aus der Geometrie',
+      description:
+        'Misst ein Bauteil am Modell. Diese Zahlen stammen aus der GEOMETRIE, nicht aus deklarierten ' +
+        'Eigenschaften — sie sind also auch dann verfügbar, wenn der Export keine Mengen schreibt, und ' +
+        'sie tragen immer eine Toleranz. Genau deshalb sind Raumflächen und Brüstungshöhen hier ' +
+        'beantwortbar, wo eine reine Property-Abfrage leer zurückkommt.\n\n' +
+        Object.entries(MEASURES)
+          .map(([name, meaning]) => `  ${name} — ${meaning}`)
+          .join('\n'),
+      inputSchema: {
+        type: 'object',
+        properties: {
+          model: { type: 'string' },
+          globalId: { type: 'string' },
+          measure: { type: 'string', enum: Object.keys(MEASURES) },
+        },
+        required: ['model', 'globalId', 'measure'],
+      },
+      handler: async (args) => {
+        const { model, geometry } = requireGeometry(args.model)
+        const globalId = String(args.globalId)
+        const name = String(args.measure) as MeasureName
+        return run(() => {
+          switch (name) {
+            case 'extent':
+              return extent(model.graph, geometry, globalId)
+            case 'floorArea':
+              return floorArea(model.graph, geometry, globalId)
+            case 'sillAndHead':
+              return sillAndHead(model.graph, geometry, globalId)
+            case 'elevation':
+              return elevation(model.graph, geometry, globalId)
+            case 'clearHeight':
+              return clearHeight(model.graph, geometry, globalId)
+            case 'azimuth':
+              return azimuth(model.graph, geometry, globalId)
+            default:
+              throw new Error(`measure "${name}" gibt es nicht. Erlaubt: ${Object.keys(MEASURES).join(', ')}`)
+          }
+        })
+      },
+    },
+
+    {
+      name: 'distance',
+      title: 'Abstand zwischen zwei Bauteilen',
+      description:
+        'Abstand zwischen zwei Bauteilen. mode: min (kürzester Abstand der Hüllkörper — 0, wenn sie ' +
+        'sich überschneiden), centroid, horizontal, vertical. Ein Reviewer, der eine lichte Breite ' +
+        'prüft, will horizontal; wer eine Höhe prüft, vertical. Der schräge Abstand beantwortet keines ' +
+        'von beiden.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          model: { type: 'string' },
+          a: { type: 'string' },
+          b: { type: 'string' },
+          mode: { type: 'string', enum: ['min', 'centroid', 'horizontal', 'vertical'], default: 'min' },
+        },
+        required: ['model', 'a', 'b'],
+      },
+      handler: async (args) => {
+        const { model, geometry } = requireGeometry(args.model)
+        return run(() =>
+          distance(
+            model.graph,
+            geometry,
+            String(args.a),
+            String(args.b),
+            (args.mode as 'min' | 'centroid' | 'horizontal' | 'vertical') ?? 'min'
+          )
+        )
       },
     },
 
