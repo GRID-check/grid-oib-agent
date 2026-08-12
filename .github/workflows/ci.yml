@@ -268,7 +268,7 @@ jobs:
       # Coverage is collected per shard and merged below: a shard only ever
       # loads its own slice of the app, so its coverage is meaningless alone and
       # cannot be recomputed afterwards from the others.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         # A failing shard still wrote its blob, and the merged report is where a
         # reviewer will look — without this the upload is skipped on failure and
         # the merge job silently reports on a subset.

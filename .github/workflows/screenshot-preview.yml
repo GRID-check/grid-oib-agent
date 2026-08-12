@@ -185,7 +185,7 @@ jobs:
           echo "count=$(find "$OUT" -maxdepth 1 -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
           ls -la "$OUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: upload
         with:
           name: screenshot-previews
