@@ -573,26 +573,15 @@ export async function uploadDocument(
     status: 'uploaded',
   })
 
-  // An IFC model does NOT go to the ingestor as-is: its STEP source would be
-  // embedded as unreadable noise. It is parsed here instead, and the Markdown
-  // digest that parse produces is what gets ingested (see `@/lib/bim/service`).
-  const { jobId: ingestJobId, status: ingestStatus } = isIfcFilename(file.name)
-    ? await beginModelExtraction({
-        organizationId: session.organizationId,
-        projectId,
-        documentId,
-        filename: file.name,
-        storageKey,
-        storageBucket,
-        collectionName,
-      })
-    : await dispatchIngest(
-        documentId,
-        collectionName,
-        storageKey,
-        session.organizationId,
-        storageBucket,
-      )
+  const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId,
+    documentId,
+    filename: file.name,
+    storageKey,
+    storageBucket,
+    collectionName,
+  })
 
   // Data-provenance event: who brought which file into which project.
   await recordAuditEvent({
@@ -622,6 +611,47 @@ export interface BeginModelExtractionInput {
   storageKey: string
   storageBucket: string | null
   collectionName: string
+}
+
+/**
+ * What a stored object needs before anything can be started for it. Identical
+ * to {@link BeginModelExtractionInput} because the IFC branch is the one that
+ * needs more: `dispatchIngest` uses a strict subset of these fields.
+ */
+export type DispatchDocumentInput = BeginModelExtractionInput
+
+export interface DispatchDocumentResult {
+  jobId: string | null
+  /** `processing` is the IFC path — see {@link beginModelExtraction}. */
+  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+}
+
+/**
+ * The ONE place that decides what happens to a freshly-stored object: an IFC
+ * model is parsed, everything else is ingested.
+ *
+ * An IFC model must NOT go to the ingestor as-is — its STEP source would be
+ * embedded as unreadable noise. It is parsed here instead, and the Markdown
+ * digest that parse produces is what gets ingested (see `@/lib/bim/service`).
+ *
+ * That branch used to be written out at each call site — the project upload,
+ * the project re-ingest, and the org-wide Archiv upload — which made "does this
+ * caller remember that a model is not a document?" a question every new caller
+ * had to be asked. Session uploads are the third shelf (ADR-0047 Phase 2) and
+ * would have been the fourth copy. There is one copy now, so a caller cannot
+ * forget the branch: it cannot see it.
+ */
+export async function dispatchDocument(input: DispatchDocumentInput): Promise<DispatchDocumentResult> {
+  if (isIfcFilename(input.filename)) {
+    return beginModelExtraction(input)
+  }
+  return dispatchIngest(
+    input.documentId,
+    input.collectionName,
+    input.storageKey,
+    input.organizationId,
+    input.storageBucket,
+  )
 }
 
 /**
@@ -721,24 +751,17 @@ export async function reingestDocument(
   // A failed IFC document is retried by re-EXTRACTING it, not by re-dispatching
   // its bytes: the raw model was never what ingestion consumed, so handing the
   // STEP file to the ingestor here would "succeed" into a collection full of
-  // geometry noise — a green status on a model still unopenable.
-  const { jobId, status } = isIfcFilename(doc.filename)
-    ? await beginModelExtraction({
-        organizationId: session.organizationId,
-        projectId: doc.projectId,
-        documentId: doc.id,
-        filename: doc.filename,
-        storageKey: doc.storageKey,
-        storageBucket: doc.storageBucket,
-        collectionName: doc.collectionName,
-      })
-    : await dispatchIngest(
-        doc.id,
-        doc.collectionName,
-        doc.storageKey,
-        session.organizationId,
-        doc.storageBucket,
-      )
+  // geometry noise — a green status on a model still unopenable. That is
+  // `dispatchDocument`'s single branch, shared with every upload path.
+  const { jobId, status } = await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId: doc.projectId,
+    documentId: doc.id,
+    filename: doc.filename,
+    storageKey: doc.storageKey,
+    storageBucket: doc.storageBucket,
+    collectionName: doc.collectionName,
+  })
   return { id: doc.id, status, jobId }
 }
 

@@ -9,12 +9,12 @@ import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
+import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { DeleteDocumentButton } from './delete-document-button'
-import { isSettlingStatus } from './document-status'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
@@ -113,13 +113,6 @@ type OptionalWireField =
  */
 type FileView = 'cards' | 'list' | 'tree'
 
-/**
- * How often the list re-asks while something is unsettled. Matches the model
- * surfaces' extraction poll, which is sized against the same work: a model
- * takes tens of seconds, so this is a handful of requests, and none at all once
- * everything has landed.
- */
-const SETTLING_POLL_MS = 4_000
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
 export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false }: ProjectFileWorkspaceProps) {
@@ -320,48 +313,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     )
   )
 
-  /**
-   * Re-ask while anything is still being read.
-   *
-   * The list was fetched once and never again, so a document that finished
-   * indexing after the page loaded kept its "Wird gelesen…" badge until someone
-   * reloaded. For a PDF that is a stale label; for an `.ifc` it hides the only
-   * moment that matters. IFC extraction is DETACHED and has no ingest job at
-   * upload time (`beginModelExtraction` returns a null job id), so the upload
-   * orchestrator — which polls by job id — never watches a model at all. The
-   * card for a 150 MB building therefore sat at "processing" forever, on
-   * exactly the file whose payoff is "now ask it something".
-   *
-   * The poll runs only while something is unsettled and stops the moment
-   * everything is terminal, so a corpus of finished documents makes no
-   * requests. `useIngestionCompleteToast` above turns the transition it
-   * observes into the confirmation.
-   */
-  const hasSettlingFile = useMemo(
-    () => files.some((file) => isSettlingStatus(file.status)),
-    [files]
-  )
-  useEffect(() => {
-    if (!hasSettlingFile) return
-    // Chained, not `setInterval`. An interval fires again whether or not the
-    // previous refresh came back, so a slow endpoint accumulated requests and
-    // let an older response land after a newer one — overwriting a document
-    // that had just finished with its earlier "still reading" row. Scheduling
-    // the next poll only once the current one settles makes at most one in
-    // flight and puts them in order by construction.
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const tick = () => {
-      void loadFiles(true).finally(() => {
-        if (!cancelled) timer = setTimeout(tick, SETTLING_POLL_MS)
-      })
-    }
-    timer = setTimeout(tick, SETTLING_POLL_MS)
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  }, [hasSettlingFile, loadFiles])
+  // Re-ask while anything is still being read, and stop the moment everything
+  // is terminal. The Archiv workspace runs the same poll over its own loader —
+  // see `useSettlingRefresh` for why a detached `.ifc` extraction needs it.
+  useSettlingRefresh(files, loadFiles)
 
   // Refetch the corpus when an upload batch settles (covers non-orchestrated paths).
   const wasUploading = useRef(false)

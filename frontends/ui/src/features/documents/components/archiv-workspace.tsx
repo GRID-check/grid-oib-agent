@@ -8,6 +8,7 @@ import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
+import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { DeleteDocumentButton } from './delete-document-button'
@@ -56,8 +57,12 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
-  const loadDocuments = useCallback(() => {
-    setIsLoading(true)
+  /**
+   * @param quiet Refresh without the skeleton — used by the settling poll
+   *   below, which would otherwise flash the whole grid every few seconds.
+   */
+  const loadDocuments = useCallback((quiet = false) => {
+    if (!quiet) setIsLoading(true)
     setLoadError(false)
     return fetch('/api/archiv/documents')
       .then((r) => {
@@ -84,10 +89,15 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
         setFiles(docs)
       })
       .catch(() => {
+        // A failed POLL must not empty a list the user is looking at; only a
+        // foreground load owns the error state.
+        if (quiet) return
         setFiles([])
         setLoadError(true)
       })
-      .finally(() => setIsLoading(false))
+      .finally(() => {
+        if (!quiet) setIsLoading(false)
+      })
   }, [])
 
   useEffect(() => {
@@ -100,7 +110,10 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile, cancelFile, cancelUpload, dismissFiles } =
     useArchivDocuments({
       collectionName: canManage ? collectionName : undefined,
-      onComplete: loadDocuments,
+      // Wrapped rather than passed directly: `loadDocuments` takes a `quiet`
+      // flag now, and whatever the orchestrator hands its callback must not
+      // decide how this renders.
+      onComplete: () => void loadDocuments(),
     })
 
   // Surface hook errors as a transient toast (plus the persistent inline Alert).
@@ -127,6 +140,18 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       [t]
     )
   )
+
+  /*
+    Re-ask while anything is still being read.
+
+    `onComplete` fires when the BYTES land, which for an `.ifc` is the moment
+    extraction STARTS: `beginModelExtraction` returns no job id, so the upload
+    orchestrator never watches a model and nothing else here would ever ask
+    again. Without this poll every model uploaded through Archiv sat at "Wird
+    gelesen…" until the page was reloaded, and the completion toast below never
+    fired at all. Same hook, same guarantees, as the project Files workspace.
+  */
+  useSettlingRefresh(files, loadDocuments)
 
   // Refetch the durable list when an upload batch settles.
   const wasUploading = useRef(false)
@@ -234,7 +259,16 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
             <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
               <AlertCircle className="size-5 text-destructive" aria-hidden />
               <p className="text-sm text-muted-foreground text-balance">{t('workspace.loadError')}</p>
-              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadDocuments}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                // Not `onClick={loadDocuments}`: the click event would arrive as
+                // the `quiet` flag, so a retry would hide its own skeleton and
+                // swallow a second failure.
+                onClick={() => void loadDocuments()}
+              >
                 <RotateCcw className="size-3.5" aria-hidden />
                 {t('workspace.tryAgain')}
               </Button>
