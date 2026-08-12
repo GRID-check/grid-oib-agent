@@ -33,7 +33,7 @@ llamaindex = [
     "pdfplumber>=0.11.10",
     "pypdfium2>=5.12.1",
     "Pillow>=9.0.0",
-    "openai>=2.45.0",
+    "openai>=2.53.0",
     "docx2txt>=0.8",
 ]
 foundational_rag = [
