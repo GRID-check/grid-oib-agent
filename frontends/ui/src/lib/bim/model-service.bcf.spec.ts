@@ -100,6 +100,7 @@ const SESSION = {
 function model(overrides: Partial<BimModelHeader> & Pick<BimModelHeader, 'id' | 'filename'>): BimModelHeader {
   return {
     documentId: `doc-${overrides.id}`,
+    displayName: null,
     projectId: 'proj-1',
     status: 'ready',
     schemaVersion: 'IFC4',

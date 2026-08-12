@@ -20,6 +20,7 @@ const BASE: BimModelHeaderView = {
   documentId: 'doc-v2',
   projectId: 'p1',
   filename: 'haus-a_V2.ifc',
+  displayName: null,
   status: 'ready',
   schemaVersion: 'IFC4',
   elementCount: 120,

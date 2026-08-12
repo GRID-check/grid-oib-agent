@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
+import { documentDisplayName } from '@/lib/documents/display-name'
 import { inferDocumentKind } from '../document-kind'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { FileCard } from './file-card'
@@ -102,7 +103,9 @@ export function ArchivLibraryPane({
         return false
       }
       if (!q) return true
+      // Both names — see the same filter in `file-browser-pane`.
       return (
+        documentDisplayName(f).toLowerCase().includes(q) ||
         f.filename.toLowerCase().includes(q) ||
         (f.summary ?? '').toLowerCase().includes(q) ||
         (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))

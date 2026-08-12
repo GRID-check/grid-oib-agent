@@ -390,6 +390,7 @@ describe('IfcModelCompare', () => {
       documentId: 'doc-v1',
       projectId: 'p1',
       filename: 'haus-a-v1.ifc',
+      displayName: null,
       status: 'ready' as const,
       schemaVersion: 'IFC4',
       elementCount: 40,
