@@ -306,7 +306,22 @@ export function project(
   let outlineMode = false
 
   if (view === 'section') {
-    drawn = sectionElements(drawable, frame, sliceDepth, extent)
+    // A section is the cut PLUS what stands behind it. Drawing only the cut
+    // produced exactly what it sounds like: fragments floating in white, a
+    // roof band over a slab bar with nothing to say how they relate. Every
+    // real Schnitt carries the view beyond the plane in a lighter weight, and
+    // that background is most of what makes it legible as a building.
+    //
+    // The background is the ordinary filled projection of everything on the far
+    // side of the plane, demoted to `context` so it can never compete with the
+    // cut. It is emitted FIRST so the cut draws over it.
+    const beyond = drawable
+      .filter(({ geo }) => farSideOf(geo, frame.plane!))
+      .map((d) => ({ ...d, role: 'context' as Role }))
+    const background = (beyond.length > 0 ? fillElements(beyond, frame, extent, widthPx, MAX_DRAWN_TRIANGLES) ?? [] : []).map(
+      (d) => ({ ...d, beyond: true })
+    )
+    drawn = [...background, ...sectionElements(drawable, frame, sliceDepth, extent)]
     // Both halves of the cut count. This read `d.lines` alone, which was right
     // while a section could only ever produce open polylines and became wrong
     // the moment closed rings started going to `d.polys` instead: a section
@@ -635,6 +650,30 @@ interface DrawnElement {
   polys: number[][]
   /** True for elements produced by a section cut — they carry poché. */
   cut?: boolean
+  /**
+   * True for the faint layer drawn BEHIND a section's cut.
+   *
+   * An element both cut by the plane and extending past it is drawn twice, and
+   * the two drawings mean different things: one is its cut profile, the other
+   * its silhouette beyond. Both carry the element's `data-id`, so without a
+   * second marker a consumer asking "where is this window in the drawing"
+   * silently gets whichever came first — which is the background, and is the
+   * wrong shape. `data-layer="beyond"` is how they are told apart.
+   */
+  beyond?: boolean
+  /**
+   * Silhouette edges of a filled projection: the edges belonging to exactly ONE
+   * projected triangle.
+   *
+   * Filled views used to stroke every triangle, so the tessellation showed
+   * through — a wall in elevation came out as a cat's cradle of diagonals and a
+   * room in plan as a rectangle with an X through it. Nothing about the
+   * building; entirely about how the kernel happened to triangulate it. Filling
+   * without a stroke and outlining only the edges that bound the shape draws
+   * the element instead of its mesh, and keeps the holes (a window opening's
+   * edges are shared by no second triangle either).
+   */
+  outline?: number[][]
   /** Open polylines, flat `[u, v, u, v, …]` — sections only. */
   lines: number[][]
   /** True when the shape shown is the bounding box, not the element. */
@@ -677,7 +716,7 @@ function fillElements(
 
     if (geo.triangles) {
       const t = geo.triangles
-      const ordered: Array<{ ring: number[]; depth: number }> = []
+      const ordered: Array<{ ring: number[]; depth: number; front: boolean }> = []
       for (let i = 0; i < t.length; i += 9) {
         const u1 = frame.toU(t[i]!, t[i + 1]!, t[i + 2]!)
         const v1 = frame.toV(t[i]!, t[i + 1]!, t[i + 2]!)
@@ -685,11 +724,20 @@ function fillElements(
         const v2 = frame.toV(t[i + 3]!, t[i + 4]!, t[i + 5]!)
         const u3 = frame.toU(t[i + 6]!, t[i + 7]!, t[i + 8]!)
         const v3 = frame.toV(t[i + 6]!, t[i + 7]!, t[i + 8]!)
-        const area = Math.abs((u2 - u1) * (v3 - v1) - (u3 - u1) * (v2 - v1)) / 2
+        const signed = ((u2 - u1) * (v3 - v1) - (u3 - u1) * (v2 - v1)) / 2
+        const area = Math.abs(signed)
         if (area < minArea) continue
         if (++total > budget) return null
+        // Wound consistently, so the non-zero fill below UNIONS the triangles
+        // instead of cancelling them. Under `evenodd` a closed solid's front
+        // and back faces overlap exactly and annihilate — the fill came out
+        // empty and only the per-triangle strokes made the element visible,
+        // which is why removing those strokes appeared to delete the wall.
+        // Winding out of the kernel is unreliable, so it is imposed here rather
+        // than trusted.
         ordered.push({
-          ring: [u1, v1, u2, v2, u3, v3],
+          front: signed > 0,
+          ring: signed < 0 ? [u1, v1, u3, v3, u2, v2] : [u1, v1, u2, v2, u3, v3],
           depth: Math.max(
             frame.depth(t[i]!, t[i + 1]!, t[i + 2]!),
             frame.depth(t[i + 3]!, t[i + 4]!, t[i + 5]!),
@@ -697,6 +745,57 @@ function fillElements(
           ),
         })
       }
+      // Which edges bound the projected shape, given what can actually be
+      // trusted about this mesh.
+      //
+      // Two rules were tried and both are wrong here, for reasons worth keeping:
+      //
+      //   - **Parity** ("an edge shared by two triangles is interior") fails
+      //     under projection. A closed solid projects its front and back faces
+      //     onto the same area, so every edge pairs up and cancels — applying
+      //     it erased a wall entirely and left three lines where a window was.
+      //   - **Facing** (the classic silhouette test: an edge between a
+      //     front-facing and a back-facing triangle) needs reliable winding, and
+      //     `pass.ts` states in its own contract that this kernel's winding is
+      //     unreliable because its meshes are double-sided by design. It left
+      //     long diagonals across the wall, because which of a face's two
+      //     triangles counts as "front" is a coin toss.
+      //
+      // What is left that is TRUE: an edge used exactly once belongs to an open
+      // boundary. For a closed solid that yields no outline at all, and the
+      // fill alone defines the shape — which is correct, and is why the fill is
+      // no longer stroked per triangle. A crisp outline for closed solids needs
+      // a real union of the projected polygons; that is a polygon-clipping
+      // problem and deliberately not solved here rather than approximated with
+      // a rule that is wrong in ways a reader cannot see.
+      //
+      // Keys are quantised to a millimetre so two triangles meeting at a shared
+      // vertex agree despite float error — finer than any feature of a
+      // building, coarser than the noise.
+      const edges = new Map<string, { seg: [number, number, number, number]; pos: boolean; neg: boolean; count: number }>()
+      for (const { ring, front } of ordered) {
+        for (let e = 0; e < 3; e++) {
+          const ax = ring[e * 2]!
+          const ay = ring[e * 2 + 1]!
+          const bx = ring[((e + 1) % 3) * 2]!
+          const by = ring[((e + 1) % 3) * 2 + 1]!
+          const ka = `${Math.round(ax * 1000)},${Math.round(ay * 1000)}`
+          const kb = `${Math.round(bx * 1000)},${Math.round(by * 1000)}`
+          const key = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`
+          const found = edges.get(key)
+          if (found) {
+            found.count++
+            if (front) found.pos = true
+            else found.neg = true
+          } else {
+            edges.set(key, { seg: [ax, ay, bx, by], pos: front, neg: !front, count: 1 })
+          }
+        }
+      }
+      element.outline = [...edges.values()]
+        .filter((e) => e.count === 1)
+        .map((e) => [e.seg[0], e.seg[1], e.seg[2], e.seg[3]])
+
       // Within one element, nearest to the viewer draws last. Between elements
       // the same is done by `depth` at emit time.
       ordered.sort((a, b) => a.depth - b.depth)
@@ -969,6 +1068,26 @@ function chain(segments: Array<[number, number, number, number]>): number[][] {
 
 // ── little geometry ─────────────────────────────────────────────────────────
 
+/**
+ * Whether any part of an element lies BEYOND the cut plane — the half a section
+ * looks into.
+ *
+ * Box-based on purpose: this only decides whether an element joins the
+ * background layer, and an element straddling the plane belongs there too (its
+ * far half is visible behind its own cut).
+ */
+function farSideOf(geo: ElementGeometry, plane: { normal: Vec3; offset: number }): boolean {
+  let max = -Infinity
+  for (let c = 0; c < 8; c++) {
+    const x = c & 1 ? geo.box.max[0] : geo.box.min[0]
+    const y = c & 2 ? geo.box.max[1] : geo.box.min[1]
+    const z = c & 4 ? geo.box.max[2] : geo.box.min[2]
+    const d = x * plane.normal[0] + y * plane.normal[1] + z * plane.normal[2] - plane.offset
+    if (d > max) max = d
+  }
+  return max > 0
+}
+
 /** The eight box corners, projected — flat `[u, v, …]`. */
 function projectBox(box: Box, frame: Frame): number[] {
   const points: number[] = []
@@ -1226,10 +1345,37 @@ function pathFor(element: DrawnElement, layout: Layout): string {
 
   const rings = element.polys.map((ring) => ringPath(ring, true)).join('')
   if (rings) {
+    // A filled projection is stroked ONLY where it has a silhouette. Stroking
+    // every triangle drew the tessellation instead of the element; leaving the
+    // fill unstroked and outlining the boundary separately draws the shape the
+    // mesh represents. A section keeps its stroke on the rings themselves,
+    // because there the ring IS the cut line and there is no interior edge to
+    // suppress.
+    const strokeRings = element.cut || !element.outline
+    // `evenodd` is right for a SECTION, where a ring inside a ring is a hole in
+    // the cut face. It is wrong for a filled projection, where overlapping
+    // triangles are the same material seen twice and must union.
+    const fillRule = element.cut ? 'evenodd' : 'nonzero'
     out.push(
-      `<path d="${rings}" fill="${style.colour}" fill-opacity="${fillOpacity}" fill-rule="evenodd" ` +
-        `stroke="${style.colour}" stroke-width="${n(style.strokePx * cutWeight * layout.unitsPerPx)}" ` +
-        `stroke-opacity="${Math.max(style.strokeOpacity, element.cut ? 0.95 : style.strokeOpacity)}" data-id="${id}"/>`
+      `<path d="${rings}" fill="${style.colour}" fill-opacity="${fillOpacity}" fill-rule="${fillRule}" ` +
+        (strokeRings
+          ? `stroke="${style.colour}" stroke-width="${n(style.strokePx * cutWeight * layout.unitsPerPx)}" ` +
+            `stroke-opacity="${Math.max(style.strokeOpacity, element.cut ? 0.95 : style.strokeOpacity)}" `
+          : 'stroke="none" ') +
+        (element.beyond ? 'data-layer="beyond" ' : '') +
+        `data-id="${id}"/>`
+    )
+  }
+
+  if (element.outline && element.outline.length > 0 && !element.cut) {
+    const d = element.outline.map((e) => `M${pt(e[0]!, e[1]!)}L${pt(e[2]!, e[3]!)}`).join('')
+    out.push(
+      `<path d="${d}" fill="none" stroke="${style.colour}" ` +
+        `stroke-width="${n(style.strokePx * 1.6 * layout.unitsPerPx)}" ` +
+        // The role's own opacity, not a floor. A floor of 0.75 here drew a
+        // context element's outline as strongly as the subject's and flattened
+        // the whole hierarchy — the thing `context` exists to avoid.
+        `stroke-opacity="${style.strokeOpacity}"/>`
     )
   }
 
@@ -1374,13 +1520,34 @@ function scaleBarSvg(layout: Layout): string[] {
   const [vx, vy, , vh] = layout.viewBox
   const x0 = vx + layout.fontSize * 0.5
   const y = vy + vh - layout.fontSize * (1.2 + layout.captions.length * 1.25)
-  const x1 = x0 + layout.scaleBarMetres
-  const tick = layout.fontSize * 0.35
+  const total = layout.scaleBarMetres
+  const x1 = x0 + total
   const stroke = n(1.2 * layout.unitsPerPx)
+  const height = layout.fontSize * 0.42
+
+  // A bare line with "2 m" under one end does not say what it means — it reads
+  // as a label on something, and the first person shown one asked what the 2 m
+  // referred to. A chequered bar is the convention every map and drawing uses
+  // precisely because it needs no caption: alternating segments make it obvious
+  // that the LENGTH is the quantity, "0" fixes where the measurement starts,
+  // and the ratio spells out the same fact in the other notation.
+  const segments = 4
+  const step = total / segments
+  const bars: string[] = []
+  for (let i = 0; i < segments; i++) {
+    const from = x0 + i * step
+    bars.push(
+      `<path d="M${pt(from, y - height)}L${pt(from + step, y - height)}L${pt(from + step, y)}L${pt(from, y)}Z" ` +
+        `fill="${i % 2 === 0 ? INK.furniture : 'none'}" fill-opacity="${i % 2 === 0 ? 0.75 : 0}" ` +
+        `stroke="${INK.furniture}" stroke-width="${stroke}"/>`
+    )
+  }
+
   return [
-    `<path d="M${pt(x0, y - tick)}L${pt(x0, y + tick)}M${pt(x0, y)}L${pt(x1, y)}M${pt(x1, y - tick)}L${pt(x1, y + tick)}" ` +
-      `fill="none" stroke="${INK.furniture}" stroke-width="${stroke}"/>`,
-    textSvg(x0, y + layout.fontSize * 1.15, `${fmtMetres(layout.scaleBarMetres)} m`, INK.furniture, layout, 'start'),
+    ...bars,
+    textSvg(x0, y + layout.fontSize * 1.05, '0', INK.furniture, layout, 'middle'),
+    textSvg(x1, y + layout.fontSize * 1.05, `${fmtMetres(total)} m`, INK.furniture, layout, 'middle'),
+    textSvg(x1 + layout.fontSize * 0.9, y - height * 0.1, layout.scale.replace(/\s*\(.*\)$/, ''), INK.furniture, layout, 'start'),
   ]
 }
 

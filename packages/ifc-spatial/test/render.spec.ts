@@ -78,7 +78,10 @@ function paths(svg: string): DrawnPath[] {
 }
 
 function byId(svg: string, id: string): DrawnPath {
-  const found = paths(svg).find((p) => p.id === id)
+  // Never the background layer. In a section an element that is both cut and
+  // extends past the plane is drawn twice under one id, and the cut is the one
+  // a question about "this element in this drawing" means.
+  const found = paths(svg).find((p) => p.id === id && !p.raw.includes('data-layer="beyond"'))
   if (!found) throw new Error(`no path for ${id}`)
   return found
 }
@@ -338,7 +341,17 @@ describe('project() on Ifc4_SampleHouse.ifc', () => {
 
       // Chaining did something: far fewer polylines than segments, or the
       // endpoint matching silently failed and every segment stands alone.
-      const polylines = paths(view.svg).reduce((sum, p) => sum + subpaths(p.d), 0)
+      //
+      // Counted over the CUT paths only. A section now also draws everything
+      // beyond the plane as a faint filled background — which is what makes it
+      // read as a building rather than as fragments floating in white — and
+      // those fills are one subpath per triangle by construction. Including
+      // them measured the tessellator instead of the chaining, and would go on
+      // "failing" however well the chaining worked.
+      const cutPaths = paths(view.svg).filter((p) => p.raw.includes('fill="none"'))
+      const polylines = cutPaths.reduce((sum, p) => sum + subpaths(p.d), 0)
+      const cutSegments = cutPaths.reduce((sum, p) => sum + subpaths(p.d), 0)
+      expect(cutSegments).toBeGreaterThan(0)
       expect(polylines).toBeLessThan(segments(view.svg) / 3)
 
       // Cut material is filled; profiles the mesh left open are not.
@@ -350,7 +363,7 @@ describe('project() on Ifc4_SampleHouse.ifc', () => {
       // encloses the same region whichever way round it is walked, and it is
       // exactly the material the plane passed through. Refusing to fill it
       // turned every section into a wireframe of fragments.
-      const drawn = paths(view.svg).filter((q) => q.id !== null)
+      const drawn = paths(view.svg).filter((q) => q.id !== null && !q.raw.includes('data-layer="beyond"'))
       const closed = drawn.filter((p) => p.d.includes('Z'))
       const open = drawn.filter((p) => !p.d.includes('Z'))
       expect(closed.length).toBeGreaterThan(0)
