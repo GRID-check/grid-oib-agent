@@ -69,22 +69,60 @@ class BimQueryRejectedError(ValueError):
     """
 
 
+def _issue_summary(details: Any) -> str:
+    """`query.filter.filters: Unrecognized key(s) …` for the first few issues.
+
+    The BFF's top-level text for a schema failure is the generic "Invalid
+    request body"; everything a caller can act on is in the Zod issue list —
+    which key it did not recognise, which operator needs a number.
+
+    Only ``path`` and ``message`` are read, and never ``received``/``input``:
+    a message is either Zod's own (naming the key the CALLER invented) or one
+    of this schema's four hand-written ones, none of which interpolate a
+    value. A value in a property filter is a value out of the tenant's model
+    and does not belong in a log line or an agent's context.
+    """
+    if not isinstance(details, list):
+        return ""
+    parts: list[str] = []
+    for issue in details[:3]:
+        if not isinstance(issue, dict):
+            continue
+        message = issue.get("message")
+        if not isinstance(message, str) or not message:
+            continue
+        path = issue.get("path")
+        where = ".".join(str(step) for step in path) if isinstance(path, list) else ""
+        parts.append(f"{where}: {message}" if where else message)
+    return "; ".join(parts)[:300]
+
+
 def _rejection_message(exc: urllib.error.HTTPError) -> str:
     """The endpoint's own explanation of why it refused, or a bare status.
 
-    Only the `message` field, and only when it is a short string: the rest of
-    an error body is not written for the agent, and a validation issue list can
-    carry a value the caller sent — which for a property filter is a value from
-    the tenant's model.
+    The envelope is ``{error, code, details}`` — see `errorResponse` in
+    `lib/api/handler.ts`. It was read as ``message``, a key the BFF has never
+    emitted, so every 4xx degraded to the bare status and the whole point of
+    :class:`BimQueryRejectedError` was lost: the deliberate, correctable texts
+    ("gt/gte/lt/lte need a numeric value", the unrecognised filter key named
+    by `.strict()`) reached the agent as "the query was refused (400)".
     """
     try:
         body = json.loads(exc.read().decode("utf-8", errors="replace"))
     except Exception:  # noqa: BLE001 — an unreadable body is just no message
         return f"the query was refused ({exc.code})"
-    message = body.get("message") if isinstance(body, dict) else None
-    if isinstance(message, str) and 0 < len(message) <= 300:
-        return message
-    return f"the query was refused ({exc.code})"
+    if not isinstance(body, dict):
+        return f"the query was refused ({exc.code})"
+
+    # `message` is accepted as a fallback so this keeps working if the envelope
+    # ever grows one; `error` is what it actually carries today.
+    headline = body.get("error") or body.get("message")
+    headline = headline if isinstance(headline, str) and 0 < len(headline) <= 300 else ""
+    issues = _issue_summary(body.get("details"))
+
+    if headline and issues:
+        return f"{headline} — {issues}"
+    return headline or issues or f"the query was refused ({exc.code})"
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):

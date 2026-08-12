@@ -20,6 +20,7 @@ import {
   type BimElementRow,
   type BimModelRow,
 } from '@/lib/db/schema'
+import { ifcTypeVariants } from './rules'
 import { buildSearchKeys, buildStoredRuleInputs } from './rule-inputs'
 import type { StoredRuleInputs } from './rule-inputs'
 import { BIM_ELEMENTS_PAGE_LIMIT } from './types'
@@ -611,7 +612,11 @@ export async function aggregateBimElements(input: {
       })
       .from(bimElements)
       .where(predicate)
-      .orderBy(desc(count()))
+      // The count first, then the key, so the cut is REPRODUCIBLE. Postgres
+      // breaks a tie however the plan happens to fall, so two runs of the same
+      // Flächenaufstellung could return different groups at the boundary and
+      // the reader saw a table that changed under a refresh.
+      .orderBy(desc(count()), asc(sql`1`))
       // One more than asked for, so the caller can tell a full page from a
       // complete answer. A thirty-storey building grouped by storey returned
       // the top 25 and read as the whole Flächenaufstellung; five storeys were
@@ -712,8 +717,17 @@ export async function listBimPropertyCatalog(input: {
 }): Promise<BimPropertyCatalog> {
   const db = getDb()
   const maxValues = Math.min(Math.max(1, Math.trunc(input.maxValues)), 50)
+  // Every spelling of the requested type, the way every other type predicate
+  // in this feature does it. An exact match meant an IFC4 export whose walls
+  // are `IfcWallStandardCase` answered `properties` with `total: 0`, `complete`
+  // then read `true`, and the summary said "Das Modell enthält keine Property
+  // Sets" — after which the agent invents property names, which is the precise
+  // failure this catalog exists to prevent.
   const typeFilter = input.ifcType
-    ? sql`AND lower(e.ifc_type) = lower(${input.ifcType})`
+    ? sql`AND lower(e.ifc_type) IN (${sql.join(
+        ifcTypeVariants(input.ifcType).map((variant) => sql`${variant}`),
+        sql`, `
+      )})`
     : sql``
   const tenantScope = sql`
     EXISTS (
@@ -738,7 +752,14 @@ export async function listBimPropertyCatalog(input: {
       elements: Number(row.elements),
     }))
     const total = types.reduce((sum, type) => sum + type.elements, 0)
-    if (total === 0) return { entries: [], scanned: 0, total: 0, complete: true }
+    if (total === 0) {
+      // `complete: false` when a TYPE FILTER found nothing. "This model
+      // publishes no property sets" and "no element of the type you named is
+      // in this model" are different answers, and only one of them is about
+      // the model's property sets. Reporting the first for the second is how
+      // the agent ends up inventing names.
+      return { entries: [], scanned: 0, total: 0, complete: !input.ifcType }
+    }
 
     const perType =
       total <= PROPERTY_CATALOG_SCAN_LIMIT
@@ -859,7 +880,17 @@ export async function loadBimElementsForComparison(
       .select()
       .from(bimElements)
       .where(elementScope(modelId, organizationId))
-      .orderBy(asc(bimElements.expressId))
+      // By GlobalId, NOT by expressId.
+      //
+      // Express ids are re-assigned on every export — that is the whole reason
+      // `compare.ts` matches on GlobalId — so two revisions ordered by
+      // expressId and cut at the same limit are two DIFFERENT slices of the
+      // building. Every element in one window but not the other then reads as
+      // added or removed, and `counts.added` / `counts.removed` become
+      // artifacts of the cap presented as precise integers. Ordering both
+      // sides by the id they are matched on makes the two windows the same
+      // slice of the same id space.
+      .orderBy(asc(bimElements.globalId))
       // One more than asked for, so "was there more" is answered by the query
       // rather than guessed from whether the page came back full.
       .limit(bounded + 1)

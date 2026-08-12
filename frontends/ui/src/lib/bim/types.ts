@@ -210,6 +210,24 @@ export { DEFAULT_MAX_IFC_BYTES, maxIfcBytesFrom } from '@/shared/config/request-
  */
 export const BIM_ELEMENTS_PAGE_LIMIT = 1_000
 
+/**
+ * The largest `offset` an element page may ask for.
+ *
+ * It must stay ABOVE the extraction cap (`BIM_ELEMENT_LIMIT`, 200 000 by
+ * default and raisable by env) or the viewer's own walk breaks in the middle
+ * of a large model: it advances six pages of `BIM_ELEMENTS_PAGE_LIMIT` per
+ * round and keeps going while pages come back full, so a ceiling below the
+ * stored row count means one round gets a 400, `Promise.all` rejects, and the
+ * whole element index fails rather than returning a partial one. Selection,
+ * storey isolation and highlights all die with it.
+ *
+ * Not derived from `BIM_ELEMENT_LIMIT` directly because that constant lives in
+ * the server-only service module, and this file is read by the browser. The
+ * headroom is deliberate: raising the extraction cap must not silently
+ * reintroduce the bug.
+ */
+export const BIM_ELEMENT_OFFSET_LIMIT = 1_000_000
+
 /** True when a filename is one the IFC pipeline should handle. */
 export function isIfcFilename(filename: string): boolean {
   const lower = filename.trim().toLowerCase()

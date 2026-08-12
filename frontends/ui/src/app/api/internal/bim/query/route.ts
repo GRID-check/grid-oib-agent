@@ -95,6 +95,12 @@ export const POST = internalApiRoute(
     const candidates = await listBimModels(organizationId, {
       projectId: projectId ?? null,
       includeArchiv: true,
+      // The ceiling, not the default 50. This list is what a MODEL NAME is
+      // resolved against, and a project plus the org Archiv can hold more than
+      // fifty files — past which "Kein Modell mit dem Namen … gefunden" is a
+      // fact about the page size, and the `readable.length === 1`
+      // auto-selection below picks from a clipped list without saying so.
+      limit: 200,
     })
     // Only `ready` models can answer anything. A model still extracting is
     // reported as such below rather than filtered into silence, because "the

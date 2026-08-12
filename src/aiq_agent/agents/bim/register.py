@@ -121,7 +121,11 @@ _TOOL_DESCRIPTION = (
     "\n"
     "Every filter key is validated. An unknown key is REJECTED, not ignored — if the tool says a "
     "key was not recognised, fix the spelling and call again rather than reporting the result of "
-    "a query that never ran.\n"
+    "a query that never ran. Only 'elements', 'aggregate' and 'takeoff' take filters at all; the "
+    "rest read the whole model and refuse one rather than quietly answering a wider question.\n"
+    "\n"
+    "If a result says its figures cover only PART of the model, say so in the answer. Those are "
+    "not the building's totals and must not be presented as such.\n"
     "\n"
     "For aggregate: metric is count (default), sum, avg, min or max; sum/avg/min/max need "
     "'quantity' (e.g. NetFloorArea, NetSideArea, NetVolume). groupBy is optional. sum and avg "
@@ -288,6 +292,43 @@ def _build_query(
     if operation not in VALID_OPERATIONS:
         return f"Error: unknown operation '{operation}'. Use one of: {', '.join(sorted(VALID_OPERATIONS))}."
 
+    parsed_filters: dict[str, Any] = {}
+    if filters.strip():
+        try:
+            candidate = json.loads(filters)
+        except json.JSONDecodeError:
+            return 'Error: \'filters\' must be a JSON object, e.g. {"ifcTypes": ["IfcWall"]}.'
+        if not isinstance(candidate, dict):
+            return "Error: 'filters' must be a JSON object, not a list or scalar."
+        parsed_filters = candidate
+
+    # Operations that read the WHOLE model and take no element filter.
+    #
+    # The tool description promises "every filter key is validated; an unknown
+    # key is REJECTED, not ignored", and for these the filter was not validated
+    # at all — it was dropped. `operation='schedule', filters={"storeys":
+    # ["Erdgeschoss"]}` returned the entire building's Raumbuch, and the agent
+    # presented it as the ground floor's. Saying no is the only answer that
+    # does not put a wrong number in front of someone.
+    _WHOLE_MODEL_OPS = {
+        "overview": "eine Zusammenfassung des ganzen Modells",
+        "types": "die Typenverteilung des ganzen Modells",
+        "health": "die Modellprüfung des ganzen Modells",
+        "schedule": "das Raumbuch des ganzen Modells",
+        "profile": "die aus dem ganzen Modell ableitbaren Projektangaben",
+        "compare": "einen Vergleich zweier vollständiger Stände",
+        "element": "ein einzelnes Bauteil",
+        "compliance": "eine Prüfung des ganzen Modells gegen den Regelkatalog",
+        "compliance-diff": "eine Prüfung beider Stände gegen den Regelkatalog",
+        "properties": "den Merkmalskatalog des Modells (mit 'ifc_type' auf einen Typ einschränkbar)",
+    }
+    if parsed_filters and operation in _WHOLE_MODEL_OPS:
+        return (
+            f"Error: operation '{operation}' takes no filters — it returns "
+            f"{_WHOLE_MODEL_OPS[operation]}. "
+            "Use 'elements' or 'aggregate' to ask a filtered question, or drop 'filters'."
+        )
+
     if operation in {"compliance", "compliance-diff"}:
         # The rule catalogue takes project facts, not element filters. A fact
         # that was not supplied is OMITTED rather than defaulted: the rules that
@@ -298,16 +339,6 @@ def _build_query(
         if hauptnutzung.strip():
             compliance_query["hauptnutzung"] = hauptnutzung.strip().lower()
         return compliance_query
-
-    parsed_filters: dict[str, Any] = {}
-    if filters.strip():
-        try:
-            candidate = json.loads(filters)
-        except json.JSONDecodeError:
-            return 'Error: \'filters\' must be a JSON object, e.g. {"ifcTypes": ["IfcWall"]}.'
-        if not isinstance(candidate, dict):
-            return "Error: 'filters' must be a JSON object, not a list or scalar."
-        parsed_filters = candidate
 
     if operation == "overview":
         return {"op": "overview"}
@@ -566,8 +597,33 @@ def _render(
             lines.append(clipped)
 
     if result.get("truncated"):
-        lines.append("(Weitere Treffer vorhanden — Abfrage eingrenzen oder aggregieren.)")
+        lines.append(_truncation_note(op))
     return "\n".join(line for line in lines if line)
+
+
+# Ops whose `truncated` means "these figures cover part of the building",
+# not "there are more rows to page through".
+#
+# The distinction is the whole value of the flag. For `elements` and
+# `aggregate` a truncated result IS a long list, and "narrow the query" is
+# exactly right. For a Raumbuch, a Massenermittlung, a rule run or a revision
+# diff there is no list to narrow: the numbers themselves were computed over a
+# window of the model. Telling the agent to aggregate harder invites it to
+# quote a partial sum as a total — which is the failure the flag exists to
+# prevent, arrived at through the flag itself.
+_PARTIAL_MODEL_OPS = frozenset(
+    {"schedule", "takeoff", "compliance", "compliance-diff", "compare", "profile", "health"}
+)
+
+
+def _truncation_note(op: str) -> str:
+    """What a `truncated` result means, for the op that produced it."""
+    if op in _PARTIAL_MODEL_OPS:
+        return (
+            "(Achtung: diese Zahlen beziehen sich nur auf einen Teil des Modells. "
+            "Sie sind KEINE Gesamtwerte für das Gebäude — bitte im Text so kennzeichnen.)"
+        )
+    return "(Weitere Treffer vorhanden — Abfrage eingrenzen oder aggregieren.)"
 
 
 def _trace(query: dict[str, Any], result: dict[str, Any] | None, *, unavailable: bool = False) -> None:

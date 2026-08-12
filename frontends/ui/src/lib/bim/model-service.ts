@@ -264,9 +264,12 @@ async function resolveModelByName(
   projectId: string,
   name: string
 ): Promise<BimModelHeader> {
-  const models = (await listBimModels(session.organizationId, { projectId, includeArchiv: true })).filter(
-    (model) => model.status === 'ready'
-  )
+  // The ceiling, not the default page: this is name RESOLUTION, and a name
+  // that exists but sits past the 51st-newest model must not come back as
+  // "Model not found in this project".
+  const models = (
+    await listBimModels(session.organizationId, { projectId, includeArchiv: true, limit: 200 })
+  ).filter((model) => model.status === 'ready')
   const needle = name.trim().toLowerCase()
   const model =
     models.find((entry) => entry.filename.toLowerCase() === needle) ??

@@ -138,6 +138,29 @@ describe('buildRoomSchedule', () => {
     const csv = roomScheduleToCsv(buildRoomSchedule(SUMMARY, [space('Bad; WC', 'Erdgeschoss', { NetFloorArea: 6 })]))
     expect(csv).toContain('"Bad; WC"')
   })
+
+  it('does not let a room name become a formula in the spreadsheet it targets', () => {
+    // Room names come out of an uploaded IFC. A leading `=`, `+`, `-` or `@`
+    // makes Excel evaluate the cell — in the German-locale spreadsheet this
+    // export exists for, opened by whoever the Raumbuch was sent to. The
+    // apostrophe is Excel's own "this is text" marker and does not show.
+    const csv = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [space('=HYPERLINK("http://x","Bad")', 'Erdgeschoss', { NetFloorArea: 6 })])
+    )
+    expect(csv).toContain("'=HYPERLINK")
+    expect(csv).not.toMatch(/;=HYPERLINK/)
+  })
+
+  it('still writes a negative number as a number, not as text', () => {
+    // The guard is for STRINGS. A `-2.5` in a numeric column is a value the
+    // spreadsheet has to be able to sum; prefixing it would break the one
+    // thing a downloaded Raumbuch is for.
+    const csv = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [space('Keller', 'Erdgeschoss', { NetFloorArea: -2.5 })])
+    )
+    expect(csv).toContain(';-2,5;')
+    expect(csv).not.toContain("'-2,5")
+  })
 })
 
 describe('buildQuantityTakeoff', () => {

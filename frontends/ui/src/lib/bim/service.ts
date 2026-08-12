@@ -305,13 +305,28 @@ export async function deleteBimDerivedObjects(
   const keys = buildBimDerivedKeys(storageKey)
   if (!keys) return
   const bucket = resolveDocumentBucket(storageBucket)
-  const listed = await s3Client.send(
-    new ListObjectsV2Command({ Bucket: bucket, Prefix: keys.prefix, MaxKeys: 100 })
-  )
-  for (const object of listed.Contents ?? []) {
-    if (!object.Key) continue
-    await s3Client
-      .send(new DeleteObjectCommand({ Bucket: bucket, Key: object.Key }))
-      .catch(() => undefined)
-  }
+
+  // Paged to exhaustion. One `MaxKeys: 100` call silently stopped at the
+  // hundredth object, so anything past it — including the source gzip, which
+  // is the largest thing here and the one that carries the building — stayed
+  // in the bucket after the tenant had been told the document was deleted.
+  // A prefix holds a handful of objects today; "today" is not a retention
+  // guarantee.
+  let continuationToken: string | undefined
+  do {
+    const listed = await s3Client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: keys.prefix,
+        ContinuationToken: continuationToken,
+      })
+    )
+    for (const object of listed.Contents ?? []) {
+      if (!object.Key) continue
+      await s3Client
+        .send(new DeleteObjectCommand({ Bucket: bucket, Key: object.Key }))
+        .catch(() => undefined)
+    }
+    continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined
+  } while (continuationToken)
 }

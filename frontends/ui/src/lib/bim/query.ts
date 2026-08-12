@@ -67,7 +67,7 @@ import {
   type BimRoomSchedule,
 } from './schedule'
 import { healthCaveat, type BimHealth } from './validate'
-import { BIM_ELEMENTS_PAGE_LIMIT } from './types'
+import { BIM_ELEMENT_OFFSET_LIMIT, BIM_ELEMENTS_PAGE_LIMIT } from './types'
 import type { BimModelSummary, BimUnits } from './types'
 
 /** Comparison operators a property filter may use. */
@@ -212,12 +212,22 @@ const aggregateSchema = z.object({
     .object({ set: z.string().trim().min(1).max(120), name: z.string().trim().min(1).max(120) })
     .optional(),
   limit: z.number().int().min(1).max(200).default(50),
-})
+}).strict()
 
+/**
+ * Every member is `.strict()`, for the same reason the filter objects are.
+ *
+ * `bimFilterSchema.strict()` rejects an invented key one level down, and this
+ * level accepted anything: `{op: 'aggregate', filters: {...}}` — plural, which
+ * is what the agent's own tool parameter is called — had the key stripped,
+ * `filter` defaulted to `{}`, and the aggregate ran over the WHOLE model. An
+ * unfiltered number reported as a filtered one, which is precisely the failure
+ * the strictness one level down was added to prevent.
+ */
 export const bimQuerySchema = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('overview') }),
-  z.object({ op: z.literal('health') }),
-  z.object({ op: z.literal('schedule') }),
+  z.object({ op: z.literal('overview') }).strict(),
+  z.object({ op: z.literal('health') }).strict(),
+  z.object({ op: z.literal('schedule') }).strict(),
   z.object({
     op: z.literal('compliance'),
     /**
@@ -230,7 +240,7 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
      */
     gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
     hauptnutzung: z.enum(BIM_HAUPTNUTZUNG).nullish(),
-  }),
+  }).strict(),
   z.object({
     /** The same catalog over two revisions, reporting only what MOVED. */
     op: z.literal('compliance-diff'),
@@ -238,14 +248,14 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     baseModelId: z.string().uuid().optional(),
     gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
     hauptnutzung: z.enum(BIM_HAUPTNUTZUNG).nullish(),
-  }),
-  z.object({ op: z.literal('profile') }),
+  }).strict(),
+  z.object({ op: z.literal('profile') }).strict(),
   z.object({
     op: z.literal('takeoff'),
     quantity: z.string().trim().min(1).max(120).default('NetSideArea'),
     byMaterial: z.boolean().default(false),
     filter: bimFilterSchema.default({}),
-  }),
+  }).strict(),
   z.object({
     op: z.literal('compare'),
     /**
@@ -259,8 +269,8 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     baseModelId: z.string().uuid().optional(),
     /** Ceiling on elements read per side. */
     limit: z.number().int().min(100).max(50_000).default(20_000),
-  }),
-  z.object({ op: z.literal('types') }),
+  }).strict(),
+  z.object({ op: z.literal('types') }).strict(),
   z.object({
     op: z.literal('elements'),
     filter: bimFilterSchema.default({}),
@@ -268,15 +278,22 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     // conversational page, which stays small on purpose — 25 rows is an answer,
     // 1 000 is a data dump no one asked the model to narrate.
     limit: z.number().int().min(1).max(BIM_ELEMENTS_PAGE_LIMIT).default(25),
-    offset: z.number().int().min(0).max(100_000).default(0),
-  }),
-  z.object({ op: z.literal('element'), globalId: z.string().trim().min(1).max(64) }),
+    // The extraction cap, not half of it. At 100 000 the viewer's own paged
+    // walk — six pages of 1 000 per round, continuing while a page comes back
+    // full — asked for `offset: 101000` on any model over ~101 000 elements,
+    // the schema rejected it, and the whole element index failed rather than
+    // returning a partial one. That is the "picking a wall deselects it,
+    // filtering a storey empties the viewport" failure, for every model
+    // between the two numbers.
+    offset: z.number().int().min(0).max(BIM_ELEMENT_OFFSET_LIMIT).default(0),
+  }).strict(),
+  z.object({ op: z.literal('element'), globalId: z.string().trim().min(1).max(64) }).strict(),
   z.object({
     op: z.literal('properties'),
     ifcType: z.string().trim().min(1).max(80).optional(),
     /** Cap on distinct values reported per property. */
     maxValues: z.number().int().min(1).max(50).default(10),
-  }),
+  }).strict(),
   aggregateSchema,
 ]).superRefine((request, ctx) => {
   /**
@@ -501,16 +518,34 @@ function valueCondition(filter: BimPropertyFilter): SQL | null {
     case 'exists':
     case 'missing':
       return null
+    // A NUMERIC `eq`/`neq` compares numerically, like `gt`/`lt` already do.
+    // Comparing `#>> '{}'` text against `String(value)` made the two sides
+    // disagree on rendering: JavaScript writes `1e-7` where Postgres stores
+    // `0.0000001`, and a stored `2.50` never equals the string `2.5`. The
+    // filter matched nothing and the answer came back "Kein Bauteil erfüllt
+    // die Abfrage" — a fact about number formatting, reported as a fact about
+    // the building. (`rule-inputs.ts` grew `renderScalar` for exactly this
+    // disagreement; this path never used it.)
     case 'eq':
-      return typeof filter.value === 'string'
-        ? sql`lower(${asText}) = lower(${filter.value})`
-        : sql`${asText} = ${String(filter.value)}`
+      return typeof filter.value === 'number'
+        ? numericCondition(sql`=`, filter.value)
+        : sql`lower(${asText}) = lower(${String(filter.value)})`
     case 'neq':
-      return typeof filter.value === 'string'
-        ? sql`lower(${asText}) IS DISTINCT FROM lower(${filter.value})`
-        : sql`${asText} IS DISTINCT FROM ${String(filter.value)}`
+      return typeof filter.value === 'number'
+        ? // NOT the numeric-equal condition, rather than a `<>`: an element
+          // whose value is not a number — and one that does not carry the
+          // property at all — satisfies "is not 2.5", and a bare `<>` inside
+          // the CASE would report `false` for both.
+          sql`NOT (CASE WHEN jsonb_typeof(p.prop_value) = 'number' THEN (p.prop_value)::numeric = ${filter.value} ELSE false END)`
+        : sql`lower(${asText}) IS DISTINCT FROM lower(${String(filter.value)})`
     case 'contains':
-      return sql`${asText} ILIKE ${`%${String(filter.value)}%`}`
+      // `likeContains`, not a raw interpolation. `%` and `_` are ILIKE
+      // wildcards: a filter for `WC_1` also matched `WC-1` and `WCx1`, and a
+      // value of `%` matched every element that carries the property at all —
+      // an inflated count, reported as a fact. Three name/material/
+      // classification predicates already route through this; the property
+      // path was the one that did not.
+      return sql`${asText} ILIKE ${likeContains(String(filter.value))}`
     case 'gt':
       return numericCondition(sql`>`, Number(filter.value))
     case 'gte':
@@ -1023,8 +1058,13 @@ export async function runBimQuery(
    * disagreed: "350 000 Bauteile" from the overview, and a filtered count over
    * the 200 000 that were stored.
    *
-   * `compliance` already carried this. The rest did not, though the digest and
-   * the viewer both say it plainly.
+   * `compliance` and `health` were the two that read rows and said nothing.
+   * `compliance` is the worse of the pair by a distance: the Prüfbuch, the BCF
+   * export and a signed human confirmation all read "X erfüllt / Y nicht
+   * erfüllt" as verdicts over the building, when a capped model means they are
+   * verdicts over the part of it that was stored. `health` reports orphan and
+   * duplicate-GlobalId counts over the same capped list — "43 Bauteile keinem
+   * Geschoß zugeordnet" out of 200 000, with 150 000 never examined.
    */
   const ROW_READING_OPS = new Set([
     'types',
@@ -1033,7 +1073,9 @@ export async function runBimQuery(
     'schedule',
     'takeoff',
     'compare',
+    'compliance',
     'compliance-diff',
+    'health',
     'profile',
     'properties',
   ])
@@ -1184,9 +1226,18 @@ export async function runBimQuery(
 
     case 'profile': {
       if (!model.summary) throw new BimModelNotReadyError('failed', 'Model has no summary')
-      const { elements } = await loadBimElementsForSchedule(context.modelId, context.organizationId)
+      // `truncated` was destructured away here and nowhere else. The
+      // Hauptnutzung is classified from the `IfcSpace` names that fell inside
+      // the row window, and it is the fact a Gebäudeklasse — and therefore
+      // half the rule catalogue — is decided from downstream. A suggestion
+      // drawn from part of the building must say so.
+      const { elements, truncated } = await loadBimElementsForSchedule(
+        context.modelId,
+        context.organizationId
+      )
       return finish({
         ...modelBase,
+        truncated,
         profileSuggestions: deriveProfileSuggestions({
           summary: model.summary,
           spaceNames: elements

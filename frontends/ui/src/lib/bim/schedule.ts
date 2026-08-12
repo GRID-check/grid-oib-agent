@@ -247,7 +247,14 @@ export function roomScheduleToCsv(schedule: BimRoomSchedule): string {
    */
   const escape = (value: string | number | null): string => {
     if (value === null) return ''
-    const text = typeof value === 'number' ? String(value).replace('.', ',') : String(value)
+    const raw = typeof value === 'number' ? String(value).replace('.', ',') : String(value)
+    // A leading `=`, `+`, `-` or `@` makes Excel read the cell as a FORMULA.
+    // Room and component names come out of an uploaded IFC, so a room called
+    // `=HYPERLINK(...)` is a live formula in the German-locale spreadsheet
+    // this export exists for — pasted there by whoever produced the file, and
+    // opened by whoever the Raumbuch was sent to. A leading apostrophe is
+    // Excel's own "this is text" marker and does not show in the cell.
+    const text = typeof value === 'string' && /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw
     return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
   }
   const lines = [header.join(';')]

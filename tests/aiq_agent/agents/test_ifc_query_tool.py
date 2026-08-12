@@ -178,6 +178,20 @@ class TestRender:
         )
         assert "IfcWall „Aussenwand Nord“ · Erdgeschoss · GlobalId 0GridFixtureWall0001" in rendered
 
+    def test_a_partial_whole_model_answer_is_not_advice_to_narrow_the_query(self):
+        # For `elements` a truncated result IS a long list and "narrow the
+        # query" is right. For a Raumbuch there is no list to narrow — the
+        # NUMBERS were computed over a window of the model, and telling the
+        # agent to aggregate harder invites it to quote a partial sum as a
+        # total, which is the failure the flag exists to prevent.
+        from aiq_agent.agents.bim.register import _truncation_note
+
+        assert "Teil des Modells" in _truncation_note("schedule")
+        assert "Teil des Modells" in _truncation_note("compliance")
+        assert "Teil des Modells" in _truncation_note("takeoff")
+        assert "eingrenzen" in _truncation_note("elements")
+        assert "eingrenzen" in _truncation_note("aggregate")
+
     def test_a_truncated_result_says_so(self):
         rendered = _render(
             {
@@ -364,11 +378,24 @@ class TestComplianceOperation:
         # Clamping 9 to 5 would invent a requirement the project never stated.
         assert build(operation="compliance", gebaeudeklasse=9) == {"op": "compliance"}
 
-    def test_compliance_ignores_filters_it_cannot_use(self):
-        assert build(operation="compliance", filters='{"ifcTypes": ["IfcWall"]}', gebaeudeklasse=2) == {
-            "op": "compliance",
-            "gebaeudeklasse": 2,
-        }
+    def test_compliance_refuses_filters_rather_than_dropping_them(self):
+        # It used to drop them, which is the one thing the tool description
+        # promises never happens ("an unknown key is REJECTED, not ignored").
+        # A rule run asked for with `{"storeys": ["Erdgeschoss"]}` came back as
+        # a run over the WHOLE building, and the agent reported it as the
+        # ground floor's — a wrong verdict, arrived at silently.
+        answer = build(operation="compliance", filters='{"ifcTypes": ["IfcWall"]}', gebaeudeklasse=2)
+        assert isinstance(answer, str)
+        assert "takes no filters" in answer
+
+    def test_every_whole_model_operation_refuses_a_filter(self):
+        # One list, one rule. Each of these reads the model entire; a filter
+        # handed to any of them was silently discarded, and the answer that
+        # came back described a different question than the one asked.
+        for operation in ("overview", "types", "health", "schedule", "profile", "compare", "properties"):
+            answer = build(operation=operation, filters='{"storeys": ["Erdgeschoss"]}')
+            assert isinstance(answer, str), operation
+            assert "takes no filters" in answer, operation
 
     def test_the_diff_operation_is_addressable(self):
         assert build(operation="compliance-diff")["op"] == "compliance-diff"
