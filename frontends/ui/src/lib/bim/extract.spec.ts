@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { extractIfcModel, IfcExtractionError, looksLikeStepIfc } from './extract'
+import { createZip } from './zip'
 import type { BimModelIndex } from './types'
 
 const FIXTURE = join(process.cwd(), 'tests', 'fixtures', 'ifc', 'sample-building.ifc')
@@ -40,6 +41,15 @@ describe('looksLikeStepIfc', () => {
     const bytes = new TextEncoder().encode('\n  ISO-10303-21;\nHEADER;')
     expect(looksLikeStepIfc(bytes.buffer as ArrayBuffer)).toBe(true)
   })
+
+  it('accepts a file that starts with a byte-order mark', () => {
+    // Plenty of exporters write one. Decoded as latin1 the three BOM bytes
+    // became `ï»¿`, which `trimStart()` does not strip — it strips `\uFEFF`,
+    // not its mojibake — so the prefix check failed and a perfectly readable
+    // file was rejected as "not an IFC file", losing the whole upload.
+    const bytes = new TextEncoder().encode('\ufeffISO-10303-21;\nHEADER;')
+    expect(looksLikeStepIfc(bytes.buffer as ArrayBuffer)).toBe(true)
+  })
 })
 
 describe('extractIfcModel', () => {
@@ -52,6 +62,41 @@ describe('extractIfcModel', () => {
     await expect(extractIfcModel(bytes.buffer as ArrayBuffer, 'fake.ifc')).rejects.toBeInstanceOf(
       IfcExtractionError
     )
+  })
+
+  it('unwraps a .ifczip instead of parsing the archive bytes', async () => {
+    /*
+      The failure this replaces was the worst available: `parseColumnar` does
+      not unwrap (only `parseAuto` does) and does not throw on non-STEP bytes
+      — the entity scan simply finds nothing — so a zipped upload completed as
+      `status: 'ready'` with zero elements, zero storeys and a health score
+      computed over an empty model. Nothing anywhere reported a failure.
+
+      A store-only zip, written with the repo's own deterministic writer, so
+      the test needs no fixture binary and no zip dependency.
+    */
+    const inner = new Uint8Array(readFileSync(FIXTURE))
+    const archive = createZip([{ path: 'sample-building.ifc', content: inner }])
+    const index = await extractIfcModel(
+      archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) as ArrayBuffer,
+      'sample-building.ifczip'
+    )
+    expect(index.totals.elements).toBeGreaterThan(0)
+    expect(index.storeys.length).toBeGreaterThan(0)
+  })
+
+  it('refuses an archive whose contents are not IFC, rather than storing an empty model', async () => {
+    const junk = new TextEncoder().encode('%PDF-1.7\nnot an ifc file at all')
+    const archive = createZip([{ path: 'thing.ifc', content: junk }])
+    await expect(
+      extractIfcModel(
+        archive.buffer.slice(
+          archive.byteOffset,
+          archive.byteOffset + archive.byteLength
+        ) as ArrayBuffer,
+        'thing.ifczip'
+      )
+    ).rejects.toMatchObject({ name: 'IfcExtractionError', code: 'not-ifc' })
   })
 
   it('reads the schema, header provenance and declared units', async () => {

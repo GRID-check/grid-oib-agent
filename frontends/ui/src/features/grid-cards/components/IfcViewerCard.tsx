@@ -18,6 +18,7 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import { Boxes, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { IfcModelViewer } from '@/features/bim/components/ifc-model-viewer'
 import { resolveHighlights, supportsWebGpu } from '@/features/bim/lib/model-index'
@@ -49,7 +50,13 @@ export function IfcViewerCard({
   projectId,
 }: IfcViewerCardProps): JSX.Element {
   const t = useTranslations('bim')
-  const { data: models } = useProjectBimModels(projectId)
+  // `isLoading` and `error` were both discarded, so for the first few hundred
+  // milliseconds — and permanently if the request failed or the feature flag
+  // was withdrawn — this card stated "Das referenzierte Modell ist in diesem
+  // Projekt nicht verfügbar": the one sentence that tells an architect their
+  // upload vanished, for a list that had simply not arrived. The sibling file
+  // preview refuses to conflate these three and says so in a comment.
+  const { data: models, isLoading: modelsLoading, error: modelsError } = useProjectBimModels(projectId)
 
   const model = useMemo(() => {
     if (!models) return null
@@ -125,7 +132,15 @@ export function IfcViewerCard({
         )}
       </header>
 
-      {!model ? (
+      {modelsLoading && models === null ? (
+        <div className="flex items-center justify-center rounded-lg border border-dashed p-6">
+          <Spinner className="size-4" />
+        </div>
+      ) : modelsError !== null ? (
+        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {t('preview.loadFailed')}
+        </p>
+      ) : !model ? (
         <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           {t('card.noModel')}
         </p>

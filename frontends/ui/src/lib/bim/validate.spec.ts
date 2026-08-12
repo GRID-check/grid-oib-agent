@@ -55,6 +55,7 @@ function element(overrides: Partial<BimElement> = {}): BimElement {
 
 function index(elements: BimElement[], overrides: Partial<BimModelIndex> = {}): BimModelIndex {
   return {
+    unreadableEntities: 0,
     schema: 'IFC4',
     header: {
       name: null,

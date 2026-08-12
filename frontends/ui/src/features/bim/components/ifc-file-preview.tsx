@@ -82,7 +82,12 @@ export function IfcFilePreview({ documentId, filename, projectId, className }: I
   // why no UUID travels through the URL.
   const href = buildModelHref(projectId, { model: filename })
 
-  if (models.isLoading) {
+  // Only while there is nothing to show. The list polls every four seconds
+  // whenever any model in the project is extracting and keeps its previous
+  // `data` across the refetch, so keying on the flag alone made this preview
+  // blink back to "Modell wird geladen…" — and remount the viewport under it —
+  // for the whole minute after somebody uploads anything.
+  if (models.isLoading && models.data === null) {
     return <PreviewNote className={className} text={t('preview.loading')} />
   }
 

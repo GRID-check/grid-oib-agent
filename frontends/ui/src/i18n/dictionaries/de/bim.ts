@@ -72,6 +72,8 @@ export const bim: typeof en.bim = {
       'identity-missing-globalid': 'Bauteile ohne GlobalId',
       'identity-duplicate-globalid': 'Mehrfach vergebene GlobalIds — Bauteile sind nicht eindeutig',
       'identity-malformed-globalid': 'GlobalIds nicht im 22-stelligen IFC-Format',
+      'identity-unreadable-entities':
+        'Im Index angeführte, aber nicht definierte Entitäten — sie zählen in keiner Zahl hier mit',
       'spatial-no-storeys': 'Das Modell enthält keine Geschoße',
       'spatial-orphan-elements': 'Bauteile ohne Geschoß — fehlen in jeder geschoßweisen Auswertung',
       'spatial-element-above-storey': 'Bauteile am Grundstück oder Gebäude statt an einem Geschoß',
@@ -211,7 +213,7 @@ export const bim: typeof en.bim = {
       '{beforePassed}/{beforeFailed}/{beforeUndecidable} → {afterPassed}/{afterFailed}/{afterUndecidable} erfüllt/nicht erfüllt/nicht entscheidbar',
     trend: {
       broken: 'neu nicht erfüllt',
-      undecidable: 'nicht mehr entscheidbar',
+      undecidable: 'nicht mehr entscheidbar (Wert im Modell entfallen)',
       moved: 'weiterhin nicht erfüllt, andere Anzahl',
       decidable: 'jetzt entscheidbar und erfüllt',
       resolved: 'jetzt erfüllt',
@@ -314,6 +316,8 @@ export const bim: typeof en.bim = {
     showEverything: 'Ausgeblendetes wiederherstellen',
     elevation: '{value} m',
     notReady: 'Das Modell wird noch gelesen. Das dauert meist nur einen Moment.',
+    elementsFailed:
+      'Die Bauteilliste konnte nicht geladen werden — im Modell lässt sich daher nichts auswählen oder filtern. Am Gebäude selbst liegt es nicht.',
     readFailed:
       'Diese Datei konnte nicht eingelesen werden. Bitte exportieren Sie sie erneut aus Ihrem CAD und laden Sie sie noch einmal hoch.',
     loading: 'Modell wird geladen…',

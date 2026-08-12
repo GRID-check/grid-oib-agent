@@ -44,7 +44,21 @@ import { isIfcFilename, maxIfcBytesFrom } from './types'
 export const MAX_IFC_BYTES = maxIfcBytesFrom(process.env)
 
 /** Cap on `bim_elements` rows per model; see `extract.ts`. */
-export const BIM_ELEMENT_LIMIT = Number(process.env.BIM_ELEMENT_LIMIT ?? 200_000)
+/**
+ * Rows stored per model, and the guard that makes it a number.
+ *
+ * `Number(process.env.X ?? 200_000)` reads `""` as `0` and anything
+ * non-numeric as `NaN`, and both failure modes are silent: `0` clamps to a
+ * ONE-element cap (with `truncatedAt: 1`, so every surface blames the model),
+ * and `NaN` makes `elements.length >= limit` permanently false, which removes
+ * the OOM guard the cap exists to be. One mis-set variable, no error either
+ * way.
+ */
+const CONFIGURED_ELEMENT_LIMIT = Number(process.env.BIM_ELEMENT_LIMIT)
+export const BIM_ELEMENT_LIMIT =
+  Number.isFinite(CONFIGURED_ELEMENT_LIMIT) && CONFIGURED_ELEMENT_LIMIT > 0
+    ? Math.trunc(CONFIGURED_ELEMENT_LIMIT)
+    : 200_000
 
 /** Directory holding everything derived from a model, beside the source object. */
 const DERIVED_SEGMENT = '_bim'

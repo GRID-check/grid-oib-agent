@@ -129,7 +129,14 @@ export interface BimModelSummary {
   spatial: BimSpatialNode | null
   /** Element count per canonical IFC type, descending by count. */
   typeCounts: Record<string, number>
-  /** Property-set names present anywhere in the model, sorted. */
+  /**
+   * Property-set names present in the STORED elements, sorted.
+   *
+   * Not "anywhere in the model", which is what this said: they are collected
+   * while building the element rows, so on a model past the extraction cap a
+   * set that occurs only in the dropped tail is absent from this list — and
+   * from the filter vocabularies built on it.
+   */
   propertySetNames: string[]
   /** Quantity-set names present anywhere in the model, sorted. */
   quantitySetNames: string[]
@@ -152,10 +159,16 @@ export interface BimModelSummary {
     netVolumeM3: number | null
   }
   /**
-   * Validation findings (`validate.ts`). Stored with the model rather than
-   * recomputed: the checks run over the FULL element set, including the ones a
-   * truncated element list dropped, so they cannot be reproduced from what the
-   * database holds.
+   * Validation findings (`validate.ts`).
+   *
+   * Stored with the model rather than recomputed, because they are computed
+   * during extraction against the spatial tree and the merged property sets —
+   * neither of which the database keeps in the form the checks need.
+   *
+   * They run over the element list as EXTRACTED, which on a model past the
+   * cap is the stored part and not the building: "43 Bauteile keinem Geschoß
+   * zugeordnet" is 43 out of the stored rows. The `health` op carries the cap
+   * caveat for exactly this reason. This used to claim the opposite.
    */
   health: BimHealth | null
   /** Parse wall-clock in ms and the source size, for the ingestion report. */
@@ -168,6 +181,17 @@ export interface BimModelSummary {
 /** Full extraction result: the summary plus every element record. */
 export interface BimModelIndex extends BimModelSummary {
   elements: BimElement[]
+  /**
+   * Ids the file's entity index lists that the parser could not produce —
+   * forward or dangling references.
+   *
+   * They used to be counted into `totals` and `typeCounts` and then dropped,
+   * so the overview said "19 Bauteile" while 17 rows were queryable and
+   * nothing recorded the difference. They are counted out of the totals now
+   * and reported here instead, because a file whose index disagrees with its
+   * contents is a finding about the export, not a silent shortfall.
+   */
+  unreadableEntities: number
 }
 
 /** Lifecycle of a `bim_models` row. */

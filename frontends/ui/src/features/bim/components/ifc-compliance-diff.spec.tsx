@@ -97,7 +97,7 @@ describe('IfcComplianceDiff', () => {
     // A re-export that drops a property silently un-checks a requirement that
     // was green yesterday. A pass/fail comparison would never mention it.
     diff()
-    expect(screen.getByText('no longer decidable')).toBeInTheDocument()
+    expect(screen.getByText('no longer decidable (the value is gone from the model)')).toBeInTheDocument()
   })
 
   it('shows both sides so a trend is evidence rather than a claim', () => {

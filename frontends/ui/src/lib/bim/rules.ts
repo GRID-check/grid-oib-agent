@@ -1413,6 +1413,20 @@ export function diffBimCompliance(
   )
 }
 
+/**
+ * The agent's wording for a status change.
+ *
+ * A second copy of `complianceDiff.trend.*` in the dictionaries, and it had
+ * already drifted: this one says "nicht mehr entscheidbar (Wert im Modell
+ * entfallen)" where the badge says only "nicht mehr entscheidbar", so the
+ * chip and the sentence beside it described the same change differently.
+ *
+ * It stays a copy rather than reading the dictionary, because this module is
+ * server-side and locale-free — it renders one German string for the agent,
+ * which has no `useTranslations` and no locale to read. The parenthetical is
+ * the better wording and has been carried into the dictionary; if either side
+ * changes, change both.
+ */
 const TREND_DE: Record<BimComplianceTrend, string> = {
   broken: 'neu nicht erfüllt',
   undecidable: 'nicht mehr entscheidbar (Wert im Modell entfallen)',

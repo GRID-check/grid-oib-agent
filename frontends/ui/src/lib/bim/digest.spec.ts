@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { extractIfcModel } from './extract'
-import { buildModelDigest, buildStoreyBreakdown } from './digest'
+import { buildModelDigest, buildStoreyBreakdown, storeyBreakdownKey } from './digest'
 import type { BimModelIndex } from './types'
 
 const FIXTURE = join(process.cwd(), 'tests', 'fixtures', 'ifc', 'sample-building.ifc')
@@ -30,10 +30,38 @@ async function model(): Promise<BimModelIndex> {
 describe('buildStoreyBreakdown', () => {
   it('rolls elements and room areas up per storey', async () => {
     const index = await model()
-    expect(buildStoreyBreakdown(index, index.elements)).toEqual([
+    expect([...buildStoreyBreakdown(index, index.elements).values()]).toEqual([
       { storeyName: 'Erdgeschoss', elementCount: 12, spaceCount: 2, netFloorArea: 44.5 },
       { storeyName: 'Obergeschoss', elementCount: 7, spaceCount: 2, netFloorArea: 24.5 },
     ])
+  })
+
+  it('keys each rollup, so the digest cannot join it back by position', async () => {
+    // The digest used to read `breakdown[index]` against `summary.storeys`,
+    // which holds only while the two are the same length. Two storeys sharing
+    // a GlobalId — a real export defect, with a validation rule of its own —
+    // collapse into one entry, so the array came back short and every storey
+    // after the collision was rendered with the NEXT storey's element count,
+    // room count and floor area.
+    const index = await model()
+    const breakdown = buildStoreyBreakdown(index, index.elements)
+    for (const storey of index.storeys) {
+      expect(breakdown.get(storeyBreakdownKey(storey))?.storeyName).toBe(storey.name)
+    }
+  })
+
+  it('gives a colliding pair one entry rather than a silently shifted list', async () => {
+    const index = await model()
+    const collided = {
+      ...index,
+      storeys: index.storeys.map((storey) => ({ ...storey, globalId: 'same-id' })),
+    }
+    const breakdown = buildStoreyBreakdown(collided, index.elements)
+    expect(breakdown.size).toBe(1)
+    // And the digest renders BOTH rows from that one entry rather than
+    // rendering the second from nothing — wrong, but identically wrong, and
+    // no longer an off-by-one that shifts every later storey.
+    expect(breakdown.get('same-id')).toBeDefined()
   })
 })
 

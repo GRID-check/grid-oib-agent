@@ -40,8 +40,14 @@ import {
 function useResolvedModel(
   projectId: string | null,
   modelFile: string | null
-): { model: BimModelHeaderView | null; models: BimModelHeaderView[]; isLoading: boolean } {
-  const { data, isLoading } = useProjectBimModels(projectId)
+): {
+  model: BimModelHeaderView | null
+  models: BimModelHeaderView[]
+  /** True only while there is nothing to show — see `NoModel`. */
+  isLoading: boolean
+  error: string | null
+} {
+  const { data, isLoading, error } = useProjectBimModels(projectId)
   const models = useMemo(
     () => (data ?? []).filter((candidate) => candidate.status === 'ready'),
     [data]
@@ -56,7 +62,10 @@ function useResolvedModel(
       null
     )
   }, [models, modelFile])
-  return { model, models, isLoading }
+  // `isLoading` is narrowed to "and nothing to show yet": the list polls every
+  // four seconds while any model is extracting and keeps its previous data
+  // across the refetch, so the raw flag would flicker every card in a thread.
+  return { model, models, isLoading: isLoading && data === null, error }
 }
 
 /** POST one query to a model and keep the typed slice the caller asked for. */
@@ -132,11 +141,33 @@ function CardShell({
   )
 }
 
-function NoModel(): JSX.Element {
+/**
+ * Three situations, not one.
+ *
+ * "Das referenzierte Modell ist in diesem Projekt nicht verfügbar" is the
+ * sentence that tells an architect their upload vanished, and it was rendered
+ * for a list that had not arrived yet AND for a list whose request failed —
+ * the second one permanently. The sibling file preview refuses to conflate
+ * these and says so in a comment; these five cards did it on every mount.
+ */
+function NoModel({
+  isLoading = false,
+  error = null,
+}: {
+  isLoading?: boolean
+  error?: string | null
+} = {}): JSX.Element {
   const t = useTranslations('bim')
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center rounded-lg border border-dashed p-6">
+        <Spinner className="size-4" />
+      </div>
+    )
+  }
   return (
     <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-      {t('card.noModel')}
+      {error !== null ? t('preview.loadFailed') : t('card.noModel')}
     </p>
   )
 }
@@ -177,7 +208,7 @@ export function IfcScheduleCard({
 }: IfcScheduleCardProps): JSX.Element {
   const t = useTranslations('bim')
   const { locale } = useLocale()
-  const { model } = useResolvedModel(projectId, modelFile)
+  const { model, isLoading: modelsLoading, error: modelsError } = useResolvedModel(projectId, modelFile)
   const { data: payload, isLoading, error } = useModelQuery(
     model?.id ?? null,
     { op: 'schedule' },
@@ -237,7 +268,7 @@ export function IfcScheduleCard({
       }
     >
       {!model ? (
-        <NoModel />
+        <NoModel isLoading={modelsLoading} error={modelsError} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error || !schedule ? (
@@ -363,7 +394,7 @@ export function IfcElementCard({
 }: IfcElementCardProps): JSX.Element {
   const t = useTranslations('bim')
   const { locale } = useLocale()
-  const { model } = useResolvedModel(projectId, modelFile)
+  const { model, isLoading: modelsLoading, error: modelsError } = useResolvedModel(projectId, modelFile)
   const { data: element, isLoading, error } = useModelQuery(
     model?.id ?? null,
     { op: 'element', globalId },
@@ -393,7 +424,7 @@ export function IfcElementCard({
       }
     >
       {!model ? (
-        <NoModel />
+        <NoModel isLoading={modelsLoading} error={modelsError} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error ? (
@@ -480,7 +511,7 @@ export function IfcComplianceCard({
   projectId,
 }: IfcComplianceCardProps): JSX.Element {
   const t = useTranslations('bim')
-  const { model } = useResolvedModel(projectId, modelFile)
+  const { model, isLoading: modelsLoading, error: modelsError } = useResolvedModel(projectId, modelFile)
   // The SAME facts the model page runs the catalogue with. Without them the
   // fire-resistance rules stand down here and produce a verdict on the model
   // page, so the chat and the page disagreed about the same building.
@@ -557,7 +588,7 @@ export function IfcComplianceCard({
       }
     >
       {!model ? (
-        <NoModel />
+        <NoModel isLoading={modelsLoading} error={modelsError} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error ? (
@@ -725,7 +756,12 @@ export function IfcDiffCard({
   projectId,
 }: IfcDiffCardProps): JSX.Element {
   const t = useTranslations('bim')
-  const { model, models } = useResolvedModel(projectId, modelFile)
+  const {
+    model,
+    models,
+    isLoading: modelsLoading,
+    error: modelsError,
+  } = useResolvedModel(projectId, modelFile)
   const baseModel = useMemo(() => {
     const needle = baseModelFile.toLowerCase()
     return (
@@ -744,7 +780,7 @@ export function IfcDiffCard({
   return (
     <CardShell title={title} icon={GitCompare}>
       {!model || !baseModel ? (
-        <NoModel />
+        <NoModel isLoading={modelsLoading} error={modelsError} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error || !comparison ? (

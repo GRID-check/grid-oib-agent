@@ -245,8 +245,21 @@ export async function walkBimElements(
  * is the API's, so a very large model arrives in a handful of requests instead
  * of one that times out.
  */
-export function useBimElements(modelId: string | null): AsyncState<BimViewerElement[]> {
+export function useBimElements(
+  modelId: string | null
+): AsyncState<BimViewerElement[]> & { reload: () => void } {
   const [state, setState] = useState<AsyncState<BimViewerElement[]>>(IDLE)
+  /**
+   * Bumped by `reload`.
+   *
+   * A failed walk is not cosmetic: without the rows nothing on the model can
+   * be clicked (a pick resolves an expressId against this list and finds
+   * nothing), no storey filters, no highlight resolves, and the stage says the
+   * agent's answer names elements this model does not have. Every one of those
+   * is silent. The source hook has had a retry since the day it learned to
+   * report its own failures; this one never did.
+   */
+  const [tick, setTick] = useState(0)
 
   useEffect(() => {
     if (!modelId) {
@@ -272,9 +285,9 @@ export function useBimElements(modelId: string | null): AsyncState<BimViewerElem
       cancelled = true
       controller.abort()
     }
-  }, [modelId])
+  }, [modelId, tick])
 
-  return state
+  return { ...state, reload: useCallback(() => setTick((value) => value + 1), []) }
 }
 
 /**

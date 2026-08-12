@@ -70,6 +70,8 @@ export const bim = {
       'identity-missing-globalid': 'Elements without a GlobalId',
       'identity-duplicate-globalid': 'GlobalIds used more than once — elements are not unique',
       'identity-malformed-globalid': 'GlobalIds not in the 22-character IFC form',
+      'identity-unreadable-entities':
+        'Entities the file lists but does not define — they are not counted in any figure here',
       'spatial-no-storeys': 'The model contains no storeys',
       'spatial-orphan-elements': 'Elements in no storey — missing from every per-storey figure',
       'spatial-element-above-storey': 'Elements placed on the site or building instead of a storey',
@@ -208,7 +210,7 @@ export const bim = {
       '{beforePassed}/{beforeFailed}/{beforeUndecidable} → {afterPassed}/{afterFailed}/{afterUndecidable} met/not met/not decidable',
     trend: {
       broken: 'newly not met',
-      undecidable: 'no longer decidable',
+      undecidable: 'no longer decidable (the value is gone from the model)',
       moved: 'still not met, different count',
       decidable: 'now decidable and met',
       resolved: 'now met',
@@ -299,8 +301,14 @@ export const bim = {
    * The full-screen viewer inside Dateien.
    *
    * Six controls and two lists. Every string here is written for someone who
-   * has never opened a BIM tool: "See through", not "X-ray context"; "Levels",
-   * not "IfcBuildingStorey"; "Show everything", not "Zoom extents".
+   * has never opened a BIM tool: "See through", not "X-ray context"; "Storey",
+   * not "IfcBuildingStorey"; "Fit the whole model", not "Zoom extents".
+   *
+   * Plain language, but ONE word per thing. This surface used to say "Levels"
+   * and "components" where the drawer's tables — on the same screen, over the
+   * same building — said "Storeys" and "elements", so the two halves of the
+   * page read as two products. The German never had the split: Geschoß and
+   * Bauteil throughout. Neither "storey" nor "element" is jargon.
    */
   stage: {
     dialogLabel: 'Model {name}',
@@ -309,15 +317,17 @@ export const bim = {
     views: 'View',
     advanced: 'Details & checks',
     models: 'Models',
-    levels: 'Levels',
-    allLevels: 'All levels',
+    levels: 'Storeys',
+    allLevels: 'All storeys',
     highlightCapped:
       'A link can carry {shown} of the {total} highlighted elements. The rest are in the model but not marked here.',
     otherModel:
       'This link names “{wanted}”, which is not in this project. Showing “{opened}” instead.',
-    showEverything: 'Restore hidden components',
+    showEverything: 'Restore hidden elements',
     elevation: '{value} m',
     notReady: 'The model is still being read. This usually takes a few moments.',
+    elementsFailed:
+      'The element list could not be loaded, so nothing in the model can be selected or filtered. The building itself is fine.',
     readFailed:
       'The extractor could not read this file. Re-export it from your authoring tool and upload it again.',
     loading: 'Loading model…',
@@ -342,7 +352,7 @@ export const bim = {
     keyboardHint:
       'Arrow keys orbit, Shift with an arrow pans, plus and minus zoom, F fits the model. While measuring, Enter places a point and Escape cancels. Every element is also listed as text under Details.',
     xray: 'See through',
-    xrayNeedsTarget: 'See through — select a component or open a highlighted answer first',
+    xrayNeedsTarget: 'See through — select an element or open a highlighted answer first',
     view: {
       iso: 'Free',
       top: 'Plan',

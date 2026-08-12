@@ -201,10 +201,10 @@ describe('ModelStage — what is on screen', () => {
     expect(within(models).getByRole('button', { name: 'Haus-A' })).toBeInTheDocument()
     expect(within(models).getByRole('button', { name: 'Nebengebäude' })).toBeInTheDocument()
 
-    const levels = screen.getByRole('region', { name: 'Levels' })
+    const levels = screen.getByRole('region', { name: 'Storeys' })
     const rows = within(levels).getAllByRole('button')
     expect(rows.map((row) => row.getAttribute('title'))).toEqual([
-      'All levels',
+      'All storeys',
       'Obergeschoss',
       'Erdgeschoss',
     ])
@@ -216,7 +216,7 @@ describe('ModelStage — what is on screen', () => {
     // already the dialog's title, so nothing is lost.
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
     expect(screen.queryByRole('region', { name: 'Models' })).not.toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Levels' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Storeys' })).toBeInTheDocument()
   })
 
   it('will not switch to a model that is still being read', () => {
@@ -255,7 +255,7 @@ describe('ModelStage — every control is a link', () => {
     // And the name says why. A disabled button gets no tooltip — Radix's
     // trigger never fires on one — so an inert eye with the bare name
     // "See through" left the reader nothing to act on.
-    const xray = screen.getByRole('button', { name: /^See through — select a component/ })
+    const xray = screen.getByRole('button', { name: /^See through — select an element/ })
     expect(xray).toBeDisabled()
   })
 

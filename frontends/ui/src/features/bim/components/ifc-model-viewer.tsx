@@ -47,7 +47,17 @@ export function IfcModelViewer({ className, ...options }: IfcModelViewerProps): 
   const t = useTranslations('bim')
   const viewport = useModelViewport({ ...options, compact: options.compact ?? true })
 
-  if (!viewport.webGpu || !viewport.canvasProps) {
+  /*
+    Two situations, not one.
+
+    `canvasProps` is null whenever there is no source URL yet — which is the
+    whole time the presigned URL is being minted, and forever if that request
+    failed. Folding it in with the WebGPU check told a browser that HAS WebGPU
+    that it does not, for a second on every card and permanently on a failure.
+    The stage next door has always split these three; this shared component,
+    which the chat cards use, contradicted it.
+  */
+  if (!viewport.webGpu) {
     return (
       <div className={cn('rounded-xl border border-dashed', className)}>
         <ViewerNotice
@@ -55,6 +65,14 @@ export function IfcModelViewer({ className, ...options }: IfcModelViewerProps): 
           title={t('viewer.unsupported.title')}
           description={t('viewer.unsupported.description')}
         />
+      </div>
+    )
+  }
+
+  if (!viewport.canvasProps) {
+    return (
+      <div className={cn('rounded-xl border border-dashed', className)}>
+        <ModelViewportProgress phase="downloading" percent={null} />
       </div>
     )
   }

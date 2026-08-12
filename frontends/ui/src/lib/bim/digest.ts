@@ -84,14 +84,38 @@ interface StoreyBreakdown {
   netFloorArea: number | null
 }
 
-/** Per-storey rollup, in the storey order the summary already established. */
+/**
+ * The key one storey's elements are collected under.
+ *
+ * Exported so the CALLER can look a row up by the same expression rather than
+ * by position — see `buildStoreyBreakdown`.
+ */
+export function storeyBreakdownKey(storey: {
+  globalId?: string | null
+  name?: string | null
+  expressId?: number
+}): string {
+  return storey.globalId ?? storey.name ?? String(storey.expressId ?? '')
+}
+
+/**
+ * Per-storey rollup, keyed rather than ordered.
+ *
+ * It used to return an array and the digest read it back with
+ * `breakdown[index]` against `summary.storeys` — which holds only while the
+ * two are the same length. They are not: the map collapses two storeys that
+ * share a GlobalId (a real export defect — `validate.ts` has a rule for it) or
+ * two same-named storeys with no GlobalId, so the array came back SHORT and
+ * every storey after the collision was rendered with the next storey's element
+ * count, room count and floor area, with the last one showing zeros.
+ */
 export function buildStoreyBreakdown(
   summary: BimModelSummary,
   elements: readonly BimElement[]
-): StoreyBreakdown[] {
+): Map<string, StoreyBreakdown> {
   const byStorey = new Map<string, StoreyBreakdown>()
   for (const storey of summary.storeys) {
-    byStorey.set(storey.globalId ?? storey.name ?? String(storey.expressId), {
+    byStorey.set(storeyBreakdownKey(storey), {
       storeyName: storey.name ?? '(ohne Namen)',
       elementCount: 0,
       spaceCount: 0,
@@ -110,10 +134,16 @@ export function buildStoreyBreakdown(
       if (area !== null) entry.netFloorArea = (entry.netFloorArea ?? 0) + area
     }
   }
-  return [...byStorey.values()].map((entry) => ({
-    ...entry,
-    netFloorArea: entry.netFloorArea === null ? null : Math.round(entry.netFloorArea * 100) / 100,
-  }))
+  return new Map(
+    [...byStorey].map(([key, entry]) => [
+      key,
+      {
+        ...entry,
+        netFloorArea:
+          entry.netFloorArea === null ? null : Math.round(entry.netFloorArea * 100) / 100,
+      },
+    ])
+  )
 }
 
 function firstQuantity(element: BimElement, keys: readonly string[]): number | null {
@@ -209,8 +239,9 @@ export function buildModelDigest(
   lines.push('## Geschosse')
   lines.push('')
   const breakdown = buildStoreyBreakdown(summary, elements)
-  const storeyRows = summary.storeys.map((storey, index) => {
-    const entry = breakdown[index]
+  const storeyRows = summary.storeys.map((storey) => {
+    // By key, not by position — see `buildStoreyBreakdown`.
+    const entry = breakdown.get(storeyBreakdownKey(storey))
     return [
       storey.name ?? '(ohne Namen)',
       storey.elevation === null ? '—' : `${formatNumber(storey.elevation)} m`,
@@ -311,7 +342,14 @@ export function buildModelDigest(
   if (summary.truncatedAt !== null) {
     lines.push(
       `> Hinweis: Das Modell enthält mehr als ${summary.truncatedAt} Bauteile. ` +
-        'Die Zusammenfassung listet eine begrenzte Auswahl; die Gesamtzahlen oben sind vollständig.'
+        // Precisely which numbers. "Die Gesamtzahlen oben sind vollständig"
+        // covered the Kennwerte — which are accumulated over every entity
+        // during extraction and genuinely are complete — but the tables under
+        // it are built from the CAPPED element list, so the per-storey column
+        // sums to less than the Netto-Grundfläche directly above it. Both are
+        // indexed for retrieval, so the agent could cite either.
+        'Die Kennwerte und Flächensummen oben sind vollständig; die Geschoß- und ' +
+        'Bauteiltabellen darunter beziehen sich nur auf die gespeicherten Bauteile.'
     )
     lines.push('')
   }

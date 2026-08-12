@@ -28,6 +28,7 @@ import {
   getInheritanceChainAcrossSchemas,
   mergeInheritedPropertySets,
   normalizeIfcTypeName,
+  unwrapIfcZip,
   type IfcDataStore,
   type MaterialInfo,
 } from '@ifc-lite/parser'
@@ -48,11 +49,22 @@ import type {
 } from './types'
 
 /**
- * Hard cap on persisted element records. A federated model can carry millions
- * of entities; the counts and aggregates below stay exact regardless (they are
- * computed while walking, before the cap applies), but the per-element rows
- * stop so one upload cannot fill the tenant's table. `truncatedAt` records it
- * so every surface can say so out loud instead of quietly serving a subset.
+ * Hard cap on persisted element records.
+ *
+ * A federated model can carry millions of entities, so the per-element rows
+ * stop at this many and `truncatedAt` records it, letting every surface say so
+ * out loud instead of quietly serving a subset.
+ *
+ * What stays EXACT past the cap: `typeCounts`, `totals` and `quantityTotals`.
+ * They are accumulated while walking, before the cap applies — the space
+ * branch below deliberately keeps reading quantities past it for this reason.
+ *
+ * What does NOT: the stored element rows, and the three vocabularies read out
+ * of them — `propertySetNames`, `quantitySetNames` and `materialNames`, which
+ * are collected inside the non-capped branch. A property set that occurs only
+ * past the cap is missing from the filter list, and `validateModel` sees the
+ * capped list too, so its findings are counts over the stored part. Both are
+ * stated where they surface rather than pretended away.
  */
 export const DEFAULT_ELEMENT_LIMIT = 200_000
 
@@ -122,12 +134,19 @@ const STEP_MAGIC = 'ISO-10303-21'
  * mirroring the PDF magic-byte check on the Python side: a `.ifc` extension on
  * arbitrary bytes must fail as "not IFC", not as a parser stack trace.
  *
- * `.ifczip` (a zipped IFC) is NOT accepted by this check — the parser unwraps
- * it itself, so the caller passes the flag through {@link extractIfcModel}.
+ * Run AFTER any `.ifczip` has been unwrapped, never instead of it — see
+ * {@link extractIfcModel}.
+ *
+ * Decoded as UTF-8, not latin1. A `EF BB BF` byte-order mark — which plenty of
+ * exporters write — became the three characters `ï»¿` under latin1, which
+ * `trimStart()` does not strip (it strips `\uFEFF`, not its mojibake), so the
+ * prefix check failed and a perfectly readable file was rejected as "not an
+ * IFC file", losing the whole upload. `TextDecoder('utf-8')` consumes the BOM
+ * itself; the header is ASCII either way, so nothing else changes.
  */
 export function looksLikeStepIfc(buffer: ArrayBuffer): boolean {
   const head = new Uint8Array(buffer, 0, Math.min(64, buffer.byteLength))
-  const text = new TextDecoder('latin1').decode(head)
+  const text = new TextDecoder('utf-8').decode(head)
   return text.trimStart().startsWith(STEP_MAGIC)
 }
 
@@ -161,6 +180,23 @@ function toPropertySets(
   return out
 }
 
+/**
+ * Quantity names for which a stored `0` means "not measured".
+ *
+ * The parser substitutes `0` for a quantity written `$` in the file, which is
+ * how an exporter says it did not measure one. A zero then flows through as a
+ * real measurement: `IFCQUANTITYAREA('NetFloorArea',$,$,$)` adds 0 m² to the
+ * published Netto-Grundfläche AND satisfies the "does this space carry an
+ * area" check, so `complete-space-without-area` — the rule that exists to
+ * catch exactly this room — does not report it, and the total is short with no
+ * caveat anywhere.
+ *
+ * Restricted to the measures where zero is physically impossible. A zero
+ * `Width` on a door is wrong too, but a zero COUNT is a real answer, and this
+ * must not start discarding those.
+ */
+const ZERO_MEANS_ABSENT = /^(Net|Gross)?(FloorArea|SideArea|Area|Volume|Height|Width|Length|Perimeter|Depth)$/
+
 /** Flatten ifc-lite's qset shape, dropping non-finite values. */
 function toQuantitySets(
   sets: ReadonlyArray<{ name: string; quantities: ReadonlyArray<{ name: string; value: number }> }>
@@ -171,6 +207,9 @@ function toQuantitySets(
     const bucket = (out[set.name] ??= {})
     for (const quantity of set.quantities) {
       if (!quantity.name || !Number.isFinite(quantity.value)) continue
+      // See `ZERO_MEANS_ABSENT`: a `$` in the file reaches us as 0, and
+      // storing it turns "unmeasured" into "measured, and it is nothing".
+      if (quantity.value === 0 && ZERO_MEANS_ABSENT.test(quantity.name)) continue
       bucket[quantity.name] = quantity.value
     }
   }
@@ -402,15 +441,36 @@ export async function extractIfcModel(
   options: ExtractIfcOptions = {}
 ): Promise<BimModelIndex> {
   const limit = Math.max(1, Math.trunc(options.elementLimit ?? DEFAULT_ELEMENT_LIMIT))
-  const isZip = filename.trim().toLowerCase().endsWith('.ifczip')
-  if (!isZip && !looksLikeStepIfc(buffer)) {
+
+  /*
+    Unwrap the archive OURSELVES, and sniff what comes out.
+
+    `parseColumnar` does not unwrap — only `parseAuto` does — so a `.ifczip`
+    used to be handed to the parser as zip bytes. That does not throw: the
+    entity scan finds nothing, the spatial-hierarchy failure is swallowed, and
+    the upload completes as `status: 'ready'` with zero elements, zero
+    storeys, null totals and a health score computed over nothing. Every
+    zipped upload — a normal way to send an IFC — silently produced an empty
+    building that nothing anywhere reported as a failure.
+
+    `unwrapIfcZip` returns non-zip input unchanged, so it is safe to call on
+    everything and the extension is no longer a special case. The sniff then
+    runs on the UNWRAPPED bytes, which is the only place it means anything.
+  */
+  let source: ArrayBuffer
+  try {
+    source = await unwrapIfcZip(buffer)
+  } catch (error) {
+    throw new IfcExtractionError('not-ifc', 'The archive could not be opened', { cause: error })
+  }
+  if (!looksLikeStepIfc(source)) {
     throw new IfcExtractionError('not-ifc', 'File does not start with an ISO-10303-21 header')
   }
 
   const startedAt = Date.now()
   let store: IfcDataStore
   try {
-    store = await new IfcParser().parseColumnar(buffer, { onProgress: options.onProgress })
+    store = await new IfcParser().parseColumnar(source, { onProgress: options.onProgress })
   } catch (error) {
     throw new IfcExtractionError('parse-failed', 'IFC parsing failed', { cause: error })
   }
@@ -427,6 +487,8 @@ export async function extractIfcModel(
   let elementTotal = 0
   let spaceTotal = 0
   let truncated = false
+  /** Ids the entity index lists that the store cannot produce — see below. */
+  let unreadable = 0
 
   let netFloorArea: number | null = null
   let grossFloorArea: number | null = null
@@ -468,7 +530,25 @@ export async function extractIfcModel(
         if (!feedsTotals) continue
       }
       const entity = store.getEntity(expressId)
-      if (!entity) continue
+      if (!entity) {
+        /*
+          An id the index lists and the store cannot produce — a forward or
+          dangling reference. It was counted into `typeCounts` and
+          `elementTotal` before this loop and then silently dropped, so the
+          overview said "19 Bauteile" while 17 rows were queryable and
+          `truncatedAt` was null: every surface downstream treated the element
+          list as complete. That is the same silent shortfall the cap
+          machinery exists to announce, arrived at a different way.
+
+          Counted out of both, so the total is the number of elements that can
+          actually be answered about. `unreadable` is reported separately.
+        */
+        typeCounts[canonical] -= 1
+        elementTotal -= 1
+        if (SPATIAL_ELEMENT_TYPES.has(canonical)) spaceTotal -= 1
+        unreadable += 1
+        continue
+      }
 
       if (capped) {
         const quantities = toQuantitySets(mergedQuantitySets(store, expressId))
@@ -571,15 +651,23 @@ export async function extractIfcModel(
       netVolumeM3: roundMeasure(netVolume),
     },
     health: null,
+    unreadableEntities: unreadable,
     parseMs,
     fileSizeBytes: buffer.byteLength,
     truncatedAt: truncated ? limit : null,
     elements,
   }
 
-  // Validation runs HERE, over the whole extraction, rather than later over the
-  // stored rows: the element list may be capped and the findings must be about
-  // the model, not about the subset that fit.
+  // Validation runs here rather than later over the stored rows, so it sees
+  // the extraction as a whole — the spatial tree, the summary, the units.
+  //
+  // What it does NOT see is the elements past the cap: `index.elements` is the
+  // capped list (`truncatedAt` above records where it stopped), and every
+  // check reads it. So on a file bigger than the cap, "43 Bauteile keinem
+  // Geschoß zugeordnet" is 43 out of the stored 200 000 and says nothing about
+  // the rest. The `health` op is in `ROW_READING_OPS`, so a truncated model
+  // carries the cap caveat with it; the comment here used to claim the
+  // findings were about the model, which they are not.
   index.health = validateModel(index)
   return index
 }

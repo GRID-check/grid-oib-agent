@@ -44,6 +44,20 @@ export interface IfcModelCompareProps {
 /** How many rows each bucket shows before the count speaks for the rest. */
 const VISIBLE_ROWS = 8
 
+/**
+ * "… 492 weitere", when a bucket showed only part of itself.
+ *
+ * `total` is the comparison's own count, NOT the array length: `compare.ts`
+ * slices each bucket at 500 before it ever reaches this panel, so a remainder
+ * computed from the array is a remainder of a cap.
+ */
+function DiffElided({ shown, total }: { shown: number; total: number }): JSX.Element | null {
+  const t = useTranslations('bim')
+  const listed = Math.min(shown, VISIBLE_ROWS)
+  if (total <= listed) return null
+  return <li className="text-muted-foreground text-xs">{t('compare.more', { count: total - listed })}</li>
+}
+
 export function IfcModelCompare({
   modelId,
   candidates,
@@ -83,6 +97,26 @@ export function IfcModelCompare({
     },
     []
   )
+
+  /**
+   * A different building is a different question.
+   *
+   * Switching model in the rail does not remount this panel, so a finished
+   * comparison stayed on screen — with its "Verglichen mit v1" caption — while
+   * the stage showed v3, and `baseModelId` still held a revision that is no
+   * longer among the candidates: the select rendered blank and "Vergleichen"
+   * would have run a comparison nobody chose. The sibling `useBimComplianceDiff`
+   * resets on exactly this transition, for exactly this reason.
+   */
+  useEffect(() => {
+    generation.current += 1
+    setComparison(null)
+    setState('idle')
+    setBaseModelId(candidates[0]?.id ?? '')
+    // Keyed on the model, not on the candidate list: the list is a new array
+    // identity on every render of the parent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelId])
 
   const run = async (base: string = baseModelId) => {
     if (!base) return
@@ -237,6 +271,14 @@ export function IfcModelCompare({
                   </span>
                 </li>
               ))}
+              {/*
+                Each bucket says what it left out, directly under itself. Eight
+                rows per bucket is a deliberate cap on a panel in a 26 rem
+                drawer, and it was silent: the badges above give the totals,
+                but nothing on the list said the list was a sample — on the
+                panel an office resubmits from.
+              */}
+              <DiffElided shown={comparison.result.added.length} total={comparison.result.counts.added} />
               {comparison.result.removed.slice(0, VISIBLE_ROWS).map((entry) => (
                 <li key={`removed-${entry.globalId}`} className="flex gap-2">
                   <span aria-hidden="true" className="text-destructive">
@@ -248,6 +290,10 @@ export function IfcModelCompare({
                   </span>
                 </li>
               ))}
+              <DiffElided
+                shown={comparison.result.removed.length}
+                total={comparison.result.counts.removed}
+              />
               {comparison.result.changed.slice(0, VISIBLE_ROWS).map((entry) => (
                 <li key={`changed-${entry.globalId}`} className="space-y-0.5">
                   <p className="flex gap-2">
@@ -277,6 +323,10 @@ export function IfcModelCompare({
                   </ul>
                 </li>
               ))}
+              <DiffElided
+                shown={comparison.result.changed.length}
+                total={comparison.result.counts.changed}
+              />
             </ul>
           )}
         </div>

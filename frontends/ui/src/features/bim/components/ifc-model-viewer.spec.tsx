@@ -71,13 +71,18 @@ describe('IfcModelViewer without WebGPU', () => {
 })
 
 describe('IfcModelViewer with WebGPU', () => {
-  it('shows the same fallback while the source URL is still being minted', () => {
+  it('says it is loading while the source URL is being minted, not that the browser cannot', () => {
+    // These are two different situations and only one of them is about the
+    // browser. Folding them together told a browser that HAS WebGPU that it
+    // does not — for a second on every card while the presigned URL was
+    // minted, and permanently when that request failed.
     setWebGpu(true)
     render(<IfcModelViewer sourceUrl={null} elements={ELEMENTS} />)
-    // A canvas with nothing to load would render an empty grey box; saying so
-    // is better than showing one.
     expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
-    expect(screen.getByText('3D view not available in this browser')).toBeInTheDocument()
+    expect(
+      screen.queryByText('3D view not available in this browser')
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Loading model…')).toBeInTheDocument()
   })
 
   it('mounts the viewport once there is something to draw', async () => {

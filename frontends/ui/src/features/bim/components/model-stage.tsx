@@ -194,7 +194,12 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   const storey = view.storey ?? null
   const selectedGlobalId = view.element ?? null
 
-  const { data: elements, isLoading: elementsLoading } = useBimElements(modelId)
+  const {
+    data: elements,
+    isLoading: elementsLoading,
+    error: elementsError,
+    reload: reloadElements,
+  } = useBimElements(modelId)
   // `elements ?? []` inline would mint a new array on every render, changing
   // the canvas's props identity for a value that did not change.
   const elementList = elements ?? NO_ELEMENTS
@@ -449,10 +454,17 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
    * the answer they were sent is wrong, about a model that has every one of
    * those elements. Same mistake `expressIdsForStorey` already fixed for
    * isolation: an empty list is "not yet", not "not there".
+   *
+   * And zero when the walk FAILED, for the stronger version of the same
+   * reason: an empty list there is "we could not look", and reporting it as
+   * "the elements are not in this model" states a data problem in someone
+   * else's answer on the strength of our own request failing. The failure is
+   * reported on its own, below.
    */
-  const unresolvedHighlights = elementsLoading
-    ? 0
-    : viewport.highlights.reduce((sum, group) => sum + group.unresolved.length, 0)
+  const unresolvedHighlights =
+    elementsLoading || elementsError !== null
+      ? 0
+      : viewport.highlights.reduce((sum, group) => sum + group.unresolved.length, 0)
 
   /**
    * Highlighted elements the LINK could not carry.
@@ -477,6 +489,11 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
    * who can see a small pill at the top of a full-screen 3D view.
    */
   const stageWarning = useMemo(() => {
+    // First, because it is the only one of these that means the reader cannot
+    // USE the building. Without the rows a pick resolves to nothing, so every
+    // click on a wall silently clears the selection: the model is on screen
+    // and completely inert, and until now nothing said why.
+    if (elementsError !== null) return t('stage.elementsFailed')
     if (openedAnother) {
       return t('stage.otherModel', { wanted: view.model ?? '', opened: model?.filename ?? '' })
     }
@@ -497,7 +514,16 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
       })
     }
     return null
-  }, [openedAnother, unresolvedHighlights, cappedHighlights, view.model, view.highlights, model?.filename, t])
+  }, [
+    elementsError,
+    openedAnother,
+    unresolvedHighlights,
+    cappedHighlights,
+    view.model,
+    view.highlights,
+    model?.filename,
+    t,
+  ])
 
   /**
    * The dimension just taken, and only that one.
@@ -598,6 +624,11 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           } else if (advancedOpen) {
             event.preventDefault()
             setAdvancedOpen(false)
+            // The same restore the drawer's X does. Without it, closing with
+            // Escape unmounted the focused heading and left the reader at the
+            // top of a fifteen-control dialog, while closing with the button
+            // put them back on the toolbar — one action, two behaviours.
+            advancedToggleRef.current?.focus()
           } else if (selectedGlobalId) {
             event.preventDefault()
             setView({ element: undefined })
@@ -679,6 +710,13 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                           storey: undefined,
                           element: undefined,
                           highlights: undefined,
+                          // See-through goes with them. It ghosts everything
+                          // that is not highlighted or selected, so with both
+                          // dropped the button becomes `active` (the URL still
+                          // says `xray=1`) AND `disabled` — a mode the reader
+                          // can be left in and cannot leave, which then ghosts
+                          // the whole building the moment they click a wall.
+                          xray: undefined,
                         })
                       }
                     />
@@ -802,6 +840,18 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               <ViewerSurface className="flex items-start gap-2 px-3 py-2 text-xs">
                 <TriangleAlert className="text-warning mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                 <span className="max-w-[28rem]">{stageWarning}</span>
+                {/* The one warning here that has something to press. */}
+                {elementsError !== null && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="-my-1 h-6 shrink-0 px-2 text-xs"
+                    onClick={reloadElements}
+                  >
+                    {t('loadFailed.action')}
+                  </Button>
+                )}
               </ViewerSurface>
             </div>
           )}
@@ -816,7 +866,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
             // one that arrives wrong is a contradiction the reader has to
             // resolve themselves.
             entries={
-              elementsLoading
+              elementsLoading || elementsError !== null
                 ? []
                 : viewport.highlights.map((highlight) => ({
                     status: highlight.status,
@@ -1084,7 +1134,12 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 })
               }
               onOpenModel={(filename) =>
-                setView({ model: filename, element: undefined, highlights: undefined })
+                setView({
+                  model: filename,
+                  element: undefined,
+                  highlights: undefined,
+                  xray: undefined,
+                })
               }
             />
           )}
@@ -1136,7 +1191,16 @@ function StageCanvas({
 }): JSX.Element {
   const t = useTranslations('bim')
 
-  if (isLoading) {
+  // `isLoading && nothing to show yet`, not `isLoading`.
+  //
+  // The model list polls every four seconds while ANY model in the project is
+  // extracting, and each tick sets `isLoading` while deliberately keeping the
+  // previous `data` — the hook's comment explains at length why. Keying the
+  // veil on the flag alone undid that: uploading revision v3 while looking at
+  // v2 swapped the canvas for "Modell wird geladen…" every four seconds,
+  // unmounting the viewport, destroying the WebGPU device and re-streaming up
+  // to 149 MB, losing the camera, the cut and every measurement each time.
+  if (isLoading && !hasModels) {
     return <ModelViewportProgress phase="downloading" percent={null} />
   }
   if (error) {

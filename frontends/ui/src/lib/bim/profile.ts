@@ -90,7 +90,13 @@ function classifyUse(spaceNames: readonly string[]): { use: string; hits: number
   if (top[1] < 2) return null
   // Two uses within one room of each other is a mixed-use building, and picking
   // one would be a guess dressed as a derivation.
-  if (ranked[1] && ranked[1][1] >= top[1]) return null
+  //
+  // `>= top` could only ever be an exact tie — the list is sorted descending —
+  // so twelve `wohnen` rooms against eleven `buero` ones was published as a
+  // Hauptnutzung of `wohnen`, at `medium` confidence, and a Hauptnutzung
+  // decides which rules apply. The comment said "within one room"; now the
+  // code does too.
+  if (ranked[1] && top[1] - ranked[1][1] <= 1) return null
   return { use: top[0], hits: top[1] }
 }
 
@@ -131,7 +137,11 @@ export function deriveProfileSuggestions(input: BimProfileInput): BimProfileSugg
       suggestions.push({
         key: 'geschosse_unterirdisch',
         value: below.length,
-        confidence: 'high',
+        // The same qualification its sibling above carries. A basement among
+        // the storeys with no published elevation is a basement this count
+        // does not see, and offering a short count at `high` is offering the
+        // label that invites the reader to accept it — into a Gebäudeklasse.
+        confidence: placed.length === summary.storeys.length ? 'high' : 'medium',
         evidence: `${below.length} Geschoße mit negativer Höhenlage: ${below
           .map((storey) => `${storey.name ?? '—'} (${storey.elevation} m)`)
           .join(', ')}`,
