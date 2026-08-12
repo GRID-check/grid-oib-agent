@@ -156,8 +156,14 @@ def test_open_and_briefing_do_not_run_geometry() -> None:
 # ── the surface itself ──────────────────────────────────────────────────────
 
 
-def test_the_tool_list_is_the_ported_surface_plus_the_two_it_was_built_for(tools: list) -> None:
-    """Ten tools ported from `tools.ts`, and two the port added.
+def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: list) -> None:
+    """Ten tools ported from `tools.ts`, and three the port added.
+
+    `view` sits BEFORE `draw` deliberately. They look like duplicates and are
+    not: `draw` writes an SVG file for a human, `view` returns a raster the
+    MODEL can see. A model reading the list top-down should meet the one it can
+    actually use first, because the one it cannot returns a file path that tells
+    it nothing.
 
     `overhang` and `light_incidence` existed as operators from the start and
     were reachable from nothing. That is worse than not having them: the skill
@@ -174,6 +180,7 @@ def test_the_tool_list_is_the_ported_surface_plus_the_two_it_was_built_for(tools
         "relations",
         "measure",
         "distance",
+        "view",
         "draw",
         "overhang",
         "light_incidence",

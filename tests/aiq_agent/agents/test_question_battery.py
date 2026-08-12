@@ -509,3 +509,97 @@ class TestNoAnswerEverBecomesAVerdict:
         for number in re.findall(r"\d+\.\d+", rendered):
             _, _, fraction = number.partition(".")
             assert len(fraction) <= 6, f"{number} in {call}"
+
+
+class TestTheAgentCanLookAtThePlan:
+    """`view` — the operation that hands the model a picture, not a path.
+
+    `draw` writes an SVG and returns a file path and a byte count. For a human
+    that is right; for the agent it is nothing at all, because it has no eyes on
+    the filesystem and could not read path data if it did. So the agent has been
+    generating drawings it cannot see.
+
+    `view` rasterises the same geometry and returns an image content block, plus
+    a caption carrying what pixels cannot state exactly — and the prohibition
+    that matters: a dimension read off a raster is guessed even when it happens
+    to be right.
+    """
+
+    def _blocks(self, tools, handles, **kwargs):
+        import ifc_spatial.tools as engine
+
+        from aiq_agent.agents.bim.measure_register import _build_call
+        from aiq_agent.agents.bim.measure_register import _image_blocks
+
+        built = _build_call(
+            operation="view",
+            global_id=kwargs.pop("global_id", ""),
+            other_global_id="",
+            relation="",
+            measure="",
+            mode=kwargs.pop("mode", ""),
+            ifc_type="",
+            name_contains="",
+            storey=kwargs.pop("storey", ""),
+            kind="",
+            room_kind="",
+            limit=50,
+            angle_deg=None,
+            swivel_deg=None,
+        )
+        if isinstance(built, str):
+            return built
+        name, args = built
+        args["model"] = handles[HOUSE]
+        return _image_blocks(engine.call(tools, name, args), source={}, handle="")
+
+    def test_it_returns_an_image_the_model_can_see(self, tools, handles):
+        blocks = self._blocks(tools, handles)
+        assert [block["type"] for block in blocks] == ["text", "image_url"]
+        url = blocks[1]["image_url"]["url"]
+        assert url.startswith("data:image/png;base64,")
+        # A real raster, not a placeholder: a silently failed render produces a
+        # tiny blob that a data URL carries just as willingly.
+        assert len(url) > 8_000
+
+    def test_the_caption_names_the_rooms_and_the_cut(self, tools, handles):
+        caption = self._blocks(tools, handles)[0]["text"]
+        assert "Ground Floor" in caption
+        assert "1.20 m" in caption
+        assert "Living room" in caption and "Bedroom" in caption
+        # The rule that keeps a picture from becoming a source of numbers.
+        assert "Maße NIE daraus ablesen" in caption
+
+    def test_highlighting_is_reported_in_words_as_well_as_pixels(self, tools, handles):
+        caption = self._blocks(tools, handles, global_id=f"{WINDOW}, {NORTH_WALL}")[0]["text"]
+        # Both ids, because the question "is this window really in that wall" is
+        # about a PAIR, and a single-value field would force two renders.
+        assert WINDOW in caption and NORTH_WALL in caption
+        assert "Rot markiert" in caption
+
+    def test_only_and_highlight_are_different_requests(self, tools, handles):
+        marked = self._blocks(tools, handles, global_id=WINDOW, mode="highlight")
+        isolated = self._blocks(tools, handles, global_id=WINDOW, mode="only")
+        assert marked[1]["image_url"]["url"] != isolated[1]["image_url"]["url"]
+        # Isolating removes the rooms, so the caption stops naming them.
+        assert "Living room" in marked[0]["text"]
+        assert "Räume im Bild" not in isolated[0]["text"]
+
+    def test_isolating_nothing_is_refused_rather_than_drawn_empty(self, tools, handles):
+        answer = self._blocks(tools, handles, mode="only")
+        assert isinstance(answer, str)
+        assert answer.startswith("Error:")
+        assert "needs at least one global_id" in answer
+
+    def test_an_unknown_mode_names_the_two_that_exist(self, tools, handles):
+        answer = self._blocks(tools, handles, global_id=WINDOW, mode="zoom")
+        assert isinstance(answer, str)
+        assert "'highlight'" in answer and "'only'" in answer
+
+    def test_a_storey_that_is_not_in_this_file_is_an_error_not_a_blank_page(self, tools, handles):
+        import ifc_spatial.tools as engine
+
+        with pytest.raises(engine.ToolError) as raised:
+            self._blocks(tools, handles, storey="Dachgeschoss")
+        # A blank page and a broken renderer are indistinguishable to a reader.
+        assert "Briefing" in str(raised.value)

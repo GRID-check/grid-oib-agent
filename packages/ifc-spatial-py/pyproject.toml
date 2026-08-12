@@ -12,6 +12,14 @@ dependencies = [
   "ifcopenshell>=0.8.5",
   "numpy>=1.26",
   "shapely>=2.0",
+  # `render.plan` rasterises a storey so a language model can LOOK at it — a
+  # multimodal content block needs a raster behind its data URL. Pillow rather
+  # than cairosvg deliberately: cairosvg would let us reuse `ifcopenshell.draw`'s
+  # SVG, but it pulls native cairo, pango and libffi into the image to serve one
+  # call, and pure wheels are the difference between this working everywhere and
+  # working where someone remembered to apt-get. 10.1 is the floor because
+  # `ImageFont.load_default(size=…)` is what removes the system-font dependency.
+  "pillow>=10.1",
 ]
 
 [project.optional-dependencies]

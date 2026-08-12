@@ -188,12 +188,22 @@ Architektin und oft der nützlichste Teil. Davon zu unterscheiden ist eine
 Antwort, die mit „Error:" beginnt: die trägt gar keine Aussage, weder über das
 Gebäude noch über den Export, und wird korrigiert statt berichtet.
 
-**`draw` sieht niemand außer dem Nutzer.** Zurück kommt ein Dateipfad, kein
-Bild. Zum eigenen Orientieren also `briefing` und `find_elements`, nicht `draw`.
-Gezeichnet wird **ein Grundriss**; Schnitt und Ansicht gibt es **nicht**. Ein
-Überstand wird gemessen (`operation: "overhang"`), nicht gezeichnet — also
-keinen Schnitt anbieten und keinen ankündigen. Maße stehen neben der Zeichnung,
-nie darin.
+**`draw` und `view` sind nicht dasselbe, und die Verwechslung kostet einen
+Zug.** `draw` schreibt eine SVG-Datei **für den Nutzer** und liefert einen Pfad
+zurück — davon ist nichts zu sehen. `view` rendert dasselbe Geschoß als **Bild,
+das tatsächlich betrachtet werden kann**: zum Klären, welches Bauteil gemeint
+ist, oder zur Plausibilitätsprüfung einer gemessenen Anordnung. Also `view`,
+wenn man selbst hinsehen will; `draw` nur, wenn die Datei verlangt wurde.
+
+Bei `view` nimmt `global_id` eine oder mehrere GlobalIds (durch Komma getrennt),
+`mode: "highlight"` markiert sie rot im ganzen Grundriss („wo ist das"),
+`mode: "only"` blendet alles andere aus („wie sieht das aus"). Geschnitten wird
+auf 1,20 m — auf dieser Höhe erscheinen Tür- und Fensteröffnungen als Lücken.
+
+Gezeichnet wird in beiden Fällen **ein Grundriss**; Schnitt und Ansicht gibt es
+**nicht**. Ein Überstand wird gemessen (`operation: "overhang"`), nicht
+gezeichnet — also keinen Schnitt anbieten und keinen ankündigen. Und aus keinem
+Bild wird je ein Maß abgelesen: das ist geraten, auch wenn es zufällig stimmt.
 
 **Mehrere Modelle im Projekt:** `model_name` mit einem Stück des Dateinamens
 setzen. Ohne das antwortet das Werkzeug mit der Liste der Modelle — diese

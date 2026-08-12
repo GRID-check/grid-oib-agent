@@ -42,6 +42,7 @@ from aiq_agent.agents.bim.measure_register import MEASURES
 from aiq_agent.agents.bim.measure_register import RELATIONS
 from aiq_agent.agents.bim.measure_register import ROOM_KINDS
 from aiq_agent.agents.bim.measure_register import VALID_OPERATIONS
+from aiq_agent.agents.bim.measure_register import VIEW_MODES
 from aiq_agent.agents.bim.register import VALID_OPERATIONS as QUERY_OPERATIONS
 
 #: The two tool names the skill is allowed to name, and the operations each one
@@ -189,7 +190,11 @@ def test_dotted_and_valued_forms_resolve_too(text: str) -> None:
         "operation": EVERY_OPERATION,
         "relation": set(RELATIONS),
         "measure": set(MEASURES),
-        "mode": set(DISTANCE_MODES),
+        # `mode` is operation-scoped: distance senses on `distance`, plan
+        # framing on `view`. The union is the honest check here — a per-line
+        # operation lookup is what `test_the_routing_table_puts_each_operation
+        # _under_its_own_tool` already does.
+        "mode": set(DISTANCE_MODES) | set(VIEW_MODES),
         "kind": set(KINDS),
         "room_kind": set(ROOM_KINDS),
     }
@@ -274,11 +279,18 @@ def test_the_check_actually_catches_the_defect_it_was_written_for() -> None:
 
     parameters = [name for name, _ in written_calls(removed)]
     assert parameters == ["view"]
+    # `view` is now a real OPERATION — it renders a plan the model can see — so
+    # the original "this word appears nowhere" assertion no longer holds, and
+    # keeping it would have been wrong rather than strict. The defect was never
+    # the word: it was `view` used as a PARAMETER of `draw`, and a parameter
+    # `ifc_measure` does not take is silently dropped from the call. That is
+    # still precisely what this rejects.
     assert "view" not in PARAMETERS
+    assert "view" in VALID_OPERATIONS, "the operation exists — only the parameter never did"
 
-    # And it is not rescued by being a known enum value somewhere else.
+    # And the VALUE is not rescued by being a known enum entry somewhere else.
     everything = VALID_OPERATIONS | PARAMETERS | set(RELATIONS) | set(MEASURES) | set(DISTANCE_MODES)
-    assert "view" not in everything and "section" not in everything
+    assert "section" not in everything
 
 
 def test_the_skill_does_not_promise_a_section_or_an_elevation(text: str) -> None:
@@ -295,7 +307,11 @@ def test_the_skill_does_not_promise_a_section_or_an_elevation(text: str) -> None
     for.
     """
     assert "Grundriss" in text
-    assert "Schnitt und Ansicht gibt es **nicht**" in text
+    # Whitespace-collapsed: pinning the line break rather than the claim is
+    # the brittleness that already broke this suite once when a paragraph
+    # rewrapped.
+    flat = " ".join(text.split())
+    assert "Schnitt und Ansicht gibt es **nicht**" in flat
     assert "overhang" in text
 
 

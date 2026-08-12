@@ -375,6 +375,60 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         mode = str(args.get("mode") or "min")
         return run(lambda: op.distance(model, str(args.get("a") or ""), str(args.get("b") or ""), mode))
 
+    # ── view ────────────────────────────────────────────────────────────────
+
+    def view(args: dict[str, Any]) -> Any:
+        """A plan as base64 PNG, for a transport that can show it to the model.
+
+        The bytes come back here rather than going to a file, which is the
+        opposite of `draw`'s rule — and deliberately. `draw` writes a file
+        because a few hundred kilobytes of SVG path data in a context window
+        buys nothing: the agent cannot read path data. A raster is the reverse
+        case; it is the only form the agent CAN read, and a path to it is worth
+        exactly nothing to a model that has no eyes on the filesystem.
+
+        The caller decides what to do with the base64 — an MCP client wraps it
+        as an image content block, an HTTP host may hand back a URL instead.
+        This layer does not know which, so it returns the bytes and the facts.
+        """
+        from . import render as rendering
+
+        model = resolve(args.get("model"))
+        started = time.perf_counter()
+        drawn = rendering.plan(
+            model,
+            storey=(str(args["storey"]).strip() if args.get("storey") else None),
+            highlight=[str(v) for v in (args.get("highlight") or [])],
+            only=[str(v) for v in (args.get("only") or [])],
+        )
+        seconds = time.perf_counter() - started
+        if drawn is None:
+            # Not an empty picture. A blank page and a broken renderer are
+            # indistinguishable to a reader, so the two must not share a result.
+            raise ToolError(
+                "Für dieses Geschoß gibt es nichts zu zeichnen — kein Bauteil dieses Geschoßes trägt "
+                "Geometrie, oder der Geschoßname trifft nichts. Geschoßnamen stehen im Briefing."
+            )
+
+        return {
+            "pngBase64": base64.b64encode(drawn.png).decode("ascii"),
+            "mediaType": "image/png",
+            "width": drawn.width,
+            "height": drawn.height,
+            "storey": drawn.storey,
+            "cutHeight": round(drawn.cut_z, 3),
+            "rooms": drawn.rooms,
+            "highlighted": drawn.highlighted,
+            "elementsDrawn": drawn.drawn,
+            "northDeclared": drawn.north_deg is not None,
+            "seconds": round(seconds, 2),
+            "note": (
+                f"Grundriss „{drawn.storey}“, waagrechter Schnitt {drawn.cut_z:.2f} m über Null — auf "
+                "dieser Höhe erscheinen Tür- und Fensteröffnungen als Lücken in der Wand. Maße NICHT "
+                "aus dem Bild ablesen; dafür measure/distance."
+            ),
+        }
+
     # ── draw ────────────────────────────────────────────────────────────────
 
     def draw(args: dict[str, Any]) -> Any:
@@ -583,6 +637,43 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 "required": ["model", "a", "b"],
             },
             handler=distance,
+        ),
+        ToolDef(
+            name="view",
+            title="Den Grundriss ansehen",
+            description=(
+                "Rendert ein Geschoß als PNG und gibt es so zurück, dass das Modell es TATSÄCHLICH SEHEN "
+                "kann — im Unterschied zu draw, das eine SVG-Datei schreibt und nur den Pfad nennt.\n\n"
+                "Dafür gedacht, sich zu orientieren, bevor gemessen wird: welches Bauteil ist gemeint, "
+                "wie sind die Räume angeordnet, liegt das Fenster wirklich in der Wand, die hostedIn "
+                "nennt. `highlight` markiert einzelne Bauteile rot im gesamten Grundriss (wo ist das?), "
+                "`only` blendet alles andere aus (wie sieht das aus?). GlobalIds kommen aus "
+                "find_elements oder relations.\n\n"
+                "EINE Regel: Zahlen kommen nie aus dem Bild. Ein abgelesenes Maß ist geraten, auch wenn "
+                "es zufällig stimmt — dafür measure und distance."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "storey": {
+                        "type": "string",
+                        "description": "Geschoßname, wörtlich aus dem Briefing; ohne Angabe das unterste",
+                    },
+                    "highlight": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "GlobalIds, die rot markiert werden — der Rest bleibt sichtbar",
+                    },
+                    "only": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "GlobalIds, auf die die Zeichnung eingeschränkt wird",
+                    },
+                },
+                "required": ["model"],
+            },
+            handler=view,
         ),
         ToolDef(
             name="draw",

@@ -74,6 +74,7 @@ VALID_OPERATIONS = {
     "storey_heights",
     "room_inventory",
     "draw",
+    "view",
     "overhang",
     "light_incidence",
 }
@@ -155,6 +156,16 @@ DISTANCE_MODES = {
     ),
 }
 
+#: `mode` on view. A SECOND vocabulary on the same field, which is worth naming
+#: rather than leaving inline: `mode` already carries the distance senses, and a
+#: model that reads DISTANCE_MODES and then meets `mode="highlight"` has to work
+#: out for itself that the field is operation-scoped. Spelling both sets out —
+#: and pinning both in the skill test — is what keeps that from being a guess.
+VIEW_MODES = {
+    "highlight": "mark these elements red on the full plan — 'where is this in the building'",
+    "only": "draw nothing but these elements — 'what does this look like'",
+}
+
 #: `kind` on find_elements — the spatial role, not the IFC type.
 KINDS = ("project", "site", "building", "storey", "space", "element", "opening", "group")
 
@@ -216,8 +227,15 @@ _TOOL_DESCRIPTION = (
     "because a window set deep in a thick wall genuinely is shaded by its own reveal — but if the wall "
     "comes back as an obstruction, re-run with it excluded (keeping any other exclusion you already "
     "had), and say in the answer that you did and why.\n"
-    "  'draw'           — a floor plan as SVG, written to a file on the server (~5 s). Useful to check "
-    "an arrangement or work out which element is meant. NEVER read a number off it.\n"
+    "  'view'           — LOOK at a floor plan. Returns the storey as an IMAGE you can actually see, "
+    "cut at 1.2 m so door and window openings appear as gaps. global_id takes one GlobalId or several "
+    "separated by commas; mode='highlight' (default) marks them red on the full plan ('where is this'), "
+    "mode='only' draws nothing else ('what does this look like'). Use it to settle which element is "
+    "meant, to sanity-check that a measured arrangement looks the way the numbers imply, or before "
+    "measuring at all. ~6 s. NEVER read a number off it — a dimension taken from a picture is guessed "
+    "even when it happens to be right.\n"
+    "  'draw'           — the same plan as an SVG FILE for the USER (~5 s). It returns a path, not an "
+    "image: you cannot see it. Use 'view' when YOU need to look, 'draw' when the user wants the file.\n"
     "\n"
     "PROVENANCE — the reason this tool exists. Every answer says HOW it was obtained, and the three "
     "are three different sentences in German that must not be swapped:\n"
@@ -379,6 +397,27 @@ def _build_call(
         if wanted not in ROOM_KINDS:
             return f"Error: room_kind '{room_kind}' does not exist. Use one of: {', '.join(ROOM_KINDS)}."
         return "room_inventory", {"kind": wanted}
+
+    if op == "view":
+        # `global_id` carries a comma-separated list here rather than one id,
+        # because the question "where is this" is usually about a pair — the
+        # window AND the wall it is supposed to sit in — and a single-value
+        # field forces two renders to ask one question.
+        wanted = [part.strip() for part in _clean(global_id).split(",") if part.strip()]
+        picked = (_clean(mode) or "highlight").lower()
+        if picked not in VIEW_MODES:
+            return (
+                "Error: for operation 'view', mode must be 'highlight' (mark these elements, keep the "
+                "rest of the plan) or 'only' (draw nothing else). Default is 'highlight'."
+            )
+        if picked == "only" and not wanted:
+            return "Error: mode='only' needs at least one global_id — otherwise there is nothing to draw."
+        args = {}
+        if _clean(storey):
+            args["storey"] = _clean(storey)
+        if wanted:
+            args["only" if picked == "only" else "highlight"] = wanted
+        return "view", args
 
     if op == "draw":
         args = {}
@@ -720,6 +759,49 @@ def _model_line(result: dict[str, Any], handle: str = "") -> str:
     return f"Modell: {filename}{detail}" + (f" · Kennung {handle[:12]}" if handle else "")
 
 
+def _image_blocks(payload: dict[str, Any], *, source: dict[str, Any] | None, handle: str) -> list[dict]:
+    """The plan as something the model can actually LOOK at.
+
+    Every other operation returns prose because every other operation returns
+    facts. This one returns a picture, and a picture described in prose is not a
+    picture — `draw` already proves that: it writes an SVG and hands back a path
+    and a byte count, which tells the agent nothing it did not already know.
+
+    Two blocks rather than one. The caption carries what the pixels cannot state
+    exactly — which storey, the cut height, the rooms by name, which GlobalIds
+    are marked — and, crucially, the prohibition: a dimension read off a raster
+    is guessed even when it happens to be right, and every dimension here is
+    available from an operator that states its own tolerance.
+    """
+    lines = [line for line in (_model_line(source or {}, handle),) if line]
+    lines.append(str(payload.get("note") or ""))
+    rooms = payload.get("rooms") or []
+    if rooms:
+        lines.append("Räume im Bild: " + ", ".join(str(room) for room in rooms) + ".")
+    marked = payload.get("highlighted") or []
+    if marked:
+        lines.append("Rot markiert: " + ", ".join(str(item) for item in marked) + ".")
+    if not payload.get("northDeclared"):
+        # No arrow was drawn, and the absence has to be stated — otherwise the
+        # reader supplies a north themselves, which is exactly the invention
+        # („Südfassade") this package exists to stop.
+        lines.append(
+            "Kein Nordpfeil: diese Datei deklariert keine Nordrichtung. Aus dem Bild lässt sich "
+            "keine Himmelsrichtung ableiten."
+        )
+    lines.append(
+        "Das Bild dient der Orientierung und der Identifikation von Bauteilen. Maße NIE daraus "
+        "ablesen — dafür operation='measure' oder 'distance', die ihre Toleranz mitliefern."
+    )
+    return [
+        {"type": "text", "text": "\n".join(line for line in lines if line)},
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:{payload.get('mediaType', 'image/png')};base64,{payload['pngBase64']}"},
+        },
+    ]
+
+
 def _render_unresolved(result: dict[str, Any]) -> str:
     """A model that could not be selected — the same shape ``ifc_query`` uses."""
     message = result.get("message") or "Das Modell konnte nicht gelesen werden."
@@ -949,7 +1031,7 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
         limit: int = 0,
         angle_deg: float = 0.0,
         swivel_deg: float = 0.0,
-    ) -> str:
+    ) -> list[dict] | str:
         """Measure the project's IFC/BIM model and report the provenance."""
         organization_id = get_organization_id_from_context()
         if not organization_id:
@@ -1034,6 +1116,8 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
             detail,
             outcome="undecidable" if decidable is False else "resolved",
         )
+        if name == "view" and isinstance(payload, dict) and payload.get("pngBase64"):
+            return _image_blocks(payload, source=source, handle=handle)
         return _render(name, payload, source=source, handle=handle)
 
     yield FunctionInfo.from_fn(_ifc_measure, description=_TOOL_DESCRIPTION)
