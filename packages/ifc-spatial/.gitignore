@@ -1,0 +1,4 @@
+# Scratch specs used to measure against a real model while building.
+# They are deliberately throwaway: a scratch file that gets committed becomes
+# a test nobody maintains and everybody trusts.
+__scratch*
