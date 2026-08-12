@@ -58,6 +58,7 @@ import { computed, declared, triangulate, undecidable, type Answer, type Missing
 import { boxGap, boxesOverlap, type Box, type ElementGeometry, type GeometryIndex, type Vec3 } from '../geometry/pass.js'
 import { label, node, type BuildingGraph, type GraphNode } from '../graph/types.js'
 import { UnknownElementError } from './topology.js'
+import { ray } from './constructive.js'
 
 // ── the error model ─────────────────────────────────────────────────────────
 
@@ -652,18 +653,175 @@ export function clearHeight(graph: BuildingGraph, geometry: GeometryIndex, space
   const geo = requireGeometry<number>(geometry, subject, method)
   if ('answer' in geo) return geo.answer
 
-  const height = geo.geometry.box.max[2] - geo.geometry.box.min[2]
+  const box = geo.geometry.box
+  const floor = box.min[2]
+  const solid = box.max[2] - floor
 
-  return computed(height, {
+  /**
+   * What actually hangs into the room, found by looking upward from inside it.
+   *
+   * This used to return the space solid's own height with a caveat explaining
+   * that beams, ducts and suspended ceilings shorten the real clear height and
+   * that the intersection test was missing. On the sample house that answered
+   * **2.500 m** for a living room whose `IfcCovering` ceiling sits at
+   * **2.200 m**. The caveat carried the truth and the number did not, which is
+   * the wrong way round: 30 cm is a large error on precisely the figure a
+   * minimum room height is checked against, in the direction that turns a fail
+   * into a pass.
+   *
+   * A bounding-box test was tried first and is not good enough — it cannot
+   * tell "hangs into the room" from "is near the room". A window sitting in
+   * the enclosing wall overlaps the room's box in plan, and a roof spanning
+   * the whole building overlaps every room's; both reported as intrusions and
+   * the living room came back at 0.90 m. Only real surfaces answer this, so a
+   * grid of rays is cast upward from just above the floor and the nearest hit
+   * wins.
+   *
+   * The grid is coarse (5×5 inset from the walls). It will miss a duct
+   * narrower than the spacing, which the caveat says; it will not invent one.
+   */
+  // What may lower a clear height is an explicit LIST, not an exclusion.
+  //
+  // Exclusion was tried twice and failed twice, in both directions. Left open,
+  // the rays hit a sofa and reported the living room as 0.37 m high. With
+  // furniture excluded, they hit a window sill in the south wall at 0.90 m —
+  // and a window is part of the enclosure, not something hanging over the
+  // floor. Every exclusion list is a bet that nothing unforeseen sits in the
+  // room, and an IFC always has something unforeseen in it.
+  //
+  // Named positively, the rule is one an architect would recognise: a ceiling,
+  // a slab, a beam, a duct or a stair above you reduces the room's clear
+  // height. Anything not on this list is treated as not overhead, which is a
+  // real limit — an exotic soffit modelled as an IfcBuildingElementProxy will
+  // be missed — and is stated in the caveat rather than hidden.
+  const overhead = new Set<string>()
+  for (const [id, n] of graph.nodes) {
+    if (!OVERHEAD.has(n.ifcType)) overhead.add(id)
+  }
+
+  // Sample points come from the bounding BOX, and a room is not its box. The
+  // living room here is L-shaped, so a third of the grid falls inside the
+  // enclosing walls — where a ray upward hits a window sill and reports the
+  // room as 0.90 m high. Each point is therefore checked against the space
+  // SOLID first, by casting the same ray with everything but the space
+  // excluded: a point inside the room sees the room's own ceiling face, a
+  // point in a wall sees nothing.
+  // Containment is tested against the space's OWN triangles, not with `ray()`:
+  // that operator only considers `kind === 'element'`, and an IfcSpace is
+  // deliberately not a solid anything can hit. Parity counting does the job —
+  // a point inside the solid crosses its top face an odd number of times on the
+  // way out, a point in a wall crosses nothing.
+  const shell = geo.geometry.triangles
+
+  const samples = 5
+  const inset = 0.15
+  let lowest = Infinity
+  let intruder: string | null = null
+  let inside = 0
+  for (let i = 0; i < samples; i++) {
+    for (let j = 0; j < samples; j++) {
+      const x = lerp(box.min[0] + inset, box.max[0] - inset, i / (samples - 1))
+      const y = lerp(box.min[1] + inset, box.max[1] - inset, j / (samples - 1))
+      if (shell && !insideSolid(shell, x, y, floor + 0.05)) continue
+      inside++
+      const hit = ray(graph, geometry, [x, y, floor + 0.05], [0, 0, 1], solid + 1, [spaceGlobalId, ...overhead])
+      const value = hit.value
+      if (!value || value.distance >= lowest) continue
+      lowest = value.distance
+      intruder = value.hit
+    }
+  }
+
+  if (inside === 0) {
+    // Every sample missed the room solid. Rather than fall back to the box
+    // height — the very number this operator was corrected away from — say so.
+    return undecidable<number>({
+      from: [spaceGlobalId],
+      method,
+      provenance: 'computed',
+      missing: {
+        what: `Messpunkte innerhalb des Raumkörpers von ${label(subject)}`,
+        remedy:
+          'Kein Punkt des Prüfrasters liegt im Raumkörper — bei sehr schmalen oder stark gegliederten Räumen ' +
+          'ist das Raster zu grob. Die Höhe des Raumkörpers liefert extent().',
+        elements: [spaceGlobalId],
+      },
+    })
+  }
+
+  const clear = Number.isFinite(lowest) ? lowest + 0.05 : solid
+  const reduced = intruder !== null && clear < solid - DIMENSION_TOLERANCE
+
+  return computed(clear, {
     unit: 'm',
     tolerance: DIMENSION_TOLERANCE,
-    from: [spaceGlobalId],
+    from: intruder ? [spaceGlobalId, intruder] : [spaceGlobalId],
     method,
-    caveat:
-      'Das ist die Höhe des modellierten Raumkörpers, NICHT die lichte Höhe. Unterzüge, Lüftungsleitungen und ' +
-      'abgehängte Decken ragen in den Raum, ohne den Raumkörper zu verkürzen. Die lichte Höhe ergibt sich erst ' +
-      'aus den Bauteilen im Raum — dafür fehlt dieser Bibliothek noch der Verschneidungstest.',
+    caveat: reduced
+      ? `Lichte Höhe bis zur Unterkante von ${label(node(graph, intruder!))}; der Raumkörper selbst ist ` +
+        `${solid.toFixed(2)} m hoch. Gemessen mit ${samples * samples} senkrechten Strahlen — ein Einbau, ` +
+        'der schmaler ist als deren Abstand, kann dabei unentdeckt bleiben.'
+      : `Kein Bauteil ragt in den Raumkörper; die lichte Höhe entspricht seiner Höhe. Gemessen mit ` +
+        `${inside} von ${samples * samples} Strahlen im Raumkörper — ein sehr schmaler Einbau kann ihnen entgehen.`,
   })
+}
+
+/**
+ * The only types that may lower a room's clear height.
+ *
+ * Things above you: ceilings, slabs, beams, roofs, stairs, ducts and pipes.
+ * Deliberately NOT walls, windows or doors — those bound the room rather than
+ * hang into it, and including them made a window sill 0.90 m above the floor
+ * report as the room's height.
+ */
+const OVERHEAD = new Set([
+  'IfcCovering',
+  'IfcSlab',
+  'IfcSlabStandardCase',
+  'IfcBeam',
+  'IfcBeamStandardCase',
+  'IfcRoof',
+  'IfcStair',
+  'IfcStairFlight',
+  'IfcRamp',
+  'IfcRampFlight',
+  'IfcDuctSegment',
+  'IfcDuctFitting',
+  'IfcPipeSegment',
+  'IfcPipeFitting',
+  'IfcCableCarrierSegment',
+  'IfcDistributionElement',
+  'IfcDistributionFlowElement',
+  'IfcEnergyConversionDevice',
+])
+
+/**
+ * Whether a point lies inside a closed triangle shell, by upward parity.
+ *
+ * Counts crossings of the +Z ray through the shell's triangles: odd is inside.
+ * Winding is irrelevant to a parity count, which matters because this kernel's
+ * winding is unreliable — an orientation-based test would be a coin flip.
+ */
+function insideSolid(triangles: Float64Array, x: number, y: number, z: number): boolean {
+  let crossings = 0
+  for (let i = 0; i < triangles.length; i += 9) {
+    const ax = triangles[i]!, ay = triangles[i + 1]!, az = triangles[i + 2]!
+    const bx = triangles[i + 3]!, by = triangles[i + 4]!, bz = triangles[i + 5]!
+    const cx = triangles[i + 6]!, cy = triangles[i + 7]!, cz = triangles[i + 8]!
+    // Barycentric test in plan, then require the facet to be above the point.
+    const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+    if (Math.abs(d) < 1e-12) continue
+    const u = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / d
+    const v = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / d
+    const w = 1 - u - v
+    if (u < 0 || v < 0 || w < 0) continue
+    if (u * az + v * bz + w * cz > z) crossings++
+  }
+  return crossings % 2 === 1
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t
 }
 
 // ── guards ──────────────────────────────────────────────────────────────────

@@ -22,8 +22,9 @@ import { readFileSync } from 'node:fs'
 import { buildGraph } from '../src/graph/build.js'
 import { runGeometryPass, type GeometryIndex } from '../src/geometry/pass.js'
 import { withDerivedBoundaries } from '../src/geometry/boundaries.js'
+import { openModel } from '../src/model.js'
 import { hostedIn, opensTo } from '../src/operators/topology.js'
-import { azimuth, floorArea, sillAndHead } from '../src/operators/metric.js'
+import { azimuth, clearHeight, floorArea, sillAndHead } from '../src/operators/metric.js'
 import { facadePlaneOf, freeLightIncidence, overhang } from '../src/operators/constructive.js'
 import { inventory } from '../src/operators/model.js'
 import type { BuildingGraph } from '../src/graph/types.js'
@@ -170,5 +171,61 @@ describe('the question that started this', () => {
     // sun vector computed from a latitude and presented as a study.
     const surface = Object.keys(await import('../src/index.js'))
     expect(surface.join(' ')).not.toMatch(/sunPath|besonnung|solar/i)
+  })
+})
+
+/**
+ * The clear height, which this library got wrong and a second engine caught.
+ *
+ * `clearHeight` returned the space solid's own height — 2.500 m for a living
+ * room whose `IfcCovering` ceiling hangs at 2.200 m — with a caveat explaining
+ * that suspended ceilings shorten the real figure and that the intersection
+ * test was missing. The caveat carried the truth and the number did not.
+ *
+ * 30 cm is a large error on exactly the figure a minimum room height is checked
+ * against, and it was in the direction that turns a fail into a pass. It was
+ * found by porting the operators onto IfcOpenShell and comparing: 40 of 41
+ * numbers agreed to micrometres, and this one did not.
+ */
+describe('clear height, the number a second engine had to catch', () => {
+  let graph: BuildingGraph
+  let geometry: GeometryIndex
+
+  beforeAll(async () => {
+    const bytes = new Uint8Array(readFileSync(new URL('./fixtures/Ifc4_SampleHouse.ifc', import.meta.url)))
+    const opened = await openModel(bytes)
+    graph = opened.graph
+    geometry = opened.geometry!
+  }, 180_000)
+
+  const ROOMS = [
+    ['3w0zWKm7n8SB1qbfwUzt0U', 'Living room'],
+    ['3w0zWKm7n8SB1qbfwUzt0J', 'Bedroom'],
+    ['3w0zWKm7n8SB1qbfwUzt0G', 'Entrance hall'],
+  ] as const
+
+  it.each(ROOMS)('measures %s to the ceiling, not to the space solid', (id) => {
+    const answer = clearHeight(graph, geometry, id)
+    expect(answer.decidable).toBe(true)
+    // 2.200 m — the Compound Ceiling. Independently reproduced by IfcOpenShell
+    // casting its own rays. The space solids all run 0.000–2.500.
+    expect(answer.value!).toBeCloseTo(2.2, 2)
+    expect(answer.provenance).toBe('computed')
+    // The element responsible is named, so the reader can check it.
+    expect(answer.from).toHaveLength(2)
+    expect(answer.caveat).toMatch(/Unterkante/)
+  })
+
+  it('is not fooled by furniture, walls or the windows in them', () => {
+    // Three wrong answers preceded the right one, each from a different way of
+    // deciding what counts: unfiltered rays hit a sofa (0.37 m), excluding
+    // furniture hit a window sill in the south wall (0.90 m), and a
+    // bounding-box test hit the roof spanning the whole building (1.74 m).
+    // Only a positive list of things that can be OVERHEAD gets this right.
+    for (const [id] of ROOMS) {
+      const answer = clearHeight(graph, geometry, id)
+      expect(answer.value!).toBeGreaterThan(2.0)
+      expect(answer.value!).toBeLessThan(2.5)
+    }
   })
 })

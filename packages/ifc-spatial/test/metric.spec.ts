@@ -140,11 +140,18 @@ describe('metric operators on Ifc4_SampleHouse.ifc', () => {
     expect(bearings).toEqual(['N', 'O', 'S'])
   })
 
-  it('measures a space height and says it is not the clear height', () => {
+  it('measures to the ceiling, not to the top of the space solid', () => {
     const answer = clearHeight(graph, geometry, LIVING)
     expect(answer.decidable).toBe(true)
-    expect(answer.value!).toBeCloseTo(2.5, 2)
-    expect(answer.caveat).toMatch(/NICHT die lichte Höhe/)
+    // This asserted 2.5 — the space solid — and the operator's own caveat said
+    // that was not the clear height. It was correct about being wrong, which is
+    // not the same as being right: the room has a Compound Ceiling at 2.200 and
+    // the figure a minimum room height is checked against was over-reported by
+    // 30 cm, on the side that turns a fail into a pass. Found by porting the
+    // operators onto IfcOpenShell and comparing every number.
+    expect(answer.value!).toBeCloseTo(2.2, 2)
+    expect(answer.caveat).toMatch(/Unterkante/)
+    expect(answer.from).toContain(LIVING)
   })
 
   it('refuses clearHeight on a window with a pointer to the right operator', () => {
