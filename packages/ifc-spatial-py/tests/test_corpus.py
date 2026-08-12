@@ -25,6 +25,7 @@ import pytest
 
 from ifc_spatial import operators as op
 from ifc_spatial.model import (
+    DERIVED_BOUNDARY_MAX_PRODUCTS,
     CONTACT_BUDGET_SECONDS,
     ModelTooLargeError,
     ModelUnreadableError,
@@ -442,5 +443,32 @@ def test_an_incomplete_contact_map_refuses_instead_of_reporting_a_subset(
     assert fresh.contacts_complete is False
 
 
-def test_the_budget_is_stated_as_a_number() -> None:
+def test_a_model_too_large_to_derive_refuses_before_it_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The time budget can only be checked BETWEEN offsets.
+
+    One `tree.select(space, extend=…)` is a single OCCT call with no
+    interruption point — a `SIGALRM` set for 900 s did not stop one on the
+    3 729-product Trapelo export, because a Python signal handler only runs when
+    the interpreter regains control. So a model above the product threshold is
+    refused before anything is started.
+    """
+    fresh = SpatialModel(str(SAMPLE_HOUSE))
+    monkeypatch.setattr("ifc_spatial.model.DERIVED_BOUNDARY_MAX_PRODUCTS", 1)
+    assert fresh.derivable_boundaries is False
+
+    for answer in (
+        op.bounds(fresh, BEDROOM),
+        op.opens_to(fresh, WINDOW),
+        op.enclosed_by(fresh, NORTH_WALL),
+    ):
+        assert answer.decidable is False
+        assert answer.missing.what == "IfcRelSpaceBoundary"
+        assert "zu groß" in answer.missing.remedy
+        assert "Worker" in answer.missing.remedy
+
+
+def test_the_limits_are_stated_as_numbers() -> None:
     assert CONTACT_BUDGET_SECONDS > 0
+    assert DERIVED_BOUNDARY_MAX_PRODUCTS > 0

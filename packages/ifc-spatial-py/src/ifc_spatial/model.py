@@ -91,6 +91,21 @@ MAX_FILE_BYTES = 64 * 1024 * 1024
 #: before this bound existed — inside one call to ``opens_to`` on one window.
 CONTACT_BUDGET_SECONDS = 30.0
 
+#: Above this many ``IfcProduct`` entities, deriving space boundaries from the
+#: solids is refused outright rather than started.
+#:
+#: The time budget above can only be checked BETWEEN offsets, because one
+#: ``tree.select(space, extend=…)`` is a single OCCT call with no interruption
+#: point — not even ``SIGALRM`` reaches it, since a Python signal handler runs
+#: only when the interpreter regains control. So the budget bounds the loop and
+#: nothing bounds one offset. Measured: on the 1 090-product office export an
+#: offset costs ~2.1 s, and on the 3 729-product Trapelo export a **single**
+#: offset ran for over 200 s without returning. The threshold sits at the low
+#: end of that unmeasured gap, deliberately: the cost of being wrong here is a
+#: refusal that names its reason, and the cost of being wrong the other way is a
+#: request that never comes back.
+DERIVED_BOUNDARY_MAX_PRODUCTS = 2000
+
 
 class ModelUnreadableError(RuntimeError):
     """This file cannot be opened, and a reason a person can act on.
@@ -632,17 +647,26 @@ class SpatialModel:
         is the only place that pays for it.
         """
         key = round(contact, 6)
-        cached = self._space_contacts.get(key)
+        contacts = self._space_contacts.setdefault(key, {})
         spaces = self.file.by_type("IfcSpace")
-        if cached is not None and (len(cached) >= len(spaces) or not self.contacts_complete):
-            return cached
-        contacts: dict[str, set[str]] = cached if cached is not None else {}
-        self._space_contacts[key] = contacts
+        outstanding = [s for s in spaces if s.GlobalId not in contacts]
+        self.contacts_covered = len(contacts)
+        if not outstanding:
+            self.contacts_complete = True
+            return contacts
+        if not self.contacts_complete:
+            # A previous attempt already ran out of budget on this file. Trying
+            # again would spend the budget a second time to reach the same
+            # incomplete answer, so the incomplete map is returned as it stands
+            # and the flag keeps saying so.
+            return contacts
+
         t0 = time.perf_counter()
-        self.contacts_complete = True
-        for space in spaces:
-            if space.GlobalId in contacts:
-                continue
+        for space in outstanding:
+            # Checked between offsets, which is the only place it can be
+            # checked: an OCCT offset is a single C++ call with no interruption
+            # point, so one pathological solid can still overrun the budget. The
+            # bound is on the loop, not on the kernel.
             if time.perf_counter() - t0 > CONTACT_BUDGET_SECONDS:
                 self.contacts_complete = False
                 break
@@ -650,6 +674,27 @@ class SpatialModel:
         self.contacts_covered = len(contacts)
         self.contact_seconds = time.perf_counter() - t0
         return contacts
+
+    @cached_property
+    def product_count(self) -> int:
+        """How many ``IfcProduct`` entities this file holds — one cheap read.
+
+        Known straight after opening, before any geometry, which is what makes
+        it usable as an admission test.
+        """
+        try:
+            return len(self.file.by_type("IfcProduct"))
+        except RuntimeError:
+            return 0
+
+    @cached_property
+    def derivable_boundaries(self) -> bool:
+        """Whether deriving space boundaries from the solids may be attempted.
+
+        See :data:`DERIVED_BOUNDARY_MAX_PRODUCTS`. ``False`` is a refusal, and
+        the operators turn it into an undecidable answer that names the count.
+        """
+        return self.product_count <= DERIVED_BOUNDARY_MAX_PRODUCTS
 
     def contacts_of(self, space: Any, contact: float = 0.05) -> set[str]:
         """What touches ONE space — one OCCT offset, cached, no model-wide loop.
@@ -781,6 +826,7 @@ class SpatialModel:
 __all__ = [
     "AIR_TYPES",
     "CONTACT_BUDGET_SECONDS",
+    "DERIVED_BOUNDARY_MAX_PRODUCTS",
     "MAX_FILE_BYTES",
     "DeclaredQuantity",
     "ElementGeometry",

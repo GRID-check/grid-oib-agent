@@ -73,6 +73,7 @@ from .geometry import (
 from .model import (
     AIR_TYPES,
     CONTACT_BUDGET_SECONDS,
+    DERIVED_BOUNDARY_MAX_PRODUCTS,
     ElementGeometry,
     SpatialModel,
     UnknownElementError,
@@ -388,9 +389,37 @@ def bounds(model: SpatialModel, space_global_id: str) -> Answer[list[ElementRef]
     )
 
 
+def _too_big_to_derive(model: SpatialModel, method: str, subject_id: str) -> Answer[Any]:
+    """This export has no space boundaries and is too large to derive them.
+
+    A refusal stated before anything is started, because once an OCCT offset is
+    running there is no way to stop it — see
+    :data:`~ifc_spatial.model.DERIVED_BOUNDARY_MAX_PRODUCTS`.
+    """
+    return undecidable(
+        from_=[subject_id],
+        method=method,
+        provenance="computed",
+        missing=MissingFact(
+            what="IfcRelSpaceBoundary",
+            remedy=(
+                f"Dieser Export enthält für dieses Bauteil keine Raumgrenzen, und das Modell ist mit "
+                f"{model.product_count} Bauteilen zu groß, um sie aus den Körpern abzuleiten (Grenze "
+                f"{DERIVED_BOUNDARY_MAX_PRODUCTS}). Eine einzelne Verschneidungsabfrage läuft auf einem Modell "
+                "dieser Größe über 200 Sekunden und lässt sich nicht abbrechen — deshalb wird sie gar nicht "
+                "erst gestartet. Abhilfe: Space Boundaries (2nd level) mitexportieren — in Revit/ArchiCAD eine "
+                "Exporteinstellung — oder dieses Modell in einem Worker ohne Anfragezeitlimit auswerten."
+            ),
+            elements=[subject_id],
+        ),
+    )
+
+
 def _derived_bounds(
     model: SpatialModel, space: Any, method: str
 ) -> tuple[list[Any], Optional[Answer[Any]]]:
+    if not model.derivable_boundaries:
+        return [], _too_big_to_derive(model, method, space.GlobalId)
     geo, missing = _geometry_or_answer(model, space, method)
     if geo is None:
         return [], missing
@@ -460,6 +489,8 @@ def _spaces_touching(model: SpatialModel, subject: Any, method: str) -> Any:
     :meth:`SpatialModel.space_contacts` for the measurement that decided it
     (2.9 s to offset one window against 0.55 s to offset one room).
     """
+    if not model.derivable_boundaries:
+        return _too_big_to_derive(model, method, subject.GlobalId)
     if model.geometry(subject.GlobalId) is None:
         return _no_geometry(model, subject, method)
     contacts = model.space_contacts(CONTACT)
