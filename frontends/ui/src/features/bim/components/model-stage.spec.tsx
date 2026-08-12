@@ -453,17 +453,104 @@ describe('ModelStage — taking back a hide or an isolate', () => {
     expect(back()).toBeDisabled()
   })
 
-  it('does not record a step for isolating the same element twice', async () => {
-    // Isolating does not clear the selection, so the button stays under the
-    // cursor and a second press is one click away. A step for it is an Undo
-    // that appears to do nothing.
+  it('gives the building back when the same element is isolated twice', async () => {
+    /*
+      The press that took everything else away is the press that brings it
+      back. Isolating does not clear the selection, so the button stays right
+      under the cursor with the building gone from around it — which is
+      exactly when it gets pressed again. That press used to resolve to the
+      state already on screen and be dropped, leaving the one control the
+      reader had just used sitting there doing nothing, and the way out
+      several controls away in the dock.
+    */
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
-    await userEvent.click(within(card()).getByRole('button', { name: 'Isolate' }))
-    await userEvent.click(within(card()).getByRole('button', { name: 'Isolate' }))
+    const isolate = () => within(card()).getByRole('button', { name: 'Isolate' })
+
+    await userEvent.click(isolate())
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([21]))
+    // And it says so, rather than looking identical in both states.
+    expect(isolate()).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(isolate())
+    // `null`, not an empty set: the whole building, not an empty viewport.
+    expect(lastCanvasProps?.isolatedExpressIds).toBeNull()
+    expect(isolate()).toHaveAttribute('aria-pressed', 'false')
+    // Nothing is out of the way any more, so the reset has nothing to offer.
+    expect(reset()).not.toBeInTheDocument()
+  })
+
+  it('leaves hidden elements hidden when an isolate is toggled off', async () => {
+    /*
+      Hiding and isolating are different acts. Taking back the isolate must
+      not quietly undo four hides with it — that is what the dock's reset is
+      for, and the reason the reset is not the answer to a stray isolate.
+    */
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(within(card()).getByRole('button', { name: 'Hide' }))
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set([21]))
+
+    // Hiding clears the selection, so a second element is picked to isolate.
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w2')
+    state.detail = { ...(state.detail as Record<string, unknown>), globalId: 'g-w2', expressId: 22, name: 'IW 12' }
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const second = () => screen.getByRole('complementary', { name: 'IW 12' })
+    await userEvent.click(within(second()).getByRole('button', { name: 'Isolate' }))
+    await userEvent.click(within(second()).getByRole('button', { name: 'Isolate' }))
+
+    expect(lastCanvasProps?.isolatedExpressIds).toBeNull()
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set([21]))
+  })
+
+  it('walks back through both halves of an isolate toggled off', async () => {
+    // Both presses changed the building, so both are steps — unlike the old
+    // second press, which changed nothing and rightly recorded nothing.
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const isolate = () => within(card()).getByRole('button', { name: 'Isolate' })
+    await userEvent.click(isolate())
+    await userEvent.click(isolate())
+
+    await userEvent.click(back())
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([21]))
 
     await userEvent.click(back())
     expect(lastCanvasProps?.isolatedExpressIds).toBeNull()
     expect(back()).toBeDisabled()
+  })
+
+  it('replaces the isolation when a different element is isolated', async () => {
+    // Only a repeat of the SAME question is a toggle. "Isolate this other
+    // thing" is a fresh question, and must not read as taking the first back.
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(within(card()).getByRole('button', { name: 'Isolate' }))
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([21]))
+
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w2')
+    state.detail = { ...(state.detail as Record<string, unknown>), globalId: 'g-w2', expressId: 22, name: 'IW 12' }
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const second = screen.getByRole('complementary', { name: 'IW 12' })
+    // The other element is not the isolated one, so its button is not pressed.
+    const isolateSecond = within(second).getByRole('button', { name: 'Isolate' })
+    expect(isolateSecond).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(isolateSecond)
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([22]))
+  })
+
+  it('offers neither verb for an element the reader has hidden', async () => {
+    /*
+      Isolate reads past the renderer so it survives an isolation — but a
+      HIDDEN element is the one case where it must not. "Show nothing but this
+      thing I have also taken away" renders an empty viewport, and offering a
+      button for it would trade one dead end for another.
+    */
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(within(card()).getByRole('button', { name: 'Hide' }))
+
+    // Hiding clears the selection; the reader picks the same wall again from
+    // the rail, which is the only way back to a card for a hidden element.
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(within(card()).queryByRole('button', { name: 'Isolate' })).not.toBeInTheDocument()
+    expect(within(card()).queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument()
   })
 
   it('forgets visibility steps when the model changes', async () => {

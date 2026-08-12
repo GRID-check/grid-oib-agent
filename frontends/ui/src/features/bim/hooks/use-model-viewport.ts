@@ -31,6 +31,7 @@ import {
   NOTHING_HIDDEN,
   resolveHighlights,
   resolveIsolation,
+  sameIdSet,
   sameVisibility,
   selectionSurvives,
   supportsWebGpu,
@@ -127,6 +128,11 @@ export interface ModelVisibility extends ViewerVisibility {
   /** Whether anything has been hidden or isolated — drives "show everything". */
   edited: boolean
   hide: (expressId: number) => void
+  /**
+   * Show nothing but these — and, called again with the same set, show the
+   * building again. A toggle, because the control that isolates is the only
+   * control still on screen once everything else is gone.
+   */
   isolate: (expressIds: readonly number[]) => void
   showEverything: () => void
   /**
@@ -154,6 +160,22 @@ export interface ModelViewport {
    * when the reader has just hidden the thing they had selected.
    */
   selectedExpressId: number | null
+  /**
+   * The same selection, but resolved through the model alone — still there
+   * when the current visibility edits have taken it off screen.
+   *
+   * Two ids because two questions. "What is the renderer highlighting and
+   * pivoting around" must not name something that is not drawn, which is what
+   * {@link selectedExpressId} answers. "What did the reader ask about" is a
+   * different question with a different answer, and the card is mounted on
+   * THAT one: a reader who isolates a wall and then picks another from the
+   * rail is looking at a card for an element the viewport has resolved to
+   * null, and every control on it that needed an id had quietly gone — the
+   * isolate button included, which is the one control that would have put
+   * them somewhere else. Null still means no selection at all, and it is null
+   * for an element this model does not contain.
+   */
+  selectedElementExpressId: number | null
   camera: BimViewerCameraState
   highlights: ResolvedHighlight[]
   /** Spread onto `IfcViewerCanvas`. Null when there is nothing to render. */
@@ -463,11 +485,30 @@ export function useModelViewport({
       ...edits,
       edited: hasVisibilityEdits(edits),
       hide: (expressId) => apply({ ...edits, hidden: new Set(edits.hidden).add(expressId) }),
-      // Isolating REPLACES any previous isolation rather than intersecting
-      // with it. "Isolate this" is a fresh question every time; narrowing an
-      // existing isolation by clicking a second element would empty the
-      // viewport, which is the opposite of what the click looked like it did.
-      isolate: (expressIds) => apply({ ...edits, isolated: new Set(expressIds) }),
+      /*
+        Isolating REPLACES any previous isolation rather than intersecting
+        with it. "Isolate this" is a fresh question every time; narrowing an
+        existing isolation by clicking a second element would empty the
+        viewport, which is the opposite of what the click looked like it did.
+
+        And asking the same question twice takes the answer back.
+
+        Isolating does not clear the selection, so the button stays right
+        under the cursor with the whole building gone from around it — which
+        is precisely when a reader presses it again. That press used to
+        compare equal to the state already on screen and be dropped: the one
+        control the reader had just used, still sitting there, now inert. Nor
+        was there anything else to press ON the isolated element — the way
+        back was a reset pill in the dock, several controls away, that also
+        discards every hide made before it. So the press that took everything
+        else away is the press that brings it back, and only the isolation
+        goes: hides made before it are a separate act and survive.
+      */
+      isolate: (expressIds) => {
+        const next = new Set(expressIds)
+        const pressedAgain = sameIdSet(edits.isolated, next)
+        apply({ ...edits, isolated: pressedAgain ? null : next })
+      },
       showEverything: () => apply(NOTHING_HIDDEN),
       // Not through `apply`: an undo must not record itself as a step, or
       // pressing Undo twice oscillates between two states forever.
@@ -484,13 +525,19 @@ export function useModelViewport({
     [storeyExpressIds, edits.isolated]
   )
 
-  const selectedExpressId = useMemo(() => {
-    const found = elements.find((element) => element.globalId === selectedGlobalId)?.expressId ?? null
+  const selectedElementExpressId = useMemo(
+    () => elements.find((element) => element.globalId === selectedGlobalId)?.expressId ?? null,
+    [elements, selectedGlobalId]
+  )
+
+  const selectedExpressId = useMemo(
     // A selection the reader has just hidden stops being a selection. Keeping
     // it would leave the camera orbiting an invisible pivot and the highlight
-    // pass painting a component that is not on screen.
-    return selectionSurvives(found, edits) ? found : null
-  }, [elements, selectedGlobalId, edits])
+    // pass painting a component that is not on screen. What it does NOT stop
+    // being is the element the card is about — see `selectedElementExpressId`.
+    () => (selectionSurvives(selectedElementExpressId, edits) ? selectedElementExpressId : null),
+    [selectedElementExpressId, edits]
+  )
 
   // X-ray keeps the highlighted set solid and fades the rest to context. With
   // nothing highlighted there is nothing to keep solid, so the toggle has no
@@ -610,6 +657,7 @@ export function useModelViewport({
     bounds,
     section,
     selectedExpressId,
+    selectedElementExpressId,
     camera: cameraState,
     highlights: resolved,
     canvasProps,
