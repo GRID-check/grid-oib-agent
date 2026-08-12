@@ -675,7 +675,7 @@ export function inventory(graph: BuildingGraph, kind: RoomUseKind): Answer<RoomP
   }))
 
   const because = [
-    `Einstufung aus dem Raumnamen gegen ein deutsch/österreichisches Lexikon (${LEXICON.length} Einträge), ` +
+    `Einstufung aus dem Raumnamen gegen ein deutsch/österreichisch-englisches Lexikon (${LEXICON.length} Einträge), ` +
       'Groß-/Kleinschreibung und Umlautvarianten (Küche/Kueche/KÜCHE) vereinheitlicht.',
     'Bei mehreren Treffern gewinnt der längere Begriff (Waschküche vor Küche).',
     `${matching.length} von ${spaceIds.length} Räumen als ${GERMAN_KIND[kind]} vorgeschlagen.`,
@@ -901,6 +901,84 @@ const LEXICON: ReadonlyArray<LexiconEntry> = [
   { term: 'fluchtweg', kind: 'erschliessung' },
   { term: 'schleuse', kind: 'erschliessung' },
   { term: 'podest', kind: 'erschliessung' },
+
+  // ── English, because the export language is not the building's country ────
+  //
+  // The file this library was first measured against is an Austrian sample
+  // house exported from Revit with its rooms named "Living room", "Bedroom",
+  // "Entrance hall" — and a German-only lexicon classified none of the four.
+  // That failure is the common case, not the exotic one: the authoring tool's
+  // UI language decides these strings, and an office running an English Revit
+  // produces English room names for a building in Vienna. A lexicon that only
+  // reads German silently reports "0 Aufenthaltsräume" about a house full of
+  // them, which is worse than saying nothing.
+  { term: 'living room', kind: 'aufenthaltsraum' },
+  { term: 'livingroom', kind: 'aufenthaltsraum' },
+  { term: 'sitting room', kind: 'aufenthaltsraum' },
+  { term: 'family room', kind: 'aufenthaltsraum' },
+  { term: 'dining room', kind: 'aufenthaltsraum' },
+  { term: 'dining', kind: 'aufenthaltsraum' },
+  { term: 'lounge', kind: 'aufenthaltsraum' },
+  { term: 'kitchen', kind: 'aufenthaltsraum' },
+  { term: 'master bedroom', kind: 'aufenthaltsraum' },
+  { term: 'bedroom', kind: 'aufenthaltsraum' },
+  { term: 'bed room', kind: 'aufenthaltsraum' },
+  { term: 'guest room', kind: 'aufenthaltsraum' },
+  { term: 'nursery', kind: 'aufenthaltsraum' },
+  { term: 'children', kind: 'aufenthaltsraum' },
+  { term: 'study', kind: 'aufenthaltsraum' },
+  { term: 'home office', kind: 'aufenthaltsraum' },
+  { term: 'office', kind: 'aufenthaltsraum' },
+  { term: 'workroom', kind: 'aufenthaltsraum' },
+  { term: 'classroom', kind: 'aufenthaltsraum' },
+  { term: 'meeting room', kind: 'aufenthaltsraum' },
+  { term: 'living', kind: 'aufenthaltsraum', weak: true, note: '„living" allein kann auch Wohnbereich einer Erschließung sein' },
+  { term: 'room', kind: 'aufenthaltsraum', weak: true, note: '„room" allein sagt die Nutzung nicht' },
+
+  { term: 'bathroom', kind: 'nebenraum' },
+  { term: 'shower room', kind: 'nebenraum' },
+  { term: 'bath', kind: 'nebenraum' },
+  { term: 'toilet', kind: 'nebenraum' },
+  { term: 'restroom', kind: 'nebenraum' },
+  { term: 'store room', kind: 'nebenraum' },
+  { term: 'storeroom', kind: 'nebenraum' },
+  { term: 'storage', kind: 'nebenraum' },
+  { term: 'utility room', kind: 'nebenraum' },
+  { term: 'utility', kind: 'nebenraum' },
+  { term: 'laundry', kind: 'nebenraum' },
+  { term: 'plant room', kind: 'nebenraum' },
+  { term: 'technical room', kind: 'nebenraum' },
+  { term: 'boiler room', kind: 'nebenraum' },
+  { term: 'basement', kind: 'nebenraum' },
+  { term: 'cellar', kind: 'nebenraum' },
+  { term: 'pantry', kind: 'nebenraum' },
+  { term: 'larder', kind: 'nebenraum' },
+  { term: 'wardrobe', kind: 'nebenraum' },
+  { term: 'closet', kind: 'nebenraum' },
+  { term: 'cloakroom', kind: 'nebenraum' },
+  { term: 'attic', kind: 'nebenraum' },
+  { term: 'bin store', kind: 'nebenraum' },
+  { term: 'bike store', kind: 'nebenraum' },
+  { term: 'balcony', kind: 'nebenraum', note: 'Freibereich — kein Aufenthaltsraum, aber auch kein Nebenraum im engeren Sinn' },
+  { term: 'terrace', kind: 'nebenraum', note: 'Freibereich — kein Aufenthaltsraum, aber auch kein Nebenraum im engeren Sinn' },
+
+  { term: 'entrance hall', kind: 'erschliessung' },
+  { term: 'entrance', kind: 'erschliessung' },
+  { term: 'hallway', kind: 'erschliessung' },
+  { term: 'corridor', kind: 'erschliessung' },
+  { term: 'passage', kind: 'erschliessung' },
+  { term: 'lobby', kind: 'erschliessung' },
+  { term: 'foyer', kind: 'erschliessung' },
+  { term: 'staircase', kind: 'erschliessung' },
+  { term: 'stairwell', kind: 'erschliessung' },
+  { term: 'stairs', kind: 'erschliessung' },
+  { term: 'stair', kind: 'erschliessung' },
+  { term: 'landing', kind: 'erschliessung' },
+  { term: 'vestibule', kind: 'erschliessung' },
+  { term: 'porch', kind: 'erschliessung' },
+  { term: 'elevator', kind: 'erschliessung' },
+  { term: 'circulation', kind: 'erschliessung' },
+  { term: 'hall', kind: 'erschliessung', weak: true, note: '„hall" kann Eingangshalle oder Nutzungshalle sein' },
 ]
 
 /** Confidence by how the term was found. Exact beats word beats substring. */
