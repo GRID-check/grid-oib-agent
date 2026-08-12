@@ -868,7 +868,11 @@ class TestWhatTheTraceRecords:
             # an Austrian project file is named for the client and the site;
             # the trace only ever needed "the same building as that other
             # turn", which a stable handle gives without the name.
-            "ifc_model": "e37fd06cb38e",
+            # `allowlist secret`: twelve hex characters trip the entropy
+            # detector, and this is the opposite of a secret — it is the
+            # public SHA-256 prefix of the string "haus.ifc", pinned so the
+            # exact value an operator sees on a trace cannot drift.
+            "ifc_model": "e37fd06cb38e",  # pragma: allowlist secret
             "ifc_elements": 40000,
         }
         assert "haus.ifc" not in str(self._recorded())

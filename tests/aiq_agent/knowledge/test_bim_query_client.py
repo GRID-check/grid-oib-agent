@@ -10,18 +10,15 @@ from __future__ import annotations
 
 import io
 import json
+import urllib.error
 from typing import Any
 
 import pytest
 
-from aiq_agent.knowledge.bim_query import (
-    BimQueryRejectedError,
-    BimQueryUnavailableError,
-    _rejection_message,
-    run_bim_query,
-)
-
-import urllib.error
+from aiq_agent.knowledge.bim_query import BimQueryRejectedError
+from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
+from aiq_agent.knowledge.bim_query import _rejection_message
+from aiq_agent.knowledge.bim_query import run_bim_query
 
 
 def http_error(status: int, body: Any) -> urllib.error.HTTPError:
