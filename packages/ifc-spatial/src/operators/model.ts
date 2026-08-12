@@ -166,7 +166,7 @@ export interface Briefing {
 /** IFC types printed in the type table before it is capped. */
 const MAX_TYPES = 15
 /** Property lines printed in the DIALEKT block. */
-const MAX_DIALECT = 12
+const MAX_DIALECT = 10
 /** Storeys printed in the GESCHOSSE block. */
 const MAX_STOREYS = 12
 /** Blind spots printed; the builder emits a handful, a cap guards the budget. */
@@ -374,9 +374,12 @@ export function renderBriefing(graph: BuildingGraph): string {
     'GEBÄUDE',
     identity.join(' · '),
     [
-      plural(b.totals.buildings, 'Gebäude', 'Gebäude'),
-      plural(b.totals.storeys, 'Geschoß', 'Geschoße'),
-      plural(b.totals.spaces, 'Raum', 'Räume'),
+      // A missing spatial container is named by its ENTITY, never counted as
+      // zero: "0 Gebäude" is a sentence about a building site, "kein
+      // IfcBuilding" is a sentence about this export — which is the true one.
+      b.totals.buildings > 0 ? plural(b.totals.buildings, 'Gebäude', 'Gebäude') : 'kein IfcBuilding',
+      b.totals.storeys > 0 ? plural(b.totals.storeys, 'Geschoß', 'Geschoße') : 'keine IfcBuildingStorey',
+      b.totals.spaces > 0 ? plural(b.totals.spaces, 'Raum', 'Räume') : 'keine IfcSpace',
       `${b.totals.nodes} Knoten`,
       `${b.totals.edges} Beziehungen`,
     ].join(' · ')
@@ -389,9 +392,9 @@ export function renderBriefing(graph: BuildingGraph): string {
   } else {
     const shown = b.storeys.slice(0, MAX_STOREYS)
     const cells = shown.map((storey) => {
-      const height = storey.height === null ? '' : `, h ${storey.height.toFixed(2)} m`
+      const height = storey.height === null ? '' : ` h ${storey.height.toFixed(2)}`
       const where = storey.elevation === null ? 'ohne Höhenlage' : metres(storey.elevation)
-      return `${storey.name ?? storey.globalId} ${where}${height}, ${storey.elementCount} Bauteile`
+      return `${storey.name ?? storey.globalId} ${where}${height} · ${storey.elementCount} Bauteile`
     })
     const overflow = b.storeys.length - shown.length
     add('GESCHOSSE', ...wrap(cells, ' | ', overflow > 0 ? `(+${overflow} weitere Geschoße)` : null))
@@ -460,7 +463,7 @@ export function renderBriefing(graph: BuildingGraph): string {
     add('DIALEKT', `${b.propertiesScanned} Bauteile untersucht; Zahl = Bauteile mit befülltem Wert`)
     for (const entry of b.dialect) {
       const gloss = entry.concept ? `${entry.concept} → ` : ''
-      const sample = entry.sample.length > 0 ? `  [${entry.sample.slice(0, 3).map(shorten).join(', ')}]` : ''
+      const sample = entry.sample.length > 0 ? `  [${entry.sample.slice(0, 2).map(shorten).join(', ')}]` : ''
       add('', `${gloss}${entry.set}.${entry.property} ${entry.filled}${sample}`)
     }
     if (b.dialectOmitted > 0) add('', `(+${b.dialectOmitted} weitere Merkmale, nach Befüllung sortiert)`)
@@ -469,7 +472,11 @@ export function renderBriefing(graph: BuildingGraph): string {
   // FEHLT ─ what the DIALEKT block structurally cannot show. A property absent
   // from the file has no row to appear in, and a filter on it returns nothing
   // that looks exactly like a real negative answer.
-  if (b.absentProperties.length > 0) {
+  // Suppressed when the dialect is empty: the DIALEKT block has already said
+  // that this export writes no property sets at all, and repeating every
+  // decisive property underneath it would imply nine separate findings where
+  // there is one.
+  if (b.absentProperties.length > 0 && b.dialect.length > 0) {
     add(
       'FEHLT',
       ...wrap(
@@ -970,7 +977,7 @@ function classifyRooms(graph: BuildingGraph): ClassifiedRoom[] {
     const because: string[] = [
       `Name „${name}" enthält „${winner.entry.term}" (${QUALITY_TEXT[winner.quality]}) → ${GERMAN_KIND[kind]}.`,
     ]
-    let confidence = MATCH_CONFIDENCE[winner.quality]
+    let confidence: number = MATCH_CONFIDENCE[winner.quality]
 
     if (winner.entry.weak) {
       confidence = Math.min(confidence, 0.55)
@@ -1057,7 +1064,7 @@ function normalise(raw: string): string {
     .replace(/ü/g, 'ue')
     .replace(/ß/g, 'ss')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
 }
@@ -1159,8 +1166,10 @@ function coverageLine(coverage: Coverage): string {
     return `${coverage.what}: dieser Export enthält keine solchen Elemente`
   }
   if (coverage.n === 0) {
-    return `${coverage.what}: 0 von ${coverage.of} — dieser Export schreibt kein ${coverage.relation}; ` +
-      'das ist ein Befund über den Export, nicht über das Gebäude'
+    return (
+      `${coverage.what}: 0 von ${coverage.of} — dieser Export schreibt kein ${coverage.relation} ` +
+      '(Aussage über den Export, nicht über das Gebäude)'
+    )
   }
   const percent = Math.round((coverage.n / coverage.of) * 100)
   const rest = coverage.n < coverage.of ? `, ${coverage.of - coverage.n} ohne` : ''
@@ -1184,11 +1193,11 @@ function plural(count: number, one: string, many: string): string {
 
 function shorten(value: string | number | boolean): string {
   const text = String(value)
-  return text.length > 24 ? `${text.slice(0, 23)}…` : text
+  return text.length > 18 ? `${text.slice(0, 17)}…` : text
 }
 
 /** Pack cells into lines of at most `WRAP_WIDTH` characters after the label column. */
-const WRAP_WIDTH = 88
+const WRAP_WIDTH = 104
 
 function wrap(cells: string[], separator: string, tail: string | null): string[] {
   const lines: string[] = []

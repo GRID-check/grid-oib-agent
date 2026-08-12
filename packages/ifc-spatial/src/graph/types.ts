@@ -102,7 +102,7 @@ export interface GraphEdge {
   provenance: Provenance
   /**
    * How this edge was obtained, for `computed` and `inferred` edges:
-   * `"voids+fills"`, `"shared boundary element"`. Absent for declared edges,
+   * `"voids+fills"`, `"shared bounding element"`. Absent for declared edges,
    * whose IFC relation type is implied by `kind`.
    */
   via?: string
@@ -121,7 +121,19 @@ export interface DialectEntry {
   property: string
   /** Elements carrying the property with a non-null value. */
   filled: number
-  /** Elements of the types that could carry it. */
+  /**
+   * Elements examined — the whole scan, not the elements whose type could
+   * carry this property.
+   *
+   * The distinction matters because `filled / candidates` looks like a fill
+   * rate and is not one: a FireRating found on 5 of 400 scanned elements is
+   * "5 elements publish it", not "1 % of walls do", and the second sentence
+   * would be wrong by however many of those 400 were windows. Working out the
+   * real denominator needs a map from property set to the types allowed to
+   * carry it, which this library does not have — so the honest reading is an
+   * absolute count against a stated scan size, and consumers should print it
+   * that way.
+   */
   candidates: number
   /** Distinct values seen, capped — enough to recognise an enum from a measure. */
   sample: Array<string | number | boolean>

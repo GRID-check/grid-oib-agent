@@ -25,10 +25,16 @@
  * it sits on.
  */
 
-import { IfcParser, extractRootAttributesFromEntity, normalizeIfcTypeName } from '@ifc-lite/parser'
+import {
+  IfcParser,
+  extractGeoreferencingOnDemand,
+  extractRootAttributesFromEntity,
+  getAttributeNamesAcrossSchemas,
+  normalizeIfcTypeName,
+} from '@ifc-lite/parser'
 import { RelationshipType } from '@ifc-lite/data'
 import { createHash } from 'node:crypto'
-import type { BuildingGraph, EdgeKind, GraphEdge, GraphNode, NodeKind, DialectEntry, BlindSpot } from './types.js'
+import type { BuildingGraph, EdgeKind, GraphEdge, GraphNode, NodeKind, DialectEntry, BlindSpot, UnitInfo } from './types.js'
 
 /**
  * Roots that carry a GlobalId and are not part of the building.
@@ -117,8 +123,8 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
         kind: kindOf(ifcType),
         ifcType,
         name: nonEmpty(root.name),
-        longName: null,
-        predefinedType: predefinedTypeOf(entity),
+        longName: longNameOf(entity, ifcType),
+        predefinedType: predefinedTypeOf(entity, ifcType),
         elevation: null,
         storeyGlobalId: null,
         storeyName: null,
@@ -214,6 +220,14 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
         edges.push({ kind: 'interfaceOf', from: globalId, to: otherId, provenance: 'declared' })
       } else if (other.kind === 'space' && node.kind !== 'space') {
         edges.push({ kind: 'interfaceOf', from: otherId, to: globalId, provenance: 'declared' })
+      } else if (node.kind === 'space' && other.kind === 'space' && expressId < otherExpressId) {
+        // A boundary with a space on BOTH sides is two rooms meeting through a
+        // virtual element. `interfaceOf` cannot express it — it points at a
+        // bounding ELEMENT — and dropping it lost the adjacency entirely, which
+        // is the one fact such a boundary exists to state. It is the same claim
+        // `adjacentZone` makes, so it is recorded there, and as `declared`
+        // rather than `computed` because here the file says so outright.
+        edges.push({ kind: 'adjacentZone', from: globalId, to: otherId, provenance: 'declared', via: 'virtual space boundary' })
       }
     }
 
@@ -238,19 +252,39 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
       }
     }
 
-    for (const otherExpressId of related(store, expressId, RelationshipType.Aggregates)) {
+    // Aggregates is the one relation whose direction cannot be recovered from
+    // its endpoints: an IfcElementAssembly aggregating an IfcBeam has no
+    // container kind on either side, so "whole" and "part" are distinguishable
+    // only by which side of the relation each sat on. Reading both directions
+    // here — correct everywhere else, because everywhere else the endpoints
+    // carry the answer — produced `hasSubElement: Wohnzimmer → Erdgeschoss`,
+    // i.e. the storey as a part of the room.
+    //
+    // So this block, alone, trusts `forward`, which the parser orients
+    // RelatingObject → RelatedObjects. Verified against a fixture rather than
+    // assumed: a storey's forward edges are its spaces, a space's are empty.
+    for (const otherExpressId of relatedForward(store, expressId, RelationshipType.Aggregates)) {
       const otherId = idOf.get(otherExpressId)
-      if (!otherId || otherId === globalId) continue
-      // Aggregates is whole → part in the file; the spatial walk above already
-      // covered the project/site/building/storey chain, so this adds element
-      // assemblies without duplicating those.
-      if (!nodes.get(otherId) || CONTAINER_KIND[nodes.get(globalId)!.ifcType]) continue
+      if (!otherId || otherId === globalId || !nodes.get(otherId)) continue
+      // The spatial walk above already covered project → site → building →
+      // storey → space, so this adds element assemblies without duplicating it.
+      if (CONTAINER_KIND[nodes.get(globalId)!.ifcType]) continue
       edges.push({ kind: 'hasSubElement', from: globalId, to: otherId, provenance: 'declared' })
     }
   }
 
   // ── Derived relations ─────────────────────────────────────────────────────
+  //
+  // Deduplicate BEFORE indexing. `related()` reads a relation from both ends by
+  // design, so every declared edge is pushed twice — once while visiting each
+  // endpoint — and the duplicates are harmless in the edge list only because
+  // `dedupe` runs later. Indexing the raw array made them visible to the
+  // derivations: `interfaceOf` came back as `[Wohnzimmer, Wohnzimmer]` for a
+  // wall bounding one room, which passed the `length < 2` guard and produced
+  // `adjacentZone: Wohnzimmer → Wohnzimmer`. A room adjacent to itself, from a
+  // correct file.
   options.onProgress?.('derive')
+  dedupe(edges)
   const index = buildIndex(edges)
 
   // hostedIn: filler → host, through the opening that joins them. This is the
@@ -294,10 +328,24 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
 
   // opensTo: a window or door opens into every space bounded by its host wall,
   // and into any space that bounds it directly.
+  //
+  // Openings are subjects here too, not only their fillers. An
+  // IfcOpeningElement reaches its host through `voids` rather than `hostedIn`,
+  // and restricting this to `kind === 'element'` meant asking an opening what
+  // it opens into always answered "nothing" — a confident empty result for a
+  // question the file can answer.
+  dedupe(edges)
   const index2 = buildIndex(edges)
   for (const [globalId, node] of nodes) {
-    if (node.kind !== 'element') continue
-    const hosts = index2.out.get('hostedIn')?.get(globalId) ?? []
+    if (node.kind !== 'element' && node.kind !== 'opening') continue
+    const hosts =
+      node.kind === 'opening'
+        ? index2.in.get('voids')?.get(globalId) ?? []
+        : index2.out.get('hostedIn')?.get(globalId) ?? []
+    // No host means this is not something sitting IN a wall, and only such an
+    // element opens into anything. Without this guard the direct-boundary
+    // branch below fires for every bounding element, so each wall "opened
+    // into" the rooms it encloses — true of a doorway, nonsense about a wall.
     if (hosts.length === 0) continue
     const spaces = new Set<string>()
     for (const host of hosts) {
@@ -305,7 +353,13 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
     }
     for (const space of index2.in.get('interfaceOf')?.get(globalId) ?? []) spaces.add(space)
     for (const space of spaces) {
-      edges.push({ kind: 'opensTo', from: globalId, to: space, provenance: 'computed', via: 'hostedIn+interfaceOf' })
+      edges.push({
+        kind: 'opensTo',
+        from: globalId,
+        to: space,
+        provenance: 'computed',
+        via: node.kind === 'opening' ? 'voids+interfaceOf' : 'hostedIn+interfaceOf',
+      })
     }
   }
 
@@ -330,9 +384,9 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
     schema: store.schemaVersion,
     sourceName: header?.name ?? null,
     originatingSystem: header?.originatingSystem ?? null,
-    units: { length: null },
-    trueNorth: null,
-    georeferenced: false,
+    units: { length: lengthUnitOf(store) },
+    trueNorth: trueNorthOf(store),
+    georeferenced: isGeoreferenced(store),
     nodes,
     edges,
     out: finalIndex.out,
@@ -366,6 +420,11 @@ function related(store: { relationships: { getRelated(id: number, t: number, d: 
   return forward.length || inverse.length ? [...new Set([...forward, ...inverse])] : []
 }
 
+/** One direction only — for the relations whose meaning IS the direction. */
+function relatedForward(store: { relationships: { getRelated(id: number, t: number, d: 'forward' | 'inverse'): number[] } }, expressId: number, relType: number): number[] {
+  return safe(() => store.relationships.getRelated(expressId, relType, 'forward'))
+}
+
 function safe(fn: () => number[]): number[] {
   try {
     return fn() ?? []
@@ -391,13 +450,58 @@ function kindOf(ifcType: string): NodeKind {
   return 'element'
 }
 
-function predefinedTypeOf(entity: { attributes: unknown[] }): string | null {
-  // PredefinedType is the last attribute on most IfcProduct subtypes and is
-  // written as a dotted enum. Read positionally only when it looks like one, so
-  // a string tail attribute is never mistaken for it.
-  const last = entity.attributes[entity.attributes.length - 1]
-  if (typeof last === 'string' && /^\.[A-Z0-9_]+\.$/.test(last)) return last.slice(1, -1)
-  return null
+/**
+ * Attribute positions, by name, from the parser's own schema registry.
+ *
+ * Reading STEP attributes by position is the obvious approach and it is wrong
+ * in a way that produces plausible values rather than errors. `PredefinedType`
+ * is the last attribute on an `IfcWall` and the second-to-last on an `IfcSpace`
+ * — whose actual last attribute is `ElevationWithFlooring`, and whose
+ * second-to-last, when `PredefinedType` is unset, is the `CompositionType`
+ * enum. A positional read therefore reported every room's PredefinedType as
+ * `ELEMENT`: a real-looking enum, from the right file, off by one attribute.
+ *
+ * The registry knows the true index per type and per schema, so nothing here
+ * has to guess.
+ */
+const ATTRIBUTE_NAMES = new Map<string, readonly string[] | null>()
+
+function attributeOf(entity: { attributes: unknown[] }, ifcType: string, name: string): unknown {
+  let names = ATTRIBUTE_NAMES.get(ifcType)
+  if (names === undefined) {
+    names = safeAttributeNames(ifcType)
+    ATTRIBUTE_NAMES.set(ifcType, names)
+  }
+  if (!names) return undefined
+  const index = names.indexOf(name)
+  return index >= 0 ? entity.attributes[index] : undefined
+}
+
+function safeAttributeNames(ifcType: string): readonly string[] | null {
+  try {
+    return getAttributeNamesAcrossSchemas(ifcType) ?? null
+  } catch {
+    return null
+  }
+}
+
+function predefinedTypeOf(entity: { attributes: unknown[] }, ifcType: string): string | null {
+  const raw = attributeOf(entity, ifcType, 'PredefinedType')
+  if (typeof raw !== 'string') return null
+  return /^\.[A-Z0-9_]+\.$/.test(raw) ? raw.slice(1, -1) : null
+}
+
+/**
+ * `LongName` — the label a person reads.
+ *
+ * Spatial elements routinely carry an ISO 19650 code in `Name` (`R.01`) and the
+ * human name in `LongName` (`Wohnzimmer`). An answer that calls a room `R.01`
+ * when the file also says `Wohnzimmer` is technically sourced and useless to
+ * the reader.
+ */
+function longNameOf(entity: { attributes: unknown[] }, ifcType: string): string | null {
+  const raw = attributeOf(entity, ifcType, 'LongName')
+  return typeof raw === 'string' ? nonEmpty(raw) : null
 }
 
 function nonEmpty(value: string | undefined | null): string | null {
@@ -441,6 +545,88 @@ function byElevation(a: GraphNode, b: GraphNode): number {
   if (a.elevation === null) return 1
   if (b.elevation === null) return -1
   return a.elevation - b.elevation
+}
+
+/** SI prefixes IFC uses for a length unit, as factors on the base metre. */
+const SI_PREFIX: Record<string, number> = {
+  KILO: 1e3,
+  HECTO: 1e2,
+  DECA: 1e1,
+  DECI: 1e-1,
+  CENTI: 1e-2,
+  MILLI: 1e-3,
+  MICRO: 1e-6,
+}
+
+/**
+ * The file's declared length unit.
+ *
+ * Worth reading even though the parser hands storey elevations back already
+ * converted: an answer that prints a number has to name a unit, and "the
+ * elevations happen to be metres" is not the same statement as "this file is
+ * authored in millimetres" — which is what an architect recognises their own
+ * model by.
+ *
+ * A file using `IfcConversionBasedUnit` (feet, inches) yields `null` rather
+ * than a wrong metre factor. Saying nothing is recoverable; saying `1.0` about
+ * a file drawn in feet is not.
+ */
+function lengthUnitOf(store: IfcStoreLike): UnitInfo | null {
+  for (const expressId of typeIds(store, 'IFCSIUNIT')) {
+    const entity = store.getEntity(expressId)
+    if (!entity) continue
+    const [, unitType, prefix, name] = entity.attributes as Array<unknown>
+    if (unitType !== '.LENGTHUNIT.' || name !== '.METRE.') continue
+    const prefixName = typeof prefix === 'string' ? prefix.replace(/^\.|\.$/g, '') : ''
+    const scale = prefixName ? SI_PREFIX[prefixName] : 1
+    if (!scale) continue
+    return { symbol: prefixName ? `${prefixName.slice(0, 1).toLowerCase()}m` : 'm', toMetres: scale }
+  }
+  return null
+}
+
+/**
+ * True north, as an angle in radians from the +Y axis.
+ *
+ * `IfcGeometricRepresentationContext.TrueNorth` is an `IfcDirection` whose
+ * ratios point north in project coordinates. Absent it, a facade's compass
+ * orientation is unknowable — and the honest value is `null`, never 0. A
+ * defaulted zero is a claim that the model is aligned to north, which is the
+ * kind of assumption that turns into "diese Fassade liegt im Süden" about a
+ * building rotated forty degrees.
+ */
+function trueNorthOf(store: IfcStoreLike): number | null {
+  for (const expressId of typeIds(store, 'IFCGEOMETRICREPRESENTATIONCONTEXT')) {
+    const context = store.getEntity(expressId)
+    if (!context) continue
+    const ref = attributeOf(context, 'IfcGeometricRepresentationContext', 'TrueNorth')
+    if (typeof ref !== 'number') continue
+    const direction = store.getEntity(ref)
+    const ratios = direction?.attributes?.[0]
+    if (!Array.isArray(ratios) || ratios.length < 2) continue
+    const [x, y] = ratios as number[]
+    if (typeof x !== 'number' || typeof y !== 'number' || (x === 0 && y === 0)) continue
+    return Math.atan2(x, y)
+  }
+  return null
+}
+
+/** Whether the file places itself on the earth (IfcMapConversion or a site location). */
+function isGeoreferenced(store: IfcStoreLike): boolean {
+  try {
+    return extractGeoreferencingOnDemand(store as never)?.hasGeoreference === true
+  } catch {
+    return false
+  }
+}
+
+function typeIds(store: IfcStoreLike, upperType: string): number[] {
+  return store.entityIndex.byType.get(upperType) ?? []
+}
+
+interface IfcStoreLike {
+  entityIndex: { byType: { get(key: string): number[] | undefined } }
+  getEntity(expressId: number): { attributes: unknown[] } | null
 }
 
 /**
