@@ -37,17 +37,17 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Iterable, Optional
-
-import numpy as np
+from typing import Any
 
 import ifcopenshell
 import ifcopenshell.geom
 import ifcopenshell.util.element as ue
 import ifcopenshell.util.shape as us
 import ifcopenshell.util.unit as uu
+import numpy as np
 
 from .envelope import ElementRef
 
@@ -222,9 +222,7 @@ class UnknownElementError(KeyError):
     def __init__(self, global_id: str, method: str) -> None:
         self.global_id = global_id
         self.method = method
-        super().__init__(
-            f'Unbekannte GlobalId "{global_id}" — dieses Modell enthält dieses Bauteil nicht ({method}).'
-        )
+        super().__init__(f'Unbekannte GlobalId "{global_id}" — dieses Modell enthält dieses Bauteil nicht ({method}).')
 
     def __str__(self) -> str:  # KeyError repr()s its argument otherwise
         return self.args[0]
@@ -246,7 +244,6 @@ class ElementGeometry:
     #: TS package 33 cm on the living-room/bedroom distance before it was fixed.
     centroid: np.ndarray
 
-
     @property
     def triangles(self) -> np.ndarray:
         """(F, 3, 3) — the faces expanded into coordinates."""
@@ -256,9 +253,9 @@ class ElementGeometry:
 @dataclass
 class Storey:
     global_id: str
-    name: Optional[str]
+    name: str | None
     #: Declared ``IfcBuildingStorey.Elevation``, converted to metres.
-    elevation: Optional[float]
+    elevation: float | None
 
 
 @dataclass(frozen=True)
@@ -280,7 +277,7 @@ class DeclaredQuantity:
     #: ``value == raw * scale``.
     scale: float
     #: The declared unit's own name, when the file names one.
-    unit_label: Optional[str]
+    unit_label: str | None
 
 
 def _unit_scale_to_si(unit: Any) -> float:
@@ -307,7 +304,7 @@ def _unit_scale_to_si(unit: Any) -> float:
     return scale
 
 
-def _unit_label(unit: Any) -> Optional[str]:
+def _unit_label(unit: Any) -> str | None:
     try:
         if unit.is_a("IfcConversionBasedUnit"):
             return str(unit.Name)
@@ -341,7 +338,7 @@ class SpatialModel:
         self._settings = ifcopenshell.geom.settings()
         self._settings.set("use-world-coords", True)
 
-        self._geometry: dict[str, Optional[ElementGeometry]] = {}
+        self._geometry: dict[str, ElementGeometry | None] = {}
         #: Why a body could not be built, per GlobalId. See
         #: :meth:`geometry_failure`.
         self._geometry_failure: dict[str, str] = {}
@@ -401,11 +398,11 @@ class SpatialModel:
             return "group"
         return "element"
 
-    def label(self, element: Any) -> Optional[str]:
+    def label(self, element: Any) -> str | None:
         long_name = getattr(element, "LongName", None)
         return long_name or getattr(element, "Name", None)
 
-    def ref(self, element: Any, via: Optional[str] = None) -> ElementRef:
+    def ref(self, element: Any, via: str | None = None) -> ElementRef:
         return ElementRef(
             global_id=element.GlobalId,
             ifc_type=element.is_a(),
@@ -414,12 +411,12 @@ class SpatialModel:
             via=via,
         )
 
-    def refs(self, elements: Iterable[Any], via: Optional[str] = None) -> list[ElementRef]:
+    def refs(self, elements: Iterable[Any], via: str | None = None) -> list[ElementRef]:
         return [self.ref(e, via) for e in elements if getattr(e, "GlobalId", None)]
 
     # ── relations the file states outright ──────────────────────────────────
 
-    def storey_of(self, element: Any) -> Optional[Any]:
+    def storey_of(self, element: Any) -> Any | None:
         """The storey this element belongs to, through containment OR aggregation.
 
         Both routes are needed and the TS parser walks both: a wall is
@@ -466,7 +463,7 @@ class SpatialModel:
             )
         return out
 
-    def storey_datum(self, element: Any) -> Optional[Storey]:
+    def storey_datum(self, element: Any) -> Storey | None:
         storey = self.storey_of(element)
         if storey is None:
             return None
@@ -476,7 +473,7 @@ class SpatialModel:
         return None
 
     @cached_property
-    def true_north(self) -> Optional[float]:
+    def true_north(self) -> float | None:
         """Angle from model +Y to true north, radians, or ``None``.
 
         ``None`` is the honest answer and is what makes :func:`azimuth` refuse:
@@ -502,7 +499,7 @@ class SpatialModel:
 
     # ── geometry ────────────────────────────────────────────────────────────
 
-    def geometry(self, global_id: str) -> Optional[ElementGeometry]:
+    def geometry(self, global_id: str) -> ElementGeometry | None:
         """This element's triangulated body, or ``None`` when it never had one.
 
         A miss is emphatically not an error. Half the nodes in a real IFC never
@@ -517,7 +514,7 @@ class SpatialModel:
         self._geometry[global_id] = geo
         return geo
 
-    def geometry_failure(self, global_id: str) -> Optional[str]:
+    def geometry_failure(self, global_id: str) -> str | None:
         """*Why* this element has no body — ``None`` when it has one.
 
         Two failures wear the same missing geometry and want different sentences.
@@ -533,7 +530,7 @@ class SpatialModel:
         """
         return self._geometry_failure.get(global_id)
 
-    def _shape_of(self, element: Any) -> Optional[ElementGeometry]:
+    def _shape_of(self, element: Any) -> ElementGeometry | None:
         global_id = element.GlobalId
         if not getattr(element, "Representation", None) and not element.is_a("IfcSpace"):
             self._geometry_failure[global_id] = "no-representation"
@@ -550,7 +547,7 @@ class SpatialModel:
         return geometry
 
     @staticmethod
-    def _from_shape(global_id: str, geometry: Any) -> Optional[ElementGeometry]:
+    def _from_shape(global_id: str, geometry: Any) -> ElementGeometry | None:
         # Copied, not viewed: ``get_vertices`` returns a view over the shape's
         # own buffer, and the iterator recycles that buffer on the next step.
         verts = np.array(us.get_vertices(geometry), dtype=float)
@@ -575,7 +572,7 @@ class SpatialModel:
             centroid=centroid,
         )
 
-    def triangulation(self, global_id: str) -> Optional[Any]:
+    def triangulation(self, global_id: str) -> Any | None:
         """The live IfcOpenShell triangulation, for ``util.shape``'s own readers.
 
         ``get_footprint_area`` / ``get_area`` / ``get_volume`` take the
@@ -615,7 +612,7 @@ class SpatialModel:
         return {k: v for k, v in self._geometry.items() if v is not None}
 
     @cached_property
-    def bounds(self) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    def bounds(self) -> tuple[np.ndarray, np.ndarray] | None:
         index = self.geometry_pass()
         if not index:
             return None
@@ -624,7 +621,7 @@ class SpatialModel:
         return lows.min(axis=0), highs.max(axis=0)
 
     @cached_property
-    def plan_centre(self) -> Optional[np.ndarray]:
+    def plan_centre(self) -> np.ndarray | None:
         """The middle of the model in plan — which side of a facade is "out".
 
         A plane has two normals and the winding of an exported mesh does not
@@ -759,11 +756,7 @@ class SpatialModel:
             touching = self.tree.select(space, extend=contact)
         except Exception:
             touching = []
-        return {
-            e.GlobalId
-            for e in touching
-            if getattr(e, "GlobalId", None) and e.GlobalId != space.GlobalId
-        }
+        return {e.GlobalId for e in touching if getattr(e, "GlobalId", None) and e.GlobalId != space.GlobalId}
 
     @cached_property
     def tree(self) -> Any:
@@ -788,7 +781,34 @@ class SpatialModel:
 
     # ── quantities the file declares ────────────────────────────────────────
 
-    def declared_quantity(self, element: Any, names: Iterable[str]) -> Optional[DeclaredQuantity]:
+    def declared_property(self, element: Any, names: Iterable[str]) -> Any:
+        """The first non-null property value matching ``names``, across every pset.
+
+        The sibling of :meth:`declared_quantity` for values that carry no unit —
+        ``IsExternal``, ``LoadBearing``, ``FireRating``. No conversion is
+        possible or wanted here; a boolean in ``Pset_WallCommon`` and the same
+        boolean in a vendor pset mean the same thing.
+
+        Searched across all psets for the same reason quantities are: the name
+        is standardised (``IsExternal``) but the SET it lands in is not —
+        ``Pset_WallCommon``, ``Pset_MemberCommon``, ``Pset_PlateCommon`` and a
+        dozen vendor variants all carry it, and a lookup pinned to one of them
+        reports „nicht deklariert" about a file that declares it.
+
+        ``None`` means no pset carries any of these names, which is a fact about
+        the EXPORT and has to stay distinguishable from a declared ``False``.
+        """
+        psets = ue.get_psets(element, qtos_only=False) or {}
+        for key in names:
+            for values in psets.values():
+                if not isinstance(values, dict):
+                    continue
+                value = values.get(key)
+                if value is not None:
+                    return value
+        return None
+
+    def declared_quantity(self, element: Any, names: Iterable[str]) -> DeclaredQuantity | None:
         """The declared quantity best matching ``names``, converted to SI.
 
         Deliberately not restricted to ``Qto_SpaceBaseQuantities``: exports
@@ -849,7 +869,7 @@ class SpatialModel:
                     )
         return None
 
-    def _quantity_scale(self, entity_id: Optional[int]) -> tuple[float, Optional[str]]:
+    def _quantity_scale(self, entity_id: int | None) -> tuple[float, str | None]:
         """The factor from a quantity's declared unit to SI, and that unit's name."""
         if entity_id is None:
             return 1.0, None

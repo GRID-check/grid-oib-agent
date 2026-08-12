@@ -184,9 +184,7 @@ class ModelTooLargeError(BimQueryUnavailableError):
         self.model_bytes = model_bytes
         self.limit_bytes = limit_bytes
         size = f"{model_bytes / (1024 * 1024):.0f} MB" if model_bytes else "the model"
-        super().__init__(
-            f"{size} exceeds the {limit_bytes // (1024 * 1024)} MB this worker can hold"
-        )
+        super().__init__(f"{size} exceeds the {limit_bytes // (1024 * 1024)} MB this worker can hold")
 
 
 class SpatialToolError(ValueError):

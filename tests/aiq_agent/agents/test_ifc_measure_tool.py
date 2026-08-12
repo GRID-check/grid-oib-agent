@@ -83,11 +83,76 @@ class TestBuildCall:
         assert "floorArea" in answer
 
     def test_every_measure_the_engine_has_is_accepted(self):
-        for name in ("extent", "floorArea", "sillAndHead", "elevation", "clearHeight", "azimuth"):
+        """Iterated from `MEASURES`, not from a list written out here.
+
+        This was a hardcoded tuple of six names. Its own title claimed it
+        covered every measure, and when a seventh (`lightEntryArea`) was added
+        it kept passing while testing nothing about it — the exact failure the
+        test exists to catch, hidden inside the test.
+        """
+        from aiq_agent.agents.bim.measure_register import MEASURES
+
+        assert len(MEASURES) >= 7
+        for name in MEASURES:
             assert build(operation="measure", global_id="g1", measure=name) == (
                 "measure",
                 {"globalId": "g1", "measure": name},
             ), name
+
+    def test_no_distance_mode_is_advertised_as_a_clear_dimension(self):
+        """The entry for 'horizontal' read „what a lichte Breite check needs".
+
+        `operators.distance` measures CENTROID to CENTROID in plan — an
+        Achsabstand. On a 1.00 m opening between two 30 cm walls that is 1.30 m:
+        too large by half of each element, in the direction that turns a failed
+        escape-route width into a passing one. The tool description was
+        instructing the model to certify a clearance with the wrong number.
+        """
+        from aiq_agent.agents.bim.measure_register import DISTANCE_MODES
+
+        for name, text in DISTANCE_MODES.items():
+            assert "what a lichte Breite check needs" not in text, name
+        assert "NOT a lichte Breite" in DISTANCE_MODES["horizontal"]
+        assert "NOT a lichte Höhe" in DISTANCE_MODES["vertical"]
+        # And each one points at the operator that DOES answer it.
+        assert "extent" in DISTANCE_MODES["horizontal"]
+        assert "clearHeight" in DISTANCE_MODES["vertical"]
+        # `min` is a box gap, and 0 does not mean the solids touch.
+        assert "BOUNDING BOXES" in DISTANCE_MODES["min"]
+
+    def test_the_mode_error_does_not_repeat_the_wrong_advice(self):
+        answer = build(operation="distance", global_id="a", other_global_id="b", mode="diagonal")
+        assert isinstance(answer, str)
+        assert "A lichte Breite needs 'horizontal'" not in answer
+        assert "none is a clear dimension" in answer
+
+    def test_light_incidence_can_exclude_more_than_one_element(self):
+        """The recessed-window workflow needs two exclusions, not one.
+
+        A window deep in a thick wall is shaded by its own reveal AND by the
+        roof. With a single-value field, an agent told to "re-run without the
+        host wall" had to drop the roof exclusion to do it — silently answering
+        a different question than the one it was asked.
+        """
+        name, args = build(
+            operation="light_incidence",
+            global_id="w1",
+            other_global_id="wall1, roof1",
+            angle_deg=45,
+            swivel_deg=30,
+        )
+        assert name == "light_incidence"
+        assert args["exclude"] == ["wall1", "roof1"]
+
+    def test_one_exclusion_still_works_and_blank_entries_are_dropped(self):
+        _, single = build(operation="light_incidence", global_id="w1", other_global_id="wall1", angle_deg=45)
+        assert single["exclude"] == ["wall1"]
+
+        _, messy = build(operation="light_incidence", global_id="w1", other_global_id=" wall1 , , roof1,", angle_deg=45)
+        assert messy["exclude"] == ["wall1", "roof1"]
+
+        _, none_given = build(operation="light_incidence", global_id="w1", angle_deg=45)
+        assert "exclude" not in none_given
 
     def test_distance_needs_two_elements(self):
         answer = build(operation="distance", global_id="a")
@@ -210,9 +275,7 @@ class TestProvenanceIsThreeDifferentSentences:
     """
 
     def test_a_declared_value_is_reported_as_the_file_s_own_statement(self):
-        line = _provenance_line(
-            {"value": 15.41678125, "unit": "m²", "provenance": "declared", "decidable": True}
-        )
+        line = _provenance_line({"value": 15.41678125, "unit": "m²", "provenance": "declared", "decidable": True})
         assert line.startswith("deklariert:")
         assert "so steht es in der Datei" in line
 
@@ -303,8 +366,13 @@ class TestProvenanceIsThreeDifferentSentences:
         rides along, the renderer has no standing to restate it.
         """
         line = _provenance_line(
-            {"value": 0.235926059936681, "unit": "W/m²K", "tolerance": 0.01,
-             "provenance": "declared", "decidable": True}
+            {
+                "value": 0.235926059936681,
+                "unit": "W/m²K",
+                "tolerance": 0.01,
+                "provenance": "declared",
+                "decidable": True,
+            }
         )
         assert "0.235926059936681" in line
 
@@ -363,7 +431,8 @@ class TestRendering:
             "measure",
             {"value": 2.5, "unit": "m", "provenance": "computed", "tolerance": 0.005, "decidable": True},
             source={"model": {"filename": "Haus-A_V3.ifc", "schemaVersion": "IFC4", "elements": 74}},
-            handle="3f2a1b0c9d8e7f6a",
+            # A content hash, not a credential — detect-secrets sees 16 hex chars.
+            handle="3f2a1b0c9d8e7f6a",  # pragma: allowlist secret
         )
         assert "Modell: Haus-A_V3.ifc (IFC4, 74 Bauteile)" in rendered
         assert "Kennung 3f2a1b0c9d8e" in rendered
@@ -468,8 +537,12 @@ class TestRendering:
 
     def test_a_list_of_one_is_reported_in_the_singular(self):
         line = _provenance_line(
-            {"value": [{"globalId": "g1", "ifcType": "IfcWall", "name": "W"}], "unit": None,
-             "provenance": "computed", "decidable": True}
+            {
+                "value": [{"globalId": "g1", "ifcType": "IfcWall", "name": "W"}],
+                "unit": None,
+                "provenance": "computed",
+                "decidable": True,
+            }
         )
         assert "1 Eintrag" in line and "1 Einträge" not in line
 
@@ -705,9 +778,7 @@ class TestAModelTooBigToMeasureIsNotAnOutage:
         real_open = open
         monkeypatch.setattr(
             "builtins.open",
-            lambda path, *a, **k: real_open(limit, *a, **k)
-            if "cgroup" in str(path)
-            else real_open(path, *a, **k),
+            lambda path, *a, **k: real_open(limit, *a, **k) if "cgroup" in str(path) else real_open(path, *a, **k),
         )
         value = client._container_memory_bytes()
         assert value is None or value < (1 << 62)
@@ -945,9 +1016,7 @@ class TestTheSameModelIsParsedOncePerProcess:
         if not fixture.is_file():
             pytest.skip("the sample house fixture is not in this checkout")
 
-        handler = functools.partial(
-            http.server.SimpleHTTPRequestHandler, directory=str(fixture.parent)
-        )
+        handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(fixture.parent))
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
@@ -981,9 +1050,7 @@ class TestTheSameModelIsParsedOncePerProcess:
         # Anything that reaches the network on the second call fails the test:
         # a 150 MB download per tool call is what the source identity exists to
         # prevent.
-        monkeypatch.setattr(
-            engine, "_download", lambda *a, **k: pytest.fail("the model was downloaded twice")
-        )
+        monkeypatch.setattr(engine, "_download", lambda *a, **k: pytest.fail("the model was downloaded twice"))
         assert engine.open_model(source) == first
 
     def test_a_re_export_under_the_same_name_is_a_different_model(self, engine, served):

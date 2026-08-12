@@ -660,4 +660,3 @@ Stated so the next person does not read this document as broader than it is.
 - **The segfault guard is a guard.** It catches truncation, which is the realistic
   corruption. It cannot catch a file that is complete and internally malformed, and
   no in-process check can. The worker process remains the answer.
-

@@ -13,8 +13,9 @@ import threading
 from pathlib import Path
 
 import pytest
-
-from ifc_spatial.cache import SpatialCache, hash_bytes, hash_file
+from ifc_spatial.cache import SpatialCache
+from ifc_spatial.cache import hash_bytes
+from ifc_spatial.cache import hash_file
 from ifc_spatial.model import SpatialModel
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"

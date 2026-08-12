@@ -64,10 +64,7 @@ def handles(tools):
     """One parse per file for the module — exactly as a conversation would."""
     import ifc_spatial.tools as engine
 
-    return {
-        path: engine.call(tools, "open_model", {"path": str(path)})["model"]
-        for path in (HOUSE, NO_NORTH)
-    }
+    return {path: engine.call(tools, "open_model", {"path": str(path)})["model"] for path in (HOUSE, NO_NORTH)}
 
 
 @pytest.fixture()
@@ -274,6 +271,54 @@ class TestAnswerable:
         # available, because probing them to build a menu costs seconds.
         assert "opensTo" in rendered
 
+    def test_the_light_entry_ratio_the_agent_also_called_unmeasurable(self, ask):
+        """The OTHER half of „Überstand/Raum-% im IFC nicht messbar".
+
+        `overhang` closed the Überstand. This is the Raum-% — the ratio an OIB 3
+        daylight check comes down to, and the number that went missing for a
+        year because nobody noticed the failing answer named two things.
+        """
+        rendered = ask(operation="measure", global_id=BEDROOM, measure="lightEntryArea")
+        # 1.810 x 1.210 m of clear opening on 15.42 m² of floor. The measured
+        # aperture agreeing with the type name `1810x1210mm` to the millimetre
+        # is an independent check on the projection.
+        assert "Lichteintrittsfläche 2.190 m²" in rendered
+        assert "15.42 m² Bodenfläche" in rendered
+        assert "14.21 %" in rendered
+        # No threshold applied — the percentage is in the clause, not the model.
+        assert "Kein Grenzwert angewandt" in rendered
+        assert "ROHBAULICHTE" in rendered
+
+    def test_an_internal_door_is_never_counted_as_daylight(self, ask):
+        """The defect the first version shipped with.
+
+        Summing every opening bounding the room put the bedroom at 25.3 %,
+        because the door to the hallway is 1.71 m². An interior door is not a
+        Lichteintrittsfläche under any reading of OIB 3, and 25 % against 14 %
+        is two opposite answers to the same check.
+
+        It is EXCLUDED but not hidden: a ratio whose omissions are invisible
+        cannot be checked by the person who signs it.
+        """
+        rendered = ask(operation="measure", global_id=BEDROOM, measure="lightEntryArea")
+        assert "NICHT gezählt (innenliegend)" in rendered
+        assert "Doors_IntSgl" in rendered
+        # The reason travels with the exclusion, so it can be disagreed with.
+        assert "IsExternal" in rendered
+        assert "25.2" not in rendered and "25.3" not in rendered
+
+    def test_an_external_door_does_count(self, ask):
+        """The entrance hall is lit by its front door and nothing else.
+
+        The mirror of the test above: „exclude doors" would have been the easy
+        fix and it is wrong — 1.810 x 2.110 m of external double door is
+        daylight, and dropping it would have taken the hall to 0 %.
+        """
+        rendered = ask(operation="measure", global_id="3w0zWKm7n8SB1qbfwUzt0G", measure="lightEntryArea")
+        assert "Doors_ExtDbl_Flush" in rendered
+        assert "3.819 m²" in rendered
+        assert "43.93 %" in rendered
+
     def test_a_free_prism_renders_as_free(self, ask):
         """The opposite branch of the flagship operator.
 
@@ -313,9 +358,7 @@ class TestHonestlyUnanswerable:
     """
 
     def test_a_facade_bearing_without_a_true_north_refuses_and_says_what_to_add(self, ask):
-        rendered = ask(
-            NO_NORTH, operation="measure", global_id="2Haus0Raeume00Wall0001", measure="azimuth"
-        )
+        rendered = ask(NO_NORTH, operation="measure", global_id="2Haus0Raeume00Wall0001", measure="azimuth")
         assert "NICHT ENTSCHEIDBAR" in rendered
         assert "TrueNorth" in rendered
         # A finding about the EXPORT, with the change an architect makes in CAD.

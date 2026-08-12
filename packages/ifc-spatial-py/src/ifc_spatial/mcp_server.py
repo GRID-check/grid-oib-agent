@@ -52,10 +52,13 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Optional
+from typing import Any
 
 from .cache import SpatialCache
-from .tools import ToolDef, ToolError, call, create_tools
+from .tools import ToolDef
+from .tools import ToolError
+from .tools import call
+from .tools import create_tools
 
 SERVER_NAME = "ifc-spatial"
 SERVER_VERSION = "0.1.0"
@@ -67,7 +70,7 @@ INSTRUCTIONS = (
     "Räumliche Fragen an ein IFC-Modell. Zuerst open_model — das Briefing nennt die Geschoßnamen, das "
     "Property-Vokabular dieser Datei und die blinden Flecken. Jede Antwort trägt ihre Herkunft "
     "(declared/computed/inferred), eine Toleranz und den Rechenweg. `decidable: false` heißt „diese Datei "
-    "kann das nicht sagen\" und nennt in `missing`, was es beheben würde — das ist ein Befund über den "
+    'kann das nicht sagen" und nennt in `missing`, was es beheben würde — das ist ein Befund über den '
     "Export, nicht über das Gebäude. Ein Fehler heißt, dass die Frage nicht gestellt werden konnte "
     "(unbekannte GlobalId, kein geöffnetes Modell)."
 )
@@ -83,14 +86,14 @@ def _render(result: Any) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-def create_server(cache: Optional[SpatialCache] = None) -> tuple[Any, list[ToolDef]]:
+def create_server(cache: SpatialCache | None = None) -> tuple[Any, list[ToolDef]]:
     """The MCP server and the tool list behind it.
 
     Returns both so a caller can serve the tools over another transport, or
     assert on their descriptions in a test, without starting anything.
     """
     import anyio.to_thread
-    import mcp.types as types
+    from mcp import types
 
     tools = create_tools(cache)
     by_name = {tool.name: tool for tool in tools}
@@ -147,9 +150,7 @@ def create_server(cache: Optional[SpatialCache] = None) -> tuple[Any, list[ToolD
 
         async def on_call_tool(_context: Any, params: Any) -> Any:
             text, failed = await invoke(params.name, getattr(params, "arguments", None) or {})
-            return types.CallToolResult(
-                content=[types.TextContent(type="text", text=text)], isError=failed
-            )
+            return types.CallToolResult(content=[types.TextContent(type="text", text=text)], isError=failed)
 
         server = Server(
             SERVER_NAME,
@@ -181,7 +182,7 @@ def create_server(cache: Optional[SpatialCache] = None) -> tuple[Any, list[ToolD
     return server, tools
 
 
-async def serve_stdio(cache: Optional[SpatialCache] = None) -> None:
+async def serve_stdio(cache: SpatialCache | None = None) -> None:
     """Run the server over stdio until the client disconnects."""
     from mcp.server.stdio import stdio_server
 

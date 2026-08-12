@@ -56,17 +56,23 @@ is every sentence and every cap.
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Literal, Optional, Sequence
+from typing import Any
+from typing import Literal
 
 import ifcopenshell.util.element as ue
 
-from .envelope import Answer, MissingFact, computed, inferred, undecidable
-from .model import SpatialModel, Storey
+from .envelope import Answer
+from .envelope import MissingFact
+from .envelope import computed
+from .envelope import inferred
+from .envelope import undecidable
+from .model import SpatialModel
+from .model import Storey
 
 # ── The briefing, as data ───────────────────────────────────────────────────
 
@@ -74,14 +80,14 @@ from .model import SpatialModel, Storey
 @dataclass(frozen=True)
 class BriefingStorey:
     global_id: str
-    name: Optional[str]
+    name: str | None
     #: Metres. ``None`` when the file declares no elevation for this storey.
-    elevation: Optional[float]
+    elevation: float | None
     #: Structural storey-to-storey height in metres — the NEXT storey's
     #: elevation minus this one. ``None`` for the topmost storey and wherever an
     #: elevation is missing, never a fallback value: a guessed room height is
     #: the input to a clear-height check, and a wrong one passes silently.
-    height: Optional[float]
+    height: float | None
     #: Elements that resolve to this storey by containment or aggregation.
     element_count: int
     space_count: int
@@ -154,7 +160,7 @@ class BriefingDialectEntry:
     #: would be wrong by however many of those 400 were windows.
     scanned: int
     #: German gloss when this property answers a question the rules ask.
-    concept: Optional[str]
+    concept: str | None
     sample: list[Any]
 
     def to_dict(self) -> dict[str, Any]:
@@ -210,8 +216,8 @@ class Briefing:
     #: sha256 of the source bytes — the identity of everything below.
     content_hash: str
     schema: str
-    source_name: Optional[str]
-    originating_system: Optional[str]
+    source_name: str | None
+    originating_system: str | None
     totals: dict[str, int]
     storeys: list[BriefingStorey]
     #: Whether storey heights could be derived at all. See :func:`storey_heights`.
@@ -575,9 +581,7 @@ def render_briefing(model: SpatialModel, *, dialect_sample_size: int = DIALECT_S
         add("DIALEKT", f"{b.properties_scanned} Bauteile untersucht; Zahl = Bauteile mit befülltem Wert")
         for entry in b.dialect:
             gloss = f"{entry.concept} → " if entry.concept else ""
-            sample = (
-                f"  [{', '.join(_shorten(v) for v in entry.sample[:2])}]" if entry.sample else ""
-            )
+            sample = f"  [{', '.join(_shorten(v) for v in entry.sample[:2])}]" if entry.sample else ""
             add("", f"{gloss}{entry.set}.{entry.property} {entry.filled}{sample}")
         if b.dialect_omitted > 0:
             add("", f"(+{b.dialect_omitted} weitere Merkmale, nach Befüllung sortiert)")
@@ -670,9 +674,7 @@ def storey_heights(model: SpatialModel) -> Answer[list[dict[str, Any]]]:
                 # floating-point elevations produces 2.8499999999999996, and a
                 # height printed with sixteen digits reads as a precision this
                 # value does not have.
-                "height": None
-                if nxt is None
-                else round((nxt.elevation - storey.elevation) * 1000) / 1000,  # type: ignore[operator]
+                "height": None if nxt is None else round((nxt.elevation - storey.elevation) * 1000) / 1000,  # type: ignore[operator]
             }
         )
 
@@ -715,7 +717,7 @@ RoomUseKind = Literal["aufenthaltsraum", "nebenraum", "erschliessung"]
 @dataclass(frozen=True)
 class RoomProposal:
     global_id: str
-    name: Optional[str]
+    name: str | None
     confidence: float
     because: list[str]
 
@@ -786,9 +788,7 @@ def inventory(model: SpatialModel, kind: RoomUseKind) -> Answer[list[RoomProposa
     unclassified = sum(1 for room in classified if room.kind is None)
 
     value = [
-        RoomProposal(
-            global_id=room.global_id, name=room.name, confidence=room.confidence, because=list(room.because)
-        )
+        RoomProposal(global_id=room.global_id, name=room.name, confidence=room.confidence, because=list(room.because))
         for room in matching
     ]
 
@@ -853,7 +853,7 @@ class LexiconEntry:
     #: workshop in the next.
     weak: bool = False
     #: A qualification that belongs in this room's ``because`` when it matches.
-    note: Optional[str] = None
+    note: str | None = None
 
 
 GERMAN_KIND: dict[str, str] = {
@@ -1095,8 +1095,8 @@ QUALITY_TEXT = {"exakt": "exakter Name", "wort": "als ganzes Wort", "teil": "als
 @dataclass(frozen=True)
 class ClassifiedRoom:
     global_id: str
-    name: Optional[str]
-    kind: Optional[str]
+    name: str | None
+    kind: str | None
     confidence: float
     because: list[str]
 
@@ -1122,8 +1122,7 @@ def classify_rooms(model: SpatialModel) -> list[ClassifiedRoom]:
                     kind=None,
                     confidence=0.0,
                     because=[
-                        "Der Raum trägt weder Name noch LongName — nichts, worauf sich eine Einstufung "
-                        "stützen könnte."
+                        "Der Raum trägt weder Name noch LongName — nichts, worauf sich eine Einstufung stützen könnte."
                     ],
                 )
             )
@@ -1153,9 +1152,7 @@ def classify_rooms(model: SpatialModel) -> list[ClassifiedRoom]:
             )
             continue
 
-        ranked = sorted(
-            best.items(), key=lambda item: (-len(item[1][0].term), -MATCH_CONFIDENCE[item[1][1]])
-        )
+        ranked = sorted(best.items(), key=lambda item: (-len(item[1][0].term), -MATCH_CONFIDENCE[item[1][1]]))
         kind, (winner, quality) = ranked[0]
         runner_up = ranked[1] if len(ranked) > 1 else None
 
@@ -1188,9 +1185,7 @@ def classify_rooms(model: SpatialModel) -> list[ClassifiedRoom]:
                 because.append("Dem Raum ist mindestens ein Fenster zugeordnet (opensTo).")
             elif kind == "aufenthaltsraum":
                 confidence -= 0.05
-                because.append(
-                    "Diesem Raum ist kein Fenster zugeordnet, obwohl das Modell Fensterzuordnungen führt."
-                )
+                because.append("Diesem Raum ist kein Fenster zugeordnet, obwohl das Modell Fensterzuordnungen führt.")
 
         out.append(
             ClassifiedRoom(
@@ -1205,7 +1200,7 @@ def classify_rooms(model: SpatialModel) -> list[ClassifiedRoom]:
     return out
 
 
-def match_quality(normalised: str, term: str) -> Optional[str]:
+def match_quality(normalised: str, term: str) -> str | None:
     if normalised == term:
         return "exakt"
     if re.search(rf"(^| ){re.escape(term)}( |$)", normalised):
@@ -1249,7 +1244,7 @@ class DialectEntry:
 
 
 def measure_dialect(
-    model: SpatialModel, nodes: Optional[Sequence[Any]] = None, sample_size: int = DIALECT_SAMPLE_SIZE
+    model: SpatialModel, nodes: Sequence[Any] | None = None, sample_size: int = DIALECT_SAMPLE_SIZE
 ) -> tuple[list[DialectEntry], int, bool]:
     """What this file calls things, measured on the elements themselves.
 
@@ -1270,7 +1265,9 @@ def measure_dialect(
     element model is a proportion of the sample and must not be read as one of
     the model.
     """
-    candidates = [e for e in (nodes if nodes is not None else _nodes_of(model)) if model.kind_of(e) in ("element", "space")]
+    candidates = [
+        e for e in (nodes if nodes is not None else _nodes_of(model)) if model.kind_of(e) in ("element", "space")
+    ]
     sampled = len(candidates) > sample_size
     scan = candidates[:sample_size] if sampled else candidates
 
@@ -1346,9 +1343,7 @@ def _summarise_dialect(
 
     # Stable: decisive first, then by fill count, then alphabetically. Two runs
     # over the same file must produce the same briefing.
-    ranked = sorted(
-        shaped, key=lambda e: (0 if e.concept is not None else 1, -e.filled, f"{e.set}.{e.property}")
-    )
+    ranked = sorted(shaped, key=lambda e: (0 if e.concept is not None else 1, -e.filled, f"{e.set}.{e.property}"))
     absent = [
         {"concept": concept, "property": property_name}
         for concept, property_name in DECISIVE_PROPERTIES
@@ -1360,7 +1355,7 @@ def _summarise_dialect(
 # ── blind spots ─────────────────────────────────────────────────────────────
 
 
-def find_blind_spots(model: SpatialModel, dialect_sample: Optional[int] = None) -> list[BlindSpot]:
+def find_blind_spots(model: SpatialModel, dialect_sample: int | None = None) -> list[BlindSpot]:
     """What this file cannot answer, worked out before anybody asks.
 
     The point is to move the discovery of a gap from the end of a long agent
@@ -1395,9 +1390,7 @@ def find_blind_spots(model: SpatialModel, dialect_sample: Optional[int] = None) 
                 consequence=(
                     "welche Wände einen Raum begrenzen und welche Räume aneinandergrenzen ist nicht deklariert"
                 ),
-                remedy=(
-                    "Space Boundaries (2nd level) mitexportieren — in Revit/ArchiCAD eine Exporteinstellung"
-                ),
+                remedy=("Space Boundaries (2nd level) mitexportieren — in Revit/ArchiCAD eine Exporteinstellung"),
             )
         )
     if fills == 0 and fillers > 0:
@@ -1413,9 +1406,7 @@ def find_blind_spots(model: SpatialModel, dialect_sample: Optional[int] = None) 
         # and only the second one answers "which wall is this window in". A file
         # with fills for the doors and none for the windows passes the test
         # above and still cannot answer the question for a window.
-        unresolved = sum(
-            1 for e in [*_by_type(model, "IfcWindow"), *_by_type(model, "IfcDoor")] if not _hosts_of(e)
-        )
+        unresolved = sum(1 for e in [*_by_type(model, "IfcWindow"), *_by_type(model, "IfcDoor")] if not _hosts_of(e))
         if unresolved > 0:
             spots.append(
                 BlindSpot(
@@ -1612,7 +1603,7 @@ def _declared_boundaries(space: Any) -> list[Any]:
     ]
 
 
-def _window_assignment(model: SpatialModel) -> Optional[set[str]]:
+def _window_assignment(model: SpatialModel) -> set[str] | None:
     """Rooms with at least one window assigned, or ``None`` when this model
     cannot say.
 
@@ -1663,7 +1654,7 @@ def _window_assignment(model: SpatialModel) -> Optional[set[str]]:
     return lit
 
 
-def _header(model: SpatialModel, field_name: str) -> Optional[str]:
+def _header(model: SpatialModel, field_name: str) -> str | None:
     """One STEP header field, with the empty string folded to ``None``.
 
     Exporters write ``''`` for a field they have nothing to say about, and an
@@ -1791,7 +1782,7 @@ def _shorten(value: Any) -> str:
 WRAP_WIDTH = 104
 
 
-def _wrap(cells: Sequence[str], separator: str, tail: Optional[str]) -> list[str]:
+def _wrap(cells: Sequence[str], separator: str, tail: str | None) -> list[str]:
     lines: list[str] = []
     current = ""
     for cell in cells:

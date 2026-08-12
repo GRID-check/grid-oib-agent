@@ -70,7 +70,6 @@ import tempfile
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Optional
 
 from .model import SpatialModel
 
@@ -122,8 +121,8 @@ class _Pending:
 
     def __init__(self) -> None:
         self.done = threading.Event()
-        self.model: Optional[SpatialModel] = None
-        self.error: Optional[BaseException] = None
+        self.model: SpatialModel | None = None
+        self.error: BaseException | None = None
 
 
 class SpatialCache:
@@ -134,7 +133,7 @@ class SpatialCache:
         #: the oldest key is always the first one iteration yields. No second
         #: structure, no timestamps to keep in step with the entries they
         #: describe.
-        self._models: "OrderedDict[str, SpatialModel]" = OrderedDict()
+        self._models: OrderedDict[str, SpatialModel] = OrderedDict()
         self._in_flight: dict[str, _Pending] = {}
         self._lock = threading.Lock()
         self._max_entries = max(1, max_entries)
@@ -174,7 +173,7 @@ class SpatialCache:
         with self._lock:
             return content_hash in self._models
 
-    def get(self, content_hash: str) -> Optional[SpatialModel]:
+    def get(self, content_hash: str) -> SpatialModel | None:
         """The model for this hash, or ``None`` — the lookup a caller makes when
         it holds a handle and not the bytes."""
         with self._lock:
@@ -186,7 +185,7 @@ class SpatialCache:
             self._hits += 1
             return model
 
-    def resolve(self, prefix: str) -> Optional[SpatialModel]:
+    def resolve(self, prefix: str) -> SpatialModel | None:
         """A model by an abbreviated hash, the way a git object is addressed.
 
         Returns ``None`` for both "no such prefix" and "ambiguous prefix"; the
@@ -241,7 +240,7 @@ class SpatialCache:
                 self._temp[content] = path
         return self._load(content, path, data)
 
-    def _load(self, content: str, path: str, data: Optional[bytes]) -> SpatialModel:
+    def _load(self, content: str, path: str, data: bytes | None) -> SpatialModel:
         with self._lock:
             resident = self._models.get(content)
             if resident is not None:

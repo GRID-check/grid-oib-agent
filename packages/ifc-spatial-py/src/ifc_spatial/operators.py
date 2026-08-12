@@ -52,32 +52,32 @@ could be built on. :func:`distance` measures box gaps as the TS does, and
 from __future__ import annotations
 
 import math
-from typing import Any, Iterable, Optional, Sequence
+from collections.abc import Iterable
+from collections.abc import Sequence
+from typing import Any
 
+import ifcopenshell.util.shape as us
 import numpy as np
 
-import ifcopenshell.util.element as ue
-import ifcopenshell.util.shape as us
-
-from .envelope import Answer, ElementRef, MissingFact, computed, declared, triangulate, undecidable
-from .geometry import (
-    box_corners,
-    box_gap,
-    boxes_overlap,
-    clip_polygon,
-    dominant_vertical_plane,
-    outermost_parallel_face,
-    signed_distance,
-    triangle_normals_areas,
-)
-from .model import (
-    AIR_TYPES,
-    CONTACT_BUDGET_SECONDS,
-    DERIVED_BOUNDARY_MAX_PRODUCTS,
-    ElementGeometry,
-    SpatialModel,
-    UnknownElementError,
-)
+from .envelope import Answer
+from .envelope import ElementRef
+from .envelope import MissingFact
+from .envelope import computed
+from .envelope import declared
+from .envelope import triangulate
+from .envelope import undecidable
+from .geometry import box_gap
+from .geometry import boxes_overlap
+from .geometry import clip_polygon
+from .geometry import dominant_vertical_plane
+from .geometry import outermost_parallel_face
+from .geometry import signed_distance
+from .geometry import triangle_normals_areas
+from .model import AIR_TYPES
+from .model import CONTACT_BUDGET_SECONDS
+from .model import DERIVED_BOUNDARY_MAX_PRODUCTS
+from .model import ElementGeometry
+from .model import SpatialModel
 
 # ── the error model, ported verbatim from metric.ts ─────────────────────────
 
@@ -189,7 +189,7 @@ def _wrong_kind(
     )
 
 
-def _no_geometry(model: SpatialModel, subject: Any, method: str, from_: Optional[list[str]] = None) -> Answer[Any]:
+def _no_geometry(model: SpatialModel, subject: Any, method: str, from_: list[str] | None = None) -> Answer[Any]:
     """The element has no usable body in this file — a finding, never an exception.
 
     Two different findings, and the corpus showed that saying the wrong one sends
@@ -246,8 +246,8 @@ def _has(model: SpatialModel, ifc_type: str) -> bool:
 
 
 def _geometry_or_answer(
-    model: SpatialModel, subject: Any, method: str, from_: Optional[list[str]] = None
-) -> tuple[Optional[ElementGeometry], Optional[Answer[Any]]]:
+    model: SpatialModel, subject: Any, method: str, from_: list[str] | None = None
+) -> tuple[ElementGeometry | None, Answer[Any] | None]:
     geo = model.geometry(subject.GlobalId)
     if geo is None:
         return None, _no_geometry(model, subject, method, from_)
@@ -273,12 +273,20 @@ def hosts(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
 
     if kind == "opening":
         return _wrong_kind(
-            model, subject, method, "hosts", "ein durchbrochenes Bauteil (Wand, Decke)",
+            model,
+            subject,
+            method,
+            "hosts",
+            "ein durchbrochenes Bauteil (Wand, Decke)",
             "für eine Öffnung: fillerOf() liefert ihre Füllung",
         )
     if kind != "element":
         return _wrong_kind(
-            model, subject, method, "hosts", "ein Bauteil (Wand, Decke)",
+            model,
+            subject,
+            method,
+            "hosts",
+            "ein Bauteil (Wand, Decke)",
             "für Räume: bounds(), für Geschosse: elementsOfStorey()",
         )
     if not _has(model, "IfcRelVoidsElement"):
@@ -299,7 +307,11 @@ def filler_of(model: SpatialModel, opening_global_id: str) -> Answer[list[Elemen
     subject = _require(model, opening_global_id, method)
     if model.kind_of(subject) != "opening":
         return _wrong_kind(
-            model, subject, method, "fillerOf", "eine Öffnung (IfcOpeningElement)",
+            model,
+            subject,
+            method,
+            "fillerOf",
+            "eine Öffnung (IfcOpeningElement)",
             "für ein Bauteil: hosts() liefert seine Öffnungen, hostedIn() das umgebende Bauteil",
         )
     if not _has(model, "IfcRelFillsElement"):
@@ -334,14 +346,21 @@ def hosted_in(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
 
     if kind not in ("element", "opening"):
         return _wrong_kind(
-            model, subject, method, "hostedIn", "ein Fenster oder eine Tür",
-            "für Räume: bounds(), für Bauteile einer Ebene: elementsOfStorey()", "computed",
+            model,
+            subject,
+            method,
+            "hostedIn",
+            "ein Fenster oder eine Tür",
+            "für Räume: bounds(), für Bauteile einer Ebene: elementsOfStorey()",
+            "computed",
         )
 
     absent = [k for k in ("voids", "fills") if not _has(model, _RELATIONS[k][0])]
     if absent:
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=_relation_missing(model, absent),
         )
 
@@ -350,9 +369,7 @@ def hosted_in(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
     else:
         openings = [rel.RelatingOpeningElement for rel in getattr(subject, "FillsVoids", []) or []]
     hosts_ = [
-        rel.RelatingBuildingElement
-        for opening in openings
-        for rel in (getattr(opening, "VoidsElements", []) or [])
+        rel.RelatingBuildingElement for opening in openings for rel in (getattr(opening, "VoidsElements", []) or [])
     ]
 
     refs = model.refs(hosts_, via="voids+fills")
@@ -400,7 +417,11 @@ def bounds(model: SpatialModel, space_global_id: str) -> Answer[list[ElementRef]
     subject = _require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
         return _wrong_kind(
-            model, subject, method, "bounds", "einen Raum (IfcSpace)",
+            model,
+            subject,
+            method,
+            "bounds",
+            "einen Raum (IfcSpace)",
             "für ein Bauteil: enclosedBy() liefert die Räume, die es begrenzt",
         )
 
@@ -453,9 +474,7 @@ def _too_big_to_derive(model: SpatialModel, method: str, subject_id: str) -> Ans
     )
 
 
-def _derived_bounds(
-    model: SpatialModel, space: Any, method: str
-) -> tuple[list[Any], Optional[Answer[Any]]]:
+def _derived_bounds(model: SpatialModel, space: Any, method: str) -> tuple[list[Any], Answer[Any] | None]:
     if not model.derivable_boundaries:
         return [], _too_big_to_derive(model, method, space.GlobalId)
     geo, missing = _geometry_or_answer(model, space, method)
@@ -493,14 +512,16 @@ def enclosed_by(model: SpatialModel, element_global_id: str) -> Answer[list[Elem
     subject = _require(model, element_global_id, method)
     if model.kind_of(subject) == "space":
         return _wrong_kind(
-            model, subject, method, "enclosedBy", "ein Bauteil (Wand, Decke, Fenster)",
+            model,
+            subject,
+            method,
+            "enclosedBy",
+            "ein Bauteil (Wand, Decke, Fenster)",
             "für einen Raum: bounds() liefert die begrenzenden Bauteile, adjacentSpaces() die Nachbarräume",
         )
 
     provides = [
-        rel.RelatingSpace
-        for rel in (getattr(subject, "ProvidesBoundaries", []) or [])
-        if rel.RelatingSpace is not None
+        rel.RelatingSpace for rel in (getattr(subject, "ProvidesBoundaries", []) or []) if rel.RelatingSpace is not None
     ]
     if provides:
         return declared(
@@ -554,11 +575,7 @@ def _spaces_touching(model: SpatialModel, subject: Any, method: str) -> Any:
                 elements=[subject.GlobalId],
             ),
         )
-    return [
-        model.file.by_guid(space_id)
-        for space_id, touching in contacts.items()
-        if subject.GlobalId in touching
-    ]
+    return [model.file.by_guid(space_id) for space_id, touching in contacts.items() if subject.GlobalId in touching]
 
 
 def opens_to(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
@@ -580,23 +597,26 @@ def opens_to(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
     subject = _require(model, global_id, method)
     if model.kind_of(subject) not in ("element", "opening"):
         return _wrong_kind(
-            model, subject, method, "opensTo", "ein Fenster oder eine Tür",
-            "für einen Raum: adjacentSpaces() liefert die Nachbarräume", "computed",
+            model,
+            subject,
+            method,
+            "opensTo",
+            "ein Fenster oder eine Tür",
+            "für einen Raum: adjacentSpaces() liefert die Nachbarräume",
+            "computed",
         )
 
     provides = [
-        rel.RelatingSpace
-        for rel in (getattr(subject, "ProvidesBoundaries", []) or [])
-        if rel.RelatingSpace is not None
+        rel.RelatingSpace for rel in (getattr(subject, "ProvidesBoundaries", []) or []) if rel.RelatingSpace is not None
     ]
     if provides:
-        return declared(
-            model.refs(provides), from_=[global_id, *[s.GlobalId for s in provides]], method=method
-        )
+        return declared(model.refs(provides), from_=[global_id, *[s.GlobalId for s in provides]], method=method)
 
     if not model.file.by_type("IfcSpace"):
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what="IfcSpace",
                 remedy=(
@@ -630,7 +650,11 @@ def contains(model: SpatialModel, container_global_id: str) -> Answer[list[Eleme
     subject = _require(model, container_global_id, method)
     if model.kind_of(subject) not in ("project", "site", "building", "storey", "space"):
         return _wrong_kind(
-            model, subject, method, "contains", "einen räumlichen Container (Geschoss, Raum, Gebäude)",
+            model,
+            subject,
+            method,
+            "contains",
+            "einen räumlichen Container (Geschoss, Raum, Gebäude)",
             "für ein Bauteil: containerOf() liefert seinen Container, hosts() seine Öffnungen",
         )
     if not _has(model, "IfcRelContainedInSpatialStructure"):
@@ -638,14 +662,8 @@ def contains(model: SpatialModel, container_global_id: str) -> Answer[list[Eleme
             from_=[container_global_id], method=method, missing=_relation_missing(model, ["containsElement"])
         )
 
-    elements = [
-        e
-        for rel in (getattr(subject, "ContainsElements", []) or [])
-        for e in rel.RelatedElements
-    ]
-    aggregated = [
-        e for rel in (getattr(subject, "IsDecomposedBy", []) or []) for e in rel.RelatedObjects
-    ]
+    elements = [e for rel in (getattr(subject, "ContainsElements", []) or []) for e in rel.RelatedElements]
+    aggregated = [e for rel in (getattr(subject, "IsDecomposedBy", []) or []) for e in rel.RelatedObjects]
     caveat = None
     if aggregated:
         caveat = (
@@ -661,7 +679,7 @@ def contains(model: SpatialModel, container_global_id: str) -> Answer[list[Eleme
     )
 
 
-def container_of(model: SpatialModel, global_id: str) -> Answer[Optional[ElementRef]]:
+def container_of(model: SpatialModel, global_id: str) -> Answer[ElementRef | None]:
     """The immediate spatial container of this element — the storey, or the space
     when the export assigns elements that finely.
 
@@ -673,9 +691,7 @@ def container_of(model: SpatialModel, global_id: str) -> Answer[Optional[Element
     method = f"containerOf({global_id})"
     subject = _require(model, global_id, method)
     if not _has(model, "IfcRelContainedInSpatialStructure"):
-        return undecidable(
-            from_=[global_id], method=method, missing=_relation_missing(model, ["containsElement"])
-        )
+        return undecidable(from_=[global_id], method=method, missing=_relation_missing(model, ["containsElement"]))
 
     containers = [rel.RelatingStructure for rel in (getattr(subject, "ContainedInStructure", []) or [])]
     if not containers:
@@ -716,8 +732,13 @@ def adjacent_spaces(model: SpatialModel, space_global_id: str) -> Answer[list[El
     subject = _require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
         return _wrong_kind(
-            model, subject, method, "adjacentSpaces", "einen Raum (IfcSpace)",
-            "für ein Bauteil: enclosedBy() liefert die Räume, die es begrenzt", "computed",
+            model,
+            subject,
+            method,
+            "adjacentSpaces",
+            "einen Raum (IfcSpace)",
+            "für ein Bauteil: enclosedBy() liefert die Räume, die es begrenzt",
+            "computed",
         )
 
     own = bounds(model, space_global_id)
@@ -798,7 +819,7 @@ def extent(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     )
 
 
-def floor_area(model: SpatialModel, global_id: str, declared_area: Optional[float] = None) -> Answer[float]:
+def floor_area(model: SpatialModel, global_id: str, declared_area: float | None = None) -> Answer[float]:
     """The element's floor area in m² — for a space, its usable plan area.
 
     BESSER, twice over:
@@ -825,7 +846,9 @@ def floor_area(model: SpatialModel, global_id: str, declared_area: Optional[floa
     writes the German caveat and reports the measured value when the two differ.
     """
     subject_id = global_id
-    method = f"floorArea({subject_id})" if declared_area is None else f"floorArea({subject_id}, declared={declared_area})"
+    method = (
+        f"floorArea({subject_id})" if declared_area is None else f"floorArea({subject_id}, declared={declared_area})"
+    )
     subject = _require(model, global_id, method)
     geo, missing = _geometry_or_answer(model, subject, method)
     if geo is None:
@@ -1021,7 +1044,11 @@ def sill_and_head(model: SpatialModel, global_id: str) -> Answer[dict[str, float
     subject = _require(model, global_id, method)
     if subject.is_a() not in FENESTRATION:
         return _wrong_kind(
-            model, subject, method, "sillAndHead", "ein Fenster, eine Tür oder eine Öffnung",
+            model,
+            subject,
+            method,
+            "sillAndHead",
+            "ein Fenster, eine Tür oder eine Öffnung",
             "für die absolute Höhe eines beliebigen Bauteils: elevation(); für seine Abmessungen: extent()",
             "computed",
         )
@@ -1033,7 +1060,9 @@ def sill_and_head(model: SpatialModel, global_id: str) -> Answer[dict[str, float
     if datum is None:
         name = model.label(subject) or global_id
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what=f"IfcBuildingStorey.Elevation für {subject.is_a()} „{name}“",
                 remedy=(
@@ -1051,7 +1080,9 @@ def sill_and_head(model: SpatialModel, global_id: str) -> Answer[dict[str, float
     drift = _storey_datum_drift(model)
     if drift > 0:
         return undecidable(
-            from_=[global_id, datum.global_id], method=method, provenance="computed",
+            from_=[global_id, datum.global_id],
+            method=method,
+            provenance="computed",
             missing=_datum_mismatch(model, drift),
         )
 
@@ -1100,7 +1131,9 @@ def azimuth(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     # architect to fix the wrong thing.
     if model.true_north is None:
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what="IfcGeometricRepresentationContext.TrueNorth",
                 remedy=(
@@ -1119,7 +1152,9 @@ def azimuth(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     if normal is None:
         name = model.label(subject) or global_id
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what=f"keine senkrechte Fläche an {subject.is_a()} „{name}“",
                 remedy=(
@@ -1134,7 +1169,9 @@ def azimuth(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     centre = model.plan_centre
     if centre is None:
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what="keine Modellausdehnung (kein Bauteil mit Geometrie)",
                 remedy=(
@@ -1231,7 +1268,9 @@ def distance(model: SpatialModel, a: str, b: str, mode: str = "min") -> Answer[f
         value = float(abs(ca[2] - cb[2]))
     else:
         return undecidable(
-            from_=[a, b], method=method, provenance="computed",
+            from_=[a, b],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what=f"unbekannter Abstandsbegriff „{mode}“",
                 remedy="distance() kennt 'min', 'centroid', 'horizontal' und 'vertical'.",
@@ -1281,8 +1320,13 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
     subject = _require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
         return _wrong_kind(
-            model, subject, method, "clearHeight", "einen Raum (IfcSpace)",
-            "für die Höhe eines Bauteils: extent() liefert sie als height", "computed",
+            model,
+            subject,
+            method,
+            "clearHeight",
+            "einen Raum (IfcSpace)",
+            "für die Höhe eines Bauteils: extent() liefert sie als height",
+            "computed",
         )
     geo, missing = _geometry_or_answer(model, subject, method)
     if geo is None:
@@ -1317,14 +1361,15 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
                 run = float(hit.distance) + (floor_z - float(low[2]))
                 if run <= 0.01:
                     continue
-                if run < shortest:
-                    shortest = run
+                shortest = min(shortest, run)
                 hit_by.setdefault(element.GlobalId, run)
                 break
 
     if tested == 0:
         return undecidable(
-            from_=[space_global_id], method=method, provenance="computed",
+            from_=[space_global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what="kein Rasterpunkt lag im Raumkörper",
                 remedy=(
@@ -1335,12 +1380,8 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
             ),
         )
 
-    lowering = sorted(
-        ((gid, run) for gid, run in hit_by.items() if run < modelled - MIN_INTRUSION), key=lambda p: p[1]
-    )
-    named = ", ".join(
-        f"{model.label(model.file.by_guid(gid)) or gid} ({run:.3f} m)" for gid, run in lowering[:3]
-    )
+    lowering = sorted(((gid, run) for gid, run in hit_by.items() if run < modelled - MIN_INTRUSION), key=lambda p: p[1])
+    named = ", ".join(f"{model.label(model.file.by_guid(gid)) or gid} ({run:.3f} m)" for gid, run in lowering[:3])
     caveat = (
         f"Lichte Höhe aus {tested} von {samples * samples} Rasterpunkten, senkrecht nach oben gemessen "
         f"(geom.tree.select_ray). Der modellierte Raumkörper ist {modelled:.3f} m hoch. "
@@ -1435,7 +1476,9 @@ def facade_plane_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any
         if (model.geometry_failure(global_id) or "").startswith(("shape-failed", "empty-mesh")):
             return missing  # type: ignore[return-value]
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what=f"keine Körpergeometrie für {subject.is_a()} in dieser Datei",
                 remedy=(
@@ -1451,7 +1494,9 @@ def facade_plane_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any
     if normal is None:
         name = model.label(subject) or global_id
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what=f"keine senkrechte Fläche an {subject.is_a()} „{name}“",
                 remedy=(
@@ -1477,7 +1522,9 @@ def facade_plane_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any
     seated = outermost_parallel_face(geo.triangles, n)
     if seated is None:
         return undecidable(
-            from_=[global_id], method=method, provenance="computed",
+            from_=[global_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what=f"keine auswertbare Fassadenfläche an {subject.is_a()}",
                 remedy="Das Bauteil hat senkrechte Dreiecke, aber keine zusammenhängende Fläche brauchbarer Größe.",
@@ -1523,7 +1570,9 @@ def overhang(model: SpatialModel, projecting_id: str, facade_element_id: str) ->
     plane_answer = facade_plane_of(model, facade_element_id)
     if not plane_answer.decidable or plane_answer.value is None:
         return undecidable(
-            from_=[projecting_id, facade_element_id], method=method, provenance="computed",
+            from_=[projecting_id, facade_element_id],
+            method=method,
+            provenance="computed",
             missing=plane_answer.missing
             or MissingFact(
                 what=f"Fassadenebene von {facade_element_id}",
@@ -1564,9 +1613,9 @@ def ray(
     model: SpatialModel,
     origin: Sequence[float],
     direction: Sequence[float],
-    length: Optional[float] = None,
-    exclude: Optional[Iterable[str]] = None,
-) -> Answer[Optional[dict[str, Any]]]:
+    length: float | None = None,
+    exclude: Iterable[str] | None = None,
+) -> Answer[dict[str, Any] | None]:
     """The first surface a ray meets — ``geom.tree.select_ray``.
 
     BESSER: the intersection is against the real OCCT surface, so the hit point
@@ -1583,9 +1632,7 @@ def ray(
     # Built defensively: the arguments are not validated yet, and a `method`
     # string that formats them as floats crashed on `ray(model, "x", ...)` —
     # before the check that was supposed to reject it could run.
-    method = f"ray({_vector_text(origin)}, {_vector_text(direction)}" + (
-        f", {length})" if length is not None else ")"
-    )
+    method = f"ray({_vector_text(origin)}, {_vector_text(direction)}" + (f", {length})" if length is not None else ")")
     try:
         d = np.array(direction, dtype=float).reshape(3)
         o = np.array(origin, dtype=float).reshape(3)
@@ -1593,14 +1640,11 @@ def ray(
         d = np.zeros(3)
         o = np.full(3, np.nan)
     bad_length = length is not None and (not np.isfinite(length) or float(length) <= 0)
-    if (
-        not np.isfinite(d).all()
-        or float(np.linalg.norm(d)) < 1e-9
-        or not np.isfinite(o).all()
-        or bad_length
-    ):
+    if not np.isfinite(d).all() or float(np.linalg.norm(d)) < 1e-9 or not np.isfinite(o).all() or bad_length:
         return undecidable(
-            from_=[], method=method, provenance="computed",
+            from_=[],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what="brauchbarer Strahl (Richtung ≠ 0, endlicher Ursprung, Länge > 0)",
                 remedy=(
@@ -1616,7 +1660,9 @@ def ray(
         # "nichts getroffen" as decidable would dress a could-not-look up as a
         # result — the one substitution this library exists to prevent.
         return undecidable(
-            from_=[], method=method, provenance="computed",
+            from_=[],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what="keine Modellausdehnung (kein Bauteil mit Geometrie)",
                 remedy=(
@@ -1630,7 +1676,7 @@ def ray(
     reach = float(length) if length is not None else model.diagonal
     skip = set(exclude or ())
 
-    best: Optional[dict[str, Any]] = None
+    best: dict[str, Any] | None = None
     for hit in model.tree.select_ray(tuple(float(c) for c in o), tuple(float(c) for c in d), length=reach):
         element = model.file.by_id(hit.instance.id())
         if element.is_a() in AIR_TYPES or element.GlobalId in skip:
@@ -1675,7 +1721,9 @@ def prism(model: SpatialModel, opening_id: str, angle_deg: float, swivel_deg: fl
 
     if not (0 < angle_deg < 90) or not (0 <= swivel_deg < 90):
         return undecidable(
-            from_=[opening_id], method=method, provenance="computed",
+            from_=[opening_id],
+            method=method,
+            provenance="computed",
             missing=MissingFact(
                 what="brauchbare Winkel (0° < angleDeg < 90°, 0° ≤ swivelDeg < 90°)",
                 remedy=(
@@ -1702,7 +1750,9 @@ def prism(model: SpatialModel, opening_id: str, angle_deg: float, swivel_deg: fl
         host_id = None
     if not plane_answer.decidable or plane_answer.value is None:
         return undecidable(
-            from_=[opening_id], method=method, provenance="computed",
+            from_=[opening_id],
+            method=method,
+            provenance="computed",
             missing=plane_answer.missing
             or MissingFact(
                 what=f"Fassadenebene für {opening_id}",
@@ -1738,7 +1788,11 @@ def prism(model: SpatialModel, opening_id: str, angle_deg: float, swivel_deg: fl
         {"role": "facade", "normal": n.tolist(), "point": left.tolist()},
         {"role": "incline", "normal": incline.tolist(), "point": left.tolist()},
         {"role": "lateralLeft", "normal": (left_normal / np.linalg.norm(left_normal)).tolist(), "point": left.tolist()},
-        {"role": "lateralRight", "normal": (right_normal / np.linalg.norm(right_normal)).tolist(), "point": right.tolist()},
+        {
+            "role": "lateralRight",
+            "normal": (right_normal / np.linalg.norm(right_normal)).tolist(),
+            "point": right.tolist(),
+        },
     ]
 
     return computed(
@@ -1763,7 +1817,7 @@ def prism(model: SpatialModel, opening_id: str, angle_deg: float, swivel_deg: fl
 
 
 def obstructions(
-    model: SpatialModel, volume: dict[str, Any], exclude: Optional[Iterable[str]] = None
+    model: SpatialModel, volume: dict[str, Any], exclude: Iterable[str] | None = None
 ) -> Answer[list[dict[str, Any]]]:
     """Elements occupying the prism, and how deep each reaches into it.
 
@@ -1796,7 +1850,9 @@ def obstructions(
     if not isinstance(volume, dict) or any(k not in volume for k in required):
         absent = [k for k in required if not isinstance(volume, dict) or k not in volume]
         return undecidable(
-            from_=[], method="obstructions(<kein Prisma>)", provenance="computed",
+            from_=[],
+            method="obstructions(<kein Prisma>)",
+            provenance="computed",
             missing=MissingFact(
                 what=f"kein auswertbares Prisma: {', '.join(absent) or 'kein dict'} fehlt",
                 remedy="obstructions() nimmt den Rückgabewert von prism() entgegen, unverändert.",
@@ -1820,7 +1876,9 @@ def obstructions(
         skip.add(rel.RelatingOpeningElement.GlobalId)
 
     planes = [(np.array(h["normal"]), np.array(h["point"])) for h in volume["halfSpaces"]]
-    incline = next((np.array(h["normal"]), np.array(h["point"])) for h in volume["halfSpaces"] if h["role"] == "incline")
+    incline = next(
+        (np.array(h["normal"]), np.array(h["point"])) for h in volume["halfSpaces"] if h["role"] == "incline"
+    )
 
     # Broad phase: the prism is unbounded, so it is boxed by the model's own
     # extent in front of the facade before it is handed to the tree.
@@ -1887,6 +1945,282 @@ def obstructions(
     )
 
 
+def _clear_opening_area(model: SpatialModel, opening: Any) -> float | None:
+    """The area of an opening's clear aperture — the Rohbaulichte.
+
+    An ``IfcOpeningElement`` is a prism driven through the wall. Projected along
+    the wall's own normal, its two end faces land on top of each other and the
+    shapely UNION of the projection is exactly the clear opening — which is what
+    a Lichteintrittsfläche is measured on, and which no bounding box gives for a
+    round-headed or triangular window.
+
+    The projection direction comes from the opening's own dominant vertical
+    plane rather than from the host wall, so this still works where the export
+    voided a wall the operator was not handed.
+
+    ``None`` when there is no usable body or no vertical plane to project along
+    — a skylight in a flat roof, an opening exported without geometry. The
+    caller reports that as a gap rather than substituting a guess.
+    """
+    import shapely
+    import shapely.ops
+
+    global_id = getattr(opening, "GlobalId", None)
+    if not global_id:
+        return None
+    geo = model.geometry(global_id)
+    if geo is None or geo.triangles is None or len(geo.triangles) == 0:
+        return None
+    normal = dominant_vertical_plane(geo.triangles)
+    if normal is None:
+        return None
+
+    # An orthonormal basis in the opening's plane. `up` is world Z projected
+    # into the plane, so the second axis is horizontal — which keeps the
+    # projected coordinates readable if this ever needs debugging.
+    up = np.array([0.0, 0.0, 1.0])
+    up = up - normal * float(up @ normal)
+    if np.linalg.norm(up) < 1e-9:
+        return None
+    up = up / np.linalg.norm(up)
+    across = np.cross(normal, up)
+
+    normals, _ = triangle_normals_areas(geo.triangles)
+    # Only the faces that actually lie IN the aperture plane. The prism's side
+    # walls (the reveal) are perpendicular to it and project to slivers that
+    # would inflate the union.
+    facing = geo.triangles[np.abs(normals @ normal) > 0.9]
+    if len(facing) == 0:
+        return None
+
+    polygons = []
+    for tri in facing:
+        flat = [(float(p @ across), float(p @ up)) for p in tri]
+        polygon = shapely.Polygon(flat)
+        if polygon.is_valid and polygon.area > 0:
+            polygons.append(polygon)
+    if not polygons:
+        return None
+    try:
+        return float(shapely.ops.unary_union(polygons).area)
+    except Exception:
+        return None
+
+
+def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]:
+    """Whether this window or door lets daylight IN from outside.
+
+    The first version of :func:`light_entry_area` summed every window and door
+    bounding the room, and the sample house's bedroom came back at 25.3 % — of
+    which an interior door to the hallway was 1.71 m². An internal door is not a
+    Lichteintrittsfläche under any reading of OIB 3, and 25 % versus 14 % is the
+    difference between two opposite answers to a daylight check.
+
+    Two routes, and the declared one wins because it is the architect's own
+    statement:
+
+    1. ``Pset_*Common.IsExternal`` on the host wall.
+    2. Otherwise the count of spaces the opening touches. An interior door joins
+       two rooms; an external window touches one, because there is no IfcSpace
+       outdoors. Weaker — a window onto an unmodelled conservatory reads as
+       external — hence second.
+
+    ``None`` means neither route decided, and the caller must report that rather
+    than picking a side.
+    """
+    hosts_ = hosted_in(model, element.GlobalId)
+    if hosts_.decidable:
+        for ref in hosts_.value or []:
+            wall = model.file.by_guid(ref.global_id)
+            found = model.declared_property(wall, ("IsExternal",))
+            if isinstance(found, bool):
+                return found, "Pset_*Common.IsExternal der Wand (deklariert)"
+
+    touching = opens_to(model, element.GlobalId)
+    if touching.decidable and touching.value is not None:
+        count = len(touching.value)
+        if count >= 2:
+            return False, f"öffnet in {count} Räume (Innentür)"
+        if count == 1:
+            return True, "berührt nur einen Raum — außen liegt kein IfcSpace"
+    return None, "weder IsExternal deklariert noch aus den Raumberührungen ableitbar"
+
+
+def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[str, Any]]:
+    """The room's light-entry area, and what fraction of its floor that is.
+
+    The other half of the answer this library was built because of. The agent
+    could not measure the Dachüberstand, and it could not measure the *Raum-%*
+    either — the ratio an OIB 3 daylight check is decided on. `overhang` closed
+    the first gap; this closes the second.
+
+    For every window and door bounding the room, the operator walks
+    ``FillsVoids → RelatingOpeningElement`` and measures that opening's clear
+    aperture (:func:`_clear_opening_area`), then divides the sum by
+    :func:`floor_area`. Both numbers and the ratio come back together, because a
+    ratio whose two inputs are not visible cannot be checked by the person who
+    has to sign it.
+
+    ## What this deliberately does not do
+
+    It applies no threshold. OIB 3 names a percentage; that percentage is a fact
+    about the *clause*, and the same refusal that keeps `light_incidence` from
+    supplying its own 45° keeps this from reporting „erfüllt".
+
+    It also does not decide WHICH area the clause means. This measures the
+    structural clear opening — the Rohbaulichte. A regulation may instead mean
+    the glazed area, or the clear opening less frame and sash, and the
+    difference on an ordinary window is 15–25 %. Substituting one for the other
+    silently would be the most expensive kind of wrong: a number that is right
+    to the millimetre and answers a different question. So the caveat says which
+    was measured, and the clause decides whether that is the one it wants.
+    """
+    method = f"lightEntryArea({space_global_id})"
+    subject = _require(model, space_global_id, method)
+    if model.kind_of(subject) != "space":
+        return _wrong_kind(
+            model,
+            subject,
+            method,
+            "lightEntryArea",
+            "ein Raum (IfcSpace)",
+            "für ein einzelnes Fenster: measure/extent",
+            "computed",
+        )
+
+    floor = floor_area(model, space_global_id)
+    if not floor.decidable or not floor.value:
+        return undecidable(
+            from_=[space_global_id],
+            method=method,
+            provenance="computed",
+            missing=MissingFact(
+                what="die Bodenfläche des Raums",
+                remedy=(
+                    "Ohne Bodenfläche ist kein Flächenanteil bildbar. Zuerst measure/floorArea aufrufen — "
+                    "die Antwort dort nennt, was fehlt."
+                ),
+            ),
+        )
+
+    bounding = bounds(model, space_global_id)
+    if not bounding.decidable:
+        return bounding  # type: ignore[return-value]
+
+    openings: list[dict[str, Any]] = []
+    without_geometry: list[str] = []
+    for ref in bounding.value or []:
+        if ref.ifc_type not in ("IfcWindow", "IfcDoor"):
+            continue
+        element = model.file.by_guid(ref.global_id)
+        voids = [rel.RelatingOpeningElement for rel in (getattr(element, "FillsVoids", []) or [])]
+        area = None
+        via = "IfcOpeningElement"
+        for void in voids:
+            area = _clear_opening_area(model, void)
+            if area:
+                break
+        if not area:
+            # No opening bookkeeping, or an opening without a body. The element's
+            # own aperture is the next best thing and is NOT the same number —
+            # it includes the frame — so it is labelled, not silently mixed in.
+            area = _clear_opening_area(model, element)
+            via = "Bauteilkörper (Rahmen enthalten)"
+        if not area:
+            without_geometry.append(ref.global_id)
+            continue
+        external, why = _faces_outside(model, element)
+        openings.append(
+            {
+                "globalId": ref.global_id,
+                "name": ref.name,
+                "ifcType": ref.ifc_type,
+                "area": round(area, 6),
+                "via": via,
+                "external": external,
+                "because": why,
+            }
+        )
+
+    if not openings:
+        return undecidable(
+            from_=[space_global_id],
+            method=method,
+            provenance="computed",
+            missing=MissingFact(
+                what="keine messbare Fensteröffnung an diesem Raum",
+                remedy=(
+                    "Entweder grenzt an diesen Raum kein Fenster und keine Tür, oder deren Öffnungen "
+                    "tragen keine Geometrie. bounds() zeigt, was den Raum begrenzt."
+                ),
+            ),
+        )
+
+    # ONLY the openings that face outside are summed. An interior door is not a
+    # Lichteintrittsfläche under any reading of OIB 3, and including one took the
+    # sample house's bedroom from 14.2 % to 25.3 % — two opposite answers to the
+    # same daylight check. The others stay in the payload, labelled, because a
+    # number is only checkable when what was left out of it is visible.
+    external = [entry for entry in openings if entry["external"] is True]
+    internal = [entry for entry in openings if entry["external"] is False]
+    unknown = [entry for entry in openings if entry["external"] is None]
+
+    total = sum(entry["area"] for entry in external)
+    ratio = total / float(floor.value)
+
+    caveat = (
+        "Gemessen ist die ROHBAULICHTE (die lichte Öffnung im Mauerwerk), nicht die Glasfläche und nicht "
+        "die Öffnung abzüglich Rahmen und Flügel — der Unterschied beträgt bei einem üblichen Fenster "
+        "15–25 %. Welche dieser Flächen die Bestimmung meint, entscheidet die Bestimmung. Kein Grenzwert "
+        "angewandt: der Prozentsatz stammt aus dem Regelwerk, nicht aus dem Modell."
+    )
+    if internal:
+        caveat += (
+            f" {len(internal)} innenliegende Öffnung(en) sind NICHT eingerechnet (eine Innentür belichtet "
+            "nicht von außen); sie stehen unter „innenliegend“ mit Begründung."
+        )
+    if unknown:
+        caveat += (
+            f" Bei {len(unknown)} Öffnung(en) ließ sich außen/innen nicht bestimmen — sie sind WEDER "
+            "eingerechnet noch verworfen und stehen unter „unbestimmt“. Abhilfe: IsExternal an der Wand "
+            "setzen. Solange das offen ist, ist der Anteil eine Untergrenze."
+        )
+    if not external:
+        caveat += (
+            " Keine einzige außenliegende Öffnung an diesem Raum: der Anteil ist 0 %, was ein Befund über "
+            "die Zuordnung im Export sein kann und nicht zwingend über den Raum."
+        )
+    if any(entry["via"] != "IfcOpeningElement" for entry in openings):
+        caveat += (
+            " Für mindestens eine Öffnung war kein IfcOpeningElement mit Geometrie vorhanden; dort wurde "
+            "der Bauteilkörper gemessen, der den Rahmen einschließt und damit zu GROSS ist."
+        )
+    if without_geometry:
+        caveat += (
+            f" {len(without_geometry)} Öffnung(en) ohne verwertbare Geometrie sind NICHT enthalten — "
+            "die Summe ist insofern eine Untergrenze."
+        )
+    if bounding.provenance == "computed" and bounding.caveat:
+        caveat += f" Raumbegrenzung: {bounding.caveat}"
+
+    return computed(
+        {
+            "lightEntryArea": round(total, 4),
+            "floorArea": round(float(floor.value), 4),
+            "ratio": round(ratio, 5),
+            "percent": round(ratio * 100.0, 2),
+            "openings": external,
+            "innenliegend": internal,
+            "unbestimmt": unknown,
+        },
+        unit="m²",
+        tolerance=abs(total) * AREA_RELATIVE_TOLERANCE,
+        from_=[space_global_id, *[entry["globalId"] for entry in external]],
+        method=method,
+        caveat=caveat,
+    )
+
+
 __all__ = [
     "adjacent_spaces",
     "azimuth",
@@ -1903,6 +2237,7 @@ __all__ = [
     "floor_area",
     "hosted_in",
     "hosts",
+    "light_entry_area",
     "obstructions",
     "opens_to",
     "overhang",

@@ -125,13 +125,34 @@ MEASURES: dict[str, str] = {
         "a Raumhöhennachweis must not use"
     ),
     "azimuth": "which way a facade faces. Undecidable without TrueNorth in the file",
+    "lightEntryArea": (
+        "a ROOM's light-entry area and what percent of its floor area that is — the number an OIB 3 "
+        "daylight check comes down to. Sums only the EXTERNAL openings (an internal door lights "
+        "nothing) and measures the structural clear opening, not the glazed area. Applies no "
+        "threshold: the percentage is in the Bestimmung, not in the model"
+    ),
 }
 
+# NONE of these is a clear dimension, and saying otherwise was a defect. The
+# entry for 'horizontal' read "what a lichte Breite check needs"; the operator
+# measures CENTROID to CENTROID in plan, which is an Achsabstand. On a 1.00 m
+# opening between two 30 cm walls that is 1.30 m — too large by half of each
+# element, in the direction that turns a failed escape-route width into a passing
+# one. A clear width is `measure` + `extent` on the opening itself.
 DISTANCE_MODES = {
-    "min": "shortest gap between the two bodies (0 when they overlap)",
-    "centroid": "centre to centre",
-    "horizontal": "horizontal component only — what a lichte Breite check needs",
-    "vertical": "vertical component only — what a height check needs",
+    "min": (
+        "gap between the two axis-aligned BOUNDING BOXES. 0 means the boxes overlap — it does NOT "
+        "prove the solids touch, and on a skewed element the true gap is larger"
+    ),
+    "centroid": "centre to centre in 3D (Achsabstand). NOT a clear dimension",
+    "horizontal": (
+        "centre to centre in plan, Z ignored (Achsabstand) — what a plan drawing scales off. NOT a "
+        "lichte Breite: for a clear width use measure/extent on the opening"
+    ),
+    "vertical": (
+        "difference in centre HEIGHT — what a section scales off. NOT a lichte Höhe: for that use "
+        "measure/clearHeight on the room"
+    ),
 }
 
 #: `kind` on find_elements — the spatial role, not the IFC type.
@@ -190,10 +211,11 @@ _TOOL_DESCRIPTION = (
     "the model (OIB 3: 45 and 30) and the tool refuses without them rather than defaulting, because "
     "supplying the angle would be applying the clause. The result is GEOMETRY: a cut prism enlarges "
     "the required Lichteintrittsflaeche under OIB 3, it does not ban the window. Report what intrudes "
-    "and how far, then apply the clause yourself. other_global_id EXCLUDES one element from the test: "
-    "the host wall is deliberately not excluded on its own, because a window set deep in a thick wall "
-    "genuinely is shaded by its own reveal — but if the wall comes back as the only obstruction, "
-    "re-run excluding it, and say in the answer that you did and why.\n"
+    "and how far, then apply the clause yourself. other_global_id EXCLUDES elements from the test — one "
+    "GlobalId, or several separated by commas. The host wall is deliberately not excluded on its own, "
+    "because a window set deep in a thick wall genuinely is shaded by its own reveal — but if the wall "
+    "comes back as an obstruction, re-run with it excluded (keeping any other exclusion you already "
+    "had), and say in the answer that you did and why.\n"
     "  'draw'           — a floor plan as SVG, written to a file on the server (~5 s). Useful to check "
     "an arrangement or work out which element is meant. NEVER read a number off it.\n"
     "\n"
@@ -282,9 +304,7 @@ def _build_call(
     """
     op = (operation or "").strip().lower()
     if op not in VALID_OPERATIONS:
-        return (
-            f"Error: unknown operation '{operation}'. Use one of: {', '.join(sorted(VALID_OPERATIONS))}."
-        )
+        return f"Error: unknown operation '{operation}'. Use one of: {', '.join(sorted(VALID_OPERATIONS))}."
 
     subject = _clean(global_id)
 
@@ -326,7 +346,13 @@ def _build_call(
             if not 0 <= float(swivel_deg) < 90:
                 return "Error: swivel_deg must be between 0 and 90."
             args["swivel"] = float(swivel_deg)
-        excluded = [e for e in (_clean(other_global_id),) if e]
+        # Comma-separated, because the recessed-window workflow needs TWO
+        # exclusions and one field only carried one. A window deep in a thick
+        # wall is shaded by its own reveal AND by the roof above it, so an agent
+        # asked to re-run "without the host wall" had to drop the roof exclusion
+        # to do it — and silently changed the question. The engine's `exclude`
+        # has always been a list; only this field was narrower than it.
+        excluded = [part.strip() for part in _clean(other_global_id).split(",") if part.strip()]
         if excluded:
             args["exclude"] = excluded
         return "light_incidence", args
@@ -351,9 +377,7 @@ def _build_call(
     if op == "room_inventory":
         wanted = _clean(room_kind).lower()
         if wanted not in ROOM_KINDS:
-            return (
-                f"Error: room_kind '{room_kind}' does not exist. Use one of: {', '.join(ROOM_KINDS)}."
-            )
+            return f"Error: room_kind '{room_kind}' does not exist. Use one of: {', '.join(ROOM_KINDS)}."
         return "room_inventory", {"kind": wanted}
 
     if op == "draw":
@@ -377,9 +401,7 @@ def _build_call(
     if op == "relations":
         wanted = _clean(relation)
         if wanted not in RELATIONS:
-            return (
-                f"Error: relation '{relation}' does not exist. Use one of: {', '.join(RELATIONS)}."
-            )
+            return f"Error: relation '{relation}' does not exist. Use one of: {', '.join(RELATIONS)}."
         return "relations", {"globalId": subject, "relation": wanted}
 
     if op == "measure":
@@ -391,14 +413,14 @@ def _build_call(
     # distance
     other = _clean(other_global_id)
     if not other:
-        return (
-            "Error: operation 'distance' needs two elements — set 'global_id' and 'other_global_id'."
-        )
+        return "Error: operation 'distance' needs two elements — set 'global_id' and 'other_global_id'."
     wanted_mode = (_clean(mode) or "min").lower()
     if wanted_mode not in DISTANCE_MODES:
         return (
             f"Error: mode '{mode}' does not exist. Use one of: {', '.join(DISTANCE_MODES)}. "
-            "A lichte Breite needs 'horizontal' and a height needs 'vertical'; the slant answers neither."
+            "All four are AXIS distances between centroids or boxes — none is a clear dimension. "
+            "For a lichte Breite use operation='measure' with measure='extent' on the opening, and "
+            "for a lichte Höhe measure='clearHeight' on the room."
         )
     return "distance", {"a": subject, "b": other, "mode": wanted_mode}
 
@@ -525,8 +547,7 @@ def _provenance_line(answer: dict[str, Any]) -> str:
         remedy = missing.get("remedy") or ""
         return (
             f"NICHT ENTSCHEIDBAR: dieser Export liefert {what} nicht. "
-            f"Das ist ein Befund über den EXPORT, nicht über das Gebäude."
-            + (f" Abhilfe: {remedy}" if remedy else "")
+            f"Das ist ein Befund über den EXPORT, nicht über das Gebäude." + (f" Abhilfe: {remedy}" if remedy else "")
         )
 
     unit = answer.get("unit")
@@ -561,9 +582,45 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
 
     value = answer.get("value")
     decimals = _decimals(answer.get("tolerance")) if answer.get("provenance") == "computed" else None
-    numbers = isinstance(value, list) and bool(value) and all(
-        isinstance(item, (int, float)) and not isinstance(item, bool) for item in value
+    numbers = (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in value)
     )
+
+    # `lightEntryArea` returns the ratio AND both of its inputs AND the openings
+    # split three ways. Flattened by `_value_text` it reads
+    # „lightEntryArea=2.190, floorArea=15.417, ratio=0.142, percent=14.21,
+    # openings=1 Eintrag, innenliegend=1 Eintrag" — every number present and the
+    # sentence unreadable. The percentage is what the question was, so it leads,
+    # and the two inputs follow so the arithmetic is checkable.
+    if isinstance(value, dict) and "lightEntryArea" in value:
+        entry_area = value.get("lightEntryArea")
+        floor = value.get("floorArea")
+        lines[0] = (
+            f"gemessen: Lichteintrittsfläche {_num(entry_area, 3)} m² auf "
+            f"{_num(floor, 2)} m² Bodenfläche = **{_num(value.get('percent'), 2)} %** "
+            "— aus der Geometrie berechnet, nicht deklariert."
+        )
+        for entry in value.get("openings") or []:
+            lines.append(
+                f"- außenliegend: {entry.get('ifcType')} „{entry.get('name')}“ "
+                f"· {_num(entry.get('area'), 3)} m² · GlobalId {entry.get('globalId')}"
+            )
+        for key, label in (
+            ("innenliegend", "NICHT gezählt (innenliegend)"),
+            ("unbestimmt", "NICHT gezählt (außen/innen unbestimmt)"),
+        ):
+            for entry in value.get(key) or []:
+                lines.append(
+                    f"- {label}: {entry.get('ifcType')} „{entry.get('name')}“ "
+                    f"· {_num(entry.get('area'), 3)} m² · {entry.get('because')}"
+                )
+        if answer.get("caveat"):
+            lines.append(f"Hinweis: {answer['caveat']}")
+        if answer.get("method"):
+            lines.append(f"Methode: {answer['method']}")
+        return lines
 
     # `light_incidence` answers a yes/no question with a list, and the list can
     # be empty — which is the ANSWER (nothing intrudes) and renders as nothing
@@ -583,9 +640,11 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
             lines.append(f"FREI{angles}: kein Bauteil ragt in das Prisma.")
         else:
             count = len(value) if isinstance(value, list) else 0
-            deepest = max(
-                (e.get("intrusionDepth", 0) for e in value if isinstance(e, dict)), default=None
-            ) if isinstance(value, list) else None
+            deepest = (
+                max((e.get("intrusionDepth", 0) for e in value if isinstance(e, dict)), default=None)
+                if isinstance(value, list)
+                else None
+            )
             depth = f", tiefster Eingriff {_num(deepest, decimals)} {unit}" if deepest is not None else ""
             # Noun AND verb agree. „1 Bauteil ragen" is the kind of sentence that
             # tells an Austrian architect the text was generated by something
@@ -623,8 +682,7 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
                 because = ", ".join(entry.get("because") or [])
                 lines.append(
                     f"- {entry.get('name') or entry.get('globalId')} · GlobalId {entry.get('globalId')} "
-                    f"· Konfidenz {_num(entry.get('confidence'))}"
-                    + (f" ({because})" if because else "")
+                    f"· Konfidenz {_num(entry.get('confidence'))}" + (f" ({because})" if because else "")
                 )
             else:
                 lines.append(f"- {entry}")
@@ -668,9 +726,7 @@ def _render_unresolved(result: dict[str, Any]) -> str:
     models = result.get("models") or []
     if not models:
         return str(message)
-    listed = ", ".join(
-        f"{m.get('filename')} ({m.get('status')}, {m.get('elements', 0)} Bauteile)" for m in models[:10]
-    )
+    listed = ", ".join(f"{m.get('filename')} ({m.get('status')}, {m.get('elements', 0)} Bauteile)" for m in models[:10])
     heading = (
         "Verfügbare Modelle"
         if result.get("reason") in {"no_match", "ambiguous"}
@@ -736,8 +792,7 @@ def _render(
 
     if operation == "draw" and isinstance(payload, dict):
         lines.append(
-            f"Zeichnung erzeugt: {payload.get('path')} ({payload.get('bytes')} Bytes, "
-            f"{payload.get('seconds')} s)."
+            f"Zeichnung erzeugt: {payload.get('path')} ({payload.get('bytes')} Bytes, {payload.get('seconds')} s)."
         )
         lines.append(
             "Die Zeichnung liegt als Datei auf dem Server. Maße NICHT aus dem Bild ablesen — dafür "
@@ -788,6 +843,7 @@ UNAVAILABLE_TEXT = (
     "Error: das Modell konnte gerade nicht gelesen werden (der Modelldienst ist nicht erreichbar). "
     "Do NOT state anything about the building's geometry; tell the user the model could not be read."
 )
+
 
 def _too_large_text(model_bytes: int | None, limit_bytes: int) -> str:
     """A model this worker cannot hold — a fact about the FILE, not an outage.

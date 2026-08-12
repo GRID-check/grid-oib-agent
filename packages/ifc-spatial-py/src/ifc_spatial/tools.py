@@ -43,22 +43,28 @@ from __future__ import annotations
 import base64
 import binascii
 import dataclasses
+import math
 import os
 import tempfile
 import time
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 import numpy as np
 
 from . import operators as op
 from . import relations as extra
 from .briefing import briefing as build_briefing
-from .briefing import content_hash, inventory, render_briefing, storey_heights
+from .briefing import content_hash
+from .briefing import inventory
+from .briefing import render_briefing
+from .briefing import storey_heights
 from .cache import SpatialCache
 from .envelope import Answer
-from .model import SpatialModel, UnknownElementError
+from .model import SpatialModel
+from .model import UnknownElementError
 
 
 @dataclass(frozen=True)
@@ -141,6 +147,12 @@ MEASURES: dict[str, str] = {
         "Möblierung ist ausgenommen. Rasterabtastung, ~0,5 s."
     ),
     "azimuth": "Himmelsrichtung der Fassadenebene. Ohne TrueNorth in der Datei nicht entscheidbar.",
+    "lightEntryArea": (
+        "Lichteintrittsfläche eines RAUMS und ihr Anteil an der Bodenfläche — die Zahl, auf die ein "
+        "Tageslichtnachweis nach OIB 3 hinausläuft. Summiert nur die AUSSENLIEGENDEN Öffnungen "
+        "(Innentüren belichten nicht) und misst die Rohbaulichte, nicht die Glasfläche. Kein Grenzwert "
+        "angewandt — der Prozentsatz steht im Regelwerk, nicht im Modell."
+    ),
 }
 
 MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
@@ -150,6 +162,7 @@ MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
     "elevation": op.elevation,
     "clearHeight": op.clear_height,
     "azimuth": op.azimuth,
+    "lightEntryArea": op.light_entry_area,
 }
 
 KINDS = ["project", "site", "building", "storey", "space", "element", "opening", "group"]
@@ -159,7 +172,7 @@ KINDS = ["project", "site", "building", "storey", "space", "element", "opening",
 MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 
 
-def create_tools(cache: Optional[SpatialCache] = None) -> list[ToolDef]:
+def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
     """The tool list, closed over one cache and one handle table."""
     cache = cache or SpatialCache()
 
@@ -193,9 +206,7 @@ def create_tools(cache: Optional[SpatialCache] = None) -> list[ToolDef]:
             if len(matches) == 1:
                 return models[matches[0]]
             if len(matches) > 1:
-                raise ToolError(
-                    f'model "{key}" ist mehrdeutig ({len(matches)} Treffer) — mehr Stellen angeben'
-                )
+                raise ToolError(f'model "{key}" ist mehrdeutig ({len(matches)} Treffer) — mehr Stellen angeben')
         offen = ", ".join(_short(h) for h in models) or "keines"
         raise ToolError(f'model "{key}" ist nicht geöffnet — open_model aufrufen. Offen: {offen}')
 
@@ -289,7 +300,7 @@ def create_tools(cache: Optional[SpatialCache] = None) -> list[ToolDef]:
         }
         if total == 0:
             out["hint"] = (
-                "Keine Treffer. Vor der Schlussfolgerung „gibt es nicht\" das Briefing prüfen: "
+                'Keine Treffer. Vor der Schlussfolgerung „gibt es nicht" das Briefing prüfen: '
                 "Geschoßnamen und Typen stammen aus diesem Export."
             )
         return out
@@ -443,7 +454,7 @@ def create_tools(cache: Optional[SpatialCache] = None) -> list[ToolDef]:
                 "Das Briefing eines bereits geöffneten Modells noch einmal: Geschoße mit Höhen, Zählungen, "
                 "das Property-Vokabular dieser Datei und die blinden Flecken. Aufrufen, bevor auf einen "
                 "Property- oder Geschoßnamen gefiltert wird — ein Name, den dieser Export nie geschrieben "
-                "hat, liefert null Treffer und liest sich wie „das Gebäude hat keine\"."
+                'hat, liefert null Treffer und liest sich wie „das Gebäude hat keine".'
             ),
             input_schema={
                 "type": "object",
@@ -506,8 +517,8 @@ def create_tools(cache: Optional[SpatialCache] = None) -> list[ToolDef]:
             description=(
                 "Die topologischen Operatoren. Jede Antwort sagt, WOHER sie kommt: `declared` steht so in "
                 "der Datei, `computed` haben wir aus anderen Relationen oder aus der Geometrie abgeleitet. "
-                "Ein leeres Ergebnis heißt „dieses Bauteil hat keine solche Beziehung\"; `decidable: false` "
-                "heißt „dieser Export schreibt diese Relation gar nicht\" — das ist ein Befund über den "
+                'Ein leeres Ergebnis heißt „dieses Bauteil hat keine solche Beziehung"; `decidable: false` '
+                'heißt „dieser Export schreibt diese Relation gar nicht" — das ist ein Befund über den '
                 "Export, nicht über das Gebäude, und `missing` sagt, was ihn behebt.\n\n"
                 + "\n".join(f"  {name} — {meaning}" for name, meaning in RELATIONS.items())
                 + "\n\nbounds, enclosedBy, opensTo und adjacentSpaces greifen auf die Geometrie zurück, wenn "
@@ -637,13 +648,13 @@ def create_tools(cache: Optional[SpatialCache] = None) -> list[ToolDef]:
             title="Freier Lichteinfall auf eine Öffnung",
             description=(
                 "Baut das Lichtprisma über der Unterkante einer Öffnung und meldet, welche Bauteile "
-                "hineinragen und wie tief. Beantwortet „ist der Lichteinfall frei\" GEOMETRISCH.\n\n"
+                'hineinragen und wie tief. Beantwortet „ist der Lichteinfall frei" GEOMETRISCH.\n\n'
                 "angle und swivel sind PARAMETER AUS DER BESTIMMUNG, nicht aus dem Modell. Für OIB 3 "
                 "sind das 45 und 30 Grad — sie sind trotzdem zu übergeben, weil dieses Werkzeug kein "
                 "Regelwerk kennt und keines kennen soll.\n\n"
                 "WICHTIG: Das Ergebnis ist keine Beurteilung. Ein geschnittenes Prisma VERGRÖSSERT nach "
                 "OIB 3 die erforderliche Lichteintrittsfläche — es verbietet das Fenster nicht. Aus "
-                "„blockiert\" ein „nicht erfüllt\" zu machen überspringt die Bestimmung, statt sie "
+                '„blockiert" ein „nicht erfüllt" zu machen überspringt die Bestimmung, statt sie '
                 "anzuwenden. Berichte, was hineinragt und wie tief, und wende dann die Klausel an.\n\n"
                 "exclude: GlobalIds, die nicht als Hindernis zählen — die eigene Wand gehört meist dazu.\n"
                 "Braucht Geometrie: einige Sekunden beim ersten Aufruf auf ein Modell."
@@ -714,9 +725,7 @@ def call(tools: list[ToolDef], name: str, args: dict[str, Any]) -> Any:
     for tool in tools:
         if tool.name == name:
             return _jsonable(tool.handler(args))
-    raise ToolError(
-        f'Unbekanntes Werkzeug "{name}". Verfügbar: {", ".join(t.name for t in tools)}'
-    )
+    raise ToolError(f'Unbekanntes Werkzeug "{name}". Verfügbar: {", ".join(t.name for t in tools)}')
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -767,7 +776,7 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, float):
         # NaN and ±Inf are not JSON. They arrive from a degenerate mesh, and a
         # transport-level crash is a worse report than a null.
-        return value if value == value and abs(value) != float("inf") else None
+        return value if math.isfinite(value) else None
     if hasattr(value, "to_dict") and callable(value.to_dict):
         return _jsonable(value.to_dict())
     if isinstance(value, np.generic):

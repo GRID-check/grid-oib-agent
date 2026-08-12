@@ -99,9 +99,7 @@ def test_lists_the_tools_with_their_german_descriptions(session: _Session) -> No
 
 
 def test_a_full_call_returns_the_answer_with_its_provenance(session: _Session) -> None:
-    opened = session.request(
-        3, "tools/call", {"name": "open_model", "arguments": {"path": str(SAMPLE_HOUSE)}}
-    )
+    opened = session.request(3, "tools/call", {"name": "open_model", "arguments": {"path": str(SAMPLE_HOUSE)}})
     payload = json.loads(opened["result"]["content"][0]["text"])
     assert "GEBÄUDE" in payload["briefing"]
     handle = payload["model"]
@@ -121,9 +119,7 @@ def test_an_unknown_global_id_comes_back_as_a_tool_error(session: _Session) -> N
     """`isError` rather than a thrown protocol error: the model has to SEE the
     reason to correct itself. A wrong GlobalId is a fixable mistake, not an
     outage."""
-    opened = session.request(
-        5, "tools/call", {"name": "open_model", "arguments": {"path": str(SAMPLE_HOUSE)}}
-    )
+    opened = session.request(5, "tools/call", {"name": "open_model", "arguments": {"path": str(SAMPLE_HOUSE)}})
     handle = json.loads(opened["result"]["content"][0]["text"])["model"]
     failed = session.request(
         6,

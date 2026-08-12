@@ -24,14 +24,13 @@ Run with ``-s`` to see the parity table.
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pytest
-
 from ifc_spatial import operators as op
-from ifc_spatial.model import SpatialModel, UnknownElementError
+from ifc_spatial.model import SpatialModel
+from ifc_spatial.model import UnknownElementError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -63,7 +62,7 @@ def record(
     subject: str,
     ts: Any,
     py: Any,
-    tolerance: Optional[float] = None,
+    tolerance: float | None = None,
     unit: str = "",
     note: str = "",
     finding: bool = False,
@@ -77,7 +76,7 @@ def record(
     marks a row that has no TS counterpart to compare against, because the
     capability is new; the test around it still asserts what matters.
     """
-    delta: Optional[float] = None
+    delta: float | None = None
     if isinstance(ts, (int, float)) and isinstance(py, (int, float)):
         delta = abs(float(py) - float(ts))
     _ROWS.append(
@@ -122,9 +121,13 @@ def test_finds_the_wall_the_window_sits_in(model: SpatialModel) -> None:
     # says, hence `computed`.
     assert answer.provenance == "computed"
     assert answer.value[0].via == "voids+fills"
-    record("hostedIn", "window", "Wall-Ext_102Bwk… / computed / voids+fills",
-           f"{answer.value[0].name.split(':')[1][:15]}… / {answer.provenance} / {answer.value[0].via}",
-           note="TS: two graph hops; Py: FillsVoids→VoidsElements, no graph")
+    record(
+        "hostedIn",
+        "window",
+        "Wall-Ext_102Bwk… / computed / voids+fills",
+        f"{answer.value[0].name.split(':')[1][:15]}… / {answer.provenance} / {answer.value[0].via}",
+        note="TS: two graph hops; Py: FillsVoids→VoidsElements, no graph",
+    )
 
 
 def test_finds_the_room_the_window_serves_and_says_it_measured(model: SpatialModel) -> None:
@@ -136,9 +139,13 @@ def test_finds_the_room_the_window_serves_and_says_it_measured(model: SpatialMod
     # contact test as a declared fact is the failure this library prevents.
     assert answer.provenance == "computed"
     assert "Geometrie abgeleitet" in answer.caveat
-    record("opensTo", "window", "['Bedroom'] / computed",
-           f"{[r.name for r in answer.value]} / {answer.provenance}",
-           note="TS: derived boundary at 0.30 m; Py: geom.tree.select at 0.05 m")
+    record(
+        "opensTo",
+        "window",
+        "['Bedroom'] / computed",
+        f"{[r.name for r in answer.value]} / {answer.provenance}",
+        note="TS: derived boundary at 0.30 m; Py: geom.tree.select at 0.05 m",
+    )
 
 
 def test_bounds_and_adjacency_come_out_of_the_same_primitive(model: SpatialModel) -> None:
@@ -148,24 +155,33 @@ def test_bounds_and_adjacency_come_out_of_the_same_primitive(model: SpatialModel
     assert "Wall-Ext_102Bwk" in names and "Roof_Flat" in names
     # Furniture standing in the room is contained, not bounding.
     assert "Furniture" not in names
-    record("bounds", "bedroom", "needs the TS derived-boundary pass",
-           f"{len(bounds.value)} bounding elements", informational=True,
-           note="derived here from one geom.tree.select(extend=0.05); TS needs withDerivedBoundaries first")
+    record(
+        "bounds",
+        "bedroom",
+        "needs the TS derived-boundary pass",
+        f"{len(bounds.value)} bounding elements",
+        informational=True,
+        note="derived here from one geom.tree.select(extend=0.05); TS needs withDerivedBoundaries first",
+    )
 
     neighbours = op.adjacent_spaces(model, BEDROOM)
     assert neighbours.decidable
     assert {"Living room", "Entrance hall"} <= {r.name for r in neighbours.value}
-    record("adjacentSpaces", "bedroom", "Living room + Entrance hall",
-           ", ".join(sorted(r.name or "" for r in neighbours.value)), informational=True,
-           note="shared bounding element; §7's clash_collision_many is unusable — see COVERAGE.md")
+    record(
+        "adjacentSpaces",
+        "bedroom",
+        "Living room + Entrance hall",
+        ", ".join(sorted(r.name or "" for r in neighbours.value)),
+        informational=True,
+        note="shared bounding element; §7's clash_collision_many is unusable — see COVERAGE.md",
+    )
 
 
 def test_container_and_contains_read_the_declared_structure(model: SpatialModel) -> None:
     container = op.container_of(model, WINDOW)
     assert container.decidable and container.provenance == "declared"
     assert container.value.global_id == GROUND_FLOOR
-    record("containerOf", "window", "Ground Floor / declared",
-           f"{container.value.name} / {container.provenance}")
+    record("containerOf", "window", "Ground Floor / declared", f"{container.value.name} / {container.provenance}")
 
     contained = op.contains(model, GROUND_FLOOR)
     assert contained.decidable and contained.provenance == "declared"
@@ -182,8 +198,13 @@ def test_enclosed_by_is_the_inverse_of_bounds(model: SpatialModel) -> None:
     answer = op.enclosed_by(model, NORTH_WALL)
     assert answer.decidable
     assert "Bedroom" in {r.name for r in answer.value}
-    record("enclosedBy", "north wall", "contains Bedroom",
-           ", ".join(sorted(r.name or "" for r in answer.value)), informational=True)
+    record(
+        "enclosedBy",
+        "north wall",
+        "contains Bedroom",
+        ", ".join(sorted(r.name or "" for r in answer.value)),
+        informational=True,
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -207,8 +228,15 @@ def test_measures_the_room_areas(model: SpatialModel, subject: str, name: str, t
     assert answer.tolerance > 0
     # 1 % is the operator's own stated area tolerance; the two engines in fact
     # agree to a millionth of a square metre.
-    record("floorArea", name, ts_value, answer.value, tolerance=ts_value * 0.01, unit="m²",
-           note="Py additionally triangulates against the declared BaseQuantities.NetFloorArea")
+    record(
+        "floorArea",
+        name,
+        ts_value,
+        answer.value,
+        tolerance=ts_value * 0.01,
+        unit="m²",
+        note="Py additionally triangulates against the declared BaseQuantities.NetFloorArea",
+    )
     # The declared quantity is found by the Python operator itself and agrees.
     assert answer.agreement == "agree"
 
@@ -226,8 +254,15 @@ def test_the_declared_area_is_found_and_triangulated(model: SpatialModel) -> Non
     # the SI value are the same number. On the Trapelo export they are not — see
     # `test_corpus.py::test_a_declared_area_in_square_feet_is_compared_in_metres`.
     assert declared.scale == 1.0
-    record("floorArea (triangulated)", "bedroom", declared.value, answer.value, tolerance=1e-6, unit="m²",
-           note=f"declared at {declared.path}")
+    record(
+        "floorArea (triangulated)",
+        "bedroom",
+        declared.value,
+        answer.value,
+        tolerance=1e-6,
+        unit="m²",
+        note=f"declared at {declared.path}",
+    )
 
     # And a wrong declared value must lose, loudly.
     disagreeing = op.floor_area(model, LIVING, declared_area=45.0)
@@ -249,8 +284,15 @@ def test_measures_the_sill_and_head(model: SpatialModel) -> None:
     # agreeing with the name to under a millimetre is an independent check that
     # the world-coordinate transform is right: two unrelated statements in the
     # file, one a string and one a swept solid, agree.
-    record("sillAndHead.height", "window", 1.2100000381469727, answer.value["height"], tolerance=0.01, unit="m",
-           note="cross-check: the type is called 1810x1210mm")
+    record(
+        "sillAndHead.height",
+        "window",
+        1.2100000381469727,
+        answer.value["height"],
+        tolerance=0.01,
+        unit="m",
+        note="cross-check: the type is called 1810x1210mm",
+    )
 
 
 def test_extent_and_elevation(model: SpatialModel) -> None:
@@ -264,8 +306,14 @@ def test_extent_and_elevation(model: SpatialModel) -> None:
     high = op.elevation(model, WINDOW)
     assert high.decidable and high.tolerance == 0.005
     record("elevation.bottom", "window", 0.8999999761581421, high.value["bottom"], tolerance=0.005, unit="m")
-    record("elevation.heightAboveStorey", "window", 0.8999999761581421,
-           high.value["heightAboveStorey"], tolerance=0.005, unit="m")
+    record(
+        "elevation.heightAboveStorey",
+        "window",
+        0.8999999761581421,
+        high.value["heightAboveStorey"],
+        tolerance=0.005,
+        unit="m",
+    )
 
 
 def test_names_the_facade_bearing_instead_of_inventing_one(model: SpatialModel) -> None:
@@ -276,21 +324,50 @@ def test_names_the_facade_bearing_instead_of_inventing_one(model: SpatialModel) 
     assert answer.unit == "°"
     assert answer.tolerance == 3
     record("azimuth.degrees", "north wall", 0.0, answer.value["degrees"], tolerance=3, unit="°")
-    for subject, name, expected in ((NORTH_WALL, "north wall", "N"), (EAST_WALL, "east wall", "O"), (SOUTH_WALL, "south wall", "S")):
+    for subject, name, expected in (
+        (NORTH_WALL, "north wall", "N"),
+        (EAST_WALL, "east wall", "O"),
+        (SOUTH_WALL, "south wall", "S"),
+    ):
         record("azimuth.compass", name, expected, op.azimuth(model, subject).value["compass"])
     record("azimuth.compass", "window", "N", op.azimuth(model, WINDOW).value["compass"])
 
 
 def test_the_four_senses_of_distance(model: SpatialModel) -> None:
     # Living room and bedroom are separated by one 100 mm partition.
-    record("distance min", "living↔bedroom", 0.095, op.distance(model, LIVING, BEDROOM, "min").value,
-           tolerance=0.01, unit="m")
-    record("distance centroid", "living↔bedroom", 7.08, op.distance(model, LIVING, BEDROOM, "centroid").value,
-           tolerance=0.05, unit="m", note="TS asserts 7.08 (toBeCloseTo 1); box centres say 7.06")
-    record("distance horizontal", "living↔bedroom", 7.08,
-           op.distance(model, LIVING, BEDROOM, "horizontal").value, tolerance=0.05, unit="m")
-    record("distance vertical", "living↔bedroom", 0.0,
-           op.distance(model, LIVING, BEDROOM, "vertical").value, tolerance=0.01, unit="m")
+    record(
+        "distance min",
+        "living↔bedroom",
+        0.095,
+        op.distance(model, LIVING, BEDROOM, "min").value,
+        tolerance=0.01,
+        unit="m",
+    )
+    record(
+        "distance centroid",
+        "living↔bedroom",
+        7.08,
+        op.distance(model, LIVING, BEDROOM, "centroid").value,
+        tolerance=0.05,
+        unit="m",
+        note="TS asserts 7.08 (toBeCloseTo 1); box centres say 7.06",
+    )
+    record(
+        "distance horizontal",
+        "living↔bedroom",
+        7.08,
+        op.distance(model, LIVING, BEDROOM, "horizontal").value,
+        tolerance=0.05,
+        unit="m",
+    )
+    record(
+        "distance vertical",
+        "living↔bedroom",
+        0.0,
+        op.distance(model, LIVING, BEDROOM, "vertical").value,
+        tolerance=0.01,
+        unit="m",
+    )
 
     overlapping = op.distance(model, WINDOW, BEDROOM, "min")
     assert overlapping.value == 0
@@ -315,8 +392,15 @@ def test_clear_height_is_where_the_two_engines_disagree(model: SpatialModel) -> 
     assert answer.decidable
     assert answer.value == pytest.approx(2.20, abs=0.01)
     assert "Compound Ceiling" in answer.caveat
-    record("clearHeight", "living room", 2.5, answer.value, unit="m", finding=True,
-           note="TS = space solid (2.50); Py = ray-measured lichte Höhe under the suspended ceiling")
+    record(
+        "clearHeight",
+        "living room",
+        2.5,
+        answer.value,
+        unit="m",
+        finding=True,
+        note="TS = space solid (2.50); Py = ray-measured lichte Höhe under the suspended ceiling",
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -332,10 +416,22 @@ def test_seats_the_facade_plane_on_a_real_face(model: SpatialModel) -> None:
     # The wall spans y 4.409 (inside) .. 4.699 (outside) and the plane sits on
     # the outer leaf — a real face, which is the invariant that matters.
     record("facadePlaneOf.point.y", "north wall", 4.6986, plane.value["point"][1], tolerance=0.005, unit="m")
-    record("facadePlaneOf.point.x", "east wall", 6.4102,
-           op.facade_plane_of(model, EAST_WALL).value["point"][0], tolerance=0.005, unit="m")
-    record("facadePlaneOf.point.y", "south wall", -1.391,
-           op.facade_plane_of(model, SOUTH_WALL).value["point"][1], tolerance=0.005, unit="m")
+    record(
+        "facadePlaneOf.point.x",
+        "east wall",
+        6.4102,
+        op.facade_plane_of(model, EAST_WALL).value["point"][0],
+        tolerance=0.005,
+        unit="m",
+    )
+    record(
+        "facadePlaneOf.point.y",
+        "south wall",
+        -1.391,
+        op.facade_plane_of(model, SOUTH_WALL).value["point"][1],
+        tolerance=0.005,
+        unit="m",
+    )
 
 
 def test_measures_the_overhang_the_agent_called_unmeasurable(model: SpatialModel) -> None:
@@ -392,8 +488,15 @@ def test_the_prism_is_anchored_on_the_opening_lower_edge(model: SpatialModel) ->
         assert end[1] == pytest.approx(4.699, abs=0.005)
         assert end[2] == pytest.approx(0.9, abs=0.001)
     width = abs(volume.value["lowerEdge"][1][0] - volume.value["lowerEdge"][0][0])
-    record("prism.lowerEdge width", "north opening", 1.81, width, tolerance=0.01, unit="m",
-           note="cross-check: the opening's type is 1810 mm wide")
+    record(
+        "prism.lowerEdge width",
+        "north opening",
+        1.81,
+        width,
+        tolerance=0.01,
+        unit="m",
+        note="cross-check: the opening's type is 1810 mm wide",
+    )
     assert [h["role"] for h in volume.value["halfSpaces"]] == ["facade", "incline", "lateralLeft", "lateralRight"]
 
     bad = op.prism(model, OPENING, 0, 30)
@@ -411,8 +514,14 @@ def test_the_roof_cuts_the_prism_and_the_depth_is_monotone(model: SpatialModel, 
     assert answer.decidable
     assert [f["globalId"] for f in answer.value] == [ROOF]
     assert "Roof_Flat" in answer.value[0]["name"]
-    record(f"obstructions depth @{angle}°", "north window", ts_depth, answer.value[0]["intrusionDepth"],
-           tolerance=0.005, unit="m")
+    record(
+        f"obstructions depth @{angle}°",
+        "north window",
+        ts_depth,
+        answer.value[0]["intrusionDepth"],
+        tolerance=0.005,
+        unit="m",
+    )
 
 
 def test_the_south_window_has_its_own_depth(model: SpatialModel) -> None:
@@ -421,8 +530,9 @@ def test_the_south_window_has_its_own_depth(model: SpatialModel) -> None:
     volume = op.prism(model, SOUTH_OPENING, 45, 30).value
     answer = op.obstructions(model, volume, [SOUTH_WALL])
     assert [f["globalId"] for f in answer.value] == [ROOF]
-    record("obstructions depth @45°", "south window", 1.347, answer.value[0]["intrusionDepth"],
-           tolerance=0.005, unit="m")
+    record(
+        "obstructions depth @45°", "south window", 1.347, answer.value[0]["intrusionDepth"], tolerance=0.005, unit="m"
+    )
 
 
 def test_obstructions_never_report_the_window_as_its_own_obstruction(model: SpatialModel) -> None:
@@ -520,7 +630,7 @@ def parity_table(request: pytest.FixtureRequest) -> Any:
     yield
     if not _ROWS:
         return
-    model: Optional[SpatialModel] = None
+    model: SpatialModel | None = None
     try:
         model = request.getfixturevalue("model")
     except Exception:  # pragma: no cover - the table is best-effort
@@ -537,7 +647,10 @@ def parity_table(request: pytest.FixtureRequest) -> Any:
     for row in _ROWS:
         ts = row["ts"]
         py = row["py"]
-        fmt = (lambda v: f"{v:.6f}" if isinstance(v, float) else str(v))
+
+        def fmt(v):
+            return f"{v:.6f}" if isinstance(v, float) else str(v)
+
         delta = "" if row["delta"] is None else f"{row['delta']:.2e}"
         if row["finding"]:
             verdict = "FINDING"
@@ -549,7 +662,10 @@ def parity_table(request: pytest.FixtureRequest) -> Any:
             verdict = f"within ±{row['tolerance']:.4g}"
         else:
             verdict = "OUT OF BAND"
-        print(f"{row['operator']:{width}}{row['subject']:{subject}}{fmt(ts)[:23]:>24}{fmt(py)[:23]:>24}{delta:>12}  {verdict}")
+        print(
+            f"{row['operator']:{width}}{row['subject']:{subject}}{fmt(ts)[:23]:>24}"
+            f"{fmt(py)[:23]:>24}{delta:>12}  {verdict}"
+        )
         if row["note"]:
             print(f"{'':{width + subject}}↳ {row['note']}")
     print("-" * 118)

@@ -20,6 +20,13 @@ package was built to remove.
 So every identifier the prose names is pinned against the enums in
 `measure_register`. When an operator is renamed or dropped, this goes red here
 rather than in front of an architect.
+
+The skill now also routes between the two halves of the BIM surface — the
+question „which of `ifc_query` and `ifc_measure` answers this" is the first
+decision it teaches — so `register`'s operation vocabulary is pinned here too,
+and the routing table's rows are checked to attribute each operation to the tool
+that actually has it. A table that offers `light_incidence` under `ifc_query` is
+the same class of defect as `view: "section"`: a call that cannot be made.
 """
 
 from __future__ import annotations
@@ -35,6 +42,17 @@ from aiq_agent.agents.bim.measure_register import MEASURES
 from aiq_agent.agents.bim.measure_register import RELATIONS
 from aiq_agent.agents.bim.measure_register import ROOM_KINDS
 from aiq_agent.agents.bim.measure_register import VALID_OPERATIONS
+from aiq_agent.agents.bim.register import VALID_OPERATIONS as QUERY_OPERATIONS
+
+#: The two tool names the skill is allowed to name, and the operations each one
+#: really has. `ifc_measure` is this skill's subject; `ifc_query` is the sibling
+#: it routes to, and routing a caller to an operation the sibling does not have
+#: wastes the same turn as inventing one here.
+TOOL_OPERATIONS: dict[str, set[str]] = {
+    "ifc_measure": set(VALID_OPERATIONS),
+    "ifc_query": set(QUERY_OPERATIONS),
+}
+EVERY_OPERATION = TOOL_OPERATIONS["ifc_measure"] | TOOL_OPERATIONS["ifc_query"]
 
 SKILL = (
     Path(__file__).resolve().parents[3]
@@ -81,11 +99,7 @@ def backticked(text: str) -> set[str]:
     which makes them the exact set that must resolve. Prose in backticks (a
     sentence, a phrase with spaces) is not an identifier and is filtered out.
     """
-    return {
-        token
-        for token in re.findall(r"`([^`\n]+)`", text)
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token)
-    }
+    return {token for token in re.findall(r"`([^`\n]+)`", text) if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token)}
 
 
 def test_every_operation_the_skill_names_exists(backticked: set[str]) -> None:
@@ -101,17 +115,17 @@ def test_no_backticked_identifier_is_an_invention(backticked: set[str], text: st
     of the enums. `view` was none of those.
     """
     known = (
-        VALID_OPERATIONS
+        EVERY_OPERATION
         | PARAMETERS
         | set(RELATIONS)
         | set(MEASURES)
         | set(DISTANCE_MODES)
         | set(KINDS)
         | set(ROOM_KINDS)
+        | set(TOOL_OPERATIONS)
         | {
             # The answer envelope's own field names, which the skill teaches the
             # model to read and report.
-            "ifc_measure",
             "provenance",
             "declared",
             "computed",
@@ -126,6 +140,13 @@ def test_no_backticked_identifier_is_an_invention(backticked: set[str], text: st
             "method",
             "from",
             "FEHLT",
+            # Keys of the dict `measure/extent` returns (`operators.extent`),
+            # which the skill warns are the axis-aligned box and not the
+            # element's own length and thickness.
+            "width",
+            "depth",
+            "height",
+            "centroid",
         }
     )
     unknown = sorted(token for token in backticked if token not in known)
@@ -162,7 +183,10 @@ def test_dotted_and_valued_forms_resolve_too(text: str) -> None:
     and shrugged at unknown names would have passed on it.
     """
     enums = {
-        "operation": VALID_OPERATIONS,
+        # The union, because the skill writes calls for BOTH tools; which of the
+        # two an `operation` belongs to is checked line by line in
+        # `test_the_routing_table_puts_each_operation_under_its_own_tool`.
+        "operation": EVERY_OPERATION,
         "relation": set(RELATIONS),
         "measure": set(MEASURES),
         "mode": set(DISTANCE_MODES),
@@ -181,6 +205,64 @@ def test_dotted_and_valued_forms_resolve_too(text: str) -> None:
             assert value in allowed, f'{parameter}: "{value}" is not one of {sorted(allowed)}'
 
 
+def test_the_routing_table_puts_each_operation_under_its_own_tool(text: str) -> None:
+    """„Which of the two tools" is the first thing the skill teaches.
+
+    Getting it wrong is the same defect as `view: "section"` wearing different
+    clothes: `ifc_query` with `operation: "light_incidence"` is a call that
+    cannot be made, and the model would burn the turn discovering it.
+
+    Only lines that name exactly ONE of the two tools are checked — a line
+    naming both is contrasting them, and a line naming neither is prose about an
+    operation whose tool was established earlier.
+    """
+    checked = 0
+    for line in text.splitlines():
+        named = [tool for tool in TOOL_OPERATIONS if tool in line]
+        if len(named) != 1:
+            continue
+        tool = named[0]
+        bare = {token for token in re.findall(r"`([^`\n]+)`", line) if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token)}
+        written = {value for parameter, value in written_calls(line) if parameter == "operation"}
+        for candidate in (bare | written) & EVERY_OPERATION:
+            checked += 1
+            assert candidate in TOOL_OPERATIONS[tool], (
+                f"{SKILL.name} offers `{candidate}` on the same line as `{tool}`, which has no such "
+                f"operation. It belongs to {sorted(t for t, ops in TOOL_OPERATIONS.items() if candidate in ops)}."
+            )
+    # A routing section that stopped naming operations next to their tool is not
+    # routing anything, and this test would pass vacuously.
+    assert checked >= 8, f"only {checked} operations were attributed to a tool"
+
+
+def test_the_description_survives_the_level_one_catalog_intact(text: str) -> None:
+    """The description IS the trigger, and it is rendered as ONE bullet line.
+
+    `SkillRuntime.prompt_block` writes `- \\`{name}\\`: {description}` per skill,
+    so a description carrying a newline (a blank line inside the folded YAML
+    scalar) breaks out of its own bullet and the rest of it reads as loose
+    system-prompt text. `parse_skill_md` caps the length at 1024; there is no
+    further budget trimming in this substrate, so the whole thing is paid for on
+    every turn of every agent that resolves the skill — which is the reason to
+    check that it is spent on triggering and not on prose.
+    """
+    from aiq_agent.skills.models import MAX_DESCRIPTION_CHARS
+    from aiq_agent.skills.models import parse_skill_md
+    from aiq_agent.skills.runtime import SkillRuntime
+
+    skill = parse_skill_md(text, expected_dir_name="ifc-spatial-reasoning")
+    assert "\n" not in skill.description
+    assert len(skill.description) <= MAX_DESCRIPTION_CHARS
+
+    block = SkillRuntime((skill,)).prompt_block() or ""
+    assert f"- `{skill.name}`: {skill.description}" in block.splitlines()
+
+    # Both tool names belong in the trigger text: the moment the model is about
+    # to reach for one of them is the moment it has to load this.
+    for tool in TOOL_OPERATIONS:
+        assert tool in skill.description, tool
+
+
 def test_the_check_actually_catches_the_defect_it_was_written_for() -> None:
     """The guard on the guard.
 
@@ -195,9 +277,7 @@ def test_the_check_actually_catches_the_defect_it_was_written_for() -> None:
     assert "view" not in PARAMETERS
 
     # And it is not rescued by being a known enum value somewhere else.
-    everything = (
-        VALID_OPERATIONS | PARAMETERS | set(RELATIONS) | set(MEASURES) | set(DISTANCE_MODES)
-    )
+    everything = VALID_OPERATIONS | PARAMETERS | set(RELATIONS) | set(MEASURES) | set(DISTANCE_MODES)
     assert "view" not in everything and "section" not in everything
 
 
@@ -231,8 +311,13 @@ def test_the_light_incidence_angles_are_taught_as_law_not_as_geometry(text: str)
     assert "Bestimmung" in text
     assert "45 und 30" in text
     # And the verdict stays with the rulebook: a cut prism enlarges the required
-    # light-entry area, it does not ban the window.
-    assert "vergrößert die\nerforderliche Lichteintrittsfläche" in text.replace("**", "")
+    # light-entry area, it does not ban the window. Asserted on the words with
+    # whitespace collapsed, not on the file's line breaks: a claim that survives
+    # only until someone reflows a paragraph is pinning the wrapping, not the
+    # claim.
+    flowed = " ".join(text.replace("**", "").split())
+    assert "vergrößert die erforderliche Lichteintrittsfläche" in flowed
+    assert "es verbietet das Fenster nicht" in flowed
 
 
 def test_the_three_provenances_are_all_present_and_distinct(text: str) -> None:

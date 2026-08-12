@@ -41,8 +41,11 @@ field is ``from_`` and serialises back to ``from`` in :func:`to_dict`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, Optional, TypeVar
+from dataclasses import dataclass
+from typing import Any
+from typing import Generic
+from typing import Literal
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -66,20 +69,20 @@ class MissingFact:
     #: Where it would have to appear, in words an architect can act on.
     remedy: str
     #: Elements the gap applies to, when it is not model-wide.
-    elements: Optional[list[str]] = None
+    elements: list[str] | None = None
 
 
 @dataclass
 class Answer(Generic[T]):
     """One answer, with everything needed to audit it."""
 
-    value: Optional[T]
+    value: T | None
     #: SI or the file's declared unit, spelled the way it should be printed.
-    unit: Optional[str]
+    unit: str | None
     #: Absolute tolerance in ``unit``, for computed values. ``None`` for declared
     #: values (a declared number has no measurement error, only authoring error)
     #: and for non-numeric answers.
-    tolerance: Optional[float]
+    tolerance: float | None
     provenance: Provenance
     #: GlobalIds the value was derived from, in the order they were used.
     from_: list[str]
@@ -87,16 +90,16 @@ class Answer(Generic[T]):
     method: str
     decidable: bool
     #: Present exactly when ``decidable`` is false.
-    missing: Optional[MissingFact] = None
+    missing: MissingFact | None = None
     #: Present for ``inferred`` answers: 0..1, and the reasons behind it.
-    confidence: Optional[float] = None
-    because: Optional[list[str]] = None
+    confidence: float | None = None
+    because: list[str] | None = None
     #: A qualification the answer is not valid without — the analogue of the
     #: truncation caveats the query layer already carries. A caller that drops
     #: this is reporting a subset as a total.
-    caveat: Optional[str] = None
+    caveat: str | None = None
     #: Set only by :func:`triangulate`: ``agree`` / ``disagree`` / ``single``.
-    agreement: Optional[str] = None
+    agreement: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The wire shape, with ``from_`` spelled ``from`` as in the TS envelope.
@@ -135,8 +138,8 @@ def declared(
     *,
     from_: list[str],
     method: str,
-    unit: Optional[str] = None,
-    caveat: Optional[str] = None,
+    unit: str | None = None,
+    caveat: str | None = None,
 ) -> Answer[T]:
     """The file states it."""
     return Answer(
@@ -156,9 +159,9 @@ def computed(
     *,
     from_: list[str],
     method: str,
-    unit: Optional[str] = None,
-    tolerance: Optional[float] = None,
-    caveat: Optional[str] = None,
+    unit: str | None = None,
+    tolerance: float | None = None,
+    caveat: str | None = None,
 ) -> Answer[T]:
     """We worked it out, within a tolerance."""
     return Answer(
@@ -180,8 +183,8 @@ def inferred(
     method: str,
     confidence: float,
     because: list[str],
-    unit: Optional[str] = None,
-    caveat: Optional[str] = None,
+    unit: str | None = None,
+    caveat: str | None = None,
 ) -> Answer[T]:
     """A heuristic.
 
@@ -247,12 +250,7 @@ def triangulate(
     The returned answer carries ``agreement`` ∈ {``agree``, ``disagree``,
     ``single``} in addition to the envelope's own fields.
     """
-    both = (
-        a.decidable
-        and b.decidable
-        and isinstance(a.value, (int, float))
-        and isinstance(b.value, (int, float))
-    )
+    both = a.decidable and b.decidable and isinstance(a.value, (int, float)) and isinstance(b.value, (int, float))
 
     if not both:
         present = a if a.decidable else (b if b.decidable else None)
@@ -334,9 +332,9 @@ class ElementRef:
 
     global_id: str
     ifc_type: str
-    name: Optional[str]
+    name: str | None
     kind: str
-    via: Optional[str] = None
+    via: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out = {

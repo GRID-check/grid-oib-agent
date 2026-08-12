@@ -21,8 +21,8 @@ hand-written, and they are ported here rather than re-invented:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Sequence
 
 import numpy as np
 
@@ -55,7 +55,7 @@ def triangle_normals_areas(triangles: np.ndarray) -> tuple[np.ndarray, np.ndarra
     return normals, doubled / 2.0
 
 
-def dominant_vertical_plane(triangles: np.ndarray) -> Optional[np.ndarray]:
+def dominant_vertical_plane(triangles: np.ndarray) -> np.ndarray | None:
     """The unit normal of the element's largest vertical planar cluster.
 
     Vertical faces are binned by their quantised normal — both facings folded
@@ -80,7 +80,7 @@ def dominant_vertical_plane(triangles: np.ndarray) -> Optional[np.ndarray]:
     keys = np.round(folded[:, :2] / 0.05).astype(np.int64)
 
     best_area = -1.0
-    best: Optional[np.ndarray] = None
+    best: np.ndarray | None = None
     for key in np.unique(keys, axis=0):
         member = (keys == key).all(axis=1)
         area = float(areas[member].sum())
@@ -94,7 +94,7 @@ def dominant_vertical_plane(triangles: np.ndarray) -> Optional[np.ndarray]:
     return best
 
 
-def outermost_parallel_face(triangles: np.ndarray, normal: np.ndarray) -> Optional[Plane]:
+def outermost_parallel_face(triangles: np.ndarray, normal: np.ndarray) -> Plane | None:
     """The outermost face of an element parallel to ``normal``.
 
     Triangles are binned by offset along the normal (both facings, since the
@@ -150,9 +150,7 @@ def signed_distance(points: np.ndarray, plane_normal: np.ndarray, plane_point: n
     return (np.atleast_2d(points) - plane_point) @ plane_normal
 
 
-def clip_polygon(
-    polygon: Sequence[np.ndarray], normal: np.ndarray, point: np.ndarray
-) -> list[np.ndarray]:
+def clip_polygon(polygon: Sequence[np.ndarray], normal: np.ndarray, point: np.ndarray) -> list[np.ndarray]:
     """Sutherland–Hodgman: keep the part of ``polygon`` with ``dot(x−p, n) ≥ 0``.
 
     The prism is convex, so clipping successively against its four half-spaces is

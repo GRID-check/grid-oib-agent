@@ -4,6 +4,33 @@ Spatial reasoning over IFC, for language agents: a building graph, a closed set
 of operators over it, and an answer contract that states how every value was
 obtained.
 
+> ## Status: reference implementation and cross-check oracle — NOT the serving path
+>
+> **What Piloti actually runs is [`packages/ifc-spatial-py`](../ifc-spatial-py),**
+> reached through the `ifc_measure` tool. Nothing in this repository imports this
+> package, and nothing should start: wiring it in would put two engines with
+> different answers behind one tool.
+>
+> It is kept, rather than deleted, for one reason that has already paid for
+> itself. It is a **second, independent engine** — a WASM triangulator against
+> IfcOpenShell's OCCT BREP kernel — and running the same operators on both is a
+> differential test that no amount of self-consistent unit testing replaces. On
+> the first full comparison, 40 of 41 numbers agreed to micrometres. The 41st
+> was `clearHeight`, where this engine returned the space solid's height —
+> 2.500 m for a living room whose ceiling hangs at 2.200 m. Thirty centimetres,
+> on precisely the figure a Mindestraumhöhe is checked against, in the direction
+> that turns a fail into a pass. Nothing but a second kernel was going to find
+> that.
+>
+> The port also runs in the opposite direction: the geometric operators here are
+> where the frame conversion, the area-weighted normals and the poché renderer
+> were worked out, and `test/the-question.spec.ts` is the standing regression for
+> the turn the whole effort started from.
+>
+> **If you change an operator in `ifc-spatial-py`, changing it here too and
+> comparing is the cheapest bug-finding available.** If the two ever disagree,
+> that disagreement is the finding — do not pick the convenient one.
+
 ## The problem
 
 An element table answers questions about elements considered one at a time,

@@ -10,15 +10,12 @@ from __future__ import annotations
 
 import json
 
-from ifc_spatial.envelope import (
-    Answer,
-    MissingFact,
-    computed,
-    declared,
-    inferred,
-    triangulate,
-    undecidable,
-)
+from ifc_spatial.envelope import MissingFact
+from ifc_spatial.envelope import computed
+from ifc_spatial.envelope import declared
+from ifc_spatial.envelope import inferred
+from ifc_spatial.envelope import triangulate
+from ifc_spatial.envelope import undecidable
 
 
 def test_declared_carries_no_tolerance() -> None:

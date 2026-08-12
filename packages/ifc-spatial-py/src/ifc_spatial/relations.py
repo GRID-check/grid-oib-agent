@@ -20,9 +20,14 @@ from typing import Any
 
 import ifcopenshell.util.element as ue
 
-from .envelope import Answer, ElementRef, MissingFact, declared, undecidable
+from .envelope import Answer
+from .envelope import ElementRef
+from .envelope import MissingFact
+from .envelope import declared
+from .envelope import undecidable
 from .model import SpatialModel
-from .operators import _RELATIONS, _wrong_kind
+from .operators import _RELATIONS
+from .operators import _wrong_kind
 
 
 def connects(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
@@ -62,9 +67,7 @@ def connects(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
             found[other.GlobalId] = other
 
     ordered = [found[key] for key in sorted(found)]
-    return declared(
-        model.refs(ordered), from_=[global_id, *[e.GlobalId for e in ordered]], method=method
-    )
+    return declared(model.refs(ordered), from_=[global_id, *[e.GlobalId for e in ordered]], method=method)
 
 
 def elements_of_storey(model: SpatialModel, storey_global_id: str) -> Answer[list[ElementRef]]:
@@ -101,9 +104,7 @@ def elements_of_storey(model: SpatialModel, storey_global_id: str) -> Answer[lis
         return undecidable(
             from_=[storey_global_id],
             method=method,
-            missing=MissingFact(
-                what=_RELATIONS["containsElement"][0], remedy=_RELATIONS["containsElement"][1]
-            ),
+            missing=MissingFact(what=_RELATIONS["containsElement"][0], remedy=_RELATIONS["containsElement"][1]),
         )
 
     seen: dict[str, Any] = {}
@@ -114,9 +115,7 @@ def elements_of_storey(model: SpatialModel, storey_global_id: str) -> Answer[lis
         seen.setdefault(global_id, element)
 
     ordered = [seen[key] for key in sorted(seen)]
-    return declared(
-        model.refs(ordered), from_=[storey_global_id, *[e.GlobalId for e in ordered]], method=method
-    )
+    return declared(model.refs(ordered), from_=[storey_global_id, *[e.GlobalId for e in ordered]], method=method)
 
 
 def _has(model: SpatialModel, ifc_type: str) -> bool:

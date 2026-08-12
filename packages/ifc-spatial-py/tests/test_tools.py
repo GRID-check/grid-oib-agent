@@ -21,8 +21,11 @@ import json
 from pathlib import Path
 
 import pytest
-
-from ifc_spatial.tools import MEASURES, RELATIONS, ToolError, call, create_tools
+from ifc_spatial.tools import MEASURES
+from ifc_spatial.tools import RELATIONS
+from ifc_spatial.tools import ToolError
+from ifc_spatial.tools import call
+from ifc_spatial.tools import create_tools
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -341,9 +344,7 @@ def test_an_unknown_tool_names_the_ones_that_exist(tools: list) -> None:
     assert "open_model" in str(raised.value)
 
 
-def test_an_unreadable_file_is_refused_with_the_reason_a_person_can_act_on(
-    tools: list, tmp_path: Path
-) -> None:
+def test_an_unreadable_file_is_refused_with_the_reason_a_person_can_act_on(tools: list, tmp_path: Path) -> None:
     """`SpatialModel` refuses a truncated or non-SPF file with a German reason.
 
     That sentence IS the answer, and the tool layer has to relay it: an agent

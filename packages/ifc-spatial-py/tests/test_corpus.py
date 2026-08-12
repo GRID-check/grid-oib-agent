@@ -21,16 +21,13 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from ifc_spatial import operators as op
-from ifc_spatial.model import (
-    CONTACT_BUDGET_SECONDS,
-    DERIVED_BOUNDARY_MAX_PRODUCTS,
-    ModelTooLargeError,
-    ModelUnreadableError,
-    SpatialModel,
-    UnknownElementError,
-)
+from ifc_spatial.model import CONTACT_BUDGET_SECONDS
+from ifc_spatial.model import DERIVED_BOUNDARY_MAX_PRODUCTS
+from ifc_spatial.model import ModelTooLargeError
+from ifc_spatial.model import ModelUnreadableError
+from ifc_spatial.model import SpatialModel
+from ifc_spatial.model import UnknownElementError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -204,10 +201,18 @@ def _unit_box_triangles(flip: bool) -> np.ndarray:
         dtype=float,
     )
     faces = [
-        (0, 2, 1), (0, 3, 2),  # bottom, pointing −Z
-        (4, 5, 6), (4, 6, 7),  # top, pointing +Z
-        (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5),
-        (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7),
+        (0, 2, 1),
+        (0, 3, 2),  # bottom, pointing −Z
+        (4, 5, 6),
+        (4, 6, 7),  # top, pointing +Z
+        (0, 1, 5),
+        (0, 5, 4),
+        (1, 2, 6),
+        (1, 6, 5),
+        (2, 3, 7),
+        (2, 7, 6),
+        (3, 0, 4),
+        (3, 4, 7),
     ]
     if flip:
         faces = [(c, b, a) for a, b, c in faces]

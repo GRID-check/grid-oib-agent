@@ -12,18 +12,19 @@ What must survive the port is not the geometry — it is
 undecidable — for a GlobalId this file does not contain.
 """
 
-from .envelope import (
-    Answer,
-    ElementRef,
-    MissingFact,
-    Provenance,
-    computed,
-    declared,
-    inferred,
-    triangulate,
-    undecidable,
-)
-from .model import ElementGeometry, SpatialModel, Storey, UnknownElementError
+from .envelope import Answer
+from .envelope import ElementRef
+from .envelope import MissingFact
+from .envelope import Provenance
+from .envelope import computed
+from .envelope import declared
+from .envelope import inferred
+from .envelope import triangulate
+from .envelope import undecidable
+from .model import ElementGeometry
+from .model import SpatialModel
+from .model import Storey
+from .model import UnknownElementError
 
 __all__ = [
     "Answer",

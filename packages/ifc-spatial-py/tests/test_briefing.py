@@ -21,18 +21,15 @@ from pathlib import Path
 
 import ifcopenshell
 import pytest
-
-from ifc_spatial.briefing import (
-    LEXICON,
-    briefing,
-    classify_rooms,
-    find_blind_spots,
-    inventory,
-    measure_dialect,
-    normalise,
-    render_briefing,
-    storey_heights,
-)
+from ifc_spatial.briefing import LEXICON
+from ifc_spatial.briefing import briefing
+from ifc_spatial.briefing import classify_rooms
+from ifc_spatial.briefing import find_blind_spots
+from ifc_spatial.briefing import inventory
+from ifc_spatial.briefing import measure_dialect
+from ifc_spatial.briefing import normalise
+from ifc_spatial.briefing import render_briefing
+from ifc_spatial.briefing import storey_heights
 from ifc_spatial.model import SpatialModel
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
@@ -74,9 +71,7 @@ def _named_spaces(tmp_path: Path, names: list[str]) -> SpatialModel:
     )
     file.create_entity("IfcProject", GlobalId=ifcopenshell.guid.new(), Name="Lexikon", UnitsInContext=units)
     for index, name in enumerate(names):
-        file.create_entity(
-            "IfcSpace", GlobalId=ifcopenshell.guid.new(), Name=f"R.{index:02d}", LongName=name
-        )
+        file.create_entity("IfcSpace", GlobalId=ifcopenshell.guid.new(), Name=f"R.{index:02d}", LongName=name)
     path = tmp_path / "lexikon.ifc"
     file.write(str(path))
     return SpatialModel(str(path))
@@ -173,7 +168,7 @@ def test_inventory_is_inferred_and_says_it_is_a_proposal(house: SpatialModel) ->
 
 
 def test_inventory_without_spaces_is_undecidable_not_empty(spaceless: SpatialModel) -> None:
-    """"No rooms in the export" and "no habitable rooms in the building" are
+    """ "No rooms in the export" and "no habitable rooms in the building" are
     different claims, and only the first one is true here."""
     answer = inventory(spaceless, "aufenthaltsraum")
     assert answer.decidable is False
@@ -205,9 +200,7 @@ def test_space_boundary_blind_spot_stays_silent_when_they_are_there(german: Spat
     assert "keine IfcRelSpaceBoundary" not in _spots(german)
 
 
-def test_north_and_georeferencing_fire_only_where_they_are_missing(
-    house: SpatialModel, german: SpatialModel
-) -> None:
+def test_north_and_georeferencing_fire_only_where_they_are_missing(house: SpatialModel, german: SpatialModel) -> None:
     assert "keine Nordrichtung" in _spots(german)
     assert "keine Georeferenzierung" in _spots(german)
     # The sample house declares TrueNorth and a georeferenced site.
@@ -216,9 +209,7 @@ def test_north_and_georeferencing_fire_only_where_they_are_missing(
     assert "keine Georeferenzierung" not in _spots(house)
 
 
-def test_missing_spaces_fire_only_where_there_are_none(
-    spaceless: SpatialModel, house: SpatialModel
-) -> None:
+def test_missing_spaces_fire_only_where_there_are_none(spaceless: SpatialModel, house: SpatialModel) -> None:
     assert "keine IfcSpace-Elemente" in _spots(spaceless)
     assert "keine IfcSpace-Elemente" not in _spots(house)
 
