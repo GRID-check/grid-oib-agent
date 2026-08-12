@@ -190,22 +190,45 @@ def _wrong_kind(
 
 
 def _no_geometry(model: SpatialModel, subject: Any, method: str, from_: Optional[list[str]] = None) -> Answer[Any]:
-    """The element carries no body in this file — a finding, never an exception."""
+    """The element has no usable body in this file — a finding, never an exception.
+
+    Two different findings, and the corpus showed that saying the wrong one sends
+    the architect to fix the wrong thing:
+
+    - **no representation** — normal for whole classes of entity, and a real
+      export defect for a wall;
+    - **the kernel could not build it** — the element carries a full ``Body`` and
+      OCCT rejects it. 94 of the 100 rooms in the corpus's ArchiCAD 18 export are
+      in exactly this state. Re-exporting "with geometry" changes nothing there;
+      the room boundary itself is what the kernel will not accept.
+    """
     name = model.label(subject) or subject.GlobalId
+    reason = model.geometry_failure(subject.GlobalId) or ""
+
+    if reason.startswith("shape-failed") or reason == "empty-mesh":
+        detail = reason.split(": ", 1)[1] if ": " in reason else reason
+        what = f"Körpergeometrie von {subject.is_a()} „{name}“ ist nicht auswertbar"
+        remedy = (
+            "Dieses Bauteil trägt eine Body-Repräsentation, aber der Geometriekern kann daraus keinen "
+            f"Körper bauen ({detail[:160]}). Ein erneuter Export „mit Geometrie“ ändert daran nichts — die "
+            "Form selbst wird abgelehnt. Typische Ursachen: eine sich selbst schneidende Umrandung, ein "
+            "Profil mit Nullfläche, eine nicht geschlossene Schale. Im CAD das Bauteil bzw. den Raum neu "
+            "aufziehen und den Export prüfen."
+        )
+    else:
+        what = f"keine geometrische Repräsentation für {subject.is_a()} „{name}“ in dieser Datei"
+        remedy = (
+            "Dieses Bauteil trägt in dieser Datei keinen Körper (kein auswertbares IfcProductDefinitionShape). "
+            "Manche Einträge haben von Haus aus keinen — IfcDoorLiningProperties, IfcWindowLiningProperties, "
+            "die Hülle einer Vorhangfassade, deren Paneele die Geometrie tragen. Sonst: das Modell mit "
+            "Körpergeometrie neu exportieren (Body-Repräsentation, kein reiner Bounding-Box-Export)."
+        )
+
     return undecidable(
         from_=from_ or [subject.GlobalId],
         method=method,
         provenance="computed",
-        missing=MissingFact(
-            what=f"keine geometrische Repräsentation für {subject.is_a()} „{name}“ in dieser Datei",
-            remedy=(
-                "Dieses Bauteil trägt in dieser Datei keinen Körper (kein auswertbares IfcProductDefinitionShape). "
-                "Manche Einträge haben von Haus aus keinen — IfcDoorLiningProperties, IfcWindowLiningProperties, "
-                "die Hülle einer Vorhangfassade, deren Paneele die Geometrie tragen. Sonst: das Modell mit "
-                "Körpergeometrie neu exportieren (Body-Repräsentation, kein reiner Bounding-Box-Export)."
-            ),
-            elements=[subject.GlobalId],
-        ),
+        missing=MissingFact(what=what, remedy=remedy, elements=[subject.GlobalId]),
     )
 
 
@@ -333,14 +356,29 @@ def hosted_in(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
     ]
 
     refs = model.refs(hosts_, via="voids+fills")
+    caveat = (
+        "Aus zwei deklarierten Beziehungen abgeleitet (voids+fills) — die Datei sagt nirgends direkt, "
+        "in welcher Wand dieses Fenster sitzt."
+    )
+    if not refs and subject.is_a() in FENESTRATION:
+        # An empty list here is true and reads as false. The corpus has an
+        # ArchiCAD 18 export with 464 windows and doors and 79 IfcRelVoidsElement
+        # — 84 % of its fenestration carries no opening at all, because the wall
+        # body was exported with the hole already subtracted. `[]` on its own
+        # would be rendered as "dieses Fenster sitzt in keiner Wand", which is a
+        # statement about the building; the truth is a statement about the file.
+        caveat = (
+            "Für dieses Bauteil ist in der Datei keine Öffnungskette hinterlegt (IfcRelFillsElement → "
+            "IfcRelVoidsElement fehlt), obwohl die Datei solche Ketten grundsätzlich enthält. Das heißt "
+            "NICHT, dass das Fenster in keiner Wand sitzt — es heißt, dass dieser Export die Rohbauöffnung "
+            "nicht mitgeschrieben hat und die Wand ihren Ausschnitt bereits im Körper trägt. Abhilfe: den "
+            "Export mit Öffnungen und Füllungen wiederholen."
+        )
     return computed(
         refs,
         from_=[global_id, *[h.GlobalId for h in hosts_]],
         method=method,
-        caveat=(
-            "Aus zwei deklarierten Beziehungen abgeleitet (voids+fills) — die Datei sagt nirgends direkt, "
-            "in welcher Wand dieses Fenster sitzt."
-        ),
+        caveat=caveat,
     )
 
 
@@ -763,22 +801,24 @@ def extent(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
 def floor_area(model: SpatialModel, global_id: str, declared_area: Optional[float] = None) -> Answer[float]:
     """The element's floor area in m² — for a space, its usable plan area.
 
-    ``ifcopenshell.util.shape.get_footprint_area``.
-
     BESSER, twice over:
 
     1. The TS operator sums the XY-projected areas of downward-facing triangles.
-       ``get_footprint_area`` projects them and takes the shapely UNION, so two
+       :func:`_footprint_area` projects them and takes the shapely UNION, so two
        horizontal faces at different heights over the same plan — a stepped
-       floor, a slab modelled with its screed — cannot double-count.
+       floor, a slab modelled with its screed — cannot double-count. It also
+       measures from **both** sides, because an inside-out ``IfcSpace`` is not
+       rare; see that function for the 0 m² room that made it necessary.
     2. The declared quantity is found here instead of being passed in. The TS
        operator takes ``declaredArea`` as a parameter because that library has no
        property access, so a host that forgets to read the quantity set gets a
-       single-route answer. This looks for ``NetFloorArea`` / ``NetArea`` /
-       ``GrossFloorArea`` / ``Area`` in every pset — which matters, because this
-       file publishes them in a Revit-flavoured ``BaseQuantities`` rather than in
-       ``Qto_SpaceBaseQuantities``, and a search restricted to the canonical name
-       would report "keine deklarierte Fläche" about a file that declares one.
+       single-route answer. This searches every pset — which matters, because the
+       corpus publishes room areas under four different names in four dialects
+       (``BaseQuantities``, ``SpaceQuantities``, ``GSA Space Areas``,
+       ``PSet_Revit_Dimensions``) and a search restricted to the canonical
+       ``Qto_SpaceBaseQuantities`` finds none of them — and converts the value
+       out of the file's own unit, because an export in square feet is not a
+       disagreement with an export in square metres.
 
     Agreement raises confidence in the schedule; DISAGREEMENT is a finding about
     the export the architect can act on. :func:`~ifc_spatial.envelope.triangulate`
@@ -1389,6 +1429,11 @@ def facade_plane_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any
     subject = _require(model, global_id, method)
     geo, missing = _geometry_or_answer(model, subject, method)
     if geo is None:
+        # A body the kernel REJECTED is a different finding from a body that was
+        # never exported, and `_no_geometry` carries the kernel's own message.
+        # The curtain-wall hint below only applies to the second case.
+        if (model.geometry_failure(global_id) or "").startswith(("shape-failed", "empty-mesh")):
+            return missing  # type: ignore[return-value]
         return undecidable(
             from_=[global_id], method=method, provenance="computed",
             missing=MissingFact(
@@ -1562,6 +1607,22 @@ def ray(
                     "ray() mit einem Richtungsvektor ungleich Null, endlichen Koordinaten und einer "
                     "positiven, endlichen Länge aufrufen. Eine negative Länge liefert bei OCCT einen "
                     "Treffer hinter dem Ursprung — die Antwort sähe gültig aus und wäre es nicht."
+                ),
+            ),
+        )
+    if length is None and model.bounds is None:
+        # `model.diagonal` falls back to a flat 100.0 when nothing in the file
+        # has a body. Casting 100 m into a model with no geometry and reporting
+        # "nichts getroffen" as decidable would dress a could-not-look up as a
+        # result — the one substitution this library exists to prevent.
+        return undecidable(
+            from_=[], method=method, provenance="computed",
+            missing=MissingFact(
+                what="keine Modellausdehnung (kein Bauteil mit Geometrie)",
+                remedy=(
+                    "Ohne Geometrie im Modell gibt es keine Reichweite, über die ein Strahl etwas aussagen "
+                    "könnte. Entweder das Modell mit Körpergeometrie exportieren oder ray() mit einer "
+                    "ausdrücklichen Länge aufrufen."
                 ),
             ),
         )

@@ -17,7 +17,6 @@ behaviour.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import numpy as np
@@ -25,8 +24,8 @@ import pytest
 
 from ifc_spatial import operators as op
 from ifc_spatial.model import (
-    DERIVED_BOUNDARY_MAX_PRODUCTS,
     CONTACT_BUDGET_SECONDS,
+    DERIVED_BOUNDARY_MAX_PRODUCTS,
     ModelTooLargeError,
     ModelUnreadableError,
     SpatialModel,
@@ -56,6 +55,43 @@ def model() -> SpatialModel:
 # room. The geometry measures 6.3269 m². Those are the same room. `floor_area`
 # compared 6.33 against 68.10, called it a 91 % disagreement and blamed the
 # export — in an operator whose whole purpose is to report export defects.
+
+#: A wall whose body is a degenerate profile (three identical points) extruded to
+#: depth 0. The kernel builds nothing from it, which is the shape of the failure
+#: 94 of 100 rooms in the corpus's ArchiCAD 18 export have.
+_UNTESSELLATABLE = """ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('broken-body.ifc','2026-08-12T00:00:00',(''),(''),'','','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPERSON($,'x',$,$,$,$,$,$);
+#2=IFCORGANIZATION($,'x',$,$,$);
+#3=IFCPERSONANDORGANIZATION(#1,#2,$);
+#4=IFCAPPLICATION(#2,'1','x','x');
+#5=IFCOWNERHISTORY(#3,#4,$,.ADDED.,$,$,$,0);
+#6=IFCDIRECTION((1.,0.,0.));
+#7=IFCDIRECTION((0.,0.,1.));
+#8=IFCCARTESIANPOINT((0.,0.,0.));
+#9=IFCAXIS2PLACEMENT3D(#8,#7,#6);
+#10=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#11=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#12=IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.);
+#13=IFCUNITASSIGNMENT((#10,#11,#12));
+#14=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#9,$);
+#15=IFCPROJECT('0aaaaaaaaaaaaaaaaaaaa0',#5,'P',$,$,$,$,(#14),#13);
+#23=IFCLOCALPLACEMENT($,#9);
+#30=IFCCARTESIANPOINT((0.,0.));
+#33=IFCPOLYLINE((#30,#30,#30,#30));
+#34=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,'degenerate',#33);
+#35=IFCEXTRUDEDAREASOLID(#34,#9,#7,0.);
+#36=IFCSHAPEREPRESENTATION(#14,'Body','SweptSolid',(#35));
+#37=IFCPRODUCTDEFINITIONSHAPE($,$,(#36));
+#38=IFCWALL('0aaaaaaaaaaaaaaaaaaaa4',#5,'Broken Wall',$,$,#23,#37,$,$);
+ENDSEC;
+END-ISO-10303-21;
+"""
 
 _FEET_MODEL = """ISO-10303-21;
 HEADER;
@@ -321,7 +357,16 @@ def test_a_valid_header_with_no_entities_is_a_model_not_an_error(tmp_path: Path)
     assert model.true_north is None
     assert model.georeferenced is False
     assert model.space_contacts() == {}
-    assert op.ray(model, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]).decidable
+    # A ray with no stated length has no reach in a model with no extent, and
+    # says so instead of scanning the 100 m `diagonal` falls back to and
+    # reporting "nothing hit" as a result.
+    unbounded = op.ray(model, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+    assert unbounded.decidable is False
+    assert "keine Modellausdehnung" in unbounded.missing.what
+    # With an explicit length it is a real answer: nothing is there.
+    stated = op.ray(model, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], length=10.0)
+    assert stated.decidable is True
+    assert stated.value is None
     with pytest.raises(UnknownElementError):
         op.extent(model, "3w0zWKm7n8SB1qbfwUzt0J")
 
@@ -380,6 +425,101 @@ def test_obstructions_on_a_prism_from_another_model_raises(model: SpatialModel) 
     volume = dict(volume, openingId="0000000000000000000000")
     with pytest.raises(UnknownElementError):
         op.obstructions(model, volume)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Defect 9 — an unhosted window came back as a bare empty list
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_a_window_with_no_opening_chain_says_why_it_is_empty(model: SpatialModel) -> None:
+    """The ArchiCAD 18 export in the corpus has 464 windows and doors and 79
+    `IfcRelVoidsElement`: 84 % of its fenestration resolves to no host at all,
+    because the wall body was exported with the hole already subtracted.
+
+    `[]` is the true answer and reads as "this window is in no wall". The caveat
+    has to say which of the two it is.
+    """
+    hosted = op.hosted_in(model, WINDOW)
+    assert hosted.decidable and hosted.value  # this fixture DOES carry the chain
+    assert "voids+fills" in hosted.caveat
+
+
+def test_a_window_the_export_never_chained_says_so(tmp_path: Path) -> None:
+    """The dialect itself, in nine entities: one window with an opening chain,
+    one without, in a file that plainly has the relations."""
+    body = _FEET_MODEL.replace(
+        "ENDSEC;\nEND-ISO-10303-21;",
+        """#60=IFCWALL('0aaaaaaaaaaaaaaaaaaaa6',#5,'W1',$,$,#30,$,$,$);
+#61=IFCOPENINGELEMENT('0aaaaaaaaaaaaaaaaaaaa7',#5,'O1',$,$,#30,$,$,$);
+#62=IFCWINDOW('0aaaaaaaaaaaaaaaaaaaa8',#5,'chained',$,$,#30,$,$,$,$,$);
+#63=IFCWINDOW('0aaaaaaaaaaaaaaaaaaaa9',#5,'orphan',$,$,#30,$,$,$,$,$);
+#64=IFCRELVOIDSELEMENT('0aaaaaaaaaaaaaaaaaaab0',#5,$,$,#60,#61);
+#65=IFCRELFILLSELEMENT('0aaaaaaaaaaaaaaaaaaab1',#5,$,$,#61,#62);
+ENDSEC;
+END-ISO-10303-21;""",
+    )
+    path = tmp_path / "chain.ifc"
+    path.write_text(body)
+    model = SpatialModel(str(path))
+
+    chained = op.hosted_in(model, "0aaaaaaaaaaaaaaaaaaaa8")
+    assert chained.decidable
+    assert [r.global_id for r in chained.value] == ["0aaaaaaaaaaaaaaaaaaaa6"]
+    assert "voids+fills" in chained.caveat
+
+    orphan = op.hosted_in(model, "0aaaaaaaaaaaaaaaaaaaa9")
+    assert orphan.decidable
+    assert orphan.value == []
+    # `[]` alone would be rendered as "sitzt in keiner Wand".
+    assert "keine Öffnungskette" in orphan.caveat
+    assert "Öffnungen und Füllungen" in orphan.caveat
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Defect 11 — geometry the kernel rejects was reported as geometry that is absent
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_a_body_the_kernel_rejects_is_not_reported_as_a_missing_body(tmp_path: Path) -> None:
+    """94 of the 100 rooms in the corpus's ArchiCAD 18 export carry a full `Body`
+    representation that OCCT will not build (`Failed to process shape`).
+
+    Telling that architect "dieses Bauteil trägt keinen Körper" sends them to
+    re-export with a setting that is already on. The two failures need different
+    sentences, so the kernel's own message travels with the refusal.
+    """
+    path = tmp_path / "broken-body.ifc"
+    path.write_text(_UNTESSELLATABLE)
+    model = SpatialModel(str(path))
+    wall = "0aaaaaaaaaaaaaaaaaaaa4"
+
+    assert model.geometry(wall) is None
+    reason = model.geometry_failure(wall)
+    assert reason is not None
+    assert reason.startswith("shape-failed") or reason == "empty-mesh"
+
+    answer = op.extent(model, wall)
+    assert answer.decidable is False
+    assert "nicht auswertbar" in answer.missing.what
+    assert "Geometriekern" in answer.missing.remedy
+    assert "ändert daran nichts" in answer.missing.remedy
+
+
+def test_an_element_with_no_representation_at_all_says_that_instead(model: SpatialModel) -> None:
+    orphan = next(
+        (
+            e
+            for e in model.file.by_type("IfcProduct")
+            if not getattr(e, "Representation", None) and not e.is_a("IfcSpace")
+        ),
+        None,
+    )
+    assert orphan is not None, "the sample house has products without a body"
+    answer = op.extent(model, orphan.GlobalId)
+    assert answer.decidable is False
+    assert "keine geometrische Repräsentation" in answer.missing.what
+    assert model.geometry_failure(orphan.GlobalId) == "no-representation"
 
 
 # ════════════════════════════════════════════════════════════════════════════

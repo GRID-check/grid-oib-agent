@@ -21,6 +21,12 @@ cd packages/ifc-spatial-py && PYTHONPATH=src python3 -m pytest tests/test_parity
 
 Nothing under `packages/ifc-spatial/` was touched.
 
+**This document measures one file.** [CORPUS.md](CORPUS.md) is the run over
+eleven third-party exports that followed it, and it found eleven defects this
+suite could not see — including two that produced confident wrong numbers on
+files this fixture does not resemble. Read the two together; where they
+disagree, CORPUS.md is later and measured on more.
+
 ---
 
 ## 1. Operator coverage
@@ -52,7 +58,7 @@ implementation, and the port uses it (and says so in the docstring).
 | TS operator | IfcOpenShell primitive | status | note |
 |---|---|---|---|
 | `extent(element)` | `util.shape.get_bbox(get_vertices(shape))` | **direct** | `get_x` / `get_y` / `get_z` give the three dimensions directly |
-| `floorArea(space)` | `util.shape.get_footprint_area` | **better than ours** | shapely **union** of the projected faces instead of a sum, so overlapping horizontal faces cannot double-count. Also finds the declared quantity itself and triangulates — TS needs the host to pass it in |
+| `floorArea(space)` | shapely **union** of the projected faces, both facings | **better than ours** | union instead of a sum, so overlapping horizontal faces cannot double-count. Also finds the declared quantity itself, converts its unit and triangulates — TS needs the host to pass it in. Originally `util.shape.get_footprint_area`; the corpus run replaced it because it returns `0.0` for an inside-out mesh and raises on `direction=(0,0,-1)` — see [CORPUS.md](CORPUS.md) defect 1 |
 | `elevation(element)` | `get_bbox` + `IfcBuildingStorey.Elevation × unit scale` | **direct** | `util.shape.get_bottom_elevation` / `get_top_elevation` exist too |
 | `sillAndHead(window)` | `get_bbox` − storey datum | **direct** | the datum-drift guard stays ours (it is an epistemic rule, not a geometry one) |
 | `azimuth(element)` | triangles from `create_shape` + `TrueNorth` | **derived** | IfcOpenShell has no "which way does this face" primitive; the largest-vertical-cluster logic is ported |
@@ -89,9 +95,12 @@ implementation, and the port uses it (and says so in the docstring).
 
 ## 2. What IfcOpenShell does better — with the measurements
 
-1. **Room areas that reproduce the authoring tool exactly.** `get_footprint_area`
-   returns 15.41678125 m² for the bedroom against the file's own declared
-   `BaseQuantities.NetFloorArea` of 15.41678125 — agreement to 4·10⁻¹⁴ relative.
+1. **Room areas that reproduce the authoring tool exactly.** The union-based
+   footprint returns 15.41678125 m² for the bedroom against the file's own
+   declared `BaseQuantities.NetFloorArea` of 15.41678125 — agreement to
+   4·10⁻¹⁴ relative. (Measured with `util.shape.get_footprint_area`; the
+   corpus run later replaced that call with the same method applied to both
+   facings, and the number did not move by 10⁻⁹ — [CORPUS.md](CORPUS.md).)
    The TS pass gives 15.416782273888543, off by 10⁻⁶ m², because it carries
    float32 tessellation output. Both are far inside any useful tolerance; the
    point is that the union-based projection has no accumulation error to argue

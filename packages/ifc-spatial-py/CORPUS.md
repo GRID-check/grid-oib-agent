@@ -1,4 +1,4 @@
-# The corpus run: eleven exports, one library, eight defects
+# The corpus run: eleven exports, one library, eleven defects
 
 `COVERAGE.md` measures this package against **one** file — `Ifc4_SampleHouse.ifc`,
 a 2 MB Revit/Xbim sample with four rooms, no space boundaries and every quantity
@@ -16,13 +16,14 @@ plus seven files deliberately broken. Every operator was run on every file, ever
 declared `Qto_*` floor area was compared against the geometry, and every phase was
 timed and its peak RSS recorded.
 
-**The result in one line.** Eight defects, all fixed, each with a regression in
-`tests/test_corpus.py`; two of them produced *confident wrong numbers* rather
-than errors, and one crashed the process with no exception to catch.
+**The result in one line.** Eleven defects, all fixed, each with a regression in
+`tests/test_corpus.py`; three of them produced *confident wrong answers* rather
+than errors, four sent the reader to fix the wrong thing, and one crashed the
+process with no exception to catch.
 
 ```
 cd packages/ifc-spatial-py && PYTHONPATH=src python3 -m pytest tests -q
-# 130 passed
+# 135 passed
 ```
 
 **The corpus is not in this repository and must never be.** These are other
@@ -66,9 +67,9 @@ re-verified in this session. That is stated rather than papered over.
 | no `IfcSpace` | **08-snowdon** (0 spaces, 151 MB), 09-aisc (0) | every space operator refuses, none crashes |
 | declared `IfcRelSpaceBoundary` | 02 (81), 03 (1 000), 04 (265), 05 (1 334), 06 (2 451), 07 (1 675) | the declared route is taken; 01, 10, 11 have none and take the derived one |
 | over 20 MB | 06 (22.4 MB), 07 (49.3 MB), 08 (151.1 MB) | see §4 — this is where the memory limit came from |
-| feet / inches | **06-trapelo** (`FOOT` / `SQUARE FOOT`), **09-aisc** (`INCH`) | see defect 1 |
+| feet / inches | **06-trapelo** (`FOOT` / `SQUARE FOOT`), **09-aisc** (`INCH`) | see defect 2 |
 | far from the origin | **06-trapelo** (907 km), **08-snowdon** (418 km) | see §5 |
-| non-zero true north | 02 (50.0°), 03, 07, 06 | `azimuth()` answers; 04, 05, 07, 10, 11 have none and refuse |
+| `TrueNorth` present | 02 (**50.0°**), 06 (**68.0°**), and 01, 03, 07, 08 at 0.0° | `azimuth()` answers on six files; **04, 05, 09, 10, 11 declare no `TrueNorth` at all and it refuses** rather than assume +Y is north |
 
 ### The seven files built to break it
 
@@ -98,22 +99,33 @@ ground-truth comparison against every declared floor-area quantity.
 | 03-institute | IFC4 | 10.93 | 147 712 | 1 190 | 1 071 | 82 | 1 000 | 283/283 |
 | 04-duplex | IFC2X3 | 2.38 | 38 898 | 295 | 286 | 21 | 265 | 38/38 |
 | 05-office-a | IFC2X3 | 4.10 | 62 930 | 1 090 | 1 083 | 99 | 1 334 | 171/171 |
-| 06-trapelo-feet | IFC2X3 | 22.40 | 383 048 | 3 729 | 3 639 | 139 | 2 451 | 190/190 |
-| 07-archicad18-nl | IFC2X3 | 49.29 | 714 485 | — | — | 100 | 1 675 | — |
-| 08-snowdon | IFC2X3 | 151.08 | 2 700 908 | — | — | 0 | 0 | — |
+| 06-trapelo-feet | IFC2X3 | 22.40 | 383 048 | 3 729 | 3 639 | 139 | 2 451 | **141/190** |
+| 07-archicad18-nl | IFC2X3 | 49.29 | 714 485 | 3 822 | 3 589 | 100 | 1 675 | **74/464** |
+| 08-snowdon | IFC2X3 | 151.08 | 2 700 908 | 7 076 | 6 436 | **0** | 0 | 194/200 |
 | 09-aisc-inch | IFC2X3 | 0.32 | 4 843 | 468 | 351 | 0 | 0 | 0/0 |
 | 10-allplan | IFC2X3 | 5.82 | 90 973 | 72 | 70 | 7 | 0 | 6/6 |
 | 11-sketchup-pcert | IFC4 | 0.23 | 444 | 22 | 14 | 2 | 0 | 0/0 |
 
 **Elements without geometry are normal and are reported as such**, never as an
-error: 8 % of the sample house's products, 16 % of the institute's, 25 % of the
+error: 8 % of the sample house's products, 10 % of the institute's, 25 % of the
 AISC sculpture's (fasteners and connection annotations). `extent()` on one of
 them returns `decidable=False` with the German explanation that some entries have
 no body by design.
 
+**Two exports lose the window→wall chain, and one loses most of it.** Six files
+resolve **521 of 521** windows and doors to a host through
+`FillsVoids → RelatingOpeningElement → VoidsElements`. The other two do not:
+Trapelo resolves 141 of 190 (74 %), and the ArchiCAD 18 export resolves **74 of
+464 — 16 %**, because it carries 79 `IfcRelVoidsElement` for 464 openings: the
+wall bodies were exported with their holes already subtracted and no
+`IfcOpeningElement` written. Everything that hangs off the opening — the
+Rohbauöffnung's real area, `sillAndHead` on the opening rather than the frame,
+`hosts()` on the wall — is simply not in that file. `hosted_in` returned `[]`,
+which is true and reads as *"this window is in no wall"*; that is defect 9.
+
 **Not one operator call raised an exception on any of the eleven files** — after
-the fixes in §3. Before them, five of the eleven produced at least one raised
-exception or one wrong number.
+the fixes in §6. **769 operator calls, 0 raised, 70 undecidable**, every
+undecidable naming the entity or relation that would settle it.
 
 ---
 
@@ -130,15 +142,19 @@ something outside the library says what the right answer is.
 | 03-institute | 60 | `BaseQuantities.NetFloorArea` | m² | 0 | 60 | 1.03093 | 1.0309–1.0309 |
 | 04-duplex | 21 | `PSet_Revit_Dimensions.Area` | m² | 0 | 21 | 0.86926 | 0.7728–0.9321 |
 | 05-office-a | 60 | `PSet_Revit_Dimensions.Area` | m² | 1 | 59 | 0.93831 | 0.8885–0.9835 |
-| 06-trapelo-feet | 60 | `BaseQuantities.NetFloorArea` | **SQUARE FOOT** | 60 | 0 | **1.00000** | see below |
+| 06-trapelo-feet | 60 | `BaseQuantities.NetFloorArea` | **SQUARE FOOT** | 59 | 1 | **1.00000** | 0.9653–1.0000 |
+| 07-archicad18-nl | 60 declared, **3 measurable** | `BaseQuantities.NetFloorArea` | m² | 3 | 0 | **1.00000** | 1.0000–1.0000 |
 | 10-allplan | 7 | `SpaceQuantities.NetFloorArea` | m² | 7 | 0 | **1.00000** | 1.0000–1.0001 |
 
 Four findings, and **which side is wrong differs**:
 
 **a. The sample house, the Allplan house and Trapelo agree exactly.** Sample
-house to 4·10⁻¹⁴ relative, Allplan to 1·10⁻⁴, Trapelo to 5·10⁻⁵ *after* the unit
-conversion of defect 1. Three unrelated exporters agreeing with the geometry to
-that precision is the evidence that `floor_area` measures the right thing.
+house to 4·10⁻¹⁴ relative, Allplan to 1·10⁻⁴, and Trapelo — in square feet, on a
+building 907 km from the origin — **59 of 60 rooms at a median ratio of exactly
+1.00000**, after the unit conversion of defect 2. Three unrelated exporters and
+three unit systems agreeing with the geometry to that precision is the evidence
+that `floor_area` measures the right thing; the disagreement rows below are
+therefore about the exports, not about the operator.
 
 **b. ArchiCAD 20 declares exactly 0.97 × the geometric area.** Six of seven FZK
 rooms and **all sixty** institute rooms have ratio 1.030928 — which is 1/0.97 to
@@ -170,7 +186,16 @@ set.** The duplex has no `Qto_SpaceBaseQuantities` at all: its only quantity set
 is `GSA Space Areas.GSA BIM Area`, and the name a search would look for
 (`NetFloorArea`) appears nowhere. Only the deliberately dialect-agnostic search
 finds anything at all here — but it also has to prefer the real quantity set when
-both exist, which is defect 3.
+both exist, which is defect 7.
+
+**e. The ArchiCAD 18 export declares 100 room areas and only 6 of its rooms have
+buildable geometry.** All hundred `IfcSpace` entities carry a full `Body`
+representation; OCCT rejects **94 of them** with `Failed to process shape`. Where
+the body does build, the measurement and the declaration agree to 1·10⁻⁶ — three
+of three sampled at ratio 1.00000, which is the point: the operator is fine and
+the file is not. This is defect 10, and it is also the "model whose geometry
+fails to tessellate" the brief asked for, found in the wild rather than
+synthesised.
 
 ---
 
@@ -179,38 +204,122 @@ both exist, which is defect 3.
 Four CPUs, 16 GB. Wall-clock per phase, and peak RSS of the whole process (which
 starts at ~130 MB for the Python + IfcOpenShell + numpy + shapely import alone).
 
-| file | MB | open | geometry pass | tree | contacts, all spaces | peak RSS | RSS / file size |
-|---|---|---|---|---|---|---|---|
-| 11-sketchup-pcert | 0.23 | 0.02 s | 0.3 s | 0.1 s | 0.7 s | 161 MB | — |
-| 09-aisc-inch | 0.32 | 0.03 s | 0.8 s | 0.4 s | 0.0 s | 163 MB | — |
-| 01-sample-house | 2.27 | 0.27 s | 1.9 s | 1.1 s | 5.4 s | 287 MB | 126× |
-| 04-duplex | 2.38 | 0.25 s | 2.1 s | 1.3 s | 24.9 s | 235 MB | 99× |
-| 02-fzk-haus | 2.53 | 0.30 s | 3.6 s | 2.2 s | 6.7 s | 271 MB | 107× |
-| 05-office-a | 4.10 | 0.42 s | 2.8 s | 1.7 s | 38.1 s (capped) | 316 MB | 77× |
-| 10-allplan | 5.82 | 0.50 s | 3.7 s | 2.6 s | 7.4 s | 285 MB | 49× |
-| 03-institute | 10.93 | 1.32 s | 8.2 s | 6.2 s | 30.2 s (capped) | 377 MB | 34× |
+| file | MB | products | open | geometry pass | tree | contacts, all spaces | peak RSS | RSS / MB |
+|---|---|---|---|---|---|---|---|---|
+| 11-sketchup-pcert | 0.23 | 22 | 0.02 s | 0.3 s | 0.1 s | 0.7 s | 161 MB | — |
+| 09-aisc-inch | 0.32 | 468 | 0.03 s | 0.8 s | 0.4 s | 0.0 s | 163 MB | — |
+| 01-sample-house | 2.27 | 75 | 0.27 s | 1.9 s | 1.1 s | 5.4 s | 287 MB | 126× |
+| 04-duplex | 2.38 | 295 | 0.25 s | 2.1 s | 1.3 s | 24.9 s | 235 MB | 99× |
+| 02-fzk-haus | 2.53 | 127 | 0.30 s | 4.0 s | 2.9 s | 8.4 s | 273 MB | 108× |
+| 05-office-a | 4.10 | 1 090 | 0.42 s | 2.8 s | 1.7 s | 38.1 s (capped) | 316 MB | 77× |
+| 10-allplan | 5.82 | 72 | 0.50 s | 3.7 s | 2.6 s | 7.4 s | 285 MB | 49× |
+| 03-institute | 10.93 | 1 190 | 1.32 s | 8.2 s | 6.2 s | 30.2 s (capped) | 377 MB | 34× |
+| **06-trapelo-feet** | 22.40 | 3 729 | 2.6 s | **208 s** | **95 s** | refused | **3 197 MB** | **143×** |
+| **07-archicad18-nl** | 49.29 | 3 822 | 5.9 s | 16.9 s | 8.8 s | refused | 941 MB | 19× |
+| **08-snowdon** | 151.08 | 7 076 | 16.6 s | **245 s** | **101 s** | no spaces | **5 288 MB** | 35× |
 
-Three conclusions with numbers behind them:
+Four conclusions with numbers behind them:
 
 1. **Opening is cheap; tessellating is not.** `ifcopenshell.open` is 0.3 s on a
-   2 MB file and 2.4 s on a 22 MB one — sub-linear and safe anywhere. The
-   geometry pass is 6–10× that and the tree another 3–5×.
-2. **Peak memory is 30–130× the file size**, and the multiplier falls as the file
-   grows (small files are dominated by the fixed ~130 MB import). This is what
-   §11 of the design doc predicted — "peak memory several times the file size" —
-   and it is an underestimate by an order of magnitude.
-3. **Nothing here belongs in a request process above a few megabytes.** The
+   2 MB file, 2.6 s on a 22 MB one and 5.9 s on a 49 MB one — sub-linear and safe
+   anywhere. The geometry pass costs 6–80× that, and the tree another half again.
+2. **File size does not predict cost — geometry complexity does.** Trapelo
+   (22 MB, 3 729 products) and the ArchiCAD export (49 MB, 3 822 products) have
+   almost the same number of products, and Trapelo costs **12× the tessellation
+   time and 3.4× the memory** on less than half the bytes. Revit's swept solids
+   with boolean subtractions are expensive to build; ArchiCAD's are not. Any
+   admission test based on file size is therefore a coarse backstop and is
+   documented as one in `model.MAX_FILE_BYTES`.
+3. **Peak memory ranges from 19× to 143× the file size.** §11 of the design doc
+   predicted "peak memory several times the file size"; it is an underestimate by
+   one to two orders of magnitude.
+4. **Nothing here belongs in a request process above a few megabytes.** The
    design doc's Phase-2 precondition, *extraction must leave the request process
-   and become a worker*, is confirmed by measurement rather than by argument.
+   and become a worker*, is confirmed by measurement rather than by argument. This
+   package now says so out loud in three places rather than silently trying:
+   `ModelTooLargeError` above `MAX_FILE_BYTES`, an incomplete contact map above
+   `CONTACT_BUDGET_SECONDS`, and a flat refusal to derive space boundaries above
+   `DERIVED_BOUNDARY_MAX_PRODUCTS`.
 
 ---
 
 ## 5. Far from the origin
 
 The TypeScript sibling had a coordinate bug that survived a whole test suite
-because the sample house sits at the origin: it read a real-time-compensation
-offset as zero on a model carrying a 907 km offset. Two files in this corpus
-carry exactly that shape.
+because the sample house sits at the origin: it read an offset as zero on a model
+carrying a 907 km one. Two files in this corpus carry exactly that shape, and
+`06-trapelo-feet` carries it in feet as well.
+
+**Trapelo sits on the Massachusetts State Plane grid.** Its measured bounds:
+
+```
+x  219 875.50 →  219 939.66 m     (219.9 km east of the projection origin)
+y  907 105.76 →  907 207.32 m     (907.2 km north)
+z       55.52 →       71.42 m     (survey elevation, not project zero)
+```
+
+Everything downstream of that is right:
+
+| what | value | check |
+|---|---|---|
+| `model.diagonal` | 121.173 m | the building's own extent (64 × 102 × 16 m), **not** the distance to the origin |
+| `IfcBuildingStorey.Elevation` | 55.677 / 59.131 / 62.890 / 66.650 / 70.676 m | in metres after ×0.3048, and *inside* the geometry's z range — so `_storey_datum_drift` is 0 and the datum is usable |
+| `sill_and_head` on a window | sill 0.778 m, head 2.575 m, height 1.797 m | a real Brüstungshöhe above **its own storey**, measured off absolute z ≈ 907 km away |
+| `sill_and_head` on a door | sill 0.000 m, head 2.184 m | 2.1844 m is 7′2″ — the file's own nominal door height, to the micrometre |
+| `extent` on that door | 1.0193 × 0.5719 × 2.1844 m | sub-millimetre dimensions differenced out of eight-figure coordinates |
+| `azimuth` | 314° NW / 224° SW / 44° NO | with `TrueNorth` at 1.1868 rad = 68.0° |
+| `floor_area` against declared | **59 of 60 agree**, median ratio 1.00000, range 0.96533–1.00001 | in square feet, converted — defect 2 |
+
+**Why it holds, stated rather than assumed.** IEEE-754 double has an ulp of
+**0.116 nm** at 9.1·10⁵ m, so a coordinate carries about seven decimal digits of
+sub-millimetre headroom at this magnitude. Every measurement in this package is
+either a difference of two coordinates (`extent`, `sill_and_head`, `overhang`,
+`clip_polygon`) or a projection of a difference (`signed_distance`,
+`facade_plane_of`), and a difference of two nearby large numbers loses the
+magnitude, not the precision. There is no truncation to float32 anywhere: the
+TS sibling's bug does not have an analogue here because `use-world-coords`
+returns absolute coordinates and nothing re-applies an offset that could be read
+as zero.
+
+The one thing a *consumer* must not do is round. `extent()` on a Trapelo door
+reports `box.min = [219896.2893191515, 907167.8389869643, 59.1312]`; a caller
+that prints that to two decimals has thrown away the tenth of a millimetre the
+answer's stated tolerance depends on. That is a rendering rule, not a defect, and
+it is worth writing down because it only becomes visible on a file like this one.
+
+### Snowdon: the same offset, and the storey datum on a different one
+
+`08-snowdon` sits even further out, and adds the failure Trapelo does not have:
+
+```
+x  417 585.8 →  417 645.7 m        (417.6 km)
+y   78 685.8 →   78 734.9 m        ( 78.7 km)
+z      230.9 →      260.6 m        (metres above sea level)
+
+IfcBuildingStorey.Elevation:  −5.156 / −1.803 / −1.054 / 0.000 m
+```
+
+The geometry is on the **survey datum** and the storeys are on the **project
+datum**, 231 m apart. This is exactly the export the TypeScript sibling reported
+sills 58 m below their own floor on — with a unit, a 10 mm tolerance and a
+`computed` provenance, which is what made it dangerous.
+
+Here `_storey_datum_drift` measures 231 m of separation and `sill_and_head`
+**refuses**:
+
+> *IfcBuildingStorey.Elevation und die Modellgeometrie liegen auf verschiedenen
+> Höhenbezügen … sie verfehlen einander um 231.06 m. Eine Höhe über Geschossebene
+> wäre um diesen Betrag falsch und wird deshalb nicht ausgegeben.*
+
+`elevation()` still answers, with absolute z, because that number is real. The
+guard was written before this corpus existed, on the strength of one file in the
+TypeScript package; this run is the independent confirmation that it fires on a
+different exporter, a different schema and a different datum offset.
+
+The rest of the file behaves as it should for a model with **no `IfcSpace` at
+all**: `opens_to` refuses naming `IfcSpace` ("dieser Export enthält keine
+Räume"), `enclosed_by` refuses naming `IfcRelSpaceBoundary`, 194 of 200 windows
+and doors still resolve to their host wall, and 65 operator calls raise nothing.
 
 ---
 
@@ -426,6 +535,70 @@ through `by_id`; `ray` rejects non-finite and non-positive lengths and builds it
 `test_a_ray_with_an_unusable_length_is_undecidable`,
 `test_a_ray_with_an_unusable_geometry_is_undecidable`.
 
+### 9. A window the export never chained came back as a bare empty list
+
+*Found on:* `07-archicad18-nl` (390 of 464), `06-trapelo-feet` (49 of 190).
+
+`hosted_in` walks `FillsVoids → RelatingOpeningElement → VoidsElements →
+RelatingBuildingElement`. The ArchiCAD 18 export carries 79 `IfcRelVoidsElement`
+for 464 windows and doors, because the wall bodies were written with their holes
+already subtracted and no `IfcOpeningElement` at all. So the walk returned `[]`
+— decidable, `provenance="computed"`, with the standard caveat about deriving
+the answer from two relations.
+
+`[]` is *true* and reads as *"dieses Fenster sitzt in keiner Wand"*, which is a
+claim about the building. The truth is a claim about the file, and the two must
+not look alike.
+
+*Fix:* an empty result on a fenestration element carries its own caveat, naming
+the missing chain, saying explicitly that it does **not** mean the window is in
+no wall, and giving the re-export setting.
+
+*Regression:* `test_a_window_the_export_never_chained_says_so` builds the dialect
+in nine entities — one chained window, one orphan, in a file that plainly has
+the relations.
+
+### 10. Geometry the kernel rejects was reported as geometry that is absent
+
+*Found on:* `07-archicad18-nl` — **94 of its 100 rooms**.
+
+Every one of those hundred `IfcSpace` entities carries a full `Body`
+representation, and OCCT refuses ninety-four of them with `Failed to process
+shape`. `floor_area` correctly returned `decidable=False` — but with the wrong
+diagnosis: *"Dieses Bauteil trägt in dieser Datei keinen Körper … das Modell mit
+Körpergeometrie neu exportieren"*, which sends the architect to switch on an
+export setting that is already on.
+
+The two failures need different sentences. An element with **no representation**
+is often normal (`IfcWindowLiningProperties`, a curtain-wall shell) and sometimes
+an export defect. An element whose representation the **kernel cannot build** is
+a geometry-validity problem in the model itself — a self-intersecting room
+boundary, a zero-area profile, an unclosed shell — and re-exporting changes
+nothing.
+
+*Fix:* `SpatialModel.geometry_failure(global_id)` records which of
+`no-representation` / `shape-failed: …` / `empty-mesh` happened, and `_no_geometry`
+branches on it, carrying the kernel's own message into the remedy.
+
+*Regression:* `test_a_body_the_kernel_rejects_is_not_reported_as_a_missing_body`,
+`test_an_element_with_no_representation_at_all_says_that_instead`.
+
+### 11. A ray over a model with no geometry scanned a made-up 100 m
+
+*Found on:* `broken/header-only.ifc`, `broken/untessellatable.ifc`.
+
+`model.diagonal` falls back to a flat `100.0` when nothing in the file has a
+body, and `ray()` with no explicit length used it — returning
+`decidable=True, value=None`, i.e. *"nothing within reach"*, about a model where
+there was nothing to look at and no reach to speak of. A could-not-look wearing
+the shape of a result.
+
+*Fix:* `ray()` with no stated length on a model with no extent is undecidable and
+says why. With an explicit length it is a real answer again.
+
+*Regression:* inside
+`test_a_valid_header_with_no_entities_is_a_model_not_an_error`.
+
 ---
 
 ## 7. What held up
@@ -442,22 +615,27 @@ are the parts the design doc bet on.
 - **The IFC2X3 / IFC4 split cost nothing on the inverse attributes.**
   `HasOpenings`, `FillsVoids`, `VoidsElements`, `BoundedBy`, `ProvidesBoundaries`
   and `ContainsElements` behave identically across the seven IFC2X3 and four IFC4
-  files. Fenestration resolved to a host at **100 %** on all seven files that have
-  any — 704 windows and doors, not one unresolved.
-  The one place the schemas differ is `by_type` with an IFC4-only name:
+  files. Where the export *writes* the opening chain, the walk finds it: 930 of
+  1 375 windows and doors resolve to a host, and the 445 that do not are
+  concentrated in the two exports that wrote no `IfcOpeningElement` for them
+  (defect 9) — not one is a schema difference.
+  The one place the schemas do differ is `by_type` with an IFC4-only name:
   `file.by_type("IfcSpatialZone")` raises `RuntimeError: Entity with name
   'IfcSpatialZone' not found in schema 'IFC2X3'`, while `element.is_a(...)` with
   the same name safely returns `False`. Both call sites in this package were
   already on the safe side of that line.
-- **Undecidable stayed a result.** 47 undecidable answers across the corpus, every
+- **Undecidable stayed a result.** 70 undecidable answers across the corpus, every
   one of them naming an IFC entity or relation the export is missing —
   `IfcGeometricRepresentationContext.TrueNorth` on the five files with no north,
-  `IfcRelVoidsElement` on the SketchUp export that models walls without openings,
-  "kein Rasterpunkt lag im Raumkörper" on rooms too narrow for a 3×3 clear-height
-  grid. Not one of them was a disguised failure.
-- **Elements without a body were reported, not counted as errors.** 8–25 % of
-  products per file have no geometry, which is normal, and `extent()` says so in
-  the words the fixture's docstring already used.
+  `IfcSpace` on the Snowdon export that models none,
+  `IfcBuildingStorey.Elevation und die Modellgeometrie liegen auf verschiedenen
+  Höhenbezügen` on the same file's 231 m datum split, `IfcRelVoidsElement` on the
+  SketchUp export that models walls without openings, "kein Rasterpunkt lag im
+  Raumkörper" on rooms too narrow for a 3×3 clear-height grid. Not one of them
+  was a disguised failure.
+- **Elements without a body were reported, not counted as errors** — 8–25 % of
+  products per file, which is normal — and after defect 10 the report distinguishes
+  "no representation" from "the kernel rejected the representation".
 
 ---
 

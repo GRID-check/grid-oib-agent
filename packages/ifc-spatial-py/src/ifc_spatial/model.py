@@ -78,11 +78,19 @@ AIR_TYPES = {
 
 
 #: Above this, :class:`SpatialModel` refuses the file instead of reading it.
-#: Measured, not guessed — see ``CORPUS.md`` §4. A 22 MB IFC2X3 export reaches
-#: 1.5 GB of resident memory in the geometry pass and a 151 MB one is killed by
-#: the OOM reaper on a 16 GB machine. The number below is the largest file the
-#: corpus run completed inside a request-sized process; a bigger one is a job for
-#: a worker, and the honest answer is to say so rather than to start and die.
+#:
+#: A coarse backstop, and knowingly so: size is a poor predictor of cost. The
+#: corpus has a 22 MB Revit export that costs 208 s and **3.2 GB** and a 49 MB
+#: ArchiCAD export with the same number of products that costs 17 s and 941 MB —
+#: Revit's swept solids with boolean subtractions are expensive to build and
+#: ArchiCAD's are not. Bytes are simply the only quantity knowable before the
+#: parser has run, so they are what the admission test can use.
+#:
+#: The line is drawn between the two files the corpus measured on either side of
+#: it: the 49 MB ArchiCAD export completes in 32 s and under 1 GB, and the
+#: 151 MB Revit export needs **5.3 GB and 5.8 minutes** before it can answer a
+#: single question. Both are legitimate files; only one of them belongs anywhere
+#: near a request. Raise ``max_bytes`` explicitly in a worker that can afford it.
 MAX_FILE_BYTES = 64 * 1024 * 1024
 
 #: Seconds :meth:`SpatialModel.space_contacts` may spend before it gives up and
@@ -334,6 +342,9 @@ class SpatialModel:
         self._settings.set("use-world-coords", True)
 
         self._geometry: dict[str, Optional[ElementGeometry]] = {}
+        #: Why a body could not be built, per GlobalId. See
+        #: :meth:`geometry_failure`.
+        self._geometry_failure: dict[str, str] = {}
         #: False once :meth:`space_contacts` has run out of budget — the
         #: model-wide map is then a SUBSET and every operator reading it must say
         #: so rather than report a short list as a complete one.
@@ -506,15 +517,37 @@ class SpatialModel:
         self._geometry[global_id] = geo
         return geo
 
+    def geometry_failure(self, global_id: str) -> Optional[str]:
+        """*Why* this element has no body — ``None`` when it has one.
+
+        Two failures wear the same missing geometry and want different sentences.
+        The ArchiCAD 18 export in the corpus makes the case: **94 of its 100
+        ``IfcSpace`` entities carry a full ``Body`` representation and OCCT
+        cannot build a single one of them** (``Failed to process shape``). Telling
+        that architect "dieses Bauteil trägt keinen Körper" sends them to check an
+        export setting that is already correct; the actual problem is a room
+        boundary the kernel rejects.
+
+        Returns ``"no-representation"``, ``"empty-mesh"``, or
+        ``"shape-failed: …"`` with the kernel's own message.
+        """
+        return self._geometry_failure.get(global_id)
+
     def _shape_of(self, element: Any) -> Optional[ElementGeometry]:
+        global_id = element.GlobalId
         if not getattr(element, "Representation", None) and not element.is_a("IfcSpace"):
+            self._geometry_failure[global_id] = "no-representation"
             return None
         try:
             shape = ifcopenshell.geom.create_shape(self._settings, element)
-        except Exception:
+        except Exception as error:
+            self._geometry_failure[global_id] = f"shape-failed: {error}"
             return None
-        self._shapes[element.GlobalId] = shape
-        return self._from_shape(element.GlobalId, shape.geometry)
+        self._shapes[global_id] = shape
+        geometry = self._from_shape(global_id, shape.geometry)
+        if geometry is None:
+            self._geometry_failure[global_id] = "empty-mesh"
+        return geometry
 
     @staticmethod
     def _from_shape(global_id: str, geometry: Any) -> Optional[ElementGeometry]:
@@ -648,6 +681,11 @@ class SpatialModel:
         """
         key = round(contact, 6)
         contacts = self._space_contacts.setdefault(key, {})
+        if not self.derivable_boundaries:
+            # Checked here as well as in the operators, because this is a public
+            # method and the admission test has to hold for whoever calls it.
+            self.contacts_complete = False
+            return contacts
         spaces = self.file.by_type("IfcSpace")
         outstanding = [s for s in spaces if s.GlobalId not in contacts]
         self.contacts_covered = len(contacts)
@@ -706,6 +744,8 @@ class SpatialModel:
         """
         key = round(contact, 6)
         cached = self._space_contacts.setdefault(key, {})
+        if not self.derivable_boundaries:
+            return set()
         found = cached.get(space.GlobalId)
         if found is None:
             t0 = time.perf_counter()
