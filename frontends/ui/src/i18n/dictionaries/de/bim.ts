@@ -332,7 +332,7 @@ export const bim: typeof en.bim = {
     dialogLabel: 'Modell {name}',
     close: 'Schließen',
     home: 'Ganzes Modell einpassen',
-    back: 'Zurück zur vorherigen Ansicht',
+    back: 'Letzte Änderung rückgängig machen',
     views: 'Ansicht',
     advanced: 'Details & Prüfung',
     models: 'Modelle',
@@ -342,7 +342,7 @@ export const bim: typeof en.bim = {
       'Ein Link kann {shown} der {total} hervorgehobenen Bauteile mitführen. Die übrigen sind im Modell, hier aber nicht markiert.',
     otherModel:
       'Dieser Link nennt „{wanted}“ — dieses Modell gibt es in diesem Projekt nicht. Angezeigt wird „{opened}“.',
-    showEverything: 'Ausgeblendetes wiederherstellen',
+    showEverything: 'Alle Bauteile wieder einblenden',
     elevation: '{value} m',
     notReady: 'Das Modell wird noch gelesen. Das dauert meist nur einen Moment.',
     elementsFailed:

@@ -18,7 +18,16 @@
 
 import { useState } from 'react'
 import { notFound } from 'next/navigation'
-import { Eye, Home, PanelLeft, Scissors, SlidersHorizontal, Video } from 'lucide-react'
+import {
+  Eye,
+  Home,
+  Layers,
+  PanelLeft,
+  Scissors,
+  SlidersHorizontal,
+  Undo2,
+  Video,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   ViewerDock,
@@ -72,9 +81,11 @@ export default function BimViewportDevPage(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">Model — viewer chrome</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Six controls and two lists, floating over the building. Everything analytical is one
-          button away rather than in front of the model, and the selection card does not exist
-          until something is selected.
+          A handful of controls and two lists, floating over the building. Everything analytical
+          is one button away rather than in front of the model, and the selection card does not
+          exist until something is selected. The leading pill holds the two ways back — Undo, one
+          act at a time, and the camera — and the trailing one the reset that drops every hide and
+          isolation at once.
         </p>
       </div>
 
@@ -123,7 +134,20 @@ export default function BimViewportDevPage(): JSX.Element {
         )}
 
         <ViewerDock
-          lead={<ViewerIconButton label="Alles anzeigen" icon={Home} />}
+          /*
+            The pair that answers "get me back", and the preview was missing
+            half of it — with the other half under a name the product had
+            already dropped. "Alles anzeigen" is what the camera button used
+            to be called, until it collided with the restore button beside it
+            and a screen reader read out two near-identical names for two
+            unrelated acts.
+          */
+          lead={
+            <>
+              <ViewerIconButton label="Letzte Änderung rückgängig machen" icon={Undo2} />
+              <ViewerIconButton label="Ganzes Modell einpassen" icon={Home} />
+            </>
+          }
           above={
             cut !== null && (
               <ViewerSlider
@@ -143,6 +167,14 @@ export default function BimViewportDevPage(): JSX.Element {
           }
           trail={
             <>
+              {/*
+                The reset. In the stage it appears only once something is out
+                of the way; here it is always drawn, because the point of this
+                route is to pin the chrome and its copy — and this is the one
+                control whose name has to stay clearly apart from both Undo
+                and the camera's "Ganzes Modell einpassen".
+              */}
+              <ViewerIconButton label="Alle Bauteile wieder einblenden" icon={Layers} />
               <ViewerIconButton
                 label="Leiste ausblenden"
                 icon={PanelLeft}
