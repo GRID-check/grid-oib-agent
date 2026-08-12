@@ -96,6 +96,20 @@ describe('parseElementLink', () => {
   })
 })
 
+describe('a link that cannot be parsed', () => {
+  it('degrades instead of throwing on a malformed percent-escape', () => {
+    // `decodeURIComponent('100%')` is a URIError, not a fallback — and this
+    // runs during render, from the citation renderer inside an assistant
+    // answer. One stray `%` in one markdown link took the whole reply down.
+    expect(() => parseElementLink('/app/projects/100%/files?element=abc')).not.toThrow()
+    expect(parseElementLink('/app/projects/100%/files?element=abc')).toBeNull()
+  })
+
+  it('still reads a properly escaped project id', () => {
+    expect(parseElementLink('/app/projects/p%201/files?element=abc')?.projectId).toBe('p 1')
+  })
+})
+
 describe('elementLinkHref', () => {
   it('rebuilds the href from the parsed view, dropping junk parameters', () => {
     const link = parseElementLink('/app/projects/p1/model?element=abc&utm_source=mail&hl=bogus')

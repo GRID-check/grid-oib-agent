@@ -122,12 +122,28 @@ const VISIBLE_VERDICTS = 25
 // Reading published values
 // ---------------------------------------------------------------------------
 
-/** First numeric value found at any of the named quantity keys. */
+/**
+ * First POSITIVE value found at any of the named quantity keys.
+ *
+ * Every caller here reads a dimension — a clear width, a riser height, a room
+ * height — and no building has one of zero. A `0` in a quantity set is an
+ * exporter writing `$`: the parser substitutes zero for it, and
+ * `ZERO_MEANS_ABSENT` in `extract.ts` drops those on the way in.
+ *
+ * This is the second guard, and it is here rather than only there because the
+ * consequence is a false accusation: read as a measurement, an unmeasured
+ * `ClearWidth` produces "Lichte Durchgangsbreite 0,00 m — nicht erfüllt" on an
+ * escape-route rule, for a door that may be perfectly compliant. Rows already
+ * in the database were extracted under the narrower rule, so without this
+ * every model uploaded before that fix keeps failing until it is re-read.
+ *
+ * A negative is refused for the same reason: it is not a measurement either.
+ */
 function quantity(element: BimElement, keys: readonly string[]): number | null {
   for (const set of Object.values(element.quantities)) {
     for (const key of keys) {
       const value = set[key]
-      if (typeof value === 'number' && Number.isFinite(value)) return value
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
     }
   }
   return null
@@ -171,6 +187,19 @@ function numericProperty(element: BimElement, keys: readonly string[]): number |
   if (!match) return null
   const parsed = Number(match[0].replace(',', '.'))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * The same read, for a DIMENSION.
+ *
+ * `numericProperty` also serves the U-value rules, where the number is a
+ * physical property rather than a size and where a zero — however implausible
+ * — is at least a statement. A width, a height or a tread length of zero or
+ * less is not: see {@link quantity}.
+ */
+function dimensionProperty(element: BimElement, keys: readonly string[]): number | null {
+  const value = numericProperty(element, keys)
+  return value !== null && value > 0 ? value : null
 }
 
 /**
@@ -385,7 +414,26 @@ export function classifyStorey(
   if (!match || typeof match.elevation !== 'number') return null
   if (match.elevation < 0) return 'below'
   const highest = Math.max(...known.map((entry) => entry.elevation as number))
-  return match.elevation === highest ? 'top' : 'above'
+  if (match.elevation !== highest) return 'above'
+  /*
+    Exactly one storey can be the top one.
+
+    A common broken export writes `0.` for every `IfcBuildingStorey.Elevation`.
+    Every storey then equalled the maximum and every storey was classified
+    `top` — including the Kellergeschoß — and because `top` is non-null the
+    undecidable guard in the fire rule never fired. On a GK1 building, where
+    the top row carries NO requirement, three load-bearing walls with no
+    FireRating at all came back as three PASSES: "Im obersten Geschoß der
+    Gebäudeklasse 1 wird kein Feuerwiderstand gefordert". That is the single
+    thing this catalogue exists not to do — "no contradiction found" rendered
+    as compliant — and on GK3/GK4 the same input quietly applies 30 minutes
+    where 60 to 90 is required.
+
+    `validate.ts` already reports colliding elevations as a model defect. This
+    is the judge declining to guess in the same situation.
+  */
+  const atHighest = known.filter((entry) => entry.elevation === highest).length
+  return atHighest === 1 ? 'top' : null
 }
 
 
@@ -632,11 +680,11 @@ export const BIM_RULES: RuleDefinition[] = [
     ifcTypes: ['IfcStairFlight'],
     judge: (element, facts) => {
       const riser = toCentimetres(
-        numericProperty(element, ['RiserHeight']) ?? quantity(element, ['RiserHeight']),
+        dimensionProperty(element, ['RiserHeight']) ?? quantity(element, ['RiserHeight']),
         facts.lengthScale
       )
       const tread = toCentimetres(
-        numericProperty(element, ['TreadLength']) ?? quantity(element, ['TreadLength']),
+        dimensionProperty(element, ['TreadLength']) ?? quantity(element, ['TreadLength']),
         facts.lengthScale
       )
       if (riser === null || tread === null) {
@@ -676,7 +724,7 @@ export const BIM_RULES: RuleDefinition[] = [
       // nominal figure clears comfortably. Reading `Width` first therefore
       // passed doors that fail, on an escape-route rule.
       const clear = toMetres(
-        quantity(element, ['ClearWidth']) ?? numericProperty(element, ['ClearWidth']),
+        quantity(element, ['ClearWidth']) ?? dimensionProperty(element, ['ClearWidth']),
         facts.lengthScale
       )
       if (clear !== null) {
@@ -690,7 +738,7 @@ export const BIM_RULES: RuleDefinition[] = [
       // one, so it can settle a failure and never a pass. Reporting the pass
       // anyway is the whole class of error this catalogue exists to avoid.
       const nominal = toMetres(
-        quantity(element, ['Width']) ?? numericProperty(element, ['OverallWidth', 'Width']),
+        quantity(element, ['Width']) ?? dimensionProperty(element, ['OverallWidth', 'Width']),
         facts.lengthScale
       )
       if (nominal === null) {
@@ -735,7 +783,7 @@ export const BIM_RULES: RuleDefinition[] = [
       // exists to refuse.
       const clear = toMetres(
         quantity(element, ['FinishCeilingHeight', 'ClearHeight']) ??
-          numericProperty(element, ['FinishCeilingHeight', 'ClearHeight']),
+          dimensionProperty(element, ['FinishCeilingHeight', 'ClearHeight']),
         facts.lengthScale
       )
       if (clear !== null) {
@@ -748,7 +796,7 @@ export const BIM_RULES: RuleDefinition[] = [
       // The gross height is an UPPER BOUND on the clear one, so — exactly like
       // the door's nominal width — it can settle a failure and never a pass.
       const gross = toMetres(
-        quantity(element, ['Height']) ?? numericProperty(element, ['Height']),
+        quantity(element, ['Height']) ?? dimensionProperty(element, ['Height']),
         facts.lengthScale
       )
       if (gross === null) {
@@ -786,10 +834,22 @@ export const BIM_RULES: RuleDefinition[] = [
     // they carry the different requirements of row 4.
     ifcTypes: ['IfcWall', 'IfcColumn', 'IfcBeam', 'IfcMember'],
     scope: mayBeLoadBearing,
-    notApplicable: (facts) =>
-      facts.gebaeudeklasse === undefined || facts.gebaeudeklasse === null
-        ? 'Gebäudeklasse in den Projektangaben nicht gesetzt — die Anforderung hängt daran'
-        : null,
+    /*
+      No `notApplicable` for a missing Gebäudeklasse.
+
+      It read naturally and it said the wrong thing. `applicable: false` renders
+      as the badge "Nicht einschlägig" — the rule does not apply to your
+      building — when the truth is that it applies and cannot be evaluated.
+      Worse, `rulesWithOpenWork` and `outstandingRules` both start by dropping
+      inapplicable rules, so OIB 2 Feuerwiderstand vanished from "what still
+      needs a human before this can be signed" and its walls never reached the
+      BCF export. A missing project fact silently removed the fire rule from
+      the Prüfbuch.
+
+      The judge's own `!required` branch already says the honest thing —
+      undecidable, with `Projektangabe: Gebäudeklasse` on the shopping list —
+      and was unreachable because this fired first.
+    */
     judge: (element, facts) => {
       // Scope admits elements whose load-bearing role is unstated; a rule
       // about tragende Bauteile cannot decide one of those either way.
@@ -819,9 +879,9 @@ export const BIM_RULES: RuleDefinition[] = [
         }
       }
       const required = minutes ? `R ${minutes}` : undefined
-      // Guarded by notApplicable, but a rule must never read a threshold it
-      // does not have: assuming the mildest class would turn a GK5 building's
-      // missing R 90 into a pass.
+      // A rule must never read a threshold it does not have: assuming the
+      // mildest class would turn a GK5 building's missing R 90 into a pass.
+      // This is now the ONLY handler for an unset Gebäudeklasse — see above.
       if (!required) {
         return {
           status: 'undecidable',
@@ -999,6 +1059,30 @@ export const BIM_RULES: RuleDefinition[] = [
 const CASE_SUFFIX = /(standardcase|elementedcase)$/
 
 const normaliseType = (ifcType: string): string => ifcType.toLowerCase().replace(CASE_SUFFIX, '')
+
+/**
+ * Every stored spelling of one requested IFC type, lowercased.
+ *
+ * The same problem as {@link normaliseType}, one layer out. A filter asking
+ * for `IfcWall` is asking about walls, and an IFC4 exporter that wrote
+ * `IfcWallStandardCase` has written walls — but the query layer matched
+ * `lower(ifc_type)` exactly, so the answer was "Kein Bauteil erfüllt die
+ * Abfrage" and the agent reported a building with no walls in it.
+ *
+ * Expanded to a variant LIST rather than normalising the column, because
+ * `regexp_replace(lower(ifc_type), …)` on every row cannot use the index the
+ * element table is read through, and this is the hot path for every question
+ * anyone asks about a building. Normalisation only ever strips these two
+ * suffixes, so the expansion is exactly equivalent.
+ *
+ * Asking for `IfcWallStandardCase` matches plain `IfcWall` too, for the same
+ * reason in the other direction: the caller is naming a kind of component,
+ * not an exporter's choice of subtype.
+ */
+export function ifcTypeVariants(ifcType: string): string[] {
+  const base = normaliseType(ifcType)
+  return [base, `${base}standardcase`, `${base}elementedcase`]
+}
 
 const matchesType = (element: BimElement, types: readonly string[]): boolean =>
   types.some((type) => normaliseType(type) === normaliseType(element.ifcType))
@@ -1202,9 +1286,47 @@ export interface BimRuleResultWithConfirmation extends BimRuleResult {
 export function attachConfirmations(
   results: readonly BimRuleResult[],
   confirmations: readonly BimCheckConfirmation[],
-  currentModelId: string
+  currentModelId: string,
+  /**
+   * Every revision of the building on screen, `currentModelId` included.
+   *
+   * A project holds several buildings. A confirmation made on `Nebengebäude`
+   * says nothing whatsoever about `Haus-A` — it is not an older revision of
+   * it, and showing it on Haus-A's Prüfbuch marked "Älterer Stand" asserted
+   * exactly that. Confirmations from outside this set are not attached at all.
+   *
+   * Omitted, only the current revision counts, which is the safe reading for a
+   * caller that cannot work out the series: it can under-attach (a real
+   * confirmation from a previous revision is not shown) but never mis-attach.
+   */
+  seriesModelIds: readonly string[] = [currentModelId]
 ): BimRuleResultWithConfirmation[] {
-  const byRule = new Map(confirmations.map((entry) => [entry.ruleId, entry]))
+  const inSeries = new Set(seriesModelIds.length > 0 ? seriesModelIds : [currentModelId])
+  inSeries.add(currentModelId)
+
+  /**
+   * The one confirmation to show per rule.
+   *
+   * The current revision's if there is one — that is the verdict that covers
+   * what is on screen. Otherwise the most recent from another revision of the
+   * same building, which is shown STALE: it is a real signature about a real
+   * earlier state of this building, and dropping it would lose a record; only
+   * presenting it as current would be the lie.
+   */
+  const byRule = new Map<string, BimCheckConfirmation>()
+  for (const entry of confirmations) {
+    if (!inSeries.has(entry.modelId)) continue
+    const held = byRule.get(entry.ruleId)
+    if (!held) {
+      byRule.set(entry.ruleId, entry)
+      continue
+    }
+    if (held.modelId === currentModelId) continue
+    if (entry.modelId === currentModelId || entry.confirmedAt > held.confirmedAt) {
+      byRule.set(entry.ruleId, entry)
+    }
+  }
+
   return results.map((result) => {
     const confirmation = byRule.get(result.ruleId) ?? null
     return {
@@ -1351,6 +1473,20 @@ export function diffBimCompliance(
   )
 }
 
+/**
+ * The agent's wording for a status change.
+ *
+ * A second copy of `complianceDiff.trend.*` in the dictionaries, and it had
+ * already drifted: this one says "nicht mehr entscheidbar (Wert im Modell
+ * entfallen)" where the badge says only "nicht mehr entscheidbar", so the
+ * chip and the sentence beside it described the same change differently.
+ *
+ * It stays a copy rather than reading the dictionary, because this module is
+ * server-side and locale-free — it renders one German string for the agent,
+ * which has no `useTranslations` and no locale to read. The parenthetical is
+ * the better wording and has been carried into the dictionary; if either side
+ * changes, change both.
+ */
 const TREND_DE: Record<BimComplianceTrend, string> = {
   broken: 'neu nicht erfüllt',
   undecidable: 'nicht mehr entscheidbar (Wert im Modell entfallen)',

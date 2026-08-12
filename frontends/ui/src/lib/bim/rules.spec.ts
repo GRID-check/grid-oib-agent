@@ -20,6 +20,7 @@ import {
   outstandingRules,
   BIM_RULES,
   diffBimCompliance,
+  ifcTypeVariants,
   renderBimComplianceDiff,
   missingPropertyShoppingList,
   renderBimRules,
@@ -67,6 +68,63 @@ const STOREYS = [
   { name: 'Erdgeschoss', elevation: 0 },
   { name: 'Obergeschoss', elevation: 3 },
 ]
+
+describe('an unmeasured dimension is not a measurement of zero', () => {
+  /*
+    The parser substitutes `0` for a quantity written `$`, and `ClearWidth`,
+    `FinishCeilingHeight`, `RiserHeight` and `TreadLength` — the PREFERRED keys
+    of every dimensional rule — fell outside the extractor's zero-means-absent
+    pattern, which only covered `Net`/`Gross` prefixes. Read as a measurement,
+    an unmeasured clear width produces "Lichte Durchgangsbreite 0,00 m — nicht
+    erfüllt" on an escape-route rule, for a door nobody has measured; and
+    because `missing` is recorded only for undecidable elements, the shopping
+    list left out the property that would settle it.
+
+    Fixed in `extract.ts` for new uploads, and here for the rows already stored
+    under the old rule.
+  */
+  const door = (quantities: Record<string, number>): BimElement =>
+    element({
+      ifcType: 'IfcDoor',
+      name: 'Tür 01',
+      predefinedType: 'DOOR',
+      quantities: { Qto_DoorBaseQuantities: quantities },
+    })
+
+  it('does not fail a door on a ClearWidth of zero', () => {
+    const rule = ruleOf(
+      runBimRules([door({ ClearWidth: 0, Width: 900 })], { lengthScale: 0.001 }),
+      'oib4-tuer-durchgangsbreite'
+    )
+    expect(rule.failed).toBe(0)
+    // It falls through to the nominal width, which is what the rule is for.
+    expect(rule.passed + rule.undecidable).toBe(1)
+  })
+
+  it('asks for the clear width rather than reporting 0,00 m', () => {
+    const rule = ruleOf(
+      runBimRules([door({ ClearWidth: 0 })], { lengthScale: 0.001 }),
+      'oib4-tuer-durchgangsbreite'
+    )
+    expect(rule.failed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+    expect(rule.unknowns[0]?.reading).not.toContain('0,00')
+    expect(rule.missing.map((entry) => entry.path)).toContain(
+      'Qto_DoorBaseQuantities.ClearWidth'
+    )
+  })
+
+  it('does not fail a room on a FinishCeilingHeight of zero', () => {
+    const room = element({
+      ifcType: 'IfcSpace',
+      name: 'Wohnen',
+      quantities: { Qto_SpaceBaseQuantities: { FinishCeilingHeight: 0 } },
+    })
+    const rule = ruleOf(runBimRules([room], { lengthScale: 1 }), 'oib3-raumhoehe')
+    expect(rule.failed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+  })
+})
 
 describe('OIB 2 Tabelle 1b, row 1 — the storey decides the duration', () => {
   const wallOn = (storeyName: string, rating: string) =>
@@ -368,6 +426,34 @@ describe('false verdicts a reviewer found by running the catalogue', () => {
   })
 })
 
+/**
+ * The same normalisation, one layer out.
+ *
+ * The catalogue learned to read `IfcDoorStandardCase` as a door; the QUERY
+ * layer — which every question the agent asks goes through — kept matching
+ * `lower(ifc_type)` exactly. An IFC4 export whose walls are
+ * `IfcWallStandardCase` answered a filter for `IfcWall` with nothing, and the
+ * agent reported a building with no walls in it.
+ */
+describe('the spellings one requested IFC type can have', () => {
+  it('expands a plain type to the IFC4 subtypes an exporter may have written', () => {
+    expect(ifcTypeVariants('IfcWall')).toEqual([
+      'ifcwall',
+      'ifcwallstandardcase',
+      'ifcwallelementedcase',
+    ])
+  })
+
+  it('matches the plain type when the caller named a subtype', () => {
+    // The caller is naming a kind of component, not an exporter's choice.
+    expect(ifcTypeVariants('IfcDoorStandardCase')).toContain('ifcdoor')
+  })
+
+  it('is case-insensitive, like the column comparison it feeds', () => {
+    expect(ifcTypeVariants('IFCSLAB')).toContain('ifcslab')
+  })
+})
+
 describe('the catalog itself', () => {
   it('has a unique id, a Richtlinie and a visible threshold on every rule', () => {
     const ids = BIM_RULES.map((rule) => rule.id)
@@ -528,11 +614,77 @@ describe('oib2-feuerwiderstand-tragend', () => {
     expect(rule.passed + rule.failed + rule.undecidable).toBe(0)
   })
 
-  it('stands down when the Gebäudeklasse is unknown rather than assuming the mildest', () => {
-    // Assuming GK1 would turn a GK5 building's missing R 90 into a pass.
-    const rule = ruleOf(runBimRules([wall('R 30')], {}), 'oib2-feuerwiderstand-tragend')
-    expect(rule.applicable).toBe(false)
-    expect(rule.notApplicableReason).toContain('Gebäudeklasse')
+  it('cannot decide without the Gebäudeklasse — and says that, not "nicht einschlägig"', () => {
+    /*
+      Assuming GK1 would turn a GK5 building's missing R 90 into a pass, so
+      standing down is right. WHICH stand-down was not: this used to report
+      `applicable: false`, which the panel renders as the badge "Nicht
+      einschlägig" — the rule does not apply to your building. It does apply;
+      it cannot be evaluated. And `rulesWithOpenWork` / `outstandingRules` both
+      drop inapplicable rules, so the fire rule disappeared from "what still
+      needs a human before this can be signed" and its walls never reached the
+      BCF export. One unset project fact removed OIB 2 from the Prüfbuch.
+    */
+    // Storeys supplied, so the only thing missing is the Gebäudeklasse and
+    // the reading names it rather than the storey.
+    const rule = ruleOf(
+      runBimRules([wall('R 30')], { storeys: STOREYS }),
+      'oib2-feuerwiderstand-tragend'
+    )
+    expect(rule.applicable).toBe(true)
+    expect(rule.passed).toBe(0)
+    expect(rule.failed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+    expect(rule.unknowns[0]?.reading).toContain('Gebäudeklasse unbekannt')
+    // And the fact itself lands on the shopping list, which is the only place
+    // that tells the reader what would settle it.
+    expect(rule.missing.map((entry) => entry.path)).toContain('Projektangabe: Gebäudeklasse')
+  })
+
+  it('refuses to call every storey the top one when the export wrote no elevations', () => {
+    /*
+      The classic broken export: `0.` for every `IfcBuildingStorey.Elevation`.
+      Every storey then equalled the maximum, so every storey classified as
+      `top` — the Kellergeschoß included — and `top` being non-null meant the
+      undecidable guard never fired. On GK1, whose top row carries no
+      requirement at all, three load-bearing walls with no FireRating came back
+      as three PASSES. "No contradiction found" rendered as compliant, on the
+      fire rule.
+    */
+    const flat = [
+      { name: 'Kellergeschoß', elevation: 0 },
+      { name: 'Erdgeschoß', elevation: 0 },
+      { name: '1.Obergeschoß', elevation: 0 },
+    ]
+    const walls = flat.map((storey, index) => ({
+      ...wall(null),
+      globalId: `w-${index}`,
+      storeyName: storey.name,
+    }))
+    const rule = ruleOf(
+      runBimRules(walls, { gebaeudeklasse: 1, storeys: flat }),
+      'oib2-feuerwiderstand-tragend'
+    )
+
+    expect(rule.passed).toBe(0)
+    expect(rule.undecidable).toBe(3)
+    expect(rule.unknowns[0]?.reading).toContain('Geschoßlage')
+  })
+
+  it('still names the top storey when the stack has real elevations', () => {
+    // The guard must not cost the ordinary case its answer.
+    const stack = [
+      { name: 'Erdgeschoß', elevation: 0 },
+      { name: '1.Obergeschoß', elevation: 3 },
+    ]
+    const rule = ruleOf(
+      runBimRules([{ ...wall(null), storeyName: '1.Obergeschoß' }], {
+        gebaeudeklasse: 1,
+        storeys: stack,
+      }),
+      'oib2-feuerwiderstand-tragend'
+    )
+    expect(rule.passed).toBe(1)
   })
 
   it('does not cry wolf over the older F-classification', () => {
@@ -1067,8 +1219,12 @@ describe('missingPropertyShoppingList', () => {
     const fireRating = list.find((entry) => entry.path.includes('FireRating'))
     expect(fireRating?.elements).toBe(2)
     expect(fireRating?.rules).toContain('oib2-feuerwiderstand-tragend')
-    // Ordered by how much is blocked, so the biggest win is first.
-    expect(list[0].elements).toBeGreaterThanOrEqual(list[list.length - 1].elements)
+    // Ordered by how much is blocked, so the biggest win is first. Comparing
+    // only the endpoints caught a full reversal and nothing else — a
+    // misplaced middle entry passed, and a one-entry list compared a number
+    // with itself.
+    const counts = list.map((entry) => entry.elements)
+    expect(counts).toEqual([...counts].sort((a, b) => b - a))
   })
 })
 
@@ -1234,12 +1390,50 @@ describe('human confirmations', () => {
   })
 
   it('marks a confirmation made against another revision as stale', () => {
-    const [rule] = attachConfirmations(failing, [confirmation], 'rev-4').filter(
+    // `rev-3` and `rev-4` are two revisions of ONE building, so the series has
+    // to name both — a confirmation from outside the building on screen is not
+    // attached at all.
+    const [rule] = attachConfirmations(failing, [confirmation], 'rev-4', ['rev-3', 'rev-4']).filter(
       (entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite'
     )
     // Still there — a signature is not deleted by a re-export — but no longer
     // covering: it was true of the building that person looked at.
     expect(rule.confirmation).not.toBeNull()
+    expect(rule.confirmationStale).toBe(true)
+  })
+
+  it('does not show one building’s confirmation on another building’s Prüfbuch', () => {
+    // A project holds `Haus-A` and `Nebengebäude` side by side. A signature
+    // made on one says nothing whatsoever about the other, and showing it
+    // marked "Älterer Stand" asserts that it is an earlier version of the same
+    // building — which is a different, and false, claim.
+    const [rule] = attachConfirmations(failing, [confirmation], 'nebengebaeude-1', [
+      'nebengebaeude-1',
+    ]).filter((entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite')
+    expect(rule.confirmation).toBeNull()
+    expect(rule.confirmationStale).toBe(false)
+  })
+
+  it('prefers the current revision’s confirmation over an older one', () => {
+    const older = { ...confirmation, modelId: 'rev-3', confirmedBy: 'a.muster' }
+    const current = { ...confirmation, modelId: 'rev-4', confirmedBy: 'b.beispiel' }
+    const [rule] = attachConfirmations(failing, [older, current], 'rev-4', [
+      'rev-3',
+      'rev-4',
+    ]).filter((entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite')
+    expect(rule.confirmation?.confirmedBy).toBe('b.beispiel')
+    expect(rule.confirmationStale).toBe(false)
+  })
+
+  it('shows the most recent older confirmation when the current revision has none', () => {
+    const first = { ...confirmation, modelId: 'rev-2', confirmedAt: '2026-01-01T00:00:00.000Z' }
+    const second = { ...confirmation, modelId: 'rev-3', confirmedAt: '2026-03-02T09:00:00.000Z' }
+    const [rule] = attachConfirmations(failing, [first, second], 'rev-4', [
+      'rev-2',
+      'rev-3',
+      'rev-4',
+    ]).filter((entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite')
+    expect(rule.confirmation?.modelId).toBe('rev-3')
     expect(rule.confirmationStale).toBe(true)
   })
 
@@ -1291,6 +1485,10 @@ describe('outstandingRules', () => {
 
   it('never lists a rule that passed or stood down', () => {
     const outstanding = outstandingRules(attachConfirmations(run, [], 'rev-3'))
+    // Or the loop below runs zero times and this test asserts nothing — and
+    // an empty list is exactly the regression that would silently empty the
+    // "still needs a human" list.
+    expect(outstanding.length).toBeGreaterThan(0)
     for (const rule of outstanding) {
       expect(rule.applicable).toBe(true)
       expect(rule.failed + rule.undecidable).toBeGreaterThan(0)

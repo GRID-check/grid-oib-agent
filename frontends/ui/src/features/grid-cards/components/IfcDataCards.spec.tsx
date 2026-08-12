@@ -107,6 +107,10 @@ const COMPARISON = {
     added: [{ globalId: 'g-new', ifcType: 'IfcDoor', name: 'T-14', storeyName: 'Erdgeschoss' }],
     removed: [],
     changed: [],
+    // The badges read `counts`, not the array lengths: `compare.ts` slices
+    // each list at 500 and keeps the real figures here, so a revision that
+    // added 1 300 elements used to be reported as "Neu 500".
+    counts: { added: 1, removed: 0, changed: 0 },
     unchangedCount: 99,
     totals: { base: 100, revision: 100 },
     truncated: false,
@@ -209,6 +213,28 @@ describe('IfcScheduleCard', () => {
     expect(
       await screen.findByText('The referenced model is not available in this project.')
     ).toBeInTheDocument()
+  })
+
+  it('says a name matched several models, rather than that none of them exist', async () => {
+    // `haus-a` is a substring of BOTH fixtures, which is the case the resolver
+    // refuses. Refusing it correctly and then reporting it as "not available in
+    // this project" sends an architect to re-upload a building the project
+    // holds twice.
+    render(
+      <IfcScheduleCard
+        title="Raumbuch"
+        modelFile="haus-a"
+        storey={null}
+        note={null}
+        projectId="p1"
+      />
+    )
+    expect(
+      await screen.findByText(
+        'Several models in this project match that name, so this card cannot say which building it is about.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/not available in this project/)).not.toBeInTheDocument()
   })
 })
 
@@ -325,6 +351,7 @@ describe('IfcDiffCard', () => {
             { globalId: 'g-gone', ifcType: 'IfcWall', name: 'Innenwand OG', storeyName: 'OG' },
           ],
           changed: [],
+          counts: { added: 0, removed: 1, changed: 0 },
           unchangedCount: 99,
           totals: { base: 100, revision: 99 },
           truncated: false,
@@ -359,6 +386,7 @@ describe('IfcDiffCard', () => {
           })),
           removed: [],
           changed: [],
+          counts: { added: 9, removed: 0, changed: 0 },
           unchangedCount: 99,
           totals: { base: 100, revision: 109 },
           truncated: false,
@@ -375,7 +403,7 @@ describe('IfcDiffCard', () => {
       />
     )
 
-    expect(await screen.findByText('… 3 more')).toBeInTheDocument()
+    expect(await screen.findByText('… 3 more elements')).toBeInTheDocument()
   })
 
   it('carries no heading for a side of the delta that is empty', async () => {
@@ -408,6 +436,27 @@ describe('IfcDiffCard', () => {
       />
     )
     await waitFor(() => expect(screen.getByText(/not available in this project/)).toBeInTheDocument())
+    expect(queriedOps(fetchMock)).toEqual([])
+  })
+
+  it('refuses an ambiguous BASE revision instead of diffing against an arbitrary one', async () => {
+    // The base used to take the first substring hit. A diff names two
+    // buildings, so that produced a full revision history — additions,
+    // deletions, the lot — computed against whichever model happened to sort
+    // first, under a title claiming it was the Voreinreichung.
+    const fetchMock = stubFetch({ models: MODELS, query: COMPARISON })
+    render(
+      <IfcDiffCard
+        title="Änderungen"
+        baseModelFile="haus-a"
+        modelFile="haus-a_v2.ifc"
+        note={null}
+        projectId="p1"
+      />
+    )
+    await waitFor(() =>
+      expect(screen.getByText(/Several models in this project match that name/)).toBeInTheDocument()
+    )
     expect(queriedOps(fetchMock)).toEqual([])
   })
 })
@@ -496,7 +545,7 @@ describe('IfcComplianceCard', () => {
       />
     )
     expect(
-      await screen.findByText('1 of the requested rule ids are not in the catalogue.')
+      await screen.findByText('One of the requested rule ids is not in the catalogue.')
     ).toBeInTheDocument()
   })
 

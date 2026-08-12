@@ -190,3 +190,74 @@ mechanisms replace the eyeball:
    `render()`, on the ORDER of the load path, and on the interaction
    sequences. Its fake is the contract as read from the package; when
    the package is upgraded, that file is what to re-read it against.
+
+---
+
+# Audit backlog
+
+Thirteen parallel audits have now run over this feature: the viewer, the
+renderer contract, the agent, the data path, the analytical drawer, the
+chat round trip, extraction, the wording, accessibility, and the flows
+against Nielsen's heuristics.
+
+**The 38 items this section used to list are closed.** What they were and
+how each was fixed is in the git history, one commit per batch, each
+commit naming the failure rather than the change.
+
+What follows is what is left: verified against the code, deliberately not
+fixed, and each with the reason.
+
+## Known and deliberately not fixed
+
+1. **The section cut shows open shells, not a hatched cap.** `showCap` is
+   passed and the renderer only draws a cap when a 2D overlay has been
+   uploaded for it (`Renderer.uploadSection2DOverlay`), which nothing
+   calls. Generating the cut polygons is real work — see "The section
+   cap" above — and the flag is left on so the section becomes a drawing
+   the moment they exist. Stated in `viewer-camera.ts` rather than
+   promised.
+
+2. **Validation, and the property/material/quantity-set vocabularies, cover
+   the STORED elements.** Past the 200 000-element cap, "43 Bauteile keinem
+   Geschoß zugeordnet" is 43 out of the stored rows, and a property set
+   that occurs only in the dropped tail is missing from the filter list.
+   Making them exact means accumulating the counters during the extraction
+   walk, the way `quantityTotals` already is. Until then `health` carries
+   the cap caveat and both comments say what they cover.
+
+3. **`schedule`, `takeoff` and `profile` read a 50 000-row window** —
+   `loadBimElementsForSchedule`'s own limit, separate from the extraction
+   cap. The `truncated` flag is set and now renders as "diese Zahlen
+   beziehen sich nur auf einen Teil des Modells" rather than as advice to
+   narrow the query, but the window itself is unchanged.
+
+4. **A truncated `compare` is windowed, not sampled.** Both revisions are
+   ordered by GlobalId so the two windows are the same slice of the id
+   space — which is what makes the comparison meaningful at all — but past
+   the limit the elements outside it are simply not compared, and
+   `truncated` is the only thing that says so.
+
+5. **`TREND_DE` in `rules.ts` duplicates `complianceDiff.trend.*`.** The
+   module is server-side and locale-free; it renders one German string for
+   the agent, which has no locale to read. The two wordings are aligned and
+   both carry a note; a shared source would mean giving the agent renderer
+   a dictionary.
+
+## How the next audit should be run
+
+Each of the thirteen was a single-purpose sweep with an explicit lens —
+"the renderer's actual contract", "every counted string at 1", "what a
+keyboard meets" — and a standing instruction to verify each finding
+against the code before reporting it and to say so when a concern turned
+out to be handled a few lines away. That last part is what made the
+results usable: roughly a fifth of what a broad sweep produces is already
+fixed nearby, and a list that includes those costs more to triage than it
+saves.
+
+Two mechanical checks caught things no reading did:
+
+- Running the DB-backed suite (`task db:test:rls`) found five assertions
+  that had been red since `measured`/`truncated` were added to grouped
+  aggregates. Nothing had run it.
+- Temporarily reverting a fix and re-running its new test — every time —
+  caught three tests that passed either way.

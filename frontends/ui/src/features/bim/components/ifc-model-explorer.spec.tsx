@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   IfcElementTable,
@@ -153,6 +153,56 @@ describe('IfcSpatialTree', () => {
   })
 })
 
+describe('IfcElementTable — an empty table has three different reasons', () => {
+  it('does not blame the reader\u2019s filter while the walk is still running', () => {
+    // The walk is two hundred requests on a 200 000-element model. For all of
+    // it the table asserted the building has no elements AND blamed a filter
+    // nobody had set — with the search box and the type select both empty.
+    render(
+      <IfcElementTable
+        elements={[]}
+        isLoading
+        storeyFilter={null}
+        selectedGlobalId={null}
+        onSelect={vi.fn()}
+      />
+    )
+    expect(screen.queryByText(/no element matches/i)).not.toBeInTheDocument()
+    // And no count, because a count is a claim about the building.
+    expect(screen.queryByText(/0 of 0 matches/i)).not.toBeInTheDocument()
+  })
+
+  it('says the walk failed, and offers to run it again', () => {
+    const onRetry = vi.fn()
+    render(
+      <IfcElementTable
+        elements={[]}
+        error
+        onRetry={onRetry}
+        storeyFilter={null}
+        selectedGlobalId={null}
+        onSelect={vi.fn()}
+      />
+    )
+    expect(screen.getByText(/element list could not be loaded/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no element matches/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }))
+    expect(onRetry).toHaveBeenCalled()
+  })
+
+  it('still blames the filter when the filter really is the reason', () => {
+    render(
+      <IfcElementTable
+        elements={ELEMENTS}
+        storeyFilter="Ein Geschoss das es nicht gibt"
+        selectedGlobalId={null}
+        onSelect={vi.fn()}
+      />
+    )
+    expect(screen.getByText(/no element matches/i)).toBeInTheDocument()
+  })
+})
+
 describe('IfcElementTable', () => {
   it('lists every element when nothing is filtered', () => {
     render(
@@ -163,7 +213,10 @@ describe('IfcElementTable', () => {
         onSelect={vi.fn()}
       />
     )
-    expect(screen.getByText('4 of 4 elements')).toBeInTheDocument()
+    // `total` is the FILTERED row count, so "of 4 elements" claimed the
+    // building has four; with a type selected it read "300 of 812 elements"
+    // about 812 walls.
+    expect(screen.getByText('4 of 4 matches')).toBeInTheDocument()
   })
 
   it('narrows to the storey the tree selected', () => {
@@ -175,7 +228,9 @@ describe('IfcElementTable', () => {
         onSelect={vi.fn()}
       />
     )
-    expect(screen.getByText('1 of 1 elements')).toBeInTheDocument()
+    // Singular: the translator substitutes tokens and does not select
+    // plurals, so a one-row result needs its own key.
+    expect(screen.getByText('1 of 1 match')).toBeInTheDocument()
     expect(screen.getByText('Aussenwand OG')).toBeInTheDocument()
     expect(screen.queryByText('Innenwand EG')).not.toBeInTheDocument()
   })
@@ -184,7 +239,7 @@ describe('IfcElementTable', () => {
     render(
       <IfcElementTable elements={ELEMENTS} storeyFilter={null} selectedGlobalId={null} onSelect={vi.fn()} />
     )
-    await userEvent.type(screen.getByLabelText('Search by name…'), 'innen')
+    await userEvent.type(screen.getByLabelText('Search by name, tag or GlobalId…'), 'innen')
     expect(screen.getByText('Innenwand EG')).toBeInTheDocument()
     expect(screen.queryByText('Aussenwand Nord')).not.toBeInTheDocument()
   })
@@ -202,7 +257,7 @@ describe('IfcElementTable', () => {
     render(
       <IfcElementTable elements={ELEMENTS} storeyFilter={null} selectedGlobalId={null} onSelect={vi.fn()} />
     )
-    await userEvent.type(screen.getByLabelText('Search by name…'), 'zzz')
+    await userEvent.type(screen.getByLabelText('Search by name, tag or GlobalId…'), 'zzz')
     expect(screen.getByText('No element matches this filter.')).toBeInTheDocument()
   })
 
@@ -318,7 +373,7 @@ describe('IfcModelHealthPanel', () => {
   it('offers to show the affected elements when it has ids for them', async () => {
     const onShowElements = vi.fn()
     render(<IfcModelHealthPanel health={HEALTH} onShowElements={onShowElements} />)
-    await userEvent.click(screen.getAllByRole('button', { name: 'show in model' })[0])
+    await userEvent.click(screen.getAllByRole('button', { name: 'Show elements' })[0])
     expect(onShowElements).toHaveBeenCalledWith(['g-w4'])
   })
 
@@ -369,6 +424,10 @@ describe('IfcModelCompare', () => {
             },
           ],
           unchangedCount: 38,
+          // The badges read these, NOT the list lengths — the lists are capped
+          // at 500 rows, so a revision that added three thousand elements used
+          // to render "Neu 500".
+          counts: { added: 1, removed: 1, changed: 1 },
           totals: { base: 40, revision: 40 },
           truncated: false,
         },
@@ -399,6 +458,7 @@ describe('IfcModelCompare', () => {
             removed: [],
             changed: [],
             unchangedCount: 20_000,
+            counts: { added: 0, removed: 0, changed: 0 },
             totals: { base: 20_000, revision: 20_000 },
             truncated: true,
           },
@@ -420,7 +480,12 @@ describe('IfcModelCompare', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({}) })))
     render(<IfcModelCompare modelId="model-v2" candidates={CANDIDATES} />)
     await userEvent.click(screen.getByRole('button', { name: 'Compare' }))
-    expect(await screen.findByText('The comparison could not be run.')).toBeInTheDocument()
+    // Named for what it compares. Two panels sit in the Revisionen tab, both
+    // called "vergleichen", and their failure text was byte-identical — so a
+    // reader who ran both could not tell which one had failed.
+    expect(
+      await screen.findByText('The element comparison could not be run.')
+    ).toBeInTheDocument()
     vi.unstubAllGlobals()
   })
 })

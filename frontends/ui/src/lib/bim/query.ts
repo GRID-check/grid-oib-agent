@@ -52,6 +52,7 @@ import {
   diffBimCompliance,
   missingPropertyShoppingList,
   renderBimComplianceDiff,
+  ifcTypeVariants,
   renderBimRules,
   runBimRules,
   summarizeBimRules,
@@ -66,8 +67,8 @@ import {
   type BimRoomSchedule,
 } from './schedule'
 import { healthCaveat, type BimHealth } from './validate'
-import { BIM_ELEMENTS_PAGE_LIMIT } from './types'
-import type { BimModelSummary } from './types'
+import { BIM_ELEMENT_OFFSET_LIMIT, BIM_ELEMENTS_PAGE_LIMIT } from './types'
+import type { BimModelSummary, BimUnits } from './types'
 
 /** Comparison operators a property filter may use. */
 export const BIM_FILTER_OPERATORS = [
@@ -108,6 +109,10 @@ const propertyFilterSchema = z
     /** Search quantity sets instead of property sets. */
     source: z.enum(['property', 'quantity']).default('property'),
   })
+  // Strict for the same reason as the filter above: this is the shape the
+  // agent hand-writes most often, and `{"property": "FireRating"}` for `name`
+  // silently became "no name constraint".
+  .strict()
   .refine(
     (filter) =>
       filter.operator === 'exists' || filter.operator === 'missing' || filter.value !== undefined,
@@ -121,6 +126,33 @@ const propertyFilterSchema = z
   )
 
 export type BimPropertyFilter = z.infer<typeof propertyFilterSchema>
+
+/**
+ * The Hauptnutzung vocabulary the rest of the system uses.
+ *
+ * Free text before, and the rule catalogue silently stands rules down for
+ * anything it does not recognise — so `hauptnutzung: "wohnbau"` or
+ * `"Wohngebäude"` produced "OIB 5 nicht einschlägig — für diese Nutzung nicht
+ * lärmempfindlich" on a residential building. A plausible-sounding
+ * stand-down reads as a verdict and is not one.
+ *
+ * Mirrors `projectProfilePatchOperation`'s published list; an unknown value is
+ * now a rejection the agent is told to correct, not a quiet non-answer.
+ */
+export const BIM_HAUPTNUTZUNG = [
+  'wohnen',
+  'buero',
+  'beherbergung',
+  'versammlung',
+  'gesundheit',
+  'landwirtschaft',
+  'produzierend',
+  'lager',
+  'sonstiges',
+] as const
+
+/** The Hauptnutzung values the rule catalogue understands. */
+export type BimHauptnutzung = (typeof BIM_HAUPTNUTZUNG)[number]
 
 export const bimFilterSchema = z.object({
   /** Canonical IFC type names (`IfcWall`). Matched case-insensitively. */
@@ -137,6 +169,21 @@ export const bimFilterSchema = z.object({
   globalIds: z.array(z.string().trim().min(1).max(64)).max(500).optional(),
   properties: z.array(propertyFilterSchema).max(10).optional(),
 })
+  /**
+   * Strict, because a dropped criterion cannot be detected downstream.
+   *
+   * Zod's default is to STRIP unknown keys. So `{"ifcTypes":["IfcWall"],
+   * "storey":"Erdgeschoss"}` — singular, a very natural slip, and the real key
+   * is `storeys` — became "every wall in the building", came back as
+   * "412 Bauteile erfüllen die Abfrage", and the agent reported 412 external
+   * walls on the ground floor. Nothing anywhere signalled that a criterion had
+   * been discarded. Same for `ifcType`, `nameContain`, and a property filter's
+   * `property`.
+   *
+   * Rejected is recoverable: the caller is told which key it invented and can
+   * correct it. Stripped is not.
+   */
+  .strict()
 
 export type BimFilter = z.infer<typeof bimFilterSchema>
 
@@ -165,12 +212,22 @@ const aggregateSchema = z.object({
     .object({ set: z.string().trim().min(1).max(120), name: z.string().trim().min(1).max(120) })
     .optional(),
   limit: z.number().int().min(1).max(200).default(50),
-})
+}).strict()
 
+/**
+ * Every member is `.strict()`, for the same reason the filter objects are.
+ *
+ * `bimFilterSchema.strict()` rejects an invented key one level down, and this
+ * level accepted anything: `{op: 'aggregate', filters: {...}}` — plural, which
+ * is what the agent's own tool parameter is called — had the key stripped,
+ * `filter` defaulted to `{}`, and the aggregate ran over the WHOLE model. An
+ * unfiltered number reported as a filtered one, which is precisely the failure
+ * the strictness one level down was added to prevent.
+ */
 export const bimQuerySchema = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('overview') }),
-  z.object({ op: z.literal('health') }),
-  z.object({ op: z.literal('schedule') }),
+  z.object({ op: z.literal('overview') }).strict(),
+  z.object({ op: z.literal('health') }).strict(),
+  z.object({ op: z.literal('schedule') }).strict(),
   z.object({
     op: z.literal('compliance'),
     /**
@@ -182,23 +239,23 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
      * a pass, which is the exact failure this subsystem exists to prevent.
      */
     gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
-    hauptnutzung: z.string().trim().max(64).nullish(),
-  }),
+    hauptnutzung: z.enum(BIM_HAUPTNUTZUNG).nullish(),
+  }).strict(),
   z.object({
     /** The same catalog over two revisions, reporting only what MOVED. */
     op: z.literal('compliance-diff'),
     /** The OLDER revision; this model is the newer one. */
     baseModelId: z.string().uuid().optional(),
     gebaeudeklasse: z.number().int().min(1).max(5).nullish(),
-    hauptnutzung: z.string().trim().max(64).nullish(),
-  }),
-  z.object({ op: z.literal('profile') }),
+    hauptnutzung: z.enum(BIM_HAUPTNUTZUNG).nullish(),
+  }).strict(),
+  z.object({ op: z.literal('profile') }).strict(),
   z.object({
     op: z.literal('takeoff'),
     quantity: z.string().trim().min(1).max(120).default('NetSideArea'),
     byMaterial: z.boolean().default(false),
     filter: bimFilterSchema.default({}),
-  }),
+  }).strict(),
   z.object({
     op: z.literal('compare'),
     /**
@@ -212,8 +269,8 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     baseModelId: z.string().uuid().optional(),
     /** Ceiling on elements read per side. */
     limit: z.number().int().min(100).max(50_000).default(20_000),
-  }),
-  z.object({ op: z.literal('types') }),
+  }).strict(),
+  z.object({ op: z.literal('types') }).strict(),
   z.object({
     op: z.literal('elements'),
     filter: bimFilterSchema.default({}),
@@ -221,17 +278,46 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     // conversational page, which stays small on purpose — 25 rows is an answer,
     // 1 000 is a data dump no one asked the model to narrate.
     limit: z.number().int().min(1).max(BIM_ELEMENTS_PAGE_LIMIT).default(25),
-    offset: z.number().int().min(0).max(100_000).default(0),
-  }),
-  z.object({ op: z.literal('element'), globalId: z.string().trim().min(1).max(64) }),
+    // The extraction cap, not half of it. At 100 000 the viewer's own paged
+    // walk — six pages of 1 000 per round, continuing while a page comes back
+    // full — asked for `offset: 101000` on any model over ~101 000 elements,
+    // the schema rejected it, and the whole element index failed rather than
+    // returning a partial one. That is the "picking a wall deselects it,
+    // filtering a storey empties the viewport" failure, for every model
+    // between the two numbers.
+    offset: z.number().int().min(0).max(BIM_ELEMENT_OFFSET_LIMIT).default(0),
+  }).strict(),
+  z.object({ op: z.literal('element'), globalId: z.string().trim().min(1).max(64) }).strict(),
   z.object({
     op: z.literal('properties'),
     ifcType: z.string().trim().min(1).max(80).optional(),
     /** Cap on distinct values reported per property. */
     maxValues: z.number().int().min(1).max(50).default(10),
-  }),
+  }).strict(),
   aggregateSchema,
-])
+]).superRefine((request, ctx) => {
+  /**
+   * A grouping the caller asked for and did not describe is unanswerable.
+   *
+   * It used to run UNGROUPED: `groupExpression` returns null, the repository
+   * skips the `GROUP BY` — and then `renderSummary` branches on
+   * `request.groupBy` being truthy and takes the grouped path anyway. "Wie
+   * verteilen sich die Feuerwiderstandsklassen?" answered `(ohne Angabe):
+   * 412.`, and the agent reported that 412 walls have no fire rating. The
+   * question was never put to the database.
+   *
+   * On the union rather than on `aggregateSchema`, because a discriminated
+   * union's members must be plain objects — a refined member is a `ZodEffects`
+   * and the discriminator can no longer be read off it.
+   */
+  if (request.op === 'aggregate' && request.groupBy === 'property' && !request.groupProperty) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['groupProperty'],
+      message: 'groupBy "property" needs groupProperty {set, name}',
+    })
+  }
+})
 
 export type BimQuery = z.infer<typeof bimQuerySchema>
 
@@ -278,6 +364,8 @@ export interface BimQueryResult {
    */
   propertyScan?: { scanned: number; total: number; complete: boolean }
   groups?: BimGroupedCount[]
+  /** The model's own unit assignment, so an aggregate can name its unit. */
+  units?: BimUnits
   total?: number
   /**
    * `total` is a LOWER BOUND, not the count: past `COUNT_CEILING` matches the
@@ -430,16 +518,34 @@ function valueCondition(filter: BimPropertyFilter): SQL | null {
     case 'exists':
     case 'missing':
       return null
+    // A NUMERIC `eq`/`neq` compares numerically, like `gt`/`lt` already do.
+    // Comparing `#>> '{}'` text against `String(value)` made the two sides
+    // disagree on rendering: JavaScript writes `1e-7` where Postgres stores
+    // `0.0000001`, and a stored `2.50` never equals the string `2.5`. The
+    // filter matched nothing and the answer came back "Kein Bauteil erfüllt
+    // die Abfrage" — a fact about number formatting, reported as a fact about
+    // the building. (`rule-inputs.ts` grew `renderScalar` for exactly this
+    // disagreement; this path never used it.)
     case 'eq':
-      return typeof filter.value === 'string'
-        ? sql`lower(${asText}) = lower(${filter.value})`
-        : sql`${asText} = ${String(filter.value)}`
+      return typeof filter.value === 'number'
+        ? numericCondition(sql`=`, filter.value)
+        : sql`lower(${asText}) = lower(${String(filter.value)})`
     case 'neq':
-      return typeof filter.value === 'string'
-        ? sql`lower(${asText}) IS DISTINCT FROM lower(${filter.value})`
-        : sql`${asText} IS DISTINCT FROM ${String(filter.value)}`
+      return typeof filter.value === 'number'
+        ? // NOT the numeric-equal condition, rather than a `<>`: an element
+          // whose value is not a number — and one that does not carry the
+          // property at all — satisfies "is not 2.5", and a bare `<>` inside
+          // the CASE would report `false` for both.
+          sql`NOT (CASE WHEN jsonb_typeof(p.prop_value) = 'number' THEN (p.prop_value)::numeric = ${filter.value} ELSE false END)`
+        : sql`lower(${asText}) IS DISTINCT FROM lower(${String(filter.value)})`
     case 'contains':
-      return sql`${asText} ILIKE ${`%${String(filter.value)}%`}`
+      // `likeContains`, not a raw interpolation. `%` and `_` are ILIKE
+      // wildcards: a filter for `WC_1` also matched `WC-1` and `WCx1`, and a
+      // value of `%` matched every element that carries the property at all —
+      // an inflated count, reported as a fact. Three name/material/
+      // classification predicates already route through this; the property
+      // path was the one that did not.
+      return sql`${asText} ILIKE ${likeContains(String(filter.value))}`
     case 'gt':
       return numericCondition(sql`>`, Number(filter.value))
     case 'gte':
@@ -549,15 +655,34 @@ export function buildBimPredicate(
  */
 const IFC_GLOBAL_ID = /^[0-9A-Za-z_$]{22}$/
 
+/**
+ * A user string as a literal `ILIKE` substring pattern.
+ *
+ * `%` and `_` are wildcards to Postgres and ordinary characters to the person
+ * who typed them. Unescaped, `nameContains: "WC_1"` also matches `WC-1`,
+ * `WC 1` and `WCx1` — and room and component names in an IFC export are full
+ * of underscores, so this is the common case rather than the adversarial one.
+ * The agent then reports a count over rooms the reader did not ask about.
+ *
+ * The backslash must be escaped first, or it would escape the escapes.
+ */
+function likeContains(value: string): string {
+  return `%${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
+}
+
 /** Conditions that are the same however the query is planned. */
 function sharedConditions(filter: BimFilter): SQL[] {
   const conditions: Array<SQL | undefined> = []
 
   if (filter.ifcTypes?.length) {
+    // Every spelling of each requested type — see `ifcTypeVariants`. An IFC4
+    // export whose walls are `IfcWallStandardCase` used to answer a filter for
+    // `IfcWall` with nothing at all, and the agent read that as a building
+    // with no walls.
     conditions.push(
       inArray(
         sql`lower(${bimElements.ifcType})`,
-        filter.ifcTypes.map((type) => type.toLowerCase())
+        [...new Set(filter.ifcTypes.flatMap(ifcTypeVariants))]
       )
     )
   }
@@ -585,15 +710,15 @@ function sharedConditions(filter: BimFilter): SQL[] {
     conditions.push(inArray(bimElements.globalId, filter.globalIds))
   }
   if (filter.nameContains) {
-    conditions.push(ilike(bimElements.name, `%${filter.nameContains}%`))
+    conditions.push(ilike(bimElements.name, likeContains(filter.nameContains)))
   }
   if (filter.material) {
     conditions.push(
-      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${bimElements.materials}) AS m(name) WHERE m.name ILIKE ${`%${filter.material}%`})`
+      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${bimElements.materials}) AS m(name) WHERE m.name ILIKE ${likeContains(filter.material)})`
     )
   }
   if (filter.classification) {
-    const pattern = `%${filter.classification}%`
+    const pattern = likeContains(filter.classification)
     conditions.push(
       sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${bimElements.classifications}) AS c(entry) WHERE (c.entry ->> 'identification') ILIKE ${pattern} OR (c.entry ->> 'name') ILIKE ${pattern} OR (c.entry ->> 'system') ILIKE ${pattern})`
     )
@@ -652,10 +777,24 @@ function groupExpression(
     case 'material':
       return sql`${bimElements.materials} ->> 0`
     case 'property':
-      return groupProperty
-        ? sql`${bimElements.properties} -> ${groupProperty.set} ->> ${groupProperty.name}`
-        : null
+      return groupProperty ? groupPropertyExpression(groupProperty) : null
   }
+}
+
+/**
+ * The value one element carries for the property a `group_by: 'property'` names.
+ *
+ * The same case-insensitive, set-optional lookup `propertyPredicate` and
+ * `quantityExpression` use, and for the same reason. It used to be a literal
+ * `properties -> <set> ->> <name>`, so the identical `{set, name}` that
+ * MATCHED 412 walls as a filter grouped all 412 under "(ohne Angabe)" — which
+ * is exactly the "412 walls have no fire rating" answer the schema's own
+ * `superRefine` was added to prevent, arrived at from the other side.
+ */
+function groupPropertyExpression(groupProperty: { set: string; name: string }): SQL {
+  const conditions: SQL[] = [sql`lower(p.prop_name) = lower(${groupProperty.name})`]
+  if (groupProperty.set) conditions.push(sql`lower(s.set_name) = lower(${groupProperty.set})`)
+  return sql`(SELECT p.prop_value #>> '{}' FROM ${unnestedProperties('property')} WHERE ${sql.join(conditions, sql` AND `)} LIMIT 1)`
 }
 
 /**
@@ -673,6 +812,12 @@ function quantityExpression(quantity: string, quantitySet: string | undefined): 
   ]
   if (quantitySet) conditions.push(sql`lower(s.set_name) = lower(${quantitySet})`)
   return sql`(SELECT (p.prop_value)::numeric FROM ${unnestedProperties('quantity')} WHERE ${sql.join(conditions, sql` AND `)} LIMIT 1)`
+}
+
+/** The per-element value the metric aggregates, or null for a bare count. */
+function metricValueExpression(request: z.infer<typeof aggregateSchema>): SQL | null {
+  if (request.metric === 'count' || !request.quantity) return null
+  return quantityExpression(request.quantity, request.quantitySet)
 }
 
 function metricExpression(request: z.infer<typeof aggregateSchema>): SQL | null {
@@ -695,6 +840,37 @@ function formatNumber(value: number): string {
 }
 
 /** German one-liner the agent can quote verbatim without doing arithmetic. */
+/**
+ * The unit symbol a quantity is measured in, per the model's own
+ * `IfcUnitAssignment`.
+ *
+ * Deliberately conservative: the dimension is inferred from the quantity's
+ * NAME, and a name this does not recognise gets no symbol rather than a
+ * guessed one. A missing unit makes the agent quote a bare number, which is
+ * what it did for every aggregate until now; a WRONG unit would have it write
+ * "4 120 000 m²" for a model in millimetres, which is worse than silent.
+ *
+ * The IFC quantity vocabulary is small and stable — `Qto_*` sets use
+ * `…Area`, `…Volume`, `…Length`/`Width`/`Height`/`Perimeter`/`Depth`/
+ * `Thickness` — so this covers the quantities anyone aggregates.
+ */
+function quantityUnit(
+  request: BimQuery,
+  units: BimUnits | undefined
+): string {
+  if (request.op !== 'aggregate' || request.metric === 'count' || !request.quantity) return ''
+  if (!units) return ''
+  const name = request.quantity.toLowerCase()
+  const unit = name.includes('area')
+    ? units.area
+    : name.includes('volume')
+      ? units.volume
+      : /length|width|height|perimeter|depth|thickness/.test(name)
+        ? units.length
+        : null
+  return unit?.symbol ? ` ${unit.symbol}` : ''
+}
+
 function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'>): string {
   switch (request.op) {
     case 'overview': {
@@ -703,7 +879,7 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
       const parts = [
         `Modell „${overview.projectName ?? result.model.filename}“ (${overview.schema ?? 'IFC'})`,
         `${overview.totals.elements} Bauteile`,
-        `${overview.totals.storeys} Geschosse`,
+        `${overview.totals.storeys} Geschoße`,
         `${overview.totals.spaces} Räume`,
       ]
       if (overview.quantityTotals.netFloorAreaM2 !== null) {
@@ -734,7 +910,7 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
           ? ` ${schedule.totals.roomsWithoutArea} Räume ohne Flächenangabe sind darin NICHT enthalten.`
           : ''
       return (
-        `Raumbuch: ${schedule.totals.rooms} Räume in ${schedule.storeys.length} Geschossen, ` +
+        `Raumbuch: ${schedule.totals.rooms} Räume in ${schedule.storeys.length} Geschoßen, ` +
         `Netto-Grundfläche ${schedule.totals.netFloorArea ?? '—'} ${schedule.units.area}.${missing}`
       )
     }
@@ -804,19 +980,41 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
     case 'aggregate': {
       const groups = result.groups ?? []
       if (groups.length === 0) return 'Kein Bauteil erfüllt die Abfrage.'
-      const unit = request.metric === 'count' ? '' : ''
+      // The model's own unit symbol, the way `overview` and `schedule` already
+      // attach one. This used to be `request.metric === 'count' ? '' : ''` — a
+      // placeholder never filled — so a model declaring millimetres answered
+      // "4120000" and the agent wrote m².
+      const unit = quantityUnit(request, result.units)
+      /**
+       * How many elements CARRIED the quantity, beside how many matched.
+       *
+       * `sum`/`avg` skip elements that publish nothing, so a hundred rooms of
+       * which ten have a floor area produced "250 über 100 Bauteile" — a sum
+       * of ten values asserted over a hundred elements. `takeoff` and
+       * `schedule` have carried this distinction from the start; the operation
+       * the tool description calls "how you answer how much" did not.
+       */
+      const over = (group: { elements: number; measured: number }): string =>
+        group.measured === group.elements
+          ? `${group.elements} Bauteile`
+          : `${group.measured} von ${group.elements} Bauteilen ` +
+            `(${group.elements - group.measured} ohne Wert)`
+
       if (!request.groupBy) {
         const only = groups[0]
         return request.metric === 'count'
           ? `${only.elements} Bauteil${only.elements === 1 ? '' : 'e'}.`
-          : `${request.metric}(${request.quantity}) = ${only.metric === null ? '—' : formatNumber(only.metric)}${unit} über ${only.elements} Bauteile.`
+          : `${request.metric}(${request.quantity}) = ${only.metric === null ? '—' : formatNumber(only.metric)}${unit} über ${over(only)}.`
       }
       const rendered = groups
         .map((group) => {
           const label = group.key ?? '(ohne Angabe)'
-          return request.metric === 'count'
-            ? `${label}: ${group.elements}`
-            : `${label}: ${group.metric === null ? '—' : formatNumber(group.metric)} (${group.elements})`
+          if (request.metric === 'count') return `${label}: ${group.elements}`
+          const measured =
+            group.measured === group.elements
+              ? `${group.elements}`
+              : `${group.measured}/${group.elements}`
+          return `${label}: ${group.metric === null ? '—' : formatNumber(group.metric)}${unit} (${measured})`
         })
         .join(', ')
       return `${rendered}.`
@@ -862,7 +1060,47 @@ export async function runBimQuery(
   // or the vocabulary, which orphaning does not distort — attaching the caveat
   // there would train the agent to ignore it.
   const CAVEATED_OPS = new Set(['overview', 'types', 'elements', 'aggregate'])
-  const caveat = health && CAVEATED_OPS.has(request.op) ? healthCaveat(health) : null
+  const healthNote = health && CAVEATED_OPS.has(request.op) ? healthCaveat(health) : null
+
+  /**
+   * The extraction cap, said out loud to the agent.
+   *
+   * `summary.truncatedAt` records that the file was bigger than the stored
+   * element list. Every op that reads ROWS therefore answers over part of the
+   * building, while `overview` — which reads the summary — answers over all of
+   * it. The agent could put both in one reply and had no way to know they
+   * disagreed: "350 000 Bauteile" from the overview, and a filtered count over
+   * the 200 000 that were stored.
+   *
+   * `compliance` and `health` were the two that read rows and said nothing.
+   * `compliance` is the worse of the pair by a distance: the Prüfbuch, the BCF
+   * export and a signed human confirmation all read "X erfüllt / Y nicht
+   * erfüllt" as verdicts over the building, when a capped model means they are
+   * verdicts over the part of it that was stored. `health` reports orphan and
+   * duplicate-GlobalId counts over the same capped list — "43 Bauteile keinem
+   * Geschoß zugeordnet" out of 200 000, with 150 000 never examined.
+   */
+  const ROW_READING_OPS = new Set([
+    'types',
+    'elements',
+    'aggregate',
+    'schedule',
+    'takeoff',
+    'compare',
+    'compliance',
+    'compliance-diff',
+    'health',
+    'profile',
+    'properties',
+  ])
+  const truncatedAt = model.summary?.truncatedAt ?? null
+  const capNote =
+    truncatedAt !== null && ROW_READING_OPS.has(request.op)
+      ? `Achtung: von diesem Modell sind nur ${truncatedAt} Bauteile gespeichert — die Datei ist größer. ` +
+        `Jede Zahl aus dieser Abfrage bezieht sich auf den gespeicherten Teil, nicht auf das ganze Gebäude.`
+      : null
+
+  const caveat = [capNote, healthNote].filter(Boolean).join(' ') || null
 
   const finish = (partial: Omit<BimQueryResult, 'summary'>): BimQueryResult => ({
     ...partial,
@@ -1002,9 +1240,18 @@ export async function runBimQuery(
 
     case 'profile': {
       if (!model.summary) throw new BimModelNotReadyError('failed', 'Model has no summary')
-      const { elements } = await loadBimElementsForSchedule(context.modelId, context.organizationId)
+      // `truncated` was destructured away here and nowhere else. The
+      // Hauptnutzung is classified from the `IfcSpace` names that fell inside
+      // the row window, and it is the fact a Gebäudeklasse — and therefore
+      // half the rule catalogue — is decided from downstream. A suggestion
+      // drawn from part of the building must say so.
+      const { elements, truncated } = await loadBimElementsForSchedule(
+        context.modelId,
+        context.organizationId
+      )
       return finish({
         ...modelBase,
+        truncated,
         profileSuggestions: deriveProfileSuggestions({
           summary: model.summary,
           spaceNames: elements
@@ -1047,9 +1294,21 @@ export async function runBimQuery(
         where: buildBimPredicate(request.filter, { searchKeysIndexed: model.searchKeysIndexed }),
         groupExpression: groupExpression(request.groupBy, request.groupProperty),
         metricExpression: metricExpression(request),
+        metricValueExpression: metricValueExpression(request),
         limit: request.limit,
       })
-      return finish({ ...modelBase, groups })
+      // The model's units travel with the answer so the summary can name
+      // them — the aggregate is the one quantity operation that reported bare
+      // numbers.
+      return finish({
+        ...modelBase,
+        groups,
+        units: model.summary?.units,
+        // The generic "Weitere Treffer vorhanden" line the tool appends is
+        // exactly right here: there ARE more groups, and narrowing or raising
+        // the limit is what to do about it.
+        truncated: groups.some((group) => group.truncated),
+      })
     }
   }
 }

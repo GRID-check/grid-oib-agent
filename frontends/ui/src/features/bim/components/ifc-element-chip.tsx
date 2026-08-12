@@ -18,6 +18,7 @@
 import Link from 'next/link'
 import { Box } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useTranslations } from '@/i18n'
 import type { BimElementLink } from '../lib/element-question'
 import { elementLinkHref } from '../lib/element-question'
 
@@ -27,14 +28,22 @@ export interface IfcElementChipProps {
 }
 
 export function IfcElementChip({ link, children }: IfcElementChipProps): JSX.Element {
+  const t = useTranslations('bim')
   const view = link.view
   // What the chip promises to do, spelled out for a screen reader — "Wand W-12"
   // alone does not say that following it opens the 3D model.
+  // Through the dictionary, like every other string a reader sees. These were
+  // three hardcoded German sentences with no `useTranslations` in the file, so
+  // an English reader's screen reader announced them in German.
+  // `view.element` is a GlobalId, not a name (`model-link.ts`), so
+  // interpolating it announced "Bauteil 1kTvQ9x8n5RfBW2$hK0aZq im Modell
+  // öffnen" — 22 characters of base64 read out one at a time. The chip's own
+  // text is the name, and a screen reader reads it with the link.
   const target = view.element
-    ? `Bauteil ${view.element} im Modell öffnen`
+    ? t('card.openElement')
     : view.storey
-      ? `Geschoss ${view.storey} im Modell öffnen`
-      : 'Modell öffnen'
+      ? t('card.openStorey', { name: view.storey })
+      : t('card.openModel')
 
   return (
     <Link

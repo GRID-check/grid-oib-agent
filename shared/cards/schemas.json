@@ -1626,7 +1626,7 @@
       "type": "object"
     },
     "IfcHighlight": {
-      "description": "One set of model elements to call out, with a verdict.\n\nGive EITHER ``match`` or ``global_ids``, and prefer ``match`` whenever the\nanswer is about a set rather than about elements you named. An id list has\nto travel through the model's context, so \"the 420 external walls\" arrived\nas whatever fitted and the card highlighted a fraction of the answer while\nthe legend claimed all of it. A filter is re-run in the browser: the whole\nset lights up, and it costs the model a filter it has already written.",
+      "description": "One set of model elements to call out, with a verdict.\n\nEXACTLY ONE of ``match`` or ``global_ids`` \u2014 never both, never neither.\n(Stated here because the rendered card catalogue lists a model's fields\nfrom ``model_fields`` and never sees a ``model_validator``: both selectors\ntherefore appear as plain optionals, and the worked example \u2014 one group of\neach kind \u2014 reads as permission to supply both. A highlight that does is\ndropped, taking its whole card with it.)\n\nPrefer ``match`` whenever the\nanswer is about a set rather than about elements you named. An id list has\nto travel through the model's context, so \"the 420 external walls\" arrived\nas whatever fitted and the card highlighted a fraction of the answer while\nthe legend claimed all of it. A filter is re-run in the browser: the whole\nset lights up, and it costs the model a filter it has already written.",
       "properties": {
         "global_ids": {
           "anyOf": [
@@ -2185,7 +2185,7 @@
           "type": "array"
         },
         "preview": {
-          "description": "One row per changed field; use \"\u2014\" for before when the fact was previously unknown",
+          "description": "Optional and not rendered. The card builds its before/after rows from the PATCH and the live profile (`buildPatchPreviewRows`), never from a model-supplied preview \u2014 what the user consents to has to be what is written. Kept as an optional field rather than removed so an older stored card still validates.",
           "items": {
             "$ref": "#/$defs/ProjectProfilePatchPreviewItem"
           },
@@ -2212,8 +2212,7 @@
       "required": [
         "title",
         "rationale",
-        "patch",
-        "preview"
+        "patch"
       ],
       "title": "ProjectProfilePatchCard",
       "type": "object"

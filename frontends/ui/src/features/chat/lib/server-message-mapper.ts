@@ -34,7 +34,7 @@
 
 import type { Message } from '@/lib/db/schema'
 import type { ChatMessage, ErrorCardData, FileCardData, MessageType, ThinkingStep } from '../types'
-import type { GridCard } from '@/shared/cards/schemas'
+import { validateGridCards } from '@/shared/cards/schemas'
 import { sanitizeCardInteractions } from '@/features/grid-cards/card-decision'
 import { decodeCitations } from './citations'
 
@@ -121,7 +121,12 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(citations ? { citations } : {}),
     ...(metadata.errorData ? { errorData: metadata.errorData as ErrorCardData } : {}),
     ...(metadata.fileData ? { fileData: metadata.fileData as FileCardData } : {}),
-    ...(Array.isArray(metadata.cards) ? { cards: metadata.cards as GridCard[] } : {}),
+    // Validated, not cast. The live websocket path runs `validateGridCards`;
+    // this one — every card read back out of the database — did not, so a
+    // single row written under a different schema version reached a renderer
+    // that indexes a lookup table by an unvalidated field, threw during
+    // render, and blanked the WHOLE conversation rather than that one card.
+    ...(Array.isArray(metadata.cards) ? { cards: validateGridCards(metadata.cards) } : {}),
     // Restored WITH their answers: a card whose patch was already applied must
     // not come back offering the button again (see card-decision.ts). Narrowed
     // rather than cast — this jsonb blob is the only card state not written by

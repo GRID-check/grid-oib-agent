@@ -21,7 +21,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-const { buildBimPredicate } = await import('./query')
+const { buildBimPredicate, bimFilterSchema, bimQuerySchema } = await import('./query')
 
 const dialect = new PgDialect()
 
@@ -116,5 +116,147 @@ describe('the property-filter pre-filter', () => {
     })
 
     expect(sql).not.toContain('search_keys')
+  })
+})
+
+/**
+ * What the schema refuses, and why refusing beats stripping.
+ *
+ * Zod's default is to drop unknown keys, which for a FILTER is the worst
+ * possible failure: the query still runs, over a wider set than the caller
+ * asked for, and nothing downstream can tell that a criterion was discarded.
+ * The agent then reports a filtered count that was never filtered.
+ */
+describe('the query schema', () => {
+  const filter = (value: unknown) => bimFilterSchema.safeParse(value)
+
+  it('rejects a filter key it does not know instead of dropping it', () => {
+    // Singular `storey` is a very natural slip; the real key is `storeys`.
+    // Stripped, this became "every wall in the building" and came back as
+    // "412 Bauteile erfüllen die Abfrage".
+    const result = filter({ ifcTypes: ['IfcWall'], storey: 'Erdgeschoss' })
+    expect(result.success).toBe(false)
+  })
+
+  it('names the key it did not recognise, so the caller can correct it', () => {
+    const result = filter({ ifcType: 'IfcWall' })
+    expect(JSON.stringify(result.error?.issues)).toContain('ifcType')
+  })
+
+  it('still accepts every key it does know', () => {
+    expect(
+      filter({
+        ifcTypes: ['IfcWall'],
+        storeys: ['Erdgeschoss'],
+        nameContains: 'Aussen',
+        material: 'Beton',
+        classification: 'Ifc',
+        globalIds: ['abc'],
+        properties: [{ set: 'Pset_WallCommon', name: 'FireRating', operator: 'exists' }],
+      }).success
+    ).toBe(true)
+  })
+
+  it('rejects a property filter with an invented field', () => {
+    expect(filter({ properties: [{ property: 'FireRating', operator: 'exists' }] }).success).toBe(
+      false
+    )
+  })
+
+  it('refuses to group by a property without saying which', () => {
+    // It used to run UNGROUPED and then render the grand total as one group
+    // called "(ohne Angabe)" — so "wie verteilen sich die
+    // Feuerwiderstandsklassen?" answered that 412 walls have none.
+    const result = bimQuerySchema.safeParse({ op: 'aggregate', metric: 'count', groupBy: 'property' })
+    expect(result.success).toBe(false)
+    expect(JSON.stringify(result.error?.issues)).toContain('groupProperty')
+  })
+
+  it('accepts the same grouping once the property is named', () => {
+    expect(
+      bimQuerySchema.safeParse({
+        op: 'aggregate',
+        metric: 'count',
+        groupBy: 'property',
+        groupProperty: { set: 'Pset_WallCommon', name: 'FireRating' },
+      }).success
+    ).toBe(true)
+  })
+
+  it('rejects an invented key at the TOP level too, not only inside the filter', () => {
+    // `filters` — plural, and the name of the agent's own tool parameter —
+    // was stripped, `filter` defaulted to `{}`, and the aggregate ran over
+    // the whole model. An unfiltered number reported as a filtered one, which
+    // is the failure the strictness one level down was added to prevent.
+    const result = bimQuerySchema.safeParse({
+      op: 'aggregate',
+      metric: 'count',
+      filters: { ifcTypes: ['IfcWall'] },
+    })
+    expect(result.success).toBe(false)
+    expect(JSON.stringify(result.error?.issues)).toContain('filters')
+  })
+
+  it.each(['overview', 'health', 'schedule', 'types', 'profile'] as const)(
+    'rejects a filter handed to %s, which reads the whole model',
+    (op) => {
+      expect(bimQuerySchema.safeParse({ op, filter: { ifcTypes: ['IfcWall'] } }).success).toBe(false)
+    }
+  )
+
+  it('lets the viewer page past the extraction cap', () => {
+    // The walk advances six pages of 1 000 per round while pages come back
+    // full. A ceiling of 100 000 — half the 200 000-element extraction cap —
+    // made one round 400, `Promise.all` reject, and the WHOLE element index
+    // fail rather than return a partial one, for every model between the two
+    // numbers. Selection, storey isolation and highlights die with it.
+    expect(bimQuerySchema.safeParse({ op: 'elements', offset: 150_000 }).success).toBe(true)
+    // Still bounded: an unbounded OFFSET is a slow sequential scan on demand.
+    expect(bimQuerySchema.safeParse({ op: 'elements', offset: 10_000_000 }).success).toBe(false)
+  })
+})
+
+describe('what a property predicate compiles to', () => {
+  it('escapes the ILIKE wildcards in a `contains` value', () => {
+    // `%` and `_` are wildcards. `WC_1` also matched `WC-1` and `WCx1`, and a
+    // value of `%` matched every element carrying the property at all — an
+    // inflated count reported as a fact. Three sibling predicates already
+    // route through `likeContains`; this one did not.
+    const { params } = compile({ properties: [{ name: 'Raumnummer', operator: 'contains', value: 'WC_1', source: 'property' }] })
+    expect(params).toContain('%WC\\_1%')
+  })
+
+  it('compares a numeric equality numerically, not as rendered text', () => {
+    // `#>> '{}'` against `String(value)` made the two sides disagree on
+    // rendering: JavaScript writes `1e-7` where Postgres stores `0.0000001`,
+    // and a stored `2.50` never equals the string `2.5`. Nothing matched, and
+    // the answer was "Kein Bauteil erfüllt die Abfrage" — a fact about number
+    // formatting, reported as a fact about the building.
+    const { sql: text, params } = compile({
+      properties: [{ name: 'Dicke', operator: 'eq', value: 0.0000001, source: 'property' }],
+    })
+    expect(text).toContain('::numeric')
+    expect(params).toContain(0.0000001)
+    expect(params).not.toContain('1e-7')
+  })
+
+  it('keeps a STRING equality case-insensitive and textual', () => {
+    // "REI 90", "rei 90" and "Rei 90" all occur in the wild, and a filter that
+    // returns zero rows over capitalisation is indistinguishable from a
+    // building with no fire-rated walls.
+    const { sql: text } = compile({
+      properties: [{ name: 'FireRating', operator: 'eq', value: 'REI 90', source: 'property' }],
+    })
+    expect(text).toContain('lower(')
+  })
+
+  it('counts an element that does not carry the property as "not 2.5"', () => {
+    // A bare `<>` inside the numeric CASE reports `false` for a non-numeric
+    // value and for a missing property, so both would be excluded from a
+    // filter they in fact satisfy.
+    const { sql: text } = compile({
+      properties: [{ name: 'Dicke', operator: 'neq', value: 2.5, source: 'property' }],
+    })
+    expect(text).toContain('NOT (CASE WHEN')
   })
 })

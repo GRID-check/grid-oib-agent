@@ -20,12 +20,30 @@ import {
   type BimElementRow,
   type BimModelRow,
 } from '@/lib/db/schema'
+import { ifcTypeVariants } from './rules'
 import { buildSearchKeys, buildStoredRuleInputs } from './rule-inputs'
 import type { StoredRuleInputs } from './rule-inputs'
+import { BIM_ELEMENTS_PAGE_LIMIT } from './types'
 import type { BimElement, BimModelStatus, BimModelSummary } from './types'
 
-/** Hard cap for any single element page the API will serve. */
-export const BIM_ELEMENT_PAGE_LIMIT = 500
+/**
+ * Hard cap for any single element page the API will serve.
+ *
+ * Re-exported from `types.ts` rather than declared here, and that is the whole
+ * point of this line. It used to be its own `500` while the query schema and
+ * the viewer's page walk both used `BIM_ELEMENTS_PAGE_LIMIT` (1 000). The two
+ * were equal in effect until the schema's ceiling was raised from 200, at
+ * which point this clamp started silently cutting every page in half — and the
+ * viewer's walk terminates on a short page, so it read 500 rows and stopped.
+ *
+ * For every model over 500 elements that meant: clicking a wall deselected
+ * instead of selecting it (the pick's expressId was not in the index), a
+ * storey filter emptied the viewport, the element table said "500 von 500",
+ * and a highlight from the agent reported real elements as "not in this
+ * model". All silently, and all from two constants that were supposed to be
+ * one number.
+ */
+export const BIM_ELEMENT_PAGE_LIMIT = BIM_ELEMENTS_PAGE_LIMIT
 
 /** Rows per INSERT when writing an extraction result. */
 const ELEMENT_INSERT_BATCH = 500
@@ -537,6 +555,17 @@ export interface BimGroupedCount {
   key: string | null
   elements: number
   metric: number | null
+  /**
+   * How many of {@link elements} actually published the aggregated quantity.
+   *
+   * Equal to `elements` for a `count` metric. Lower whenever some elements do
+   * not carry the quantity — which is the normal case, and the difference
+   * between "250 m² über 100 Räume" and the truth, "250 m² über 10 von 100
+   * Räumen; 90 führen keine Fläche".
+   */
+  measured: number
+  /** More groups matched than the limit allowed. Identical on every row. */
+  truncated: boolean
 }
 
 /**
@@ -552,6 +581,11 @@ export async function aggregateBimElements(input: {
   where?: ReturnType<typeof and>
   groupExpression: ReturnType<typeof sql> | null
   metricExpression: ReturnType<typeof sql> | null
+  /**
+   * The per-element value the metric aggregates, for counting how many
+   * elements actually CARRIED one. See `measured` on the row.
+   */
+  metricValueExpression: ReturnType<typeof sql> | null
   limit: number
 }): Promise<BimGroupedCount[]> {
   const db = getDb()
@@ -566,11 +600,28 @@ export async function aggregateBimElements(input: {
         key: sql<string | null>`${groupKey}`.as('group_key'),
         elements: count(),
         metric: sql<string | null>`${metric}`.as('metric'),
+        // How many of those elements published the quantity at all.
+        //
+        // `sum()` and `avg()` skip nulls, so a hundred rooms of which ten
+        // carry a `NetFloorArea` produced "250 über 100 Bauteile" — a sum of
+        // ten values, asserted over a hundred elements. `count(expr)` counts
+        // non-nulls, which is exactly the contributor count.
+        measured: input.metricValueExpression
+          ? sql<number>`count(${input.metricValueExpression})`.as('measured')
+          : count(),
       })
       .from(bimElements)
       .where(predicate)
-      .orderBy(desc(count()))
-      .limit(limit)
+      // The count first, then the key, so the cut is REPRODUCIBLE. Postgres
+      // breaks a tie however the plan happens to fall, so two runs of the same
+      // Flächenaufstellung could return different groups at the boundary and
+      // the reader saw a table that changed under a refresh.
+      .orderBy(desc(count()), asc(sql`1`))
+      // One more than asked for, so the caller can tell a full page from a
+      // complete answer. A thirty-storey building grouped by storey returned
+      // the top 25 and read as the whole Flächenaufstellung; five storeys were
+      // simply absent, and the agent's own sum of the list came up short.
+      .limit(limit + 1)
     return input.groupExpression ? query.groupBy(sql`1`) : query
   })
 
@@ -578,10 +629,14 @@ export async function aggregateBimElements(input: {
   // a STRING from node-postgres (numeric has no lossless JS representation).
   // Coercing at the repository boundary is the documented rule for raw SQL
   // results; skipping it would put "42.5" into a field typed `number`.
-  return rows.map((row) => ({
+  return rows.slice(0, limit).map((row) => ({
     key: row.key ?? null,
     elements: Number(row.elements),
     metric: row.metric === null || row.metric === undefined ? null : Number(row.metric),
+    measured: Number(row.measured ?? row.elements),
+    // Only ever true on the last row returned; the caller reads it off the
+    // set, not off a group.
+    truncated: rows.length > limit,
   }))
 }
 
@@ -662,8 +717,17 @@ export async function listBimPropertyCatalog(input: {
 }): Promise<BimPropertyCatalog> {
   const db = getDb()
   const maxValues = Math.min(Math.max(1, Math.trunc(input.maxValues)), 50)
+  // Every spelling of the requested type, the way every other type predicate
+  // in this feature does it. An exact match meant an IFC4 export whose walls
+  // are `IfcWallStandardCase` answered `properties` with `total: 0`, `complete`
+  // then read `true`, and the summary said "Das Modell enthält keine Property
+  // Sets" — after which the agent invents property names, which is the precise
+  // failure this catalog exists to prevent.
   const typeFilter = input.ifcType
-    ? sql`AND lower(e.ifc_type) = lower(${input.ifcType})`
+    ? sql`AND lower(e.ifc_type) IN (${sql.join(
+        ifcTypeVariants(input.ifcType).map((variant) => sql`${variant}`),
+        sql`, `
+      )})`
     : sql``
   const tenantScope = sql`
     EXISTS (
@@ -688,7 +752,14 @@ export async function listBimPropertyCatalog(input: {
       elements: Number(row.elements),
     }))
     const total = types.reduce((sum, type) => sum + type.elements, 0)
-    if (total === 0) return { entries: [], scanned: 0, total: 0, complete: true }
+    if (total === 0) {
+      // `complete: false` when a TYPE FILTER found nothing. "This model
+      // publishes no property sets" and "no element of the type you named is
+      // in this model" are different answers, and only one of them is about
+      // the model's property sets. Reporting the first for the second is how
+      // the agent ends up inventing names.
+      return { entries: [], scanned: 0, total: 0, complete: !input.ifcType }
+    }
 
     const perType =
       total <= PROPERTY_CATALOG_SCAN_LIMIT
@@ -809,7 +880,17 @@ export async function loadBimElementsForComparison(
       .select()
       .from(bimElements)
       .where(elementScope(modelId, organizationId))
-      .orderBy(asc(bimElements.expressId))
+      // By GlobalId, NOT by expressId.
+      //
+      // Express ids are re-assigned on every export — that is the whole reason
+      // `compare.ts` matches on GlobalId — so two revisions ordered by
+      // expressId and cut at the same limit are two DIFFERENT slices of the
+      // building. Every element in one window but not the other then reads as
+      // added or removed, and `counts.added` / `counts.removed` become
+      // artifacts of the cap presented as precise integers. Ordering both
+      // sides by the id they are matched on makes the two windows the same
+      // slice of the same id space.
+      .orderBy(asc(bimElements.globalId))
       // One more than asked for, so "was there more" is answered by the query
       // rather than guessed from whether the page came back full.
       .limit(bounded + 1)
@@ -952,7 +1033,11 @@ export async function countBimElementsByType(
       .from(bimElements)
       .where(elementScope(modelId, organizationId))
       .groupBy(bimElements.ifcType)
-      .orderBy(desc(count()))
+      // Tie-broken on the type name, the same fix `aggregateBimElements`
+      // carries. Two IFC types with equal counts came back in whatever order
+      // the plan produced, so two runs of the `types` op over one unchanged
+      // export could list them differently — and the agent quotes that order.
+      .orderBy(desc(count()), asc(bimElements.ifcType))
   )
   return rows.map((row) => ({ ifcType: row.ifcType, elements: Number(row.elements) }))
 }
@@ -1026,13 +1111,16 @@ export async function upsertBimCheckConfirmation(input: {
         note: input.note,
       })
       .onConflictDoUpdate({
+        // The MODEL is part of the key (0045). Without it, confirming a rule
+        // on the second building in a project updated the first building's row
+        // in place and its signature was gone with no record that it existed.
         target: [
           bimCheckConfirmations.organizationId,
           bimCheckConfirmations.projectId,
           bimCheckConfirmations.ruleId,
+          bimCheckConfirmations.modelId,
         ],
         set: {
-          modelId: input.modelId,
           confirmedBy: input.confirmedBy,
           note: input.note,
           updatedAt: new Date(),
@@ -1041,12 +1129,25 @@ export async function upsertBimCheckConfirmation(input: {
   )
 }
 
-/** Withdraw a confirmation — the rule returns to whatever the catalogue says. */
+/**
+ * Withdraw a confirmation — the rule returns to whatever the catalogue says.
+ *
+ * Scoped to `modelIds`: the revisions of the building the reader is looking at.
+ * Withdrawing is "I take that back about THIS building", and it has to cover
+ * the older revisions too, because a verdict from a previous revision is what
+ * the panel was showing (marked stale) when they pressed it. Leaving those
+ * behind would make the button appear to do nothing.
+ *
+ * It must NOT reach another building's rows, which is the whole point of 0045.
+ * An empty `modelIds` therefore deletes nothing rather than everything.
+ */
 export async function deleteBimCheckConfirmation(input: {
   organizationId: string
   projectId: string
   ruleId: string
+  modelIds: readonly string[]
 }): Promise<void> {
+  if (input.modelIds.length === 0) return
   const db = getDb()
   await withTenant({ organizationId: input.organizationId }, () =>
     db
@@ -1055,7 +1156,8 @@ export async function deleteBimCheckConfirmation(input: {
         and(
           eq(bimCheckConfirmations.organizationId, input.organizationId),
           eq(bimCheckConfirmations.projectId, input.projectId),
-          eq(bimCheckConfirmations.ruleId, input.ruleId)
+          eq(bimCheckConfirmations.ruleId, input.ruleId),
+          inArray(bimCheckConfirmations.modelId, [...input.modelIds])
         )
       )
   )

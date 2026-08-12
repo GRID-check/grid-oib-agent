@@ -8,11 +8,15 @@
 # forever if upstream never ships the fix.
 #
 # The Langfuse block below (ADR-0044) is deliberately boxed SHORTER than the
-# aspire-dashboard entry above it. That one waits on Microsoft shipping a
+# first aspire-dashboard entry. That one waits on Microsoft shipping a
 # transitive dependency bump; these wait on Langfuse running `npm update` on a
 # project that publishes several releases a week. If they are still here in
 # October, the assumption behind them was wrong and they deserve re-arguing
 # rather than extending.
+#
+# The SECOND aspire-dashboard entry (CVE-2026-62901) is boxed shorter than all
+# of them, for the opposite reason: it waits on Microsoft rebuilding an image
+# on a runtime that already exists, which is a matter of days.
 vulnerabilities:
   - id: CVE-2026-49451
     expired_at: 2026-10-31
@@ -32,6 +36,38 @@ vulnerabilities:
 
       Drop this entry as soon as an aspire-dashboard image ships
       Microsoft.OpenApi >= 3.5.4, and re-check it on every dashboard bump.
+
+  - id: CVE-2026-62901
+    expired_at: 2026-09-12
+    statement: |
+      System.Net.WebSockets in the .NET 8.0.29 runtime bundled INSIDE Microsoft's
+      aspire-dashboard image — an unchecked loop condition (CWE-606) that lets a
+      network peer exhaust CPU. Fixed in 8.0.30, published 2026-08-11, the same
+      day as the advisory; no aspire-dashboard tag ships it yet, so no digest
+      bump can currently clear it.
+
+      This one is boxed SHORT and its reachability is weaker than the entry
+      above, so read the limit rather than the conclusion. The dashboard UI is
+      Blazor Server, which means it really does terminate WebSockets — this is
+      not an unreachable code path, and it would be dishonest to file it beside
+      the OpenAPI entry as if it were.
+
+      What makes it acceptable for a month is the network position, not the
+      code. CVSS scores it AV:N/PR:N because the runtime defect needs no
+      credentials; reaching the socket in THIS deployment does. The dashboard
+      is cluster-internal, its :18888 UI sits behind the Envoy Gateway's OIDC
+      flow gated on `platform:organizations:view`, and its OTLP receiver takes
+      only otel-collector under a NetworkPolicy. So the attacker has to be an
+      authenticated platform operator or already inside the cluster — and the
+      prize is a denial of service against the observability dashboard, which
+      degrades our ability to WATCH the product rather than the product itself.
+      Availability-only: C:N/I:N.
+
+      Drop this entry the moment an aspire-dashboard image ships a .NET 8.0.30
+      runtime — that is the real fix and it is expected within days, which is
+      why the box is one month and not the usual two. If it is still here in
+      September, the assumption that Microsoft rebuilds promptly was wrong and
+      this deserves re-arguing, not extending.
 
   # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
   #

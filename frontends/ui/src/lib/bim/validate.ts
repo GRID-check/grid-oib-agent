@@ -53,6 +53,7 @@ export const BIM_ISSUE_RULES = [
   'identity-missing-globalid',
   'identity-duplicate-globalid',
   'identity-malformed-globalid',
+  'identity-unreadable-entities',
   'spatial-no-storeys',
   'spatial-orphan-elements',
   'spatial-element-above-storey',
@@ -192,8 +193,24 @@ function checkSchema({ index }: RuleInput): RuleResult[] {
 // Stage 2 — identity
 // ---------------------------------------------------------------------------
 
-function checkIdentity({ elements }: RuleInput): RuleResult[] {
+function checkIdentity({ index, elements }: RuleInput): RuleResult[] {
   const results: RuleResult[] = []
+
+  // Ids the file's own entity index lists that the parser could not produce.
+  // They are counted OUT of the totals during extraction, so nothing overstates
+  // itself; this is the finding that says why the numbers are lower than the
+  // file's index implies. An export whose index disagrees with its contents is
+  // an export defect and belongs in the report.
+  if (index.unreadableEntities > 0) {
+    results.push({
+      rule: 'identity-unreadable-entities',
+      severity: 'warning',
+      count: index.unreadableEntities,
+      total: null,
+      sampleGlobalIds: [],
+      detail: null,
+    })
+  }
 
   // `express:` is the extractor's own fallback for an element whose GlobalId
   // attribute was empty — so this counts elements the FILE failed to identify,
@@ -531,7 +548,7 @@ export function healthCaveat(health: BimHealth): string | null {
   const orphans = find('spatial-orphan-elements')
   if (orphans) {
     parts.push(
-      `${orphans.count} Bauteile sind keinem Geschoss zugeordnet und fehlen daher in jeder geschossweisen Auswertung`
+      `${orphans.count} Bauteile sind keinem Geschoß zugeordnet und fehlen daher in jeder geschoßweisen Auswertung`
     )
   }
   const spacesWithoutArea = find('complete-space-without-area')

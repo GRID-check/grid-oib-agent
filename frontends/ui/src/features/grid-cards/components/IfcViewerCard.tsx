@@ -18,12 +18,14 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import { Boxes, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { IfcModelViewer } from '@/features/bim/components/ifc-model-viewer'
-import { resolveHighlights, supportsWebGpu } from '@/features/bim/lib/model-index'
+import { resolveHighlights, storeyKey, supportsWebGpu } from '@/features/bim/lib/model-index'
 import { buildModelHref } from '@/features/bim/lib/model-link'
 import {
-  pickDefaultModel,
+  notReadyModelStatus,
+  resolveModelByFilename,
   useBimElements,
   useBimHighlightGroups,
   useBimModelSource,
@@ -49,28 +51,72 @@ export function IfcViewerCard({
   projectId,
 }: IfcViewerCardProps): JSX.Element {
   const t = useTranslations('bim')
-  const { data: models } = useProjectBimModels(projectId)
+  // `isLoading` and `error` were both discarded, so for the first few hundred
+  // milliseconds — and permanently if the request failed or the feature flag
+  // was withdrawn — this card stated "Das referenzierte Modell ist in diesem
+  // Projekt nicht verfügbar": the one sentence that tells an architect their
+  // upload vanished, for a list that had simply not arrived. The sibling file
+  // preview refuses to conflate these three and says so in a comment.
+  const { data: models, isLoading: modelsLoading, error: modelsError } = useProjectBimModels(projectId)
 
-  const model = useMemo(() => {
-    if (!models) return null
-    const ready = models.filter((candidate) => candidate.status === 'ready')
-    if (!modelFile) return pickDefaultModel(ready)
-    const needle = modelFile.toLowerCase()
-    return (
-      ready.find((candidate) => candidate.filename.toLowerCase() === needle) ??
-      ready.find((candidate) => candidate.filename.toLowerCase().includes(needle)) ??
-      null
-    )
-  }, [models, modelFile])
+  // AMBIGUOUS is not resolved — see `resolveModelByFilename`, the rule this
+  // shares with the data cards beside it. `ifc_query` declines to answer when a
+  // name hits more than one ready model; taking the first hit here drew a
+  // different building under the agent's title.
+  const { model, ambiguous } = useMemo(
+    () => resolveModelByFilename((models ?? []).filter((c) => c.status === 'ready'), modelFile),
+    [models, modelFile]
+  )
+  // A name matching a model that is still being read, or whose extraction
+  // failed, is not a name this project does not know — see the data cards.
+  const notReady = useMemo(
+    () => (model ? null : notReadyModelStatus(models ?? [], modelFile)),
+    [model, models, modelFile]
+  )
 
-  const { data: elements } = useBimElements(model?.id ?? null)
+  /**
+   * `isLoading` and `error` are load-bearing here, not diagnostics.
+   *
+   * A highlight group resolves to express ids against THIS list, so an empty
+   * list resolves every group to nothing — and the legend prints its count
+   * regardless. Beside an answer that said "die 420 Außenwände ohne
+   * Feuerwiderstand", the card rendered "Außenwände ohne Feuerwiderstand (0)"
+   * with nothing coloured, for the whole two hundred requests the walk takes on
+   * a large model, and permanently if it failed. The stage guards against
+   * exactly this and says so in a comment; the card did not.
+   */
+  const {
+    data: elements,
+    isLoading: elementsLoading,
+    error: elementsError,
+    reload: reloadElements,
+  } = useBimElements(model?.id ?? null)
+  /** Nothing to colour, and nothing to count, until the rows are in. */
+  const elementsReady = elements !== null && !elementsLoading && elementsError === null
+  /**
+   * The link named a storey this model does not have.
+   *
+   * Only once the rows are in: before that every name "matches nothing", and
+   * `storeyKey` is the same comparison the isolation itself uses, so a padded
+   * or differently-cased name is not a miss.
+   */
+  const storeyMissing = useMemo(() => {
+    if (!storey || !elements || elements.length === 0) return false
+    const wanted = storeyKey(storey)
+    return !elements.some((element) => storeyKey(element.storeyName) === wanted)
+  }, [storey, elements])
+
   const webGpu = useMemo(() => supportsWebGpu(), [])
-  const sourceUrl = useBimModelSource(model?.id ?? null, webGpu)
+  const source = useBimModelSource(model?.id ?? null, webGpu)
 
   // A group written as a FILTER is resolved against the model rather than
   // against the ids that happened to fit in the answer — see
   // `useBimHighlightGroups`. Groups that already carry ids cost no request.
-  const { data: groups } = useBimHighlightGroups(model?.id ?? null, highlights)
+  // `error` too. A filter-matched group falls back to an EMPTY id list when
+  // its walk fails — deliberately, so one bad group does not blank the card —
+  // and the legend then reads "(0)", which an architect reads as a clean
+  // result rather than as a request that never ran.
+  const { data: groups, error: groupsError } = useBimHighlightGroups(model?.id ?? null, highlights)
   const resolved = useMemo(() => groups ?? [], [groups])
 
   // Only once the elements are actually here. `useBimElements` returns `null`
@@ -80,10 +126,10 @@ export function IfcViewerCard({
   // data problem, and it was stating one that did not exist.
   const unresolvedCount = useMemo(
     () =>
-      elements === null
+      !elementsReady || elements === null
         ? 0
         : resolveHighlights(resolved, elements).reduce((total, group) => total + group.unresolved.length, 0),
-    [resolved, elements]
+    [resolved, elements, elementsReady]
   )
 
   /**
@@ -125,22 +171,87 @@ export function IfcViewerCard({
         )}
       </header>
 
-      {!model ? (
+      {modelsLoading && models === null ? (
+        <div className="flex items-center justify-center rounded-lg border border-dashed p-6">
+          <Spinner className="size-4" />
+        </div>
+      ) : modelsError !== null ? (
         <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          {t('card.noModel')}
+          {t('preview.loadFailed')}
+        </p>
+      ) : !model ? (
+        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {/*
+            "Not available in this project" would be false for an ambiguous
+            name: the model is in the project twice over, which is exactly why
+            nothing is drawn. Told the wrong sentence, an architect goes looking
+            for a building that is already uploaded.
+          */}
+          {ambiguous
+            ? t('card.ambiguousModel')
+            : notReady === 'failed'
+              ? t('preview.extractionFailed')
+              : notReady === 'extracting'
+                ? t('preview.extracting')
+                : t('card.noModel')}
+        </p>
+      ) : storeyMissing ? (
+        // A storey name the agent transcribed as `EG` where the export says
+        // `00 Erdgeschoss`. `expressIdsForStorey` returns an EMPTY set for a
+        // name that matches nothing on a model that DOES assign storeys, and
+        // the renderer reads that as "isolate nothing" — so the card became a
+        // blank grey box that reads as "this floor is empty". The sibling
+        // Raumbuch card names the same situation.
+        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {t('schedule.storeyEmpty', { storey: storey ?? '' })}
+        </p>
+      ) : source.error !== null ? (
+        // A presigned URL that never arrived — a withdrawn feature flag, an
+        // expired session, a dropped connection. `IfcModelViewer` maps a null
+        // source to an indeterminate "Modell wird geladen…", so this card sat
+        // at a progress bar that could never finish. The stage and the file
+        // preview both refuse to do that and say why; the card was the one
+        // surface still doing it.
+        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {t('preview.sourceFailed')}
         </p>
       ) : (
         <IfcModelViewer
-          sourceUrl={sourceUrl}
+          sourceUrl={source.data}
           elements={elements ?? []}
-          highlights={resolved}
+          // Not until the rows are in. A group resolves to express ids against
+          // that list, so passing highlights early paints a legend of "(0)"
+          // beside an answer that named 420 elements — a contradiction the
+          // reader has to resolve themselves, and the one the stage documents
+          // at length. A legend that arrives a moment late is a legend.
+          highlights={elementsReady ? resolved : []}
           isolatedStorey={storey}
           className="h-72"
         />
       )}
 
+      {/*
+        The walk that resolves every highlight failed, so nothing is coloured.
+        Without this the card showed an uncoloured building under a title that
+        promises a marked one, and said nothing at all.
+      */}
+      {elementsError !== null && (
+        <p className="text-warning mt-2 flex flex-wrap items-center gap-2 text-xs">
+          {t('stage.elementsFailed')}
+          <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={reloadElements}>
+            {t('loadFailed.action')}
+          </Button>
+        </p>
+      )}
+      {groupsError !== null && (
+        <p className="text-warning mt-2 text-xs">{t('card.highlightsFailed')}</p>
+      )}
       {unresolvedCount > 0 && (
-        <p className="mt-2 text-xs text-warning">{t('card.unresolved', { count: unresolvedCount })}</p>
+        <p className="mt-2 text-xs text-warning">
+          {unresolvedCount === 1
+            ? t('card.unresolvedOne')
+            : t('card.unresolved', { count: unresolvedCount })}
+        </p>
       )}
       {note && <p className="mt-2 text-sm text-muted-foreground">{note}</p>}
     </section>

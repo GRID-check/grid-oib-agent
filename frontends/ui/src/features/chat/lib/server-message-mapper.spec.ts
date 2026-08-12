@@ -61,7 +61,7 @@ describe('mapServerMessageToChatMessage', () => {
         metadata: {
           messageType: 'error',
           errorData: { errorCode: 'system.unknown', errorMessage: 'boom' },
-          cards: [{ kind: 'test' }],
+          cards: [{ type: 'summary', title: 'Kurzfassung' }],
           enabledDataSources: ['web_search'],
           messageFiles: [{ id: 'f1', fileName: 'a.pdf' }],
         },
@@ -70,9 +70,29 @@ describe('mapServerMessageToChatMessage', () => {
 
     expect(mapped!.messageType).toBe('error')
     expect(mapped!.errorData).toEqual({ errorCode: 'system.unknown', errorMessage: 'boom' })
-    expect(mapped!.cards).toEqual([{ kind: 'test' }])
+    expect(mapped!.cards).toEqual([
+      { type: 'summary', title: 'Kurzfassung', content: null, key_points: null },
+    ])
     expect(mapped!.enabledDataSources).toEqual(['web_search'])
     expect(mapped!.messageFiles).toEqual([{ id: 'f1', fileName: 'a.pdf' }])
+  })
+
+  it('drops a stored card the current schema does not know, keeping the rest', () => {
+    // This path — every card read back out of the database — used to CAST
+    // rather than validate, while the live websocket path validated. One row
+    // written under a different schema version then reached a renderer that
+    // indexes a lookup table by an unvalidated field, threw during render, and
+    // blanked the whole conversation instead of that one card.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          cards: [{ kind: 'from-a-future-build' }, { type: 'summary', title: 'Kurzfassung' }],
+        },
+      })
+    )
+    expect(mapped!.cards).toHaveLength(1)
+    expect(mapped!.cards?.[0]).toMatchObject({ type: 'summary' })
   })
 
   it('restores interactive-card decisions so a settled card cannot be re-answered', () => {

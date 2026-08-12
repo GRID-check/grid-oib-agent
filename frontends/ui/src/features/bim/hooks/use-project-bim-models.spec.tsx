@@ -92,3 +92,55 @@ describe('useProjectBimModels', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * Polling for an extraction must not tear the viewer down.
+ *
+ * The list is polled every four seconds while any model is still being read,
+ * and the effect that polls is the same one that loads. It used to blank
+ * `data` on every run, so for the whole minute after an upload the list
+ * emptied four times a minute — which took the stage's `modelId` to null,
+ * unmounted the canvas, destroyed the WebGPU device and the WASM kernel, and
+ * re-downloaded and re-triangulated the entire model on the next tick.
+ */
+describe('refetching while a model is still being read', () => {
+  const listing = (status: string) => ({
+    ok: true,
+    json: async () => ({ models: [{ id: 'model-1', status }] }),
+  })
+
+  it('keeps the models on screen while the next answer is in flight', async () => {
+    const gate = pending()
+    fetchMock.mockResolvedValueOnce(listing('extracting')).mockReturnValueOnce(gate.promise)
+
+    const { result } = renderHook(() => useProjectBimModels('p1'))
+    await waitFor(() => expect(result.current.data).toHaveLength(1))
+
+    // The reload path is the poll's path — both bump the same tick.
+    result.current.reload()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+
+    // The refetch is in flight and the list is STILL there. Blanking it here
+    // is what unmounted the canvas.
+    expect(result.current.isLoading).toBe(true)
+    expect(result.current.data).toHaveLength(1)
+    gate.resolve()
+  })
+
+  it('does not carry one project’s models into another', async () => {
+    // A stale row from the same project is a better answer than none; a row
+    // from a different project is not an answer at all.
+    fetchMock.mockResolvedValue(listing('ready'))
+    const { result, rerender } = renderHook(({ id }) => useProjectBimModels(id), {
+      initialProps: { id: 'p1' },
+    })
+    await waitFor(() => expect(result.current.data).toHaveLength(1))
+
+    const gate = pending()
+    fetchMock.mockReturnValueOnce(gate.promise)
+    rerender({ id: 'p2' })
+
+    expect(result.current.data).toBeNull()
+    gate.resolve()
+  })
+})

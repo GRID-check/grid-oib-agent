@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { extractIfcModel, IfcExtractionError, looksLikeStepIfc } from './extract'
+import { createZip } from './zip'
 import type { BimModelIndex } from './types'
 
 const FIXTURE = join(process.cwd(), 'tests', 'fixtures', 'ifc', 'sample-building.ifc')
@@ -40,6 +41,15 @@ describe('looksLikeStepIfc', () => {
     const bytes = new TextEncoder().encode('\n  ISO-10303-21;\nHEADER;')
     expect(looksLikeStepIfc(bytes.buffer as ArrayBuffer)).toBe(true)
   })
+
+  it('accepts a file that starts with a byte-order mark', () => {
+    // Plenty of exporters write one. Decoded as latin1 the three BOM bytes
+    // became `ï»¿`, which `trimStart()` does not strip — it strips `\uFEFF`,
+    // not its mojibake — so the prefix check failed and a perfectly readable
+    // file was rejected as "not an IFC file", losing the whole upload.
+    const bytes = new TextEncoder().encode('\ufeffISO-10303-21;\nHEADER;')
+    expect(looksLikeStepIfc(bytes.buffer as ArrayBuffer)).toBe(true)
+  })
 })
 
 describe('extractIfcModel', () => {
@@ -52,6 +62,41 @@ describe('extractIfcModel', () => {
     await expect(extractIfcModel(bytes.buffer as ArrayBuffer, 'fake.ifc')).rejects.toBeInstanceOf(
       IfcExtractionError
     )
+  })
+
+  it('unwraps a .ifczip instead of parsing the archive bytes', async () => {
+    /*
+      The failure this replaces was the worst available: `parseColumnar` does
+      not unwrap (only `parseAuto` does) and does not throw on non-STEP bytes
+      — the entity scan simply finds nothing — so a zipped upload completed as
+      `status: 'ready'` with zero elements, zero storeys and a health score
+      computed over an empty model. Nothing anywhere reported a failure.
+
+      A store-only zip, written with the repo's own deterministic writer, so
+      the test needs no fixture binary and no zip dependency.
+    */
+    const inner = new Uint8Array(readFileSync(FIXTURE))
+    const archive = createZip([{ path: 'sample-building.ifc', content: inner }])
+    const index = await extractIfcModel(
+      archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) as ArrayBuffer,
+      'sample-building.ifczip'
+    )
+    expect(index.totals.elements).toBeGreaterThan(0)
+    expect(index.storeys.length).toBeGreaterThan(0)
+  })
+
+  it('refuses an archive whose contents are not IFC, rather than storing an empty model', async () => {
+    const junk = new TextEncoder().encode('%PDF-1.7\nnot an ifc file at all')
+    const archive = createZip([{ path: 'thing.ifc', content: junk }])
+    await expect(
+      extractIfcModel(
+        archive.buffer.slice(
+          archive.byteOffset,
+          archive.byteOffset + archive.byteLength
+        ) as ArrayBuffer,
+        'thing.ifczip'
+      )
+    ).rejects.toMatchObject({ name: 'IfcExtractionError', code: 'not-ifc' })
   })
 
   it('reads the schema, header provenance and declared units', async () => {
@@ -200,5 +245,27 @@ describe('extractIfcModel', () => {
     // model still reports how big it really is.
     expect(index.totals.elements).toBe(19)
     expect(index.typeCounts.IfcWall).toBe(5)
+  })
+
+  it('keeps the floor-area totals whole when the element list is capped', async () => {
+    // The overview tells the reader, in as many words, "Die Summen sind
+    // vollständig, die Bauteilliste ist begrenzt". That sentence was false:
+    // the totals were accumulated INSIDE the loop, after the cap's `continue`,
+    // so every space past the cap was silently left out of the building's
+    // floor area — and the note beside the number promised the opposite.
+    //
+    // Walls sort before spaces here, so a cap of 5 excludes every space; the
+    // area must still match the uncapped run.
+    const whole = await extractIfcModel(fixtureBuffer(), 'sample-building.ifc')
+    const capped = await extractIfcModel(fixtureBuffer(), 'sample-building.ifc', {
+      elementLimit: 5,
+    })
+
+    expect(capped.truncatedAt).toBe(5)
+    expect(capped.elements.some((element) => element.ifcType === 'IfcSpace')).toBe(false)
+    expect(whole.quantityTotals.netFloorAreaM2).not.toBeNull()
+    expect(capped.quantityTotals.netFloorAreaM2).toBe(whole.quantityTotals.netFloorAreaM2)
+    expect(capped.quantityTotals.grossFloorAreaM2).toBe(whole.quantityTotals.grossFloorAreaM2)
+    expect(capped.quantityTotals.netVolumeM3).toBe(whole.quantityTotals.netVolumeM3)
   })
 })

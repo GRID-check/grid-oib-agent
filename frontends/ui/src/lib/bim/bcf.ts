@@ -166,7 +166,7 @@ export function bcfDescription(result: BimRuleResultWithConfirmation, model: Bcf
   const sections: string[] = [
     `Anforderung: ${result.thresholdDe}`,
     `Quelle: ${result.richtlinie}, Punkt ${result.clause}`,
-    `Modellstand: ${model.filename} (${isoDate(model.updatedAt).slice(0, 10)})`,
+    `Revision: ${model.filename} (${isoDate(model.updatedAt).slice(0, 10)})`,
     '',
     `Ergebnis: ${result.passed} erfüllt, ${result.failed} nicht erfüllt, ${result.undecidable} nicht entscheidbar.`,
   ]

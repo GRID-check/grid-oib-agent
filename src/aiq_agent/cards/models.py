@@ -101,7 +101,13 @@ class ProjectProfilePatchCard(BaseModel):
     )
     patch: list[ProjectProfilePatchOperation]
     preview: list[ProjectProfilePatchPreviewItem] = Field(
-        description='One row per changed field; use "—" for before when the fact was previously unknown'
+        default_factory=list,
+        description=(
+            "Optional and not rendered. The card builds its before/after rows from the PATCH "
+            "and the live profile (`buildPatchPreviewRows`), never from a model-supplied "
+            "preview — what the user consents to has to be what is written. Kept as an "
+            "optional field rather than removed so an older stored card still validates."
+        ),
     )
 
 
@@ -715,7 +721,14 @@ class IfcElementMatch(BaseModel):
 class IfcHighlight(BaseModel):
     """One set of model elements to call out, with a verdict.
 
-    Give EITHER ``match`` or ``global_ids``, and prefer ``match`` whenever the
+    EXACTLY ONE of ``match`` or ``global_ids`` — never both, never neither.
+    (Stated here because the rendered card catalogue lists a model's fields
+    from ``model_fields`` and never sees a ``model_validator``: both selectors
+    therefore appear as plain optionals, and the worked example — one group of
+    each kind — reads as permission to supply both. A highlight that does is
+    dropped, taking its whole card with it.)
+
+    Prefer ``match`` whenever the
     answer is about a set rather than about elements you named. An id list has
     to travel through the model's context, so "the 420 external walls" arrived
     as whatever fitted and the card highlighted a fraction of the answer while

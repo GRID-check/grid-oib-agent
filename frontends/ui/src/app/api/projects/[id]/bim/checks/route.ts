@@ -28,7 +28,10 @@ const confirmSchema = z.object({
   note: z.string().trim().max(2000).nullish(),
 })
 
-const withdrawSchema = z.object({ ruleId: RULE_ID })
+// `modelId` is required, because a confirmation is keyed per revision (0045):
+// a project holds several buildings, and "withdraw rule X" with no building
+// named would take back the wrong signature — or every one of them.
+const withdrawSchema = z.object({ ruleId: RULE_ID, modelId: z.string().uuid() })
 
 export const GET = apiRoute<Params>(
   async ({ session, params }) => ({
@@ -61,10 +64,13 @@ export const POST = apiRoute<Params>(
 export const DELETE = apiRoute<Params>(
   async ({ session, params, request }) => {
     const body = await parseJsonBody(request, withdrawSchema)
-    await withdrawAccessibleCheck(session, params.id, body.ruleId)
+    await withdrawAccessibleCheck(session, params.id, body.ruleId, body.modelId)
     return { ok: true }
   },
   {
-    authz: { enforcedBy: 'withdrawAccessibleCheck (ifc-models flag + project:edit)' },
+    authz: {
+      enforcedBy:
+        'withdrawAccessibleCheck (ifc-models flag + project:edit + model tenancy via getAccessibleModel)',
+    },
   }
 )

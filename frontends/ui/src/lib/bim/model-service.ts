@@ -23,6 +23,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildComplianceBcf, type BcfExport } from './bcf'
 import { buildBimDerivedKeys } from './service'
 import { attachConfirmations } from './rules'
+import { revisionSeriesKey } from './revision-series'
 import {
   deleteBimCheckConfirmation,
   findBimModelByDocument,
@@ -33,7 +34,7 @@ import {
   type BimModelHeader,
   type BimStoredConfirmation,
 } from './repository'
-import { runBimQuery, type BimQuery, type BimQueryResult } from './query'
+import { runBimQuery, type BimHauptnutzung, type BimQuery, type BimQueryResult } from './query'
 
 const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
 
@@ -206,6 +207,35 @@ export async function getModelSource(
 // ---------------------------------------------------------------------------
 
 /**
+ * Every model in the project that is a revision of the same building.
+ *
+ * The lineage is the file name, the way the revision timeline reads it
+ * (`lib/bim/revision-series.ts`) — a lineage column would be exact and empty,
+ * because nobody fills those in. Used to scope a human confirmation: a
+ * signature belongs to the building it was made about, and a project holds
+ * several buildings in the ordinary case.
+ *
+ * Always contains the model itself, even when the listing is unavailable, so a
+ * caller can never end up with an empty scope and silently withdraw nothing.
+ */
+async function revisionSiblingIds(
+  organizationId: string,
+  projectId: string,
+  model: { id: string; filename: string }
+): Promise<string[]> {
+  const series = revisionSeriesKey(model.filename)
+  const models = await listBimModels(organizationId, {
+    projectId,
+    includeArchiv: true,
+    limit: 200,
+  })
+  const ids = models
+    .filter((candidate) => revisionSeriesKey(candidate.filename) === series)
+    .map((candidate) => candidate.id)
+  return ids.includes(model.id) ? ids : [...ids, model.id]
+}
+
+/**
  * The confirmations recorded for a project's Prüfbuch.
  *
  * `project:view` is enough to READ them: a confirmation is part of the record
@@ -222,12 +252,32 @@ export async function listAccessibleCheckConfirmations(
 }
 
 /**
+ * The model is one this PROJECT can speak for.
+ *
+ * `getAccessibleModel` authorizes against the model's OWN project, which is a
+ * different question from the `projectId` in the URL. An org admin bypasses
+ * per-project authorization entirely, and an ordinary member can hold
+ * `project:edit` on A and `project:view` on B — so without this a confirmation
+ * about B's building could be written into A's ledger. `null` is the org-wide
+ * Archiv, which every project in the org may speak for.
+ *
+ * Not a second access check: the caller has already passed one. This is about
+ * which record the result is being filed under.
+ */
+function assertModelInProject(model: BimModelHeader, projectId: string): void {
+  if (model.projectId !== null && model.projectId !== projectId) {
+    throw new NotFoundError('Model not found in this project')
+  }
+}
+
+/**
  * Record a human verdict on one rule, against the revision they looked at.
  *
  * `project:edit`, and the confirming identity comes from the SESSION rather
  * than the request body — a signature a caller could address to somebody else
  * is not a signature. The model is re-resolved through `getAccessibleModel` so
- * a confirmation cannot be pinned to a revision in another tenant.
+ * a confirmation cannot be pinned to a revision in another tenant, and checked
+ * against this project so it cannot be filed under another one's ledger.
  */
 export async function confirmAccessibleCheck(
   session: AuthorizedSession,
@@ -237,6 +287,11 @@ export async function confirmAccessibleCheck(
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:edit')
   const model = await getAccessibleModel(session, input.modelId)
+  // Without this the row is written with a `modelId` that is not in this
+  // project's revision series: invisible to `attachConfirmations`, and
+  // un-withdrawable, because `withdrawAccessibleCheck` deletes by the sibling
+  // ids of a model in THIS project. A permanent orphan in a signed-off ledger.
+  assertModelInProject(model, projectId)
   await upsertBimCheckConfirmation({
     organizationId: session.organizationId,
     projectId,
@@ -264,9 +319,12 @@ async function resolveModelByName(
   projectId: string,
   name: string
 ): Promise<BimModelHeader> {
-  const models = (await listBimModels(session.organizationId, { projectId, includeArchiv: true })).filter(
-    (model) => model.status === 'ready'
-  )
+  // The ceiling, not the default page: this is name RESOLUTION, and a name
+  // that exists but sits past the 51st-newest model must not come back as
+  // "Model not found in this project".
+  const models = (
+    await listBimModels(session.organizationId, { projectId, includeArchiv: true, limit: 200 })
+  ).filter((model) => model.status === 'ready')
   const needle = name.trim().toLowerCase()
   const model =
     models.find((entry) => entry.filename.toLowerCase() === needle) ??
@@ -295,7 +353,9 @@ export async function exportAccessibleComplianceBcf(
     /** File name, for the callers that address models the way people do. */
     modelName?: string | null
     gebaeudeklasse: number | null
-    hauptnutzung: string | null
+    // The vocabulary, not free text: the catalogue stands rules down for a
+    // value it does not recognise, and a stand-down reads as a verdict.
+    hauptnutzung: BimHauptnutzung | null
   }
 ): Promise<BcfExport> {
   assertIfcModelsEnabled(session)
@@ -304,9 +364,7 @@ export async function exportAccessibleComplianceBcf(
   const model = input.modelId
     ? await getAccessibleModel(session, input.modelId)
     : await resolveModelByName(session, projectId, input.modelName ?? '')
-  if (model.projectId !== null && model.projectId !== projectId) {
-    throw new NotFoundError('Model not found in this project')
-  }
+  assertModelInProject(model, projectId)
 
   const [result, confirmations, project] = await Promise.all([
     runBimQuery(
@@ -330,7 +388,8 @@ export async function exportAccessibleComplianceBcf(
       note: entry.note,
       confirmedAt: entry.confirmedAt.toISOString(),
     })),
-    model.id
+    model.id,
+    await revisionSiblingIds(session.organizationId, projectId, model)
   )
 
   const root = model.summary?.spatial
@@ -354,13 +413,27 @@ export async function exportAccessibleComplianceBcf(
 export async function withdrawAccessibleCheck(
   session: AuthorizedSession,
   projectId: string,
-  ruleId: string
+  ruleId: string,
+  /**
+   * The building being withdrawn from.
+   *
+   * Required now that a confirmation is keyed per revision: without it there
+   * is no way to say WHICH signature is being taken back, and deleting every
+   * row for the rule would silently withdraw the other buildings' too.
+   */
+  modelId: string
 ): Promise<void> {
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:edit')
+  const model = await getAccessibleModel(session, modelId)
+  assertModelInProject(model, projectId)
   await deleteBimCheckConfirmation({
     organizationId: session.organizationId,
     projectId,
     ruleId,
+    // Across the building's revisions: the panel may well have been showing a
+    // confirmation from an earlier one, marked stale, and that is the one the
+    // reader is taking back.
+    modelIds: await revisionSiblingIds(session.organizationId, projectId, model),
   })
 }

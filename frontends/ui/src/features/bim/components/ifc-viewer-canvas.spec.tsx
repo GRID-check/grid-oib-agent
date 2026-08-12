@@ -59,6 +59,8 @@ const disposed = { renderer: 0, geometry: 0 }
  * sequence can answer that.
  */
 const loadOrder: string[] = []
+/** Index into `renders` of the frame `captureScreenshot` actually grabbed. */
+let capturedFrame = -1
 
 /**
  * What the fake raycaster answers, one entry per call.
@@ -104,6 +106,13 @@ vi.mock('@ifc-lite/renderer', () => ({
       // Recorded so a test can assert the frame drawn immediately BEFORE the
       // capture was the exhaustive one.
       loadOrder.push('captureScreenshot')
+      // WHICH frame, not "some frame". The assertion used to read
+      // `renders.at(-2)`, which is the capture frame only because exactly one
+      // interactive frame happens to follow it — and its `?? renders.at(-1)`
+      // fallback silently pointed at a different frame rather than failing if
+      // that ever changed. Recording the index here ties the assertion to the
+      // frame the renderer actually captured.
+      capturedFrame = renders.length - 1
       return 'data:image/png;base64,AAA'
     }
     fitToView(): void {}
@@ -178,6 +187,7 @@ beforeEach(() => {
   renders.length = 0
   raycasts.length = 0
   loadOrder.length = 0
+  capturedFrame = -1
   disposed.renderer = 0
   disposed.geometry = 0
   vi.stubGlobal(
@@ -443,6 +453,60 @@ describe('measuring', () => {
   })
 })
 
+describe('two fingers on a tablet', () => {
+  beforeEach(() => {
+    stubCanvasHost()
+  })
+
+  it('pinches to zoom', async () => {
+    const { container } = await mountLoaded()
+    const canvas = container.querySelector('canvas')!
+    camera.zoom.mockClear()
+
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 100 })
+    fireEvent.pointerDown(canvas, { pointerId: 2, button: 0, clientX: 200, clientY: 100 })
+    fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 300, clientY: 100 })
+
+    expect(camera.zoom).toHaveBeenCalled()
+  })
+
+  it('keeps orbiting with the finger that is still on the glass', async () => {
+    // Pinch to frame, then keep dragging with one finger to turn: the natural
+    // tablet gesture, and it stopped dead. The second `pointerdown` nulls the
+    // drag — a pinch is not an orbit — and nothing put it back when a finger
+    // was lifted, so the survivor fell through to the hover branch and did
+    // nothing at all. The reader had to lift and re-place.
+    const { container } = await mountLoaded()
+    const canvas = container.querySelector('canvas')!
+
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 100 })
+    fireEvent.pointerDown(canvas, { pointerId: 2, button: 0, clientX: 200, clientY: 100 })
+    fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 260, clientY: 100 })
+    fireEvent.pointerUp(canvas, { pointerId: 2, clientX: 260, clientY: 100 })
+
+    camera.orbit.mockClear()
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 140, clientY: 130 })
+    expect(camera.orbit).toHaveBeenCalledWith(40, 30, true)
+  })
+
+  it('does not select whatever the surviving finger is lifted over', async () => {
+    // The re-armed drag is marked as having travelled, because it has. Read as
+    // a fresh press-and-release it would open the inspector on whichever wall
+    // happened to be under the finger at the end of a pinch.
+    const onSelect = vi.fn()
+    const { container } = await mountLoaded({ onSelect })
+    const canvas = container.querySelector('canvas')!
+
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 100 })
+    fireEvent.pointerDown(canvas, { pointerId: 2, button: 0, clientX: 200, clientY: 100 })
+    fireEvent.pointerUp(canvas, { pointerId: 2, clientX: 200, clientY: 100 })
+    fireEvent.pointerUp(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 100 })
+
+    await waitFor(() => expect(renders.length).toBeGreaterThan(0))
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+})
+
 describe('taking elements out of the way', () => {
   it('sends the hidden set under the key the renderer reads', async () => {
     await mountLoaded({ hiddenExpressIds: new Set([21, 22]) })
@@ -516,9 +580,8 @@ describe('capturing the view', () => {
     await waitFor(() => expect(onCapture).toHaveBeenCalledWith('data:image/png;base64,AAA'))
     // The frame immediately before the capture is the image. Culling and LOD
     // are invisible at 60 fps and perfectly visible in a PNG someone prints.
-    const captureIndex = loadOrder.indexOf('captureScreenshot')
-    expect(captureIndex).toBeGreaterThanOrEqual(0)
-    const captured = renders.at(-2) ?? renders.at(-1)!
+    expect(capturedFrame).toBeGreaterThanOrEqual(0)
+    const captured = renders[capturedFrame]
     expect(captured.contributionCull).toBeUndefined()
     expect(captured.lod).toBeUndefined()
     expect(captured.restoreEvictedForCapture).toBe(true)

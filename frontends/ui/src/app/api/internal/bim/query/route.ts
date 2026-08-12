@@ -22,7 +22,7 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
-import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { bimQuerySchema, runBimQuery, BimModelNotReadyError } from '@/lib/bim/query'
 import { listBimModels, type BimModelHeader } from '@/lib/bim/repository'
 import { FEATURE_FLAGS, enforcementOn, ifcModelsEnvEnabled } from '@/lib/authz/feature-flags'
@@ -95,6 +95,12 @@ export const POST = internalApiRoute(
     const candidates = await listBimModels(organizationId, {
       projectId: projectId ?? null,
       includeArchiv: true,
+      // The ceiling, not the default 50. This list is what a MODEL NAME is
+      // resolved against, and a project plus the org Archiv can hold more than
+      // fifty files — past which "Kein Modell mit dem Namen … gefunden" is a
+      // fact about the page size, and the `readable.length === 1`
+      // auto-selection below picks from a clipped list without saying so.
+      limit: 200,
     })
     // Only `ready` models can answer anything. A model still extracting is
     // reported as such below rather than filtered into silence, because "the
@@ -165,7 +171,7 @@ export const POST = internalApiRoute(
         return {
           resolved: false,
           reason: 'compare_target_missing',
-          message: 'Für einen Vergleich muss der zweite Modellstand benannt werden.',
+          message: 'Für einen Vergleich muss die zweite Revision benannt werden.',
           models: readable.map(describe),
         }
       }
@@ -180,8 +186,8 @@ export const POST = internalApiRoute(
           reason: matches.length === 0 ? 'no_match' : 'ambiguous',
           message:
             matches.length === 0
-              ? `Kein zweiter Modellstand mit dem Namen „${compareWithName}“ gefunden.`
-              : `Mehrere Modellstände passen auf „${compareWithName}“. Bitte eindeutig benennen.`,
+              ? `Keine zweite Revision mit dem Namen „${compareWithName}“ gefunden.`
+              : `Mehrere Revisionen passen auf „${compareWithName}“. Bitte eindeutig benennen.`,
           models: readable.map(describe),
         }
       }
@@ -202,7 +208,14 @@ export const POST = internalApiRoute(
           models: [describe(selected)],
         }
       }
-      throw new BadRequestError('BIM query could not be executed')
+      // Anything else is OURS, not the caller's. Turning a statement timeout
+      // or an exhausted pool into a `BadRequestError` told the agent it had
+      // sent a malformed request — and because an `ApiError` is returned
+      // directly, it also skipped the handler's logging, so the operator saw
+      // nothing at all. Rethrowing lets the factory log it and answer 500,
+      // which is the difference between "your query is wrong" and "we are
+      // broken".
+      throw error
     }
   },
   { tenancy: { fromPayload: 'body.organizationId' } }

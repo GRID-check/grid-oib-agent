@@ -16,9 +16,10 @@
  * I see", and it is why the bar does not read as one undifferentiated row of
  * nine icons.
  *
- * The dock never covers the model with a dead zone: the positioning wrapper is
- * `pointer-events-none` and only the pills themselves take the pointer, so a
- * drag that starts beside a button still orbits the building.
+ * The dock never covers the model with a dead zone: the positioning wrapper AND
+ * the scrolling row inside it are `pointer-events-none`, and only the pills
+ * themselves take the pointer, so a drag that starts beside a button still
+ * orbits the building.
  */
 
 import { type ReactNode } from 'react'
@@ -61,15 +62,37 @@ export function ViewerDock({ lead, children, trail, above, className }: ViewerDo
     >
       {above}
       {/*
-        `w-full justify-center` rather than a shrink-to-fit row: at 390 px the
-        pills are wider than the viewport, and a centred row that cannot
-        scroll simply loses its ends. This way the bar scrolls, and the
-        scrollbar itself is hidden because a visible one under a floating pill
-        reads as a rendering artefact.
+        `w-full` rather than a shrink-to-fit row: at 390 px the pills are wider
+        than the viewport, and a centred row that cannot scroll simply loses
+        its ends. This way the bar scrolls, and the scrollbar itself is hidden
+        because a visible one under a floating pill reads as a rendering
+        artefact.
+
+        `justify-center-safe`, not `justify-center`. A centred flex row that
+        overflows a scroll container overflows in BOTH directions, and
+        `scrollLeft` cannot go below zero — so the left end was unreachable by
+        any gesture. On a phone that is the Home button, the one control the
+        whole design calls "get me back". The safe alignment falls back to
+        `start` exactly when the content does not fit.
       */}
-      <div className="pointer-events-auto flex w-full max-w-full items-center justify-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {lead && <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">{lead}</ViewerSurface>}
-        <ViewerSurface className="flex shrink-0 items-center gap-1 p-1">
+      {/*
+        The pointer is taken by the PILLS, not by this row. The row is
+        `w-full` (see above), so `pointer-events-auto` here put a dead band the
+        full width of the viewport across the bottom of the canvas — about
+        68 px with a coarse pointer, which is 8 % of a portrait phone and 17 %
+        of a landscape one where the building cannot be orbited at all, and
+        where a horizontal drag scrolled the dock instead. Touch-scrolling the
+        overflowing row still works: the scroll chain is walked up from
+        whichever pill was hit, and does not care that this element declines
+        the pointer itself.
+      */}
+      <div className="flex w-full max-w-full items-center justify-center-safe gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {lead && (
+          <ViewerSurface className="pointer-events-auto flex shrink-0 items-center gap-1 p-1">
+            {lead}
+          </ViewerSurface>
+        )}
+        <ViewerSurface className="pointer-events-auto flex shrink-0 items-center gap-1 p-1">
           {children}
           {trail && (
             <>
