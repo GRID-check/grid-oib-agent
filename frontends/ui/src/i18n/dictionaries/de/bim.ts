@@ -303,6 +303,8 @@ export const bim: typeof en.bim = {
     models: 'Modelle',
     levels: 'Geschoße',
     allLevels: 'Alle Geschoße',
+    highlightCapped:
+      'Ein Link kann {shown} der {total} hervorgehobenen Bauteile mitführen. Die übrigen sind im Modell, hier aber nicht markiert.',
     otherModel:
       'Dieser Link nennt „{wanted}“ — dieses Modell gibt es in diesem Projekt nicht. Angezeigt wird „{opened}“.',
     showEverything: 'Ausgeblendetes wiederherstellen',

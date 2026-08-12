@@ -16,6 +16,7 @@ import { useEffect } from 'react'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { BimModelHeaderView } from '../hooks/use-bim-model'
+import { buildModelQuery, type BimModelView } from '../lib/model-link'
 import { ModelStage } from './model-stage'
 
 const routerReplace = vi.fn()
@@ -78,6 +79,8 @@ let canvasStatus: { phase: string; percent: number | null; meshCount: number; me
 const state = {
   models: [] as BimModelHeaderView[],
   elements: [] as unknown[],
+  /** The rows arrive on their own request, later than the geometry. */
+  elementsLoading: false,
   detail: null as unknown,
   sourceUrl: 'https://example.test/haus-a.ifc' as string | null,
   sourceError: null as string | null,
@@ -90,7 +93,11 @@ vi.mock('../hooks/use-bim-model', () => ({
     error: modelsError,
     reload: modelsReload,
   }),
-  useBimElements: () => ({ data: state.elements, isLoading: false, error: null }),
+  useBimElements: () => ({
+    data: state.elementsLoading ? null : state.elements,
+    isLoading: state.elementsLoading,
+    error: null,
+  }),
   useBimElementDetail: () => ({ data: state.detail, isLoading: false, error: null }),
   useBimModelSource: () => ({
     data: state.sourceUrl,
@@ -137,6 +144,7 @@ beforeEach(() => {
   searchParams = new URLSearchParams('model=Haus-A.ifc')
   state.models = [model()]
   state.elements = []
+  state.elementsLoading = false
   state.detail = null
   state.sourceUrl = 'https://example.test/haus-a.ifc'
   state.sourceError = null
@@ -628,5 +636,98 @@ describe('ModelStage — when the link and the project disagree', () => {
     searchParams = new URLSearchParams('model=Haus-A.ifc')
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
     expect(screen.queryByText(/This link names/)).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * A link that arrives carrying highlights.
+ *
+ * The colours come from somewhere the reader cannot see — an answer, a card, a
+ * compliance verdict — so everything the stage says ABOUT them is the only
+ * thing that makes them readable: the words the group was given, the count
+ * that survived the link's id cap, and the honesty about which of the two
+ * kinds of "missing" is in play.
+ */
+describe('ModelStage — the highlights a link carries', () => {
+  /**
+   * The query as the sender's browser would actually produce it.
+   *
+   * Hand-writing the string here would test a link nobody sends: the label is
+   * percent-encoded twice on the wire — once by the encoder, once by
+   * `URLSearchParams.toString` — and a fixture that encodes it only once
+   * passes while the real link fails.
+   */
+  const linkParams = (view: BimModelView): URLSearchParams =>
+    new URLSearchParams(buildModelQuery(view))
+
+  const WALLS = [
+    { globalId: 'g-1', expressId: 1, ifcType: 'IfcWall', name: 'Aussenwand Nord', storeyName: 'Erdgeschoss' },
+    { globalId: 'g-2', expressId: 2, ifcType: 'IfcWall', name: 'Aussenwand Süd', storeyName: 'Erdgeschoss' },
+  ]
+
+  it('labels the legend with the answer’s own words', () => {
+    // Before the label travelled, both of these arrived as "Error" — two
+    // identical legend rows, and the distinction the answer drew erased.
+    state.elements = WALLS
+    searchParams = linkParams({
+      model: 'Haus-A.ifc',
+      highlights: [
+        { status: 'fail', label: 'Fluchtweg > 40 m', globalIds: ['g-1'] },
+        { status: 'fail', label: 'Türbreite < 80 cm', globalIds: ['g-2'] },
+      ],
+    })
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    expect(screen.getByText('Fluchtweg > 40 m')).toBeInTheDocument()
+    expect(screen.getByText('Türbreite < 80 cm')).toBeInTheDocument()
+    expect(screen.queryByText('Error')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the severity for a link written without a label', () => {
+    state.elements = WALLS
+    searchParams = new URLSearchParams('model=Haus-A.ifc&hl=fail:g-1')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(screen.getByText('Error')).toBeInTheDocument()
+  })
+
+  it('says how many the link could not carry', () => {
+    // The card matched 420 walls and the URL holds 60. Without this the
+    // legend reads "(2)" beside an answer that said 420 and nothing on screen
+    // accounts for the other 418.
+    state.elements = WALLS
+    searchParams = linkParams({
+      model: 'Haus-A.ifc',
+      highlights: [{ status: 'fail', label: 'Aussenwände', globalIds: ['g-1', 'g-2'], total: 420 }],
+    })
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    expect(
+      screen.getByText(/A link can carry 2 of the 420 highlighted elements/)
+    ).toBeInTheDocument()
+  })
+
+  it('does not call a highlight missing while the rows are still in flight', () => {
+    // Geometry and the element rows are separate requests, and an id resolves
+    // only against the rows. Counting them early made every highlight link
+    // flash "2 of the highlighted elements are not in this model" and then
+    // withdraw it — telling the reader the answer they were sent is wrong
+    // about a model that contains every one of those elements.
+    state.elements = WALLS
+    state.elementsLoading = true
+    searchParams = new URLSearchParams('model=Haus-A.ifc&hl=fail:g-1,g-2')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    expect(screen.queryByText(/are not in this model/)).not.toBeInTheDocument()
+    // And no legend row claiming zero, which is the same false statement in
+    // the other corner of the screen.
+    expect(screen.queryByText('(0)')).not.toBeInTheDocument()
+  })
+
+  it('does say so once the rows have landed and the ids are genuinely absent', () => {
+    state.elements = WALLS
+    searchParams = new URLSearchParams('model=Haus-A.ifc&hl=fail:g-1,g-nonexistent')
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    expect(screen.getByText(/1 of the highlighted elements are not in this model/)).toBeInTheDocument()
   })
 })

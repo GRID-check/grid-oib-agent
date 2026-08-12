@@ -308,6 +308,8 @@ export const bim = {
     models: 'Models',
     levels: 'Levels',
     allLevels: 'All levels',
+    highlightCapped:
+      'A link can carry {shown} of the {total} highlighted elements. The rest are in the model but not marked here.',
     otherModel:
       'This link names “{wanted}”, which is not in this project. Showing “{opened}” instead.',
     showEverything: 'Restore hidden components',

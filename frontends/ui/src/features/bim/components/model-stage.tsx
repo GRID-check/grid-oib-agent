@@ -188,7 +188,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   const storey = view.storey ?? null
   const selectedGlobalId = view.element ?? null
 
-  const { data: elements } = useBimElements(modelId)
+  const { data: elements, isLoading: elementsLoading } = useBimElements(modelId)
   // `elements ?? []` inline would mint a new array on every render, changing
   // the canvas's props identity for a value that did not change.
   const elementList = elements ?? NO_ELEMENTS
@@ -243,9 +243,15 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     () =>
       (view.highlights ?? []).map((group) => ({
         globalIds: group.globalIds,
-        label: t(
-          `health.severity.${group.status === 'fail' ? 'error' : group.status === 'warning' ? 'warning' : 'info'}`
-        ),
+        // The answer's own words when the link carried them. The severity
+        // word is the fallback, and it used to be the only option — so
+        // "Fluchtweg > 40 m (12)" and "Türbreite < 80 cm (4)" both became
+        // "Fehler", two identical legend rows with the meaning stripped out.
+        label:
+          group.label ??
+          t(
+            `health.severity.${group.status === 'fail' ? 'error' : group.status === 'warning' ? 'warning' : 'info'}`
+          ),
         status: group.status,
       })),
     [view.highlights, t]
@@ -418,9 +424,32 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     return ''
   }, [error, source.error, viewport.status.phase, captureFailed, copyFailed, copied, t])
 
-  /** Highlighted ids the loaded model does not contain. */
-  const unresolvedHighlights = viewport.highlights.reduce(
-    (sum, group) => sum + group.unresolved.length,
+  /**
+   * Highlighted ids the loaded model does not contain.
+   *
+   * Zero while the element rows are still in flight, which is not a detail:
+   * geometry and the row list arrive on separate requests, and an id can only
+   * be resolved against the rows. Counting them before they land made EVERY
+   * highlight link flash "12 elements from this link are not in this model"
+   * for as long as the walk took, and then withdraw it — the reader is told
+   * the answer they were sent is wrong, about a model that has every one of
+   * those elements. Same mistake `expressIdsForStorey` already fixed for
+   * isolation: an empty list is "not yet", not "not there".
+   */
+  const unresolvedHighlights = elementsLoading
+    ? 0
+    : viewport.highlights.reduce((sum, group) => sum + group.unresolved.length, 0)
+
+  /**
+   * Highlighted elements the LINK could not carry.
+   *
+   * A card resolves a filter-matched group against the whole model — that is
+   * the point of the `match` grammar, so "all 420 external walls light up" —
+   * and a URL is capped at 60 ids. The card's legend said 420 and the stage's
+   * said 60, with nothing between them to explain the difference.
+   */
+  const cappedHighlights = (view.highlights ?? []).reduce(
+    (sum, group) => sum + Math.max(0, (group.total ?? 0) - group.globalIds.length),
     0
   )
 
@@ -638,7 +667,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
             screen and the warning disappeared while the legend quietly
             counted fewer elements than the answer named.
           */}
-          {(openedAnother || unresolvedHighlights > 0) && (
+          {(openedAnother || unresolvedHighlights > 0 || cappedHighlights > 0) && (
             <div className="absolute top-16 left-1/2 z-20 -translate-x-1/2 sm:top-20">
               <ViewerSurface className="flex items-start gap-2 px-3 py-2 text-xs">
                 <TriangleAlert className="text-warning mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -648,7 +677,18 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                         wanted: view.model ?? '',
                         opened: model?.filename ?? '',
                       })
-                    : t('card.unresolved', { count: unresolvedHighlights })}
+                    : unresolvedHighlights > 0
+                      ? t('card.unresolved', { count: unresolvedHighlights })
+                      : t('stage.highlightCapped', {
+                          shown: (view.highlights ?? []).reduce(
+                            (sum, group) => sum + group.globalIds.length,
+                            0
+                          ),
+                          total: (view.highlights ?? []).reduce(
+                            (sum, group) => sum + (group.total ?? group.globalIds.length),
+                            0
+                          ),
+                        })}
                 </span>
               </ViewerSurface>
             </div>
@@ -657,11 +697,21 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           {/* What the colours mean, when something coloured them. */}
           <ViewerLegend
             className="absolute bottom-20 left-3 z-20 sm:bottom-24 sm:left-4"
-            entries={viewport.highlights.map((highlight) => ({
-              status: highlight.status,
-              label: highlight.label,
-              count: highlight.expressIds.length,
-            }))}
+            // Nothing until the rows land, for the same reason the warning
+            // above waits: a count is resolved against the element list, so
+            // rendering one early states "Aussenwände (0)" beside an answer
+            // that said 420. A legend that arrives a moment late is a legend;
+            // one that arrives wrong is a contradiction the reader has to
+            // resolve themselves.
+            entries={
+              elementsLoading
+                ? []
+                : viewport.highlights.map((highlight) => ({
+                    status: highlight.status,
+                    label: highlight.label,
+                    count: highlight.expressIds.length,
+                  }))
+            }
           />
 
           <ViewerDock
