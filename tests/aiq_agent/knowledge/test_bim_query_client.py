@@ -69,9 +69,7 @@ class TestTheMessageAnAgentSeesWhenAQueryIsRefused:
             400,
             {
                 "error": "Invalid request body",
-                "details": [
-                    {"path": ["query", f"f{index}"], "message": "Required"} for index in range(20)
-                ],
+                "details": [{"path": ["query", f"f{index}"], "message": "Required"} for index in range(20)],
             },
         )
         message = _rejection_message(error)
@@ -118,7 +116,7 @@ class TestWhichErrorTheCallerGets:
         monkeypatch.setattr("aiq_agent.knowledge.bim_query._opener", type("O", (), {"open": staticmethod(opener)})())
 
     def test_a_correctable_400_is_a_rejection(self, monkeypatch):
-        self._raise(monkeypatch, http_error(400, {"error": "groupBy \"property\" needs groupProperty {set, name}"}))
+        self._raise(monkeypatch, http_error(400, {"error": 'groupBy "property" needs groupProperty {set, name}'}))
         with pytest.raises(BimQueryRejectedError) as caught:
             run_bim_query(organization_id="org", project_id="p", query={"op": "aggregate"})
         assert "groupProperty" in str(caught.value)

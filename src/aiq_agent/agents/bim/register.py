@@ -735,9 +735,7 @@ def _render(
 # window of the model. Telling the agent to aggregate harder invites it to
 # quote a partial sum as a total — which is the failure the flag exists to
 # prevent, arrived at through the flag itself.
-_PARTIAL_MODEL_OPS = frozenset(
-    {"schedule", "takeoff", "compliance", "compliance-diff", "compare", "profile", "health"}
-)
+_PARTIAL_MODEL_OPS = frozenset({"schedule", "takeoff", "compliance", "compliance-diff", "compare", "profile", "health"})
 
 
 def _truncation_note(op: str) -> str:
