@@ -297,6 +297,49 @@ describe('IfcCompliancePanel', () => {
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Confirm manually' }))
     })
 
+    it('asks before deleting a signed record', async () => {
+      // One click used to delete it — permanently, across every revision of
+      // the building, with no confirmation, no undo, and no feedback beyond
+      // the button vanishing. Everything else in this component asks first;
+      // the note form is itself a two-step disclosure.
+      const onWithdraw = vi.fn().mockResolvedValue(undefined)
+      panel({ rules: [CONFIRMED], onConfirm: vi.fn(), onWithdraw })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+      expect(onWithdraw).not.toHaveBeenCalled()
+      expect(screen.getByText('Delete this confirmation and its note?')).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+      expect(onWithdraw).toHaveBeenCalledWith('oib2-feuerwiderstand-tragend')
+    })
+
+    it('lets the reader back out of the withdrawal', async () => {
+      const onWithdraw = vi.fn().mockResolvedValue(undefined)
+      panel({ rules: [CONFIRMED], onConfirm: vi.fn(), onWithdraw })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(onWithdraw).not.toHaveBeenCalled()
+      expect(screen.queryByText('Delete this confirmation and its note?')).not.toBeInTheDocument()
+    })
+
+    it('tells a read-only reader why, rather than telling them to try again', async () => {
+      // The retry can never succeed and the note is retyped each time. The
+      // panel's own prop doc says the write callbacks are absent for a viewer
+      // without `project:edit`; nothing ever omits them.
+      const onConfirm = vi.fn().mockRejectedValue(new Error('403'))
+      panel({ rules: [rule({ ruleId: 'oib2-feuerwiderstand-tragend', undecidable: 34 })], onConfirm })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm manually' }))
+      await userEvent.type(screen.getByLabelText('Why this is settled'), 'Geprüft')
+      await userEvent.click(screen.getByRole('button', { name: 'Save confirmation' }))
+
+      expect(screen.getByText(/cannot be added or withdrawn/)).toBeInTheDocument()
+      expect(screen.queryByTestId('bim-confirmation-failed')).not.toBeInTheDocument()
+      // And the note survives, so nothing they typed is lost.
+      expect(screen.getByLabelText('Why this is settled')).toHaveValue('Geprüft')
+    })
+
     it('offers nothing to confirm on a rule the model settled cleanly', () => {
       // A signature there would be one nobody needs.
       panel({ rules: [rule({ ruleId: 'oib3-raumhoehe', passed: 9 })], onConfirm: vi.fn() })

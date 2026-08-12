@@ -54,8 +54,30 @@ export interface IfcCompliancePanelProps {
   truncated?: boolean
   projectId: string
   modelFilename: string
+  /** Re-runs the catalogue after a failure. */
+  onRetry?: () => void
+  /**
+   * Show these elements in the model.
+   *
+   * A PATCH of the view, not a fresh one. These used to be `<Link>`s built by
+   * `buildModelHref` from scratch: clicking a failing door threw away the
+   * storey filter, the camera and the section cut the reader had set up, and —
+   * because a `<Link>` pushes while the stage navigates with `replace`
+   * everywhere else — made the back button do something different from what
+   * it had done a click earlier. The health panel beside it has always
+   * patched; this is the same callback.
+   */
+  onShowElements?: (globalIds: string[], status: 'fail' | 'info') => void
   /** Set when the project brief is missing a fact some rules need. */
   missingFacts: string[]
+  /**
+   * The brief could not be READ, which is not the same as it lacking a value.
+   *
+   * With this set the panel must not tell the reader to go and fill in facts
+   * that are, as far as anyone knows, already there.
+   */
+  factsFailed?: boolean
+  onRetryFacts?: () => void
   /** Opens the chat so the user can supply what the brief lacks. */
   askHref: string
   /**
@@ -107,9 +129,13 @@ export function IfcCompliancePanel({
   isLoading,
   error,
   truncated = false,
+  onRetry,
+  onShowElements,
   projectId,
   modelFilename,
   missingFacts,
+  factsFailed = false,
+  onRetryFacts,
   askHref,
   onConfirm,
   onWithdraw,
@@ -145,7 +171,24 @@ export function IfcCompliancePanel({
       )}
 
       {isLoading && <Spinner className="size-4" />}
-      {error && <p className="text-sm text-destructive">{t('compliance.failed')}</p>}
+      {error && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-destructive text-sm">{t('compliance.failed')}</p>
+          {/* The rule the stage states and this panel used to break: "Every
+              error state in this viewer used to be terminal." */}
+          {onRetry && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={onRetry}
+            >
+              {t('loadFailed.action')}
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Above the badges on purpose: it invalidates every number in them. */}
       {truncated && (
@@ -183,6 +226,30 @@ export function IfcCompliancePanel({
             </Badge>
           )}
         </div>
+      )}
+
+      {/*
+        A brief that could not be READ, said as itself. The rules stand down
+        either way, but "diese Angaben fehlen im Briefing" sends the reader to
+        re-enter values that are already there, and coming back changes
+        nothing.
+      */}
+      {factsFailed && (
+        <p className="bg-warning-subtle text-warning flex flex-wrap items-center gap-2 rounded-md p-2 text-xs">
+          <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
+          <span>{t('compliance.factsFailed')}</span>
+          {onRetryFacts && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs"
+              onClick={onRetryFacts}
+            >
+              {t('loadFailed.action')}
+            </Button>
+          )}
+        </p>
       )}
 
       {missingFacts.length > 0 && (
@@ -229,6 +296,7 @@ export function IfcCompliancePanel({
               modelFilename={modelFilename}
               onConfirm={onConfirm}
               onWithdraw={onWithdraw}
+              onShowElements={onShowElements}
             />
           ))}
         </ul>
@@ -247,12 +315,15 @@ function RuleRow({
   modelFilename,
   onConfirm,
   onWithdraw,
+  onShowElements,
 }: {
   rule: BimRuleResultWithConfirmation
   projectId: string
   modelFilename: string
   onConfirm?: (ruleId: string, note: string) => Promise<void>
   onWithdraw?: (ruleId: string) => Promise<void>
+  /** Patches the view rather than replacing it — see the panel's prop doc. */
+  onShowElements?: (globalIds: string[], status: 'fail' | 'info') => void
 }): JSX.Element {
   const t = useTranslations('bim')
   const checked = rule.passed + rule.failed + rule.undecidable
@@ -315,6 +386,7 @@ function RuleRow({
                 modelFilename={modelFilename}
                 status="fail"
                 tone="text-destructive"
+                onShowElements={onShowElements}
               />
               <VerdictList
                 heading={t('compliance.unknowns')}
@@ -324,6 +396,7 @@ function RuleRow({
                 modelFilename={modelFilename}
                 status="info"
                 tone="text-warning"
+                onShowElements={onShowElements}
               />
               {rule.truncated && (
                 <p className="text-xs text-muted-foreground">{t('compliance.truncated')}</p>
@@ -390,6 +463,20 @@ function Confirmation({
     else openerRef.current?.focus()
   }, [open])
 
+  /**
+   * Whether the last write was refused for lack of permission.
+   *
+   * A project VIEWER can open the Prüfbuch — the confirmations are part of the
+   * record everyone reads — and the panel's own prop doc says the write
+   * callbacks are "absent for a viewer without `project:edit`". Nothing ever
+   * omits them, so a viewer could fill in a note, save it, get a 403 and be
+   * told "bitte erneut versuchen": a retry that can never succeed, with the
+   * note retyped each time.
+   */
+  const [denied, setDenied] = useState(false)
+  /** Withdrawing is destructive and irreversible, so it asks first. */
+  const [confirmingWithdraw, setConfirmingWithdraw] = useState(false)
+
   // Nothing to confirm on a rule that stood down or that the model settled
   // cleanly — offering a signature there would invite one nobody needs.
   const needsHuman = rule.applicable && (rule.failed > 0 || rule.undecidable > 0)
@@ -407,8 +494,9 @@ function Confirmation({
       interacted.current = true
       setOpen(false)
       setNote('')
-    } catch {
-      setFailed(true)
+    } catch (error) {
+      if (error instanceof Error && error.message === '403') setDenied(true)
+      else setFailed(true)
     } finally {
       setBusy(false)
     }
@@ -420,8 +508,14 @@ function Confirmation({
     setFailed(false)
     try {
       await onWithdraw(rule.ruleId)
-    } catch {
-      setFailed(true)
+      // Back to the opener, which by then reads "Manuell bestätigen": a
+      // control that confirms the withdrawal happened, rather than a focus
+      // ring thrown to the top of the dialog.
+      interacted.current = true
+      setConfirmingWithdraw(false)
+    } catch (error) {
+      if (error instanceof Error && error.message === '403') setDenied(true)
+      else setFailed(true)
     } finally {
       setBusy(false)
     }
@@ -470,17 +564,52 @@ function Confirmation({
               ? t('compliance.confirmed.reconfirm')
               : t('compliance.confirmed.confirm')}
           </Button>
-          {rule.confirmation && onWithdraw && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => void withdraw()}
-              disabled={busy}
-            >
-              {t('compliance.confirmed.withdraw')}
-            </Button>
-          )}
+          {rule.confirmation &&
+            onWithdraw &&
+            (confirmingWithdraw ? (
+              /*
+                One click used to delete a signed record — permanently, across
+                every revision of the building, with no confirmation, no undo
+                and no feedback beyond the button vanishing. Everything else in
+                this component asks first: the note form is itself a two-step
+                disclosure. This is the same shape, so no new pattern and no
+                dialog.
+              */
+              <>
+                <span className="text-muted-foreground text-xs">
+                  {t('compliance.confirmed.withdrawConfirm')}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => void withdraw()}
+                  disabled={busy}
+                >
+                  {busy ? <Spinner className="size-3" /> : null}
+                  {t('compliance.confirmed.withdraw')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmingWithdraw(false)}
+                  disabled={busy}
+                >
+                  {t('compliance.confirmed.cancel')}
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirmingWithdraw(true)}
+                disabled={busy}
+              >
+                {t('compliance.confirmed.withdraw')}
+              </Button>
+            ))}
         </div>
       )}
 
@@ -525,6 +654,14 @@ function Confirmation({
           {t('compliance.confirmed.failed')}
         </p>
       )}
+      {/* A refusal, not a failure: no retry, because there is nothing to
+          retry. Stated once and the form stays open with the note in it, so
+          nothing the reader typed is lost. */}
+      {denied && (
+        <p role="alert" className="text-warning text-xs">
+          {t('compliance.confirmed.denied')}
+        </p>
+      )}
     </div>
   )
 }
@@ -537,6 +674,7 @@ function VerdictList({
   modelFilename,
   status,
   tone,
+  onShowElements,
 }: {
   heading: string
   verdicts: BimRuleResultWithConfirmation['failures']
@@ -554,36 +692,54 @@ function VerdictList({
   modelFilename: string
   status: 'fail' | 'info'
   tone: string
+  onShowElements?: (globalIds: string[], status: 'fail' | 'info') => void
 }): JSX.Element | null {
   const t = useTranslations('bim')
   if (verdicts.length === 0) return null
   const shown = verdicts.slice(0, VISIBLE_ROWS)
 
+  /**
+   * A button when the stage can patch the view, a link otherwise.
+   *
+   * Patching keeps the storey, the camera and the cut the reader set up, and
+   * navigates with `replace` like the rest of the stage. The link stays for
+   * the surfaces that render this panel without a viewport to talk to — the
+   * dev page, and any future read-only embed — where a fresh view is the only
+   * thing a click can mean.
+   */
+  const show = (globalIds: string[], children: React.ReactNode, className: string) =>
+    onShowElements ? (
+      <button
+        type="button"
+        onClick={() => onShowElements(globalIds, status)}
+        className={className}
+      >
+        {children}
+      </button>
+    ) : (
+      <Link href={verdictHref(projectId, modelFilename, globalIds, status)} className={className}>
+        {children}
+      </Link>
+    )
+
   return (
     <div className="mt-1 space-y-0.5">
       <p className={`text-xs font-medium ${tone}`}>
         {heading}{' '}
-        <Link
-          href={verdictHref(
-            projectId,
-            modelFilename,
-            verdicts.map((verdict) => verdict.globalId),
-            status
-          )}
-          className="font-normal underline underline-offset-2"
-        >
-          {t('compliance.showInModel')}
-        </Link>
+        {show(
+          verdicts.map((verdict) => verdict.globalId),
+          t('compliance.showInModel'),
+          'font-normal underline underline-offset-2'
+        )}
       </p>
       <ul className="space-y-0.5">
         {shown.map((verdict) => (
           <li key={verdict.globalId} className="text-xs text-muted-foreground">
-            <Link
-              href={verdictHref(projectId, modelFilename, [verdict.globalId], status)}
-              className="underline underline-offset-2"
-            >
-              {verdict.name ?? verdict.globalId}
-            </Link>
+            {show(
+              [verdict.globalId],
+              verdict.name ?? verdict.globalId,
+              'underline underline-offset-2'
+            )}
             {verdict.storeyName ? ` · ${verdict.storeyName}` : ''} — {verdict.reading}
           </li>
         ))}

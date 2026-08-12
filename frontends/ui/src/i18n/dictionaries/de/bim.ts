@@ -130,7 +130,7 @@ export const bim: typeof en.bim = {
     none: 'Laden Sie einen zweiten Stand hoch, um zu vergleichen.',
     run: 'Vergleichen',
     running: 'Wird verglichen…',
-    failed: 'Der Vergleich konnte nicht durchgeführt werden.',
+    failed: 'Der Bauteilvergleich konnte nicht durchgeführt werden.',
     added: 'Neu',
     removed: 'Entfallen',
     changed: 'Geändert',
@@ -160,6 +160,8 @@ export const bim: typeof en.bim = {
     missingFacts:
       'Einige Regeln hängen an Projektangaben, die im Projekt-Briefing fehlen: {facts}. Diese Regeln wurden nicht angewendet, statt zu raten.',
     setFacts: 'Über den Assistenten ergänzen',
+    factsFailed:
+      'Das Projekt-Briefing konnte nicht gelesen werden — die davon abhängigen Regeln wurden daher nicht angewendet. Über das Briefing selbst sagt das nichts aus.',
     badge: {
       passing: 'Erfüllt',
       failing: 'Nicht erfüllt',
@@ -173,9 +175,12 @@ export const bim: typeof en.bim = {
       staleHint:
         'Diese Bestätigung wurde gegen eine frühere Revision des Modells abgegeben. Sie bleibt als Eintrag erhalten, gilt aber nicht für die aktuelle Revision.',
       failed: 'Die Bestätigung konnte nicht gespeichert werden. Sie ist NICHT hinterlegt — bitte erneut versuchen.',
+      denied:
+        'Sie haben Lesezugriff auf dieses Projekt — Bestätigungen werden angezeigt, können aber nicht hinterlegt oder zurückgezogen werden. Jemand mit Bearbeitungsrecht kann das eintragen.',
       confirm: 'Manuell bestätigen',
       reconfirm: 'Für diesen Stand erneut bestätigen',
       withdraw: 'Zurückziehen',
+      withdrawConfirm: 'Diese Bestätigung samt Notiz löschen?',
       save: 'Bestätigung speichern',
       cancel: 'Abbrechen',
       noteLabel: 'Warum das geklärt ist',
@@ -205,7 +210,7 @@ export const bim: typeof en.bim = {
       'Führt die Anforderungsprüfung auf beiden Ständen aus und listet nur, was sich geändert hat — gegenüber {previous}.',
     run: 'Anforderungsstatus vergleichen',
     running: 'Wird verglichen…',
-    failed: 'Der Vergleich konnte nicht durchgeführt werden.',
+    failed: 'Der Statusvergleich konnte nicht durchgeführt werden.',
     unchanged: 'Keine Anforderung hat ihren Status zwischen diesen beiden Ständen geändert.',
     truncated:
       'Mindestens eine Revision wurde nur teilweise eingelesen — dieser Vergleich deckt jeweils nur einen Teil des Gebäudes ab. „Unverändert“ heißt hier nicht, dass sich nichts geändert hat.',
@@ -237,6 +242,7 @@ export const bim: typeof en.bim = {
     expandOne: 'Einen weiteren Raum anzeigen',
     collapse: 'Weniger anzeigen',
     empty: 'Dieses Modell enthält keine Räume (IfcSpace).',
+    storeyEmpty: 'Dieses Modell hat kein Geschoß mit dem Namen „{storey}“.',
     failed: 'Das Raumbuch konnte nicht geladen werden.',
   },
   takeoff: {

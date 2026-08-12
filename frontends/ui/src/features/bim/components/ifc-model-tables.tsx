@@ -30,6 +30,29 @@ import {
   type BimRoomSchedule,
 } from '@/lib/bim/schedule'
 
+/**
+ * A failure with a way out.
+ *
+ * Every panel here used to render one red sentence and stop. The drawer's tab
+ * state is sticky, so switching away and back does not refetch and the only
+ * recovery was closing the whole stage — which nothing suggested. The stage's
+ * own comment states the rule: "Every error state in this viewer used to be
+ * terminal."
+ */
+function PanelError({ text, onRetry }: { text: string; onRetry?: () => void }): JSX.Element {
+  const t = useTranslations('bim')
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="text-destructive text-sm">{text}</p>
+      {onRetry && (
+        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onRetry}>
+          {t('loadFailed.action')}
+        </Button>
+      )}
+    </div>
+  )
+}
+
 /** Rows shown before the panel folds; a 400-room model must not own the page. */
 const VISIBLE_ROOMS = 60
 
@@ -63,6 +86,8 @@ export interface IfcRoomScheduleProps {
   schedule: BimRoomSchedule | null
   isLoading: boolean
   error: string | null
+  /** Re-runs the query behind this panel — see `PanelError`. */
+  onRetry?: () => void
   filename: string
   /** Selecting a row selects the room everywhere else on the page. */
   onSelect?: (globalId: string) => void
@@ -74,6 +99,7 @@ export function IfcRoomSchedule({
   schedule,
   isLoading,
   error,
+  onRetry,
   filename,
   onSelect,
   selectedGlobalId,
@@ -117,7 +143,7 @@ export function IfcRoomSchedule({
       </div>
 
       {isLoading && <Spinner className="size-4" />}
-      {error && <p className="text-sm text-destructive">{t('schedule.failed')}</p>}
+      {error && <PanelError text={t('schedule.failed')} onRetry={onRetry} />}
 
       {schedule && schedule.totals.rooms === 0 && (
         <p className="text-sm text-muted-foreground">{t('schedule.empty')}</p>
@@ -308,6 +334,8 @@ export interface IfcQuantityTakeoffProps {
   rows: BimQuantityRow[] | null
   isLoading: boolean
   error: string | null
+  /** Re-runs the query behind this panel — see `PanelError`. */
+  onRetry?: () => void
   quantity: string
   onQuantityChange: (quantity: string) => void
   byMaterial: boolean
@@ -319,6 +347,7 @@ export function IfcQuantityTakeoff({
   rows,
   isLoading,
   error,
+  onRetry,
   quantity,
   onQuantityChange,
   byMaterial,
@@ -374,7 +403,7 @@ export function IfcQuantityTakeoff({
       </div>
 
       {isLoading && <Spinner className="size-4" />}
-      {error && <p className="text-sm text-destructive">{t('takeoff.failed')}</p>}
+      {error && <PanelError text={t('takeoff.failed')} onRetry={onRetry} />}
 
       {rows && rows.length === 0 && (
         <p className="text-sm text-muted-foreground">{t('takeoff.empty')}</p>
@@ -462,6 +491,8 @@ export interface IfcProfileSuggestionsProps {
   suggestions: BimProfileSuggestion[] | null
   isLoading: boolean
   error: string | null
+  /** Re-runs the query behind this panel — see `PanelError`. */
+  onRetry?: () => void
   /** Opens the chat with a question that asks the agent to apply these. */
   askHref: string
 }
@@ -477,6 +508,7 @@ export function IfcProfileSuggestions({
   suggestions,
   isLoading,
   error,
+  onRetry,
   askHref,
 }: IfcProfileSuggestionsProps): JSX.Element {
   const t = useTranslations('bim')
@@ -490,7 +522,7 @@ export function IfcProfileSuggestions({
       <p className="text-xs text-muted-foreground">{t('profile.description')}</p>
 
       {isLoading && <Spinner className="size-4" />}
-      {error && <p className="text-sm text-destructive">{t('profile.failed')}</p>}
+      {error && <PanelError text={t('profile.failed')} onRetry={onRetry} />}
 
       {suggestions && suggestions.length === 0 && (
         <p className="text-sm text-muted-foreground">{t('profile.empty')}</p>

@@ -249,7 +249,11 @@ export function IfcScheduleCard({
     const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }))
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `raumbuch-${model?.filename ?? 'modell'}.csv`
+    // `haus-a-raumbuch.csv`, matching the model page. This wrote
+    // `raumbuch-haus-a.ifc.csv` — the extension of the source file left in the
+    // middle of a CSV's name, and the two exports of the same table sorting
+    // apart in a downloads folder.
+    anchor.download = `${(model?.filename ?? 'modell').replace(/\.(ifc|ifczip)$/i, '')}-raumbuch.csv`
     anchor.click()
     URL.revokeObjectURL(url)
   }
@@ -259,7 +263,10 @@ export function IfcScheduleCard({
       title={title}
       icon={Table2}
       action={
-        schedule && (
+        // Not for an empty selection: a CSV of nothing is a file the reader
+        // has to open to discover is empty.
+        schedule &&
+        storeys.length > 0 && (
           <Button type="button" size="sm" variant="ghost" onClick={download}>
             <Download className="size-3.5" aria-hidden="true" />
             CSV
@@ -271,8 +278,17 @@ export function IfcScheduleCard({
         <NoModel isLoading={modelsLoading} error={modelsError} />
       ) : isLoading ? (
         <Spinner className="size-4" />
-      ) : error || !schedule ? (
+      ) : error ? (
         <p className="text-sm text-destructive">{t('schedule.failed')}</p>
+      ) : !schedule || schedule.totals.rooms === 0 ? (
+        // "The query failed" and "this model has no rooms" are different
+        // answers, and the model page has always distinguished them. The card
+        // rendered the failure sentence for both.
+        <p className="text-muted-foreground text-sm">{t('schedule.empty')}</p>
+      ) : storeys.length === 0 ? (
+        // A storey the card named that this model does not have. Saying so
+        // beats a table with headers, no rows and no explanation.
+        <p className="text-muted-foreground text-sm">{t('schedule.storeyEmpty', { storey: storey ?? '' })}</p>
       ) : (
         <div className="space-y-3">
           <div className="overflow-x-auto">

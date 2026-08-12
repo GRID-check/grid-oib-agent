@@ -114,7 +114,7 @@ describe('IfcComplianceDiff', () => {
 
   it('reports a failed run instead of implying nothing changed', () => {
     diff({ changes: null, error: 'load-failed' })
-    expect(screen.getByText('The comparison could not be run.')).toBeInTheDocument()
+    expect(screen.getByText('The requirement-status comparison could not be run.')).toBeInTheDocument()
     expect(screen.queryByText(/No requirement changed/)).not.toBeInTheDocument()
   })
 })

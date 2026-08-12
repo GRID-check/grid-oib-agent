@@ -1126,10 +1126,10 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               // A finding becomes a VIEW: the offending elements are
               // highlighted, the first is selected, and the URL now points at
               // exactly that — so "here is the problem" is a link.
-              onShowElements={(globalIds) =>
+              onShowElements={(globalIds, status = 'fail') =>
                 setView({
                   element: globalIds[0],
-                  highlights: [{ status: 'fail', globalIds }],
+                  highlights: [{ status, globalIds }],
                   xray: true,
                 })
               }

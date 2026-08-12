@@ -514,8 +514,19 @@ function useModelQuery<T>(
   modelId: string | null,
   request: Record<string, unknown> | null,
   select: (body: BimQueryResponse) => T | null
-): AsyncState<T> {
+): AsyncState<T> & { reload: () => void } {
   const [state, setState] = useState<AsyncState<T>>(IDLE)
+  /**
+   * Bumped by `reload`.
+   *
+   * Every panel built on this hook rendered one red sentence and stopped. The
+   * drawer's tab state is sticky by design, so switching away and back does
+   * not refetch, and the request key is unchanged — the only recovery was
+   * closing the whole stage and reopening it, which nothing suggested. The
+   * stage's own comment states the rule these four panels broke: "Every error
+   * state in this viewer used to be terminal."
+   */
+  const [tick, setTick] = useState(0)
   const body = request ? JSON.stringify(request) : null
 
   useEffect(() => {
@@ -542,9 +553,9 @@ function useModelQuery<T>(
     // `select` is a module-level function at every call site; re-running on its
     // identity would refetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelId, body])
+  }, [modelId, body, tick])
 
-  return state
+  return { ...state, reload: useCallback(() => setTick((value) => value + 1), []) }
 }
 
 /** What the query route returns — the subset of `BimQueryResult` used here. */
@@ -589,7 +600,7 @@ const selectProfile = (body: BimQueryResponse): BimProfileSuggestion[] | null =>
 /** The Raumbuch: rooms per storey with the totals and their blind spots. */
 export function useBimRoomSchedule(
   modelId: string | null
-): AsyncState<{ schedule: BimRoomSchedule; truncated: boolean }> {
+): AsyncState<{ schedule: BimRoomSchedule; truncated: boolean }> & { reload: () => void } {
   return useModelQuery(modelId, SCHEDULE_REQUEST, selectSchedule)
 }
 
@@ -598,7 +609,7 @@ export function useBimTakeoff(
   modelId: string | null,
   quantity: string,
   byMaterial: boolean
-): AsyncState<{ rows: BimQuantityRow[]; truncated: boolean }> {
+): AsyncState<{ rows: BimQuantityRow[]; truncated: boolean }> & { reload: () => void } {
   const request = useMemo(
     () => ({ op: 'takeoff' as const, quantity, byMaterial }),
     [quantity, byMaterial]
@@ -609,7 +620,7 @@ export function useBimTakeoff(
 /** Project-brief facts the model supports, each with the evidence behind it. */
 export function useBimProfileSuggestions(
   modelId: string | null
-): AsyncState<BimProfileSuggestion[]> {
+): AsyncState<BimProfileSuggestion[]> & { reload: () => void } {
   return useModelQuery(modelId, PROFILE_REQUEST, selectProfile)
 }
 
@@ -667,6 +678,8 @@ export function useBimCompliance(
 ): AsyncState<BimComplianceView> & {
   confirm: (ruleId: string, note: string) => Promise<void>
   withdraw: (ruleId: string) => Promise<void>
+  /** Re-runs the catalogue after a failure — see `useModelQuery`. */
+  reload: () => void
 } {
   const request = useMemo(
     () => ({
@@ -702,6 +715,11 @@ export function useBimCompliance(
   const write = useCallback(
     async (method: 'POST' | 'DELETE', body: Record<string, unknown>) => {
       if (!projectId) return
+      // The status travels with the throw. `getJson` rejects with
+      // `new Error('403')`, and the panel needs to tell a permission refusal
+      // apart from a transport failure: telling a read-only member to "bitte
+      // erneut versuchen" is telling them to retype a note into a request that
+      // can never succeed.
       await getJson(`/api/projects/${projectId}/bim/checks`, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -852,8 +870,20 @@ export function useProjectRuleFacts(projectId: string | null): {
    * somebody opens the tab.
    */
   ready: boolean
+  /**
+   * The brief could not be READ.
+   *
+   * Distinct from "the brief does not carry the fact", which is `missing`.
+   * The rules stand down either way, but only one of the two is something the
+   * reader can act on, and telling them to go and fill in values that are
+   * already there sends them to do work that cannot help.
+   */
+  failed: boolean
+  reload: () => void
 } {
   const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [tick, setTick] = useState(0)
   const [facts, setFacts] = useState<{ gebaeudeklasse: number | null; hauptnutzung: string | null }>({
     gebaeudeklasse: null,
     hauptnutzung: null,
@@ -866,6 +896,7 @@ export function useProjectRuleFacts(projectId: string | null): {
       return
     }
     setReady(false)
+    setFailed(false)
     let cancelled = false
     getJson<{ facts?: Record<string, { value?: unknown }> }>(`/api/projects/${projectId}/profile`)
       .then((profile) => {
@@ -889,8 +920,15 @@ export function useProjectRuleFacts(projectId: string | null): {
         })
       })
       .catch(() => {
-        // A profile that cannot be read is the same situation as a profile that
-        // does not carry the fact: the rules stand down and say so.
+        // For the RULES this is the same situation as a profile that does not
+        // carry the fact: they stand down, which is correct either way.
+        //
+        // For the SENTENCE it is not. "Einige Regeln hängen an Projektangaben,
+        // die im Projekt-Briefing fehlen: Gebäudeklasse, Hauptnutzung" — with
+        // a link to go and set them — is a request to redo work that is
+        // already done, on a project where both are filled in, and coming back
+        // changes nothing. The failure is reported as itself.
+        if (!cancelled) setFailed(true)
       })
       .finally(() => {
         // Settled either way — a brief that failed to load must not park the
@@ -900,16 +938,18 @@ export function useProjectRuleFacts(projectId: string | null): {
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [projectId, tick])
 
   const missing = useMemo(() => {
+    // Nothing is "missing" from a brief nobody managed to read.
+    if (failed) return []
     const gaps: string[] = []
     if (facts.gebaeudeklasse === null) gaps.push('Gebäudeklasse')
     if (facts.hauptnutzung === null) gaps.push('Hauptnutzung')
     return gaps
-  }, [facts])
+  }, [facts, failed])
 
-  return { ...facts, missing, ready }
+  return { ...facts, missing, ready, failed, reload: useCallback(() => setTick((v) => v + 1), []) }
 }
 
 /** The first ready model, or the first model at all — the page's default. */

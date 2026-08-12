@@ -10,7 +10,7 @@
  * working at all.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Boxes, CheckCircle2, Info, Layers3, Ruler, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -353,6 +353,21 @@ export function IfcElementTable({
     () => [...new Set(elements.map((element) => element.ifcType))].sort(),
     [elements]
   )
+
+  /*
+    A different model is a different set of types.
+
+    The drawer is not remounted when the rail switches model, so a filter of
+    `IfcDoor` survived into a building with no doors: the select showed a value
+    that is not in its own option list, the table was empty, and the only
+    message was "Kein Bauteil entspricht diesem Filter" — with the storey half
+    of the filter living in the rail on the other side of the screen. The
+    search box carried over the same way.
+  */
+  useEffect(() => {
+    setSearch('')
+    setTypeFilter('')
+  }, [elements])
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()

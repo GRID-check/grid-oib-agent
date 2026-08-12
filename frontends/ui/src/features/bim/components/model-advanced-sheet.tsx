@@ -81,7 +81,7 @@ export interface ModelAdvancedSheetProps {
   selectedGlobalId: string | null
   onSelectElement: (element: BimViewerElement | null) => void
   /** Turn a finding into a VIEW: highlight the offending elements and x-ray. */
-  onShowElements: (globalIds: string[]) => void
+  onShowElements: (globalIds: string[], status?: 'fail' | 'info') => void
   onOpenModel: (filename: string) => void
 }
 
@@ -297,6 +297,7 @@ export function ModelAdvancedSheet({
             <IfcModelHealthPanel health={model.summary.health} onShowElements={onShowElements} />
           )}
           <IfcProfileSuggestions
+            onRetry={profile.reload}
             suggestions={profile.data}
             isLoading={profile.isLoading}
             error={profile.error}
@@ -310,6 +311,10 @@ export function ModelAdvancedSheet({
           className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
         >
           <IfcCompliancePanel
+            onRetry={compliance.reload}
+            onShowElements={onShowElements}
+            factsFailed={ruleFacts.failed}
+            onRetryFacts={ruleFacts.reload}
             rules={compliance.data?.rules ?? null}
             summary={compliance.data?.summary ?? null}
             shoppingList={compliance.data?.shoppingList ?? null}
@@ -353,6 +358,7 @@ export function ModelAdvancedSheet({
           className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
         >
           <IfcRoomSchedule
+            onRetry={schedule.reload}
             schedule={schedule.data?.schedule ?? null}
             truncated={schedule.data?.truncated ?? false}
             isLoading={schedule.isLoading}
@@ -364,6 +370,7 @@ export function ModelAdvancedSheet({
             }
           />
           <IfcQuantityTakeoff
+            onRetry={takeoff.reload}
             rows={takeoff.data?.rows ?? null}
             truncated={takeoff.data?.truncated ?? false}
             isLoading={takeoff.isLoading}

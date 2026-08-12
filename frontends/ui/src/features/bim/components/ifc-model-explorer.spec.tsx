@@ -428,7 +428,12 @@ describe('IfcModelCompare', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({}) })))
     render(<IfcModelCompare modelId="model-v2" candidates={CANDIDATES} />)
     await userEvent.click(screen.getByRole('button', { name: 'Compare' }))
-    expect(await screen.findByText('The comparison could not be run.')).toBeInTheDocument()
+    // Named for what it compares. Two panels sit in the Revisionen tab, both
+    // called "vergleichen", and their failure text was byte-identical — so a
+    // reader who ran both could not tell which one had failed.
+    expect(
+      await screen.findByText('The element comparison could not be run.')
+    ).toBeInTheDocument()
     vi.unstubAllGlobals()
   })
 })

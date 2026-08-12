@@ -128,7 +128,7 @@ export const bim = {
     none: 'Upload a second revision to compare.',
     run: 'Compare',
     running: 'Comparing…',
-    failed: 'The comparison could not be run.',
+    failed: 'The element comparison could not be run.',
     added: 'Added',
     removed: 'Removed',
     changed: 'Changed',
@@ -157,6 +157,8 @@ export const bim = {
     missingFacts:
       'Some rules depend on project data this brief does not carry: {facts}. Those rules stood down rather than guessing.',
     setFacts: 'Set it with the assistant',
+    factsFailed:
+      'The project brief could not be read, so the rules that depend on it stood down. This says nothing about the brief itself.',
     badge: {
       passing: 'Met',
       failing: 'Not met',
@@ -170,9 +172,12 @@ export const bim = {
       staleHint:
         'This confirmation was made against an earlier revision of the model. It stays on the record, but it does not apply to the current revision.',
       failed: 'The confirmation could not be saved. It is NOT recorded \u2014 please try again.',
+      denied:
+        'You have read access to this project, so confirmations are shown but cannot be added or withdrawn. Someone with edit access can record this one.',
       confirm: 'Confirm manually',
       reconfirm: 'Confirm again for this revision',
       withdraw: 'Withdraw',
+      withdrawConfirm: 'Delete this confirmation and its note?',
       save: 'Save confirmation',
       cancel: 'Cancel',
       noteLabel: 'Why this is settled',
@@ -202,7 +207,7 @@ export const bim = {
       'Runs the requirement check on both revisions and lists only what changed, against {previous}.',
     run: 'Compare requirement status',
     running: 'Comparing…',
-    failed: 'The comparison could not be run.',
+    failed: 'The requirement-status comparison could not be run.',
     unchanged: 'No requirement changed its status between these two revisions.',
     truncated:
       'At least one revision was read only in part, so this comparison covers part of each building — an unchanged status here does not mean nothing changed.',
@@ -234,6 +239,7 @@ export const bim = {
     expandOne: 'Show one more room',
     collapse: 'Show fewer',
     empty: 'This model contains no rooms (IfcSpace).',
+    storeyEmpty: 'This model has no storey called “{storey}”.',
     failed: 'The room schedule could not be loaded.',
   },
   takeoff: {
