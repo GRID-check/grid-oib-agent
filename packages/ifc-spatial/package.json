@@ -19,7 +19,10 @@
   "bin": {
     "ifc-spatial-mcp": "./dist/mcp/bin.js"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -28,7 +31,8 @@
   },
   "dependencies": {
     "@ifc-lite/data": "^3.2.0",
-    "@ifc-lite/parser": "^3.15.0"
+    "@ifc-lite/parser": "^3.15.0",
+    "@modelcontextprotocol/sdk": "^1.30.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
