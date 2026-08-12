@@ -128,6 +128,7 @@ export const bim = {
     description:
       'Matched by IFC GlobalId, so a re-export that renumbers everything still reports no change.',
     against: 'Compare against',
+    ranAgainst: 'Compared against {model}',
     none: 'Upload a second revision to compare.',
     run: 'Compare',
     running: 'Comparing…',

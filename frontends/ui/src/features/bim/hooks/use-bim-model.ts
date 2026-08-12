@@ -728,8 +728,46 @@ export function useBimComplianceDiff(
     AsyncState<{ changes: BimComplianceChange[]; truncated: boolean }>
   >(IDLE)
 
+  /**
+   * Which question the state on screen is the answer to.
+   *
+   * Bumped by every run AND by every change to what a run would compare, so a
+   * response that arrives after either can be recognised as belonging to a
+   * question nobody is asking any more. Unlike the loading hooks in this file
+   * this one is fired by a button rather than by an effect, so there is no
+   * cleanup function to cancel it — the ticket is what takes its place.
+   */
+  const generation = useRef(0)
+
+  /**
+   * Changing the comparison discards its answer.
+   *
+   * The panel captions the result with the base it was run against —
+   * "verglichen mit Haus-A_v2.ifc" — and that name is read from the CALLER's
+   * current props, not from the response. So a result left standing after the
+   * reader switched revisions is a diff of one pair of files presented as a
+   * diff of another, on the screen whose entire job is to say whether a
+   * resubmission broke something.
+   */
+  useEffect(() => {
+    generation.current += 1
+    setState(IDLE)
+  }, [modelId, baseModelId, facts.gebaeudeklasse, facts.hauptnutzung])
+
+  // Unmounting is one more way the question stops being asked: this is the
+  // longest request in the product (both revisions read in full), and the
+  // drawer it lives in closes freely while it runs.
+  useEffect(
+    () => () => {
+      generation.current += 1
+    },
+    []
+  )
+
   const run = useCallback(() => {
     if (!modelId || !baseModelId) return
+    generation.current += 1
+    const ticket = generation.current
     setState({ data: null, isLoading: true, error: null })
     getJson<{ complianceChanges?: BimComplianceChange[]; truncated?: boolean }>(
       `/api/bim/models/${modelId}/query`,
@@ -743,14 +781,18 @@ export function useBimComplianceDiff(
         ...(facts.hauptnutzung === null ? {} : { hauptnutzung: facts.hauptnutzung }),
       }),
     })
-      .then((body) =>
+      .then((body) => {
+        if (generation.current !== ticket) return
         setState({
           data: { changes: body.complianceChanges ?? [], truncated: body.truncated ?? false },
           isLoading: false,
           error: null,
         })
-      )
-      .catch(() => setState({ data: null, isLoading: false, error: 'load-failed' }))
+      })
+      .catch(() => {
+        if (generation.current !== ticket) return
+        setState({ data: null, isLoading: false, error: 'load-failed' })
+      })
   }, [modelId, baseModelId, facts.gebaeudeklasse, facts.hauptnutzung])
 
   return { ...state, run }

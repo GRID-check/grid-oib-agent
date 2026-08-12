@@ -130,6 +130,7 @@ export const bim: typeof en.bim = {
     description:
       'Abgeglichen über die IFC-GlobalId — ein Re-Export, der alles neu nummeriert, meldet daher keine Änderung.',
     against: 'Vergleichen mit',
+    ranAgainst: 'Verglichen mit {model}',
     none: 'Laden Sie einen zweiten Stand hoch, um zu vergleichen.',
     run: 'Vergleichen',
     running: 'Wird verglichen…',
