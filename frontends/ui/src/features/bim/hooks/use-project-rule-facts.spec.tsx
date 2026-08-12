@@ -88,6 +88,25 @@ describe('useProjectRuleFacts', () => {
     expect(result.current.missing).toContain('Hauptnutzung')
   })
 
+  it('names no gap at all until the brief has actually been read', async () => {
+    /*
+      `facts` starts `{null, null}`, so `missing` used to name both facts from
+      the first frame. That is not a frame nobody sees: a compliance card's
+      "im Modell zeigen" link carries `?tab=compliance`, so the drawer is open
+      at mount and the panel tells the reader that the Gebäudeklasse and the
+      Hauptnutzung are missing from the brief — on a project where both are
+      set, with a call to go and set them, and coming back changes nothing.
+    */
+    stubProfile({ facts: { gebaeudeklasse: { value: 'GK4' }, hauptnutzung: { value: 'wohnen' } } })
+    const { result } = renderHook(() => useProjectRuleFacts('p1'))
+
+    expect(result.current.ready).toBe(false)
+    expect(result.current.missing).toEqual([])
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.missing).toEqual([])
+  })
+
   it('names both gaps when the profile carries neither', async () => {
     stubProfile({ facts: {} })
     const { result } = renderHook(() => useProjectRuleFacts('p1'))

@@ -29,6 +29,7 @@ import { buildModelHref } from '@/features/bim/lib/model-link'
 import { formatPropertyValue } from '@/features/bim/lib/format-value'
 import { shortIfcType } from '@/features/bim/lib/model-index'
 import {
+  notReadyModelStatus,
   resolveModelByFilename,
   useProjectBimModels,
   useProjectRuleFacts,
@@ -48,6 +49,8 @@ function useResolvedModel(
   error: string | null
   /** The name matched several models, so none of them is "the" one. */
   ambiguous: boolean
+  /** It matched a model that is not readable YET, or not at all. */
+  notReady: 'extracting' | 'failed' | null
 } {
   const { data, isLoading, error } = useProjectBimModels(projectId)
   const models = useMemo(
@@ -63,10 +66,18 @@ function useResolvedModel(
     () => resolveModelByFilename(models, modelFile),
     [models, modelFile]
   )
+  // Why a name that matched nothing READY is still a name this project knows.
+  // Told "not available in this project", an architect goes looking for an
+  // upload that is either half a minute from finishing or sitting there with a
+  // failure they could fix by re-exporting.
+  const notReady = useMemo(
+    () => (model ? null : notReadyModelStatus(data ?? [], modelFile)),
+    [model, data, modelFile]
+  )
   // `isLoading` is narrowed to "and nothing to show yet": the list polls every
   // four seconds while any model is extracting and keeps its previous data
   // across the refetch, so the raw flag would flicker every card in a thread.
-  return { model, models, isLoading: isLoading && data === null, error, ambiguous }
+  return { model, models, isLoading: isLoading && data === null, error, ambiguous, notReady }
 }
 
 /** POST one query to a model and keep the typed slice the caller asked for. */
@@ -155,10 +166,12 @@ function NoModel({
   isLoading = false,
   error = null,
   ambiguous = false,
+  notReady = null,
 }: {
   isLoading?: boolean
   error?: string | null
   ambiguous?: boolean
+  notReady?: 'extracting' | 'failed' | null
 } = {}): JSX.Element {
   const t = useTranslations('bim')
   if (isLoading) {
@@ -176,7 +189,12 @@ function NoModel({
           ? // "Not in this project" would be false: it is in the project
             // twice over, which is why nothing is drawn.
             t('card.ambiguousModel')
-          : t('card.noModel')}
+          : notReady === 'failed'
+            ? // The one of these the reader can do something about.
+              t('preview.extractionFailed')
+            : notReady === 'extracting'
+              ? t('preview.extracting')
+              : t('card.noModel')}
     </p>
   )
 }
@@ -222,6 +240,7 @@ export function IfcScheduleCard({
     isLoading: modelsLoading,
     error: modelsError,
     ambiguous,
+    notReady,
   } = useResolvedModel(projectId, modelFile)
   const { data: payload, isLoading, error } = useModelQuery(
     model?.id ?? null,
@@ -289,7 +308,7 @@ export function IfcScheduleCard({
       }
     >
       {!model ? (
-        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} />
+        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} notReady={notReady} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error ? (
@@ -429,6 +448,7 @@ export function IfcElementCard({
     isLoading: modelsLoading,
     error: modelsError,
     ambiguous,
+    notReady,
   } = useResolvedModel(projectId, modelFile)
   const { data: element, isLoading, error } = useModelQuery(
     model?.id ?? null,
@@ -459,7 +479,7 @@ export function IfcElementCard({
       }
     >
       {!model ? (
-        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} />
+        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} notReady={notReady} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error ? (
@@ -551,6 +571,7 @@ export function IfcComplianceCard({
     isLoading: modelsLoading,
     error: modelsError,
     ambiguous,
+    notReady,
   } = useResolvedModel(projectId, modelFile)
   // The SAME facts the model page runs the catalogue with. Without them the
   // fire-resistance rules stand down here and produce a verdict on the model
@@ -628,7 +649,7 @@ export function IfcComplianceCard({
       }
     >
       {!model ? (
-        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} />
+        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} notReady={notReady} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error ? (
@@ -802,6 +823,7 @@ export function IfcDiffCard({
     isLoading: modelsLoading,
     error: modelsError,
     ambiguous,
+    notReady,
   } = useResolvedModel(projectId, modelFile)
   // The base revision resolves by the SAME rule as the current one. It used to
   // take the first substring hit, which is the bug the sibling resolver exists
@@ -826,6 +848,7 @@ export function IfcDiffCard({
           isLoading={modelsLoading}
           error={modelsError}
           ambiguous={ambiguous || baseAmbiguous}
+          notReady={notReady}
         />
       ) : model.id === baseModel.id ? (
         // Both names resolved to the same revision — the ordinary case of the

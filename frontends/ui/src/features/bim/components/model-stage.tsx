@@ -1231,6 +1231,13 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               model={model}
               models={models ?? []}
               elements={elementList}
+              // The Struktur tab reads an empty array as a building with no
+              // elements and blames a filter the reader never set — see
+              // `IfcElementTable`. The stage has known which of the three
+              // situations it is in all along; it just never said.
+              elementsLoading={elementsLoading}
+              elementsError={elementsError !== null}
+              onReloadElements={reloadElements}
               tab={view.tab ?? 'overview'}
               onTabChange={(tab: BimModelTab) => setView({ tab })}
               storey={storey}

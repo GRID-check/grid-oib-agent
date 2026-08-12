@@ -24,6 +24,7 @@ import { IfcModelViewer } from '@/features/bim/components/ifc-model-viewer'
 import { resolveHighlights, storeyKey, supportsWebGpu } from '@/features/bim/lib/model-index'
 import { buildModelHref } from '@/features/bim/lib/model-link'
 import {
+  notReadyModelStatus,
   resolveModelByFilename,
   useBimElements,
   useBimHighlightGroups,
@@ -66,8 +67,32 @@ export function IfcViewerCard({
     () => resolveModelByFilename((models ?? []).filter((c) => c.status === 'ready'), modelFile),
     [models, modelFile]
   )
+  // A name matching a model that is still being read, or whose extraction
+  // failed, is not a name this project does not know — see the data cards.
+  const notReady = useMemo(
+    () => (model ? null : notReadyModelStatus(models ?? [], modelFile)),
+    [model, models, modelFile]
+  )
 
-  const { data: elements } = useBimElements(model?.id ?? null)
+  /**
+   * `isLoading` and `error` are load-bearing here, not diagnostics.
+   *
+   * A highlight group resolves to express ids against THIS list, so an empty
+   * list resolves every group to nothing — and the legend prints its count
+   * regardless. Beside an answer that said "die 420 Außenwände ohne
+   * Feuerwiderstand", the card rendered "Außenwände ohne Feuerwiderstand (0)"
+   * with nothing coloured, for the whole two hundred requests the walk takes on
+   * a large model, and permanently if it failed. The stage guards against
+   * exactly this and says so in a comment; the card did not.
+   */
+  const {
+    data: elements,
+    isLoading: elementsLoading,
+    error: elementsError,
+    reload: reloadElements,
+  } = useBimElements(model?.id ?? null)
+  /** Nothing to colour, and nothing to count, until the rows are in. */
+  const elementsReady = elements !== null && !elementsLoading && elementsError === null
   /**
    * The link named a storey this model does not have.
    *
@@ -101,10 +126,10 @@ export function IfcViewerCard({
   // data problem, and it was stating one that did not exist.
   const unresolvedCount = useMemo(
     () =>
-      elements === null
+      !elementsReady || elements === null
         ? 0
         : resolveHighlights(resolved, elements).reduce((total, group) => total + group.unresolved.length, 0),
-    [resolved, elements]
+    [resolved, elements, elementsReady]
   )
 
   /**
@@ -162,7 +187,13 @@ export function IfcViewerCard({
             nothing is drawn. Told the wrong sentence, an architect goes looking
             for a building that is already uploaded.
           */}
-          {ambiguous ? t('card.ambiguousModel') : t('card.noModel')}
+          {ambiguous
+            ? t('card.ambiguousModel')
+            : notReady === 'failed'
+              ? t('preview.extractionFailed')
+              : notReady === 'extracting'
+                ? t('preview.extracting')
+                : t('card.noModel')}
         </p>
       ) : storeyMissing ? (
         // A storey name the agent transcribed as `EG` where the export says
@@ -174,16 +205,44 @@ export function IfcViewerCard({
         <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           {t('schedule.storeyEmpty', { storey: storey ?? '' })}
         </p>
+      ) : source.error !== null ? (
+        // A presigned URL that never arrived — a withdrawn feature flag, an
+        // expired session, a dropped connection. `IfcModelViewer` maps a null
+        // source to an indeterminate "Modell wird geladen…", so this card sat
+        // at a progress bar that could never finish. The stage and the file
+        // preview both refuse to do that and say why; the card was the one
+        // surface still doing it.
+        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {t('preview.sourceFailed')}
+        </p>
       ) : (
         <IfcModelViewer
           sourceUrl={source.data}
           elements={elements ?? []}
-          highlights={resolved}
+          // Not until the rows are in. A group resolves to express ids against
+          // that list, so passing highlights early paints a legend of "(0)"
+          // beside an answer that named 420 elements — a contradiction the
+          // reader has to resolve themselves, and the one the stage documents
+          // at length. A legend that arrives a moment late is a legend.
+          highlights={elementsReady ? resolved : []}
           isolatedStorey={storey}
           className="h-72"
         />
       )}
 
+      {/*
+        The walk that resolves every highlight failed, so nothing is coloured.
+        Without this the card showed an uncoloured building under a title that
+        promises a marked one, and said nothing at all.
+      */}
+      {elementsError !== null && (
+        <p className="text-warning mt-2 flex flex-wrap items-center gap-2 text-xs">
+          {t('stage.elementsFailed')}
+          <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={reloadElements}>
+            {t('loadFailed.action')}
+          </Button>
+        </p>
+      )}
       {groupsError !== null && (
         <p className="text-warning mt-2 text-xs">{t('card.highlightsFailed')}</p>
       )}

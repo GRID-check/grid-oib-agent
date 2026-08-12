@@ -99,14 +99,33 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
   const [tick, setTick] = useState(0)
   /** Which project the list on screen belongs to — see the carry-over below. */
   const shownFor = useRef<string | null>(null)
+  /**
+   * Whether the last SUCCESSFUL answer had a model still being read.
+   *
+   * Separate from `state.data` because a failed poll tick nulls that, and the
+   * poll below was keyed on it: one 502 in the minute after an upload — the
+   * exact minute this poll exists for — took `extracting` to false, tore the
+   * interval down, and left nothing to start it again. The card then sat on
+   * "Die Modelle dieses Projekts sind gerade nicht abrufbar" until the reader
+   * reloaded the whole page, for a model that finished extracting seconds
+   * later. A failed tick is a missing answer, not the answer "nothing is
+   * extracting", so it leaves this latch alone and the next tick recovers.
+   */
+  const [extracting, setExtracting] = useState(false)
 
   useEffect(() => {
     if (!projectId) {
       shownFor.current = null
       setState(IDLE)
+      setExtracting(false)
       return
     }
     let cancelled = false
+    // Another project's extraction is not this one's: the latch below is only
+    // ever set from a successful answer, so it has to be dropped when the
+    // question changes rather than carried into a project that may have
+    // nothing running at all.
+    if (shownFor.current !== projectId) setExtracting(false)
     // Keep what is on screen while the next answer is in flight.
     //
     // This effect also runs on every poll tick below, and it used to blank
@@ -131,7 +150,11 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
     }))
     fetchProjectModels(projectId)
       .then((body) => {
-        if (!cancelled) setState({ data: body.models, isLoading: false, error: null })
+        if (cancelled) return
+        setState({ data: body.models, isLoading: false, error: null })
+        setExtracting(
+          body.models.some((model) => model.status === 'pending' || model.status === 'extracting')
+        )
       })
       .catch(() => {
         if (!cancelled) setState({ data: null, isLoading: false, error: 'load-failed' })
@@ -146,9 +169,6 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
   // somebody reloaded, on exactly the surface whose whole promise is "drop an
   // IFC in and ask it questions". Polling stops the moment nothing is in
   // flight, so a page showing only `ready` models makes no requests at all.
-  const extracting = (state.data ?? []).some(
-    (model) => model.status === 'pending' || model.status === 'extracting'
-  )
   useEffect(() => {
     if (!extracting) return
     const timer = setInterval(() => setTick((value) => value + 1), EXTRACTION_POLL_MS)
@@ -897,6 +917,10 @@ export function useProjectRuleFacts(projectId: string | null): {
     }
     setReady(false)
     setFailed(false)
+    // The facts on hand belong to the brief that has just stopped being the
+    // question. Keeping them across the change would let the catalogue run
+    // against the previous project's Gebäudeklasse.
+    setFacts({ gebaeudeklasse: null, hauptnutzung: null })
     let cancelled = false
     getJson<{ facts?: Record<string, { value?: unknown }> }>(`/api/projects/${projectId}/profile`)
       .then((profile) => {
@@ -920,6 +944,11 @@ export function useProjectRuleFacts(projectId: string | null): {
         })
       })
       .catch(() => {
+        // The previous project's facts are not this one's, and they are not a
+        // reading of a brief nobody could load. Left in place, the catalogue
+        // ran against another project's Gebäudeklasse while the panel said the
+        // rules had stood down for want of one.
+        if (!cancelled) setFacts({ gebaeudeklasse: null, hauptnutzung: null })
         // For the RULES this is the same situation as a profile that does not
         // carry the fact: they stand down, which is correct either way.
         //
@@ -941,13 +970,25 @@ export function useProjectRuleFacts(projectId: string | null): {
   }, [projectId, tick])
 
   const missing = useMemo(() => {
-    // Nothing is "missing" from a brief nobody managed to read.
-    if (failed) return []
+    /*
+      Nothing is "missing" from a brief nobody managed to read — and nothing is
+      missing from one nobody has read YET.
+
+      `facts` starts `{null, null}`, so before the request settles this said
+      both facts were absent. That is not a hypothetical frame: a compliance
+      card's "im Modell zeigen" link carries `?tab=compliance`, so the drawer is
+      open at mount and the panel states "Einige Regeln hängen an
+      Projektangaben, die im Projekt-Briefing fehlen: Gebäudeklasse,
+      Hauptnutzung" — with a call to go and set them — on a project where both
+      are set. Coming back changes nothing, which is the worst kind of thing to
+      ask someone to do.
+    */
+    if (failed || !ready) return []
     const gaps: string[] = []
     if (facts.gebaeudeklasse === null) gaps.push('Gebäudeklasse')
     if (facts.hauptnutzung === null) gaps.push('Hauptnutzung')
     return gaps
-  }, [facts, failed])
+  }, [facts, failed, ready])
 
   return { ...facts, missing, ready, failed, reload: useCallback(() => setTick((v) => v + 1), []) }
 }
@@ -974,6 +1015,16 @@ export function pickDefaultModel(models: readonly BimModelHeaderView[]): BimMode
  *
  * `ambiguous` distinguishes that refusal from a genuine absence, which is the
  * difference between "you have this twice" and "your upload is gone".
+ *
+ * `notReady` is the third such distinction. Callers pass only READY models,
+ * because a model still being read has no rows to answer with — so a name that
+ * matches a `pending`, `extracting` or `failed` model resolved to nothing and
+ * the card said "Das referenzierte Modell ist in diesem Projekt nicht
+ * verfügbar". For an upload that is thirty seconds from finishing that is
+ * needlessly alarming, and for one whose extraction FAILED it is simply false
+ * and hides the only thing the reader could act on. The file preview separates
+ * all three and its comment says they must not be conflated; the chat cards
+ * did not.
  */
 export function resolveModelByFilename(
   models: readonly BimModelHeaderView[],
@@ -987,6 +1038,27 @@ export function resolveModelByFilename(
   const partial = models.filter((candidate) => candidate.filename.toLowerCase().includes(needle))
   if (partial.length === 1) return { model: partial[0] ?? null, ambiguous: false }
   return { model: null, ambiguous: partial.length > 1 }
+}
+
+/**
+ * Why a name that matched no READY model still names something in the project.
+ *
+ * Returns the state of the best non-ready match, so a card can say "wird noch
+ * eingelesen" or "konnte nicht eingelesen werden" instead of "not in this
+ * project". `failed` outranks the others: it is the one the reader can act on.
+ */
+export function notReadyModelStatus(
+  models: readonly BimModelHeaderView[],
+  filename: string | null
+): 'extracting' | 'failed' | null {
+  const pending = models.filter((candidate) => candidate.status !== 'ready')
+  if (pending.length === 0) return null
+  const needle = (filename ?? '').toLowerCase()
+  const named = needle
+    ? pending.filter((candidate) => candidate.filename.toLowerCase().includes(needle))
+    : pending
+  if (named.length === 0) return null
+  return named.some((candidate) => candidate.status === 'failed') ? 'failed' : 'extracting'
 }
 
 /** Distinct IFC types present, for the element table's type filter. */

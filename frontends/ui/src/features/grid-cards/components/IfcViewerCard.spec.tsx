@@ -157,6 +157,30 @@ describe('IfcViewerCard — which of three situations it is in', () => {
     expect(screen.queryByText(/not available in this project/i)).not.toBeInTheDocument()
   })
 
+  it('says a model is still being read, rather than that it is not here', async () => {
+    // A card can render seconds after the upload. "Nicht verfügbar" for a model
+    // thirty seconds from finishing is needlessly alarming; for one whose
+    // extraction FAILED it is false, and it hides the only thing the reader
+    // could act on.
+    stubFetch({
+      models: { models: [{ ...MODELS.models[0], status: 'extracting' }] },
+    })
+    card()
+    await waitFor(() =>
+      expect(screen.getByText(/still reading this model/i)).toBeInTheDocument()
+    )
+    expect(screen.queryByText(/not available in this project/i)).not.toBeInTheDocument()
+  })
+
+  it('says a model could not be read, which is the one the reader can fix', async () => {
+    stubFetch({ models: { models: [{ ...MODELS.models[0], status: 'failed' }] } })
+    card()
+    await waitFor(() =>
+      expect(screen.getByText(/could not be read/i)).toBeInTheDocument()
+    )
+    expect(screen.queryByText(/not available in this project/i)).not.toBeInTheDocument()
+  })
+
   it('draws the building once the model resolves', async () => {
     stubFetch({ models: MODELS, query: ELEMENTS, source: { url: 'https://example.test/m.ifc' } })
     card()
@@ -181,6 +205,33 @@ describe('IfcViewerCard — what it says about the answer it illustrates', () =>
     stubFetch({ models: MODELS, source: { url: 'https://example.test/m.ifc' } })
     card({ highlights: [{ globalIds: ['g-w1'], label: 'Aussenwände', status: 'fail' }] })
     expect(screen.queryByText(/not in this model/)).not.toBeInTheDocument()
+  })
+
+  it('does not sit on a progress bar that can never finish', async () => {
+    // A presigned URL that never arrives — a withdrawn feature flag, an expired
+    // session — leaves `sourceUrl` null, which the viewport renders as an
+    // indeterminate "Loading model…" forever. The stage and the file preview
+    // both refuse to do that.
+    stubFetch({ models: MODELS, query: ELEMENTS })
+    card()
+    await waitFor(() =>
+      expect(screen.getByText(/3D preview could not be loaded/i)).toBeInTheDocument()
+    )
+    expect(screen.queryByText('Loading model…')).not.toBeInTheDocument()
+  })
+
+  it('says the highlighted set could not be resolved, rather than colouring nothing', async () => {
+    // Highlights resolve to express ids against the element rows. Without them
+    // every group resolves to nothing and the legend reads "(0)" beside an
+    // answer that named 420 elements — the contradiction the model stage
+    // documents at length and guards against.
+    stubFetch({ models: MODELS, source: { url: 'https://example.test/m.ifc' } })
+    card({ highlights: [{ globalIds: ['g-w1'], label: 'Aussenwände', status: 'fail' }] })
+    await waitFor(() =>
+      expect(screen.getByText(/element list could not be loaded/i)).toBeInTheDocument()
+    )
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
+    expect(screen.queryByText('(0)')).not.toBeInTheDocument()
   })
 
   it('opens the model at the same view it is showing', async () => {

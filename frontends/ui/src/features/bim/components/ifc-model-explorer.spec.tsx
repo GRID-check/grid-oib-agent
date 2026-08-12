@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   IfcElementTable,
@@ -150,6 +150,56 @@ describe('IfcSpatialTree', () => {
   it('does not offer a non-storey node as a filter', () => {
     render(<IfcSpatialTree summary={SUMMARY} selectedStorey={null} onSelectStorey={vi.fn()} />)
     expect(screen.getByRole('button', { name: /Wohnhaus Beispielgasse/ })).toBeDisabled()
+  })
+})
+
+describe('IfcElementTable — an empty table has three different reasons', () => {
+  it('does not blame the reader\u2019s filter while the walk is still running', () => {
+    // The walk is two hundred requests on a 200 000-element model. For all of
+    // it the table asserted the building has no elements AND blamed a filter
+    // nobody had set — with the search box and the type select both empty.
+    render(
+      <IfcElementTable
+        elements={[]}
+        isLoading
+        storeyFilter={null}
+        selectedGlobalId={null}
+        onSelect={vi.fn()}
+      />
+    )
+    expect(screen.queryByText(/no element matches/i)).not.toBeInTheDocument()
+    // And no count, because a count is a claim about the building.
+    expect(screen.queryByText(/0 of 0 matches/i)).not.toBeInTheDocument()
+  })
+
+  it('says the walk failed, and offers to run it again', () => {
+    const onRetry = vi.fn()
+    render(
+      <IfcElementTable
+        elements={[]}
+        error
+        onRetry={onRetry}
+        storeyFilter={null}
+        selectedGlobalId={null}
+        onSelect={vi.fn()}
+      />
+    )
+    expect(screen.getByText(/element list could not be loaded/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no element matches/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }))
+    expect(onRetry).toHaveBeenCalled()
+  })
+
+  it('still blames the filter when the filter really is the reason', () => {
+    render(
+      <IfcElementTable
+        elements={ELEMENTS}
+        storeyFilter="Ein Geschoss das es nicht gibt"
+        selectedGlobalId={null}
+        onSelect={vi.fn()}
+      />
+    )
+    expect(screen.getByText(/no element matches/i)).toBeInTheDocument()
   })
 })
 

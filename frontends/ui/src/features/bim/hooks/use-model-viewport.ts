@@ -373,6 +373,22 @@ export function useModelViewport({
     setMeasurePending(false)
   }, [sourceUrl])
 
+  /*
+    And it takes its EXTENT with it.
+
+    `bounds` is written once, by the canvas, after the new file has parsed —
+    and the canvas unmounts on the way there (a null source URL takes
+    `canvasProps` to null) without ever reporting a null. So between picking a
+    model in the rail and its geometry arriving, the section slider rendered
+    the PREVIOUS building's minimum and maximum metres as a fact about the one
+    on screen, and `clampCut` pinned the URL's cut height into that stale
+    extent — then wrote the clamped value back on the next commit. A cut
+    travels in the link, so this is the ordinary path, not a corner.
+  */
+  useEffect(() => {
+    setBounds(null)
+  }, [sourceUrl])
+
   // Evaluated once per mount rather than per render: it cannot change without a
   // page reload, and calling it during render on the server would be wrong.
   const webGpu = useMemo(() => supportsWebGpu(), [])

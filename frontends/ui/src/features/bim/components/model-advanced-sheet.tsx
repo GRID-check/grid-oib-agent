@@ -74,6 +74,13 @@ export interface ModelAdvancedSheetProps {
   model: BimModelHeaderView
   models: readonly BimModelHeaderView[]
   elements: readonly BimViewerElement[]
+  /**
+   * The state of the walk that fills {@link elements}, because an empty array
+   * is not a fact about the building — see `IfcElementTable`.
+   */
+  elementsLoading?: boolean
+  elementsError?: boolean
+  onReloadElements?: () => void
   tab: BimModelTab
   onTabChange: (tab: BimModelTab) => void
   storey: string | null
@@ -92,6 +99,9 @@ export function ModelAdvancedSheet({
   model,
   models,
   elements,
+  elementsLoading = false,
+  elementsError = false,
+  onReloadElements,
   tab,
   onTabChange,
   storey,
@@ -318,7 +328,15 @@ export function ModelAdvancedSheet({
             rules={compliance.data?.rules ?? null}
             summary={compliance.data?.summary ?? null}
             shoppingList={compliance.data?.shoppingList ?? null}
-            isLoading={compliance.isLoading}
+            // `|| !ruleFacts.ready`, the same rule the chat card applies.
+            // `useBimCompliance` holds the query back until the brief has been
+            // read — it must not run the catalogue against a Gebäudeklasse it
+            // has not seen yet — and a held query is `isLoading: false`. So for
+            // the length of the profile round trip this panel rendered as a
+            // catalogue that had RUN and found nothing: no spinner, no badges,
+            // no rows, no error. On the surface whose whole job is to say what
+            // the building still owes.
+            isLoading={compliance.isLoading || !ruleFacts.ready}
             error={compliance.error}
             truncated={compliance.data?.truncated ?? false}
             projectId={projectId}
@@ -345,6 +363,9 @@ export function ModelAdvancedSheet({
           )}
           <IfcElementTable
             elements={elements}
+            isLoading={elementsLoading}
+            error={elementsError}
+            onRetry={onReloadElements}
             truncatedAt={model.summary?.truncatedAt ?? null}
             storeyFilter={storey}
             selectedGlobalId={selectedGlobalId}

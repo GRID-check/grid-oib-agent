@@ -13,7 +13,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Boxes, CheckCircle2, Info, Layers3, Ruler, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { formatMeasure, formatPropertyValue } from '../lib/format-value'
@@ -333,6 +335,20 @@ export interface IfcElementTableProps {
    */
   truncatedAt?: number | null
   elements: readonly BimViewerElement[]
+  /**
+   * The walk that fills {@link elements} is still running.
+   *
+   * Required, because an empty array is otherwise indistinguishable from a
+   * building with no elements — and this table does not say "nothing here", it
+   * says "Kein Bauteil entspricht diesem Filter · 0 von 0 Treffern", which
+   * blames a filter the reader has not set. On a 200 000-element model that
+   * walk is two hundred requests, so that was the state of the Struktur tab
+   * for as long as it took.
+   */
+  isLoading?: boolean
+  /** The walk failed. Distinct from "the model has none", and retryable. */
+  error?: boolean
+  onRetry?: () => void
   storeyFilter: string | null
   selectedGlobalId: string | null
   onSelect: (element: BimViewerElement) => void
@@ -344,6 +360,9 @@ export function IfcElementTable({
   selectedGlobalId,
   onSelect,
   truncatedAt = null,
+  isLoading = false,
+  error = false,
+  onRetry,
 }: IfcElementTableProps): JSX.Element {
   const t = useTranslations('bim')
   const [search, setSearch] = useState('')
@@ -415,7 +434,14 @@ export function IfcElementTable({
         </select>
       </div>
       <p className="text-xs text-muted-foreground tabular-nums">
-        {t('elements.count', { shown: shown.length, total: filtered.length })}
+        {/*
+          Not "0 von 0 Treffern" while the rows are still arriving, and not
+          after the walk failed: a count is a claim about the building, and
+          both of those states are the absence of one.
+        */}
+        {isLoading || error
+          ? ' '
+          : t('elements.count', { shown: shown.length, total: filtered.length })}
         {/*
           `total` is a count over the STORED rows, which stop at the
           extraction cap — so "300 von 10.000" was a fraction of a fraction,
@@ -441,10 +467,30 @@ export function IfcElementTable({
             </tr>
           </thead>
           <tbody>
+            {/*
+              Three different reasons for an empty table, and only one of them
+              is about the reader's filter. It used to be the only one rendered.
+            */}
             {shown.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-2 py-6 text-center text-muted-foreground">
-                  {t('elements.empty')}
+                  {error ? (
+                    <span className="flex flex-wrap items-center justify-center gap-2">
+                      {t('stage.elementsFailed')}
+                      {onRetry && (
+                        <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onRetry}>
+                          {t('loadFailed.action')}
+                        </Button>
+                      )}
+                    </span>
+                  ) : isLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Spinner className="size-3.5" />
+                      {t('preview.loading')}
+                    </span>
+                  ) : (
+                    t('elements.empty')
+                  )}
                 </td>
               </tr>
             )}
