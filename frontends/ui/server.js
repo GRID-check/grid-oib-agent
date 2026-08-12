@@ -706,7 +706,11 @@ const startServer = async () => {
               organizationId: result.data?.organizationId,
               userId: result.data?.userId,
               projectId: result.data?.projectId,
-              collectionScope: result.data?.scope,
+              // Shelf-bearing entries when the resolver supplied them, bare
+              // names otherwise. The envelope is the copy `scoping.py` trusts
+              // for an authenticated turn, so the shelf has to ride HERE and
+              // not only on the raw header (ADR-0047).
+              collectionScope: result.data?.scopedCollections ?? result.data?.scope,
               projectContext: result.data?.projectContext,
               projectMemory: result.data?.projectMemory,
               modelOverrides: result.data?.modelOverrides,

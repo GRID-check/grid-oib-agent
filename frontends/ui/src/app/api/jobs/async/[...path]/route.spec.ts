@@ -257,6 +257,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
       headerValue: 'scope',
       scope: ['oib_knowledge', 'proj_abc'],
+      scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_abc', shelf: 'project' }],
       projectId: 'proj-1',
       projectCollectionName: 'proj_abc',
       conversationId: undefined,
@@ -304,11 +305,18 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     const decoded = JSON.parse(
       Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
     )
+    // `collectionScope` carries the SHELF-BEARING entries, not bare names.
+    // `scoping.py` prefers this signed envelope and reads the raw header only
+    // when no valid envelope is present, so a shelf that rode the header alone
+    // would never reach an authenticated turn (ADR-0047).
     expect(decoded).toEqual({
       organizationId: 'org-1',
       userId: 'user-1',
       projectId: 'proj-1',
-      collectionScope: ['oib_knowledge', 'proj_abc'],
+      collectionScope: [
+        { collection: 'oib_knowledge', shelf: 'base' },
+        { collection: 'proj_abc', shelf: 'project' },
+      ],
     })
   })
 

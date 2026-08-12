@@ -1,5 +1,34 @@
 import type { GridSession } from './auth/types'
 
+/**
+ * The shelf a retrieval collection sits on, carried explicitly on the wire
+ * (ADR-0047). Nothing derives it from an `archiv_`/`proj_`/`s_` name prefix.
+ *
+ * The four members are the WIRE shelf enum, deliberately NOT the same set as
+ * `documents.scope` (the DB shelf) or the ADR-0026 display taxonomy. Each
+ * runtime owns its own small, total enum (ADR-0047 decision 3); the Python
+ * reader declares its own mirror without importing this one.
+ *
+ * Declared in this near-leaf module rather than in `collection-scope-request`
+ * so the low-level request-context contract can name the type without taking a
+ * dependency on the service-heavy builder that produces it.
+ */
+export type CollectionShelf = 'archiv' | 'project' | 'session' | 'base'
+
+/**
+ * One entry of the `X-Grid-Collection-Scope` payload and of the signed
+ * envelope's `collectionScope`.
+ *
+ * `shelf` is OMITTED, never guessed, when the BFF cannot attribute the
+ * collection: a missing shelf reads downstream as *unknown* and renders
+ * unattributed. Defaulting it to `base`/`baurecht` is the fail-open ADR-0047
+ * exists to remove.
+ */
+export interface ScopedCollection {
+  collection: string
+  shelf?: CollectionShelf
+}
+
 export interface ScopeContext {
   projectId?: string
   projectCollectionName?: string
