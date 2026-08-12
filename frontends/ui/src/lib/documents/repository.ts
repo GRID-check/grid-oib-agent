@@ -23,6 +23,8 @@ export const DOCUMENT_LIST_LIMIT = 500
 export interface DocumentListRow {
   id: string
   filename: string
+  /** The rename, when there is one; NULL means "show `filename`" (0048). */
+  displayName: string | null
   fileSize: number | null
   contentType: string | null
   status: string
@@ -46,6 +48,7 @@ export async function listProjectDocuments(
       .select({
         id: documents.id,
         filename: documents.filename,
+        displayName: documents.displayName,
         fileSize: documents.fileSize,
         contentType: documents.contentType,
         status: documents.status,
@@ -169,6 +172,34 @@ export async function deleteProjectDocument(
           eq(documents.projectId, projectId),
         ),
       ),
+  )
+}
+
+/**
+ * Persist a rename.
+ *
+ * Writes `display_name` and nothing else — `filename` is the join key to the
+ * stored object and to the document's chunks in the retrieval index, so a
+ * rename must not touch it (migration 0048 has the full reasoning). `null`
+ * clears the rename, restoring the file's own name.
+ *
+ * Scoped by organization alone, deliberately: this serves both a project
+ * document and an org-wide Archiv document (which has no project), and the
+ * caller has already established which of the two access rules applies —
+ * `getAccessibleDocument` in the service is where project FGA vs
+ * `org:archiv:manage` is decided.
+ */
+export async function setDocumentDisplayName(
+  documentId: string,
+  organizationId: string,
+  displayName: string | null,
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ displayName, updatedAt: new Date() })
+      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
   )
 }
 

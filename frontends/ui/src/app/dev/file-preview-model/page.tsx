@@ -28,6 +28,7 @@ const PROJECT_ID = 'proj-demo'
 const FIXTURE: FileItem = {
   id: 'dev-model-1',
   filename: 'Wohnhaus-Grungasse-14_V3.ifc',
+  displayName: null,
   fileSize: 148_900_000,
   // What an object store reports for an IFC. The preview must not depend on it:
   // exporters disagree, and the file name is the reliable signal.
@@ -93,6 +94,7 @@ const MODEL: BimModelHeaderView = {
   documentId: FIXTURE.id,
   projectId: PROJECT_ID,
   filename: FIXTURE.filename,
+  displayName: null,
   status: 'ready',
   schemaVersion: 'IFC4',
   elementCount: SUMMARY.totals.elements,

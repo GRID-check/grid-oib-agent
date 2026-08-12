@@ -46,6 +46,7 @@ import {
   Layers,
   Link2,
   MonitorX,
+  MoreHorizontal,
   PanelLeft,
   RotateCcw,
   Ruler,
@@ -63,7 +64,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { storeyKey, supportsWebGpu, type BimViewerElement } from '../lib/model-index'
+import { documentDisplayName } from '@/lib/documents/display-name'
+import { DocumentActionsMenu } from '@/features/documents/components/document-actions'
+import {
+  storeyKey,
+  supportsWebGpu,
+  type BimViewerElement,
+  type ViewerVisibility,
+} from '../lib/model-index'
 import {
   buildModelQuery,
   parseModelView,
@@ -111,13 +119,32 @@ import {
 const NO_ELEMENTS: readonly BimViewerElement[] = []
 
 /**
- * How many views back the stage remembers.
+ * How many steps back the stage remembers.
  *
- * A bound rather than a policy: nobody presses back forty times, and an
- * unbounded array of view objects held for as long as a model is open is a
- * leak with no upper limit on a surface people leave open all day.
+ * A bound rather than a policy: nobody presses Undo forty times, and an
+ * unbounded array of views and id sets held for as long as a model is open is
+ * a leak with no upper limit on a surface people leave open all day.
  */
-const VIEW_HISTORY_DEPTH = 40
+const STAGE_HISTORY_DEPTH = 40
+
+/**
+ * One thing the reader changed on purpose, and how to put it back.
+ *
+ * Two halves, because the stage's state has two homes. The view is the URL —
+ * which model, which level, which element, where the cut is — and taking a
+ * step back through it is a navigation. What has been taken out of the way is
+ * deliberately NOT in the URL (see `ModelVisibility`), so a step through that
+ * is a state the viewport is handed back.
+ *
+ * Either half is `null` when the step did not touch it, which is what makes
+ * one press undo one action: going back over a level filter must not also
+ * restore the elements the reader hid afterwards. Both are filled when one
+ * gesture changed both — see `asOneStep`.
+ */
+interface StageStep {
+  view: BimModelView | null
+  visibility: ViewerVisibility | null
+}
 
 /**
  * Where the legend sits, given how many pills the dock has stacked above
@@ -140,30 +167,68 @@ const DOCK_ABOVE_OFFSET: Record<0 | 1 | 2, string> = {
  * be a state the reader can never reach — except in the one frame between
  * hiding the selected element and the selection clearing itself, which is
  * exactly when a live button would act on a component that is already gone.
+ *
+ * ## Why the two verbs read two different ids
+ *
+ * Hiding needs the element to be ON SCREEN. "Take this out of the way" said
+ * about something already out of the way is not an act, and the id it would
+ * use is the renderer's, which is deliberately null the moment a selection
+ * stops being drawn.
+ *
+ * Isolating does not — with one exception. "Show me nothing but this" is
+ * exactly what a reader means about an element that is not currently visible
+ * BECAUSE SOMETHING ELSE IS ISOLATED, which is the only way to reach that
+ * state through the rail. Reading the renderer's id for both left that card
+ * with no visibility controls at all: the reader had isolated one wall,
+ * picked another to look at, and arrived at a card whose two buttons had
+ * silently disappeared — the isolate button among them, which is what would
+ * have got them out.
+ *
+ * The exception is an element the reader HID. Isolating that means "show
+ * nothing but this thing I have also taken away", and the honest rendering of
+ * it is an empty viewport. So a hidden selection offers neither verb, exactly
+ * as it did before isolate learned to read past the renderer.
  */
 function visibilityActions(
   viewport: ReturnType<typeof useModelViewport>,
   clearSelection: () => void,
-  focusViewport: () => void
-): { onHide?: () => void; onIsolate?: () => void } {
+  focusViewport: () => void,
+  asOneStep: (gesture: () => void) => void
+): { onHide?: () => void; onIsolate?: () => void; isolated?: boolean } {
+  const elementId = viewport.selectedElementExpressId
+  if (elementId === null || viewport.visibility.hidden.has(elementId)) return {}
+  const isolated = viewport.visibility.isolated
+  const actions = {
+    // The MANUAL isolation only, never the level filter — the filter isolates
+    // a whole floor and this button did not do it, so a button reporting
+    // itself pressed for it would be claiming an act it cannot take back.
+    isolated: isolated !== null && isolated.size === 1 && isolated.has(elementId),
+    onIsolate: () => viewport.visibility.isolate([elementId]),
+  }
+
   const expressId = viewport.selectedExpressId
-  if (expressId === null) return {}
+  if (expressId === null) return actions
   return {
+    ...actions,
     // Hiding CLEARS the selection. The card is mounted on the URL's
     // `element=`, not on the renderer id, so without this the reader hid a
     // wall and kept a card describing it — the highlight gone, the pivot
-    // reset, the Hide button itself silently removed from the card that was
-    // still open, and no way back except "show everything".
+    // reset, and the Hide button itself silently removed from the card that
+    // was still open.
+    //
+    // Both writes are ONE step, so one Undo puts the wall back AND re-opens
+    // the card describing it — the state the reader was actually in.
     onHide: () => {
-      viewport.visibility.hide(expressId)
-      clearSelection()
+      asOneStep(() => {
+        viewport.visibility.hide(expressId)
+        clearSelection()
+      })
       // Hide destroys the card the button lives in. Without this the reader's
       // focus ring is thrown to the top of a full-screen dialog holding
       // fifteen controls, with nothing said about what happened — the control
       // vanishing IS the only feedback, and it takes their place with it.
       focusViewport()
     },
-    onIsolate: () => viewport.visibility.isolate([expressId]),
   }
 }
 
@@ -171,9 +236,22 @@ export interface ModelStageProps {
   projectId: string
   /** Closes the stage — the caller drops `?model=` from the URL. */
   onClose: () => void
+  /**
+   * The model on screen was renamed from the stage's own file menu. The page
+   * underneath lists the same document, so it is told rather than left to find
+   * out on the next load.
+   */
+  onModelRenamed?: (documentId: string, displayName: string | null) => void
+  /** The model on screen was deleted; the stage closes itself afterwards. */
+  onModelDeleted?: (documentId: string) => void
 }
 
-export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element {
+export function ModelStage({
+  projectId,
+  onClose,
+  onModelRenamed,
+  onModelDeleted,
+}: ModelStageProps): JSX.Element {
   const t = useTranslations('bim')
   const { locale } = useLocale()
   const router = useRouter()
@@ -222,8 +300,65 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
    * changed on purpose: free orbit and zoom never reach the URL at all (only a
    * view snap, a cut or the projection toggle do), so nothing here fills up
    * while somebody turns the building around.
+   *
+   * Hiding and isolating are in here too, and were the hole in it. They are
+   * the two controls that change the building most drastically — isolate
+   * takes away everything except one wall — and they were the only ones with
+   * no way back except "Alle Bauteile wieder einblenden", which is a reset,
+   * not an undo: a reader who had hidden four things and then isolated a
+   * fifth could only get the fifth back by discarding the other four. Worse,
+   * the Undo button was RIGHT THERE and silently ignored them, so pressing it
+   * after isolating either did nothing or took back some unrelated earlier
+   * change. See `StageStep`.
    */
-  const [viewHistory, setViewHistory] = useState<BimModelView[]>([])
+  const [history, setHistory] = useState<StageStep[]>([])
+
+  /**
+   * Open while a gesture that changes two things is running — see `asOneStep`.
+   *
+   * A ref rather than state: the two writes happen in one event handler, and
+   * a state flag would not be readable by the second of them.
+   */
+  const collecting = useRef<StageStep | null>(null)
+
+  const pushStep = useCallback((step: StageStep) => {
+    if (collecting.current) {
+      // The EARLIEST value of each half wins. A step has to restore what was
+      // true before the gesture started, not what was true halfway through it.
+      collecting.current = {
+        view: collecting.current.view ?? step.view,
+        visibility: collecting.current.visibility ?? step.visibility,
+      }
+      return
+    }
+    setHistory((stack) => [...stack, step].slice(-STAGE_HISTORY_DEPTH))
+  }, [])
+
+  /**
+   * Run a gesture that writes twice, and record it as ONE step.
+   *
+   * Hiding is the case: it takes the element out of the way AND drops the
+   * selection, because a card describing a component that is no longer on
+   * screen is worse than no card. Two writes, one press — and recorded as two
+   * steps, the reader had to press Undo twice, the first press re-selecting a
+   * wall that was still invisible. A control whose undo needs two presses,
+   * one of which produces a state the reader was never in, reads as broken.
+   *
+   * A gesture that turns out to change nothing records nothing, same as a
+   * lone write that changes nothing.
+   */
+  const asOneStep = useCallback((gesture: () => void) => {
+    collecting.current = { view: null, visibility: null }
+    try {
+      gesture()
+    } finally {
+      const step = collecting.current
+      collecting.current = null
+      if (step && (step.view || step.visibility)) {
+        setHistory((stack) => [...stack, step].slice(-STAGE_HISTORY_DEPTH))
+      }
+    }
+  }, [])
 
   const setView = useCallback(
     (patch: Partial<BimModelView>) => {
@@ -233,24 +368,11 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
       // gesture that ends where it started, which would otherwise stack empty
       // entries the reader has to press through.
       if (buildModelQuery(next) === buildModelQuery(view)) return
-      setViewHistory((stack) => [...stack, view].slice(-VIEW_HISTORY_DEPTH))
+      pushStep({ view, visibility: null })
       navigate(next)
     },
-    [navigate, view]
+    [navigate, pushStep, view]
   )
-
-  /**
-   * One step back, without recording the step back as a step.
-   *
-   * The stack is read OUTSIDE the updater: navigating is a side effect, and
-   * React is free to call an updater twice.
-   */
-  const goBack = useCallback(() => {
-    const previous = viewHistory.at(-1)
-    if (!previous) return
-    setViewHistory((stack) => stack.slice(0, -1))
-    navigate(previous)
-  }, [navigate, viewHistory])
 
   const { data: models, isLoading, error, reload: reloadModels } = useProjectBimModels(projectId)
   const model = useMemo(() => pickStageModel(models ?? [], view.model), [models, view.model])
@@ -265,6 +387,27 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
    */
   const openedAnother = models !== null && !stageModelMatched(model, view.model)
   const modelId = model?.status === 'ready' ? model.id : null
+
+  /*
+    Visibility steps do not survive a change of model.
+
+    Express ids are per-FILE, and the viewport starts every new model from a
+    clean building for exactly that reason. A step recorded against Haus-A
+    holds a set of numbers that address completely different components in
+    Nebengebäude — restoring it would hide elements the reader never touched,
+    in a building they have only just opened.
+
+    Only the visibility HALF goes. A view carries `model=`, so walking back
+    over a model switch is still a thing Undo can do; a step left holding
+    nothing but a dropped visibility set is no longer a step at all.
+  */
+  useEffect(() => {
+    setHistory((stack) =>
+      stack.some((step) => step.visibility)
+        ? stack.map((step) => ({ view: step.view, visibility: null })).filter((step) => step.view)
+        : stack
+    )
+  }, [modelId])
 
   const storey = view.storey ?? null
   const selectedGlobalId = view.element ?? null
@@ -411,7 +554,25 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     onCameraChange: (camera) => setView({ camera }),
     compact: false,
     onCapture: handleCapture,
+    // The viewport decides what counts as an edit — isolating the same wall
+    // twice is a press with nothing behind it — and hands back the state it
+    // is about to replace. That is the step.
+    onVisibilityEdit: (previous) => pushStep({ view: null, visibility: previous }),
   })
+
+  /**
+   * One step back, without recording the step back as a step.
+   *
+   * The stack is read OUTSIDE the updater: navigating and restoring are side
+   * effects, and React is free to call an updater twice.
+   */
+  const goBack = useCallback(() => {
+    const previous = history.at(-1)
+    if (!previous) return
+    setHistory((stack) => stack.slice(0, -1))
+    if (previous.visibility) viewport.visibility.restore(previous.visibility)
+    if (previous.view) navigate(previous.view)
+  }, [history, navigate, viewport.visibility])
 
   /**
   * Open on a desktop, shut on a phone, and whatever the reader last chose
@@ -786,7 +947,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         }}
       >
         <DialogTitle className="sr-only">
-          {model ? t('stage.dialogLabel', { name: model.filename }) : t('title')}
+          {model ? t('stage.dialogLabel', { name: documentDisplayName(model) }) : t('title')}
         </DialogTitle>
 
         <div className="bg-muted/40 relative min-h-0 flex-1">
@@ -846,7 +1007,10 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   {(models ?? []).map((candidate) => (
                     <ViewerRailItem
                       key={candidate.id}
-                      label={stageModelLabel(candidate.filename)}
+                      // The name the document goes by, minus the extension.
+                      // `?model=` still carries the FILE name, so a rename
+                      // never breaks a link anyone has already sent.
+                      label={stageModelLabel(documentDisplayName(candidate))}
                       icon={<Boxes aria-hidden="true" />}
                       meta={candidate.status === 'ready' ? undefined : t(`status.${candidate.status}`)}
                       selected={candidate.id === model?.id}
@@ -932,6 +1096,46 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 one a reader has to be able to discover on hover, so the
                 redundancy is worth what it costs there.
               */}
+              {/*
+                The file operations, on the building.
+
+                A model is a document like any other, and until now it was the
+                one document in the product you could not rename or delete
+                where you were looking at it — you had to close the viewer,
+                find the card again, and open a different surface. The menu is
+                the same one the file preview carries; only its trigger is
+                dressed for the viewport.
+              */}
+              {model && (
+                <DocumentActionsMenu
+                  document={{
+                    id: model.documentId,
+                    filename: model.filename,
+                    displayName: model.displayName,
+                  }}
+                  // The rail lists the project's models AND the org-wide
+                  // Archiv's (`listAccessibleModels` includes both, because
+                  // retrieval does). An Archiv model has no project, and its
+                  // delete goes to the org-scoped route — the project one
+                  // answers 404 for it on purpose.
+                  scope={model.projectId === null ? 'archiv' : 'files'}
+                  onRenamed={onModelRenamed}
+                  onDeleted={(documentId) => {
+                    onModelDeleted?.(documentId)
+                    // The building on screen no longer exists. Staying open on
+                    // a viewport of nothing is not a state worth offering.
+                    onClose()
+                  }}
+                  align="end"
+                  trigger={
+                    <ViewerIconButtonBase
+                      label={t('stage.fileActions')}
+                      icon={MoreHorizontal}
+                      data-testid="stage-file-actions"
+                    />
+                  }
+                />
+              )}
               <ViewerIconButton
                 label={copyFailed ? t('link.failed') : t('link.copy')}
                 icon={copyFailed ? MonitorX : copied ? Check : Link2}
@@ -975,7 +1179,12 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   // from — see `focusViewport`.
                   focusViewport()
                 }}
-                {...visibilityActions(viewport, () => setView({ element: undefined }), focusViewport)}
+                {...visibilityActions(
+                  viewport,
+                  () => setView({ element: undefined }),
+                  focusViewport,
+                  asOneStep
+                )}
               />
             </div>
           )}
@@ -1075,14 +1284,16 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   In the leading pill, beside Home, because both answer the
                   same question — "get me back" — and neither is a tool for
                   looking at the building. Home undoes the CAMERA; this undoes
-                  the view. Keeping them together is what makes the pair
-                  legible: one returns the eye, the other returns the state.
+                  the last thing the reader changed, whether that was the view
+                  or what they took out of the way. Keeping them together is
+                  what makes the pair legible: one returns the eye, the other
+                  returns the state.
                 */}
                 <ViewerIconButton
                   label={t('stage.back')}
                   icon={Undo2}
                   onClick={goBack}
-                  disabled={viewHistory.length === 0}
+                  disabled={history.length === 0}
                 />
                 <ViewerIconButton
                   label={t('stage.home')}
@@ -1197,11 +1408,15 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
             trail={
               <>
                 {/*
-                  The way back. It appears only once something is out of the
-                  way, because a viewport nobody has edited has nothing to
-                  restore — and a permanently-visible "show everything" is a
-                  control that is wrong about the state it describes most of
-                  the time.
+                  The reset — not the undo, which is Undo, in the leading pill
+                  and one step at a time. This one clears every hide and every
+                  isolation at once, which is what someone wants after eight
+                  of them and never after one.
+
+                  It appears only once something is out of the way, because a
+                  viewport nobody has edited has nothing to restore — and a
+                  permanently-visible reset is a control that is wrong about
+                  the state it describes most of the time.
                 */}
                 {viewport.visibility.edited && (
                   <ViewerIconButton

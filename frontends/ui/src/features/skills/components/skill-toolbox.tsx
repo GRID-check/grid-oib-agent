@@ -1,27 +1,35 @@
 'use client'
 
 /**
- * Skill toolbox — the "Skill toolbox" section of the Skills tab. Renders the
- * merged toolbox (builtin platform skills + org rows, org rows shadowing same
- * names) as raised cards: the name as the token it is, the description, the
- * agent scope where there is one, actions, and — on the card's footer tray —
- * the origin plus a collapsible verbatim instruction preview.
- * Nothing here is about time or output: a skill says neither. Builtin platform
- * skills can be cloned into the org; org-authored/cloned rows can be edited
- * and deleted (org:skills:manage — without it the section is read-only).
+ * The Skills tab's content: the skills Piloti curates for every organization
+ * (`curated-skills.tsx`), and then the ones this one wrote itself.
+ *
+ * Featured leads. An organization gets more out of switching one of ours on
+ * than out of writing its first skill from a blank editor, so the curated set
+ * is the top of the page rather than an appendix to it.
+ *
+ * The pipeline's own machinery used to sit in this same grid as equal cards,
+ * each offering a "clone". Both were wrong. Those are hardcoded files, not
+ * rows: nobody installs one, nobody can edit one, and every one of them
+ * declares `grid-agents: deep_researcher`, so none is even invocable from chat
+ * — they are how deep research analyses figures and writes its report. Five of
+ * them in front of an org with two skills of its own made the page look like it
+ * was mostly ours, and the one action they offered produced a frozen copy of an
+ * instruction the org never wrote. They are gone from this surface entirely
+ * (see `lib/skills/service.ts::listSkills`) and still resolve for every run.
+ *
+ * What replaces clone is a switch, in both halves of the page. A skill is
+ * either in play for this organization or it is not, and that is the only state
+ * anyone here has an opinion about: for an org's own skill it is
+ * `skills.enabled`, which already gated resolution but sat three clicks deep in
+ * the editor; for a curated one it is the org's activation decision.
+ *
+ * Authoring is gated on org:skills:manage; without it the page is read-only.
+ * Nothing here is about time or output: a skill says neither.
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import {
-  AlertCircle,
-  BookOpen,
-  ChevronDown,
-  Copy,
-  Pencil,
-  Plus,
-  Sparkles,
-  Trash2,
-} from 'lucide-react'
+import { AlertCircle, BookOpen, ChevronDown, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -30,39 +38,42 @@ import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/ra
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
-import { deleteSkill, listSkills, type SkillListItem } from '@/adapters/api/skills-client'
+import { cn } from '@/lib/utils'
+import {
+  deleteSkill,
+  updateSkill,
+  listSkills,
+  type SkillListItem,
+} from '@/adapters/api/skills-client'
 import { agentScopeLabelKey } from '../lib/agent-scope'
 import { ConfirmDeleteDialog } from './confirm-delete-dialog'
+import { CuratedSkills } from './curated-skills'
 
 interface SkillToolboxProps {
-  /** Whether this member may author/clone/edit/delete skills (org:skills:manage). */
+  /** Whether this member may author/edit/delete skills (org:skills:manage). */
   canManage: boolean
-  /** Open the editor to clone a builtin platform skill. */
-  onClone: (skill: SkillListItem) => void
-  /** Open the editor for an org row (edit, or create empty from scratch). */
+  /** Open the editor for a skill (edit, or create empty from scratch). */
   onEdit: (skill: SkillListItem | null) => void
+  /**
+   * Bumped by the panel after a save, to re-fetch.
+   *
+   * Without it a skill you had just written did not appear until a reload —
+   * the save succeeded, the toast said so, and the page still showed the list
+   * from before it, which reads as the save having done nothing.
+   */
+  reloadKey?: number
 }
 
-/**
- * Where the skill came from. This reads as plain text on the card's footer tab
- * rather than as a badge in the header: every row has an origin, and a badge
- * that is always present is decoration, not signal. The header keeps the badge
- * slot for the scope, which appears only when a skill is NOT available
- * everywhere — the thing worth a second look.
- */
-function originLabel(t: ReturnType<typeof useTranslations>, skill: SkillListItem): string {
-  if (skill.origin === 'platform') return t('toolbox.origin.platform')
-  if (skill.origin === 'platform-clone') return t('toolbox.origin.cloned')
-  return t('toolbox.origin.org')
-}
-
-export function SkillToolbox({ canManage, onClone, onEdit }: SkillToolboxProps): JSX.Element {
+export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxProps): JSX.Element {
   const t = useTranslations('skills')
   const [skills, setSkills] = useState<SkillListItem[] | null>(null)
   const [error, setError] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  /** Ids whose switch is mid-flight, so it cannot be flipped twice. */
+  const [togglingIds, setTogglingIds] = useState<string[]>([])
 
   const load = useCallback(() => {
     setSkills(null)
@@ -74,7 +85,7 @@ export function SkillToolbox({ canManage, onClone, onEdit }: SkillToolboxProps):
 
   useEffect(() => {
     load()
-  }, [load])
+  }, [load, reloadKey])
 
   const confirmDelete = async () => {
     if (!confirmId) return
@@ -90,27 +101,40 @@ export function SkillToolbox({ canManage, onClone, onEdit }: SkillToolboxProps):
     }
   }
 
+  /**
+   * Flip a skill on or off.
+   *
+   * Optimistic, and reverted on failure. A switch that waits for a round trip
+   * before moving is a switch you press twice — and this one is cheap to undo,
+   * which is exactly the case optimism is for.
+   */
+  const toggleEnabled = async (skill: SkillListItem, enabled: boolean) => {
+    const id = skill.id
+    if (!id) return
+    setTogglingIds((current) => [...current, id])
+    setSkills((prev) => prev?.map((row) => (row.id === id ? { ...row, enabled } : row)) ?? prev)
+    try {
+      await updateSkill(id, { enabled })
+    } catch {
+      setSkills(
+        (prev) => prev?.map((row) => (row.id === id ? { ...row, enabled: !enabled } : row)) ?? prev,
+      )
+      toast.error(t('editor.saveError'))
+    } finally {
+      setTogglingIds((current) => current.filter((entry) => entry !== id))
+    }
+  }
+
   // A null confirmId means no deletion is pending — never match it against a
-  // platform skill (whose id is also null).
+  // curated skill (whose id is also null).
   const confirmation = confirmId ? (skills?.find((skill) => skill.id === confirmId) ?? null) : null
 
-  return (
-    <section className="space-y-4" aria-labelledby="skill-toolbox-heading">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1">
-          <h2 id="skill-toolbox-heading" className="text-foreground text-sm font-semibold">
-            {t('toolbox.heading')}
-          </h2>
-          <p className="text-muted-foreground max-w-3xl text-xs">{t('toolbox.hint')}</p>
-        </div>
-        {canManage && (
-          <Button size="sm" onClick={() => onEdit(null)}>
-            <Plus className="size-4" aria-hidden />
-            {t('toolbox.newSkill')}
-          </Button>
-        )}
-      </div>
+  /** Everything this org wrote; the curated offers are listed separately. */
+  const orgSkills = skills?.filter((skill) => skill.origin !== 'platform') ?? []
+  const curated = skills?.filter((skill) => skill.origin === 'platform') ?? []
 
+  return (
+    <section className="space-y-4" aria-labelledby="skills-heading">
       {skills === null && !error && (
         <div className="space-y-3" data-testid="skills-toolbox-loading">
           <Skeleton className="h-24 w-full rounded-xl" />
@@ -130,7 +154,30 @@ export function SkillToolbox({ canManage, onClone, onEdit }: SkillToolboxProps):
         </Alert>
       )}
 
-      {skills !== null && !error && skills.length === 0 && (
+      {skills !== null && !error && (
+        <CuratedSkills
+          skills={curated}
+          canManage={canManage}
+          onToggled={(name, enabled) =>
+            setSkills(
+              (prev) =>
+                prev?.map((row) => (row.name === name ? { ...row, enabled } : row)) ?? prev,
+            )
+          }
+        />
+      )}
+
+      {/* The org's own, under a heading of their own — but ONLY once the
+          featured section is there to be distinguished from. On a page with
+          nothing curated yet, a lone "Your skills" heading over the only list
+          on the page is a label for the page, which the page already has. */}
+      {skills !== null && !error && curated.length > 0 && (
+        <h2 className="text-foreground mt-8 text-sm font-semibold tracking-[-0.01em]">
+          {t('toolbox.ownHeading')}
+        </h2>
+      )}
+
+      {skills !== null && !error && orgSkills.length === 0 && (
         <EmptyState
           icon={Sparkles}
           title={t('toolbox.empty.title')}
@@ -146,16 +193,24 @@ export function SkillToolbox({ canManage, onClone, onEdit }: SkillToolboxProps):
         />
       )}
 
-      {skills !== null && !error && skills.length > 0 && (
+      {orgSkills.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
-          {skills.map((skill) => (
+          {orgSkills.map((skill) => (
             // The same card as a job and a file (components/ui/raised-card): a
             // white block laid into a tray, with the quiet provenance and the
             // instruction disclosure showing on the tray beneath it.
             <RaisedCard key={skill.name}>
               <RaisedCardBody className="flex flex-1 flex-col gap-3 p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
+                  {/* Off is stated by the text going quiet, not by a badge
+                      saying "disabled" next to a switch that already says it.
+                      The card stays legible either way — it is off, not gone. */}
+                  <div
+                    className={cn(
+                      'min-w-0 space-y-1 transition-opacity duration-200 motion-reduce:transition-none',
+                      !skill.enabled && 'opacity-45',
+                    )}
+                  >
                     <h3 className="text-foreground truncate font-mono text-sm font-semibold">
                       {/* Shown as the token it is. A skill's name is not a title
                           — it is what somebody types after a slash in chat, and
@@ -169,18 +224,29 @@ export function SkillToolbox({ canManage, onClone, onEdit }: SkillToolboxProps):
                       {skill.description}
                     </p>
                   </div>
-                  {/* Scope, and ONLY when there is one. This used to be an
-                      execution-mode badge on every row, which said what a
-                      scheduled run would produce while reading as though it
-                      said where the skill applied — and a badge every row
-                      carries tells you nothing anyway. A skill reaches both
-                      agents unless it says otherwise, so the badge appears
-                      exactly when that is not true. */}
-                  {agentScopeLabelKey(skill.metadata['grid-agents']) && (
-                    <Badge variant="outline" className="shrink-0">
-                      {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
-                    </Badge>
-                  )}
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    {/* Scope, and ONLY when there is one. This used to be an
+                        execution-mode badge on every row, which said what a
+                        scheduled run would produce while reading as though it
+                        said where the skill applied — and a badge every row
+                        carries tells you nothing anyway. A skill reaches both
+                        agents unless it says otherwise, so the badge appears
+                        exactly when that is not true. */}
+                    {agentScopeLabelKey(skill.metadata['grid-agents']) && (
+                      <Badge variant="outline">
+                        {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
+                      </Badge>
+                    )}
+                    {canManage && (
+                      <Switch
+                        checked={skill.enabled}
+                        disabled={togglingIds.includes(skill.id ?? '')}
+                        onCheckedChange={(next) => void toggleEnabled(skill, next)}
+                        aria-label={t('toolbox.actions.enabledAria', { name: skill.name })}
+                      />
+                    )}
+                  </div>
                 </div>
 
                 {/* `mt-auto` pins the actions to the bottom of the white block,
@@ -188,49 +254,44 @@ export function SkillToolbox({ canManage, onClone, onEdit }: SkillToolboxProps):
                     different lengths. */}
                 {canManage && (
                   <div className="mt-auto flex flex-wrap items-center gap-2">
-                    {skill.origin === 'platform' ? (
-                      <Button
-                        size="sm"
-                        onClick={() => onClone(skill)}
-                        aria-label={t('toolbox.actions.cloneAria', { name: skill.name })}
-                      >
-                        <Copy className="size-3.5" aria-hidden />
-                        {t('toolbox.actions.clone')}
-                      </Button>
-                    ) : (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onEdit(skill)}
-                          disabled={deletingId === skill.id}
-                        >
-                          <Pencil className="size-3.5" aria-hidden />
-                          {t('toolbox.actions.edit')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => setConfirmId(skill.id!)}
-                          disabled={deletingId === skill.id}
-                        >
-                          <Trash2 className="size-3.5" aria-hidden />
-                          {t('toolbox.actions.delete')}
-                        </Button>
-                      </>
-                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onEdit(skill)}
+                      disabled={deletingId === skill.id}
+                    >
+                      <Pencil className="size-3.5" aria-hidden />
+                      {t('toolbox.actions.edit')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setConfirmId(skill.id!)}
+                      disabled={deletingId === skill.id}
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                      {t('toolbox.actions.delete')}
+                    </Button>
                   </div>
                 )}
               </RaisedCardBody>
 
-              {/* The tray: where the skill came from on the left, the way into
-                  its verbatim instruction on the right — the same one-row shape
-                  a job card's tray has. */}
+              {/* The tray: the state that is not the switch on the left, the way
+                  into the verbatim instruction on the right — the same one-row
+                  shape a job card's tray has.
+
+                  The left side speaks only when there is something to say. "In
+                  this organization" used to sit on every row, which is what the
+                  page already says; what is worth a line is a skill that is
+                  switched OFF, because a card the agent will never reach should
+                  say so somewhere that is not only a toggle's position. */}
               <RaisedCardFooter>
                 <Collapsible className="w-full">
                   <div className="flex w-full items-center gap-2">
-                    <span className="min-w-0 truncate">{originLabel(t, skill)}</span>
+                    {!skill.enabled && (
+                      <span className="min-w-0 truncate">{t('toolbox.origin.disabled')}</span>
+                    )}
                     <CollapsibleTrigger asChild>
                       <Button
                         variant="ghost"

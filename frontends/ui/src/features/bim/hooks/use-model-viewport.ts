@@ -23,7 +23,7 @@
  * hand-copied props.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildColorOverrides,
   expressIdsForStorey,
@@ -31,6 +31,8 @@ import {
   NOTHING_HIDDEN,
   resolveHighlights,
   resolveIsolation,
+  sameIdSet,
+  sameVisibility,
   selectionSurvives,
   supportsWebGpu,
   type BimHighlightGroup,
@@ -71,6 +73,17 @@ export interface UseModelViewportOptions {
   compact?: boolean
   /** Receives the PNG data URL produced by {@link ModelViewport.capture}. */
   onCapture?: (dataUrl: string | null) => void
+  /**
+   * Called just before a hide / isolate / show-everything lands, with the
+   * state it replaces — so a surface keeping its own history can record the
+   * step and hand it back to {@link ModelVisibility.restore}.
+   *
+   * The hook fires it rather than letting the caller record on the click,
+   * because only the hook can tell an edit from a no-op: isolating the same
+   * element twice is a press with nothing behind it, and a step recorded for
+   * it is an Undo that appears to do nothing.
+   */
+  onVisibilityEdit?: (previous: ViewerVisibility) => void
 }
 
 /**
@@ -103,13 +116,35 @@ export interface ModelMeasuring {
  * roof slab to see the stair is a working move, not a view worth sending — and
  * a link that arrives with three elements silently missing is a link whose
  * recipient is looking at a different building from the one they think.
+ *
+ * Staying out of the URL is also why undo cannot come for free here the way it
+ * does for the view: there is no query string to step back through. So the
+ * hook reports each edit and accepts a state back — see `onVisibilityEdit` and
+ * {@link ModelVisibility.restore} — and whichever surface owns a history owns
+ * this too. The stage does; the card-sized preview has no way to edit
+ * visibility at all and passes neither.
  */
 export interface ModelVisibility extends ViewerVisibility {
   /** Whether anything has been hidden or isolated — drives "show everything". */
   edited: boolean
   hide: (expressId: number) => void
+  /**
+   * Show nothing but these — and, called again with the same set, show the
+   * building again. A toggle, because the control that isolates is the only
+   * control still on screen once everything else is gone.
+   */
   isolate: (expressIds: readonly number[]) => void
   showEverything: () => void
+  /**
+   * Put a previous state back, without recording the restore as an edit.
+   *
+   * The counterpart to {@link UseModelViewportOptions.onVisibilityEdit}: the
+   * host holds the history, so undo is a state it hands back rather than a
+   * stack the hook keeps. Taking one step back and "show everything" are
+   * different acts — the reader who hid four things and then isolated a fifth
+   * wants the four back, not a fresh building.
+   */
+  restore: (edits: ViewerVisibility) => void
 }
 
 export interface ModelViewport {
@@ -125,6 +160,22 @@ export interface ModelViewport {
    * when the reader has just hidden the thing they had selected.
    */
   selectedExpressId: number | null
+  /**
+   * The same selection, but resolved through the model alone — still there
+   * when the current visibility edits have taken it off screen.
+   *
+   * Two ids because two questions. "What is the renderer highlighting and
+   * pivoting around" must not name something that is not drawn, which is what
+   * {@link selectedExpressId} answers. "What did the reader ask about" is a
+   * different question with a different answer, and the card is mounted on
+   * THAT one: a reader who isolates a wall and then picks another from the
+   * rail is looking at a card for an element the viewport has resolved to
+   * null, and every control on it that needed an id had quietly gone — the
+   * isolate button included, which is the one control that would have put
+   * them somewhere else. Null still means no selection at all, and it is null
+   * for an element this model does not contain.
+   */
+  selectedElementExpressId: number | null
   camera: BimViewerCameraState
   highlights: ResolvedHighlight[]
   /** Spread onto `IfcViewerCanvas`. Null when there is nothing to render. */
@@ -168,6 +219,7 @@ export function useModelViewport({
   onCameraChange,
   compact = false,
   onCapture,
+  onVisibilityEdit,
 }: UseModelViewportOptions): ModelViewport {
   const [status, setStatus] = useState<IfcViewerStatus>({
     phase: 'idle',
@@ -405,24 +457,64 @@ export function useModelViewport({
     setEdits(NOTHING_HIDDEN)
   }, [sourceUrl])
 
-  const visibility = useMemo<ModelVisibility>(
-    () => ({
+  /*
+    Through a ref, so the memo below stays keyed on `edits` alone.
+
+    Every caller writes this as an inline arrow, which is a new function on
+    every render; depending on it directly would rebuild the whole visibility
+    object each time and change the identity of three callbacks the canvas and
+    the inspector hold.
+  */
+  const onVisibilityEditRef = useRef(onVisibilityEdit)
+  onVisibilityEditRef.current = onVisibilityEdit
+
+  const visibility = useMemo<ModelVisibility>(() => {
+    /*
+      Computed against the CURRENT edits rather than inside a functional
+      updater, because the decision "is this a step" needs the previous state
+      in the same breath as the new one: the host is told what it replaces,
+      and an edit that replaces nothing is not announced at all. `edits` is
+      this memo's only dependency, so it is never stale.
+    */
+    const apply = (next: ViewerVisibility): void => {
+      if (sameVisibility(edits, next)) return
+      onVisibilityEditRef.current?.(edits)
+      setEdits(next)
+    }
+    return {
       ...edits,
       edited: hasVisibilityEdits(edits),
-      hide: (expressId) =>
-        setEdits((current) => ({
-          ...current,
-          hidden: new Set(current.hidden).add(expressId),
-        })),
-      // Isolating REPLACES any previous isolation rather than intersecting
-      // with it. "Isolate this" is a fresh question every time; narrowing an
-      // existing isolation by clicking a second element would empty the
-      // viewport, which is the opposite of what the click looked like it did.
-      isolate: (expressIds) => setEdits((current) => ({ ...current, isolated: new Set(expressIds) })),
-      showEverything: () => setEdits(NOTHING_HIDDEN),
-    }),
-    [edits]
-  )
+      hide: (expressId) => apply({ ...edits, hidden: new Set(edits.hidden).add(expressId) }),
+      /*
+        Isolating REPLACES any previous isolation rather than intersecting
+        with it. "Isolate this" is a fresh question every time; narrowing an
+        existing isolation by clicking a second element would empty the
+        viewport, which is the opposite of what the click looked like it did.
+
+        And asking the same question twice takes the answer back.
+
+        Isolating does not clear the selection, so the button stays right
+        under the cursor with the whole building gone from around it — which
+        is precisely when a reader presses it again. That press used to
+        compare equal to the state already on screen and be dropped: the one
+        control the reader had just used, still sitting there, now inert. Nor
+        was there anything else to press ON the isolated element — the way
+        back was a reset pill in the dock, several controls away, that also
+        discards every hide made before it. So the press that took everything
+        else away is the press that brings it back, and only the isolation
+        goes: hides made before it are a separate act and survive.
+      */
+      isolate: (expressIds) => {
+        const next = new Set(expressIds)
+        const pressedAgain = sameIdSet(edits.isolated, next)
+        apply({ ...edits, isolated: pressedAgain ? null : next })
+      },
+      showEverything: () => apply(NOTHING_HIDDEN),
+      // Not through `apply`: an undo must not record itself as a step, or
+      // pressing Undo twice oscillates between two states forever.
+      restore: (restored) => setEdits(restored),
+    }
+  }, [edits])
 
   const storeyExpressIds = useMemo(
     () => expressIdsForStorey(elements, isolatedStorey),
@@ -433,13 +525,19 @@ export function useModelViewport({
     [storeyExpressIds, edits.isolated]
   )
 
-  const selectedExpressId = useMemo(() => {
-    const found = elements.find((element) => element.globalId === selectedGlobalId)?.expressId ?? null
+  const selectedElementExpressId = useMemo(
+    () => elements.find((element) => element.globalId === selectedGlobalId)?.expressId ?? null,
+    [elements, selectedGlobalId]
+  )
+
+  const selectedExpressId = useMemo(
     // A selection the reader has just hidden stops being a selection. Keeping
     // it would leave the camera orbiting an invisible pivot and the highlight
-    // pass painting a component that is not on screen.
-    return selectionSurvives(found, edits) ? found : null
-  }, [elements, selectedGlobalId, edits])
+    // pass painting a component that is not on screen. What it does NOT stop
+    // being is the element the card is about — see `selectedElementExpressId`.
+    () => (selectionSurvives(selectedElementExpressId, edits) ? selectedElementExpressId : null),
+    [selectedElementExpressId, edits]
+  )
 
   // X-ray keeps the highlighted set solid and fades the rest to context. With
   // nothing highlighted there is nothing to keep solid, so the toggle has no
@@ -559,6 +657,7 @@ export function useModelViewport({
     bounds,
     section,
     selectedExpressId,
+    selectedElementExpressId,
     camera: cameraState,
     highlights: resolved,
     canvasProps,

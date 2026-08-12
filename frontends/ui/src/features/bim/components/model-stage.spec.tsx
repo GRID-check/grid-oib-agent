@@ -39,8 +39,15 @@ vi.mock('./ifc-viewer-canvas', () => ({
   IfcViewerCanvas: (props: {
     onStatus?: (status: unknown) => void
     onBounds?: (bounds: { minMetres: number; maxMetres: number } | null) => void
+    isolatedExpressIds?: Set<number> | null
+    hiddenExpressIds?: ReadonlySet<number>
   }) => {
     const { onStatus, onBounds } = props
+    // What the renderer is actually being told to draw. Hiding and isolating
+    // never reach the URL, so the props are the only place the stage's
+    // visibility state is observable from the outside — which is exactly what
+    // makes an undo for them worth pinning.
+    lastCanvasProps = props
     // A building with a basement: the cut slider is ranged over the model's
     // own extent, and a model whose extent starts below zero is the case the
     // link encoding used to be unable to carry.
@@ -68,6 +75,12 @@ vi.mock('./model-advanced-sheet', () => ({
   ModelAdvancedSheet: ({ open }: { open: boolean }) =>
     open ? <div data-testid="advanced-sheet" /> : null,
 }))
+
+/** The last props the stand-in canvas was handed; see the mock above. */
+let lastCanvasProps: {
+  isolatedExpressIds?: Set<number> | null
+  hiddenExpressIds?: ReadonlySet<number>
+} | null = null
 
 const sourceReload = vi.fn()
 const modelsReload = vi.fn()
@@ -116,6 +129,7 @@ function model(overrides: Partial<BimModelHeaderView> = {}): BimModelHeaderView 
     documentId: 'doc-1',
     projectId: 'p1',
     filename: 'Haus-A.ifc',
+    displayName: null,
     status: 'ready',
     schemaVersion: 'IFC4',
     elementCount: 120,
@@ -153,6 +167,7 @@ beforeEach(() => {
   state.sourceError = null
   modelsError = null
   canvasStatus = { phase: 'ready', percent: 100, meshCount: 12 }
+  lastCanvasProps = null
   setWebGpu(true)
 })
 
@@ -238,7 +253,7 @@ describe('ModelStage — one step back', () => {
     const href = routerReplace.mock.calls.at(-1)?.[0] as string | undefined
     if (href) searchParams = new URLSearchParams(href.split('?')[1] ?? '')
   }
-  const back = () => screen.getByRole('button', { name: 'Back to the previous view' })
+  const back = () => screen.getByRole('button', { name: 'Undo the last change' })
 
   it('offers nothing to go back to before anything has changed', () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
@@ -317,6 +332,251 @@ describe('ModelStage — one step back', () => {
     applyNavigation()
     rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
     expect(lastQuery().get('storey')).toBe('Obergeschoss')
+    expect(back()).toBeDisabled()
+  })
+})
+
+/**
+ * Isolating had no undo, and the Undo button was right there.
+ *
+ * Hide and isolate are the two controls that change the building most
+ * drastically — isolate takes away everything except one wall — and they were
+ * the only ones the stage's history did not see. Pressing Undo after isolating
+ * either did nothing or took back some unrelated earlier change, and the only
+ * real way out was the reset in the dock's trailing pill, which discards every
+ * other edit with it.
+ */
+describe('ModelStage — taking back a hide or an isolate', () => {
+  const applyNavigation = (): void => {
+    const href = routerReplace.mock.calls.at(-1)?.[0] as string | undefined
+    if (href) searchParams = new URLSearchParams(href.split('?')[1] ?? '')
+  }
+  const back = () => screen.getByRole('button', { name: 'Undo the last change' })
+  const reset = () => screen.queryByRole('button', { name: 'Show all elements again' })
+  const card = () => screen.getByRole('complementary', { name: 'AW 38' })
+
+  beforeEach(() => {
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w1')
+    state.elements = [
+      { globalId: 'g-w1', expressId: 21, ifcType: 'IfcWall', name: 'AW 38', storeyName: 'Erdgeschoss' },
+      { globalId: 'g-w2', expressId: 22, ifcType: 'IfcWall', name: 'IW 12', storeyName: 'Erdgeschoss' },
+      { globalId: 'g-w3', expressId: 24, ifcType: 'IfcWall', name: 'AW OG', storeyName: 'Obergeschoss' },
+    ]
+    state.detail = {
+      globalId: 'g-w1',
+      expressId: 21,
+      ifcType: 'IfcWallStandardCase',
+      name: 'AW 38',
+      description: null,
+      predefinedType: null,
+      objectType: null,
+      tag: null,
+      typeName: null,
+      storeyName: 'Erdgeschoss',
+      materials: [],
+      classifications: [],
+      properties: {},
+      quantities: {},
+    }
+  })
+
+  it('puts the rest of the building back after an isolate', async () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(back()).toBeDisabled()
+
+    await userEvent.click(within(card()).getByRole('button', { name: 'Isolate' }))
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([21]))
+
+    await userEvent.click(back())
+    // `null` is "isolate nothing, draw the whole building" — an empty set
+    // would be a viewport with nothing in it, which is the other failure.
+    expect(lastCanvasProps?.isolatedExpressIds).toBeNull()
+    expect(reset()).not.toBeInTheDocument()
+    expect(back()).toBeDisabled()
+  })
+
+  it('brings back one hidden element at a time, where the reset drops all of them', async () => {
+    // The reason an undo is not the reset that already existed: a reader who
+    // has hidden four things and then hides a fifth by mistake wants the
+    // fifth back, not a fresh building.
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(within(card()).getByRole('button', { name: 'Hide' }))
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set([21]))
+
+    // Hiding clears the selection, so the second element is picked next.
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w2')
+    state.detail = { ...(state.detail as Record<string, unknown>), globalId: 'g-w2', expressId: 22, name: 'IW 12' }
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const second = screen.getByRole('complementary', { name: 'IW 12' })
+    await userEvent.click(within(second).getByRole('button', { name: 'Hide' }))
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set([21, 22]))
+
+    await userEvent.click(back())
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set([21]))
+
+    // And the reset is still the way to drop the lot in one press.
+    await userEvent.click(reset() as HTMLElement)
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set())
+  })
+
+  it('peels the last thing the reader did, not the last thing in the URL', async () => {
+    /*
+      The two stacks are one stack. The view lives in the query string and
+      what has been taken out of the way deliberately does not, so an undo
+      that only walked the URL skipped straight past the hide — landing the
+      reader on a previous level with the element still missing, and no
+      indication that a press had been swallowed.
+    */
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Obergeschoss' }))
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastQuery().get('storey')).toBe('Obergeschoss')
+
+    await userEvent.click(within(card()).getByRole('button', { name: 'Hide' }))
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set([21]))
+
+    // The hide first — element and all. Hiding drops the selection too, and
+    // one press puts back the whole state the reader was in, not half of it.
+    await userEvent.click(back())
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set())
+    expect(lastQuery().get('element')).toBe('g-w1')
+    // ...and the level filter is left exactly where it was.
+    expect(lastQuery().get('storey')).toBe('Obergeschoss')
+
+    // Then the level.
+    await userEvent.click(back())
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastQuery().get('storey')).toBeNull()
+    expect(back()).toBeDisabled()
+  })
+
+  it('gives the building back when the same element is isolated twice', async () => {
+    /*
+      The press that took everything else away is the press that brings it
+      back. Isolating does not clear the selection, so the button stays right
+      under the cursor with the building gone from around it — which is
+      exactly when it gets pressed again. That press used to resolve to the
+      state already on screen and be dropped, leaving the one control the
+      reader had just used sitting there doing nothing, and the way out
+      several controls away in the dock.
+    */
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const isolate = () => within(card()).getByRole('button', { name: 'Isolate' })
+
+    await userEvent.click(isolate())
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([21]))
+    // And it says so, rather than looking identical in both states.
+    expect(isolate()).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(isolate())
+    // `null`, not an empty set: the whole building, not an empty viewport.
+    expect(lastCanvasProps?.isolatedExpressIds).toBeNull()
+    expect(isolate()).toHaveAttribute('aria-pressed', 'false')
+    // Nothing is out of the way any more, so the reset has nothing to offer.
+    expect(reset()).not.toBeInTheDocument()
+  })
+
+  it('leaves hidden elements hidden when an isolate is toggled off', async () => {
+    /*
+      Hiding and isolating are different acts. Taking back the isolate must
+      not quietly undo four hides with it — that is what the dock's reset is
+      for, and the reason the reset is not the answer to a stray isolate.
+    */
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(within(card()).getByRole('button', { name: 'Hide' }))
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set([21]))
+
+    // Hiding clears the selection, so a second element is picked to isolate.
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w2')
+    state.detail = { ...(state.detail as Record<string, unknown>), globalId: 'g-w2', expressId: 22, name: 'IW 12' }
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const second = () => screen.getByRole('complementary', { name: 'IW 12' })
+    await userEvent.click(within(second()).getByRole('button', { name: 'Isolate' }))
+    await userEvent.click(within(second()).getByRole('button', { name: 'Isolate' }))
+
+    expect(lastCanvasProps?.isolatedExpressIds).toBeNull()
+    expect(lastCanvasProps?.hiddenExpressIds).toEqual(new Set([21]))
+  })
+
+  it('walks back through both halves of an isolate toggled off', async () => {
+    // Both presses changed the building, so both are steps — unlike the old
+    // second press, which changed nothing and rightly recorded nothing.
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const isolate = () => within(card()).getByRole('button', { name: 'Isolate' })
+    await userEvent.click(isolate())
+    await userEvent.click(isolate())
+
+    await userEvent.click(back())
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([21]))
+
+    await userEvent.click(back())
+    expect(lastCanvasProps?.isolatedExpressIds).toBeNull()
+    expect(back()).toBeDisabled()
+  })
+
+  it('replaces the isolation when a different element is isolated', async () => {
+    // Only a repeat of the SAME question is a toggle. "Isolate this other
+    // thing" is a fresh question, and must not read as taking the first back.
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(within(card()).getByRole('button', { name: 'Isolate' }))
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([21]))
+
+    searchParams = new URLSearchParams('model=Haus-A.ifc&element=g-w2')
+    state.detail = { ...(state.detail as Record<string, unknown>), globalId: 'g-w2', expressId: 22, name: 'IW 12' }
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const second = screen.getByRole('complementary', { name: 'IW 12' })
+    // The other element is not the isolated one, so its button is not pressed.
+    const isolateSecond = within(second).getByRole('button', { name: 'Isolate' })
+    expect(isolateSecond).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(isolateSecond)
+    expect(lastCanvasProps?.isolatedExpressIds).toEqual(new Set([22]))
+  })
+
+  it('offers neither verb for an element the reader has hidden', async () => {
+    /*
+      Isolate reads past the renderer so it survives an isolation — but a
+      HIDDEN element is the one case where it must not. "Show nothing but this
+      thing I have also taken away" renders an empty viewport, and offering a
+      button for it would trade one dead end for another.
+    */
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(within(card()).getByRole('button', { name: 'Hide' }))
+
+    // Hiding clears the selection; the reader picks the same wall again from
+    // the rail, which is the only way back to a card for a hidden element.
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(within(card()).queryByRole('button', { name: 'Isolate' })).not.toBeInTheDocument()
+    expect(within(card()).queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument()
+  })
+
+  it('forgets visibility steps when the model changes', async () => {
+    /*
+      Express ids are per-FILE. A step recorded against Haus-A holds numbers
+      that address completely different components in Nebengebäude, so
+      replaying it there would hide elements the reader never touched. View
+      steps carry `model=` and survive, which is what keeps "back to the model
+      I came from" working.
+    */
+    state.models = [model(), model({ id: 'm-2', filename: 'B.ifc' })]
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(within(card()).getByRole('button', { name: 'Isolate' }))
+
+    await userEvent.click(screen.getByRole('button', { name: /^B\b/ }))
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastQuery().get('model')).toBe('B.ifc')
+
+    // The model switch is still undoable...
+    await userEvent.click(back())
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastQuery().get('model')).toBe('Haus-A.ifc')
+    // ...and the isolate recorded in the other building is not.
     expect(back()).toBeDisabled()
   })
 })
@@ -873,5 +1133,84 @@ describe('ModelStage — the highlights a link carries', () => {
     expect(
       screen.getAllByText(/One of the highlighted elements is not in this model/)
     ).toHaveLength(2)
+  })
+})
+
+describe('ModelStage — the file operations on the building', () => {
+  it('offers rename and delete on the model that is open', async () => {
+    const user = userEvent.setup()
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    await user.click(await screen.findByTestId('stage-file-actions'))
+
+    // The same three the file preview carries — download included, because the
+    // viewport has no download button of its own.
+    expect(await screen.findByRole('menuitem', { name: /download/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /rename/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /delete/i })).toBeInTheDocument()
+  })
+
+  it('closes the stage after the building it was showing is deleted', async () => {
+    const onClose = vi.fn()
+    const onModelDeleted = vi.fn()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+
+    render(
+      <ModelStage
+        projectId="p1"
+        onClose={onClose}
+        onModelDeleted={onModelDeleted}
+      />
+    )
+
+    await user.click(await screen.findByTestId('stage-file-actions'))
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+    // Named, so nobody deletes the wrong building from a viewport showing one.
+    expect(await screen.findByText('Delete “Haus-A.ifc”?')).toBeInTheDocument()
+    await user.click(await screen.findByTestId('document-delete-confirm'))
+
+    // The DELETE goes to the document, because a model IS a document.
+    await waitFor(() => expect(onModelDeleted).toHaveBeenCalledWith('doc-1'))
+    expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1', { method: 'DELETE' })
+    expect(onClose).toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('calls a renamed building by its new name and leaves the link alone', async () => {
+    // `?model=` carries the FILE name — so a rename cannot break a link that
+    // was written into a chat answer weeks ago.
+    state.models = [
+      model({ displayName: 'Haus A – Bestand.ifc' }),
+      model({ id: 'm-2', documentId: 'doc-2', filename: 'Nebengebäude.ifc' }),
+    ]
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    const rail = await screen.findByRole('region', { name: 'Models' })
+    expect(within(rail).getByRole('button', { name: 'Haus A – Bestand' })).toBeInTheDocument()
+    expect(within(rail).queryByRole('button', { name: 'Haus-A' })).not.toBeInTheDocument()
+  })
+})
+
+describe('ModelStage — a model from the Büroarchiv', () => {
+  it('deletes it through the org-scoped route, not the project one', async () => {
+    // The rail lists the Archiv's models beside the project's, and an Archiv
+    // document is 404 on the project delete route by design.
+    state.models = [model({ projectId: null })]
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    await user.click(await screen.findByTestId('stage-file-actions'))
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+    await user.click(await screen.findByTestId('document-delete-confirm'))
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/archiv/documents/doc-1', { method: 'DELETE' })
+    )
+    vi.unstubAllGlobals()
   })
 })

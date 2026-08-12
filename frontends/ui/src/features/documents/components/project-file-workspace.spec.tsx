@@ -254,6 +254,74 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
   })
 })
 
+describe('ProjectFileWorkspace — renaming and deleting a document', () => {
+  const document = {
+    id: 'doc-a',
+    filename: 'alpha.pdf',
+    fileSize: 128,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-01-01T00:00:00Z',
+    errorMessage: null,
+    tags: [],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () => HttpResponse.json({ documents: [document] }))
+    )
+  })
+
+  it('renames from the preview and shows the new name on the card behind it', async () => {
+    server.use(
+      http.patch('/api/documents/:id', async ({ request }) => {
+        const body = (await request.json()) as { displayName: string | null }
+        return HttpResponse.json({ id: 'doc-a', filename: 'alpha.pdf', ...body })
+      })
+    )
+    const user = userEvent.setup()
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /alpha\.pdf/i }))
+    await user.click(await screen.findByTestId('document-actions-trigger'))
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }))
+
+    const field = await screen.findByLabelText('Name')
+    await user.clear(field)
+    await user.type(field, 'Einreichplan EG')
+    await user.click(screen.getByTestId('rename-submit'))
+
+    // The dialog closes and the corpus behind it carries the new name — no
+    // refetch, no stale card under the modal.
+    await waitFor(() => expect(screen.queryByLabelText('Name')).not.toBeInTheDocument())
+    expect((await screen.findAllByText('Einreichplan EG.pdf')).length).toBeGreaterThan(0)
+  })
+
+  it('deletes through the project route and drops the card', async () => {
+    const deleted: string[] = []
+    server.use(
+      http.delete('/api/documents/:id', ({ params }) => {
+        deleted.push(String(params.id))
+        return new HttpResponse(null, { status: 204 })
+      })
+    )
+    const user = userEvent.setup()
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /alpha\.pdf/i }))
+    await user.click(await screen.findByTestId('document-actions-trigger'))
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+    await user.click(await screen.findByTestId('document-delete-confirm'))
+
+    await waitFor(() => expect(deleted).toEqual(['doc-a']))
+    await waitFor(() => expect(screen.queryByText('alpha.pdf')).not.toBeInTheDocument())
+  })
+})
+
 /**
  * A file that is still being read has to stop being one on screen.
  *

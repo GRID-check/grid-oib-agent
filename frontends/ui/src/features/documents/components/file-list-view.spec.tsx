@@ -7,6 +7,7 @@ import type { FileItem } from './project-file-workspace'
 const doc = (filename: string, overrides: Partial<FileItem> = {}): FileItem => ({
   id: filename,
   filename,
+  displayName: null,
   fileSize: 1_000,
   contentType: 'application/pdf',
   status: 'ready',
@@ -118,5 +119,18 @@ describe('FileListView', () => {
 
     expect(screen.getByText('Processing')).toBeDefined()
     expect(screen.getByText('Heizwärmebedarf und Effizienzklasse.')).toBeDefined()
+  })
+
+  it('lists a renamed document under its new name', () => {
+    render(
+      <FileListView
+        files={[doc('plan.pdf', { displayName: 'Einreichplan EG.pdf' })]}
+        selectedFileId={null}
+        onSelectFile={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText('Einreichplan EG.pdf')).toBeInTheDocument()
+    expect(screen.queryByText('plan.pdf')).not.toBeInTheDocument()
   })
 })

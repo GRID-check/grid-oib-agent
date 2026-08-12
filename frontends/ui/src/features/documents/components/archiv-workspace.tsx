@@ -11,13 +11,14 @@ import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
-import { DeleteDocumentButton } from './delete-document-button'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { CountPill } from '@/components/ui/count-pill'
 import { useTranslations } from '@/i18n'
+import { documentDisplayName } from '@/lib/documents/display-name'
 
 interface ArchivWorkspaceProps {
   /** Whether the viewer may upload/delete (holds `org:archiv:manage`). */
@@ -74,6 +75,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
         const docs: FileItem[] = (data.documents ?? []).map((d) => ({
           id: d.id as string,
           filename: d.filename as string,
+          displayName: (d.displayName as string | null) ?? null,
           fileSize: (d.fileSize as number | null) ?? null,
           contentType: (d.contentType as string | null) ?? null,
           status: (d.status as string | null) ?? null,
@@ -107,14 +109,23 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   // Only managers drive the upload engine; passing an undefined collection to a
   // read-only viewer keeps useFileUpload's orchestrator effects inert (no
   // background collection-proxy calls that would 403 for them anyway).
-  const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile, cancelFile, cancelUpload, dismissFiles } =
-    useArchivDocuments({
-      collectionName: canManage ? collectionName : undefined,
-      // Wrapped rather than passed directly: `loadDocuments` takes a `quiet`
-      // flag now, and whatever the orchestrator hands its callback must not
-      // decide how this renders.
-      onComplete: () => void loadDocuments(),
-    })
+  const {
+    uploadFiles,
+    isUploading,
+    trackedFiles,
+    error,
+    clearError,
+    retryFile,
+    cancelFile,
+    cancelUpload,
+    dismissFiles,
+  } = useArchivDocuments({
+    collectionName: canManage ? collectionName : undefined,
+    // Wrapped rather than passed directly: `loadDocuments` takes a `quiet`
+    // flag now, and whatever the orchestrator hands its callback must not
+    // decide how this renders.
+    onComplete: () => void loadDocuments(),
+  })
 
   // Surface hook errors as a transient toast (plus the persistent inline Alert).
   const lastToastedError = useRef<string | null>(null)
@@ -133,7 +144,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     files,
     useCallback(
       (file: FileItem) => {
-        toast.success(t('toast.ingestionComplete', { name: file.filename }), {
+        toast.success(t('toast.ingestionComplete', { name: documentDisplayName(file) }), {
           icon: <Archive className="size-4" style={{ color: sourceBase('office') }} aria-hidden />,
         })
       },
@@ -163,7 +174,9 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
 
   const handleReingested = useCallback((fileId: string, status: string) => {
-    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status, errorMessage: null } : f)))
+    setFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, status, errorMessage: null } : f))
+    )
   }, [])
 
   const handleTagsUpdated = useCallback((fileId: string, tags: string[]) => {
@@ -175,11 +188,18 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     setSelectedFileId((current) => (current === fileId ? null : current))
   }, [])
 
+  // A rename lands in the local corpus from the PATCH's own answer, so the
+  // library card and the preview header carry the new name in the same frame
+  // the dialog closes — no refetch of the whole Archiv for one string.
+  const handleRenamed = useCallback((fileId: string, displayName: string | null) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, displayName } : f)))
+  }, [])
+
   // This session's own uploads, in every phase — see the same selector in
   // ProjectFileWorkspace for why settled rows stay until dismissed.
   const activeUploads = useMemo(
     () => trackedFiles.filter((f) => f.collectionName === collectionName && f.file != null),
-    [trackedFiles, collectionName],
+    [trackedFiles, collectionName]
   )
 
   // Drag-and-drop routes into the same upload path the button uses (managers only).
@@ -195,7 +215,11 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   ) : undefined
 
   return (
-    <div className="relative flex h-full flex-col" {...(canManage ? dragHandlers : {})} data-testid="archiv-dropzone">
+    <div
+      className="relative flex h-full flex-col"
+      {...(canManage ? dragHandlers : {})}
+      data-testid="archiv-dropzone"
+    >
       {canManage && isDragging && (
         <FileDropOverlay
           isUnsupported={isUnsupportedDrag}
@@ -205,19 +229,29 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
         />
       )}
 
-      {/* Top action bar */}
-      <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2.5">
+      {/* Identity row — the gold Büroarchiv mark, the name of the store, and how
+          much is in it. The count sits with the title rather than in the grid:
+          it is a property of the Archiv, and it is the one number a reader wants
+          before they start filtering. */}
+      <div className="flex items-center justify-between gap-4 border-b px-4 py-3.5">
+        <div className="flex min-w-0 items-center gap-3">
           <span
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+            className="shadow-2xs flex size-9 shrink-0 items-center justify-center rounded-xl"
             style={OFFICE_TINT}
             aria-hidden
           >
-            <Archive className="size-4" />
+            <Archive className="size-[18px]" />
           </span>
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">{t('title')}</h2>
-            <p className="truncate text-xs text-muted-foreground">{t('subtitle')}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="text-foreground truncate text-[15px] font-semibold tracking-tight">
+                {t('title')}
+              </h2>
+              {!isLoading && !loadError && files.length > 0 && (
+                <CountPill data-testid="archiv-document-count">{files.length}</CountPill>
+              )}
+            </div>
+            <p className="text-muted-foreground truncate text-xs">{t('subtitle')}</p>
           </div>
         </div>
         {uploadButton}
@@ -254,11 +288,16 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
 
       {/* Library grid; the preview opens in the shared centered-modal dialog. */}
       <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
-        <div className="flex-1 overflow-y-auto">
+        {/* The last row of cards dissolves at the bottom edge instead of being
+            clipped through the middle of a filename — the shared scroll-boundary
+            treatment (design language, "Scroll boundaries"). */}
+        <div className="scroll-fade-bottom flex-1 overflow-y-auto">
           {loadError ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
-              <AlertCircle className="size-5 text-destructive" aria-hidden />
-              <p className="text-sm text-muted-foreground text-balance">{t('workspace.loadError')}</p>
+              <AlertCircle className="text-destructive size-5" aria-hidden />
+              <p className="text-muted-foreground text-balance text-sm">
+                {t('workspace.loadError')}
+              </p>
               <Button
                 type="button"
                 variant="outline"
@@ -284,24 +323,19 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
           )}
         </div>
 
+        {/* The file operations live in the preview's header now. `canManage`
+            still decides whether they are offered at all: a member without
+            `org:archiv:manage` keeps download and sees no rename or delete. */}
         <FilePreviewDialog
           file={selectedFile}
           canManage={canManage}
+          scope="archiv"
           onClose={() => setSelectedFileId(null)}
           onReingested={handleReingested}
           onTagsUpdated={handleTagsUpdated}
+          onRenamed={handleRenamed}
+          onDeleted={handleDeleted}
           showMetadataPanel={showMetadataPanel}
-          extraActions={
-            canManage && selectedFile ? (
-              <DeleteDocumentButton
-                fileId={selectedFile.id}
-                filename={selectedFile.filename}
-                onDeleted={handleDeleted}
-                deleteUrl={`/api/archiv/documents/${selectedFile.id}`}
-                namespace="archiv"
-              />
-            ) : undefined
-          }
         />
       </div>
     </div>

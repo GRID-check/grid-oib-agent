@@ -5,6 +5,7 @@ import type { FileItem } from '../components/project-file-workspace'
 const doc = (overrides: Partial<FileItem> = {}): FileItem => ({
   id: overrides.filename ?? 'id',
   filename: 'Plan.pdf',
+  displayName: null,
   fileSize: 1_000,
   contentType: 'application/pdf',
   status: 'ready',

@@ -328,7 +328,28 @@
       "idx": 46,
       "version": "7",
       "when": 1786492800005,
-      "tag": "0046_session_documents",
+      "tag": "0046_curated_skill_activations",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786579200005,
+      "tag": "0047_platform_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786665600005,
+      "tag": "0048_document_display_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1786752000005,
+      "tag": "0049_session_documents",
       "breakpoints": true
     }
   ]

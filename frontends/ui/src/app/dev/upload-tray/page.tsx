@@ -88,6 +88,7 @@ const doc = (
 ): FileItem => ({
   id,
   filename,
+  displayName: null,
   fileSize: 2.4 * MB,
   contentType: 'application/pdf',
   status: 'ready',

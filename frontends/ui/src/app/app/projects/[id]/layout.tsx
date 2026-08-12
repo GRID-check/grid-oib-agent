@@ -6,11 +6,10 @@ import { getNavFlags } from '@/lib/authz/nav'
 import { isIfcModelsEnabled, isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { listProjects } from '@/lib/projects/service'
-import { AppSidebar } from '@/components/shell'
+import { AppSidebar, NavigationTrailLabel } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { RouteFocus } from '@/shared/components/route-focus'
 import { isAuthRequired } from '@/lib/auth/auth-required'
-
 
 interface ProjectLayoutProps {
   children: React.ReactNode
@@ -86,6 +85,10 @@ export default async function ProjectLayout({
 
     return (
       <div className="bg-background text-foreground flex h-dvh flex-col overflow-hidden md:flex-row">
+        {/* Names this project in the tab's return trail, so a surface above
+            projects (the Archiv, Organisation) can offer "Zurück zu <project>"
+            rather than a path it can only read an id out of. */}
+        <NavigationTrailLabel label={current.name} />
         <AppSidebar
           projectId={id}
           projects={orgProjects}

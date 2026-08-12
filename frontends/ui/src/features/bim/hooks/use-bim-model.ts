@@ -26,7 +26,10 @@ export interface BimModelHeaderView {
   id: string
   documentId: string
   projectId: string | null
+  /** The file's own name — the model's identity in `?model=` links and series. */
   filename: string
+  /** The rename, when the document has one. Resolve with `documentDisplayName`. */
+  displayName: string | null
   status: 'pending' | 'extracting' | 'ready' | 'failed'
   schemaVersion: string | null
   elementCount: number

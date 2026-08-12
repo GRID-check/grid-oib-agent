@@ -375,9 +375,43 @@ export const platform: typeof en.platform = {
     failed: 'Bereinigung fehlgeschlagen',
     failedHint: 'Die Anfrage wurde nicht abgeschlossen, es wurde daher nichts gelöscht. Bitte erneut versuchen.',
   },
+  skills: {
+    hint: 'Ein hier geschriebener Skill wird jeder Organisation angeboten. Jede entscheidet selbst, ob sie ihn einschaltet. Entwürfe bleiben unsichtbar, bis Sie sie veröffentlichen.',
+    new: 'Neuer kuratierter Skill',
+    draft: 'Entwurf',
+    edit: 'Bearbeiten',
+    delete: 'Löschen',
+    deleted: '„{name}“ wurde gelöscht.',
+    deleteTitle: 'Diesen kuratierten Skill löschen?',
+    deleteDescription:
+      'Damit verschwindet „{name}“ endgültig aus dem Katalog — die Anweisung existiert nur hier. Organisationen wird er nicht mehr angeboten; Jobs, die ihn bereits angehängt haben, laufen mit ihrem gespeicherten Snapshot weiter. Wollen Sie ihn nur aus dem Angebot nehmen, schalten Sie ihn stattdessen aus.',
+    deleteConfirm: 'Skill löschen',
+    cancel: 'Abbrechen',
+    publishLabel: 'Veröffentlicht',
+    publishHint:
+      'An: Jede Organisation sieht diesen Skill auf ihrem Skills-Tab und kann ihn einschalten. Aus: Er ist ein Entwurf, den niemand außerhalb dieses Dashboards sieht, und Organisationen, die ihn eingeschaltet hatten, führen ihn nicht mehr aus.',
+    publishAria: 'Kuratierten Skill „{name}“ für alle Organisationen veröffentlichen',
+    createTitle: 'Neuer kuratierter Skill',
+    editTitle: 'Kuratierten Skill bearbeiten',
+    createSubtitle:
+      'Ein Skill im agentskills.io-Format, der jeder Organisation auf der Plattform angeboten wird.',
+    editSubtitle:
+      'Eine Änderung erreicht sofort jede Organisation, die diesen Skill eingeschaltet hat.',
+    createSuccess: 'Kuratierter Skill erstellt.',
+    updateSuccess: 'Kuratierter Skill gespeichert.',
+    saveError: 'Der kuratierte Skill konnte nicht gespeichert werden.',
+    loadError: 'Der kuratierte Katalog konnte nicht geladen werden.',
+    tryAgain: 'Erneut versuchen',
+    empty: {
+      title: 'Noch nichts kuratiert',
+      description:
+        'Ein kuratierter Skill wird einmal geschrieben und jeder Organisation auf der Plattform angeboten. Ihre Verbesserungen erreichen alle, die ihn eingeschaltet haben.',
+    },
+  },
   nav: {
     label: 'Plattform-Bereiche',
     overview: 'Übersicht',
+    skills: 'Skills',
     models: 'Modelle',
     retrieval: 'Abruf',
     quality: 'Antwortqualität',
@@ -471,6 +505,11 @@ export const platform: typeof en.platform = {
     overview: {
       title: 'Übersicht',
       subtitle: 'Alle Organisationen der Plattform, mit Projekten und LLM-Kosten.',
+    },
+    skills: {
+      title: 'Skills',
+      subtitle:
+        'Die Skills, die Piloti für alle Organisationen kuratiert. Veröffentlicht wird ein Skill allen angeboten; jede Organisation entscheidet selbst, ob sie ihn einschaltet.',
     },
     models: {
       title: 'Modelle',

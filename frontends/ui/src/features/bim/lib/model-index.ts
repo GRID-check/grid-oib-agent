@@ -248,6 +248,37 @@ export function hasVisibilityEdits(visibility: ViewerVisibility): boolean {
 }
 
 /**
+ * Whether two visibility states put the same building on screen.
+ *
+ * A history needs this: an edit that changes nothing is not a step, and
+ * recording one makes the reader press Undo through states indistinguishable
+ * from the one they are looking at.
+ *
+ * Note what this is NOT for: deciding what a repeated press means. Isolating
+ * the same element twice arrives here looking identical, and treating that as
+ * "nothing happened" is what made the isolate button a one-way door — see
+ * {@link ModelVisibility.isolate}, which resolves the second press into a
+ * different state before it ever reaches this comparison.
+ *
+ * `null` and an empty set are compared as the different things they are; see
+ * `expressIdsForStorey` for why that distinction is a whole building wide.
+ */
+export function sameVisibility(a: ViewerVisibility, b: ViewerVisibility): boolean {
+  return sameIdSet(a.hidden, b.hidden) && sameIdSet(a.isolated, b.isolated)
+}
+
+/**
+ * Whether two id sets name the same elements, counting `null` as its own value
+ * rather than as an empty set.
+ */
+export function sameIdSet(a: ReadonlySet<number> | null, b: ReadonlySet<number> | null): boolean {
+  if (a === b) return true
+  if (!a || !b || a.size !== b.size) return false
+  for (const id of a) if (!b.has(id)) return false
+  return true
+}
+
+/**
  * The isolation set the renderer is finally given.
  *
  * The intersection when both a storey filter and a manual isolation are live,

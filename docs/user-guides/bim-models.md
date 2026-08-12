@@ -212,16 +212,37 @@ Orbit is the least of it. The toolbar stands the model square and cuts it:
   *Ausblenden* removes the slab in front of the stair, *Isolieren* removes
   everything that is not the stair. Both combine with a level filter rather
   than replacing it, so isolating a stair while filtered to the first floor
-  shows you the part of the stair on that floor. **Ausgeblendetes wiederherstellen**
-  appears in the toolbar as soon as anything is out of the way, and only then.
+  shows you the part of the stair on that floor.
+
+  *Isolieren* is a **switch, and it stays lit while it is on**. Press it again
+  on the same component and the building comes back — only the isolation, so
+  anything you had hidden beforehand stays hidden. Isolating a *different*
+  component instead replaces the isolation rather than narrowing it, because
+  "show me nothing but this" is a fresh question each time; two components at
+  once would otherwise leave you with an empty screen.
+
+  **Alle Bauteile wieder einblenden** appears in the toolbar as soon as
+  anything is out of the way, and only then. It is a reset: it clears every
+  hide and every isolation at once, which is what you want after eight of them
+  and never after one. For one, use the switch itself, or **Letzte Änderung
+  rückgängig machen** below.
 - **Einpassen** re-frames the whole building without reloading it.
-- **Zurück zur vorherigen Ansicht** steps back through what you changed — the
-  element you selected, the level you filtered to, the cut, the drawer, the
-  model. It sits beside Einpassen because the two answer the same question:
-  Einpassen returns the camera, this returns the view. It never leaves the
-  model, and it never undoes a measurement or something you hid — those are
-  working notes with their own controls, the same reason they do not travel in
-  the link.
+- **Letzte Änderung rückgängig machen** steps back through what you changed —
+  the element you selected, the level you filtered to, the cut, the drawer, the
+  model, and anything you hid or isolated. It sits beside Einpassen because the
+  two answer the same question: Einpassen returns the camera, this returns the
+  state. It never leaves the model.
+
+  One press undoes one thing, in the order you did them: isolate a wall after
+  filtering to a level, and the first press gives you the building back with
+  the filter still on. Hiding counts as one press even though it does two
+  things — the component comes back and its card re-opens together, because
+  that is the state you were actually in.
+
+  It does not undo a measurement; those have their own **Löschen**, the same
+  reason they do not travel in the link. And what you have hidden is forgotten
+  when you switch models: the identifiers are per file, so replaying them in
+  another building would take away components you never touched.
 
   Your browser's own Back button deliberately does not do this. The whole view
   is one address, so every element you clicked would be an entry in it, and

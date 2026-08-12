@@ -40,6 +40,7 @@ const PAGE_SVG =
 const FIXTURE: FileItem = {
   id: 'dev-doc-1',
   filename: 'Brandschutzkonzept_Wohnbau-Nord_Gebaeudeklasse-4.pdf',
+  displayName: null,
   fileSize: 4_820_000,
   contentType: 'image/png',
   status: 'ready',

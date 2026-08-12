@@ -22,6 +22,7 @@ import { FilePreviewDialog } from './file-preview-dialog'
 const FILE = {
   id: 'doc-1',
   filename: 'plan.pdf',
+  displayName: null,
   fileSize: 1_048_576,
   contentType: 'application/pdf',
   status: 'ready',

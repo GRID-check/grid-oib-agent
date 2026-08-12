@@ -17,6 +17,7 @@ function file(id: string, filename: string, contentType: string | null): FileIte
   return {
     id,
     filename,
+    displayName: null,
     fileSize: 1024,
     contentType,
     status: 'ready',
@@ -223,5 +224,21 @@ describe('FileCard while the document is still being read', () => {
 
     expect(screen.queryByTestId('file-card-summary-skeleton')).not.toBeInTheDocument()
     expect(screen.getByText('Verschlüsseltes PDF')).toBeInTheDocument()
+  })
+
+  it('shows the rename, and still reads the format from the file itself', () => {
+    render(
+      <FileCard
+        file={{ ...file('doc-1', 'plan.pdf', 'application/pdf'), displayName: 'Einreichplan EG.pdf' }}
+        isSelected={false}
+        onSelect={vi.fn()}
+        locale="de"
+      />
+    )
+
+    expect(screen.getByText('Einreichplan EG.pdf')).toBeInTheDocument()
+    expect(screen.queryByText('plan.pdf')).not.toBeInTheDocument()
+    // The chip is a claim about the bytes, not about the label.
+    expect(screen.getByText('PDF')).toBeInTheDocument()
   })
 })

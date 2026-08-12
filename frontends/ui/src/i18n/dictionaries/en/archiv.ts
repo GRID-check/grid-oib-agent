@@ -4,6 +4,7 @@ export const archiv = {
   subtitle: 'Shared documents available to every project in your organization',
   backToApp: 'Back to projects',
   backToProject: 'Back to project',
+  backToNamedProject: 'Back to {name}',
   library: {
     searchPlaceholder: 'Search the Archiv…',
     searchLabel: 'Search Archiv documents',
@@ -49,8 +50,35 @@ export const archiv = {
     loadError: 'The Archiv could not be loaded.',
     tryAgain: 'Try again',
   },
+  actions: {
+    label: 'File actions for “{name}”',
+    menuLabel: 'File actions',
+    download: 'Download',
+    rename: 'Rename…',
+    delete: 'Delete…',
+  },
+  rename: {
+    title: 'Rename document',
+    description:
+      'Changes the name shown everywhere in Grid, including on citations. The file itself and everything indexed from it stay as they are.',
+    label: 'Name',
+    hint: 'The file extension stays as it is.',
+    save: 'Rename',
+    saving: 'Saving…',
+    cancel: 'Cancel',
+    restore: 'Restore original name',
+    success: 'Now called “{name}”',
+    restored: 'Back to “{name}”',
+    error: 'The document could not be renamed',
+    errors: {
+      empty: 'Please enter a name.',
+      tooLong: 'That name is too long.',
+      invalidCharacters: 'A name cannot contain slashes or line breaks.',
+    },
+  },
   delete: {
     action: 'Delete from Archiv',
+    title: 'Delete “{name}”?',
     confirm: 'This removes the document for the whole organization. This cannot be undone.',
     confirmAction: 'Delete',
     cancel: 'Cancel',

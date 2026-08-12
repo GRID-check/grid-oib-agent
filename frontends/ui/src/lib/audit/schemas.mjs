@@ -207,6 +207,18 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', collectionName: 'string' },
   },
+  // A rename changes what a document is CALLED, never which file it is, so the
+  // trail records both: `filename` is the unchanged identity, the other two are
+  // the label before and after.
+  'document.renamed': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      filename: 'string',
+      previousName: 'string',
+      displayName: 'string',
+      collectionName: 'string',
+    },
+  },
   'archiv.document.uploaded': {
     targets: [{ type: 'document' }],
     metadata: { filename: 'string', fileSize: 'number', collectionName: 'string' },
@@ -226,6 +238,15 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'session.document.deleted': {
     targets: [{ type: 'document' }],
     metadata: { conversationId: 'string', filename: 'string', collectionName: 'string' },
+  },
+  'archiv.document.renamed': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      filename: 'string',
+      previousName: 'string',
+      displayName: 'string',
+      collectionName: 'string',
+    },
   },
   // Sharing (ADR-0032). Access-control changes on a resource are privileged
   // mutations and get the same trail as project role grants. The target type is

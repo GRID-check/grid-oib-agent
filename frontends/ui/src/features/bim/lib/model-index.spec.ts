@@ -12,6 +12,7 @@ import {
   NOTHING_HIDDEN,
   resolveHighlights,
   resolveIsolation,
+  sameVisibility,
   selectionSurvives,
   shortIfcType,
   storeyKey,
@@ -185,6 +186,45 @@ describe('whether the reader has changed what is visible', () => {
     // reader isolated a thing that no longer resolves, and they need the way
     // out that "show everything" is.
     expect(hasVisibilityEdits({ hidden: new Set(), isolated: new Set() })).toBe(true)
+  })
+})
+
+describe('whether two visibility states are the same state', () => {
+  it('holds for an untouched viewport compared with itself', () => {
+    expect(sameVisibility(NOTHING_HIDDEN, { hidden: new Set(), isolated: null })).toBe(true)
+  })
+
+  it('compares the ids, not the set objects', () => {
+    // Every edit mints a new Set, so identity says nothing. Undo depends on
+    // this: a step recorded for an edit that changed no ids is a press that
+    // appears to do nothing.
+    const a = { hidden: new Set([1, 2]), isolated: new Set([7]) }
+    const b = { hidden: new Set([2, 1]), isolated: new Set([7]) }
+    expect(sameVisibility(a, b)).toBe(true)
+  })
+
+  it('is false once an id is added, removed or moved', () => {
+    expect(
+      sameVisibility({ hidden: new Set([1]), isolated: null }, { hidden: new Set([1, 2]), isolated: null })
+    ).toBe(false)
+    expect(
+      sameVisibility({ hidden: new Set([1]), isolated: null }, { hidden: new Set([2]), isolated: null })
+    ).toBe(false)
+    expect(
+      sameVisibility(
+        { hidden: new Set(), isolated: new Set([21]) },
+        { hidden: new Set(), isolated: new Set([22]) }
+      )
+    ).toBe(false)
+  })
+
+  it('keeps "nothing isolated" apart from "isolate nothing"', () => {
+    // The whole-building-vs-empty-viewport distinction `expressIdsForStorey`
+    // is built around. Collapsing it here would let Undo restore an empty
+    // viewport as if it were the untouched building.
+    expect(
+      sameVisibility({ hidden: new Set(), isolated: null }, { hidden: new Set(), isolated: new Set() })
+    ).toBe(false)
   })
 })
 

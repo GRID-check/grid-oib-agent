@@ -8,6 +8,7 @@ const files: FileItem[] = [
   {
     id: 'f1',
     filename: 'site-plan.pdf',
+    displayName: null,
     fileSize: 1024,
     contentType: 'application/pdf',
     status: 'ready',
@@ -23,6 +24,7 @@ const files: FileItem[] = [
   {
     id: 'f2',
     filename: 'permit.pdf',
+    displayName: null,
     fileSize: 2048,
     contentType: 'application/pdf',
     status: 'ready',
@@ -178,6 +180,7 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
   const searchHit = {
     ...files[0],
     filename: 'site-plan.pdf',
+    displayName: null,
     snippet: 'The second escape route runs along the north facade.',
     page: 4,
     score: 0.87,

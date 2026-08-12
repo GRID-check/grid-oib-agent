@@ -535,4 +535,10 @@ export const chat = {
     },
     thanks: 'Thanks for your feedback.',
   },
+  // Copy message button on user message bubbles
+  copyMessage: {
+    copy: 'Copy message',
+    copied: 'Copied',
+    failed: 'Message could not be copied',
+  },
 }

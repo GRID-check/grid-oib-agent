@@ -1,8 +1,8 @@
--- Reverse 0046: documents forget which conversation they were attached to.
+-- Reverse 0049: documents forget which conversation they were attached to.
 --
 -- ## What is lost, and why the guard
 --
--- 0046 only ADDED things, so removing them puts the table back exactly as 0045
+-- 0049 only ADDED things, so removing them puts the table back exactly as 0045
 -- left it — for every row that predates it. For a `scope = 'session'` row it is
 -- destructive in a way no other rollback in this history is: the conversation
 -- id is the ONLY thing that says which chat the file belongs to once the FK is
@@ -42,7 +42,7 @@ BEGIN
 
   IF session_rows > 0 THEN
     RAISE EXCEPTION
-      'Cannot reverse migration 0046: % session document row(s) still name a conversation. '
+      'Cannot reverse migration 0049: % session document row(s) still name a conversation. '
       'Dropping the column would leave them unreachable by every surface while they still '
       'hold storage quota and still have objects in SeaweedFS. Delete them through the '
       'application (DELETE /api/session/documents/[id], or discard the conversations) so the '

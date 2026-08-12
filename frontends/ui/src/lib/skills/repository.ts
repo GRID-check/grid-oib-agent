@@ -9,9 +9,15 @@
  */
 
 import 'server-only'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { skills, type NewSkill, type Skill } from '@/lib/db/schema'
+import {
+  curatedSkillActivations,
+  skills,
+  type NewSkill,
+  type CuratedSkillActivation,
+  type Skill,
+} from '@/lib/db/schema'
 
 /** Hard cap for an organization's skill list. */
 export const SKILLS_LIST_LIMIT = 100
@@ -94,4 +100,70 @@ export async function deleteSkill(skillId: string, organizationId: string): Prom
     .where(and(eq(skills.id, skillId), eq(skills.organizationId, organizationId)))
     .returning({ id: skills.id })
   return deleted.length > 0
+}
+
+// ---------------------------------------------------------------------------
+// Platform-curated skill activations
+//
+// A platform skill is a FILE, so an org's decision about one cannot live on the
+// skill. It lives here: one row per curated skill the org has decided about,
+// and no row for the ones it has never been asked about.
+// ---------------------------------------------------------------------------
+
+/** Hard cap: an org cannot decide about more skills than the platform ships. */
+export const ACTIVATIONS_LIST_LIMIT = 200
+
+export async function listCuratedSkillActivations(
+  organizationId: string,
+  limit = ACTIVATIONS_LIST_LIMIT,
+): Promise<CuratedSkillActivation[]> {
+  const db = getDb()
+  return db
+    .select()
+    .from(curatedSkillActivations)
+    .where(eq(curatedSkillActivations.organizationId, organizationId))
+    // Ordered because it is BOUNDED. Activation rows outlive the skills they
+    // name (a decision about a withdrawn skill is kept), so an org can in
+    // principle accumulate more than the cap — and an unordered truncation
+    // would drop a different arbitrary set each query, silently reading as
+    // "not activated" for whichever rows fell off.
+    .orderBy(asc(curatedSkillActivations.skillName))
+    .limit(limit)
+}
+
+/**
+ * Record the org's decision about one curated skill.
+ *
+ * An upsert rather than an insert-or-update pair: a switch is idempotent by
+ * nature — flipping it to the state it is already in must be a no-op, not a
+ * unique violation the caller has to interpret.
+ */
+export async function upsertCuratedSkillActivation(values: {
+  organizationId: string
+  skillName: string
+  enabled: boolean
+  updatedBy: string
+  updatedByEmail?: string | null
+}): Promise<CuratedSkillActivation> {
+  const db = getDb()
+  const [row] = await db
+    .insert(curatedSkillActivations)
+    .values({
+      organizationId: values.organizationId,
+      skillName: values.skillName,
+      enabled: values.enabled,
+      updatedBy: values.updatedBy,
+      updatedByEmail: values.updatedByEmail ?? null,
+    })
+    .onConflictDoUpdate({
+      target: [curatedSkillActivations.organizationId, curatedSkillActivations.skillName],
+      set: {
+        enabled: values.enabled,
+        updatedBy: values.updatedBy,
+        updatedByEmail: values.updatedByEmail ?? null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning()
+  return row
 }

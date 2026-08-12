@@ -7,6 +7,7 @@
  */
 
 import type { FileItem } from '../components/project-file-workspace'
+import { documentDisplayName } from '@/lib/documents/display-name'
 
 /** Columns the detail view can order by. */
 export type FileSortKey = 'name' | 'status' | 'size' | 'added'
@@ -75,7 +76,9 @@ export function sortFiles(files: readonly FileItem[], sort: FileSort, locale?: s
   const compare = (a: FileItem, b: FileItem): number => {
     switch (sort.key) {
       case 'name':
-        return collator.compare(a.filename, b.filename)
+        // Sort by what the column SHOWS. Ordering a list by a name the reader
+        // cannot see reads as a broken sort.
+        return collator.compare(documentDisplayName(a), documentDisplayName(b))
       case 'status':
         return statusRank(a.status) - statusRank(b.status)
       case 'size':
@@ -88,6 +91,8 @@ export function sortFiles(files: readonly FileItem[], sort: FileSort, locale?: s
   return [...files].sort((a, b) => {
     const primary = compare(a, b)
     if (primary !== 0) return primary * sign
+    // The tiebreak stays on the FILE name: two documents can be given the same
+    // display name, and a total order cannot rest on something ambiguous.
     return collator.compare(a.filename, b.filename)
   })
 }
