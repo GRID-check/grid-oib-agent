@@ -353,6 +353,28 @@ export async function resolveSkillSnapshot(
       origin: orgSkill.origin,
     }
   }
+  // Machinery FIRST, and for two reasons.
+  //
+  // Precedence: `resolveSkillsForAgent` merges machinery last, so it wins a
+  // name collision there. Checking offers first here would have made the two
+  // resolvers disagree — a curated row carrying a builtin name would 404 a
+  // machinery skill that must always resolve. `assertNameIsFree` refuses such a
+  // row today, so this is defence in depth; the two paths agreeing is the
+  // point, because only one of them is exercised on the job-fire path.
+  //
+  // Cost: this lookup is in-memory. Reaching it AFTER `curatedOffers()` meant
+  // every machinery snapshot paid a `platform_skills` query to learn nothing.
+  const platform = findPlatformSkill(name)
+  if (platform && !isCuratedPlatformSkill(platform.metadata)) {
+    return {
+      name: platform.name,
+      description: platform.description,
+      body: platform.body,
+      metadata: {},
+      origin: 'platform',
+    }
+  }
+
   // An OFFER resolves only for an org that switched it on, so a job cannot
   // newly attach one the org has not taken up. Jobs that attached it BEFORE it
   // was switched off keep running: they pinned a snapshot at save time and
@@ -368,19 +390,6 @@ export async function resolveSkillSnapshot(
       description: offer.description,
       body: offer.body,
       metadata: { ...offer.metadata },
-      origin: 'platform',
-    }
-  }
-
-  // Machinery has no such gate — it is how deep research works, not a
-  // capability anyone opted into.
-  const platform = findPlatformSkill(name)
-  if (platform && !isCuratedPlatformSkill(platform.metadata)) {
-    return {
-      name: platform.name,
-      description: platform.description,
-      body: platform.body,
-      metadata: {},
       origin: 'platform',
     }
   }

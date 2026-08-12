@@ -324,6 +324,23 @@ describe('resolveSkillSnapshot', () => {
   })
 
   /**
+   * The precedence both resolvers must agree on.
+   *
+   * `resolveSkillsForAgent` merges machinery LAST, so machinery wins a name
+   * collision there. This function has to reach the same answer, or a curated
+   * row carrying a builtin name would 404 a skill deep research always needs —
+   * and only this path runs when a job pins its snapshot.
+   */
+  it('answers machinery without consulting the catalogue at all', async () => {
+    vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+    const snapshot = await resolveSkillSnapshot('data-table-analysis', 'org_1')
+    expect(snapshot.origin).toBe('platform')
+    // In-memory, so the platform_skills query is never made for machinery.
+    expect(platformRepository.listPublishedPlatformSkillRows).not.toHaveBeenCalled()
+    expect(repository.listCuratedSkillActivations).not.toHaveBeenCalled()
+  })
+
+  /**
    * A job cannot newly attach an offer the org has not taken up. Jobs that
    * attached one BEFORE it was switched off keep running — they pinned a
    * snapshot at save time and never come back through here.
