@@ -83,7 +83,23 @@ const SNAP_SHAPE: Record<MeasureSnapKind, 'square' | 'diamond' | 'circle'> = {
   none: 'circle',
 }
 
+/**
+ * Width of the halo drawn under every dimension line.
+ *
+ * A 1.5 px hairline in `--foreground` is invisible against any facade of a
+ * similar tone, and the model's colours are the model's — a dark render in
+ * light mode swallows the line, a pale one in dark mode does the same. The
+ * halo is a wider stroke in `--background` underneath, which is the standard
+ * way a drawing keeps annotation readable over arbitrary content. Markers
+ * already do this by filling with `--background`; the lines never did, and the
+ * `paint-order` attribute that was supposed to arrange it does nothing on an
+ * element with a single paint.
+ */
+const HALO_WIDTH = '4'
+const LINE_WIDTH = '1.5'
+
 interface MeasurementNodes {
+  halo: SVGLineElement
   line: SVGLineElement
   from: SVGPathElement
   to: SVGPathElement
@@ -123,6 +139,7 @@ export class MeasureOverlay {
   private nodes: MeasurementNodes[] = []
 
   /** The rubber band: a placed first point, and wherever the cursor is now. */
+  private pendingHalo: SVGLineElement | null = null
   private pendingLine: SVGLineElement | null = null
   private pendingMarker: SVGPathElement | null = null
   private pendingLabel: HTMLDivElement | null = null
@@ -145,19 +162,14 @@ export class MeasureOverlay {
    */
   setMeasurements(measurements: readonly Measurement[]): void {
     for (const node of this.nodes) {
+      node.halo.remove()
       node.line.remove()
       node.from.remove()
       node.to.remove()
       node.label.remove()
     }
     this.nodes = measurements.map((measurement) => {
-      const line = this.svg.appendChild(document.createElementNS(SVG_NS, 'line'))
-      line.setAttribute('stroke', 'var(--foreground)')
-      line.setAttribute('stroke-width', '1.5')
-      // Halo: a hairline over a dark facade is invisible, and a measurement
-      // you cannot see is worse than one you never took.
-      line.setAttribute('paint-order', 'stroke')
-      line.setAttribute('vector-effect', 'non-scaling-stroke')
+      const { halo, line } = this.appendLine(false)
 
       const from = this.appendMarker(measurement.from.snap, TICK_RADIUS)
       const to = this.appendMarker(measurement.to.snap, TICK_RADIUS)
@@ -168,7 +180,7 @@ export class MeasureOverlay {
       label.textContent = measurementText(measurement, this.labels)
       this.labelLayer.appendChild(label)
 
-      return { line, from, to, label, measurement }
+      return { halo, line, from, to, label, measurement }
     })
   }
 
@@ -178,12 +190,11 @@ export class MeasureOverlay {
     this.cursor = cursor
 
     if (anchor && !this.pendingLine) {
-      this.pendingLine = this.svg.appendChild(document.createElementNS(SVG_NS, 'line'))
-      this.pendingLine.setAttribute('stroke', 'var(--foreground)')
-      this.pendingLine.setAttribute('stroke-width', '1.5')
       // Dashed while it is a proposal. The moment it is committed it becomes a
       // solid line, which is the only feedback that the second click landed.
-      this.pendingLine.setAttribute('stroke-dasharray', '4 3')
+      const pending = this.appendLine(true)
+      this.pendingHalo = pending.halo
+      this.pendingLine = pending.line
       this.pendingMarker = this.appendMarker(anchor.snap, TICK_RADIUS)
       this.pendingLabel = document.createElement('div')
       this.pendingLabel.className =
@@ -218,10 +229,11 @@ export class MeasureOverlay {
       const from = project(node.measurement.from.point)
       const to = project(node.measurement.to.point)
       if (!from || !to) {
-        this.hide(node.line, node.from, node.to)
+        this.hide(node.halo, node.line, node.from, node.to)
         node.label.style.display = 'none'
         continue
       }
+      this.place(node.halo, from, to)
       this.place(node.line, from, to)
       this.placeMarker(node.from, from)
       this.placeMarker(node.to, to)
@@ -238,12 +250,13 @@ export class MeasureOverlay {
     const anchor = this.anchor ? project(this.anchor.point) : null
     const cursor = this.cursor ? project(this.cursor.point) : null
 
-    if (this.pendingLine && this.pendingMarker) {
+    if (this.pendingHalo && this.pendingLine && this.pendingMarker) {
       if (anchor && cursor) {
+        this.place(this.pendingHalo, anchor, cursor)
         this.place(this.pendingLine, anchor, cursor)
         this.placeMarker(this.pendingMarker, anchor)
       } else {
-        this.hide(this.pendingLine, this.pendingMarker)
+        this.hide(this.pendingHalo, this.pendingLine, this.pendingMarker)
       }
     }
     if (this.pendingLabel) {
@@ -269,6 +282,30 @@ export class MeasureOverlay {
     this.setPending(null, null)
   }
 
+  /**
+   * A dimension line: the halo first, then the line, so the DOM order is the
+   * paint order. Both carry the same dash pattern — a haloed solid stroke over
+   * a dashed proposal would read as a solid line with a shadow.
+   */
+  private appendLine(dashed: boolean): { halo: SVGLineElement; line: SVGLineElement } {
+    const halo = this.svg.appendChild(document.createElementNS(SVG_NS, 'line'))
+    halo.setAttribute('stroke', 'var(--background)')
+    halo.setAttribute('stroke-width', HALO_WIDTH)
+    halo.setAttribute('stroke-linecap', 'round')
+    halo.setAttribute('vector-effect', 'non-scaling-stroke')
+
+    const line = this.svg.appendChild(document.createElementNS(SVG_NS, 'line'))
+    line.setAttribute('stroke', 'var(--foreground)')
+    line.setAttribute('stroke-width', LINE_WIDTH)
+    line.setAttribute('vector-effect', 'non-scaling-stroke')
+
+    if (dashed) {
+      halo.setAttribute('stroke-dasharray', '4 3')
+      line.setAttribute('stroke-dasharray', '4 3')
+    }
+    return { halo, line }
+  }
+
   private appendMarker(kind: MeasureSnapKind, radius: number): SVGPathElement {
     const marker = this.svg.appendChild(document.createElementNS(SVG_NS, 'path'))
     marker.setAttribute('d', markerPath(kind, radius))
@@ -279,9 +316,11 @@ export class MeasureOverlay {
   }
 
   private clearPending(): void {
+    this.pendingHalo?.remove()
     this.pendingLine?.remove()
     this.pendingMarker?.remove()
     this.pendingLabel?.remove()
+    this.pendingHalo = null
     this.pendingLine = null
     this.pendingMarker = null
     this.pendingLabel = null
