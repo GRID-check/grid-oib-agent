@@ -24,6 +24,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import type { BimProfileSuggestion } from '@/lib/bim/profile'
 import {
+  BIM_TAKEOFF_DIMENSION,
   BIM_TAKEOFF_QUANTITIES,
   roomScheduleToCsv,
   type BimQuantityRow,
@@ -347,6 +348,13 @@ export interface IfcQuantityTakeoffProps {
   onQuantityChange: (quantity: string) => void
   byMaterial: boolean
   onByMaterialChange: (byMaterial: boolean) => void
+  /**
+   * The unit symbols the MODEL declares, so the value column can say what it
+   * is counting. Absent ones stay absent rather than defaulting to `m²`: a
+   * file that declares no AREAUNIT publishes raw model values, and labelling
+   * those is worse than leaving them bare.
+   */
+  units: { area: string; volume: string; length: string }
 }
 
 export function IfcQuantityTakeoff({
@@ -359,9 +367,14 @@ export function IfcQuantityTakeoff({
   onQuantityChange,
   byMaterial,
   onByMaterialChange,
+  units,
 }: IfcQuantityTakeoffProps): JSX.Element {
   const t = useTranslations('bim')
   const format = useNumberFormat()
+  // The name and the unit of the quantity on screen. A Massenermittlung that
+  // says `NetSideArea · 412` cannot be read into a Kostenschätzung; one that
+  // says `Netto-Seitenfläche · 412 m²` can.
+  const quantityUnit = units[BIM_TAKEOFF_DIMENSION[quantity] ?? 'area'] ?? ''
   const incomplete = (rows ?? []).reduce((sum, row) => sum + row.missing, 0)
   const [expandedRows, setExpandedRows] = useState(false)
   /**
@@ -394,7 +407,7 @@ export function IfcQuantityTakeoff({
         >
           {BIM_TAKEOFF_QUANTITIES.map((option) => (
             <option key={option} value={option}>
-              {option}
+              {t(`takeoff.quantityName.${option}`)}
             </option>
           ))}
         </select>
@@ -441,7 +454,8 @@ export function IfcQuantityTakeoff({
                     {t('takeoff.elements')}
                   </th>
                   <th scope="col" className="px-2 py-1.5 text-right font-medium">
-                    {quantity}
+                    {t(`takeoff.quantityName.${quantity}`)}
+                    {quantityUnit && ` (${quantityUnit})`}
                   </th>
                 </tr>
               </thead>

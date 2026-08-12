@@ -114,7 +114,6 @@ export const bim = {
     unnamed: '(unnamed)',
   },
   properties: {
-    title: 'Properties',
     none: 'Select an element to see its properties.',
     identity: 'Identity',
     globalId: 'GlobalId',
@@ -171,6 +170,18 @@ export const bim = {
     missingFacts:
       'Some rules depend on project data this brief does not carry: {facts}. Those rules stood down rather than guessing.',
     setFacts: 'Set it with the assistant',
+    /**
+     * What each missing fact is CALLED, resolved by the panel from a key.
+     *
+     * `Gebäudeklasse` stays German in both locales — it is the legal term, it
+     * appears on the Einreichung, and an English translation of it would name
+     * nothing. `Hauptnutzung` has an English name and this is where it lives,
+     * matching `profile.key.hauptnutzung` on the same screen.
+     */
+    factName: {
+      gebaeudeklasse: 'Gebäudeklasse',
+      hauptnutzung: 'Main use',
+    },
     factsFailed:
       'The project brief could not be read, so the rules that depend on it stood down. This says nothing about the brief itself.',
     badge: {
@@ -186,6 +197,8 @@ export const bim = {
       staleHint:
         'This confirmation was made against an earlier revision of the model. It stays on the record, but it does not apply to the current revision.',
       failed: 'The confirmation could not be saved. It is NOT recorded \u2014 please try again.',
+      readFailed:
+        'The confirmations recorded for this project could not be read, so any that exist are not shown here. A rule below may already have been signed off.',
       denied:
         'You have read access to this project, so confirmations are shown but cannot be added or withdrawn. Someone with edit access can record this one.',
       confirm: 'Confirm manually',
@@ -269,6 +282,27 @@ export const bim = {
     quantity: 'Quantity',
     byMaterial: 'Split by material',
     group: 'Type',
+    /**
+     * What each quantity is CALLED, and what it is measured in.
+     *
+     * The dropdown and the value column used the raw IFC token — `NetSideArea`
+     * — and the column carried no unit at all, so a Massenermittlung read
+     * "NetSideArea · 412" where a Kostenschätzung needs "Netto-Seitenfläche ·
+     * 412 m²". The sibling Raumbuch has always appended its unit; this table
+     * did not. The `dim` half says which unit symbol from the model applies,
+     * because the model declares them and this table must not invent one.
+     */
+    quantityName: {
+      NetSideArea: 'Net side area',
+      GrossSideArea: 'Gross side area',
+      NetVolume: 'Net volume',
+      GrossVolume: 'Gross volume',
+      NetFloorArea: 'Net floor area',
+      GrossFloorArea: 'Gross floor area',
+      Length: 'Length',
+      Width: 'Width',
+      Height: 'Height',
+    },
     elements: 'Elements',
     missing: 'Elements with no published value for this quantity: {count}.',
     rowMissing: '({count} without value)',

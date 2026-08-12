@@ -44,7 +44,9 @@ describe('useProjectRuleFacts', () => {
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(result.current.gebaeudeklasse).toBeNull()
-    expect(result.current.missing).toContain('Gebäudeklasse')
+    // KEYS, not names: interpolated raw they put German into the English
+    // sentence, on a screen that translates the sibling fact as "Main use".
+    expect(result.current.missing).toContain('gebaeudeklasse')
   })
 
   it('reads the canonical GK form the brief actually stores', async () => {
@@ -74,7 +76,9 @@ describe('useProjectRuleFacts', () => {
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(result.current.gebaeudeklasse).toBeNull()
-    expect(result.current.missing).toContain('Gebäudeklasse')
+    // KEYS, not names: interpolated raw they put German into the English
+    // sentence, on a screen that translates the sibling fact as "Main use".
+    expect(result.current.missing).toContain('gebaeudeklasse')
   })
 
   it('treats an empty Hauptnutzung as absent', async () => {
@@ -85,7 +89,7 @@ describe('useProjectRuleFacts', () => {
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(result.current.hauptnutzung).toBeNull()
-    expect(result.current.missing).toContain('Hauptnutzung')
+    expect(result.current.missing).toContain('hauptnutzung')
   })
 
   it('names no gap at all until the brief has actually been read', async () => {
@@ -112,7 +116,7 @@ describe('useProjectRuleFacts', () => {
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(result.current.failed).toBe(false)
-    expect(result.current.missing).toEqual(['Gebäudeklasse', 'Hauptnutzung'])
+    expect(result.current.missing).toEqual(['gebaeudeklasse', 'hauptnutzung'])
   })
 
   it('reports a profile it could not READ as that, not as a brief with gaps', async () => {

@@ -228,6 +228,7 @@ function BimTablesPreview(): JSX.Element {
             onSelect={() => {}}
           />
           <IfcQuantityTakeoff
+        units={{ area: 'm²', volume: 'm³', length: 'm' }}
             rows={TAKEOFF}
             isLoading={false}
             error={null}

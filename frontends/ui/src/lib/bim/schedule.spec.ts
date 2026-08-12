@@ -193,6 +193,24 @@ describe('buildRoomSchedule', () => {
     expect(csv).toContain('Räume ohne Flächenangabe: 1')
   })
 
+  it('sums the published values, not their rounded display forms', () => {
+    // Each room is rounded to two decimals for the table; adding the ROUNDED
+    // figures accumulates up to half a centipoint per room, so on a large
+    // building the Raumbuch total drifted away from the Kennwerte
+    // Netto-Grundfläche computed off the same model — with nothing on either
+    // screen to explain the difference.
+    const thirds = Array.from({ length: 3 }, (_, index) =>
+      space(`R${index}`, 'Erdgeschoss', { NetFloorArea: 10.005 })
+    )
+    const schedule = buildRoomSchedule(SUMMARY, thirds)
+
+    // 3 × 10.005 = 30.015 → 30.02, not 3 × 10.01 = 30.03.
+    expect(schedule.storeys[0].netFloorArea).toBe(30.02)
+    expect(schedule.totals.netFloorArea).toBe(30.02)
+    // The ROWS still read as they always did.
+    expect(schedule.storeys[0].rooms[0].netFloorArea).toBe(10.01)
+  })
+
   it('escapes a room name containing the separator', () => {
     const csv = roomScheduleToCsv(buildRoomSchedule(SUMMARY, [space('Bad; WC', 'Erdgeschoss', { NetFloorArea: 6 })]))
     expect(csv).toContain('"Bad; WC"')

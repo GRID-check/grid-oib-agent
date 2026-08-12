@@ -700,6 +700,12 @@ export function useBimCompliance(
   withdraw: (ruleId: string) => Promise<void>
   /** Re-runs the catalogue after a failure — see `useModelQuery`. */
   reload: () => void
+  /**
+   * The confirmation ledger could not be read. Separate from the catalogue's
+   * own `error`: the verdicts are fine and the RECORD of who has answered them
+   * is missing, which the panel has to say rather than render as "nobody has".
+   */
+  confirmationsFailed: boolean
 } {
   const request = useMemo(
     () => ({
@@ -713,19 +719,35 @@ export function useBimCompliance(
   // catalogue pass on facts we are about to replace.
   const run = useModelQuery(facts.ready === false ? null : modelId, request, selectCompliance)
   const [confirmations, setConfirmations] = useState<BimCheckConfirmation[]>([])
+  /**
+   * The ledger could not be read.
+   *
+   * This used to be swallowed on the grounds that "no confirmations readable
+   * is the same as none recorded: the catalogue's verdict is never wrong, only
+   * less complete". That is true of the VERDICTS and false of the record: a
+   * rule somebody signed off renders with no signature and offers "Manuell
+   * bestätigen" again, on the one surface whose whole job is to say who has
+   * already answered what. "Nobody has signed this" and "we could not check"
+   * are different sentences.
+   */
+  const [confirmationsFailed, setConfirmationsFailed] = useState(false)
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
     if (!projectId) return
     let cancelled = false
+    setConfirmationsFailed(false)
     getJson<{ confirmations: BimCheckConfirmation[] }>(`/api/projects/${projectId}/bim/checks`)
       .then((body) => {
         if (!cancelled) setConfirmations(body.confirmations)
       })
       .catch(() => {
-        // No confirmations readable is the same as none recorded: every rule
-        // shows the catalogue's own verdict, which is never wrong, only less
-        // complete.
+        // Cleared as well as flagged: another project's signatures are not
+        // this one's, and a stale list under a new question is worse than
+        // none.
+        if (cancelled) return
+        setConfirmations([])
+        setConfirmationsFailed(true)
       })
     return () => {
       cancelled = true
@@ -768,6 +790,8 @@ export function useBimCompliance(
   return {
     ...run,
     data,
+    /** The signatures could not be read — see `confirmationsFailed`. */
+    confirmationsFailed,
     confirm: useCallback(
       (ruleId: string, note: string) =>
         write('POST', { ruleId, modelId, note: note === '' ? null : note }),
@@ -875,10 +899,20 @@ export function useBimComplianceDiff(
  * that needs them, and a fact the brief does not carry must arrive as `null`
  * (the rules then say so) rather than as a default.
  */
+/**
+ * A project fact the rule catalogue depends on, named as a KEY.
+ *
+ * The name a reader sees belongs to the dictionary — `Gebäudeklasse` is a
+ * legal term and stays German in both locales, `Hauptnutzung` is already
+ * translated as "Main use" two keys away — and a hook has no business
+ * choosing either.
+ */
+export type BimRuleFactKey = 'gebaeudeklasse' | 'hauptnutzung'
+
 export function useProjectRuleFacts(projectId: string | null): {
   gebaeudeklasse: number | null
   hauptnutzung: string | null
-  missing: string[]
+  missing: BimRuleFactKey[]
   /**
    * The brief has been read (or there is none to read).
    *
@@ -984,9 +1018,14 @@ export function useProjectRuleFacts(projectId: string | null): {
       ask someone to do.
     */
     if (failed || !ready) return []
-    const gaps: string[] = []
-    if (facts.gebaeudeklasse === null) gaps.push('Gebäudeklasse')
-    if (facts.hauptnutzung === null) gaps.push('Hauptnutzung')
+    // KEYS, not German literals. Interpolated into the English sentence they
+    // produced "Some rules depend on project data this brief does not carry:
+    // Gebäudeklasse, Hauptnutzung." on a screen whose own dictionary
+    // translates the second of those as "Main use" — one English sentence,
+    // two names for one fact. The panel resolves them.
+    const gaps: BimRuleFactKey[] = []
+    if (facts.gebaeudeklasse === null) gaps.push('gebaeudeklasse')
+    if (facts.hauptnutzung === null) gaps.push('hauptnutzung')
     return gaps
   }, [facts, failed, ready])
 

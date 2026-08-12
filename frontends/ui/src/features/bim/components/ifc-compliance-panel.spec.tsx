@@ -213,7 +213,7 @@ describe('IfcCompliancePanel', () => {
   })
 
   it('names the project data the brief is missing and offers to fix it', () => {
-    panel({ missingFacts: ['Gebäudeklasse'] })
+    panel({ missingFacts: ['gebaeudeklasse'] })
     expect(screen.getByText(/project data this brief does not carry: Gebäudeklasse/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Set it with the assistant' })).toHaveAttribute(
       'href',

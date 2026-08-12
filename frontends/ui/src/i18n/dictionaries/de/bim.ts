@@ -110,7 +110,6 @@ export const bim: typeof en.bim = {
     unnamed: '(ohne Namen)',
   },
   properties: {
-    title: 'Eigenschaften',
     none: 'Wählen Sie ein Bauteil, um seine Eigenschaften zu sehen.',
     identity: 'Identität',
     globalId: 'GlobalId',
@@ -165,6 +164,10 @@ export const bim: typeof en.bim = {
     missingFacts:
       'Einige Regeln hängen an Angaben, die das Projekt-Briefing nicht führt: {facts}. Diese Regeln wurden nicht angewendet, statt zu raten.',
     setFacts: 'Über den Assistenten ergänzen',
+    factName: {
+      gebaeudeklasse: 'Gebäudeklasse',
+      hauptnutzung: 'Hauptnutzung',
+    },
     factsFailed:
       'Das Projekt-Briefing konnte nicht gelesen werden — die davon abhängigen Regeln wurden daher nicht angewendet. Über das Briefing selbst sagt das nichts aus.',
     badge: {
@@ -180,6 +183,8 @@ export const bim: typeof en.bim = {
       staleHint:
         'Diese Bestätigung wurde gegen eine frühere Revision des Modells abgegeben. Sie bleibt als Eintrag erhalten, gilt aber nicht für die aktuelle Revision.',
       failed: 'Die Bestätigung konnte nicht gespeichert werden. Sie ist NICHT hinterlegt — bitte erneut versuchen.',
+      readFailed:
+        'Die zu diesem Projekt erfassten Bestätigungen konnten nicht gelesen werden — vorhandene werden hier daher nicht angezeigt. Eine Anforderung unten kann bereits bestätigt sein.',
       denied:
         'Sie haben Lesezugriff auf dieses Projekt — Bestätigungen werden angezeigt, können aber nicht hinterlegt oder zurückgezogen werden. Jemand mit Bearbeitungsrecht kann das eintragen.',
       confirm: 'Manuell bestätigen',
@@ -263,6 +268,17 @@ export const bim: typeof en.bim = {
     quantity: 'Menge',
     byMaterial: 'Nach Material trennen',
     group: 'Typ',
+    quantityName: {
+      NetSideArea: 'Netto-Seitenfläche',
+      GrossSideArea: 'Brutto-Seitenfläche',
+      NetVolume: 'Netto-Rauminhalt',
+      GrossVolume: 'Brutto-Rauminhalt',
+      NetFloorArea: 'Netto-Grundfläche',
+      GrossFloorArea: 'Brutto-Grundfläche',
+      Length: 'Länge',
+      Width: 'Breite',
+      Height: 'Höhe',
+    },
     elements: 'Bauteile',
     missing: 'Bauteile ohne Wert für diese Menge: {count}.',
     rowMissing: '({count} ohne Wert)',

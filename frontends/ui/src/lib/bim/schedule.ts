@@ -106,19 +106,37 @@ export function buildRoomSchedule(
 ): BimRoomSchedule {
   const spaces = elements.filter((element) => element.ifcType === 'IfcSpace')
   const byStorey = new Map<string, BimRoomRow[]>()
+  /** Unrounded quantities per room, keyed by GlobalId — see the note below. */
+  const exact = new Map<string, { netFloorArea: number | null; grossFloorArea: number | null; netVolume: number | null }>()
 
   for (const space of spaces) {
     const storeyName = space.storeyName ?? '(ohne Geschoß)'
+    /*
+      Rounded for DISPLAY only; the sums below add the raw values.
+
+      Rounding each room to two decimals and then adding the rounded figures
+      accumulates up to half a centipoint per room — on a 150-room building
+      that is most of a square metre, and the Raumbuch total then disagreed
+      with the Kennwerte Netto-Grundfläche on the same model with nothing on
+      either screen to explain the difference. `extract.ts` rounds only the
+      final sum.
+    */
+    const raw = {
+      netFloorArea: quantity(space, NET_AREA_KEYS),
+      grossFloorArea: quantity(space, GROSS_AREA_KEYS),
+      netVolume: quantity(space, VOLUME_KEYS),
+    }
     const row: BimRoomRow = {
       globalId: space.globalId,
       name: space.name ?? '(ohne Namen)',
       storeyName,
       category: space.predefinedType,
-      netFloorArea: round(quantity(space, NET_AREA_KEYS)),
-      grossFloorArea: round(quantity(space, GROSS_AREA_KEYS)),
-      netVolume: round(quantity(space, VOLUME_KEYS)),
+      netFloorArea: round(raw.netFloorArea),
+      grossFloorArea: round(raw.grossFloorArea),
+      netVolume: round(raw.netVolume),
       height: round(quantity(space, HEIGHT_KEYS)),
     }
+    exact.set(space.globalId, raw)
     const bucket = byStorey.get(storeyName)
     if (bucket) bucket.push(row)
     else byStorey.set(storeyName, [row])
@@ -129,6 +147,8 @@ export function buildRoomSchedule(
   // being dropped, because they still count toward the building total.
   const ordered: BimStoreySchedule[] = []
   const seen = new Set<string>()
+  const summarize = (name: string, elevation: number | null, rooms: BimRoomRow[]) =>
+    summarizeStorey(name, elevation, rooms, exact)
   for (const storey of summary.storeys) {
     const name = storey.name ?? '(ohne Namen)'
     /*
@@ -148,11 +168,11 @@ export function buildRoomSchedule(
     const rooms = byStorey.get(name)
     if (!rooms) continue
     seen.add(name)
-    ordered.push(summarizeStorey(name, storey.elevation, rooms))
+    ordered.push(summarize(name, storey.elevation, rooms))
   }
   for (const [name, rooms] of byStorey) {
     if (seen.has(name)) continue
-    ordered.push(summarizeStorey(name, null, rooms))
+    ordered.push(summarize(name, null, rooms))
   }
 
   const totals = ordered.reduce(
@@ -200,18 +220,32 @@ export function buildRoomSchedule(
 function summarizeStorey(
   storeyName: string,
   elevation: number | null,
-  rooms: BimRoomRow[]
+  rooms: BimRoomRow[],
+  /** The unrounded values, so a sum is not a sum of roundings. */
+  exact: ReadonlyMap<
+    string,
+    { netFloorArea: number | null; grossFloorArea: number | null; netVolume: number | null }
+  >
 ): BimStoreySchedule {
   const sorted = [...rooms].sort((a, b) => a.name.localeCompare(b.name))
+  const total = (pick: (raw: {
+    netFloorArea: number | null
+    grossFloorArea: number | null
+    netVolume: number | null
+  }) => number | null): number | null =>
+    round(
+      sorted.reduce<number | null>((sum, room) => {
+        const raw = exact.get(room.globalId)
+        return add(sum, raw ? pick(raw) : null)
+      }, null)
+    )
   return {
     storeyName,
     elevation,
     rooms: sorted,
-    netFloorArea: round(sorted.reduce<number | null>((sum, room) => add(sum, room.netFloorArea), null)),
-    grossFloorArea: round(
-      sorted.reduce<number | null>((sum, room) => add(sum, room.grossFloorArea), null)
-    ),
-    netVolume: round(sorted.reduce<number | null>((sum, room) => add(sum, room.netVolume), null)),
+    netFloorArea: total((raw) => raw.netFloorArea),
+    grossFloorArea: total((raw) => raw.grossFloorArea),
+    netVolume: total((raw) => raw.netVolume),
     roomsWithoutArea: sorted.filter((room) => room.netFloorArea === null).length,
   }
 }
@@ -224,6 +258,26 @@ export interface BimQuantityRow {
   value: number | null
   /** Elements in the group that publish nothing for this quantity. */
   missing: number
+}
+
+/**
+ * Which of the model's declared units each take-off quantity is measured in.
+ *
+ * The table printed the summed value bare, so a Massenermittlung read `412`
+ * with no way to tell m² from m³ — and a Massenermittlung that cannot say
+ * which cannot go into a Kostenschätzung. The model DECLARES the symbols
+ * (`summary.units`), so the dimension is all this has to name.
+ */
+export const BIM_TAKEOFF_DIMENSION: Record<string, 'area' | 'volume' | 'length'> = {
+  NetSideArea: 'area',
+  GrossSideArea: 'area',
+  NetVolume: 'volume',
+  GrossVolume: 'volume',
+  NetFloorArea: 'area',
+  GrossFloorArea: 'area',
+  Length: 'length',
+  Width: 'length',
+  Height: 'length',
 }
 
 export const BIM_TAKEOFF_QUANTITIES = [

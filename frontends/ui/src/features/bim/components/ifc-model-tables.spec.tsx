@@ -203,6 +203,7 @@ describe('IfcQuantityTakeoff', () => {
   it('shows the sum and, beside it, how many elements published nothing', () => {
     render(
       <IfcQuantityTakeoff
+        units={{ area: 'm²', volume: 'm³', length: 'm' }}
         rows={TAKEOFF}
         isLoading={false}
         error={null}
@@ -225,6 +226,7 @@ describe('IfcQuantityTakeoff', () => {
     const onQuantityChange = vi.fn()
     render(
       <IfcQuantityTakeoff
+        units={{ area: 'm²', volume: 'm³', length: 'm' }}
         rows={TAKEOFF}
         isLoading={false}
         error={null}
@@ -242,6 +244,7 @@ describe('IfcQuantityTakeoff', () => {
     const onByMaterialChange = vi.fn()
     render(
       <IfcQuantityTakeoff
+        units={{ area: 'm²', volume: 'm³', length: 'm' }}
         rows={TAKEOFF}
         isLoading={false}
         error={null}

@@ -391,6 +391,11 @@ export function ModelAdvancedSheet({
             }
           />
           <IfcQuantityTakeoff
+            // The model's own declared symbols, so the value column can name
+            // what it is counting — see `BIM_TAKEOFF_DIMENSION`.
+            units={
+              schedule.data?.schedule.units ?? { area: '', volume: '', length: '' }
+            }
             onRetry={takeoff.reload}
             rows={takeoff.data?.rows ?? null}
             truncated={takeoff.data?.truncated ?? false}

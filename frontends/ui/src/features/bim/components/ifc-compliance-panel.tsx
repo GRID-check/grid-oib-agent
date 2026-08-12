@@ -40,6 +40,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import { rulesWithOpenWork } from '@/lib/bim/rules'
 import type { BimComplianceSummary, BimRuleResultWithConfirmation } from '@/lib/bim/rules'
 import { buildModelHref } from '../lib/model-link'
+import type { BimRuleFactKey } from '../hooks/use-bim-model'
 
 export interface IfcCompliancePanelProps {
   rules: BimRuleResultWithConfirmation[] | null
@@ -69,7 +70,8 @@ export interface IfcCompliancePanelProps {
    */
   onShowElements?: (globalIds: string[], status: 'fail' | 'info') => void
   /** Set when the project brief is missing a fact some rules need. */
-  missingFacts: string[]
+  /** Keys, not names — the panel owns the words. See `BimRuleFactKey`. */
+  missingFacts: BimRuleFactKey[]
   /**
    * The brief could not be READ, which is not the same as it lacking a value.
    *
@@ -77,6 +79,14 @@ export interface IfcCompliancePanelProps {
    * that are, as far as anyone knows, already there.
    */
   factsFailed?: boolean
+  /**
+   * The confirmation ledger could not be read.
+   *
+   * Distinct from "nothing is confirmed": a rule somebody signed off renders
+   * with no signature and offers to confirm it again, on the surface whose job
+   * is to be the record.
+   */
+  confirmationsFailed?: boolean
   onRetryFacts?: () => void
   /** Opens the chat so the user can supply what the brief lacks. */
   askHref: string
@@ -135,6 +145,7 @@ export function IfcCompliancePanel({
   modelFilename,
   missingFacts,
   factsFailed = false,
+  confirmationsFailed = false,
   onRetryFacts,
   askHref,
   onConfirm,
@@ -234,6 +245,18 @@ export function IfcCompliancePanel({
         re-enter values that are already there, and coming back changes
         nothing.
       */}
+      {/*
+        The ledger, separately from the brief. A rule that HAS been signed off
+        renders here with no signature and an invitation to confirm it again —
+        so the reader has to be told the record is the thing that is missing,
+        not the answer.
+      */}
+      {confirmationsFailed && (
+        <p className="bg-warning-subtle text-warning flex flex-wrap items-center gap-2 rounded-md p-2 text-xs">
+          <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
+          <span>{t('compliance.confirmed.readFailed')}</span>
+        </p>
+      )}
       {factsFailed && (
         <p className="bg-warning-subtle text-warning flex flex-wrap items-center gap-2 rounded-md p-2 text-xs">
           <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
@@ -256,7 +279,9 @@ export function IfcCompliancePanel({
         <p className="flex items-start gap-2 rounded-md bg-warning-subtle p-2 text-xs text-warning">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>
-            {t('compliance.missingFacts', { facts: missingFacts.join(', ') })}{' '}
+            {t('compliance.missingFacts', {
+              facts: missingFacts.map((key) => t(`compliance.factName.${key}`)).join(', '),
+            })}{' '}
             <Link href={askHref} className="underline underline-offset-2">
               {t('compliance.setFacts')}
             </Link>

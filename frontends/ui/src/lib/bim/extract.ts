@@ -522,7 +522,20 @@ export async function extractIfcModel(
     const expressIds = store.entityIndex.byType.get(rawType) ?? []
     typeCounts[canonical] = (typeCounts[canonical] ?? 0) + expressIds.length
     elementTotal += expressIds.length
-    if (SPATIAL_ELEMENT_TYPES.has(canonical)) spaceTotal += expressIds.length
+    /*
+      `IfcSpace` only, for the ROOM count.
+
+      `SPATIAL_ELEMENT_TYPES` also holds `IfcSpatialZone`, which is an overlay
+      over rooms — a Nutzungseinheit, a Brandabschnitt — not a room. Counting
+      zones here made the Überblick say "92 Räume" for a model with 84 rooms
+      and 8 zones, while the Raumbuch on the next screen said 84, because it
+      filters on `IfcSpace` and so do the area totals below. Two screens
+      disagreeing about how many rooms a building has, from one export.
+
+      The type stays in `SPATIAL_ELEMENT_TYPES` for what that set is really
+      for — storey inheritance and type selection — where a zone does belong.
+    */
+    if (canonical === 'IfcSpace') spaceTotal += expressIds.length
 
     /**
      * Whether this type feeds the building's published totals.
@@ -565,7 +578,7 @@ export async function extractIfcModel(
         */
         typeCounts[canonical] -= 1
         elementTotal -= 1
-        if (SPATIAL_ELEMENT_TYPES.has(canonical)) spaceTotal -= 1
+        if (canonical === 'IfcSpace') spaceTotal -= 1
         unreadable += 1
         continue
       }
