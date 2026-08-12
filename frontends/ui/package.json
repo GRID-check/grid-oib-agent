@@ -118,7 +118,7 @@
     "@vitejs/plugin-react": "^5.1.2",
     "@vitest/coverage-v8": "^4.1.10",
     "autoprefixer": "^10.4.14",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.4",
     "eslint": "^8.56.0",
     "eslint-config-next": "15.5.15",
     "happy-dom": "^20.3.4",
