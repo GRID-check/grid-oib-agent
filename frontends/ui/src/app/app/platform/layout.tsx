@@ -11,18 +11,16 @@
  * an explanatory card, mirroring the org page's non-admin experience.
  */
 
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ArrowLeft, ShieldAlert } from 'lucide-react'
+import { ShieldAlert } from 'lucide-react'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { getNavFlags } from '@/lib/authz/nav'
-import { OrgTopbar } from '@/components/shell'
+import { BackLink, OrgTopbar } from '@/components/shell'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { getTranslations } from '@/i18n/server'
 import { PlatformNav } from '@/features/platform/components/platform-nav'
 import { isAuthRequired } from '@/lib/auth/auth-required'
-
 
 export default async function PlatformLayout({
   children,
@@ -57,13 +55,11 @@ export default async function PlatformLayout({
           id="main-content"
           className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-10"
         >
-          <Link
-            href="/app/projects"
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 mb-6 inline-flex items-center gap-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            {tOrg('backToApp')}
-          </Link>
+          <BackLink
+            className="mb-6"
+            fallbackHref="/app/projects"
+            fallbackLabel={tOrg('backToApp')}
+          />
           {body}
         </main>
       </div>

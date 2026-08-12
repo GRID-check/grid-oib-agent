@@ -115,7 +115,10 @@ describe('ArchivLibraryPane — category chips', () => {
   it('derives the chip row from the real tags on the loaded documents', () => {
     renderPane()
     const group = screen.getByRole('group', { name: /filter by category/i })
-    expect(within(group).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(group).getByRole('button', { name: 'All' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
     expect(within(group).getByRole('button', { name: 'Brandschutz' })).toBeInTheDocument()
     expect(within(group).getByRole('button', { name: 'Gutachten' })).toBeInTheDocument()
     // Exactly All + the two distinct real tags — nothing invented, no "create category".
@@ -130,7 +133,10 @@ describe('ArchivLibraryPane — category chips', () => {
     expect(screen.getByText('brandschutz-detail.pdf')).toBeInTheDocument()
     expect(screen.queryByText('fassade-schnitt.pdf')).not.toBeInTheDocument()
     expect(screen.queryByText('notes.pdf')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Gutachten' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Gutachten' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
 
     await user.click(screen.getByRole('button', { name: 'All' }))
     expect(screen.getAllByTestId('archiv-document-card')).toHaveLength(3)
@@ -193,5 +199,42 @@ describe('ArchivLibraryPane — empty and loading states', () => {
   it('shows the empty state without an action for read-only members', () => {
     renderPane({ files: [] })
     expect(screen.getByText(/the archiv is empty/i)).toBeInTheDocument()
+  })
+
+  it('shapes the loading state like the loaded pane, so nothing moves when content arrives', () => {
+    const { container } = renderPane({ isLoading: true })
+    const busy = container.querySelector('[aria-busy="true"]')
+    expect(busy).not.toBeNull()
+
+    // The three bands of the real pane are all present as placeholders: the
+    // search row, the category-chip row, and a full grid of card cells. The
+    // previous skeleton had only a bar and six cells, so the search bar, the
+    // chip row and every card jumped position the moment the Archiv loaded.
+    const bands = busy!.children
+    expect(bands).toHaveLength(3)
+    expect(bands[0].querySelectorAll('[data-slot="skeleton"]')).toHaveLength(1)
+    expect(bands[1].querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4)
+    expect(bands[2].querySelectorAll('.rounded-xl.border')).toHaveLength(8)
+  })
+})
+
+describe('ArchivLibraryPane — result transitions', () => {
+  it('marks which kind of result is on screen, and re-keys the region when that changes', async () => {
+    const user = userEvent.setup()
+    renderPane()
+
+    // The key on this region is what cross-fades browse → nothing-found; it is
+    // deliberately NOT keyed on the query, so filtering leaves the cards (and
+    // their thumbnail requests) mounted.
+    const region = screen.getByTestId('archiv-results')
+    expect(region).toHaveAttribute('data-view', 'grid')
+
+    await user.type(screen.getByRole('textbox', { name: /search archiv documents/i }), 'brand')
+    expect(screen.getByTestId('archiv-results')).toBe(region)
+    expect(region).toHaveAttribute('data-view', 'grid')
+
+    await user.type(screen.getByRole('textbox', { name: /search archiv documents/i }), 'zzzz')
+    expect(screen.getByTestId('archiv-results')).toHaveAttribute('data-view', 'no-match')
+    expect(screen.getByTestId('archiv-results')).not.toBe(region)
   })
 })

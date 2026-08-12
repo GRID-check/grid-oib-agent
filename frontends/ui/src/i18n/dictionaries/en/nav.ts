@@ -21,6 +21,25 @@ export const nav = {
     intake: 'Setup',
   },
   /**
+   * The back control on pages outside the project shell (`BackLink`): `{label}`
+   * is the name of the location the reader actually came from, resolved from the
+   * tab's return trail.
+   */
+  backTo: 'Back to {label}',
+  /**
+   * Names for return destinations that have no nav entry of their own to borrow
+   * a label from. Sections that DO (chat, files, …) are named by
+   * `nav.sections.*`, so the back control and the rail can never disagree.
+   */
+  returnTargets: {
+    project: 'the project',
+    members: 'the project team',
+    model: 'the model',
+    organization: 'the organization',
+    platform: 'the platform',
+    profile: 'your profile',
+  },
+  /**
    * Browser-tab title fragments. `{label}` is the localized section name; the
    * project name is user data and is never translated.
    */

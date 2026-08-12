@@ -14,8 +14,6 @@
  * that answers 403.
  */
 
-import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { getNavFlags } from '@/lib/authz/nav'
 import {
@@ -24,14 +22,13 @@ import {
   canViewAuditLogs,
   isOrgAdmin,
 } from '@/lib/authz/organizations'
-import { OrgTopbar } from '@/components/shell'
+import { BackLink, OrgTopbar } from '@/components/shell'
 import { getTranslations } from '@/i18n/server'
 import {
   OrganizationNav,
   type OrganizationSectionKey,
 } from '@/features/organization/components/organization-nav'
 import { isAuthRequired } from '@/lib/auth/auth-required'
-
 
 export default async function OrganizationLayout({
   children,
@@ -59,7 +56,7 @@ export default async function OrganizationLayout({
     if (isOrgAdmin(session)) sections.push('enterprise')
 
     return (
-      <div className="flex min-h-dvh flex-col bg-background text-foreground">
+      <div className="bg-background text-foreground flex min-h-dvh flex-col">
         <OrgTopbar
           user={{ name: session.name, email: session.email }}
           authRequired={isAuthRequired()}
@@ -70,14 +67,15 @@ export default async function OrganizationLayout({
           canAccessArchiv={navFlags.canAccessArchiv}
           canAccessInbox={navFlags.canAccessInbox}
         />
-        <main id="main-content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-10">
-          <Link
-            href="/app/projects"
-            className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none touch-target"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            {t('backToApp')}
-          </Link>
+        <main
+          id="main-content"
+          className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-10"
+        >
+          <BackLink
+            className="touch-target mb-6"
+            fallbackHref="/app/projects"
+            fallbackLabel={t('backToApp')}
+          />
           {/* Rail beside the content from `lg`; stacked strip below that. */}
           <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
             <div className="lg:w-52 lg:shrink-0">

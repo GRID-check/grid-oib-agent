@@ -129,6 +129,8 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 </section>
 ```
 
+**Back navigation** — pages outside the project shell (Archiv, Organisation, Platform, Profil) drop the rail, so their back control is the whole way out. It is `BackLink` (`components/shell/back-link.tsx`), never a hand-rolled `<Link>`: an arrow in a raised disc plus a label that **names where the reader actually came from**, read from the tab's return trail (`lib/navigation/return-trail`, recorded by `NavigationTrail` in the root layout). Out of a project the name is the PROJECT'S — "Zurück zu Stadthaus Wien" — written into the trail by `NavigationTrailLabel` in the project shell while the reader was there, because a path holds an id and an id is not a name, and leaving that project is what the reader is undoing. Everywhere else the label comes from the destination's own `nav.sections.*` entry, so the wording cannot drift from the rail's. Navigation goes through `history.back()`, which restores the page as it was left — scroll position and open panels included — where a push to the same URL would not. Each page still passes a server-resolved `fallbackHref`/`fallbackLabel` for the case with no trail (new tab, direct link). A back control that guesses a destination is worse than none: it teaches the reader that back does not work.
+
 **Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
 
 **List container** — one `rounded-lg border bg-card`, rows `divide-y`, each row `flex items-center justify-between gap-4 px-5 py-3`.

@@ -22,6 +22,15 @@ export const nav: typeof en.nav = {
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
     intake: 'Einrichtung',
   },
+  backTo: 'Zurück zu {label}',
+  returnTargets: {
+    project: 'zum Projekt',
+    members: 'zum Projektteam',
+    model: 'zum Modell',
+    organization: 'zur Organisation',
+    platform: 'zur Plattform',
+    profile: 'zum Profil',
+  },
   tabTitle: {
     intake: 'Einrichtung',
     researchProgress: '{percent}% · {label} — Piloti',

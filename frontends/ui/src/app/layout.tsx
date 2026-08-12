@@ -14,6 +14,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { connection } from 'next/server'
 import { ChunkReloadGuard } from './chunk-reload-guard'
 import { Providers } from './providers'
+import { NavigationTrail } from '@/components/shell/navigation-trail'
 import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
@@ -42,7 +43,6 @@ const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
   display: 'swap',
 })
-
 
 /**
  * Mobile-first viewport: edge-to-edge rendering on notched devices
@@ -74,7 +74,8 @@ export const metadata: Metadata = {
  * session-lookup failure must never break the layout; it just falls back to the
  * flag's default (fail-open when enforcement is off, so images are offered).
  */
-const isImageUploadEnabled = async (): Promise<boolean> => isSessionFlagEnabled(FEATURE_FLAGS.imageUpload)
+const isImageUploadEnabled = async (): Promise<boolean> =>
+  isSessionFlagEnabled(FEATURE_FLAGS.imageUpload)
 
 /**
  * Whether IFC model upload is offered to this session (WorkOS `ifc-models`).
@@ -154,11 +155,14 @@ const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => 
         <ChunkReloadGuard />
         <a
           href="#main-content"
-          className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-3 focus-visible:left-3 focus-visible:z-skip-link focus-visible:rounded-full focus-visible:bg-primary focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:shadow-md"
+          className="focus-visible:z-skip-link focus-visible:bg-primary focus-visible:text-primary-foreground sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-3 focus-visible:top-3 focus-visible:rounded-full focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:shadow-md"
         >
           {t.actions.skipToContent}
         </a>
         <Providers config={config} locale={locale}>
+          {/* Records where the reader has been, so the pages outside the project
+              shell can offer a back control that actually goes back. */}
+          <NavigationTrail />
           {children}
         </Providers>
       </body>
