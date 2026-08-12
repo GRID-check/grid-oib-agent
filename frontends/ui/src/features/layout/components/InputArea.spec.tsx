@@ -1851,6 +1851,78 @@ describe('InputArea', () => {
       expect(screen.getByRole('group', { name: /shortcuts/i })).toBeInTheDocument()
     })
   })
+
+  /**
+   * Two attach affordances in one conversation, and only one of them ever said
+   * where the file lands.
+   *
+   * The sources panel offers an explicit project/session choice and states the
+   * selected one ("Files uploaded here go to …"). The composer calls
+   * `useFileUpload` with no projectId at all — it is hardcoded to the session —
+   * and its copy stated the accepted types and nothing else, so a user with a
+   * project open had no way to tell that the paperclip and the panel disagreed.
+   * The composer now says it, in the panel's exact words (the identical sentence
+   * is asserted in FileSourcesTab.spec.tsx).
+   */
+  describe('the composer states where an attached file goes', () => {
+    const DESTINATION = 'Files uploaded here go to private session unless removed.'
+
+    test('names the destination alongside the attached-file chips', () => {
+      vi.mocked(useFileUpload).mockReturnValue({
+        uploadFiles: mockUploadFiles,
+        deleteFile: mockDeleteFile,
+        retryFile: mockRetryFile,
+        sessionFiles: [
+          { id: 'file-1', fileName: 'doc.pdf', status: 'success', collectionName: 'session-1' },
+        ],
+        isUploading: false,
+        error: null,
+        clearError: vi.fn(),
+      } as unknown as ReturnType<typeof useFileUpload>)
+
+      render(<InputArea isAuthenticated={true} />)
+
+      expect(screen.getByTestId('upload-destination')).toHaveTextContent(DESTINATION)
+    })
+
+    test('names it at the moment of the drop, where the decision is made', () => {
+      vi.mocked(useFileDragDrop).mockReturnValue({
+        isDragging: true,
+        isUnsupportedDrag: false,
+        dragHandlers: {
+          onDragEnter: vi.fn(),
+          onDragLeave: vi.fn(),
+          onDragOver: vi.fn(),
+          onDrop: vi.fn(),
+        },
+      })
+
+      render(<InputArea isAuthenticated={true} />)
+
+      expect(screen.getByText('Drop files to upload')).toBeInTheDocument()
+      expect(screen.getByTestId('upload-destination')).toHaveTextContent(DESTINATION)
+    })
+
+    test('says nothing about a destination for a file it will refuse', () => {
+      // An unsupported drop lands nowhere, so the overlay keeps stating the
+      // accepted types instead of promising a shelf.
+      vi.mocked(useFileDragDrop).mockReturnValue({
+        isDragging: true,
+        isUnsupportedDrag: true,
+        dragHandlers: {
+          onDragEnter: vi.fn(),
+          onDragLeave: vi.fn(),
+          onDragOver: vi.fn(),
+          onDrop: vi.fn(),
+        },
+      })
+
+      render(<InputArea isAuthenticated={true} />)
+
+      expect(screen.getByText('Unsupported file type')).toBeInTheDocument()
+      expect(screen.queryByTestId('upload-destination')).not.toBeInTheDocument()
+    })
+  })
 })
 
 /**

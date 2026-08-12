@@ -21,6 +21,7 @@ import {
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -126,13 +127,24 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
 }
 
 /**
- * Load a document (org-scoped in SQL) and enforce access appropriate to its
- * scope, so the SAME item routes (download/preview/status/reingest/tags) serve
- * both project documents and org-wide Archiv documents:
+ * Load a document (org-scoped in SQL) and enforce the access its OWN shelf
+ * calls for, so the SAME item routes (download/preview/status/reingest/tags)
+ * serve all three shelves:
  *
- *   - `project` documents → per-project FGA via `requireProjectAccess`.
- *   - `archiv` documents (org-wide, `projectId` NULL) → any org member may read
- *     (read); writes require `org:archiv:manage`.
+ *   - `project` → per-project FGA via `requireProjectAccess`.
+ *   - `archiv`  → org-wide: any member reads, writes need `org:archiv:manage`.
+ *   - `session` → as private as the chat it hangs off: `viewer` to read,
+ *     `collaborator` to write, resolved on the conversation (ADR-0032).
+ *
+ * ## Why this switches on `scope` and not on `projectId`
+ *
+ * It used to read `doc.scope === 'archiv' || doc.projectId === null`, which was
+ * correct while a null project could only mean the Archiv. A session document
+ * also has a null project (ADR-0047 Phase 2), so that disjunction would have
+ * handed every private chat attachment to the Archiv branch — where any member
+ * of the organization may read it. The upload is private; the download would
+ * not have been. A `switch` over the scope union is exhaustive, so a fourth
+ * shelf cannot fall through to somebody else's rule: it fails to compile.
  *
  * Cross-tenant and no-access lookups both surface as 404. The `intent` maps to
  * `project:view` for reads and `project:documents:write` (accepting the legacy
@@ -146,22 +158,53 @@ async function getAccessibleDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
 
-  if (doc.scope === 'archiv' || doc.projectId === null) {
-    // The Archiv is org-scoped: findDocumentInOrg already confirmed the row
-    // belongs to the caller's org (so any member may read it). Only mutations
-    // need the manage permission.
-    if (intent === 'write' && !canManageArchiv(session)) {
-      throw new ForbiddenError()
+  switch (doc.scope) {
+    case 'archiv': {
+      // Org-scoped: findDocumentInOrg already confirmed the row belongs to the
+      // caller's org (so any member may read it). Only mutations need the
+      // manage permission.
+      if (intent === 'write' && !canManageArchiv(session)) throw new ForbiddenError()
+      return doc
     }
-    return doc
+    case 'session': {
+      // A row that contradicts `documents_session_requires_conversation`
+      // (migration 0046) is not something to guess about — it is unattributable,
+      // so it is not found.
+      if (!doc.conversationId) throw new NotFoundError()
+      await requireResourceAccess(
+        session,
+        'conversation',
+        doc.conversationId,
+        intent === 'write' ? 'collaborator' : 'viewer',
+      )
+      return doc
+    }
+    case 'project': {
+      // A `project` row with no project is a corrupt row, not an org-wide one.
+      // The old disjunction quietly re-read it as an Archiv document and handed
+      // it to every member; there is nothing to authorize against, so it is not
+      // found.
+      if (doc.projectId === null) throw new NotFoundError()
+      await requireProjectAccess(
+        session,
+        doc.projectId,
+        intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
+      )
+      return doc
+    }
+    default: {
+      // Two jobs. At COMPILE time the `never` annotation is the exhaustiveness
+      // check ADR-0047 decision 3 asks for: add a shelf to `DocumentScope` and
+      // this line stops type-checking until it has a rule here. At RUN time it
+      // catches what the type cannot — `scope` is a plain `text` column, so a
+      // row can hold a value no version of this code knows. There is no
+      // authorization rule to apply to such a row, and defaulting to another
+      // shelf's is how a private document becomes an org-wide one.
+      const unhandledScope: never = doc.scope
+      void unhandledScope
+      throw new NotFoundError()
+    }
   }
-
-  await requireProjectAccess(
-    session,
-    doc.projectId,
-    intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
-  )
-  return doc
 }
 
 /**
@@ -823,9 +866,12 @@ export async function updateDocumentTags(
  * {@link import('@/lib/archiv/service').deleteArchivDocument}, differing only in
  * scope: per-project FGA instead of org-level `org:archiv:manage`.
  *
- * Org-wide Archiv documents (NULL `projectId`) are NOT deletable here — they go
- * through the org-scoped `/api/archiv/documents/[id]` route — so an Archiv id
- * surfaces as a 404 rather than being force-fit through project FGA.
+ * Only `project` documents are deletable here. An Archiv id goes through the
+ * org-scoped `/api/archiv/documents/[id]` route and a session attachment
+ * through `/api/session/documents/[id]`, each with its own authorization — so
+ * either surfaces as a 404 rather than being force-fit through project FGA.
+ * The scope is asked for by name: "has no project" used to mean "is an Archiv
+ * document" and stopped meaning that when session documents became rows.
  */
 export async function deleteDocument(
   session: AuthorizedSession,
@@ -833,7 +879,7 @@ export async function deleteDocument(
   request: Request,
 ): Promise<void> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
-  if (!doc || doc.projectId === null) throw new NotFoundError()
+  if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
   await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
 

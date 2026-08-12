@@ -12,14 +12,29 @@ import {
 import { sql } from 'drizzle-orm'
 import { projects } from './projects'
 import { projectFolders } from './project-folders'
+import { conversations } from './conversations'
 
 /**
- * The scope a document belongs to. `project` documents hang off a single
- * project (the default, and every legacy row). `archiv` documents are the
- * org-wide "Archiv": they have a NULL `projectId` and live in the per-org
- * `archiv_<orgId>` collection, shared across every project in the org.
+ * The shelf a stored document lives on (ADR-0047, "DB scope").
+ *
+ *   - `project` — hangs off a single project. The default, and every legacy row.
+ *   - `archiv`  — the org-wide "Archiv": NULL `projectId`, in the per-org
+ *                 `archiv_<orgId>` collection, shared across every project.
+ *   - `session` — a file the user dropped into one chat: NULL `projectId`, a
+ *                 non-NULL `conversationId`, in that conversation's own
+ *                 `s_<conversationId>` collection (ADR-0047 Phase 2).
+ *
+ * Declared as a tuple so the set is enumerable at runtime and the type is
+ * derived from it rather than restated — a scope added here reaches every
+ * exhaustive switch over `DocumentScope` as a compile error, which is decision
+ * 3 of ADR-0047 applied to the DB shelf.
+ *
+ * The column carries no CHECK constraint, so adding a member needs no
+ * migration for the VALUE itself. What `session` did need is the
+ * `conversation_id` column below (migration 0046).
  */
-export type DocumentScope = 'project' | 'archiv'
+export const DOCUMENT_SCOPES = ['project', 'archiv', 'session'] as const
+export type DocumentScope = (typeof DOCUMENT_SCOPES)[number]
 
 export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -28,6 +43,30 @@ export const documents = pgTable('documents', {
   // rather than any single project.
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   scope: text('scope').$type<DocumentScope>().notNull().default('project'),
+  /**
+   * The conversation a `session` document was dropped into (migration 0046),
+   * NULL for every other scope.
+   *
+   * A real column and a real foreign key rather than a read of
+   * `collectionName`. The two happen to hold the same string today — a
+   * conversation id already IS `s_<uuid>`, and the collection is named after it
+   * — but that is a coincidence of naming, and reading a conversation id out of
+   * a column that means "which retrieval collection" is exactly the inference
+   * ADR-0047 exists to delete. It also buys three things a name cannot: a
+   * session document cannot point at a conversation that does not exist, it
+   * cannot point at another tenant's (the FK is composite, on
+   * `(conversation_id, organization_id)`, the same pattern `messages` uses),
+   * and discarding a chat cannot leave its attachments behind.
+   *
+   * `text`, not `uuid`: `conversations.id` is a client-minted `s_…` string.
+   *
+   * NOTE: the database also has `documents_conversation_idx`, PARTIAL
+   * (`WHERE conversation_id IS NOT NULL`) so it carries no entry for the
+   * project and Archiv rows that are the overwhelming majority. Drizzle's index
+   * builder cannot express a partial index, so it lives only in migration 0046
+   * — the same arrangement as `conversations_job_id_idx`.
+   */
+  conversationId: text('conversation_id'),
   createdBy: text('created_by').notNull(),
   filename: text('filename').notNull(),
   storageKey: text('storage_key').notNull(),
@@ -84,6 +123,46 @@ export const documents = pgTable('documents', {
   folderRequiresProject: check(
     'documents_folder_requires_project',
     sql`${table.folderId} IS NULL OR ${table.projectId} IS NOT NULL`
+  ),
+  /**
+   * A session document belongs to a conversation in its OWN tenant (migration
+   * 0046). Composite rather than a plain `references(conversations.id)` for the
+   * same reason `messages` and `conversation_reads` are composite (0031/0032):
+   * `documents.organization_id` is denormalised, so without the tenant column
+   * inside the key nothing stops a row claiming this org while pointing at
+   * another org's conversation. `conversations` carries the matching unique
+   * constraint on `(id, organization_id)` precisely so keys like this can exist.
+   *
+   * MATCH SIMPLE skips the check when `conversation_id` is NULL, which is every
+   * project and Archiv row — exactly the rows that have no conversation to
+   * validate.
+   *
+   * CASCADE: discarding a chat takes its private attachments with it. The
+   * service deletes them explicitly first (chunks, objects, then rows), so this
+   * is the backstop for the paths that do not go through it — notably a project
+   * purge, which deletes the project's conversations directly.
+   */
+  conversationFk: foreignKey({
+    name: 'documents_conversation_id_organization_id_fkey',
+    columns: [table.conversationId, table.organizationId],
+    foreignColumns: [conversations.id, conversations.organizationId],
+  }).onDelete('cascade'),
+  /**
+   * The scope partition, stated as a database invariant instead of a
+   * convention.
+   *
+   * Before `session` existed, "which shelf is this row on" was answered in
+   * three different ways across the codebase — `scope = 'archiv'`,
+   * `project_id IS NULL`, and `project_id = $1` — and they agreed only because
+   * there were two shelves and the second one happened to be the only one with
+   * a null project. A third shelf with a null project is what breaks that, so
+   * the tie between a scope and its owning column is written down here rather
+   * than left for each query to reconstruct: a session row has a conversation,
+   * and nothing else does.
+   */
+  sessionRequiresConversation: check(
+    'documents_session_requires_conversation',
+    sql`(${table.scope} = 'session') = (${table.conversationId} IS NOT NULL)`
   ),
 }))
 

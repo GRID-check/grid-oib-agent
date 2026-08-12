@@ -39,6 +39,7 @@ import type {
   ResourceVisibility,
 } from '@/lib/db/schema'
 import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
+import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
 import { publishToUsers } from '@/lib/events/bus'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
@@ -413,6 +414,15 @@ export async function generateConversationTitle(
  */
 export async function deleteConversation(session: AuthorizedSession, conversationId: string): Promise<void> {
   await requireResourceAccess(session, 'conversation', conversationId, 'owner')
+
+  // The files the user dropped into this chat (ADR-0047 Phase 2). Their rows
+  // would cascade off the conversation's foreign key on their own, but a
+  // cascade reaches neither SeaweedFS nor the retrieval collection — so this
+  // runs FIRST, while the rows that name those objects still exist. Skipping it
+  // would leave bytes nothing lists, nothing can delete, and that still count
+  // against the organization's storage quota.
+  await purgeSessionDocuments(conversationId, session.organizationId)
+
   await deleteConversationInOrg(conversationId, session.organizationId)
 
   // `messages` and `conversation_reads` cascade through their foreign keys;

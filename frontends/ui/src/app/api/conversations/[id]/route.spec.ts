@@ -39,6 +39,14 @@ vi.mock('@/lib/sharing/repository', () => ({
   deleteAllGrantsForResource: vi.fn(),
 }))
 vi.mock('@/lib/mentions/repository', () => ({ deleteRequestsForResource: vi.fn() }))
+vi.mock('@/lib/session-documents/repository', () => ({
+  // Discarding a chat erases the files attached to it (ADR-0047 Phase 2).
+  // Stubbed empty here: the erasure has its own spec, and what matters for
+  // these tests is that it runs BEFORE the conversation row goes.
+  listSessionDocumentsForCleanup: vi.fn().mockResolvedValue([]),
+  deleteSessionDocumentsByIds: vi.fn().mockResolvedValue(undefined),
+  SESSION_DOCUMENT_LIST_LIMIT: 100,
+}))
 vi.mock('@/lib/inbox/repository', () => ({ deleteItemsForResource: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({
   deleteConversationInOrg: vi.fn(),

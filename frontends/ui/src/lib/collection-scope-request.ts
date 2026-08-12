@@ -5,6 +5,7 @@ import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import {
   computeCollectionScope,
+  sessionCollectionName,
   type CollectionShelf,
   type ScopeContext,
   type ScopedCollection,
@@ -38,18 +39,6 @@ export type { CollectionShelf, ScopedCollection } from '@/lib/collection-scope'
  */
 function resolveBaseCollectionName(): string {
   return process.env.BASE_COLLECTION_NAME || 'oib_knowledge'
-}
-
-/**
- * The session collection for a conversation.
- *
- * The `s_` test is NOT shelf inference — the shelf is known to be `session`
- * either way. It only avoids double-prefixing an id that already carries it,
- * mirroring `computeCollectionScope`, so the name registered as `session` here
- * is character-for-character the name that reaches the wire.
- */
-function sessionCollectionName(conversationId: string): string {
-  return conversationId.startsWith('s_') ? conversationId : `s_${conversationId}`
 }
 
 /**
