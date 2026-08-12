@@ -86,6 +86,11 @@ describe('ArchivWorkspace — library listing', () => {
     expect(within(group).getByRole('button', { name: 'Detail' })).toBeInTheDocument()
   })
 
+  it('states how much the Archiv holds beside its title', async () => {
+    render(<ArchivWorkspace canManage />)
+    expect(await screen.findByTestId('archiv-document-count')).toHaveTextContent('2')
+  })
+
   it('filters the grid via a category chip', async () => {
     const user = userEvent.setup()
     render(<ArchivWorkspace canManage />)

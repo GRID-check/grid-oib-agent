@@ -34,6 +34,10 @@ import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileSearchBar } from './file-search-bar'
 import { FilterChip } from './filter-chip'
 
+/** The kinds of result region the pane can show (see `view` below). */
+type ArchivResultView =
+  'grid' | 'no-match' | 'semantic-searching' | 'semantic-results' | 'semantic-empty'
+
 interface ArchivLibraryPaneProps {
   files: FileItem[]
   selectedFileId: string | null
@@ -84,7 +88,7 @@ export function ArchivLibraryPane({
       }
     }
     return [...counts.values()].sort(
-      (a, b) => b.count - a.count || a.label.localeCompare(b.label, locale),
+      (a, b) => b.count - a.count || a.label.localeCompare(b.label, locale)
     )
   }, [files, locale])
 
@@ -106,15 +110,44 @@ export function ArchivLibraryPane({
     })
   }, [files, search, selectedTag])
 
+  /**
+   * Which kind of result the pane is showing. Named rather than inlined into
+   * nested ternaries because it is also the animation key below — the crossfade
+   * has to run on a change of KIND, not on every change of the query.
+   */
+  const view: ArchivResultView = semantic.active
+    ? semantic.isSearching
+      ? 'semantic-searching'
+      : semantic.hits.length === 0
+        ? 'semantic-empty'
+        : 'semantic-results'
+    : filteredFiles.length === 0
+      ? 'no-match'
+      : 'grid'
+
+  // The loading state is the loaded layout with its content not yet in it:
+  // search row, chip row, card grid, at the same heights and in the same
+  // bordered bands. The previous skeleton was a bare stack in a padded box, so
+  // the arrival of the real pane moved every row on the screen — the jump read
+  // as the page reloading rather than as content settling in.
   if (isLoading) {
     return (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-9 w-full" />
-        <FileGrid>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <FileCardSkeleton key={i} />
+      <div className="flex h-full flex-col" aria-busy="true">
+        <div className="border-b px-4 py-2.5">
+          <Skeleton className="h-9 w-full" />
+        </div>
+        <div className="flex gap-1.5 border-b px-4 py-2">
+          {['all', 'one', 'two', 'three'].map((key) => (
+            <Skeleton key={key} className="h-8 w-20 rounded-lg" />
           ))}
-        </FileGrid>
+        </div>
+        <div className="p-4">
+          <FileGrid>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <FileCardSkeleton key={i} />
+            ))}
+          </FileGrid>
+        </div>
       </div>
     )
   }
@@ -122,7 +155,7 @@ export function ArchivLibraryPane({
   // First-run empty state — the Archiv holds no documents yet.
   if (files.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
+      <div className="animate-in fade-in-0 flex h-full items-center justify-center p-8 duration-200 motion-reduce:animate-none">
         <EmptyState
           icon={Archive}
           title={t('library.emptyTitle')}
@@ -134,7 +167,7 @@ export function ArchivLibraryPane({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="animate-in fade-in-0 flex h-full flex-col duration-200 motion-reduce:animate-none">
       {/* Search bar — instant substring filter as you type; Enter (or the search
           button) runs the semantic search over the Archiv collection. */}
       <FileSearchBar
@@ -182,7 +215,7 @@ export function ArchivLibraryPane({
               active={selectedTag === category.label.toLowerCase()}
               onClick={() =>
                 setSelectedTag((current) =>
-                  current === category.label.toLowerCase() ? null : category.label.toLowerCase(),
+                  current === category.label.toLowerCase() ? null : category.label.toLowerCase()
                 )
               }
             />
@@ -190,11 +223,20 @@ export function ArchivLibraryPane({
         </div>
       )}
 
-      {semantic.active ? (
-        // Semantic results — one card per matched file, each showing the match
-        // evidence (snippet + page + relevance). A backend error/timeout fails
-        // open to an empty result set (never a crash).
-        semantic.isSearching ? (
+      {/* One results region, keyed on the KIND of result it is showing, so a
+          change of kind (browse → searching → results → nothing found) crosses
+          over with a fade instead of one block being swapped for a differently
+          shaped one mid-frame. Keyed on the kind and NOT on the query or the
+          selected chip on purpose: filtering within the grid must leave the
+          cards mounted, or every keystroke would remount them and re-request
+          their thumbnails. */}
+      <div
+        key={view}
+        className="animate-in fade-in-0 duration-200 motion-reduce:animate-none"
+        data-testid="archiv-results"
+        data-view={view}
+      >
+        {view === 'semantic-searching' ? (
           <div className="p-4">
             <FileGrid>
               {Array.from({ length: 6 }).map((_, i) => (
@@ -202,7 +244,7 @@ export function ArchivLibraryPane({
               ))}
             </FileGrid>
           </div>
-        ) : semantic.hits.length === 0 ? (
+        ) : view === 'semantic-empty' ? (
           <div className="p-8">
             <EmptyState
               variant="bare"
@@ -216,7 +258,10 @@ export function ArchivLibraryPane({
               }
             />
           </div>
-        ) : (
+        ) : view === 'semantic-results' ? (
+          // Semantic results — one card per matched file, each showing the match
+          // evidence (snippet + page + relevance). A backend error/timeout fails
+          // open to an empty result set (never a crash).
           <div className="p-4">
             <FileGrid>
               {semantic.hits.map((hit) => (
@@ -231,37 +276,37 @@ export function ArchivLibraryPane({
               ))}
             </FileGrid>
           </div>
-        )
-      ) : /* Substring-filtered card grid (instant, as you type). */
-      filteredFiles.length === 0 ? (
-        <div className="p-8">
-          <EmptyState
-            variant="bare"
-            icon={Search}
-            title={t('library.noMatchTitle')}
-            description={t('library.noMatchDescription')}
-            action={
-              <Button variant="outline" size="sm" onClick={clearSearch}>
-                {t('library.clearFilters')}
-              </Button>
-            }
-          />
-        </div>
-      ) : (
-        <div className="p-4">
-          <FileGrid>
-            {filteredFiles.map((file) => (
-              <ArchivDocumentCard
-                key={file.id}
-                file={file}
-                isSelected={selectedFileId === file.id}
-                onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                locale={locale}
-              />
-            ))}
-          </FileGrid>
-        </div>
-      )}
+        ) : view === 'no-match' ? (
+          <div className="p-8">
+            <EmptyState
+              variant="bare"
+              icon={Search}
+              title={t('library.noMatchTitle')}
+              description={t('library.noMatchDescription')}
+              action={
+                <Button variant="outline" size="sm" onClick={clearSearch}>
+                  {t('library.clearFilters')}
+                </Button>
+              }
+            />
+          </div>
+        ) : (
+          /* Substring-filtered card grid (instant, as you type). */
+          <div className="p-4">
+            <FileGrid>
+              {filteredFiles.map((file) => (
+                <ArchivDocumentCard
+                  key={file.id}
+                  file={file}
+                  isSelected={selectedFileId === file.id}
+                  onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                  locale={locale}
+                />
+              ))}
+            </FileGrid>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -304,7 +349,7 @@ function ArchivDocumentCard({
       footerLead={
         provenance !== '' ? (
           <span
-            className="min-w-0 flex-1 truncate text-muted-foreground/80"
+            className="text-muted-foreground/80 min-w-0 flex-1 truncate"
             data-testid="archiv-provenance"
             title={t('library.provenance', { source: provenance })}
           >

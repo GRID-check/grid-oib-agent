@@ -4,6 +4,7 @@ export const archiv = {
   subtitle: 'Shared documents available to every project in your organization',
   backToApp: 'Back to projects',
   backToProject: 'Back to project',
+  backToNamedProject: 'Back to {name}',
   library: {
     searchPlaceholder: 'Search the Archiv…',
     searchLabel: 'Search Archiv documents',

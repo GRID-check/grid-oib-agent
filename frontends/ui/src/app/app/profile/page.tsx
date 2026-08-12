@@ -7,12 +7,11 @@
  * ({@link ProfileControls}).
  */
 
-import Link from 'next/link'
-import { ArrowLeft, Building2, UserRound } from 'lucide-react'
+import { Building2, UserRound } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getNavFlags } from '@/lib/authz/nav'
-import { OrgTopbar } from '@/components/shell'
+import { BackLink, OrgTopbar } from '@/components/shell'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
@@ -21,7 +20,6 @@ import type { Translator } from '@/i18n'
 import { getOrgSettings, getOrganizationOverview } from '@/lib/organizations/service'
 import { ProfileControls } from './profile-controls'
 import { isAuthRequired } from '@/lib/auth/auth-required'
-
 
 const KNOWN_ROLE_SLUGS = new Set(['org-platform-owner', 'admin', 'member'])
 
@@ -74,7 +72,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
       : t('account.noOrganization')
 
     return (
-      <div className="flex min-h-dvh flex-col bg-background text-foreground">
+      <div className="bg-background text-foreground flex min-h-dvh flex-col">
         <OrgTopbar
           user={{ name: session.name, email: session.email }}
           authRequired={isAuthRequired()}
@@ -86,14 +84,15 @@ export default async function ProfilePage(): Promise<JSX.Element> {
           canAccessInbox={navFlags.canAccessInbox}
         />
 
-        <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10">
-          <Link
-            href="/app/projects"
-            className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none touch-target"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            {t('backToApp')}
-          </Link>
+        <main
+          id="main-content"
+          className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10"
+        >
+          <BackLink
+            className="touch-target mb-6"
+            fallbackHref="/app/projects"
+            fallbackLabel={t('backToApp')}
+          />
 
           <PageHeader className="mb-8" title={t('title')} subtitle={t('subtitle')} />
 
@@ -102,7 +101,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <UserRound className="size-4 text-muted-foreground" aria-hidden />
+                  <UserRound className="text-muted-foreground size-4" aria-hidden />
                   {t('account.title')}
                 </CardTitle>
                 <CardDescription>{t('account.description')}</CardDescription>
@@ -110,36 +109,40 @@ export default async function ProfilePage(): Promise<JSX.Element> {
               <CardContent>
                 <div className="flex items-center gap-4">
                   <Avatar className="size-12">
-                    {session.profilePictureUrl && <AvatarImage src={session.profilePictureUrl} alt="" />}
+                    {session.profilePictureUrl && (
+                      <AvatarImage src={session.profilePictureUrl} alt="" />
+                    )}
                     <AvatarFallback className="text-base font-medium">{initial}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
                     <p className="truncate text-base font-medium">{displayName}</p>
                     {session.email && (
-                      <p className="truncate text-sm text-muted-foreground">{session.email}</p>
+                      <p className="text-muted-foreground truncate text-sm">{session.email}</p>
                     )}
                   </div>
                 </div>
 
                 <dl className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
-                    <dt className="text-xs font-medium uppercase text-muted-foreground">
+                    <dt className="text-muted-foreground text-xs font-medium uppercase">
                       {t('account.name')}
                     </dt>
                     <dd className="mt-1 text-sm">{session.name || t('account.noName')}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs font-medium uppercase text-muted-foreground">
+                    <dt className="text-muted-foreground text-xs font-medium uppercase">
                       {t('account.email')}
                     </dt>
-                    <dd className="mt-1 truncate text-sm">{session.email || t('account.noName')}</dd>
+                    <dd className="mt-1 truncate text-sm">
+                      {session.email || t('account.noName')}
+                    </dd>
                   </div>
                   <div>
-                    <dt className="text-xs font-medium uppercase text-muted-foreground">
+                    <dt className="text-muted-foreground text-xs font-medium uppercase">
                       {t('account.organization')}
                     </dt>
                     <dd className="mt-1 flex items-center gap-1.5 text-sm">
-                      <Building2 className="size-3.5 text-muted-foreground" aria-hidden />
+                      <Building2 className="text-muted-foreground size-3.5" aria-hidden />
                       <span className="truncate" title={session.organizationId ?? undefined}>
                         {organizationName}
                       </span>
@@ -147,7 +150,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
                   </div>
                   {session.role && (
                     <div>
-                      <dt className="text-xs font-medium uppercase text-muted-foreground">
+                      <dt className="text-muted-foreground text-xs font-medium uppercase">
                         {t('account.role')}
                       </dt>
                       <dd className="mt-1 text-sm" title={session.role}>

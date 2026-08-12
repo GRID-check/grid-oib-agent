@@ -4,6 +4,7 @@ export const archiv = {
   subtitle: 'Gemeinsame Dokumente, die jedem Projekt Ihrer Organisation zur Verfügung stehen',
   backToApp: 'Zurück zu den Projekten',
   backToProject: 'Zurück zum Projekt',
+  backToNamedProject: 'Zurück zu {name}',
   library: {
     searchPlaceholder: 'Archiv durchsuchen…',
     searchLabel: 'Archivdokumente durchsuchen',
@@ -51,7 +52,8 @@ export const archiv = {
   },
   delete: {
     action: 'Aus Archiv löschen',
-    confirm: 'Dadurch wird das Dokument für die gesamte Organisation entfernt. Dies kann nicht rückgängig gemacht werden.',
+    confirm:
+      'Dadurch wird das Dokument für die gesamte Organisation entfernt. Dies kann nicht rückgängig gemacht werden.',
     confirmAction: 'Löschen',
     cancel: 'Abbrechen',
     deleting: 'Wird gelöscht…',

@@ -163,14 +163,16 @@ export const SCREENSHOT_TARGETS = [
     id: 'confirm-dialog',
     mobile: true,
     path: '/dev/confirm-dialog',
-    description: 'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',
+    description:
+      'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',
     waitFor: '[role="alertdialog"], [role="dialog"]',
   },
   {
     id: 'document-grid',
     mobile: true,
     path: '/dev/document-grid',
-    description: 'Chat document_grid surfacing card — real project + Büroarchiv files as preview cards.',
+    description:
+      'Chat document_grid surfacing card — real project + Büroarchiv files as preview cards.',
     // Wait for the real card to mount and its resolution fetch to settle.
     waitFor: '[data-testid="document-grid-card"]',
   },
@@ -225,8 +227,17 @@ export const SCREENSHOT_TARGETS = [
     id: 'archiv-library',
     mobile: true,
     path: '/dev/archiv-library',
-    description: 'Archiv library grid — compared against the Files browser for unification.',
+    description:
+      'The org Archiv sheet — back control, gold Büroarchiv identity row with the document count, search, category chips and the card grid inside one raised frame. The grid itself stays comparable with the Files browser; what is pinned here is the chrome around it, including the back control — the trail is seeded with a project visit, so it shows what it shows in the app, the NAME of the project the reader came out of — and the bottom scroll boundary that dissolves the last row instead of clipping it.',
     waitFor: '[data-testid="archiv-document-card"]',
+  },
+  {
+    id: 'archiv-library-loading',
+    mobile: true,
+    path: '/dev/archiv-library?state=loading',
+    description:
+      'The Archiv while it loads. Evidence for the transition, so compare it band for band with `archiv-library`: search row, chip row and card cells sit at the same heights in the same bordered bands, which is what stops the whole surface from jumping when the documents arrive. The previous skeleton was a bare bar over six cells and moved every row on the screen.',
+    waitFor: '[aria-busy="true"]',
   },
   {
     id: 'settings',
@@ -573,7 +584,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/shared-thread',
     description:
-      'A shared thread with three people plus the agent (spec CC-4/CC-5/CC-13/CC-19): every human message attributed, one author\'s consecutive messages GROUPED under a single header, the unread separator, an @Piloti mention chip, and the turn-in-flight banner telling an observer whose question the agent is answering. All four voices distinguishable — colleague, you, the agent\'s answer, the agent\'s status.',
+      "A shared thread with three people plus the agent (spec CC-4/CC-5/CC-13/CC-19): every human message attributed, one author's consecutive messages GROUPED under a single header, the unread separator, an @Piloti mention chip, and the turn-in-flight banner telling an observer whose question the agent is answering. All four voices distinguishable — colleague, you, the agent's answer, the agent's status.",
     waitFor: '[data-testid="shared-thread-preview"]',
   },
   {

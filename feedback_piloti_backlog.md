@@ -193,7 +193,10 @@ Heartbeat scheduled (~50 min, re-arming). App-audit + color-coding agents runnin
 - **PB-UI-7 — Result window same width as chat; its bottom edge flush with the input top.**
 - **PB-UI-8 — Larger document preview** (FB-7 history: `PdfViewerDialog` exists; verify wired).
 - **PB-UI-9 — Archiv: add "back to project" (not just "back to projects"); move Archiv
-  nav item below Settings.**
+  nav item below Settings.** Back-navigation half **DONE**: the Archiv (and Organisation,
+  Platform, Profil) now use the shared `BackLink`, which returns the reader to the page
+  they actually came from via the tab's return trail — naming it — instead of guessing at
+  a project. Rail ordering is untouched.
 - **PB-UI-10 — Members: short explainer under each role (Viewer/Editor/Admin).**
 - **PB-UI-11 — Decision chain / Nachvollziehbarkeit more present + animated** (larger; scope carefully).
 - **PB-UI-12 — New logo** — BLOCKED, needs the asset from the user.
