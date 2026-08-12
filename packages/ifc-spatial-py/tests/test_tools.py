@@ -153,7 +153,16 @@ def test_open_and_briefing_do_not_run_geometry() -> None:
 # ── the surface itself ──────────────────────────────────────────────────────
 
 
-def test_the_tool_list_is_the_ported_surface(tools: list) -> None:
+def test_the_tool_list_is_the_ported_surface_plus_the_two_it_was_built_for(tools: list) -> None:
+    """Ten tools ported from `tools.ts`, and two the port added.
+
+    `overhang` and `light_incidence` existed as operators from the start and
+    were reachable from nothing. That is worse than not having them: the skill
+    teaches a call chain that ends in the overhang, and a chain whose last link
+    is missing answers the original question exactly as badly as before. The
+    order is asserted because it is the order the model reads them in, and the
+    two additions sit after `draw` — after everything they compose.
+    """
     assert [tool.name for tool in tools] == [
         "open_model",
         "briefing",
@@ -163,6 +172,8 @@ def test_the_tool_list_is_the_ported_surface(tools: list) -> None:
         "measure",
         "distance",
         "draw",
+        "overhang",
+        "light_incidence",
         "storey_heights",
         "room_inventory",
     ]
@@ -228,6 +239,80 @@ def test_draw_writes_a_file_and_does_not_return_the_svg(tools: list, house: str)
     assert path.read_text(encoding="utf-8", errors="replace").lstrip().startswith("<?xml")
     assert "svg" not in result
     assert "Maße nicht aus dem Bild ablesen" in result["note"]
+
+
+# ── the two tools the original question needed ──────────────────────────────
+
+
+def test_overhang_measures_the_number_the_agent_called_unmeasurable(tools: list, house: str) -> None:
+    """„Überstand/Raum-% im IFC nicht messbar" — the five words this library
+    exists to delete. The roof projects 0.647 m past the wall the window sits
+    in, normal to that wall's outer plane, straight out of the roof's own
+    triangles."""
+    roof = call(tools, "find_elements", {"model": house, "ifcType": "IfcRoof"})["elements"][0]["globalId"]
+    wall = call(tools, "relations", {"model": house, "globalId": WINDOW, "relation": "hostedIn"})["value"][0]
+
+    answer = call(tools, "overhang", {"model": house, "projecting": roof, "facade": wall["globalId"]})
+    assert answer["decidable"] is True
+    assert abs(answer["value"] - 0.647) < 0.01
+    assert answer["unit"] == "m"
+    assert answer["tolerance"] <= 0.01
+    # Measured, never declared. Reporting this as a model statement is the one
+    # failure mode the envelope exists to make impossible.
+    assert answer["provenance"] == "computed"
+
+
+def test_light_incidence_reports_geometry_and_refuses_to_render_a_verdict(tools: list, house: str) -> None:
+    wall = call(tools, "relations", {"model": house, "globalId": WINDOW, "relation": "hostedIn"})["value"][0]
+    answer = call(
+        tools,
+        "light_incidence",
+        {"model": house, "globalId": WINDOW, "angle": 45, "swivel": 30, "exclude": [wall["globalId"]]},
+    )
+
+    assert answer["decidable"] is True
+    assert answer["free"] is False
+    # The obstructions stay under `value`, where every other answer keeps its
+    # payload. A second key holding the same list would read as a second fact.
+    assert "Roof_Flat" in " ".join(ref["name"] or "" for ref in answer["value"])
+    # „Was, und wie tief" — a depth is something a design decision can be made
+    # from; a boolean is not.
+    assert all(ref["intrusionDepth"] > 0 for ref in answer["value"])
+    assert answer["prism"] == {"angleDeg": 45.0, "swivelDeg": 30.0, "openingId": WINDOW}
+    # The prism is geometry. Under OIB 3 a cut prism ENLARGES the required
+    # light-entry area; it does not ban the window. A tool that answered
+    # „nicht erfüllt" would be applying a clause it has never read.
+    assert "kein Befund" in answer["caveat"]
+    serialised = json.dumps(answer, ensure_ascii=False).lower()
+    assert not any(word in serialised for word in ("compliant", "erfüllt", "verstoß"))
+
+
+def test_light_incidence_refuses_without_the_angle_from_the_clause(tools: list, house: str) -> None:
+    """The angle is a fact about the RULE, not about the building.
+
+    Defaulting to 45 would make this tool answer a question of law it was never
+    asked, and would silently produce OIB numbers for a project under a
+    different code. Refusing costs the caller one sentence and keeps the
+    boundary where it belongs.
+    """
+    with pytest.raises(ToolError) as raised:
+        call(tools, "light_incidence", {"model": house, "globalId": WINDOW})
+    assert "angle" in str(raised.value)
+
+    for bad in (0, 90, 120, "45"):
+        with pytest.raises(ToolError):
+            call(tools, "light_incidence", {"model": house, "globalId": WINDOW, "angle": bad})
+
+
+def test_both_new_tools_demand_a_global_id_rather_than_guessing(tools: list, house: str) -> None:
+    for name, args in [
+        ("overhang", {"model": house, "facade": WINDOW}),
+        ("overhang", {"model": house, "projecting": WINDOW}),
+        ("light_incidence", {"model": house, "angle": 45}),
+    ]:
+        with pytest.raises(ToolError) as raised:
+            call(tools, name, args)
+        assert "GlobalId" in str(raised.value)
 
 
 def test_the_same_file_opens_twice_to_one_handle(tools: list, house: str) -> None:

@@ -469,6 +469,19 @@ functions:
     _type: ifc_query
     default_limit: 25
 
+  # BIM/IFC, the geometric half: measurements, topology and spatial relations
+  # read from the model's own bytes by the IfcOpenShell engine (roadmap §13b).
+  # It answers what the EXPORT DID NOT WRITE DOWN — a room's floor area with no
+  # published quantity, a window's Brüstungshöhe, the lichte Raumhöhe under a
+  # suspended ceiling — and every answer carries its provenance (deklariert /
+  # gemessen ±Toleranz / vermutlich) so a measurement can never be reported as
+  # something the model states. Gated by the same `ifc-models` flag as
+  # ifc_query: both go through lib/bim/internal-access in the BFF, so a model
+  # this tool can reach is one ifc_query could already answer questions about.
+  ifc_measure:
+    _type: ifc_measure
+    default_limit: 50
+
   # Purpose-built OIB Soll-Ist-Abgleich (backlog T4-3): staged pipeline
   # (requirement profile per Richtlinie -> batched evidence judgment ->
   # deterministic matrix + German report) — the structured alternative to
@@ -497,6 +510,7 @@ functions:
       - ris_catalog_lookup_tool
       - remember
       - ifc_query
+      - ifc_measure
     verbose: true
 
   clarifier_agent:
@@ -523,6 +537,7 @@ functions:
       - emit_card
       - surface_documents
       - ifc_query
+      - ifc_measure
     verbose: true
     max_llm_turns: 10
     max_tool_iterations: 5
@@ -553,6 +568,7 @@ functions:
       - remember
       - emit_card
       - ifc_query
+      - ifc_measure
     verbose: true
     # Durable checkpointing for async deep-research jobs (T3-8), mirroring
     # workflow.checkpoint_db below: re-invoking the same job_id resumes from

@@ -83,6 +83,12 @@ aiq_project_memory = "aiq_agent.agents.project_memory.register"
 aiq_cards = "aiq_agent.cards.register"
 aiq_compliance_checker = "aiq_agent.agents.compliance_checker.register"
 aiq_bim = "aiq_agent.agents.bim.register"
+# The spatial half of the BIM surface (`ifc_measure`). A second entry point
+# rather than an import from `register`: NAT discovers plugins by loading the
+# module a plugin names, so the fast metadata tool and the geometry tool stay
+# independently loadable — and `ifc_query` keeps working on a deployment where
+# the spatial engine (ifcopenshell, shapely) is not installed at all.
+aiq_bim_measure = "aiq_agent.agents.bim.measure_register"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]

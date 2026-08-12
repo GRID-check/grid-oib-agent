@@ -60,6 +60,11 @@ COPY frontends/cli/ ./frontends/cli/
 COPY frontends/debug/ ./frontends/debug/
 COPY configs/ ./configs/
 COPY scripts/ ./scripts/
+# The spatial engine behind `ifc_measure` (ADR-0045 amendment / roadmap §13b).
+# It is not a uv workspace member — its dependency set (IfcOpenShell, shapely)
+# has nothing to do with the rest of the backend — so it is copied and installed
+# on its own below.
+COPY packages/ifc-spatial-py/ ./packages/ifc-spatial-py/
 # Only copy runtime scripts from deploy/ — never copy the full directory
 # to avoid leaking .env, Helm charts, compose files, or other dev artifacts.
 COPY deploy/entrypoint.py deploy/start_web.py ./deploy/
@@ -77,7 +82,17 @@ RUN uv pip install --no-deps -e . \
     && uv pip install --no-deps -e ./frontends/aiq_api \
     && uv pip install "psycopg[binary]>=3.0.0" "beautifulsoup4>=4.12.0"
 
-RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; import ris_adapter.register; print('✓ Base packages installed')"
+# The spatial engine, installed WITH its dependencies (unlike the workspace
+# packages above, whose deps come from the lockfile). Deliberately a separate
+# layer and deliberately not in `uv.lock`: IfcOpenShell ships prebuilt wheels
+# per platform, it is the only consumer of shapely in this image, and a
+# deployment that never answers a geometric question should be able to drop
+# this one line. `ifc_measure` degrades to a plain refusal when the import
+# fails — it never reports a missing engine as an unreadable building.
+RUN uv pip install -e ./packages/ifc-spatial-py
+
+RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; import ris_adapter.register; print('✓ Base packages installed')" \
+    && /app/.venv/bin/python -c "import ifc_spatial.tools; print('✓ Spatial engine installed')"
 
 RUN chmod +x /app/deploy/start_web.py \
     && mkdir -p /app/data \

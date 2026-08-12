@@ -22,11 +22,12 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
-import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { bimQuerySchema, runBimQuery, BimModelNotReadyError } from '@/lib/bim/query'
-import { listBimModels, type BimModelHeader } from '@/lib/bim/repository'
-import { FEATURE_FLAGS, enforcementOn, ifcModelsEnvEnabled } from '@/lib/authz/feature-flags'
-import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
+import {
+  assertInternalIfcModelsEnabled,
+  describeModel,
+  resolveInternalModel,
+} from '@/lib/bim/internal-access'
 
 const requestSchema = z
   .object({
@@ -47,111 +48,25 @@ const requestSchema = z
     message: 'projectId or modelId is required',
   })
 
-/** Public shape of a model in the disambiguation list. */
-function describe(model: BimModelHeader) {
-  return {
-    modelId: model.id,
-    filename: model.filename,
-    status: model.status,
-    projectName: model.summary?.projectName ?? null,
-    elements: model.summary?.totals.elements ?? model.elementCount,
-    storeys: model.summary?.totals.storeys ?? 0,
-  }
-}
-
 export const POST = internalApiRoute(
   'Internal BIM Query',
   async ({ request }) => {
     const { organizationId, projectId, modelId, modelName, compareWithName, query } =
       await parseJsonBody(request, requestSchema)
 
-    // The SAME gate the UI and every user-facing route apply, evaluated
-    // per-organization because this route carries a service token and no
-    // session. Without it the flag gated the upload and the pages while the
-    // agent kept answering questions about the building indefinitely — the
-    // registry comment and ADR-0045 both say it is gated, and it was not.
-    //
-    // Mirrors `isIfcModelsEnabled` for a caller that has a service token and no
-    // session: under enforcement the per-org flag decides (`isOrgFeatureEnabled`
-    // is itself fail-closed on a lookup error); without it, the deployment-level
-    // switch does — which defaults to ON, like the UI. The point is that the
-    // two agree: the agent answering questions about a building makes the same
-    // claim the UI makes, so withdrawing the feature has to stop both.
-    const allowed = enforcementOn()
-      ? await isOrgFeatureEnabled(FEATURE_FLAGS.ifcModels, organizationId)
-      : ifcModelsEnvEnabled()
-    if (!allowed) {
-      throw new ForbiddenError('IFC models are not enabled for this organization')
-    }
+    // The gate and the model resolution both live in `lib/bim/internal-access`,
+    // shared with `POST /api/internal/bim/source` — see that module's header
+    // for why a second internal route may not carry a second copy of the rule.
+    await assertInternalIfcModelsEnabled(organizationId)
 
-    // `?? null`, NOT `?? undefined`: `listBimModels` reads an UNDEFINED
-    // projectId as "no project predicate at all", i.e. every model in the
-    // organization. A project-less chat (org-level or Archiv) would then
-    // resolve — and answer questions about — models in projects the asker
-    // holds no grant on, and every `resolved: false` branch below returns
-    // `models: readable.map(describe)`, which hands out their UUIDs. `null`
-    // scopes to the org-wide Archiv, which is what a project-less
-    // conversation is entitled to.
-    const candidates = await listBimModels(organizationId, {
-      projectId: projectId ?? null,
-      includeArchiv: true,
-      // The ceiling, not the default 50. This list is what a MODEL NAME is
-      // resolved against, and a project plus the org Archiv can hold more than
-      // fifty files — past which "Kein Modell mit dem Namen … gefunden" is a
-      // fact about the page size, and the `readable.length === 1`
-      // auto-selection below picks from a clipped list without saying so.
-      limit: 200,
+    const resolution = await resolveInternalModel({
+      organizationId,
+      projectId,
+      modelId,
+      modelName,
     })
-    // Only `ready` models can answer anything. A model still extracting is
-    // reported as such below rather than filtered into silence, because "the
-    // model is still being read" and "there is no model" are different answers
-    // and the agent must not conflate them.
-    const readable = candidates.filter((model) => model.status === 'ready')
-
-    let selected: BimModelHeader | undefined
-    if (modelId) {
-      selected = candidates.find((model) => model.id === modelId)
-      if (!selected) throw new NotFoundError('Model not found in this organization')
-    } else if (modelName) {
-      const needle = modelName.toLowerCase()
-      const matches = readable.filter((model) => model.filename.toLowerCase().includes(needle))
-      if (matches.length === 0) {
-        return {
-          resolved: false,
-          reason: 'no_match',
-          message: `Kein Modell mit dem Namen „${modelName}“ gefunden.`,
-          models: readable.map(describe),
-        }
-      }
-      if (matches.length > 1) {
-        return {
-          resolved: false,
-          reason: 'ambiguous',
-          message: `Mehrere Modelle passen auf „${modelName}“. Bitte eines auswählen.`,
-          models: matches.map(describe),
-        }
-      }
-      selected = matches[0]
-    } else if (readable.length === 1) {
-      selected = readable[0]
-    } else if (readable.length === 0) {
-      return {
-        resolved: false,
-        reason: candidates.length > 0 ? 'not_ready' : 'no_models',
-        message:
-          candidates.length > 0
-            ? 'Für dieses Projekt wird derzeit ein IFC-Modell verarbeitet. Es steht noch nicht zur Abfrage bereit.'
-            : 'Für dieses Projekt ist kein IFC-Modell hinterlegt.',
-        models: candidates.map(describe),
-      }
-    } else {
-      return {
-        resolved: false,
-        reason: 'ambiguous',
-        message: 'Für dieses Projekt gibt es mehrere IFC-Modelle. Bitte eines auswählen.',
-        models: readable.map(describe),
-      }
-    }
+    if (!resolution.resolved) return resolution
+    const { model: selected, readable } = resolution
 
     // Both two-revision ops name their counterpart by file name, and resolving
     // it here keeps the tool free of ids on both sides of the comparison.
@@ -172,7 +87,7 @@ export const POST = internalApiRoute(
           resolved: false,
           reason: 'compare_target_missing',
           message: 'Für einen Vergleich muss die zweite Revision benannt werden.',
-          models: readable.map(describe),
+          models: readable.map(describeModel),
         }
       }
       const needle = compareWithName.toLowerCase()
@@ -188,7 +103,7 @@ export const POST = internalApiRoute(
             matches.length === 0
               ? `Keine zweite Revision mit dem Namen „${compareWithName}“ gefunden.`
               : `Mehrere Revisionen passen auf „${compareWithName}“. Bitte eindeutig benennen.`,
-          models: readable.map(describe),
+          models: readable.map(describeModel),
         }
       }
       resolvedQuery = { ...query, baseModelId: matches[0].id }
@@ -205,7 +120,7 @@ export const POST = internalApiRoute(
           resolved: false,
           reason: error.modelStatus === 'failed' ? 'extraction_failed' : 'not_ready',
           message: error.message,
-          models: [describe(selected)],
+          models: [describeModel(selected)],
         }
       }
       // Anything else is OURS, not the caller's. Turning a statement timeout

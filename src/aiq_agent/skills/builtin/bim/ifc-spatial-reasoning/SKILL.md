@@ -75,9 +75,9 @@ nicht eine davon auswählen.
 ## 5. Geometrie kostet Zeit — nicht auf Verdacht messen
 
 `briefing`, `find_elements`, `element`, `storey_heights` antworten sofort.
-Alles, was Raumbegrenzungen braucht — `relations opensTo`, `adjacentSpaces`,
-`bounds` — kostet beim ersten Mal mehrere Sekunden, danach nichts mehr.
-`draw` braucht rund fünf Sekunden.
+Alles, was Raumbegrenzungen braucht — `relations` mit `opensTo`, `adjacentSpaces`
+oder `bounds` — kostet beim ersten Mal mehrere Sekunden, danach nichts mehr.
+`draw`, `overhang` und `light_incidence` brauchen jeweils rund fünf Sekunden.
 
 Also: erst die Frage klären, dann gezielt messen. Nicht drei Operatoren
 ausprobieren, um zu sehen, welcher etwas liefert.
@@ -86,12 +86,17 @@ ausprobieren, um zu sehen, welcher etwas liefert.
 
 Gebäude → Geschoß → Raum → Bauteil. Für „passt dieses Fenster mit dem Dach":
 
-1. `find_elements` → die GlobalId des Fensters
-2. `relations hostedIn` → in welcher Wand es sitzt
-3. `relations opensTo` → welchen Raum es belichtet
-4. `measure floorArea` → dessen Bodenfläche
-5. `measure sillAndHead` → Brüstung und Sturz
-6. dann erst der Überstand und das Prisma
+1. `find_elements` (`ifc_type: "IfcWindow"`) → die GlobalId des Fensters
+2. `relations` + `relation: "hostedIn"` → in welcher Wand es sitzt
+3. `relations` + `relation: "opensTo"` → welchen Raum es belichtet
+4. `measure` + `measure: "floorArea"` → dessen Bodenfläche
+5. `measure` + `measure: "sillAndHead"` → Brüstung und Sturz
+6. `overhang` — `global_id` = das auskragende Bauteil (das Dach aus
+   `find_elements` mit `ifc_type: "IfcRoof"`), `other_global_id` = die Wand aus
+   Schritt 2, deren Außenfläche die Bezugsebene ist
+7. `light_incidence` — `global_id` = das Fenster, `angle_deg` und `swivel_deg`
+   aus der **Bestimmung** (für OIB 3: 45 und 30). Ohne Winkel verweigert das
+   Werkzeug, und das ist Absicht: es kennt kein Regelwerk und soll keines kennen.
 
 Jeder Schritt liefert die Eingabe des nächsten. Nicht mit dem Prisma anfangen.
 
@@ -109,9 +114,13 @@ angewandt, sondern übersprungen.
 
 ## 8. Zeichnen, wenn Hinsehen hilft
 
-`draw` — für „welches Bauteil ist gemeint", zum Beleg einer Antwort, oder um zu
-prüfen, ob eine Zahl überhaupt plausibel ist. `view: "section"` zeigt Profile
-und Überstände, `plan` die Anordnung, `elevation` eine Fassade.
+`operation: "draw"` liefert **einen Grundriss** als SVG — Wandschnitt, Raumzellen
+mit Namen, Öffnungen als Lücken. `storey` schränkt auf ein Geschoß ein (Name
+wörtlich aus dem Briefing), `ifc_type` auf einen Bauteiltyp.
+
+Schnitt und Ansicht gibt es **nicht**. Ein Überstand wird gemessen
+(`operation: "overhang"`), nicht gezeichnet — also keinen Schnitt anbieten und
+keinen ankündigen.
 
 Die Zeichnung ist eine Darstellung, keine Quelle. Maße stehen daneben, nie
 darin.

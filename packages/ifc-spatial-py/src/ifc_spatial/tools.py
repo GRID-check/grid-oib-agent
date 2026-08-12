@@ -608,6 +608,64 @@ def create_tools(cache: Optional[SpatialCache] = None) -> list[ToolDef]:
             handler=draw,
         ),
         ToolDef(
+            name="overhang",
+            title="Auskragung über eine Fassadenebene",
+            description=(
+                "Wie weit ein Bauteil über die Fassadenebene eines anderen hinausragt, senkrecht zu "
+                "dieser Ebene, in Metern. Das ist die Zahl für einen Dachüberstand, einen Balkon oder ein "
+                "Vordach.\n\n"
+                "projecting: das auskragende Bauteil (Dach, Balkon). facade: das Bauteil, dessen "
+                "Außenfläche die Bezugsebene ist — meist die Wand darunter, die relations hostedIn zu "
+                "einem Fenster liefert.\n\n"
+                "Gemessen (`computed`) mit Toleranz. Nie als Modellangabe berichten."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "projecting": {"type": "string", "description": "GlobalId des auskragenden Bauteils"},
+                    "facade": {"type": "string", "description": "GlobalId des Bauteils, dessen Fassadenebene gilt"},
+                },
+                "required": ["model", "projecting", "facade"],
+            },
+            handler=lambda args: _jsonable(
+                op.overhang(resolve(args.get("model")), _require(args, "projecting"), _require(args, "facade"))
+            ),
+        ),
+        ToolDef(
+            name="light_incidence",
+            title="Freier Lichteinfall auf eine Öffnung",
+            description=(
+                "Baut das Lichtprisma über der Unterkante einer Öffnung und meldet, welche Bauteile "
+                "hineinragen und wie tief. Beantwortet „ist der Lichteinfall frei\" GEOMETRISCH.\n\n"
+                "angle und swivel sind PARAMETER AUS DER BESTIMMUNG, nicht aus dem Modell. Für OIB 3 "
+                "sind das 45 und 30 Grad — sie sind trotzdem zu übergeben, weil dieses Werkzeug kein "
+                "Regelwerk kennt und keines kennen soll.\n\n"
+                "WICHTIG: Das Ergebnis ist keine Beurteilung. Ein geschnittenes Prisma VERGRÖSSERT nach "
+                "OIB 3 die erforderliche Lichteintrittsfläche — es verbietet das Fenster nicht. Aus "
+                "„blockiert\" ein „nicht erfüllt\" zu machen überspringt die Bestimmung, statt sie "
+                "anzuwenden. Berichte, was hineinragt und wie tief, und wende dann die Klausel an.\n\n"
+                "exclude: GlobalIds, die nicht als Hindernis zählen — die eigene Wand gehört meist dazu.\n"
+                "Braucht Geometrie: einige Sekunden beim ersten Aufruf auf ein Modell."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "globalId": {"type": "string", "description": "GlobalId der Öffnung oder ihrer Füllung"},
+                    "angle": {"type": "number", "description": "Lichteinfallswinkel in Grad, aus der Bestimmung"},
+                    "swivel": {"type": "number", "default": 0, "description": "seitliche Verschwenkung in Grad"},
+                    "exclude": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "GlobalIds, die nicht als Hindernis zählen",
+                    },
+                },
+                "required": ["model", "globalId", "angle"],
+            },
+            handler=lambda args: _light_incidence(resolve(args.get("model")), args),
+        ),
+        ToolDef(
             name="storey_heights",
             title="Geschoßhöhen",
             description=(
@@ -750,3 +808,53 @@ __all__ = [
     "call",
     "create_tools",
 ]
+
+
+def _require(args: dict[str, Any], key: str) -> str:
+    """A required GlobalId, or a mistake the model can correct."""
+    value = args.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ToolError(f"{key} fehlt — eine GlobalId angeben (aus find_elements)")
+    return value.strip()
+
+
+def _light_incidence(model: SpatialModel, args: dict[str, Any]) -> Any:
+    """The prism and what intrudes into it, in one call.
+
+    Composed here rather than left to the caller because the halves are not
+    independently useful: a prism nobody tested against the building answers
+    nothing, and ``obstructions`` needs a volume the caller cannot build without
+    this module's facade-plane resolution. One call also keeps the seconds of
+    geometry work behind a single deliberate request rather than two.
+
+    What it does not do is decide. The angles arrive from the clause and the
+    intrusion depths go back to it; the verdict belongs to the rulebook, and the
+    description says so where the model will read it.
+    """
+    opening = _require(args, "globalId")
+
+    angle = args.get("angle")
+    if isinstance(angle, bool) or not isinstance(angle, (int, float)) or not 0 < float(angle) < 90:
+        raise ToolError("angle muss ein Winkel zwischen 0 und 90 Grad sein — der Wert kommt aus der Bestimmung")
+    swivel = args.get("swivel") or 0
+    if isinstance(swivel, bool) or not isinstance(swivel, (int, float)) or not 0 <= float(swivel) < 90:
+        raise ToolError("swivel muss zwischen 0 und 90 Grad liegen")
+
+    built = op.prism(model, opening, float(angle), float(swivel))
+    if not built.decidable or built.value is None:
+        return _jsonable(built)
+
+    exclude = [e for e in (args.get("exclude") or []) if isinstance(e, str)]
+    found = op.obstructions(model, built.value, exclude=exclude or None)
+    payload = _jsonable(found)
+    if isinstance(payload, dict):
+        blocking = found.value or []
+        payload["free"] = bool(found.decidable and not blocking)
+        payload["prism"] = {"angleDeg": float(angle), "swivelDeg": float(swivel), "openingId": opening}
+        note = (
+            "Diese Antwort ist Geometrie, kein Befund: ein geschnittenes Prisma vergrößert nach OIB 3 "
+            "die erforderliche Lichteintrittsfläche, es verbietet das Fenster nicht. Die Bewertung "
+            "gehört zum Regelwerk."
+        )
+        payload["caveat"] = f"{payload['caveat']} {note}" if payload.get("caveat") else note
+    return payload
