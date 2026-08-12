@@ -938,6 +938,42 @@ phase is not done until both exist.
 | **4** | briefing, disclosure ladder, derivation objects, triangulation | the skill's procedure moves *into* the platform; the skill shrinks to judgment | a tool that *can* answer becomes an agent that reliably *does* |
 | **5** | check schema + IDS export | OIB checks authored as skills by domain experts, no PR | the catalogue stops being six property lookups |
 
+### 12b. Amendment (2026-08-12): where the phases actually stand
+
+Written against shipped code and green tests, not against intent. `ifc_measure`
+is live in `configs/config_oib_openrouter.yml`, backed by
+`packages/ifc-spatial-py`, with the skill in
+`src/aiq_agent/skills/builtin/bim/ifc-spatial-reasoning/`.
+
+| phase | state | evidence |
+|---|---|---|
+| **0** relation graph | **done** | IfcOpenShell holds every inverse attribute; `relations` exposes eleven of them |
+| **1** placements, AABB, azimuth, footprints | **done except OBB** | `measure/extent` is AXIS-ALIGNED — on a skewed wall `width`/`depth` are systematically too large and are not its length and thickness |
+| **2** space polygons, adjacency, boundary fallback | **done** | `bounds`/`adjacentSpaces`/`opensTo` fall back to a geometric contact map with a budget; the sample house declares no `IfcRelSpaceBoundary` at all |
+| **2** extraction → worker | **not done** | still in-request, bounded instead by a memory-derived admission gate (`BIM_SPATIAL_MAX_MODEL_BYTES`) |
+| **3** prism, obstructions, ray, overhang | **done** | `light_incidence`, `overhang`; the original failing turn is a standing regression |
+| **3** Lichteinfall **ratio** | **done** | `measure/lightEntryArea` — the „Raum-%" half of the failing answer, external openings only |
+| **3** clear widths | **missing** | `distance` measures centroids and boxes; a *lichte Breite* needs face-to-face |
+| **3** Fluchtweglängen | **missing** | adjacency is not walkability: two rooms sharing a wall with no door are adjacent and unreachable |
+| **3** room depth | **missing** | `depth(space, facade)` — daylight falls off with depth and OIB 3 turns on it |
+| **4** briefing, disclosure, derivations, triangulation | **done** | every answer carries `provenance`/`tolerance`/`method`/`from`; `decidable:false` carries `missing.remedy` |
+| **4** the agent can SEE | **done** | `operation: "view"` returns a raster image block with `highlight`/`only`; `draw` returns a path the agent cannot read |
+| **5** IDS export | **missing** | the shopping list is German prose in a chat turn, not a file an architect can run in Solibri |
+| **13** sun path | **missing** | georeferencing makes it possible and does not make it built; the sample house declares 51°30′N |
+
+Two entries above are corrections rather than progress, and both were found by
+reading rendered answers rather than by reading code:
+
+- `DISTANCE_MODES["horizontal"]` was documented as „what a lichte Breite check
+  needs". It is an Achsabstand — on a 1.00 m opening between two 30 cm walls,
+  1.30 m, in the direction that turns a failed escape-route width into a passing
+  one.
+- `light_entry_area` first summed every opening bounding a room and put the
+  sample bedroom at 25.3 %; the door to the hallway is 1.71 m². Split by
+  external/internal it is 14.21 %. Two opposite answers to one daylight check.
+
+---
+
 Phase 0 is days and reverses no decision. Phase 4 is the one most often skipped
 and most responsible for the gap between "the data is there" and "the agent used
 it" — it is also the phase the literature measures least and we can measure
