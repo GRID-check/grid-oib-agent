@@ -56,11 +56,16 @@ function useResolvedModel(
     if (models.length === 0) return null
     if (!modelFile) return pickDefaultModel(models)
     const needle = modelFile.toLowerCase()
-    return (
-      models.find((candidate) => candidate.filename.toLowerCase() === needle) ??
-      models.find((candidate) => candidate.filename.toLowerCase().includes(needle)) ??
-      null
-    )
+    const exact = models.find((candidate) => candidate.filename.toLowerCase() === needle)
+    if (exact) return exact
+    // AMBIGUOUS is not resolved. `ifc_query` declines to answer when a name
+    // hits more than one ready model (`internal/bim/query/route.ts`), and this
+    // took the first hit — so for a project holding `haus-a.ifc` and
+    // `haus-a-alt.ifc` the tool correctly refused while the card beside that
+    // same answer drew a DIFFERENT building's geometry under the agent's
+    // title.
+    const partial = models.filter((candidate) => candidate.filename.toLowerCase().includes(needle))
+    return partial.length === 1 ? partial[0] : null
   }, [models, modelFile])
   // `isLoading` is narrowed to "and nothing to show yet": the list polls every
   // four seconds while any model is extracting and keeps its previous data
@@ -797,6 +802,13 @@ export function IfcDiffCard({
     <CardShell title={title} icon={GitCompare}>
       {!model || !baseModel ? (
         <NoModel isLoading={modelsLoading} error={modelsError} />
+      ) : model.id === baseModel.id ? (
+        // Both names resolved to the same revision — the ordinary case of the
+        // agent naming the current model as `base_model_file`, or a substring
+        // matching both. The query is deliberately not sent, so the branch
+        // below saw `comparison: null` and reported a broken comparison for
+        // something that simply has nothing to compare.
+        <p className="text-muted-foreground text-sm">{t('compare.sameRevision')}</p>
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error || !comparison ? (

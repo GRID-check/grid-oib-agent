@@ -125,6 +125,7 @@ export const bim = {
       'Matched by IFC GlobalId, so a re-export that renumbers everything still reports no change.',
     against: 'Compare against',
     ranAgainst: 'Compared against {model}',
+    sameRevision: 'Both names refer to the same revision, so there is nothing to compare.',
     none: 'Upload a second revision to compare.',
     run: 'Compare',
     running: 'Comparing…',
@@ -440,6 +441,8 @@ export const bim = {
     openStorey: 'Open storey {name} in the model',
     unresolved: '{count} of the highlighted elements are not in this model.',
     unresolvedOne: 'One of the highlighted elements is not in this model.',
+    highlightsFailed:
+      'The highlighted set could not be resolved, so nothing is marked here. That is not a result about the building.',
     noModel: 'The referenced model is not available in this project.',
   },
 }

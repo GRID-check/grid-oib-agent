@@ -127,6 +127,7 @@ export const bim: typeof en.bim = {
       'Abgeglichen über die IFC-GlobalId: Ein Re-Export, bei dem sich nur die internen Nummern der Datei ändern, meldet daher keine Änderung.',
     against: 'Vergleichen mit',
     ranAgainst: 'Verglichen mit {model}',
+    sameRevision: 'Beide Namen bezeichnen denselben Stand — es gibt nichts zu vergleichen.',
     none: 'Laden Sie einen zweiten Stand hoch, um zu vergleichen.',
     run: 'Vergleichen',
     running: 'Wird verglichen…',
@@ -425,6 +426,8 @@ export const bim: typeof en.bim = {
     openStorey: 'Geschoß {name} im Modell öffnen',
     unresolved: '{count} der hervorgehobenen Bauteile sind in diesem Modell nicht enthalten.',
     unresolvedOne: 'Eines der hervorgehobenen Bauteile ist in diesem Modell nicht enthalten.',
+    highlightsFailed:
+      'Die hervorgehobene Auswahl konnte nicht ermittelt werden — hier ist daher nichts markiert. Das ist kein Ergebnis über das Gebäude.',
     noModel: 'Das referenzierte Modell ist in diesem Projekt nicht verfügbar.',
   },
 }

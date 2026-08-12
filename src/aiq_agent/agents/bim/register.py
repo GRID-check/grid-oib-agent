@@ -103,7 +103,7 @@ _TOOL_DESCRIPTION = (
     "changes. This is the question no pair of PDFs can answer — use it for 'what changed since "
     "the last submission'.\n"
     "  'aggregate'  — count/sum/avg/min/max over the matching elements, optionally grouped by "
-    "ifcType, storey, predefinedType, typeName, material or property. This is how you answer "
+    "ifcType, storey, predefinedType, typeName or material. This is how you answer "
     "'how many' and 'how much' — never add up an element list yourself.\n"
     "\n"
     'filters (JSON object, all optional): {"ifcTypes": ["IfcWall"], "storeys": '
@@ -190,6 +190,38 @@ _TOOL_DESCRIPTION = (
     "leave it empty when there is only one. Report the numbers this tool returns as they are — "
     "do not recompute, round differently, or extrapolate them."
 )
+
+
+# The Hauptnutzung values the rule catalogue knows — mirroring
+# `BIM_HAUPTNUTZUNG` in `lib/bim/query.ts`, whose zod enum rejects anything
+# else outright.
+_HAUPTNUTZUNGEN = frozenset(
+    {
+        "wohnen",
+        "buero",
+        "beherbergung",
+        "versammlung",
+        "gesundheit",
+        "landwirtschaft",
+        "produzierend",
+        "lager",
+        "sonstiges",
+    }
+)
+
+
+def _valid_hauptnutzung(value: str) -> str:
+    """The Hauptnutzung if the catalogue knows it, else "" — see below.
+
+    The tool description says an unrecognised value makes the rules that need
+    it "stand down as not applicable". It did not: the value went into a
+    `.strict()` object whose field is an enum, so `"wohngebäude"` produced a
+    400 and the whole compliance run failed — on a value the description
+    presents as merely imprecise. Its sibling `_valid_gebaeudeklasse` is
+    sanitised here for exactly this reason; this one was not.
+    """
+    lowered = value.strip().lower()
+    return lowered if lowered in _HAUPTNUTZUNGEN else ""
 
 
 def _valid_gebaeudeklasse(value: int | None) -> int:
@@ -339,8 +371,9 @@ def _build_query(
         compliance_query: dict[str, Any] = {"op": operation}
         if _valid_gebaeudeklasse(gebaeudeklasse):
             compliance_query["gebaeudeklasse"] = _valid_gebaeudeklasse(gebaeudeklasse)
-        if hauptnutzung.strip():
-            compliance_query["hauptnutzung"] = hauptnutzung.strip().lower()
+        nutzung = _valid_hauptnutzung(hauptnutzung)
+        if nutzung:
+            compliance_query["hauptnutzung"] = nutzung
         return compliance_query
 
     if operation == "overview":
@@ -354,10 +387,22 @@ def _build_query(
     if operation == "profile":
         return {"op": "profile"}
     if operation == "takeoff":
+        # The only split a Massenermittlung has. `byMaterial = group_by ==
+        # "material"` turned every other value into `false` with no error, so
+        # `group_by="storey"` returned a building-wide take-off that the agent
+        # then reported as a per-storey breakdown — the unfiltered-number-as-
+        # filtered failure the endpoint's `.strict()` exists to prevent,
+        # reintroduced one layer up.
+        grouping = group_by.strip().lower()
+        if grouping and grouping != "material":
+            return (
+                f"Error: operation 'takeoff' can only group by 'material', not '{group_by.strip()}'. "
+                "Use 'aggregate' with metric='sum' to group a quantity by storey or type."
+            )
         return {
             "op": "takeoff",
             "quantity": quantity.strip() or "NetSideArea",
-            "byMaterial": group_by.strip().lower() == "material",
+            "byMaterial": grouping == "material",
             "filter": parsed_filters,
         }
     if operation == "compare":
@@ -389,6 +434,16 @@ def _build_query(
             return f"Error: metric '{aggregate['metric']}' needs a 'quantity' (e.g. NetFloorArea)."
         aggregate["quantity"] = quantity.strip()
     if group_by.strip():
+        # `property` needs a companion `groupProperty {set, name}` that this
+        # tool has no parameter for, so the endpoint rejects it every time and
+        # the agent has no argument it can correct. Refused here, where the
+        # message can say what to do instead, rather than as a 400.
+        if group_by.strip().lower() == "property":
+            return (
+                "Error: group_by='property' is not available through this tool. "
+                "Use operation='properties' to see which values a property takes and how many "
+                "elements carry each, or filter on the property and count."
+            )
         aggregate["groupBy"] = group_by.strip()
     return aggregate
 
@@ -432,7 +487,18 @@ def _render(
             listed = ", ".join(
                 f"{m.get('filename')} ({m.get('status')}, {m.get('elements', 0)} Bauteile)" for m in models[:10]
             )
-            return f"{message} Verfügbare Modelle: {listed}."
+            # "Verfügbare" only when the model list really is a set of
+            # alternatives. On `not_ready`/`extraction_failed` the route
+            # returns the model that could not be read, so this heading told
+            # the agent a file it had just been refused was available — and
+            # `(processing, 0 Bauteile)` beside it reads as a building with no
+            # elements.
+            heading = (
+                "Verfügbare Modelle"
+                if result.get("reason") in {"no_match", "ambiguous"}
+                else "Modelle in diesem Projekt (noch nicht abfragbar)"
+            )
+            return f"{message} {heading}: {listed}."
         return str(message)
 
     lines: list[str] = []
@@ -528,10 +594,18 @@ def _render(
         # The endpoint already renders the German verdict lines into `summary`;
         # what the model needs on top is the shopping list, because that is the
         # part it must hand back to the architect as actions.
-        for entry in (result.get("complianceShoppingList") or [])[:15]:
+        shopping = result.get("complianceShoppingList") or []
+        for entry in shopping[:15]:
             rules = ", ".join(entry.get("rules") or [])
             lines.append(f"- fehlt: {entry.get('path')} an {entry.get('elements')} Bauteilen (entscheidet: {rules})")
-        for rule in (result.get("compliance") or [])[:40]:
+        # Every cut list says what it left out — `_clipped`'s own invariant,
+        # applied to six lists in this renderer and skipped for these three.
+        clipped = _clipped(shopping, 15, "fehlende Merkmale")
+        if clipped:
+            lines.append(clipped)
+
+        rules_all = result.get("compliance") or []
+        for rule in rules_all[:40]:
             # The rule id, printed for every rule that left work behind.
             #
             # `ifc_compliance` asks for "rule ids from ifc_query
@@ -548,7 +622,8 @@ def _render(
                     f"- Regel {rule_id}: {rule.get('titleDe')} — {failed} nicht erfüllt, "
                     f"{undecidable} nicht entscheidbar"
                 )
-            for verdict in (rule.get("failures") or [])[:10]:
+            failures = rule.get("failures") or []
+            for verdict in failures[:10]:
                 # A breach opens RED. This is the one place the tool knows the
                 # verdict at link time, and it used to throw it away.
                 link = _element_link(project_id, filename, verdict.get("globalId"), "fail")
@@ -557,6 +632,15 @@ def _render(
                     f"  ✗ {rule.get('richtlinie')} {verdict.get('name') or verdict.get('globalId')}: "
                     f"{verdict.get('reading')}{suffix}"
                 )
+            # The server list is itself capped at 25 verdicts per rule, so ten
+            # of them presented as the complete set of breaches is a cap on a
+            # cap. `failed` above is the real count; this says the LIST is not.
+            clipped = _clipped(failures, 10, "betroffene Bauteile")
+            if clipped:
+                lines.append(f"  {clipped}")
+        clipped = _clipped(rules_all, 40, "Regeln")
+        if clipped:
+            lines.append(clipped)
         # The list of open items is the answer; this is what the architect DOES
         # with it. Emitted as a path rather than described as a template, for
         # the same reason the element links are.
@@ -629,7 +713,13 @@ def _truncation_note(op: str) -> str:
     return "(Weitere Treffer vorhanden — Abfrage eingrenzen oder aggregieren.)"
 
 
-def _trace(query: dict[str, Any], result: dict[str, Any] | None, *, unavailable: bool = False) -> None:
+def _trace(
+    query: dict[str, Any],
+    result: dict[str, Any] | None,
+    *,
+    unavailable: bool = False,
+    outcome: str | None = None,
+) -> None:
     """Tell Langfuse what this call did, since the BFF cannot (ADR-0045).
 
     Everything expensive in a research turn is traced span by span in the agent
@@ -658,6 +748,9 @@ def _trace(query: dict[str, Any], result: dict[str, Any] | None, *, unavailable:
     add_trace_tag("feature:ifc")
 
     operation = str(query.get("op", "unknown"))
+    if outcome is not None:
+        record_trace_metadata(ifc_op=operation, ifc_outcome=outcome)
+        return
     if unavailable:
         record_trace_metadata(ifc_op=operation, ifc_outcome="service_unavailable")
         return
@@ -750,7 +843,10 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
             # unavailable" — which ends the turn on a typo, with the model
             # instructed to say nothing about the building.
             logger.info("ifc_query was rejected: %s", exc)
-            _trace(query, None, unavailable=True)
+            # NOT `service_unavailable` — the distinction this whole branch
+            # exists to draw. An operator auditing why an answer was wrong saw
+            # an infrastructure outage for what was a filter typo.
+            _trace(query, None, outcome="rejected")
             return (
                 f"Error: the query was rejected — {exc}. This is a problem with the arguments, "
                 "not with the model. Correct them and call the tool again. Do NOT state anything "

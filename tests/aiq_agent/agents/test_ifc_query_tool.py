@@ -104,6 +104,30 @@ class TestBuildQuery:
     def test_unknown_metric_is_refused(self):
         assert "metric must be one of" in build(operation="aggregate", metric="median")
 
+    def test_takeoff_refuses_a_grouping_it_cannot_do(self):
+        # `byMaterial = group_by == "material"` turned every other value into
+        # `false` with no error, so a request for a per-storey Massenermittlung
+        # returned the whole building's and the agent reported it as one floor's.
+        answer = build(operation="takeoff", quantity="NetSideArea", group_by="storey")
+        assert isinstance(answer, str)
+        assert "can only group by 'material'" in answer
+
+    def test_takeoff_still_splits_by_material(self):
+        assert build(operation="takeoff", quantity="NetSideArea", group_by="Material") == {
+            "op": "takeoff",
+            "quantity": "NetSideArea",
+            "byMaterial": True,
+            "filter": {},
+        }
+
+    def test_grouping_by_property_is_refused_here_rather_than_by_a_400(self):
+        # The endpoint requires a companion `groupProperty {set, name}` that
+        # this tool has no parameter for, so every attempt was rejected and the
+        # agent had no argument it could correct.
+        answer = build(operation="aggregate", metric="count", group_by="property")
+        assert isinstance(answer, str)
+        assert "operation='properties'" in answer
+
     @pytest.mark.parametrize("limit,expected", [(0, 1), (5, 5), (10_000, 200)])
     def test_limit_is_clamped(self, limit, expected):
         result = build(operation="elements", limit=limit)
@@ -396,6 +420,32 @@ class TestComplianceOperation:
             answer = build(operation=operation, filters='{"storeys": ["Erdgeschoss"]}')
             assert isinstance(answer, str), operation
             assert "takes no filters" in answer, operation
+
+    def test_an_unknown_hauptnutzung_is_omitted_rather_than_rejected(self):
+        # The description promises an unrecognised value makes the rules stand
+        # down. It did not: the value reached a `.strict()` object whose field
+        # is an enum, so the WHOLE compliance run came back 400 — on a value
+        # the description presents as merely imprecise.
+        assert build(operation="compliance", hauptnutzung="Wohngebäude") == {"op": "compliance"}
+
+    def test_every_hauptnutzung_the_catalogue_knows_is_passed_through(self):
+        # Mirrors `BIM_HAUPTNUTZUNG` in lib/bim/query.ts. A value dropped here
+        # is a rule that stands down for no reason.
+        for value in (
+            "wohnen",
+            "buero",
+            "beherbergung",
+            "versammlung",
+            "gesundheit",
+            "landwirtschaft",
+            "produzierend",
+            "lager",
+            "sonstiges",
+        ):
+            assert build(operation="compliance", hauptnutzung=value.upper()) == {
+                "op": "compliance",
+                "hauptnutzung": value,
+            }, value
 
     def test_the_diff_operation_is_addressable(self):
         assert build(operation="compliance-diff")["op"] == "compliance-diff"

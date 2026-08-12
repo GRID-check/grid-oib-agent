@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { IfcModelViewer } from '@/features/bim/components/ifc-model-viewer'
-import { resolveHighlights, supportsWebGpu } from '@/features/bim/lib/model-index'
+import { resolveHighlights, storeyKey, supportsWebGpu } from '@/features/bim/lib/model-index'
 import { buildModelHref } from '@/features/bim/lib/model-link'
 import {
   pickDefaultModel,
@@ -63,21 +63,41 @@ export function IfcViewerCard({
     const ready = models.filter((candidate) => candidate.status === 'ready')
     if (!modelFile) return pickDefaultModel(ready)
     const needle = modelFile.toLowerCase()
-    return (
-      ready.find((candidate) => candidate.filename.toLowerCase() === needle) ??
-      ready.find((candidate) => candidate.filename.toLowerCase().includes(needle)) ??
-      null
-    )
+    const exact = ready.find((candidate) => candidate.filename.toLowerCase() === needle)
+    if (exact) return exact
+    // AMBIGUOUS is not resolved — see the sibling resolver in
+    // `IfcDataCards.tsx`. `ifc_query` declines to answer when a name hits more
+    // than one ready model; taking the first hit here drew a different
+    // building under the agent's title.
+    const partial = ready.filter((candidate) => candidate.filename.toLowerCase().includes(needle))
+    return partial.length === 1 ? partial[0] : null
   }, [models, modelFile])
 
   const { data: elements } = useBimElements(model?.id ?? null)
+  /**
+   * The link named a storey this model does not have.
+   *
+   * Only once the rows are in: before that every name "matches nothing", and
+   * `storeyKey` is the same comparison the isolation itself uses, so a padded
+   * or differently-cased name is not a miss.
+   */
+  const storeyMissing = useMemo(() => {
+    if (!storey || !elements || elements.length === 0) return false
+    const wanted = storeyKey(storey)
+    return !elements.some((element) => storeyKey(element.storeyName) === wanted)
+  }, [storey, elements])
+
   const webGpu = useMemo(() => supportsWebGpu(), [])
   const source = useBimModelSource(model?.id ?? null, webGpu)
 
   // A group written as a FILTER is resolved against the model rather than
   // against the ids that happened to fit in the answer — see
   // `useBimHighlightGroups`. Groups that already carry ids cost no request.
-  const { data: groups } = useBimHighlightGroups(model?.id ?? null, highlights)
+  // `error` too. A filter-matched group falls back to an EMPTY id list when
+  // its walk fails — deliberately, so one bad group does not blank the card —
+  // and the legend then reads "(0)", which an architect reads as a clean
+  // result rather than as a request that never ran.
+  const { data: groups, error: groupsError } = useBimHighlightGroups(model?.id ?? null, highlights)
   const resolved = useMemo(() => groups ?? [], [groups])
 
   // Only once the elements are actually here. `useBimElements` returns `null`
@@ -144,6 +164,16 @@ export function IfcViewerCard({
         <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           {t('card.noModel')}
         </p>
+      ) : storeyMissing ? (
+        // A storey name the agent transcribed as `EG` where the export says
+        // `00 Erdgeschoss`. `expressIdsForStorey` returns an EMPTY set for a
+        // name that matches nothing on a model that DOES assign storeys, and
+        // the renderer reads that as "isolate nothing" — so the card became a
+        // blank grey box that reads as "this floor is empty". The sibling
+        // Raumbuch card names the same situation.
+        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {t('schedule.storeyEmpty', { storey: storey ?? '' })}
+        </p>
       ) : (
         <IfcModelViewer
           sourceUrl={source.data}
@@ -154,6 +184,9 @@ export function IfcViewerCard({
         />
       )}
 
+      {groupsError !== null && (
+        <p className="text-warning mt-2 text-xs">{t('card.highlightsFailed')}</p>
+      )}
       {unresolvedCount > 0 && (
         <p className="mt-2 text-xs text-warning">
           {unresolvedCount === 1
