@@ -125,15 +125,137 @@ describe('buildRoomSchedule', () => {
   it('exports a semicolon CSV with per-storey and grand totals', () => {
     const csv = roomScheduleToCsv(buildRoomSchedule(SUMMARY, ROOMS))
     const lines = csv.split('\n')
-    expect(lines[0]).toContain('Geschoss;Raum;Kategorie;Netto-Grundfläche (m²)')
-    expect(csv).toContain('Erdgeschoss;Wohnzimmer;INTERNAL;32;34.5;80;;g-Wohnzimmer')
-    expect(csv).toContain('Erdgeschoss — Summe;;;44.5')
-    expect(lines.at(-1)).toContain('Gesamt;;;62.5')
+    expect(lines[0]).toContain('Geschoß;Raum;Kategorie;Netto-Grundfläche (m²)')
+    expect(csv).toContain('Erdgeschoss;Wohnzimmer;INTERNAL;32;34,5;80;;g-Wohnzimmer')
+    // Comma decimals: the separator was already chosen for German-locale
+    // Excel, and `24.5` in such a file is read as TEXT — the downloaded
+    // Raumbuch would not sum, which is the one thing anyone downloads it for.
+    expect(csv).toContain('Erdgeschoss — Summe;;;44,5')
+    expect(lines.at(-1)).toContain('Gesamt;;;62,5')
+  })
+
+  it('counts a room once when two storeys share a name', () => {
+    /*
+      A Wohnhausanlage exported as one IFC carries an `IfcBuildingStorey` named
+      `Erdgeschoß` under each `IfcBuilding`. Rooms are bucketed by storey NAME,
+      and the storey loop pushed a block for every summary entry resolving to
+      that bucket — so both blocks held the same rooms and the building total
+      counted them twice. Two rooms of 40 and 60 m² came out as "4 Räume,
+      200 m²", which is the Netto-Grundfläche an architect copies into a
+      Flächenaufstellung.
+    */
+    const summary = {
+      ...SUMMARY,
+      storeys: [
+        { globalId: 'S1', name: 'Erdgeschoss', elevation: 0, expressId: 10, elementCount: 0 },
+        { globalId: 'S2', name: 'Erdgeschoss', elevation: 0, expressId: 20, elementCount: 0 },
+      ],
+    } as typeof SUMMARY
+    const schedule = buildRoomSchedule(summary, [
+      space('Wohnen A', 'Erdgeschoss', { NetFloorArea: 40 }),
+      space('Wohnen B', 'Erdgeschoss', { NetFloorArea: 60 }),
+    ])
+
+    expect(schedule.totals.rooms).toBe(2)
+    expect(schedule.totals.netFloorArea).toBe(100)
+    expect(schedule.storeys).toHaveLength(1)
+  })
+
+  it('does not label a single storey\u2019s sum as the building total', () => {
+    /*
+      The chat card downloads `{ ...schedule, storeys: filtered }` and `totals`
+      came through the spread untouched — so a file called "Raumbuch
+      Erdgeschoss" ended in a row labelled `Gesamt` carrying the whole
+      building's Netto-Grundfläche. The screen guards against exactly this and
+      says so in a comment; the file that reaches the Einreichung did not.
+    */
+    const whole = buildRoomSchedule(SUMMARY, ROOMS)
+    const oneFloor = whole.storeys.filter((entry) => entry.storeyName === 'Erdgeschoss')
+    const csv = roomScheduleToCsv(
+      { ...whole, storeys: oneFloor },
+      { storeyFilter: 'Erdgeschoss' }
+    )
+
+    expect(csv).toContain('Summe Erdgeschoss;;;44,5')
+    // 62,5 is the building. It must not appear in a one-storey file at all.
+    expect(csv).not.toContain('62,5')
+    expect(csv).not.toContain('Gesamt')
+  })
+
+  it('carries the caveats that are mandatory on screen into the file', () => {
+    // The downloaded Raumbuch was the one version of this Flächenaufstellung
+    // with no warning attached to it.
+    const csv = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [...ROOMS, space('Bad', 'Erdgeschoss')]),
+      { truncated: true }
+    )
+    expect(csv).toContain('Dieses Modell wurde nur teilweise eingelesen')
+    expect(csv).toContain('Räume ohne Flächenangabe: 1')
+  })
+
+  it('sums the published values, not their rounded display forms', () => {
+    // Each room is rounded to two decimals for the table; adding the ROUNDED
+    // figures accumulates up to half a centipoint per room, so on a large
+    // building the Raumbuch total drifted away from the Kennwerte
+    // Netto-Grundfläche computed off the same model — with nothing on either
+    // screen to explain the difference.
+    const thirds = Array.from({ length: 3 }, (_, index) =>
+      space(`R${index}`, 'Erdgeschoss', { NetFloorArea: 10.005 })
+    )
+    const schedule = buildRoomSchedule(SUMMARY, thirds)
+
+    // 3 × 10.005 = 30.015 → 30.02, not 3 × 10.01 = 30.03.
+    expect(schedule.storeys[0].netFloorArea).toBe(30.02)
+    expect(schedule.totals.netFloorArea).toBe(30.02)
+    // The ROWS still read as they always did.
+    expect(schedule.storeys[0].rooms[0].netFloorArea).toBe(10.01)
   })
 
   it('escapes a room name containing the separator', () => {
     const csv = roomScheduleToCsv(buildRoomSchedule(SUMMARY, [space('Bad; WC', 'Erdgeschoss', { NetFloorArea: 6 })]))
     expect(csv).toContain('"Bad; WC"')
+  })
+
+  it('does not let a room name become a formula in the spreadsheet it targets', () => {
+    // Room names come out of an uploaded IFC. A leading `=`, `+`, `-` or `@`
+    // makes Excel evaluate the cell — in the German-locale spreadsheet this
+    // export exists for, opened by whoever the Raumbuch was sent to. The
+    // apostrophe is Excel's own "this is text" marker and does not show.
+    const csv = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [space('=HYPERLINK("http://x","Bad")', 'Erdgeschoss', { NetFloorArea: 6 })])
+    )
+    expect(csv).toContain("'=HYPERLINK")
+    expect(csv).not.toMatch(/;=HYPERLINK/)
+  })
+
+  it('quotes a room name holding a bare carriage return, so it cannot forge rows', () => {
+    // Excel and most CSV readers end a row on a lone `\r` exactly as on `\n`.
+    // Unquoted, a name out of an uploaded IFC could therefore write its own
+    // extra lines into the Raumbuch a colleague downloads — invented rooms
+    // with invented areas, indistinguishable from model data. `\r\n` was
+    // already caught through its `\n`; the bare one was not.
+    const csv = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [
+        space('Bad\rZ99;Erfundener Raum;;999', 'Erdgeschoss', { NetFloorArea: 6 }),
+      ])
+    )
+    expect(csv).toContain('"Bad\rZ99;Erfundener Raum;;999"')
+    // And no more rows than the same room with an ordinary name produces.
+    const benign = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [space('Bad', 'Erdgeschoss', { NetFloorArea: 6 })])
+    )
+    expect(csv.split('\n')).toHaveLength(benign.split('\n').length)
+  })
+
+  it('still writes a negative number as a number, not as text', () => {
+    // The guard is for STRINGS. A `-2.5` in a numeric column is a value the
+    // spreadsheet has to be able to sum; prefixing it would break the one
+    // thing a downloaded Raumbuch is for.
+    const csv = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [space('Keller', 'Erdgeschoss', { NetFloorArea: -2.5 })])
+    )
+    expect(csv).toContain(';-2,5;')
+    expect(csv).not.toContain("'-2,5")
   })
 })
 

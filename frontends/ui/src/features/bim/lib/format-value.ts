@@ -47,3 +47,21 @@ export function formatMeasure(value: number | null, unit: string, locale: string
   const rounded = Math.round(value * 100) / 100
   return `${rounded.toLocaleString(locale)} ${unit}`
 }
+
+/**
+ * A length in metres, always to two decimals, in the interface locale.
+ *
+ * The trailing zero is kept on purpose: `2,40 m` is a dimension and `2,4 m` is
+ * a rounded-off estimate, and every drawing convention distinguishes them.
+ *
+ * The LOCALE is the point of this living here rather than in three files.
+ * `toFixed` writes a decimal POINT, and the measurement readout, the storey
+ * elevations in the Struktur tree, the Geschoße rail and the section-height
+ * caption all used it — so a German interface printed `2.40 m` for the one
+ * number an architect checks a Durchgangsbreite with, in the one notation
+ * where a point is a thousands separator. This file's header records the same
+ * bug for property values.
+ */
+export function formatMetresIn(metres: number, locale: string): string {
+  return metres.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}

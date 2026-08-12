@@ -146,7 +146,7 @@ describe('buildComplianceBcf', () => {
 
     expect(markup).toContain('Anforderung: Mindestens REI 60 in Gebäudeklasse 4')
     expect(markup).toContain('Quelle: OIB 2, Punkt 3.1')
-    expect(markup).toContain('Modellstand: Haus-A_V3.ifc (2026-05-04)')
+    expect(markup).toContain('Revision: Haus-A_V3.ifc (2026-05-04)')
     expect(markup).toContain('Ergebnis: 12 erfüllt, 1 nicht erfüllt, 2 nicht entscheidbar.')
     expect(markup).toContain('- Aussenwand Nord (EG): REI 30 — gefordert REI 60')
     expect(markup).toContain('- Pset_WallCommon.FireRating (2 Bauteile)')
@@ -299,6 +299,33 @@ describe('buildComplianceBcf', () => {
 
     expect(markup).toContain('… 4 weitere')
     expect(markup).not.toContain('mindestens')
+  })
+
+  it('lists at most twelve verdicts in a topic, and counts the rest', () => {
+    /*
+      The row cap and the remainder, both of which were dead in every test.
+
+      Every fixture here carries two verdicts against a `DESCRIPTION_ROWS` of
+      twelve, so the `slice(0, 12)` and the `Math.min` were never exercised:
+      replacing `shown` with `verdicts.length`, or dropping the slice, kept the
+      suite green while shipping a four-hundred-row topic description — in a
+      file that leaves the product and is opened in ArchiCAD.
+    */
+    const failures = Array.from({ length: 15 }, (_, index) => ({
+      globalId: `2O2Fr$t4X7Zf8NOew3FLK${index}`,
+      name: `Wand ${index}`,
+      storeyName: 'EG',
+      status: 'fail' as const,
+      reading: 'REI 30 — gefordert REI 60',
+    }))
+    const files = readZipEntries(
+      build([result({ failed: 15, truncated: false, failures })]).bytes
+    )
+    const markup = [...files.entries()].find(([path]) => path.endsWith('markup.bcf'))?.[1] ?? ''
+    const description = markup.slice(markup.indexOf('<Description>'), markup.indexOf('</Description>'))
+
+    expect(description.match(/- Wand /g)).toHaveLength(12)
+    expect(markup).toContain('… 3 weitere')
   })
 
   it('skips rules that pass, that are out of scope, and that have nothing to check', () => {

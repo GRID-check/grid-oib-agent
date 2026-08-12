@@ -139,24 +139,26 @@ describe('readableIfcType / humaniseIfcType', () => {
 
 describe('formatLevelElevation', () => {
   it('signs the number, which is the only thing the list is scanned for', () => {
-    expect(formatLevelElevation(3.2)).toBe('+3.20')
-    expect(formatLevelElevation(-2.8)).toBe('−2.80')
+    expect(formatLevelElevation(3.2, 'en-GB')).toBe('+3.20')
+    // The Geschoße rail is German for German readers, digits included.
+    expect(formatLevelElevation(3.2, 'de-AT')).toBe('+3,20')
+    expect(formatLevelElevation(-2.8, 'en-GB')).toBe('−2.80')
   })
 
   it('marks ground level as the datum rather than as a bare zero', () => {
-    expect(formatLevelElevation(0)).toBe('±0.00')
+    expect(formatLevelElevation(0, 'en-GB')).toBe('±0.00')
     // Rounding to centimetres lands exactly on the datum, and it should read
     // as the datum rather than as "+0.00", which looks like a rounding artefact.
-    expect(formatLevelElevation(0.001)).toBe('±0.00')
+    expect(formatLevelElevation(0.001, 'en-GB')).toBe('±0.00')
   })
 
   it('rounds to centimetres — a millimetre in a level list is noise', () => {
-    expect(formatLevelElevation(3.2049)).toBe('+3.20')
+    expect(formatLevelElevation(3.2049, 'en-GB')).toBe('+3.20')
   })
 
   it('leaves the unit to the dictionary', () => {
     // A number formatted here and captioned there is how "+3.20 m" ends up in
     // an otherwise German rail.
-    expect(formatLevelElevation(3.2)).not.toContain('m')
+    expect(formatLevelElevation(3.2, 'en-GB')).not.toContain('m')
   })
 })

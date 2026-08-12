@@ -104,6 +104,30 @@ class TestBuildQuery:
     def test_unknown_metric_is_refused(self):
         assert "metric must be one of" in build(operation="aggregate", metric="median")
 
+    def test_takeoff_refuses_a_grouping_it_cannot_do(self):
+        # `byMaterial = group_by == "material"` turned every other value into
+        # `false` with no error, so a request for a per-storey Massenermittlung
+        # returned the whole building's and the agent reported it as one floor's.
+        answer = build(operation="takeoff", quantity="NetSideArea", group_by="storey")
+        assert isinstance(answer, str)
+        assert "can only group by 'material'" in answer
+
+    def test_takeoff_still_splits_by_material(self):
+        assert build(operation="takeoff", quantity="NetSideArea", group_by="Material") == {
+            "op": "takeoff",
+            "quantity": "NetSideArea",
+            "byMaterial": True,
+            "filter": {},
+        }
+
+    def test_grouping_by_property_is_refused_here_rather_than_by_a_400(self):
+        # The endpoint requires a companion `groupProperty {set, name}` that
+        # this tool has no parameter for, so every attempt was rejected and the
+        # agent had no argument it could correct.
+        answer = build(operation="aggregate", metric="count", group_by="property")
+        assert isinstance(answer, str)
+        assert "operation='properties'" in answer
+
     @pytest.mark.parametrize("limit,expected", [(0, 1), (5, 5), (10_000, 200)])
     def test_limit_is_clamped(self, limit, expected):
         result = build(operation="elements", limit=limit)
@@ -155,7 +179,8 @@ class TestRender:
                 },
             }
         )
-        assert "Geschosse: Erdgeschoss (12 Bauteile)" in rendered
+        # Geschoß, the Austrian spelling the rest of the product uses.
+        assert "Geschoße: Erdgeschoss (12 Bauteile)" in rendered
         assert "Bauteiltypen: IfcWall (5), IfcSpace (4)" in rendered
 
     def test_element_lists_carry_the_global_id_the_viewer_highlights_by(self):
@@ -176,6 +201,20 @@ class TestRender:
             }
         )
         assert "IfcWall „Aussenwand Nord“ · Erdgeschoss · GlobalId 0GridFixtureWall0001" in rendered
+
+    def test_a_partial_whole_model_answer_is_not_advice_to_narrow_the_query(self):
+        # For `elements` a truncated result IS a long list and "narrow the
+        # query" is right. For a Raumbuch there is no list to narrow — the
+        # NUMBERS were computed over a window of the model, and telling the
+        # agent to aggregate harder invites it to quote a partial sum as a
+        # total, which is the failure the flag exists to prevent.
+        from aiq_agent.agents.bim.register import _truncation_note
+
+        assert "Teil des Modells" in _truncation_note("schedule")
+        assert "Teil des Modells" in _truncation_note("compliance")
+        assert "Teil des Modells" in _truncation_note("takeoff")
+        assert "eingrenzen" in _truncation_note("elements")
+        assert "eingrenzen" in _truncation_note("aggregate")
 
     def test_a_truncated_result_says_so(self):
         rendered = _render(
@@ -363,11 +402,50 @@ class TestComplianceOperation:
         # Clamping 9 to 5 would invent a requirement the project never stated.
         assert build(operation="compliance", gebaeudeklasse=9) == {"op": "compliance"}
 
-    def test_compliance_ignores_filters_it_cannot_use(self):
-        assert build(operation="compliance", filters='{"ifcTypes": ["IfcWall"]}', gebaeudeklasse=2) == {
-            "op": "compliance",
-            "gebaeudeklasse": 2,
-        }
+    def test_compliance_refuses_filters_rather_than_dropping_them(self):
+        # It used to drop them, which is the one thing the tool description
+        # promises never happens ("an unknown key is REJECTED, not ignored").
+        # A rule run asked for with `{"storeys": ["Erdgeschoss"]}` came back as
+        # a run over the WHOLE building, and the agent reported it as the
+        # ground floor's — a wrong verdict, arrived at silently.
+        answer = build(operation="compliance", filters='{"ifcTypes": ["IfcWall"]}', gebaeudeklasse=2)
+        assert isinstance(answer, str)
+        assert "takes no filters" in answer
+
+    def test_every_whole_model_operation_refuses_a_filter(self):
+        # One list, one rule. Each of these reads the model entire; a filter
+        # handed to any of them was silently discarded, and the answer that
+        # came back described a different question than the one asked.
+        for operation in ("overview", "types", "health", "schedule", "profile", "compare", "properties"):
+            answer = build(operation=operation, filters='{"storeys": ["Erdgeschoss"]}')
+            assert isinstance(answer, str), operation
+            assert "takes no filters" in answer, operation
+
+    def test_an_unknown_hauptnutzung_is_omitted_rather_than_rejected(self):
+        # The description promises an unrecognised value makes the rules stand
+        # down. It did not: the value reached a `.strict()` object whose field
+        # is an enum, so the WHOLE compliance run came back 400 — on a value
+        # the description presents as merely imprecise.
+        assert build(operation="compliance", hauptnutzung="Wohngebäude") == {"op": "compliance"}
+
+    def test_every_hauptnutzung_the_catalogue_knows_is_passed_through(self):
+        # Mirrors `BIM_HAUPTNUTZUNG` in lib/bim/query.ts. A value dropped here
+        # is a rule that stands down for no reason.
+        for value in (
+            "wohnen",
+            "buero",
+            "beherbergung",
+            "versammlung",
+            "gesundheit",
+            "landwirtschaft",
+            "produzierend",
+            "lager",
+            "sonstiges",
+        ):
+            assert build(operation="compliance", hauptnutzung=value.upper()) == {
+                "op": "compliance",
+                "hauptnutzung": value,
+            }, value
 
     def test_the_diff_operation_is_addressable(self):
         assert build(operation="compliance-diff")["op"] == "compliance-diff"
@@ -786,12 +864,47 @@ class TestWhatTheTraceRecords:
         assert self._recorded()["metadata"] == {
             "ifc_op": "compliance",
             "ifc_outcome": "resolved",
-            "ifc_model": "haus.ifc",
+            # A digest, not the file name. Langfuse is an external service and
+            # an Austrian project file is named for the client and the site;
+            # the trace only ever needed "the same building as that other
+            # turn", which a stable handle gives without the name.
+            # `allowlist secret`: twelve hex characters trip the entropy
+            # detector, and this is the opposite of a secret — it is the
+            # public SHA-256 prefix of the string "haus.ifc", pinned so the
+            # exact value an operator sees on a trace cannot drift.
+            "ifc_model": "e37fd06cb38e",  # pragma: allowlist secret
             "ifc_elements": 40000,
         }
+        assert "haus.ifc" not in str(self._recorded())
         # One tag, because "which turns read a building model" is the filter an
         # operator reaches for before any metadata scan.
         assert self._recorded()["tags"] == ["feature:ifc"]
+
+    def test_a_list_clipped_by_one_reads_as_one(self):
+        # The renderer substitutes into a template and does nothing else, so
+        # "… 1 weitere Geschoße nicht gezeigt." was what every list clipped by
+        # exactly one produced — in an answer an architect reads as German.
+        from aiq_agent.agents.bim.register import _clipped
+
+        assert _clipped(list(range(21)), 20, "Geschoße") == "… ein weiteres Geschoß nicht gezeigt."
+        assert _clipped(list(range(22)), 20, "Geschoße") == "… 2 weitere Geschoße nicht gezeigt."
+        assert _clipped(list(range(20)), 20, "Geschoße") is None
+
+    def test_the_model_handle_is_stable_and_not_the_name(self):
+        # Stable, because an operator correlating two slow turns needs them to
+        # match; not the name, because the name is the client and the address.
+        from aiq_agent.agents.bim.register import _model_handle
+
+        assert _model_handle("Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc") == _model_handle(
+            "Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc"
+        )
+        assert _model_handle("Haus-A.ifc") != _model_handle("Haus-B.ifc")
+        handle = _model_handle("Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc")
+        assert handle is not None and "Mayr" not in handle and "Hauptstr" not in handle
+        # A model the payload did not name has no handle, rather than a handle
+        # for the empty string that every such turn would share.
+        assert _model_handle(None) is None
+        assert _model_handle("") is None
 
     def test_a_partial_answer_says_so_on_the_trace(self):
         # The one that matters for correctness rather than speed: a truncated

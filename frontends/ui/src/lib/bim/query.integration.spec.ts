@@ -42,6 +42,13 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   let modelId: string
   let otherModelId: string
   let revisionModelId: string
+  /**
+   * A DIFFERENT building in the same project — not a revision of the first.
+   *
+   * The ordinary case, and the one the confirmation key got wrong: `Haus-A`
+   * and `Nebengebäude` side by side.
+   */
+  let otherBuildingId: string
   /** A model past both the count ceiling and the property-catalog scan limit. */
   let bigModelId: string
   let FIXTURE_PROJECT: string
@@ -212,6 +219,21 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       organizationId: ORG,
       summary,
       elements: revisionElements,
+      indexStorageKey: null,
+      indexStorageBucket: null,
+    })
+
+    const otherBuildingDocumentId = await seedDocument(ORG, 'nebengebaeude.ifc')
+    otherBuildingId = await repository.startBimModel({
+      organizationId: ORG,
+      projectId: null,
+      documentId: otherBuildingDocumentId,
+    })
+    await repository.completeBimModel({
+      modelId: otherBuildingId,
+      organizationId: ORG,
+      summary,
+      elements,
       indexStorageKey: null,
       indexStorageBucket: null,
     })
@@ -771,7 +793,13 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       metric: 'count',
       limit: 50,
     })
-    expect(result.groups).toEqual([{ key: null, elements: 5, metric: null }])
+    // `measured` and `truncated` ride on every group now: a `sum` skips nulls,
+    // so "250 über 100 Bauteile" was a sum of ten values asserted over a
+    // hundred elements, and a group list cut at the limit reads as the whole
+    // Flächenaufstellung. For a plain count `measured` equals `elements`.
+    expect(result.groups).toEqual([
+      { key: null, elements: 5, metric: null, measured: 5, truncated: false },
+    ])
     expect(result.summary).toBe('5 Bauteile.')
   })
 
@@ -779,8 +807,8 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     const result = await run({ op: 'aggregate', filter: {}, metric: 'count', groupBy: 'storey', limit: 50 })
     expect(result.groups).toEqual(
       expect.arrayContaining([
-        { key: 'Erdgeschoss', elements: 12, metric: null },
-        { key: 'Obergeschoss', elements: 7, metric: null },
+        { key: 'Erdgeschoss', elements: 12, metric: null, measured: 12, truncated: false },
+        { key: 'Obergeschoss', elements: 7, metric: null, measured: 7, truncated: false },
       ])
     )
   })
@@ -808,8 +836,10 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     })
     expect(result.groups).toEqual(
       expect.arrayContaining([
-        { key: 'Erdgeschoss', elements: 2, metric: 44.5 },
-        { key: 'Obergeschoss', elements: 2, metric: 24.5 },
+        // Both rooms on each storey publish the area, so `measured` matches
+        // `elements`; a storey where one did not would report the shortfall.
+        { key: 'Erdgeschoss', elements: 2, metric: 44.5, measured: 2, truncated: false },
+        { key: 'Obergeschoss', elements: 2, metric: 24.5, measured: 2, truncated: false },
       ])
     )
   })
@@ -825,8 +855,8 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     })
     expect(result.groups).toEqual(
       expect.arrayContaining([
-        { key: 'REI 90', elements: 3, metric: null },
-        { key: 'EI 30', elements: 2, metric: null },
+        { key: 'REI 90', elements: 3, metric: null, measured: 3, truncated: false },
+        { key: 'EI 30', elements: 2, metric: null, measured: 2, truncated: false },
       ])
     )
   })
@@ -841,7 +871,9 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     })
     // Every wall's first layer is Stahlbeton; the three-layer external walls
     // must not be counted three times.
-    expect(result.groups).toEqual([{ key: 'Stahlbeton', elements: 5, metric: null }])
+    expect(result.groups).toEqual([
+      { key: 'Stahlbeton', elements: 5, metric: null, measured: 5, truncated: false },
+    ])
   })
 
   it('reports the model health it computed at extraction', async () => {
@@ -885,9 +917,22 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     const result = await run(bimQuerySchema.parse({ op: 'takeoff', quantity: 'NetSideArea' }))
     const walls = result.takeoff?.find((row) => row.group === 'IfcWall')
     expect(walls?.elements).toBe(5)
-    // Whatever the fixture publishes, the row must account for every element
-    // in it: a sum plus its blind spot, never a sum alone.
-    expect((walls?.missing ?? 0) + (walls?.value === null ? 0 : 1)).toBeGreaterThan(0)
+    /*
+      The conservation law, actually checked.
+
+      This used to read `missing + (value === null ? 0 : 1) > 0`, which is `≥ 1`
+      for any row that exists at all — the fixture's walls do publish
+      `NetSideArea`, so the right-hand term was always 1 and no implementation
+      could fail it. The invariant it claimed to test — that a row accounts for
+      every element in it, a sum plus its blind spot — was never checked, and
+      this is the only place it runs against real SQL.
+    */
+    expect(walls?.missing).toBeLessThanOrEqual(walls?.elements ?? 0)
+    // Three of the fixture's five walls publish no `NetSideArea` — a figure
+    // the old assertion could not have caught either way, and exactly the
+    // "sum plus its blind spot" the comment above is about.
+    expect(walls?.missing).toBe(3)
+    expect(walls?.value).toBeGreaterThan(0)
     expect(result.summary).toContain('Massenermittlung')
   })
 
@@ -932,12 +977,22 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   })
 
   it('stands a rule down rather than assuming a Gebaeudeklasse it was not given', async () => {
+    /*
+      Stands down, but as UNDECIDABLE rather than "nicht einschlägig". The rule
+      applies to this building; it cannot be evaluated without the project's
+      Gebäudeklasse. Reported as inapplicable it also dropped out of
+      `rulesWithOpenWork` and out of the BCF export, so one unset project fact
+      quietly removed OIB 2 Feuerwiderstand from the Prüfbuch.
+    */
     const result = await run(bimQuerySchema.parse({ op: 'compliance' }))
     const fire = (result.compliance ?? []).find(
       (rule) => rule.ruleId === 'oib2-feuerwiderstand-tragend'
     )
-    expect(fire?.applicable).toBe(false)
-    expect(fire?.notApplicableReason).toContain('Gebäudeklasse')
+    expect(fire?.applicable).toBe(true)
+    expect(fire?.passed).toBe(0)
+    expect(fire?.failed).toBe(0)
+    expect(fire?.undecidable ?? 0).toBeGreaterThan(0)
+    expect(fire?.missing.map((entry) => entry.path)).toContain('Projektangabe: Gebäudeklasse')
   })
 
   it('derives project facts from the model, each with its evidence', async () => {
@@ -1035,28 +1090,80 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       outstandingRules(current).map((rule) => rule.ruleId)
     ).not.toContain('oib2-feuerwiderstand-tragend')
 
-    // Against a LATER revision: still recorded, no longer covering.
-    const later = attachConfirmations(rules.compliance ?? [], confirmations, revisionModelId)
+    // Against a LATER revision of the SAME building: still recorded, no
+    // longer covering. The series has to be passed, because a confirmation
+    // from outside the building on screen is not shown at all.
+    const later = attachConfirmations(rules.compliance ?? [], confirmations, revisionModelId, [
+      modelId,
+      revisionModelId,
+    ])
     const stale = later.find((rule) => rule.ruleId === 'oib2-feuerwiderstand-tragend')
     expect(stale?.confirmation).not.toBeNull()
     expect(stale?.confirmationStale).toBe(true)
   })
 
-  it('re-confirming replaces the row rather than growing a history', async () => {
+  it('keeps one building’s signature when another building is confirmed', async () => {
+    // The failure 0045 exists for. The key used to be (org, project, rule), so
+    // a project holding two BUILDINGS — the ordinary case — shared one row:
+    // confirming a rule on the second updated the first's in place, and the
+    // architect who signed it off last month opened it again to find no record
+    // that they ever had.
     const repository = await import('./repository')
     await repository.upsertBimCheckConfirmation({
       organizationId: ORG,
       projectId: FIXTURE_PROJECT,
       ruleId: 'oib2-feuerwiderstand-tragend',
-      modelId: revisionModelId,
+      modelId: otherBuildingId,
+      confirmedBy: 'c.nachbar',
+      note: 'Nebengebäude, mit dem Brandschutzplaner abgeklärt.',
+    })
+
+    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    const byModel = new Map(stored.map((entry) => [entry.modelId, entry.confirmedBy]))
+    expect(byModel.get(modelId)).toBe('a.muster')
+    expect(byModel.get(otherBuildingId)).toBe('c.nachbar')
+  })
+
+  it('does not show one building’s confirmation on another’s Prüfbuch', async () => {
+    const repository = await import('./repository')
+    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    const confirmations = stored.map((entry) => ({
+      ...entry,
+      confirmedAt: entry.confirmedAt.toISOString(),
+    }))
+    const { attachConfirmations } = await import('./rules')
+    const rules = await run(bimQuerySchema.parse({ op: 'compliance', gebaeudeklasse: 5 }))
+
+    // Haus-A's Prüfbuch, given only Haus-A's revisions. The Nebengebäude row
+    // exists and must not appear here — least of all labelled "Älterer Stand",
+    // which claims it is an earlier version of this same building.
+    const attached = attachConfirmations(rules.compliance ?? [], confirmations, modelId, [
+      modelId,
+      revisionModelId,
+    ])
+    const rule = attached.find(
+      (entry: { ruleId: string }) => entry.ruleId === 'oib2-feuerwiderstand-tragend'
+    )
+    expect(rule?.confirmation?.confirmedBy).not.toBe('c.nachbar')
+  })
+
+  it('re-confirming the same revision replaces that row rather than adding one', async () => {
+    const repository = await import('./repository')
+    const before = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    await repository.upsertBimCheckConfirmation({
+      organizationId: ORG,
+      projectId: FIXTURE_PROJECT,
+      ruleId: 'oib2-feuerwiderstand-tragend',
+      modelId,
       confirmedBy: 'b.beispiel',
       note: null,
     })
     const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
-    // The unique constraint is the point: one current human verdict per rule.
-    expect(stored).toHaveLength(1)
-    expect(stored[0].confirmedBy).toBe('b.beispiel')
-    expect(stored[0].modelId).toBe(revisionModelId)
+    // Same count: the row for THIS revision was updated in place. A second
+    // revision, or a second building, would each get their own — which is the
+    // whole of 0045.
+    expect(stored).toHaveLength(before.length)
+    expect(stored.find((entry) => entry.modelId === modelId)?.confirmedBy).toBe('b.beispiel')
   })
 
   it('never shows another tenant’s confirmations', async () => {
@@ -1067,12 +1174,17 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
 
   it('withdrawing a confirmation returns the rule to the catalogue’s verdict', async () => {
     const repository = await import('./repository')
+    // Scoped to the building's revisions. The Nebengebäude row is deliberately
+    // NOT in the list, and deliberately survives: withdrawing on one building
+    // must not take back a signature made on another.
     await repository.deleteBimCheckConfirmation({
       organizationId: ORG,
       projectId: FIXTURE_PROJECT,
       ruleId: 'oib2-feuerwiderstand-tragend',
+      modelIds: [modelId, revisionModelId],
     })
-    expect(await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)).toEqual([])
+    const left = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    expect(left.map((entry) => entry.modelId)).toEqual([otherBuildingId])
   })
 
   it('exports the catalogue’s open items as a BCF an unzip can read', async () => {

@@ -182,8 +182,16 @@ export function rendererSectionPlane(
     normal: [0, 1, 0],
     distance: atMetres,
     ...(bounds ? { min: bounds.minMetres, max: bounds.maxMetres } : {}),
-    // The hatched cap is what makes a section read as a drawing rather than as
-    // a model with its front wall deleted.
+    // `showCap` asks the renderer to fill the cut face — and it only draws
+    // one when a 2D overlay has been uploaded for it
+    // (`Renderer.uploadSection2DOverlay`), which nothing in this app calls.
+    // So the flag is a request that is currently answered with nothing, and
+    // a cut shows the open shells of the solids it passes through: the "model
+    // with its front wall deleted" look this comment used to claim was
+    // prevented. Left ON deliberately — the moment the caps are generated and
+    // uploaded, the section becomes a drawing with no further change here —
+    // and stated honestly in the meantime rather than promising a hatch that
+    // is not on screen.
     showCap: true,
     showOutlines: true,
   }
@@ -194,14 +202,40 @@ export function rendererSectionPlane(
 // ---------------------------------------------------------------------------
 
 /**
- * `view=north`, `cut=2.6`, `cut=-2.6` for an upward cut, `persp=1` to keep
- * perspective on a cardinal view.
+ * `view=north`, `cut=2.6&cutup=0`, `persp=1` to keep perspective on a cardinal
+ * view.
  *
- * The sign carries `flipped` rather than a second parameter: a cut is a height
- * and a direction, the direction has two values, and a URL that reads
- * `cut=2.6&cutUp=1` invites the two to disagree. A cut at exactly 0 is encoded
- * as `0` and read as looking down, which is the only reading a bare zero can
- * have.
+ * ## Why the sign no longer carries the direction
+ *
+ * It used to: `cut=-2.6` meant "2.6 m, looking up", on the reasoning that a
+ * height and a direction in two parameters invites the two to disagree. The
+ * reasoning was fine and the encoding was lossy, because it quietly assumed a
+ * cut height is never negative.
+ *
+ * It often is. The renderer's world is metres from the MODEL's origin, and
+ * plenty of buildings put that origin at the ground floor with a basement
+ * below it — the viewport reports bounds like -3.00 m to +9.00 m and ranges
+ * the slider over them. Under the old encoding every one of those heights came
+ * back through `Math.abs` as its positive mirror, so the bottom quarter of the
+ * building could not be cut at all: drag below zero and the plane jumped to
+ * the other side of the ground floor.
+ *
+ * So `cut` is now the signed height and `cutup` is the direction. The pair
+ * cannot disagree because neither is derivable from the other.
+ *
+ * ## Reading links written by the old encoding
+ *
+ * `cutup` doubles as the marker for which encoding wrote the link, because the
+ * old one emitted it in exactly one case (a flipped cut at exactly zero, where
+ * a sign cannot be written) and the new one always emits it. So:
+ *
+ * - `cutup` present → the signed reading. `cut` is the height.
+ * - `cutup` absent → the old reading. `|cut|` is the height and the sign is
+ *   the direction.
+ *
+ * Every link the old encoding could produce still resolves to the view it was
+ * copied from, including `cut=0&cutup=1`, which both readings agree on. "A
+ * view is a link" is only true if a link keeps working.
  */
 export interface BimViewerCameraState {
   view: BimCameraView
@@ -217,10 +251,14 @@ export function defaultCameraState(): BimViewerCameraState {
 export function encodeCameraState(state: BimViewerCameraState, params: URLSearchParams): void {
   if (state.view !== 'iso') params.set('view', state.view)
   if (state.section) {
-    const magnitude = round(Math.abs(state.section.atMetres))
-    params.set('cut', String(state.section.flipped ? -magnitude || 0 : magnitude))
-    // A flipped cut at exactly zero cannot be signed, so it needs the flag.
-    if (state.section.flipped && magnitude === 0) params.set('cutup', '1')
+    // `-0` would serialise as "-0" and read back as a negative zero, which is
+    // a height nobody typed and a needless difference between two links to the
+    // same view.
+    params.set('cut', String(round(state.section.atMetres) || 0))
+    // Always, not only when flipped: its presence is what tells the parser
+    // this link was written by the signed encoding rather than the one that
+    // put the direction in the sign.
+    params.set('cutup', state.section.flipped ? '1' : '0')
   }
   if (state.orthographic !== impliesOrthographic(state.view)) {
     params.set('proj', state.orthographic ? 'ortho' : 'persp')
@@ -236,8 +274,13 @@ export function parseCameraState(params: URLSearchParams): BimViewerCameraState 
   if (rawCut !== null && rawCut.trim() !== '') {
     const cut = Number(rawCut)
     if (Number.isFinite(cut)) {
-      const flipped = cut < 0 || (Object.is(cut, 0) && params.get('cutup') === '1')
-      section = { atMetres: round(Math.abs(cut)), flipped }
+      const direction = params.get('cutup')
+      section =
+        direction === null
+          ? // No direction parameter: a link from the encoding that put the
+            // direction in the sign. Read it the way it was written.
+            { atMetres: round(Math.abs(cut)), flipped: cut < 0 }
+          : { atMetres: round(cut), flipped: direction === '1' }
     }
   }
 
@@ -265,12 +308,52 @@ export function wheelZoomDelta(
   deltaY: number,
   deltaMode: number,
   canvasHeight: number,
-  /** Multiplier taking normalised pixels to the camera's zoom units. */
-  scale = 0.01
+  /**
+   * Multiplier taking normalised pixels to the camera's zoom units.
+   *
+   * The camera's own unit is the PIXEL, the same convention `orbit` uses: it
+   * multiplies by `ZOOM_SENSITIVITY = 0.001` and caps the result at
+   * `MAX_ZOOM_DELTA = 0.1`, so a 100 px wheel notch at scale 1 is the 10 %
+   * ceiling. At the old `0.01` a notch became `delta = 1`, i.e. a 0.1 % change
+   * in camera distance — roughly seven hundred notches to halve it, and below
+   * the `minVelocity` threshold that carries inertia, so nothing coasted
+   * either. The wheel did not appear slow; it appeared broken.
+   *
+   * `0.5` and not `1` so a notch is 5 % and a fast flick still reaches the
+   * cap — a scale that saturates on every event has no dynamic range, and a
+   * trackpad sends many small deltas where a mouse sends one big one.
+   */
+  scale = 0.5
 ): number {
   // 1 = lines (≈ one text line), 2 = pages (one viewport). 0 = pixels already.
   const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? Math.max(canvasHeight, 1) : 1
   return deltaY * unit * scale
+}
+
+/**
+ * Was that a click, or the end of a drag?
+ *
+ * Measured from where the press LANDED, never from the previous pointer
+ * event. A per-event threshold looks equivalent and is not: a slow, careful
+ * orbit moves a pixel at a time — pointer events are coalesced, so a
+ * deliberate hand produces many small deltas rather than a few large ones —
+ * and never trips it however far the camera ends up turning. Releasing after
+ * lining up a view then selected whatever happened to be under the cursor and
+ * opened the inspector on an element nobody clicked.
+ *
+ * Manhattan distance rather than Euclidean: it needs no square root, it is
+ * strictly more generous on the diagonal, and at a two-pixel slop the
+ * difference is not something a hand can feel.
+ *
+ * Extracted for the reason `wheelZoomDelta` is — it is arithmetic, and the
+ * component around it cannot run without a GPU adapter.
+ */
+export function pointerDragged(
+  origin: { x: number; y: number },
+  current: { x: number; y: number },
+  slopPx = 2
+): boolean {
+  return Math.abs(current.x - origin.x) + Math.abs(current.y - origin.y) > slopPx
 }
 
 /**
@@ -293,8 +376,15 @@ export type CameraKeyStep =
   | { kind: 'move'; x: number; y: number }
   | { kind: 'zoom'; amount: number }
 
-/** Zoom units per keypress. Roughly one wheel notch — a press should be a step, not a leap. */
-const KEY_ZOOM_STEP = 0.6
+/**
+ * Zoom units per keypress. Roughly one wheel notch — a step, not a leap.
+ *
+ * In the camera's pixel-scale units (see `wheelZoomDelta`): 60 is a 6 %
+ * change in distance. It was `0.6`, which is 0.06 % — pressing `+` did
+ * nothing a person could see, which for the only zoom a keyboard has is the
+ * whole control missing.
+ */
+const KEY_ZOOM_STEP = 60
 
 export function keyboardCameraStep(key: string): CameraKeyStep | null {
   switch (key) {
@@ -382,16 +472,61 @@ export async function downloadWithProgress(
     (encoded ? null : response.headers.get('Content-Length'))
   const declared = Number(declaredRaw ?? '')
   const total = Number.isFinite(declared) && declared > 0 ? declared : 0
+  /**
+   * One buffer when the size is known, a chunk list when it is not.
+   *
+   * Accumulating every chunk and then copying the lot into a second full-size
+   * array peaks at TWICE the file in the JS heap — 300 MB for a 149 MB model,
+   * before the WASM kernel has allocated its own arena. On a phone that is the
+   * difference between a load and the tab being killed, and a killed tab
+   * reports nothing: the `catch` around this never runs.
+   *
+   * `total` is the decoded length the server published for exactly this kind
+   * of use. If it turns out to be wrong — a re-encoding proxy, a stale
+   * metadata header — the spill below drops back to the two-pass path rather
+   * than truncating the model, because a silently short IFC parses into a
+   * building with pieces missing.
+   */
+  let single = total > 0 ? new Uint8Array(total) : null
   const chunks: Uint8Array[] = []
   let received = 0
+  /**
+   * The last percentage actually reported.
+   *
+   * `onProgress` sets React state in the stage, so calling it per CHUNK
+   * re-rendered the rail, the dock and the inspector a few thousand times
+   * during a 149 MB download — the great majority of them carrying the same
+   * integer, and all of them during the one stretch this bar exists to keep
+   * feeling responsive. `-1` so the first report always lands, including
+   * `0%`; `-2` is the sentinel for the indeterminate case, which is reported
+   * exactly once.
+   */
+  let reported = -1
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
     if (!value) continue
-    chunks.push(value)
+    if (single === null) {
+      chunks.push(value)
+    } else if (received + value.length <= single.length) {
+      single.set(value, received)
+    } else {
+      // Longer than declared. Keep what has been written and carry on the
+      // slow way; `subarray` is a view, so this costs no extra copy.
+      chunks.push(single.subarray(0, received), value)
+      single = null
+    }
     received += value.length
-    onProgress(total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null)
+    const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : -2
+    if (percent === reported) continue
+    reported = percent
+    onProgress(percent === -2 ? null : percent)
   }
+
+  // Shorter than declared — a truncated transfer, or metadata written for a
+  // different revision. The bytes that did arrive are returned and the parser
+  // decides; the alternative is handing it a tail of zeroes.
+  if (single !== null) return received === single.length ? single : single.subarray(0, received)
 
   const buffer = new Uint8Array(received)
   let at = 0

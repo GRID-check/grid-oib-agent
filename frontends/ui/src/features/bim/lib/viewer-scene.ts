@@ -164,3 +164,36 @@ export function readViewerTheme(): ViewerTheme {
   if (typeof document === 'undefined') return 'light'
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
 }
+
+/**
+ * Keep watching, because the theme changes under an open viewport.
+ *
+ * Reading it once at load was enough only if nobody switches. They do, and not
+ * always on purpose: the theme can be `system`, and `prefers-color-scheme`
+ * flips at sunset with no interaction at all. A viewport that missed it keeps
+ * the paper clear colour and the light sun inside a charcoal dialog — a
+ * white-hot rectangle in a dark room, lit from the wrong environment, and no
+ * control on screen to correct it short of closing the model.
+ *
+ * The same `class`-on-`<html>` observation `Toaster` already does; this is the
+ * viewport's copy of it, here rather than in the canvas so it can be tested
+ * without a WebGPU adapter.
+ *
+ * @param onChange Called only when the theme actually differs, so a class
+ *   change for any other reason does not cost a redraw.
+ * @returns The unsubscribe, for an effect cleanup.
+ */
+export function observeViewerTheme(onChange: (theme: ViewerTheme) => void): () => void {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') {
+    return () => {}
+  }
+  let current = readViewerTheme()
+  const observer = new MutationObserver(() => {
+    const next = readViewerTheme()
+    if (next === current) return
+    current = next
+    onChange(next)
+  })
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  return () => observer.disconnect()
+}

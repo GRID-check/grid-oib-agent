@@ -178,7 +178,10 @@ export const BuildingSectionCard: FC<BuildingSectionCardProps> = ({
 
         {/* marker lines: Fluchtniveau / GK thresholds / references */}
         {markerList.map((marker, i) => {
-          const style = MARKER_STYLE[marker.kind ?? 'reference']
+          // Falls back for the same reason `STATUS_ICON` does: the card's
+          // nested fields are unvalidated, so an unknown `kind` would make
+          // `style.color` throw and blank the answer rather than the marker.
+          const style = MARKER_STYLE[marker.kind ?? 'reference'] ?? MARKER_STYLE.reference
           const y = yAt(marker.height_m)
           return (
             <g key={`marker-${i}`}>

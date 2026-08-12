@@ -43,12 +43,15 @@ describe('IfcElementChip', () => {
 
   it('says out loud that it opens the element in the model', () => {
     chip('/app/projects/p1/model?element=abc')
-    expect(screen.getByRole('link')).toHaveAccessibleName(/Bauteil abc im Modell öffnen/)
+    // No GlobalId in the name. It used to interpolate `view.element`, so a
+    // screen reader read out 22 characters of base64 before saying what the
+    // link does — and the chip's own text is already the element's name.
+    expect(screen.getByRole('link')).toHaveAccessibleName(/Open in the model/)
   })
 
   it('describes a storey link as a storey link', () => {
     chip('/app/projects/p1/model?storey=Erdgeschoss', 'Erdgeschoss')
-    expect(screen.getByRole('link')).toHaveAccessibleName(/Geschoss Erdgeschoss im Modell öffnen/)
+    expect(screen.getByRole('link')).toHaveAccessibleName(/Open storey Erdgeschoss in the model/)
   })
 
   it('drops parameters the view does not define', () => {

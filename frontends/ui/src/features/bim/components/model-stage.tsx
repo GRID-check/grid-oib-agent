@@ -47,9 +47,12 @@ import {
   Link2,
   MonitorX,
   PanelLeft,
+  RotateCcw,
   Ruler,
   Scissors,
   SlidersHorizontal,
+  TriangleAlert,
+  Undo2,
   Video,
   X,
 } from 'lucide-react'
@@ -58,9 +61,9 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/use-is-mobile'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import type { BimViewerElement } from '../lib/model-index'
+import { storeyKey, supportsWebGpu, type BimViewerElement } from '../lib/model-index'
 import {
   buildModelQuery,
   parseModelView,
@@ -74,8 +77,11 @@ import {
   pickStageModel,
   stageLevels,
   stageModelLabel,
+  stageModelMatched,
 } from '../lib/stage-model'
 import { BIM_CAMERA_VIEWS, type BimCameraView } from '../lib/viewer-camera'
+import { formatMetresIn } from '../lib/format-value'
+import { measurementText } from '../lib/measure-overlay'
 import { screenshotFilename } from '../lib/viewer-performance'
 import {
   useBimElementDetail,
@@ -105,6 +111,28 @@ import {
 const NO_ELEMENTS: readonly BimViewerElement[] = []
 
 /**
+ * How many views back the stage remembers.
+ *
+ * A bound rather than a policy: nobody presses back forty times, and an
+ * unbounded array of view objects held for as long as a model is open is a
+ * leak with no upper limit on a surface people leave open all day.
+ */
+const VIEW_HISTORY_DEPTH = 40
+
+/**
+ * Where the legend sits, given how many pills the dock has stacked above
+ * itself.
+ *
+ * Written out as whole class strings rather than composed, because Tailwind
+ * scans source text: a computed `bottom-${n}` produces no CSS at all.
+ */
+const DOCK_ABOVE_OFFSET: Record<0 | 1 | 2, string> = {
+  0: 'bottom-20 sm:bottom-24',
+  1: 'bottom-36 sm:bottom-40',
+  2: 'bottom-52 sm:bottom-56',
+}
+
+/**
  * Hide and isolate, bound to whatever is selected right now.
  *
  * Both are omitted rather than disabled when nothing is selected: the card
@@ -114,12 +142,27 @@ const NO_ELEMENTS: readonly BimViewerElement[] = []
  * exactly when a live button would act on a component that is already gone.
  */
 function visibilityActions(
-  viewport: ReturnType<typeof useModelViewport>
+  viewport: ReturnType<typeof useModelViewport>,
+  clearSelection: () => void,
+  focusViewport: () => void
 ): { onHide?: () => void; onIsolate?: () => void } {
   const expressId = viewport.selectedExpressId
   if (expressId === null) return {}
   return {
-    onHide: () => viewport.visibility.hide(expressId),
+    // Hiding CLEARS the selection. The card is mounted on the URL's
+    // `element=`, not on the renderer id, so without this the reader hid a
+    // wall and kept a card describing it — the highlight gone, the pivot
+    // reset, the Hide button itself silently removed from the card that was
+    // still open, and no way back except "show everything".
+    onHide: () => {
+      viewport.visibility.hide(expressId)
+      clearSelection()
+      // Hide destroys the card the button lives in. Without this the reader's
+      // focus ring is thrown to the top of a full-screen dialog holding
+      // fifteen controls, with nothing said about what happened — the control
+      // vanishing IS the only feedback, and it takes their place with it.
+      focusViewport()
+    },
     onIsolate: () => viewport.visibility.isolate([expressId]),
   }
 }
@@ -132,6 +175,7 @@ export interface ModelStageProps {
 
 export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element {
   const t = useTranslations('bim')
+  const { locale } = useLocale()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -148,30 +192,98 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     [searchParams]
   )
 
+  const navigate = useCallback(
+    (next: BimModelView) => {
+      // `replace`, not `push`: clicking through twenty elements should not make
+      // the BROWSER's back button walk back through twenty of them, and it must
+      // not be able to strand the reader outside the stage either. The stage
+      // keeps its own history instead — see below.
+      router.replace(`${pathname}${buildModelQuery(next)}`, { scroll: false })
+    },
+    [pathname, router]
+  )
+
+  /**
+   * Where the reader has been in this model.
+   *
+   * One click can change the view in more than one way — selecting an element
+   * on another level also moves the level filter — and every control that
+   * undoes something undoes only its own thing: the card's ✕ drops the
+   * selection, "Alle Geschoße" drops the filter, the x-ray toggle drops the
+   * ghosting. Three different affordances in three different places, and on a
+   * phone two of them are behind a collapsed rail. The reader's actual
+   * question is simply "put it back the way it was", and nothing answered it.
+   *
+   * Not the browser's history, deliberately. `navigate` replaces rather than
+   * pushes, because a stack that also holds every page before the model means
+   * Back eventually leaves the building entirely — and the whole view is one
+   * URL, so twenty selections would be twenty entries in the browser's own
+   * list. This stack holds only views of this model, and only what the reader
+   * changed on purpose: free orbit and zoom never reach the URL at all (only a
+   * view snap, a cut or the projection toggle do), so nothing here fills up
+   * while somebody turns the building around.
+   */
+  const [viewHistory, setViewHistory] = useState<BimModelView[]>([])
+
   const setView = useCallback(
     (patch: Partial<BimModelView>) => {
       const next = withModelView(view, patch)
-      // `replace`, not `push`: clicking through twenty elements should not make
-      // the back button walk back through twenty of them.
-      router.replace(`${pathname}${buildModelQuery(next)}`, { scroll: false })
+      // A patch that changes nothing is not a step — and it is not a
+      // navigation either. `setCamera` re-emits an identical camera on every
+      // gesture that ends where it started, which would otherwise stack empty
+      // entries the reader has to press through.
+      if (buildModelQuery(next) === buildModelQuery(view)) return
+      setViewHistory((stack) => [...stack, view].slice(-VIEW_HISTORY_DEPTH))
+      navigate(next)
     },
-    [pathname, router, view]
+    [navigate, view]
   )
 
-  const { data: models, isLoading, error } = useProjectBimModels(projectId)
+  /**
+   * One step back, without recording the step back as a step.
+   *
+   * The stack is read OUTSIDE the updater: navigating is a side effect, and
+   * React is free to call an updater twice.
+   */
+  const goBack = useCallback(() => {
+    const previous = viewHistory.at(-1)
+    if (!previous) return
+    setViewHistory((stack) => stack.slice(0, -1))
+    navigate(previous)
+  }, [navigate, viewHistory])
+
+  const { data: models, isLoading, error, reload: reloadModels } = useProjectBimModels(projectId)
   const model = useMemo(() => pickStageModel(models ?? [], view.model), [models, view.model])
+  /**
+   * The link named a model this project does not have.
+   *
+   * `pickStageModel` falls back to the newest ready one, which is the right
+   * thing to DO and the wrong thing to do silently: the answer said "3 Wände
+   * im Erdgeschoss von Haus-A", the viewer opened Haus-B, the storey filter
+   * matched nothing, the legend read "(0)", and the model's name appears
+   * nowhere on screen when the project has only one model.
+   */
+  const openedAnother = models !== null && !stageModelMatched(model, view.model)
   const modelId = model?.status === 'ready' ? model.id : null
 
   const storey = view.storey ?? null
   const selectedGlobalId = view.element ?? null
 
-  const { data: elements } = useBimElements(modelId)
+  const {
+    data: elements,
+    isLoading: elementsLoading,
+    error: elementsError,
+    reload: reloadElements,
+  } = useBimElements(modelId)
   // `elements ?? []` inline would mint a new array on every render, changing
   // the canvas's props identity for a value that did not change.
   const elementList = elements ?? NO_ELEMENTS
   const detail = useBimElementDetail(modelId, selectedGlobalId)
   // Only mint the presigned source URL when a viewport can actually use it.
-  const sourceUrl = useBimModelSource(modelId, true)
+  // `supportsWebGpu()`, not `true`: the comment above has always said the URL
+  // is only minted when a viewport can use it, and a browser without WebGPU
+  // was still signing an object-storage credential nothing would ever read.
+  const source = useBimModelSource(modelId, supportsWebGpu())
 
   const levels = useMemo(() => stageLevels(model?.summary), [model?.summary])
 
@@ -213,13 +325,47 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   }, [captureFailed])
 
 
+  /**
+   * Where focus goes when a viewer control removes itself.
+   *
+   * Four controls in this dialog delete themselves on activation — Hide (the
+   * card unmounts), the card's close button, "Alles anzeigen" (nothing is
+   * hidden any more) and the measurement "Löschen" (the pill goes with the
+   * list). Radix's focus scope catches the removal and re-focuses the dialog
+   * CONTAINER, which is not a crash but is a lost place: the reader is put at
+   * the top of a full-screen surface with fifteen controls and no indication
+   * of where they were.
+   *
+   * The canvas is the answer for all four. It is `tabIndex={0}`, it is what
+   * every one of those controls acts ON, and Tab from it reaches the dock —
+   * so "back to the building" is both the semantic and the practical landing
+   * spot. When the canvas is not mounted (loading, or a failure notice in its
+   * place) the dialog panel itself is focusable and is the nearest thing left.
+   */
+  const stageRef = useRef<HTMLDivElement>(null)
+  /** The dock button that owns the drawer — where focus returns when it shuts. */
+  const advancedToggleRef = useRef<HTMLButtonElement>(null)
+  const focusViewport = useCallback(() => {
+    const root = stageRef.current
+    if (!root) return
+    const canvas = root.querySelector('canvas')
+    if (canvas) canvas.focus()
+    else root.focus()
+  }, [])
+
   const highlights = useMemo(
     () =>
       (view.highlights ?? []).map((group) => ({
         globalIds: group.globalIds,
-        label: t(
-          `health.severity.${group.status === 'fail' ? 'error' : group.status === 'warning' ? 'warning' : 'info'}`
-        ),
+        // The answer's own words when the link carried them. The severity
+        // word is the fallback, and it used to be the only option — so
+        // "Fluchtweg > 40 m (12)" and "Türbreite < 80 cm (4)" both became
+        // "Fehler", two identical legend rows with the meaning stripped out.
+        label:
+          group.label ??
+          t(
+            `health.severity.${group.status === 'fail' ? 'error' : group.status === 'warning' ? 'warning' : 'info'}`
+          ),
         status: group.status,
       })),
     [view.highlights, t]
@@ -254,7 +400,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   )
 
   const viewport = useModelViewport({
-    sourceUrl,
+    sourceUrl: source.data,
     elements: elementList,
     highlights,
     isolatedStorey: storey,
@@ -279,7 +425,71 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
   const isMobile = useIsMobile()
   const [railChoice, setRailChoice] = useState<boolean | null>(null)
   const railOpen = railChoice ?? !isMobile
-  const [advancedOpen, setAdvancedOpen] = useState(view.tab !== undefined)
+  /**
+   * The drawer is open exactly when the link says which tab.
+   *
+   * It used to be local state seeded from the URL once, at mount, and never
+   * written back — so three things disagreed. Closing the drawer left `tab=`
+   * behind, and "Ansicht verlinken" then handed the recipient a drawer the
+   * sender had shut. Selecting Überblick DELETED the parameter (it was encoded
+   * as "the default"), so the link lost the drawer entirely. And arriving at
+   * `?tab=compliance` while the stage was already mounted left it closed.
+   *
+   * Deriving it makes the drawer behave like every other control in this file:
+   * its state is the link, and the link is the state.
+   *
+   * Gated on `modelId`, because the drawer only renders when there is a model.
+   * A compliance card linking into a model that is still being read otherwise
+   * produced a pressed AND disabled toolbar button with no panel anywhere —
+   * and an Escape that appeared to do nothing, because it took the
+   * close-the-drawer branch for a drawer that was not there.
+   */
+  const linkedOpen = view.tab !== undefined && modelId !== null
+  /**
+   * An echo, so the drawer opens on the click rather than on the round trip.
+   *
+   * The URL is the durable record — that is what makes the state shareable and
+   * what lets an incoming link, or the back button, open the drawer on the
+   * right tab. But `router.replace` re-runs the server tree, so deriving the
+   * drawer purely from the URL would leave a couple of hundred milliseconds
+   * between pressing the button and anything happening. That is the same
+   * mistake the cut slider was making, one event instead of sixty a second,
+   * and it is exactly the lag that makes an interface feel cheap.
+   *
+   * So: local state answers immediately, the URL is written alongside, and
+   * the effect re-syncs whenever the link changes under it.
+   */
+  const [advancedOpen, setAdvancedOpenEcho] = useState(linkedOpen)
+  useEffect(() => setAdvancedOpenEcho(linkedOpen), [linkedOpen])
+  const setAdvancedOpen = useCallback(
+    (open: boolean) => {
+      setAdvancedOpenEcho(open)
+      setView({ tab: open ? (view.tab ?? 'overview') : undefined })
+    },
+    [setView, view.tab]
+  )
+  /**
+   * Close the drawer and put focus back on the button that opened it.
+   *
+   * Deferred to an effect rather than called straight after `setAdvancedOpen`,
+   * because on a phone the drawer covers the dock and the dock is therefore
+   * `max-sm:hidden` while it is open: React has not re-rendered yet inside the
+   * handler, so a synchronous `focus()` was called on a `display:none` button
+   * and silently did nothing, dropping the reader at the top of a
+   * fifteen-control dialog. After the commit the dock is back and the same
+   * call lands.
+   */
+  const restoreAdvancedFocus = useRef(false)
+  const closeAdvanced = useCallback(() => {
+    restoreAdvancedFocus.current = true
+    setAdvancedOpen(false)
+  }, [setAdvancedOpen])
+  useEffect(() => {
+    if (advancedOpen || !restoreAdvancedFocus.current) return
+    restoreAdvancedFocus.current = false
+    advancedToggleRef.current?.focus()
+  }, [advancedOpen])
+
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -287,17 +497,231 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     return () => clearTimeout(timer)
   }, [copied])
 
+  /**
+   * Copying can fail, and the button next to it already knows that.
+   *
+   * `navigator.clipboard` is absent in any non-secure context and
+   * `writeText` rejects on a denied permission or, in Safari, outside a user
+   * gesture chain. The optional chain swallowed the first and the missing
+   * `catch` turned the second into an unhandled rejection — the button simply
+   * never changed. Its neighbour, the capture button, has an explicit failure
+   * state for precisely this reason, so the two disagreed about whether
+   * failure is worth mentioning.
+   */
+  const [copyFailed, setCopyFailed] = useState(false)
   const copyLink = useCallback(() => {
     if (typeof window === 'undefined') return
-    void navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true))
+    const clipboard = navigator.clipboard
+    if (!clipboard) {
+      setCopyFailed(true)
+      return
+    }
+    clipboard
+      .writeText(window.location.href)
+      .then(() => {
+        setCopyFailed(false)
+        setCopied(true)
+      })
+      .catch(() => setCopyFailed(true))
   }, [])
+
+  useEffect(() => {
+    if (!copyFailed) return
+    const timer = setTimeout(() => setCopyFailed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [copyFailed])
+
+  /** Injected into the overlay's readout so it stays a pure function. */
+  const measureLabels = useMemo(
+    () => ({
+      horizontal: t('viewer.measure.horizontal'),
+      vertical: t('viewer.measure.vertical'),
+      // The numbers are as translated as the words beside them.
+      locale,
+    }),
+    [t, locale]
+  )
+
+  /** Whether the rail has anything in it — see the toggle in the dock. */
+  const railHasContent = (models ?? []).length > 1 || levels.length > 0
+
+  /**
+   * Highlighted ids the loaded model does not contain.
+   *
+   * Zero while the element rows are still in flight, which is not a detail:
+   * geometry and the row list arrive on separate requests, and an id can only
+   * be resolved against the rows. Counting them before they land made EVERY
+   * highlight link flash "12 elements from this link are not in this model"
+   * for as long as the walk took, and then withdraw it — the reader is told
+   * the answer they were sent is wrong, about a model that has every one of
+   * those elements. Same mistake `expressIdsForStorey` already fixed for
+   * isolation: an empty list is "not yet", not "not there".
+   *
+   * And zero when the walk FAILED, for the stronger version of the same
+   * reason: an empty list there is "we could not look", and reporting it as
+   * "the elements are not in this model" states a data problem in someone
+   * else's answer on the strength of our own request failing. The failure is
+   * reported on its own, below.
+   */
+  const unresolvedHighlights =
+    elementsLoading || elementsError !== null
+      ? 0
+      : viewport.highlights.reduce((sum, group) => sum + group.unresolved.length, 0)
+
+  /**
+   * Highlighted elements the LINK could not carry.
+   *
+   * A card resolves a filter-matched group against the whole model — that is
+   * the point of the `match` grammar, so "all 420 external walls light up" —
+   * and a URL is capped at 60 ids. The card's legend said 420 and the stage's
+   * said 60, with nothing between them to explain the difference.
+   */
+  const cappedHighlights = (view.highlights ?? []).reduce(
+    (sum, group) => sum + Math.max(0, (group.total ?? 0) - group.globalIds.length),
+    0
+  )
+
+  /**
+   * The one sentence that says the view is not quite the view that was sent.
+   *
+   * Computed here rather than inline in the notice below because it has to be
+   * said twice: once on screen, and once into the live region. A reader who
+   * follows an agent's link into the WRONG BUILDING is the single thing this
+   * block exists to prevent, and until now it was prevented only for people
+   * who can see a small pill at the top of a full-screen 3D view.
+   */
+  const stageWarning = useMemo((): { text: string; retry: boolean } | null => {
+    /*
+      The two failures that had no visible words at all.
+
+      A failed capture and a failed copy were carried ONLY by a swapped icon
+      and a swapped accessible name — and the name reaches a tooltip a touch
+      device never opens and a `title` a phone never shows. So on the surface
+      this feature is most likely to be read on, pressing Capture and having
+      nothing happen looked exactly like pressing Capture and having nothing
+      happen. They outrank the standing warnings for the two seconds they
+      last, which is the order the live region already speaks them in: a thing
+      that just happened outranks a condition that was already true.
+    */
+    if (captureFailed) return { text: t('viewer.capture.failed'), retry: false }
+    if (copyFailed) return { text: t('link.failed'), retry: false }
+    // First of the standing warnings, because it is the only one that means
+    // the reader cannot USE the building. Without the rows a pick resolves to
+    // nothing, so every click on a wall silently clears the selection: the
+    // model is on screen and completely inert, and until now nothing said why.
+    if (elementsError !== null) return { text: t('stage.elementsFailed'), retry: true }
+    if (openedAnother) {
+      return {
+        text: t('stage.otherModel', { wanted: view.model ?? '', opened: model?.filename ?? '' }),
+        retry: false,
+      }
+    }
+    if (unresolvedHighlights > 0) {
+      // The translator does no plural selection — it is `{token}` substitution
+      // — so "1 der hervorgehobenen Bauteile SIND nicht enthalten" is what a
+      // single missing element produced. One sibling key per counted string,
+      // which is the precedent `viewer.measure.countOne` already set.
+      return {
+        text:
+          unresolvedHighlights === 1
+            ? t('card.unresolvedOne')
+            : t('card.unresolved', { count: unresolvedHighlights }),
+        retry: false,
+      }
+    }
+    if (cappedHighlights > 0) {
+      const groups = view.highlights ?? []
+      return {
+        text: t('stage.highlightCapped', {
+          shown: groups.reduce((sum, group) => sum + group.globalIds.length, 0),
+          total: groups.reduce((sum, group) => sum + (group.total ?? group.globalIds.length), 0),
+        }),
+        retry: false,
+      }
+    }
+    return null
+  }, [
+    captureFailed,
+    copyFailed,
+    elementsError,
+    openedAnother,
+    unresolvedHighlights,
+    cappedHighlights,
+    view.model,
+    view.highlights,
+    model?.filename,
+    t,
+  ])
+
+  /**
+   * The dimension just taken, and only that one.
+   *
+   * The readout used to be a `role="status"` that was CREATED already holding
+   * its text, which no screen reader announces — so the first measurement was
+   * always silent — and that then held every measurement joined together, so
+   * the fourth one re-read all four. This node is always mounted and always
+   * holds exactly the newest, which is the one thing that just happened.
+   */
+  const newestMeasurement = viewport.measure.measurements.at(-1)
+
+  /**
+   * What the viewport would tell someone who cannot see it.
+   *
+   * Ordered by urgency, most urgent first: a failure outranks a confirmation,
+   * a confirmation outranks progress. Empty while nothing has happened, so
+   * the region does not announce on mount.
+   */
+  const stageAnnouncement = useMemo(() => {
+    if (error) return t('loadFailed.title')
+    if (source.error) return t('viewer.unavailable.title')
+    if (viewport.status.phase === 'error') return t('viewer.unavailable.title')
+    if (captureFailed) return t('viewer.capture.failed')
+    if (copyFailed) return t('link.failed')
+    if (copied) return t('link.copied')
+    if (viewport.status.phase === 'parsing') return t('stage.building')
+    if (viewport.status.phase === 'downloading') return t('stage.loading')
+    // Above "the building is here", because "the building is here, but it is
+    // not the one the link named" is the more important half of that sentence.
+    if (stageWarning) return stageWarning.text
+    if (viewport.status.phase === 'ready') return t('stage.ready')
+    return ''
+  }, [
+    error,
+    source.error,
+    viewport.status.phase,
+    captureFailed,
+    copyFailed,
+    copied,
+    stageWarning,
+    t,
+  ])
+
+  /**
+   * Nothing to keep solid, so nothing to see through.
+   *
+   * X-ray ghosts everything that is NOT highlighted or selected; with neither
+   * present it would fade the whole building to ten percent and the reader
+   * would have turned the model off.
+   */
+  const xrayNeedsTarget =
+    viewport.highlights.length === 0 && viewport.selectedExpressId === null
 
   const section = viewport.section
   const cutDefault = viewport.defaultCut(levelElevation(model?.summary, storey))
 
+  /**
+   * How many pills the dock is currently stacking above itself — the measuring
+   * strip and the section slider, each rendered under its own condition below.
+   * The legend has to clear them; see `DOCK_ABOVE_OFFSET`.
+   */
+  const dockAboveRows = ((viewport.measure.active || viewport.measure.measurements.length > 0
+    ? 1
+    : 0) + (section && viewport.bounds ? 1 : 0)) as 0 | 1 | 2
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
+        ref={stageRef}
         // Full screen on a phone, a large floating window on a desktop. The
         // inset is what makes it read as something that OPENED over Dateien
         // rather than as a navigation — you can still see the page it came
@@ -309,6 +733,20 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         // breakpoint where it matters.
         className={cn(
           'flex h-[100dvh] max-h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border p-0',
+          /*
+            The safe area, once, for everything inside.
+
+            The app sets `viewportFit: 'cover'` and leaves the insets to each
+            surface; this one is the only full-bleed `100dvh` dialog in the
+            product and it had none. On an iPhone that put the dock's pill row
+            inside the home-indicator strip — where the system swallows the
+            taps — and the Close/Copy pill under the sensor housing in one
+            landscape rotation. Every absolutely-positioned child measures from
+            the padding box, so padding here moves the dock, the rail, the
+            drawer and the close pill together. Only below `sm`: above it the
+            dialog is already inset by 3rem on every side.
+          */
+          'max-sm:pt-[env(safe-area-inset-top)] max-sm:pr-[env(safe-area-inset-right)] max-sm:pb-[env(safe-area-inset-bottom)] max-sm:pl-[env(safe-area-inset-left)]',
           'sm:h-[calc(100dvh-3rem)] sm:max-h-[calc(100dvh-3rem)] sm:w-[calc(100vw-3rem)] sm:max-w-[calc(100vw-3rem)] sm:rounded-3xl'
         )}
         showCloseButton={false}
@@ -326,9 +764,21 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         // dismiss a panel, which is the classic way a layered surface loses
         // people's work.
         onEscapeKeyDown={(event) => {
-          if (advancedOpen) {
+          // Measuring peels first. The canvas only swallows Escape when a
+          // first point is already down, and only while it has focus — from
+          // any dock button, the rail or the inspector, Escape fell straight
+          // through to the dialog and closed the model. Measurements are
+          // deliberately not in the URL, so that discarded every one of them.
+          if (viewport.measure.active) {
             event.preventDefault()
-            setAdvancedOpen(false)
+            viewport.measure.setActive(false)
+          } else if (advancedOpen) {
+            event.preventDefault()
+            // The same restore the drawer's X does. Without it, closing with
+            // Escape unmounted the focused heading and left the reader at the
+            // top of a fifteen-control dialog, while closing with the button
+            // put them back on the toolbar — one action, two behaviours.
+            closeAdvanced()
           } else if (selectedGlobalId) {
             event.preventDefault()
             setView({ element: undefined })
@@ -340,16 +790,48 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         </DialogTitle>
 
         <div className="bg-muted/40 relative min-h-0 flex-1">
+          {/*
+            The one thing the viewport says out loud.
+
+            Nothing in this feature was a live region — verified by grep — so
+            a forty-second load, its arrival, a renderer that died, a copied
+            link and a capture that failed were all silent. A screen-reader
+            user could not tell a slow load from a failed one, and the two
+            transient confirmations were carried ONLY by a swapped icon and a
+            changed button name, neither of which any AT announces.
+
+            One node rather than several, `polite` rather than `assertive`:
+            these are reports, not interruptions, and a viewport that
+            interrupts on every phase change is worse than one that is quiet.
+          */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {stageAnnouncement}
+          </p>
+          {/*
+            The dimension just taken, on its own channel.
+            A measurement is not a status change — it is the RESULT of the
+            reader's action, and it must not have to queue behind "Modell
+            geladen" or be lost when a copy confirmation overwrites the region
+            a moment later. Always mounted and empty until there is one, for
+            the same reason as the region above: a live region inserted with
+            text already in it is not announced at all.
+          */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {newestMeasurement ? measurementText(newestMeasurement, measureLabels) : ''}
+          </p>
           <StageCanvas
             isLoading={isLoading}
             error={error}
+            onRetry={reloadModels}
+            onClose={onClose}
             hasModels={(models?.length ?? 0) > 0}
             model={model}
+            source={source}
             viewport={viewport}
           />
 
           {/* Rail — models and levels. */}
-          {railOpen && (
+          {railOpen && railHasContent && (
             <div className="absolute top-3 left-3 z-20 flex max-h-[calc(100%-1.5rem)] sm:top-4 sm:left-4">
               <ViewerRail>
                 {/*
@@ -378,6 +860,13 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                           storey: undefined,
                           element: undefined,
                           highlights: undefined,
+                          // See-through goes with them. It ghosts everything
+                          // that is not highlighted or selected, so with both
+                          // dropped the button becomes `active` (the URL still
+                          // says `xray=1`) AND `disabled` — a mode the reader
+                          // can be left in and cannot leave, which then ghosts
+                          // the whole building the moment they click a wall.
+                          xray: undefined,
                         })
                       }
                     />
@@ -399,16 +888,21 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                         meta={
                           level.elevation === null
                             ? undefined
-                            : t('stage.elevation', { value: formatLevelElevation(level.elevation) })
+                            : t('stage.elevation', { value: formatLevelElevation(level.elevation, locale) })
                         }
                         // The elevation is context, not identity: it must not
                         // become part of the row's spoken name.
                         ariaLabel={level.name}
-                        selected={storey === level.name}
+                        selected={storeyKey(storey) === storeyKey(level.name)}
+                        // The selection stays. `handleSelect` already keeps
+                        // the filter and the selected element on the same
+                        // level, so nothing here can become invisible — and
+                        // "All levels" one row above did not drop it either,
+                        // so the list behaved differently row by row.
                         onClick={() =>
                           setView({
-                            storey: storey === level.name ? undefined : level.name,
-                            element: undefined,
+                            storey:
+                              storeyKey(storey) === storeyKey(level.name) ? undefined : level.name,
                           })
                         }
                       />
@@ -427,9 +921,20 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           */}
           <div className="absolute top-3 right-3 z-40 sm:top-4 sm:right-4">
             <ViewerSurface className="flex items-center gap-1 p-1">
+              {/*
+                The name does not change on SUCCESS. It used to, and the live
+                region says the same words at the same moment — an accessible
+                name changing on the focused element is announced too, so
+                "Link kopiert" arrived twice. The check icon is the visual
+                confirmation and the region is the spoken one.
+
+                A FAILURE still swaps the name. It is the rarer event and the
+                one a reader has to be able to discover on hover, so the
+                redundancy is worth what it costs there.
+              */}
               <ViewerIconButton
-                label={copied ? t('link.copied') : t('link.copy')}
-                icon={copied ? Check : Link2}
+                label={copyFailed ? t('link.failed') : t('link.copy')}
+                icon={copyFailed ? MonitorX : copied ? Check : Link2}
                 onClick={copyLink}
                 side="bottom"
               />
@@ -450,8 +955,11 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 'absolute top-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] pt-12 sm:top-4 sm:right-4',
                 // Steps aside for the advanced drawer rather than hiding under
                 // it: clicking a wall while the Prüfbuch is open is exactly
-                // when you want both.
-                advancedOpen && 'sm:right-[28rem]'
+                // when you want both. Below `sm` there is nowhere to step —
+                // the drawer is `calc(100% - 1.5rem)` wide — so the card
+                // yields instead of rendering invisibly behind it. That is
+                // the state the drawer's own "show elements" action produces.
+                advancedOpen && 'max-sm:hidden sm:right-[28rem]'
               )}
             >
               <ModelInspector
@@ -460,30 +968,129 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 error={detail.error}
                 projectId={projectId}
                 modelFilename={model?.filename ?? null}
-                onClose={() => setView({ element: undefined })}
-                {...visibilityActions(viewport)}
+                onClose={() => {
+                  setView({ element: undefined })
+                  // Closing the card unmounts the button that closed it.
+                  // Back to the building, which is where the selection came
+                  // from — see `focusViewport`.
+                  focusViewport()
+                }}
+                {...visibilityActions(viewport, () => setView({ element: undefined }), focusViewport)}
               />
+            </div>
+          )}
+
+          {/*
+            Two things the reader has to know about a link they followed, and
+            neither was said anywhere. `unresolved` is documented in
+            `model-index.ts` as "not a diagnostic detail — it is shown", and
+            it was shown only by the chat card: click through to the full
+            screen and the warning disappeared while the legend quietly
+            counted fewer elements than the answer named.
+          */}
+          {stageWarning && (
+            <div className="absolute top-16 left-1/2 z-20 -translate-x-1/2 sm:top-20">
+              <ViewerSurface className="flex items-start gap-2 px-3 py-2 text-xs">
+                <TriangleAlert className="text-warning mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                {/*
+                  Clamped to the viewport, not only to 28rem. Centred on
+                  `left-1/2` with a 448 px cap, the pill measured about 490 px
+                  with its icon and padding — some 50 px off each side of a
+                  390 px phone, unscrollable, on the one sentence that says the
+                  view is not the view that was sent.
+                */}
+                <span className="max-w-[min(28rem,calc(100vw-6rem))]">{stageWarning.text}</span>
+                {/*
+                  The one warning here that has something to press — and only
+                  when that is the warning being shown. Keyed off the message
+                  rather than off `elementsError` directly, because a capture
+                  that fails while the element walk is also broken would
+                  otherwise put "try again" next to a sentence about a
+                  screenshot, wired to reload something else.
+                */}
+                {stageWarning.retry && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="-my-1 h-6 shrink-0 px-2 text-xs"
+                    onClick={reloadElements}
+                  >
+                    {t('loadFailed.action')}
+                  </Button>
+                )}
+              </ViewerSurface>
             </div>
           )}
 
           {/* What the colours mean, when something coloured them. */}
           <ViewerLegend
-            className="absolute bottom-20 left-3 z-20 sm:bottom-24 sm:left-4"
-            entries={viewport.highlights.map((highlight) => ({
-              status: highlight.status,
-              label: highlight.label,
-              count: highlight.expressIds.length,
-            }))}
+            className={cn(
+              'absolute left-3 z-20 sm:left-4',
+              /*
+                Pinned above the dock — including whatever the dock has stacked
+                on top of itself. At a fixed `bottom-20` the legend sat exactly
+                where the section slider lands: same `z-20`, legend painted
+                first, so the slider covered it. That is not an exotic state,
+                it is what a compliance deep link produces — highlights (so a
+                legend) plus a cut. Widths do not save it either; the slider is
+                `max-w-full` on a phone.
+              */
+              DOCK_ABOVE_OFFSET[dockAboveRows]
+            )}
+            // Nothing until the rows land, for the same reason the warning
+            // above waits: a count is resolved against the element list, so
+            // rendering one early states "Aussenwände (0)" beside an answer
+            // that said 420. A legend that arrives a moment late is a legend;
+            // one that arrives wrong is a contradiction the reader has to
+            // resolve themselves.
+            entries={
+              elementsLoading || elementsError !== null
+                ? []
+                : viewport.highlights.map((highlight) => ({
+                    status: highlight.status,
+                    label: highlight.label,
+                    count: highlight.expressIds.length,
+                  }))
+            }
           />
 
           <ViewerDock
+            // The drawer is `z-30` and right-anchored full height; the dock is
+            // `z-20` and centred. On a 1024 px viewport the drawer sat on top
+            // of x-ray, the rail toggle and the button that OPENED it — press
+            // the visibly-pressed button again and nothing happened, because
+            // the drawer was intercepting the click. On a phone it covered
+            // every viewer control. The inspector was taught to step aside;
+            // the dock never was.
+            //
+            // Below `sm` the drawer is effectively full-screen, so there is no
+            // padding that helps: the dock yields entirely rather than
+            // presenting nine glyphs that cannot be pressed. Escape and the
+            // drawer's own X are the ways back, and both restore focus here.
+            className={cn(advancedOpen && 'max-sm:hidden sm:pr-[27rem]')}
             lead={
-              <ViewerIconButton
-                label={t('stage.home')}
-                icon={Home}
-                onClick={viewport.fit}
-                disabled={viewport.status.phase !== 'ready'}
-              />
+              <>
+                {/*
+                  In the leading pill, beside Home, because both answer the
+                  same question — "get me back" — and neither is a tool for
+                  looking at the building. Home undoes the CAMERA; this undoes
+                  the view. Keeping them together is what makes the pair
+                  legible: one returns the eye, the other returns the state.
+                */}
+                <ViewerIconButton
+                  label={t('stage.back')}
+                  icon={Undo2}
+                  onClick={goBack}
+                  disabled={viewHistory.length === 0}
+                />
+                <ViewerIconButton
+                  label={t('stage.home')}
+                  icon={Home}
+                  onClick={viewport.fit}
+                  disabled={viewport.status.phase !== 'ready'}
+                />
+              </>
             }
             above={
               <>
@@ -494,14 +1101,47 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   with no way to clear leaves the building covered in someone
                   else's arithmetic.
                 */}
-                {viewport.measure.active && (
+                {/*
+                  Rendered while the tool is on OR while anything is measured.
+                  Turning the tool off keeps the measurements on screen by
+                  design — and used to take away the only control that could
+                  clear them, leaving the building covered in someone else's
+                  arithmetic with no way out.
+                */}
+                {(viewport.measure.active || viewport.measure.measurements.length > 0) && (
                   <ViewerSurface className="pointer-events-auto flex items-center gap-2 px-3 py-1.5">
-                    <span className="text-muted-foreground text-xs">
-                      {t(viewport.measure.pending ? 'viewer.measure.second' : 'viewer.measure.first')}
-                    </span>
+                    {viewport.measure.active && (
+                      <span className="text-muted-foreground text-xs">
+                        {t(
+                          viewport.measure.pending
+                            ? 'viewer.measure.second'
+                            : 'viewer.measure.first'
+                        )}
+                      </span>
+                    )}
                     {viewport.measure.measurements.length > 0 && (
                       <>
-                        <span className="text-muted-foreground/60 text-xs tabular-nums">
+                        {/*
+                          The numbers themselves, for a reader who cannot see
+                          the drawing over the model. The overlay is marked
+                          decorative precisely because this exists: without it
+                          every dimension the tool produced was available
+                          nowhere but as pixels.
+                        */}
+                        {/*
+                          Not a live region — the one at the top of the dialog
+                          announces the newest measurement. This is the full
+                          list, browsable, for a reader going back over what
+                          they took. It used to be the `role="status"`, which
+                          made it announce every dimension again each time a
+                          new one was added, and never announce the first.
+                        */}
+                        <span className="sr-only">
+                          {viewport.measure.measurements
+                            .map((measurement) => measurementText(measurement, measureLabels))
+                            .join('; ')}
+                        </span>
+                        <span className="text-muted-foreground text-xs tabular-nums">
                           {viewport.measure.measurements.length === 1
                             ? t('viewer.measure.countOne')
                             : t('viewer.measure.count', {
@@ -513,7 +1153,12 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                           size="sm"
                           variant="ghost"
                           className="h-7 px-2 text-xs"
-                          onClick={viewport.measure.clear}
+                          onClick={() => {
+                            viewport.measure.clear()
+                            // The pill this button sits in goes with the list
+                            // when the tool is already off.
+                            focusViewport()
+                          }}
                         >
                           {t('viewer.measure.clear')}
                         </Button>
@@ -527,8 +1172,12 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   min={viewport.bounds.minMetres}
                   max={viewport.bounds.maxMetres}
                   value={section.atMetres}
-                  display={t('viewer.section.metres', { value: section.atMetres.toFixed(2) })}
-                  onChange={(atMetres) => viewport.setSection({ ...section, atMetres })}
+                  display={t('viewer.section.metres', { value: formatMetresIn(section.atMetres, locale) })}
+                  // Per step: move the plane, now. Per gesture: write the
+                  // link. Both were the second one, which is why the slider
+                  // could not be dragged at all — see `viewer-slider.tsx`.
+                  onChange={viewport.previewCut}
+                  onCommit={(atMetres) => viewport.setSection({ ...section, atMetres })}
                   action={
                     <Button
                       type="button"
@@ -558,20 +1207,37 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   <ViewerIconButton
                     label={t('stage.showEverything')}
                     icon={Layers}
-                    onClick={viewport.visibility.showEverything}
+                    onClick={() => {
+                      viewport.visibility.showEverything()
+                      // This button exists only while something is hidden, so
+                      // pressing it deletes it. Its disappearance is also the
+                      // only confirmation that anything happened — losing the
+                      // reader's place on top of that leaves them with no
+                      // signal at all.
+                      focusViewport()
+                    }}
                   />
                 )}
+                {/*
+                  The rail holds the model list and the level list, and both
+                  can be absent — one model, and an export whose storeys have
+                  no names. It then rendered as a 13 rem empty blurred pill
+                  over the building, with a dock toggle reporting `active` for
+                  it. A toggle for nothing is not a toggle.
+                */}
                 <ViewerIconButton
                   label={railOpen ? t('stage.rail.hide') : t('stage.rail.show')}
                   icon={PanelLeft}
-                  active={railOpen}
+                  active={railOpen && railHasContent}
+                  disabled={!railHasContent}
                   onClick={() => setRailChoice(!railOpen)}
                 />
                 <ViewerIconButton
+                  ref={advancedToggleRef}
                   label={t('stage.advanced')}
                   icon={SlidersHorizontal}
                   active={advancedOpen}
-                  onClick={() => setAdvancedOpen((open) => !open)}
+                  onClick={() => setAdvancedOpen(!advancedOpen)}
                   disabled={!modelId}
                 />
               </>
@@ -607,11 +1273,25 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               disabled={viewport.status.phase !== 'ready'}
               onClick={() => viewport.measure.setActive(!viewport.measure.active)}
             />
+            {/*
+              See-through ghosts everything that is NOT highlighted or
+              selected, so with neither there is nothing to keep solid and the
+              renderer is correctly told to ghost nothing. Pressing it wrote
+              `xray=1`, filled the button and set `aria-pressed` — and the
+              building did not change. A control that cannot act must not
+              offer to; this is the second time this particular button has
+              been pressed-and-inert, for a different reason each time.
+            */}
             <ViewerIconButton
-              label={t('viewer.xray')}
+              // The name says WHY when it cannot act. A disabled control gets
+              // no tooltip — Radix's trigger never fires on a disabled button
+              // — so the reason documented in the comment above reached
+              // nobody: the reader was left with an inert eye and no way to
+              // discover that selecting a wall would turn it on.
+              label={xrayNeedsTarget ? t('viewer.xrayNeedsTarget') : t('viewer.xray')}
               icon={Eye}
               active={view.xray ?? false}
-              disabled={viewport.status.phase !== 'ready'}
+              disabled={viewport.status.phase !== 'ready' || xrayNeedsTarget}
               onClick={() => setView({ xray: !(view.xray ?? false) })}
             />
           </ViewerDock>
@@ -625,11 +1305,21 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
           {modelId && model && (
             <ModelAdvancedSheet
               open={advancedOpen}
-              onClose={() => setAdvancedOpen(false)}
+              // Back to the button that opened it. The drawer's X unmounts
+              // itself, so without this closing a panel put the reader at the
+              // top of the dialog instead of back on the toolbar.
+              onClose={closeAdvanced}
               projectId={projectId}
               model={model}
               models={models ?? []}
               elements={elementList}
+              // The Struktur tab reads an empty array as a building with no
+              // elements and blames a filter the reader never set — see
+              // `IfcElementTable`. The stage has known which of the three
+              // situations it is in all along; it just never said.
+              elementsLoading={elementsLoading}
+              elementsError={elementsError !== null}
+              onReloadElements={reloadElements}
               tab={view.tab ?? 'overview'}
               onTabChange={(tab: BimModelTab) => setView({ tab })}
               storey={storey}
@@ -639,21 +1329,37 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
               // A finding becomes a VIEW: the offending elements are
               // highlighted, the first is selected, and the URL now points at
               // exactly that — so "here is the problem" is a link.
-              onShowElements={(globalIds) =>
+              onShowElements={(globalIds, status = 'fail') =>
                 setView({
                   element: globalIds[0],
-                  highlights: [{ status: 'fail', globalIds }],
+                  highlights: [{ status, globalIds }],
                   xray: true,
                 })
               }
               onOpenModel={(filename) =>
-                setView({ model: filename, element: undefined, highlights: undefined })
+                setView({
+                  model: filename,
+                  element: undefined,
+                  highlights: undefined,
+                  xray: undefined,
+                })
               }
             />
           )}
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** The one way forward every viewer failure now offers. */
+function StageRetry({ onClick }: { onClick: () => void }): JSX.Element {
+  const t = useTranslations('bim')
+  return (
+    <Button variant="outline" size="sm" onClick={onClick}>
+      <RotateCcw className="size-3.5" aria-hidden="true" />
+      {t('loadFailed.action')}
+    </Button>
   )
 }
 
@@ -669,19 +1375,35 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
 function StageCanvas({
   isLoading,
   error,
+  onRetry,
+  onClose,
   hasModels,
   model,
+  source,
   viewport,
 }: {
   isLoading: boolean
   error: string | null
+  onRetry: () => void
+  /** Closes the stage — the way back to Dateien, where a model is uploaded. */
+  onClose: () => void
   hasModels: boolean
   model: { status: string; errorMessage: string | null } | null
+  source: { data: string | null; error: string | null; reload: () => void }
   viewport: ReturnType<typeof useModelViewport>
 }): JSX.Element {
   const t = useTranslations('bim')
 
-  if (isLoading) {
+  // `isLoading && nothing to show yet`, not `isLoading`.
+  //
+  // The model list polls every four seconds while ANY model in the project is
+  // extracting, and each tick sets `isLoading` while deliberately keeping the
+  // previous `data` — the hook's comment explains at length why. Keying the
+  // veil on the flag alone undid that: uploading revision v3 while looking at
+  // v2 swapped the canvas for "Modell wird geladen…" every four seconds,
+  // unmounting the viewport, destroying the WebGPU device and re-streaming up
+  // to 149 MB, losing the camera, the cut and every measurement each time.
+  if (isLoading && !hasModels) {
     return <ModelViewportProgress phase="downloading" percent={null} />
   }
   if (error) {
@@ -690,12 +1412,32 @@ function StageCanvas({
         icon={Boxes}
         title={t('loadFailed.title')}
         description={t('loadFailed.description')}
+        // Every error state in this viewer used to be terminal: the notices
+        // took no action, `reload` on the hook had no caller, and the string
+        // for this button had sat unused in both dictionaries since it was
+        // written. Closing and reopening the stage was the only escape, and
+        // nothing on screen suggested it.
+        action={<StageRetry onClick={onRetry} />}
       />
     )
   }
   if (!hasModels || !model) {
     return (
-      <ViewerNotice icon={Boxes} title={t('empty.title')} description={t('empty.description')} />
+      <ViewerNotice
+        icon={Boxes}
+        title={t('empty.title')}
+        description={t('empty.description')}
+        // A project with no model got a sentence and no way forward: the
+        // notice says "upload an .ifc under Dateien" while sitting on top of
+        // Dateien, with the × in the corner as the only exit anyone could
+        // find. `empty.action` has existed in both dictionaries the whole
+        // time with nothing rendering it.
+        action={
+          <Button type="button" size="sm" variant="secondary" onClick={onClose}>
+            {t('empty.action')}
+          </Button>
+        }
+      />
     )
   }
   if (model.status !== 'ready') {
@@ -703,7 +1445,15 @@ function StageCanvas({
       <ViewerNotice
         icon={Boxes}
         title={t(`status.${model.status}`)}
-        description={model.errorMessage ?? t('stage.notReady')}
+        description={
+          model.errorMessage ??
+          // A FAILED extraction that stored no message used to fall through to
+          // "Das Modell wird noch gelesen" — printed directly under "Modell
+          // konnte nicht gelesen werden", so the notice contradicted its own
+          // heading and the reader was left waiting for something that had
+          // already stopped.
+          (model.status === 'failed' ? t('stage.readFailed') : t('stage.notReady'))
+        }
       />
     )
   }
@@ -727,6 +1477,26 @@ function StageCanvas({
             ? t('viewer.unavailable.reason', { message: viewport.status.message })
             : undefined
         }
+        // Re-signing mints a NEW url, and a new url is what resets the stored
+        // status and remounts the canvas — the recovery path existed and had
+        // nothing to trigger it. A device loss (a driver reset, a laptop
+        // waking) is the common way to land here, and it is entirely
+        // recoverable.
+        action={<StageRetry onClick={source.reload} />}
+      />
+    )
+  }
+  // A presigned URL that could not be minted — an expired session, a
+  // withdrawn feature flag, a dropped connection. Its own branch, because the
+  // fallthrough below renders an indeterminate progress bar, and a progress
+  // bar that will never finish is the least honest thing this surface can do.
+  if (source.error) {
+    return (
+      <ViewerNotice
+        icon={MonitorX}
+        title={t('viewer.unavailable.title')}
+        description={t('viewer.unavailable.description')}
+        action={<StageRetry onClick={source.reload} />}
       />
     )
   }
@@ -768,9 +1538,17 @@ function StageViewMenu({
   disabled: boolean
 }): JSX.Element {
   const t = useTranslations('bim')
+  /**
+   * Controlled so choosing a view CLOSES the menu.
+   *
+   * It did not, so picking "Grundriss" left an 11 rem popover sitting over the
+   * lower-left of the building the reader had just re-oriented to look at —
+   * and the one thing they wanted to see was behind it.
+   */
+  const [open, setOpen] = useState(false)
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       {/*
         The trigger is the BUTTON, not a wrapper around it. A `<span>` in
         between takes Radix's props — including the ones that make Enter open
@@ -780,7 +1558,25 @@ function StageViewMenu({
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
-            <ViewerIconButtonBase label={t('stage.views')} icon={Video} disabled={disabled} />
+            {/*
+              The name of the active view, on the trigger. Section, Measure and
+              See-through all light up when they are on; this one looked
+              identical whether the reader was on the north elevation in
+              parallel projection or in the free perspective default, so the
+              only way to find out was to open the menu and read it. The
+              `adornment` prop exists for exactly this and had no caller.
+            */}
+            <ViewerIconButtonBase
+              label={t('stage.views')}
+              icon={Video}
+              disabled={disabled}
+              active={view !== 'iso'}
+              adornment={
+                view === 'iso' ? undefined : (
+                  <span className="text-[11px] font-medium">{t(`viewer.view.${view}`)}</span>
+                )
+              }
+            />
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top" sideOffset={8}>
@@ -794,9 +1590,15 @@ function StageViewMenu({
               key={candidate}
               type="button"
               aria-pressed={view === candidate}
-              onClick={() => onViewChange(candidate)}
+              onClick={() => {
+                onViewChange(candidate)
+                setOpen(false)
+              }}
               className={cn(
-                'focus-visible:ring-ring/60 flex items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2',
+                // `pointer-coarse:min-h-11`: these are raw buttons, so they
+                // never see the floor `Button` applies. ~30 px rows two pixels
+                // apart are the only route to a plan or an elevation.
+                'focus-visible:ring-ring/60 pointer-coarse:min-h-11 flex items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2',
                 view === candidate
                   ? 'bg-accent text-foreground font-medium'
                   : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
@@ -812,7 +1614,7 @@ function StageViewMenu({
             type="button"
             aria-pressed={orthographic}
             onClick={() => onOrthographicChange(!orthographic)}
-            className="focus-visible:ring-ring/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2"
+            className="focus-visible:ring-ring/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground pointer-coarse:min-h-11 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2"
           >
             {t('viewer.projection.parallel')}
             {orthographic && <Check className="size-3.5" aria-hidden="true" />}

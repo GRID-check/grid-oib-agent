@@ -123,7 +123,6 @@ CARD_EXAMPLES: dict[str, dict] = {
         },
         "window_sill_height_m": 0.9,
         "window_head_height_m": 2.4,
-        "obstruction": None,
         "reference": {
             "document": "OIB-Richtlinie 3",
             "section": "Pkt. 9.1.1",

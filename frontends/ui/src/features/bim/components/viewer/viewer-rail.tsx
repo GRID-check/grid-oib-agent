@@ -141,7 +141,11 @@ export function ViewerRailItem({
       className={cn(
         'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors',
         'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
-        'pointer-coarse:py-2.5',
+        // `min-h-11` as well as the padding: 20 px of padding on a 13 px line
+        // comes to ~38 px, six short of the floor the repo asserts in
+        // `touch-target.spec.ts`. A level list on a forty-storey model is
+        // exactly where a mis-tap costs the reader the wrong isolation.
+        'pointer-coarse:min-h-11 pointer-coarse:py-2.5',
         selected ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
         disabled && 'pointer-events-none opacity-50'
       )}

@@ -76,7 +76,19 @@ export function ModelInspector({
   // The heading has to say something before the fetch lands, and it must not
   // say the WRONG thing: "Bauteil" while loading, never a stale name from the
   // element the reader clicked a second ago.
-  const title = element?.name?.trim() || (element ? humaniseIfcType(element.ifcType) : t('stage.selection.loading'))
+  /**
+   * Three states, not two.
+   *
+   * The query answers a GlobalId this model does not contain with `200
+   * {element: null}` — the normal outcome for a link written against another
+   * revision, or for a link whose model could not be matched. That is not the
+   * same fact as "not fetched yet", and rendering it as one left a card
+   * permanently headed "Wird geladen…" whose body read "Wählen Sie ein
+   * Bauteil" — inside a card that only exists because something IS selected.
+   */
+  const missing = !isLoading && !error && !element
+  const title = element?.name?.trim()
+    || (element ? humaniseIfcType(element.ifcType) : t(missing ? 'element.notFound' : 'stage.selection.loading'))
 
   const subtitle = element
     ? [humaniseIfcType(element.ifcType), element.storeyName].filter(Boolean).join(' · ')
@@ -150,7 +162,7 @@ export function ModelInspector({
       {!error && !element && (
         <div className="text-muted-foreground flex items-center gap-2 text-xs">
           {isLoading && <Spinner className="size-3" />}
-          {isLoading ? t('stage.selection.loading') : t('properties.none')}
+          {isLoading ? t('stage.selection.loading') : t('element.notFound')}
         </div>
       )}
 
@@ -217,7 +229,17 @@ function ModelInspectorDetails({
 
   return (
     <details className="border-border mt-3 border-t pt-2">
-      <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 marker:content-none cursor-pointer rounded text-[11px] font-semibold tracking-wide outline-none focus-visible:ring-2">
+      {/*
+        `pointer-coarse:min-h-11`: an 11 px line of text was the entire hit
+        area, and behind it sit the GlobalId, the classifications and every
+        property set — everything this card deliberately folds away. On a phone
+        that is a door the size of its own label.
+
+        Grown with padding rather than `min-h` and a flex centre: changing a
+        `<summary>`'s display has a history of costing it its toggle in Safari,
+        and padding needs no display change at all.
+      */}
+      <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 marker:content-none pointer-coarse:min-h-11 pointer-coarse:py-3.5 cursor-pointer rounded text-[11px] font-semibold tracking-wide outline-none focus-visible:ring-2">
         {label}
       </summary>
 

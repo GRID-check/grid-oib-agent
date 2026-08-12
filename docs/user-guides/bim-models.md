@@ -43,7 +43,10 @@ extraction failed says that instead — the two are never the same message.
 
 ## The model page
 
-The 3D view is always on the right. The left half has four tabs.
+Opening a model fills the screen with the building and nothing else. Everything
+below lives behind one button in the dock — **Details & Prüfung** — which opens
+a drawer on the right holding five tabs. The building stays on screen behind
+it; the drawer is a panel over the model, not a page beside it.
 
 ### Überblick
 
@@ -58,11 +61,12 @@ something you can send someone.
 
 **Projektangaben aus dem Modell** — the facts your project brief asks for, read
 back out of the model: storeys above and below ground, the Fluchtniveau band,
-the main use, the room count. Each one shows the evidence it came from and how
+the main use, the number of Nutzungseinheiten. Each one shows the evidence it
+came from and how
 confident it is. Nothing is written to the brief from here — **Über den
 Assistenten übernehmen** takes them into the chat, where you confirm each change
 the way you confirm every other proposed change to the project data. A derived
-`Geschosse oberirdisch` picks a Gebäudeklasse, and a Gebäudeklasse decides what
+`Geschoße oberirdisch` picks a Gebäudeklasse, and a Gebäudeklasse decides what
 the fire-safety answer is; that is not a value a page should set behind a
 checkbox.
 
@@ -138,7 +142,7 @@ get the file.
 **Räumliche Struktur** — the Project → Site → Building → Storey → Space tree.
 Click a storey to filter everything else to it.
 
-**Bauteile** — every element, searchable by name and filterable by type. Click a
+**Bauteile** — every element, searchable by name, tag or GlobalId and filterable by type. Click a
 row to see its full property sets and quantities, and to highlight it in 3D.
 
 ### Mengen
@@ -164,7 +168,7 @@ each row states how many of its elements publish no value.
 ### The 3D view
 
 Drag to orbit, Shift-drag to pan, scroll to zoom, click to select.
-**Röntgen** ghosts everything that is not selected or highlighted, so a wall
+**Durchsichtig** ghosts everything that is not selected or highlighted, so a wall
 inside a building is still findable.
 
 Orbit is the least of it. The toolbar stands the model square and cuts it:
@@ -208,13 +212,32 @@ Orbit is the least of it. The toolbar stands the model square and cuts it:
   *Ausblenden* removes the slab in front of the stair, *Isolieren* removes
   everything that is not the stair. Both combine with a level filter rather
   than replacing it, so isolating a stair while filtered to the first floor
-  shows you the part of the stair on that floor. **Wieder alles anzeigen**
+  shows you the part of the stair on that floor. **Ausgeblendetes wiederherstellen**
   appears in the toolbar as soon as anything is out of the way, and only then.
-- **Einpassen** re-frames the whole building without reloading it. The viewer needs **WebGPU** (Chrome and
-Edge today, Safari and Firefox depending on version). Without it you get a short
-note in place of the picture and *everything else on the page still works* — the
-structure, the elements, the properties, the quantities, the schedules, and
-every answer the assistant gives.
+- **Einpassen** re-frames the whole building without reloading it.
+- **Zurück zur vorherigen Ansicht** steps back through what you changed — the
+  element you selected, the level you filtered to, the cut, the drawer, the
+  model. It sits beside Einpassen because the two answer the same question:
+  Einpassen returns the camera, this returns the view. It never leaves the
+  model, and it never undoes a measurement or something you hid — those are
+  working notes with their own controls, the same reason they do not travel in
+  the link.
+
+  Your browser's own Back button deliberately does not do this. The whole view
+  is one address, so every element you clicked would be an entry in it, and
+  pressing Back enough times would take you out of the building altogether.
+
+On a tablet or a phone the same gestures are there under a finger: one finger
+orbits, two pinch to zoom and move to pan, and lifting one of the two leaves you
+still orbiting with the other. A tap selects. The dock scrolls sideways when the
+screen is too narrow to hold it, and opening **Details & Prüfung** on a phone
+gives the drawer the whole screen — Esc or its own **✕** brings the controls
+back.
+
+The viewer needs **WebGPU** (Chrome and Edge today, Safari and Firefox depending
+on version). Without it you get a short note in place of the picture and
+*everything else on the page still works* — the structure, the elements, the
+properties, the quantities, the schedules, and every answer the assistant gives.
 
 A browser can also have WebGPU and still not be able to draw: a blocked or
 blocklisted graphics driver, a virtual machine, a remote-desktop session, or an
@@ -229,11 +252,12 @@ whether x-ray is on — and the camera direction, the projection and the cut
 height — all live in the address bar. Measurements and anything you have
 hidden do not: those are working notes taken while reading, and a link that
 arrives with three components silently missing is a link whose recipient is
-looking at a different building from the one they think they are. *"Schnitt bei +2,60 m, Blick nach Norden,
-diese drei Wände markiert"* is something you send, not something you talk
-someone through. **Ansicht kopieren** copies the
-current one. That is what makes "the third wall on the left in the ground floor"
-unnecessary: you send the wall.
+looking at a different building from the one they think they are.
+
+*"Schnitt bei +2,60 m, Blick nach Norden, diese drei Wände markiert"* is
+something you send, not something you talk someone through. **Ansicht kopieren**
+copies the current one. That is what makes "the third wall on the left in the
+ground floor" unnecessary: you send the wall.
 
 ## Asking questions in chat
 
@@ -245,8 +269,8 @@ composer, it does not send.
 
 In a project chat, ask about the building the way you would ask a colleague:
 
-- *"Wie viele Außenwände gibt es im Erdgeschoss?"*
-- *"Netto-Grundfläche pro Geschoss?"*
+- *"Wie viele Außenwände gibt es im Erdgeschoß?"*
+- *"Netto-Grundfläche pro Geschoß?"*
 - *"Welche Wände haben keine Feuerwiderstandsklasse hinterlegt?"*
 - *"Welchen U-Wert haben die Fenster?"*
 - *"Welche Türen sind als Fluchttür gekennzeichnet?"*
@@ -266,7 +290,7 @@ something the model cannot decide, green for what passes.
 **Element names in an answer are links.** When the assistant names a wall, the
 name is a chip — click it and the model opens with that wall selected,
 highlighted and, where it helps, with everything else ghosted. It goes the other
-way too: with an element selected on the model page, **Assistenten fragen**
+way too: with an element selected on the model page, **Piloti dazu fragen**
 starts a chat about exactly that element, carrying its GlobalId so the
 assistant queries the same one you are looking at rather than one it guessed
 from a description.
@@ -306,8 +330,8 @@ classifications is not broken, it just cannot answer questions about
 classifications.
 
 When a model has structural gaps, the assistant says so in the answer itself:
-*"Hinweis zum Modell: 43 Bauteile sind keinem Geschoss zugeordnet und fehlen
-daher in jeder geschossweisen Auswertung."* That sentence is not boilerplate —
+*"Hinweis zum Modell: 43 Bauteile sind keinem Geschoß zugeordnet und fehlen
+daher in jeder geschoßweisen Auswertung."* That sentence is not boilerplate —
 it appears only when it applies.
 
 ## Revisions

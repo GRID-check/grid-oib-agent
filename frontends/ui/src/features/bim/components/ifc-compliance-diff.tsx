@@ -28,6 +28,15 @@ export interface IfcComplianceDiffProps {
   /** The older revision this runs against; `null` when there is no previous. */
   baseModel: BimModelHeaderView | null
   changes: BimComplianceChange[] | null
+  /**
+   * At least one revision was read only in part.
+   *
+   * The one sentence this panel cannot do without: "Keine Anforderung hat
+   * ihren Status geändert" reads identically for "nothing regressed" and "we
+   * compared half of each revision", and the second is the answer a
+   * resubmission gets signed off on.
+   */
+  truncated?: boolean
   isLoading: boolean
   error: string | null
   onRun: () => void
@@ -52,6 +61,7 @@ const TREND_STYLE: Record<
 export function IfcComplianceDiff({
   baseModel,
   changes,
+  truncated = false,
   isLoading,
   error,
   onRun,
@@ -78,6 +88,14 @@ export function IfcComplianceDiff({
       </Button>
 
       {error && <p className="text-sm text-destructive">{t('complianceDiff.failed')}</p>}
+
+      {/* Before the result, because it is what the result is worth. */}
+      {changes && truncated && (
+        <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+          <TrendingDown className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {t('complianceDiff.truncated')}
+        </p>
+      )}
 
       {changes && changes.length === 0 && (
         // Not an empty state — a result, and a reassuring one.

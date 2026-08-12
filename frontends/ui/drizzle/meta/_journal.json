@@ -321,14 +321,21 @@
       "idx": 45,
       "version": "7",
       "when": 1786406400005,
-      "tag": "0045_curated_skill_activations",
+      "tag": "0045_bim_confirmations_per_model",
       "breakpoints": true
     },
     {
       "idx": 46,
       "version": "7",
       "when": 1786492800005,
-      "tag": "0046_platform_skills",
+      "tag": "0046_curated_skill_activations",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786579200005,
+      "tag": "0047_platform_skills",
       "breakpoints": true
     }
   ]

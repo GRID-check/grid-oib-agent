@@ -97,7 +97,7 @@ describe('IfcComplianceDiff', () => {
     // A re-export that drops a property silently un-checks a requirement that
     // was green yesterday. A pass/fail comparison would never mention it.
     diff()
-    expect(screen.getByText('no longer decidable')).toBeInTheDocument()
+    expect(screen.getByText('no longer decidable (the value is gone from the model)')).toBeInTheDocument()
   })
 
   it('shows both sides so a trend is evidence rather than a claim', () => {
@@ -114,7 +114,7 @@ describe('IfcComplianceDiff', () => {
 
   it('reports a failed run instead of implying nothing changed', () => {
     diff({ changes: null, error: 'load-failed' })
-    expect(screen.getByText('The comparison could not be run.')).toBeInTheDocument()
+    expect(screen.getByText('The requirement-status comparison could not be run.')).toBeInTheDocument()
     expect(screen.queryByText(/No requirement changed/)).not.toBeInTheDocument()
   })
 })

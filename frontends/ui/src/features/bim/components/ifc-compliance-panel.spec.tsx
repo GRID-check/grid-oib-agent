@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IfcCompliancePanel } from './ifc-compliance-panel'
 import type { BimRuleResult, BimRuleResultWithConfirmation } from '@/lib/bim/rules'
@@ -213,7 +213,7 @@ describe('IfcCompliancePanel', () => {
   })
 
   it('names the project data the brief is missing and offers to fix it', () => {
-    panel({ missingFacts: ['Gebäudeklasse'] })
+    panel({ missingFacts: ['gebaeudeklasse'] })
     expect(screen.getByText(/project data this brief does not carry: Gebäudeklasse/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Set it with the assistant' })).toHaveAttribute(
       'href',
@@ -265,7 +265,7 @@ describe('IfcCompliancePanel', () => {
     it('marks a confirmation from an older revision as no longer covering', () => {
       panel({ rules: [{ ...CONFIRMED, confirmationStale: true }] })
       expect(screen.getByText('Older revision')).toBeInTheDocument()
-      expect(screen.getByText(/no longer as cover for the current one/)).toBeInTheDocument()
+      expect(screen.getByText(/does not apply to the current revision/)).toBeInTheDocument()
       // Still recorded: a signature is not deleted by a re-export.
       expect(screen.getByText(/Confirmed by a.muster/)).toBeInTheDocument()
     })
@@ -277,6 +277,80 @@ describe('IfcCompliancePanel', () => {
       await userEvent.type(screen.getByLabelText('Why this is settled'), 'Anhand des Plans geprüft')
       await userEvent.click(screen.getByRole('button', { name: 'Save confirmation' }))
       expect(onConfirm).toHaveBeenCalledWith('oib2-feuerwiderstand-tragend', 'Anhand des Plans geprüft')
+    })
+
+    it('lands the reader in the note field they just asked for', async () => {
+      // Pressing "Bestätigen" unmounts the button that was pressed. Without a
+      // focus move the reader is thrown to the top of the enclosing dialog and
+      // has to Tab back through the whole Prüfbuch to reach a textarea that
+      // appeared because of them — a signature a keyboard cannot complete
+      // without counting Tab stops.
+      panel({ rules: [rule({ ruleId: 'oib2-feuerwiderstand-tragend', undecidable: 34 })], onConfirm: vi.fn() })
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm manually' }))
+      expect(document.activeElement).toBe(screen.getByLabelText('Why this is settled'))
+    })
+
+    it('gives focus back to the button that opened the form when it is cancelled', async () => {
+      panel({ rules: [rule({ ruleId: 'oib2-feuerwiderstand-tragend', undecidable: 34 })], onConfirm: vi.fn() })
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm manually' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Confirm manually' }))
+    })
+
+    it('asks before deleting a signed record', async () => {
+      // One click used to delete it — permanently, across every revision of
+      // the building, with no confirmation, no undo, and no feedback beyond
+      // the button vanishing. Everything else in this component asks first;
+      // the note form is itself a two-step disclosure.
+      const onWithdraw = vi.fn().mockResolvedValue(undefined)
+      panel({ rules: [CONFIRMED], onConfirm: vi.fn(), onWithdraw })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+      expect(onWithdraw).not.toHaveBeenCalled()
+      expect(screen.getByText('Delete this confirmation and its note?')).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+      expect(onWithdraw).toHaveBeenCalledWith('oib2-feuerwiderstand-tragend')
+    })
+
+    it('lets the reader back out of the withdrawal', async () => {
+      const onWithdraw = vi.fn().mockResolvedValue(undefined)
+      panel({ rules: [CONFIRMED], onConfirm: vi.fn(), onWithdraw })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(onWithdraw).not.toHaveBeenCalled()
+      expect(screen.queryByText('Delete this confirmation and its note?')).not.toBeInTheDocument()
+    })
+
+    it('tells a read-only reader why, rather than telling them to try again', async () => {
+      // The retry can never succeed and the note is retyped each time. The
+      // panel's own prop doc says the write callbacks are absent for a viewer
+      // without `project:edit`; nothing ever omits them.
+      const onConfirm = vi.fn().mockRejectedValue(new Error('403'))
+      panel({ rules: [rule({ ruleId: 'oib2-feuerwiderstand-tragend', undecidable: 34 })], onConfirm })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm manually' }))
+      await userEvent.type(screen.getByLabelText('Why this is settled'), 'Geprüft')
+      await userEvent.click(screen.getByRole('button', { name: 'Save confirmation' }))
+
+      expect(await screen.findByText(/cannot be added or withdrawn/)).toBeInTheDocument()
+      expect(screen.queryByTestId('bim-confirmation-failed')).not.toBeInTheDocument()
+      // And the note survives, so nothing they typed is lost.
+      expect(screen.getByLabelText('Why this is settled')).toHaveValue('Geprüft')
+    })
+
+    it('says a brief it could not READ was not read, rather than naming gaps in it', () => {
+      // Untested on both sides until now: the hook's `failed` had no assertion
+      // and no caller passed `factsFailed`. The two sentences send the reader
+      // to different places, and only one of them can help.
+      panel({
+        rules: [rule({ ruleId: 'oib3-raumhoehe', passed: 9 })],
+        factsFailed: true,
+        missingFacts: [],
+      })
+      expect(screen.getByText(/project brief could not be read/)).toBeInTheDocument()
+      expect(screen.queryByText(/Some rules depend on project data/)).not.toBeInTheDocument()
     })
 
     it('offers nothing to confirm on a rule the model settled cleanly', () => {
@@ -346,11 +420,18 @@ describe('a confirmation that could not be saved', () => {
 
   it('says nothing when the confirmation saved', async () => {
     const user = userEvent.setup()
-    panel(() => Promise.resolve())
+    const onConfirm = vi.fn().mockResolvedValue(undefined)
+    panel(onConfirm)
 
     await user.click(screen.getByTestId('bim-confirm-open'))
     await user.click(screen.getByTestId('bim-confirm-save'))
 
+    // Awaited on a POSITIVE signal first. Its sibling above needs
+    // `findByRole('alert')` to see the failure, i.e. the alert arrives a tick
+    // later — so asserting its ABSENCE synchronously would stay green for a
+    // regression that surfaced it on the next tick.
+    await waitFor(() => expect(onConfirm).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByTestId('bim-confirm-save')).not.toBeInTheDocument())
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

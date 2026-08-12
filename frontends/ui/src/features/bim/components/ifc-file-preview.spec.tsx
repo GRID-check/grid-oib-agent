@@ -41,8 +41,12 @@ const state: {
 vi.mock('../hooks/use-bim-model', () => ({
   useProjectBimModels: () => ({ ...state.models, reload: () => {} }),
   useBimElements: () => ({ data: state.elements, isLoading: false, error: null }),
-  useBimModelSource: (modelId: string | null, enabled: boolean) =>
-    modelId && enabled ? state.source : null,
+  useBimModelSource: (modelId: string | null, enabled: boolean) => ({
+    data: modelId && enabled ? state.source : null,
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+  }),
 }))
 
 function model(overrides: Partial<BimModelHeaderView> = {}): BimModelHeaderView {

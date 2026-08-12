@@ -44,10 +44,10 @@ const BOUNDARY_MIGRATIONS = [
   '0043_jobs.sql',
   // Adds curated_skill_activations — whether an organization switched a
   // platform-curated skill on. Org-scoped data, so inside the boundary.
-  '0045_curated_skill_activations.sql',
+  '0046_curated_skill_activations.sql',
   // Adds platform_skills — the fleet-wide curated catalogue. A PLATFORM table:
   // every tenant reads it, only the platform role writes it.
-  '0046_platform_skills.sql',
+  '0047_platform_skills.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

@@ -14,6 +14,7 @@ import {
   resolveIsolation,
   selectionSurvives,
   shortIfcType,
+  storeyKey,
   type BimViewerElement,
 } from './model-index'
 import type { BimSpatialNode } from '@/lib/bim/types'
@@ -237,14 +238,35 @@ describe('flattenSpatialTree', () => {
 
 describe('formatting', () => {
   it('signs elevations so a basement reads as one', () => {
-    expect(formatElevation({ elevation: 0 })).toBe('0 m')
-    expect(formatElevation({ elevation: 3.2 })).toBe('+3.2 m')
-    expect(formatElevation({ elevation: -2.85 })).toBe('-2.85 m')
-    expect(formatElevation({ elevation: null })).toBe('—')
+    expect(formatElevation({ elevation: 0 }, 'en-GB')).toBe('0 m')
+    expect(formatElevation({ elevation: 3.2 }, 'en-GB')).toBe('+3.2 m')
+    expect(formatElevation({ elevation: -2.85 }, 'en-GB')).toBe('-2.85 m')
+    // `+3.25 m` in a German Struktur tree reads as 325 metres.
+    expect(formatElevation({ elevation: -2.85 }, 'de-AT')).toBe('-2,85 m')
+    expect(formatElevation({ elevation: null }, 'en-GB')).toBe('—')
   })
 
   it('drops the Ifc prefix for table display but leaves other names alone', () => {
     expect(shortIfcType('IfcWall')).toBe('Wall')
     expect(shortIfcType('Wall')).toBe('Wall')
+  })
+})
+
+describe('one storey name, compared one way', () => {
+  it('ignores the padding an exporter left on the name', () => {
+    // Trailing whitespace in an IFC storey name is common. The rail publishes
+    // `name.trim()` and writes that into the link, while every element carries
+    // the padded original — so nothing matched, the model DOES assign storeys,
+    // and the answer was an empty set. The renderer reads that as "draw
+    // nothing": the app's own rail blanked the building.
+    const padded: BimViewerElement[] = [
+      { globalId: 'g-1', expressId: 1, ifcType: 'IfcWall', name: 'Wand', storeyName: ' Erdgeschoss ' },
+    ]
+    expect([...(expressIdsForStorey(padded, 'Erdgeschoss') ?? [])]).toEqual([1])
+  })
+
+  it('reduces case and padding to one key', () => {
+    expect(storeyKey('  ErdGeschoss ')).toBe('erdgeschoss')
+    expect(storeyKey(null)).toBe('')
   })
 })

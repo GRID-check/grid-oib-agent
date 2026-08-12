@@ -117,7 +117,17 @@ export function parseElementLink(href: string | undefined): BimElementLink | nul
   }
   const match = MODEL_PATH.exec(path)
   if (!match) return null
-  const projectId = decodeURIComponent(match[1])
+  // `decodeURIComponent` THROWS on a malformed escape — `'100%'` is a
+  // `URIError`, not a fallback. This runs during render, from the citation
+  // renderer inside an assistant answer, so one stray `%` in one markdown
+  // link took the whole reply down with it. The `new URL` above already
+  // treats a parse failure as "not a model link"; so does this now.
+  let projectId: string
+  try {
+    projectId = decodeURIComponent(match[1])
+  } catch {
+    return null
+  }
   if (!projectId) return null
 
   const search = match[3] ?? ''

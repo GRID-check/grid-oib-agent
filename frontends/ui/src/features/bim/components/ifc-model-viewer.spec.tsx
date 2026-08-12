@@ -58,9 +58,15 @@ describe('IfcModelViewer without WebGPU', () => {
     render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
 
     expect(screen.getByText('3D view not available in this browser')).toBeInTheDocument()
-    // The message says what is unaffected rather than apologising: the model
-    // itself is fine and the assistant can still answer questions about it.
-    expect(screen.getByText(/The model itself is fine/)).toBeInTheDocument()
+    // The message says what is unaffected rather than apologising — and it
+    // says it WITHOUT delivering a verdict on the model. "The model itself is
+    // fine" is a clean bill of health issued by an error toast, on a product
+    // that never certifies anything and on a file that may carry a hundred
+    // Modellprüfung findings. The German always said only that the browser is
+    // the reason.
+    expect(
+      screen.getByText(/a browser limitation, not a problem with the model/)
+    ).toBeInTheDocument()
   })
 
   it('never mounts the viewport, so the WASM chunk is never fetched', () => {
@@ -71,13 +77,18 @@ describe('IfcModelViewer without WebGPU', () => {
 })
 
 describe('IfcModelViewer with WebGPU', () => {
-  it('shows the same fallback while the source URL is still being minted', () => {
+  it('says it is loading while the source URL is being minted, not that the browser cannot', () => {
+    // These are two different situations and only one of them is about the
+    // browser. Folding them together told a browser that HAS WebGPU that it
+    // does not — for a second on every card while the presigned URL was
+    // minted, and permanently when that request failed.
     setWebGpu(true)
     render(<IfcModelViewer sourceUrl={null} elements={ELEMENTS} />)
-    // A canvas with nothing to load would render an empty grey box; saying so
-    // is better than showing one.
     expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
-    expect(screen.getByText('3D view not available in this browser')).toBeInTheDocument()
+    expect(
+      screen.queryByText('3D view not available in this browser')
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Loading model…')).toBeInTheDocument()
   })
 
   it('mounts the viewport once there is something to draw', async () => {
@@ -145,7 +156,7 @@ describe('IfcModelViewer with WebGPU', () => {
     })
 
     try {
-      render(
+      const { rerender } = render(
         <IfcModelViewer
           sourceUrl="https://example.test/model.ifc"
           elements={[
@@ -160,11 +171,36 @@ describe('IfcModelViewer with WebGPU', () => {
         />
       )
 
+      // The warning is a canary, not the assertion. It depends on React
+      // emitting this exact substring through `console.error`, so a reword or
+      // a production-mode build turns it into a line that can never fail.
       expect(warnings.flat().join(' ')).not.toContain('same key')
-      // Both rows are there, each with its own count.
+
+      // These are the assertion: both rows, each with its own count.
       expect(screen.getAllByText('nicht erfüllt')).toHaveLength(2)
       expect(screen.getByText('(1)')).toBeInTheDocument()
       expect(screen.getByText('(2)')).toBeInTheDocument()
+
+      // And the counts FOLLOW the groups through an update, which is the
+      // reconciliation the shared key actually broke: keyed by label, React
+      // treats these as one row and reuses the first one's subtree, so the
+      // reordered pair renders with the old counts.
+      rerender(
+        <IfcModelViewer
+          sourceUrl="https://example.test/model.ifc"
+          elements={[
+            ...ELEMENTS,
+            { globalId: 'g-w2', expressId: 22, ifcType: 'IfcWall', name: 'Innenwand', storeyName: 'Erdgeschoss' },
+            { globalId: 'g-w3', expressId: 23, ifcType: 'IfcWall', name: 'Trennwand', storeyName: 'Erdgeschoss' },
+          ]}
+          highlights={[
+            { globalIds: ['g-w2', 'g-w3'], label: 'nicht erfüllt', status: 'fail' },
+            { globalIds: ['g-w1'], label: 'nicht erfüllt', status: 'fail' },
+          ]}
+        />
+      )
+      const counts = screen.getAllByText(/^\(\d\)$/).map((node) => node.textContent)
+      expect(counts).toEqual(['(2)', '(1)'])
     } finally {
       spy.mockRestore()
     }

@@ -10,10 +10,12 @@
  * working at all.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Boxes, CheckCircle2, Info, Layers3, Ruler, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { formatMeasure, formatPropertyValue } from '../lib/format-value'
@@ -178,7 +180,15 @@ export function IfcModelHealthPanel({
                 key={`${issue.rule}-${issue.detail ?? ''}`}
                 className="flex items-start gap-2 rounded-md border p-2 text-sm"
               >
+                {/*
+                  `role="img"` with the label, not a bare `aria-label` on an
+                  `<svg>`: a label on an element with no role is unreliably
+                  exposed, and the severity word appears nowhere else in the
+                  row — so "Fehler", "Warnung" and "Hinweis" were all silent
+                  and every health finding sounded equally serious.
+                */}
                 <Icon
+                  role="img"
                   className={cn('mt-0.5 size-4 shrink-0', SEVERITY_CLASS[issue.severity])}
                   aria-label={t(`health.severity.${issue.severity}`)}
                 />
@@ -195,7 +205,13 @@ export function IfcModelHealthPanel({
                     onClick={() => onShowElements(issue.sampleGlobalIds)}
                     className="shrink-0 rounded-md px-2 py-0.5 text-xs underline-offset-2 hover:underline"
                   >
-                    {t('compliance.showInModel')}
+                    {/*
+                      `health.showElements`, not `compliance.showInModel`. The
+                      latter is a fragment written to trail a heading ("Nicht
+                      erfüllt: im Modell zeigen"); here it is a button on its
+                      own, and a lowercase fragment is not a control's name.
+                    */}
+                    {t('health.showElements')}
                   </button>
                 )}
               </li>
@@ -219,6 +235,7 @@ export function IfcSpatialTree({
   onSelectStorey,
 }: IfcSpatialTreeProps): JSX.Element {
   const t = useTranslations('bim')
+  const { locale } = useLocale()
   const rows = useMemo(() => flattenSpatialTree(summary.spatial), [summary.spatial])
 
   const handleTreeKeys = (event: React.KeyboardEvent<HTMLUListElement>): void => {
@@ -290,7 +307,7 @@ export function IfcSpatialTree({
                   {row.label}
                   {row.elevation !== null && (
                     <span className="ml-2 text-xs text-muted-foreground tabular-nums">
-                      {formatElevation({ elevation: row.elevation })}
+                      {formatElevation({ elevation: row.elevation }, locale)}
                     </span>
                   )}
                 </span>
@@ -309,7 +326,30 @@ export function IfcSpatialTree({
 }
 
 export interface IfcElementTableProps {
+  /**
+   * The extraction cap, when the stored rows are not the whole file.
+   *
+   * The count line reads "{shown} von {total}", and `total` is a count over
+   * the stored rows — so on a capped model it was a fraction of a fraction.
+   * The type dropdown is built from the same set, so a type that exists only
+   * past the cap is missing from the filter entirely.
+   */
+  truncatedAt?: number | null
   elements: readonly BimViewerElement[]
+  /**
+   * The walk that fills {@link elements} is still running.
+   *
+   * Required, because an empty array is otherwise indistinguishable from a
+   * building with no elements — and this table does not say "nothing here", it
+   * says "Kein Bauteil entspricht diesem Filter · 0 von 0 Treffern", which
+   * blames a filter the reader has not set. On a 200 000-element model that
+   * walk is two hundred requests, so that was the state of the Struktur tab
+   * for as long as it took.
+   */
+  isLoading?: boolean
+  /** The walk failed. Distinct from "the model has none", and retryable. */
+  error?: boolean
+  onRetry?: () => void
   storeyFilter: string | null
   selectedGlobalId: string | null
   onSelect: (element: BimViewerElement) => void
@@ -320,6 +360,10 @@ export function IfcElementTable({
   storeyFilter,
   selectedGlobalId,
   onSelect,
+  truncatedAt = null,
+  isLoading = false,
+  error = false,
+  onRetry,
 }: IfcElementTableProps): JSX.Element {
   const t = useTranslations('bim')
   const [search, setSearch] = useState('')
@@ -329,6 +373,21 @@ export function IfcElementTable({
     () => [...new Set(elements.map((element) => element.ifcType))].sort(),
     [elements]
   )
+
+  /*
+    A different model is a different set of types.
+
+    The drawer is not remounted when the rail switches model, so a filter of
+    `IfcDoor` survived into a building with no doors: the select showed a value
+    that is not in its own option list, the table was empty, and the only
+    message was "Kein Bauteil entspricht diesem Filter" — with the storey half
+    of the filter living in the rail on the other side of the screen. The
+    search box carried over the same way.
+  */
+  useEffect(() => {
+    setSearch('')
+    setTypeFilter('')
+  }, [elements])
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -376,7 +435,24 @@ export function IfcElementTable({
         </select>
       </div>
       <p className="text-xs text-muted-foreground tabular-nums">
-        {t('elements.count', { shown: shown.length, total: filtered.length })}
+        {/*
+          Not "0 von 0 Treffern" while the rows are still arriving, and not
+          after the walk failed: a count is a claim about the building, and
+          both of those states are the absence of one.
+        */}
+        {isLoading || error
+          ? ' '
+          : filtered.length === 1
+            ? t('elements.countOne', { shown: shown.length, total: filtered.length })
+            : t('elements.count', { shown: shown.length, total: filtered.length })}
+        {/*
+          `total` is a count over the STORED rows, which stop at the
+          extraction cap — so "300 von 10.000" was a fraction of a fraction,
+          and the type filter beside it is built from the same set, so a type
+          that exists only past the cap is missing from the filter entirely.
+          The Überblick tab says this; the Struktur tab did not.
+        */}
+        {truncatedAt !== null && ` · ${t('overview.truncated', { limit: truncatedAt })}`}
       </p>
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
         <table className="w-full text-sm">
@@ -394,17 +470,36 @@ export function IfcElementTable({
             </tr>
           </thead>
           <tbody>
+            {/*
+              Three different reasons for an empty table, and only one of them
+              is about the reader's filter. It used to be the only one rendered.
+            */}
             {shown.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-2 py-6 text-center text-muted-foreground">
-                  {t('elements.empty')}
+                  {error ? (
+                    <span className="flex flex-wrap items-center justify-center gap-2">
+                      {t('stage.elementsFailed')}
+                      {onRetry && (
+                        <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onRetry}>
+                          {t('loadFailed.action')}
+                        </Button>
+                      )}
+                    </span>
+                  ) : isLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Spinner className="size-3.5" />
+                      {t('preview.loading')}
+                    </span>
+                  ) : (
+                    t('elements.empty')
+                  )}
                 </td>
               </tr>
             )}
             {shown.map((element) => (
               <tr
                 key={element.globalId}
-                aria-selected={element.globalId === selectedGlobalId}
                 className={cn(
                   'cursor-pointer border-t hover:bg-muted/60',
                   element.globalId === selectedGlobalId && 'bg-muted'
@@ -420,10 +515,17 @@ export function IfcElementTable({
                     stop, no Enter, and nothing announced to a screen reader —
                     the element list was mouse-only, and it is the primary way
                     into every other surface on this page.
+
+                    `aria-current` sits here rather than `aria-selected` on the
+                    row: `role="row"` inside a `role="table"` does not support
+                    `aria-selected`, so it was dropped from the accessibility
+                    tree and the selected element was conveyed by `bg-muted`
+                    alone — invisible to a reader who cannot see it.
                   */}
                   <button
                     type="button"
                     onClick={() => onSelect(element)}
+                    aria-current={element.globalId === selectedGlobalId}
                     className="w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {element.name ?? t('elements.unnamed')}

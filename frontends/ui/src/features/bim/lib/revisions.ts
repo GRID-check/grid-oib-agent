@@ -29,50 +29,12 @@
  */
 
 import type { BimModelHeaderView } from '../hooks/use-bim-model'
+import { revisionSeriesKey } from '@/lib/bim/revision-series'
 
-/**
- * Revision markers, stripped from the end of a file's base name.
- *
- * Deliberately anchored and deliberately narrow. A bare trailing number is only
- * stripped when it is parenthesised (`Haus-A (2)`, the shape every OS gives a
- * duplicate) — `Bauteil 2.ifc` and `Halle 3.ifc` are two buildings, not two
- * revisions of one, and merging them would put one building's storeys in the
- * other's delta.
- */
-const REVISION_MARKERS: RegExp[] = [
-  // `_v2`, `-V2`, ` v1.3`, `_rev3`, `-revision 2`, ` stand 4`
-  /[ _-]?(v|ver|rev|revision|version|stand|st)[ _.-]?\d+(\.\d+)*$/i,
-  // `(2)`, ` (12)` — the duplicate-file suffix
-  /[ _-]?\(\d+\)$/,
-  // `_2026-02-11`, `-20260211`, ` 2026_02_11`
-  /[ _-]\d{4}[-_]?\d{2}[-_]?\d{2}$/,
-  // `_20260211T0930`, an export timestamp
-  /[ _-]\d{8}t?\d{4,6}$/i,
-]
-
-/** Trailing separators left behind once a marker is removed. */
-const TRAILING_SEPARATORS = /[ _.-]+$/
-
-/**
- * The building a file name refers to, with its revision marker removed.
- *
- * Applied repeatedly, because `Haus-A_rev3_2026-02-11.ifc` carries two.
- */
-export function revisionSeriesKey(filename: string): string {
-  let base = filename.replace(/\.(ifc|ifczip)$/i, '')
-  for (let pass = 0; pass < 4; pass += 1) {
-    const before = base
-    for (const marker of REVISION_MARKERS) {
-      base = base.replace(marker, '')
-    }
-    base = base.replace(TRAILING_SEPARATORS, '')
-    if (base === before) break
-  }
-  // A name that is nothing but a revision marker keeps its original form rather
-  // than collapsing every such file into one empty-named series.
-  const trimmed = base.trim()
-  return (trimmed.length > 0 ? trimmed : filename).toLowerCase()
-}
+// Re-exported so the timeline's own callers keep importing it from here; the
+// implementation is shared with the server, which scopes a signed confirmation
+// to the building it was made about.
+export { revisionSeriesKey }
 
 /** What changed between two revisions, read from their summaries. */
 export interface BimRevisionDelta {

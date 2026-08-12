@@ -359,8 +359,8 @@ Five tables. `skills`/`jobs`/`job_runs` live in
 `frontends/ui/drizzle/0041_agent_skills.sql` as `skills`/`skill_schedules`/
 `skill_runs` and reshaped by `0043_jobs.sql`; `0044_conversation_job_provenance.sql`
 adds the link from a conversation back to the job that produced it, and
-`0045_curated_skill_activations.sql` adds `curated_skill_activations` and
-`0046_platform_skills.sql` adds `platform_skills`. Each tenant table
+`0046_curated_skill_activations.sql` adds `curated_skill_activations` and
+`0047_platform_skills.sql` adds `platform_skills`. Each tenant table
 joins the tenant boundary with a `grid_secure_table()` line (ADR-0041) —
 re-emitted by 0043 under the new names, because a rename carries the policy
 along but leaves its stored predicate written against the old table name.

@@ -53,8 +53,24 @@ export interface BimModelView {
   storey?: string
   /** Element to select, by IFC GlobalId. */
   element?: string
-  /** Elements to colour, `status:globalId,globalId`. */
-  highlights?: Array<{ status: BimHighlightStatus; globalIds: string[] }>
+  /**
+   * Elements to colour: `status:label:globalId,globalId`.
+   *
+   * The LABEL travels because it is the answer's own words. Without it the
+   * viewer had to invent one from the severity, so "Fluchtweg > 40 m (12)" and
+   * "Türbreite < 80 cm (4)" both arrived as "Fehler" — two identical legend
+   * rows, and the meaning the answer supplied gone. It is optional: a link
+   * written before this, or by hand, still parses.
+   *
+   * `total` is what the group counted BEFORE the id cap, so a link can say it
+   * is showing 60 of 420 rather than quietly showing 60.
+   */
+  highlights?: Array<{
+    status: BimHighlightStatus
+    label?: string
+    globalIds: string[]
+    total?: number
+  }>
   /** Ghost everything that is not highlighted or selected. */
   xray?: boolean
   /**
@@ -84,13 +100,35 @@ export function buildModelQuery(view: BimModelView): string {
   if (view.model) params.set('model', view.model)
   // `overview` is the default, so it stays out of the URL — a bare link should
   // look bare.
-  if (view.tab && view.tab !== 'overview') params.set('tab', view.tab)
+  // `overview` is encoded like any other tab. It used to be dropped as "the
+  // default", which made it impossible to say "the drawer is open on the
+  // overview" in a link — and since the drawer's open state is exactly
+  // "`tab` is set", selecting Überblick silently closed the drawer for
+  // whoever the link was sent to.
+  if (view.tab) params.set('tab', view.tab)
   if (view.storey) params.set('storey', view.storey)
   if (view.element) params.set('element', view.element)
   for (const group of view.highlights ?? []) {
     const ids = group.globalIds.slice(0, MAX_LINK_IDS)
     if (ids.length === 0) continue
-    params.append('hl', `${group.status}:${ids.join(',')}`)
+    // `status:label:ids`. The label is percent-encoded so a colon, a comma or
+    // a space in the answer's own wording cannot be read as a separator —
+    // `encodeURIComponent` also escapes `+`, which is what keeps the count
+    // suffix below unambiguous.
+    const label = encodeURIComponent(group.label ?? '')
+    const total = group.total ?? group.globalIds.length
+    // The count is appended only when it exceeds what fits, so an ordinary
+    // link stays as short as it was.
+    const suffix = total > ids.length ? `+${total}` : ''
+    const middle = `${label}${suffix}`
+    // A group with neither a label nor a cap emits the older, shorter
+    // `status:ids` — the form a hand-written link takes, and the one most
+    // links in the wild already are. Emitting `status::ids` for it would add a
+    // character to every link to carry nothing.
+    params.append(
+      'hl',
+      middle ? `${group.status}:${middle}:${ids.join(',')}` : `${group.status}:${ids.join(',')}`
+    )
   }
   if (view.xray) params.set('xray', '1')
   if (view.camera) encodeCameraState(view.camera, params)
@@ -128,7 +166,7 @@ export function parseModelView(search: string | URLSearchParams): BimModelView {
   const model = params.get('model')?.trim()
   if (model) view.model = model
   const tab = params.get('tab')?.trim()
-  if (tab && TABS.has(tab) && tab !== 'overview') view.tab = tab as BimModelTab
+  if (tab && TABS.has(tab)) view.tab = tab as BimModelTab
   const storey = params.get('storey')?.trim()
   if (storey) view.storey = storey
   const element = params.get('element')?.trim()
@@ -152,14 +190,36 @@ export function parseModelView(search: string | URLSearchParams): BimModelView {
     if (separator <= 0) continue
     const status = raw.slice(0, separator) as BimHighlightStatus
     if (!STATUSES.has(status)) continue
-    const globalIds = raw
-      .slice(separator + 1)
+
+    // Two shapes: `status:ids` (what links written before the label looked
+    // like, and what a hand-written one still looks like) and
+    // `status:label[+total]:ids`. The second colon is what tells them apart —
+    // a GlobalId cannot contain one, so this cannot misread the older form.
+    const rest = raw.slice(separator + 1)
+    const second = rest.indexOf(':')
+    const middle = second >= 0 ? rest.slice(0, second) : ''
+    const idPart = second >= 0 ? rest.slice(second + 1) : rest
+
+    const plus = middle.lastIndexOf('+')
+    const totalText = plus >= 0 ? middle.slice(plus + 1) : ''
+    const total = /^\d+$/.test(totalText) ? Number(totalText) : undefined
+    const encodedLabel = plus >= 0 && total !== undefined ? middle.slice(0, plus) : middle
+    let label: string | undefined
+    try {
+      label = decodeURIComponent(encodedLabel) || undefined
+    } catch {
+      // A truncated paste can leave a dangling escape. Losing the label is a
+      // far smaller failure than losing the whole highlight.
+      label = undefined
+    }
+
+    const globalIds = idPart
       .split(',')
       .map((id) => id.trim())
       .filter(Boolean)
       .slice(0, MAX_LINK_IDS)
     if (globalIds.length === 0) continue
-    highlights.push({ status, globalIds })
+    highlights.push({ status, ...(label ? { label } : {}), globalIds, ...(total ? { total } : {}) })
   }
   if (highlights.length > 0) view.highlights = highlights
 

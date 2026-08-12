@@ -2,7 +2,52 @@
  * @vitest-environment node
  */
 import { describe, expect, it } from 'vitest'
-import { buildArchivStorageKey, buildStorageKey, buildThumbnailStorageKey } from './s3'
+import {
+  buildArchivStorageKey,
+  buildStorageKey,
+  buildThumbnailStorageKey,
+  storageKeySegment,
+} from './s3'
+
+/**
+ * The only parts of an object key that are not machine-generated ids.
+ *
+ * `assertUploadTypeAllowed` inspects the substring after the last dot and
+ * nothing else, so a multipart part named `../../../../org/<other>/…/x.ifc`
+ * passes every gate on the way here. Per-org buckets are off by default, which
+ * makes the `org/<id>/` prefix the only separation there is — and the key is
+ * persisted and reused afterwards, including by the recursive prefix delete
+ * that removes a model's derived objects.
+ */
+describe('storageKeySegment', () => {
+  it('cannot climb out of the segment it was given', () => {
+    expect(storageKeySegment('../../../../org/victim/doc/x.ifc')).toBe(
+      '.._.._.._.._org_victim_doc_x.ifc'
+    )
+    expect(storageKeySegment('..\\..\\windows\\x.ifc')).toBe('.._.._windows_x.ifc')
+    expect(storageKeySegment('..')).toBe('_..')
+    expect(storageKeySegment('.')).toBe('_.')
+  })
+
+  it('leaves an ordinary name — including a leading dot — alone', () => {
+    expect(storageKeySegment('Haus-Mayr_V3.ifc')).toBe('Haus-Mayr_V3.ifc')
+    expect(storageKeySegment('.hidden.ifc')).toBe('.hidden.ifc')
+    // Not ASCII-folded: Austrian filenames are full of them, and an object key
+    // is UTF-8.
+    expect(storageKeySegment('Grundriss Erdgeschoß.pdf')).toBe('Grundriss Erdgeschoß.pdf')
+  })
+
+  it('never returns an empty segment, which would be a directory write', () => {
+    expect(storageKeySegment('')).toBe('unnamed')
+    expect(storageKeySegment('   ')).toBe('unnamed')
+    expect(storageKeySegment('/')).toBe('_')
+  })
+
+  it('drops control characters and caps the length', () => {
+    expect(storageKeySegment('a\u0000b\u007fc.ifc')).toBe('abc.ifc')
+    expect(storageKeySegment('x'.repeat(400))).toHaveLength(255)
+  })
+})
 
 describe('buildStorageKey', () => {
   it('builds key without folder path', () => {
@@ -18,6 +63,21 @@ describe('buildStorageKey', () => {
   it('handles null folderPath', () => {
     const key = buildStorageKey('org-1', 'proj-1', 'doc-1', 'plan.pdf', null)
     expect(key).toBe('org/org-1/project/proj-1/doc/doc-1/plan.pdf')
+  })
+
+  it('keeps an uploaded filename inside the document it belongs to', () => {
+    const key = buildStorageKey('org-1', 'proj-1', 'doc-1', '../../../../org/victim/x.ifc')
+    expect(key.startsWith('org/org-1/project/proj-1/doc/doc-1/')).toBe(true)
+    expect(key).not.toContain('/../')
+    expect(key).not.toContain('victim/')
+  })
+
+  it('keeps a folder NAME inside the project, while keeping the path a path', () => {
+    // Folder names are person-chosen too, and the path arrives already joined
+    // — so the separators between segments have to survive while a `..` inside
+    // one of them does not.
+    const key = buildStorageKey('org-1', 'proj-1', 'doc-1', 'plan.pdf', 'Plans/../../elsewhere')
+    expect(key).toBe('org/org-1/project/proj-1/Plans/_../_../elsewhere/doc/doc-1/plan.pdf')
   })
 })
 

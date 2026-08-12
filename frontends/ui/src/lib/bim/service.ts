@@ -44,7 +44,21 @@ import { isIfcFilename, maxIfcBytesFrom } from './types'
 export const MAX_IFC_BYTES = maxIfcBytesFrom(process.env)
 
 /** Cap on `bim_elements` rows per model; see `extract.ts`. */
-export const BIM_ELEMENT_LIMIT = Number(process.env.BIM_ELEMENT_LIMIT ?? 200_000)
+/**
+ * Rows stored per model, and the guard that makes it a number.
+ *
+ * `Number(process.env.X ?? 200_000)` reads `""` as `0` and anything
+ * non-numeric as `NaN`, and both failure modes are silent: `0` clamps to a
+ * ONE-element cap (with `truncatedAt: 1`, so every surface blames the model),
+ * and `NaN` makes `elements.length >= limit` permanently false, which removes
+ * the OOM guard the cap exists to be. One mis-set variable, no error either
+ * way.
+ */
+const CONFIGURED_ELEMENT_LIMIT = Number(process.env.BIM_ELEMENT_LIMIT)
+export const BIM_ELEMENT_LIMIT =
+  Number.isFinite(CONFIGURED_ELEMENT_LIMIT) && CONFIGURED_ELEMENT_LIMIT > 0
+    ? Math.trunc(CONFIGURED_ELEMENT_LIMIT)
+    : 200_000
 
 /** Directory holding everything derived from a model, beside the source object. */
 const DERIVED_SEGMENT = '_bim'
@@ -305,13 +319,28 @@ export async function deleteBimDerivedObjects(
   const keys = buildBimDerivedKeys(storageKey)
   if (!keys) return
   const bucket = resolveDocumentBucket(storageBucket)
-  const listed = await s3Client.send(
-    new ListObjectsV2Command({ Bucket: bucket, Prefix: keys.prefix, MaxKeys: 100 })
-  )
-  for (const object of listed.Contents ?? []) {
-    if (!object.Key) continue
-    await s3Client
-      .send(new DeleteObjectCommand({ Bucket: bucket, Key: object.Key }))
-      .catch(() => undefined)
-  }
+
+  // Paged to exhaustion. One `MaxKeys: 100` call silently stopped at the
+  // hundredth object, so anything past it — including the source gzip, which
+  // is the largest thing here and the one that carries the building — stayed
+  // in the bucket after the tenant had been told the document was deleted.
+  // A prefix holds a handful of objects today; "today" is not a retention
+  // guarantee.
+  let continuationToken: string | undefined
+  do {
+    const listed = await s3Client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: keys.prefix,
+        ContinuationToken: continuationToken,
+      })
+    )
+    for (const object of listed.Contents ?? []) {
+      if (!object.Key) continue
+      await s3Client
+        .send(new DeleteObjectCommand({ Bucket: bucket, Key: object.Key }))
+        .catch(() => undefined)
+    }
+    continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined
+  } while (continuationToken)
 }

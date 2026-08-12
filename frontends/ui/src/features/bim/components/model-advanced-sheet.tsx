@@ -27,7 +27,7 @@
  * than on a page of their own.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -74,6 +74,13 @@ export interface ModelAdvancedSheetProps {
   model: BimModelHeaderView
   models: readonly BimModelHeaderView[]
   elements: readonly BimViewerElement[]
+  /**
+   * The state of the walk that fills {@link elements}, because an empty array
+   * is not a fact about the building — see `IfcElementTable`.
+   */
+  elementsLoading?: boolean
+  elementsError?: boolean
+  onReloadElements?: () => void
   tab: BimModelTab
   onTabChange: (tab: BimModelTab) => void
   storey: string | null
@@ -81,7 +88,7 @@ export interface ModelAdvancedSheetProps {
   selectedGlobalId: string | null
   onSelectElement: (element: BimViewerElement | null) => void
   /** Turn a finding into a VIEW: highlight the offending elements and x-ray. */
-  onShowElements: (globalIds: string[]) => void
+  onShowElements: (globalIds: string[], status?: 'fail' | 'info') => void
   onOpenModel: (filename: string) => void
 }
 
@@ -92,6 +99,9 @@ export function ModelAdvancedSheet({
   model,
   models,
   elements,
+  elementsLoading = false,
+  elementsError = false,
+  onReloadElements,
   tab,
   onTabChange,
   storey,
@@ -106,25 +116,46 @@ export function ModelAdvancedSheet({
 
   // Each heavy table is fetched only once its tab is open: a Raumbuch over a
   // 200k-element model is a real query, and almost nobody opens this drawer.
+  /** The drawer's own heading — see the `tabIndex={-1}` on it below. */
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (open) headingRef.current?.focus()
+  }, [open])
+
   const [takeoffQuantity, setTakeoffQuantity] = useState<string>('NetSideArea')
   const [takeoffByMaterial, setTakeoffByMaterial] = useState(false)
-  const quantitiesOpen = open && tab === 'quantities'
+  /**
+   * A tab that has BEEN opened keeps its data.
+   *
+   * The gate used to be "is this tab open right now", so leaving Mengen and
+   * coming back re-ran the room schedule and the take-off — two full element
+   * reads — for data the browser had held a second earlier. The comment on
+   * these calls says they are "fetched only once its tab is open"; with the
+   * gate on the live tab, "once" meant once per visit.
+   *
+   * Sticky rather than eager: nothing is fetched for a tab nobody opens, which
+   * is the whole point of gating, and nothing is re-fetched for one they
+   * return to.
+   */
+  const [visited, setVisited] = useState<ReadonlySet<BimModelTab>>(() => new Set())
+  useEffect(() => {
+    if (!open) return
+    setVisited((seen) => (seen.has(tab) ? seen : new Set(seen).add(tab)))
+  }, [open, tab])
+  const opened = (candidate: BimModelTab): boolean => open && visited.has(candidate)
+
+  const quantitiesOpen = opened('quantities')
   const schedule = useBimRoomSchedule(quantitiesOpen ? modelId : null)
   const takeoff = useBimTakeoff(
     quantitiesOpen ? modelId : null,
     takeoffQuantity,
     takeoffByMaterial
   )
-  const profile = useBimProfileSuggestions(open && tab === 'overview' ? modelId : null)
+  const profile = useBimProfileSuggestions(opened('overview') ? modelId : null)
 
   // The rule catalogue reads the project brief. A fact the brief does not
   // carry arrives as null and the rules that need it stand down, visibly.
   const ruleFacts = useProjectRuleFacts(projectId)
-  const compliance = useBimCompliance(
-    projectId,
-    open && tab === 'compliance' ? modelId : null,
-    ruleFacts
-  )
 
   /**
    * The revision series this model belongs to, read from the file names of the
@@ -134,6 +165,26 @@ export function ModelAdvancedSheet({
   const series = useMemo(
     () => findRevisionSeries(groupModelRevisions([...models]), model.id),
     [models, model.id]
+  )
+
+  /**
+   * The ids of those revisions, for scoping a human confirmation.
+   *
+   * A signature belongs to the building it was made about. Without this the
+   * Prüfbuch showed one building's confirmation on another's, labelled
+   * "Älterer Stand" — which says it is an earlier version of the same
+   * building, and it is not.
+   */
+  const seriesModelIds = useMemo(
+    () => (series ?? { revisions: [] }).revisions.map((entry) => entry.model.id),
+    [series]
+  )
+
+  const compliance = useBimCompliance(
+    projectId,
+    opened('compliance') ? modelId : null,
+    ruleFacts,
+    seriesModelIds
   )
 
   // The revision immediately before the one on screen — the only base a
@@ -193,7 +244,19 @@ export function ModelAdvancedSheet({
       )}
     >
       <div className="border-border flex items-center justify-between gap-2 border-b p-3">
-        <h2 className="text-sm font-semibold">{t('stage.advanced')}</h2>
+        {/*
+          Focused when the drawer opens, so a keyboard or screen-reader user
+          is told a panel appeared and starts inside it. Without this the
+          reader pressed "Erweitert" and stayed on a dock button while four
+          tabs of Prüfbuch, Raumbuch, Mengen and Revisionen mounted silently
+          behind them — the panel existed and was, for them, unreachable
+          except by Tabbing past the whole viewer chrome.
+
+          `tabIndex={-1}`: programmatically focusable, not a Tab stop.
+        */}
+        <h2 ref={headingRef} tabIndex={-1} className="text-sm font-semibold focus-visible:outline-none">
+          {t('stage.advanced')}
+        </h2>
         <Button
           type="button"
           variant="ghost"
@@ -206,6 +269,21 @@ export function ModelAdvancedSheet({
         </Button>
       </div>
 
+      {/*
+        `forceMount` with a `hidden` inactive state, rather than Radix's
+        default unmount.
+
+        An inactive tab used to be destroyed, and every panel here holds state
+        worth more than the render it costs: the comparison result — which read
+        two full element sets at `limit: 20_000` — the element table's search
+        text and type filter, the Raumbuch's expansion, and every panel's
+        scroll offset. Leaving Revisionen and coming back silently discarded
+        all of it and reset the base model to the first candidate.
+
+        It also refired the gated queries. The comment on those says they are
+        "fetched only once its tab is open"; with an unmounting tab, "once"
+        meant once per visit.
+      */}
       <Tabs
         value={tab}
         onValueChange={(next) => onTabChange(next as BimModelTab)}
@@ -219,12 +297,17 @@ export function ModelAdvancedSheet({
           <TabsTrigger value="revisions">{t('tabs.revisions')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="overview"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           {model.summary && <IfcModelOverview summary={model.summary} filename={model.filename} />}
           {model.summary?.health && (
             <IfcModelHealthPanel health={model.summary.health} onShowElements={onShowElements} />
           )}
           <IfcProfileSuggestions
+            onRetry={profile.reload}
             suggestions={profile.data}
             isLoading={profile.isLoading}
             error={profile.error}
@@ -232,12 +315,28 @@ export function ModelAdvancedSheet({
           />
         </TabsContent>
 
-        <TabsContent value="compliance" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="compliance"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           <IfcCompliancePanel
+            onRetry={compliance.reload}
+            onShowElements={onShowElements}
+            factsFailed={ruleFacts.failed}
+            onRetryFacts={ruleFacts.reload}
             rules={compliance.data?.rules ?? null}
             summary={compliance.data?.summary ?? null}
             shoppingList={compliance.data?.shoppingList ?? null}
-            isLoading={compliance.isLoading}
+            // `|| !ruleFacts.ready`, the same rule the chat card applies.
+            // `useBimCompliance` holds the query back until the brief has been
+            // read — it must not run the catalogue against a Gebäudeklasse it
+            // has not seen yet — and a held query is `isLoading: false`. So for
+            // the length of the profile round trip this panel rendered as a
+            // catalogue that had RUN and found nothing: no spinner, no badges,
+            // no rows, no error. On the surface whose whole job is to say what
+            // the building still owes.
+            isLoading={compliance.isLoading || !ruleFacts.ready}
             error={compliance.error}
             truncated={compliance.data?.truncated ?? false}
             projectId={projectId}
@@ -250,7 +349,11 @@ export function ModelAdvancedSheet({
           />
         </TabsContent>
 
-        <TabsContent value="structure" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="structure"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           {model.summary && (
             <IfcSpatialTree
               summary={model.summary}
@@ -260,15 +363,25 @@ export function ModelAdvancedSheet({
           )}
           <IfcElementTable
             elements={elements}
+            isLoading={elementsLoading}
+            error={elementsError}
+            onRetry={onReloadElements}
+            truncatedAt={model.summary?.truncatedAt ?? null}
             storeyFilter={storey}
             selectedGlobalId={selectedGlobalId}
             onSelect={onSelectElement}
           />
         </TabsContent>
 
-        <TabsContent value="quantities" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="quantities"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           <IfcRoomSchedule
-            schedule={schedule.data}
+            onRetry={schedule.reload}
+            schedule={schedule.data?.schedule ?? null}
+            truncated={schedule.data?.truncated ?? false}
             isLoading={schedule.isLoading}
             error={schedule.error}
             filename={model.filename}
@@ -278,7 +391,14 @@ export function ModelAdvancedSheet({
             }
           />
           <IfcQuantityTakeoff
-            rows={takeoff.data}
+            // The model's own declared symbols, so the value column can name
+            // what it is counting — see `BIM_TAKEOFF_DIMENSION`.
+            units={
+              schedule.data?.schedule.units ?? { area: '', volume: '', length: '' }
+            }
+            onRetry={takeoff.reload}
+            rows={takeoff.data?.rows ?? null}
+            truncated={takeoff.data?.truncated ?? false}
             isLoading={takeoff.isLoading}
             error={takeoff.error}
             quantity={takeoffQuantity}
@@ -288,7 +408,11 @@ export function ModelAdvancedSheet({
           />
         </TabsContent>
 
-        <TabsContent value="revisions" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
+        <TabsContent
+          value="revisions"
+          forceMount
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
+        >
           <IfcRevisionTimeline
             series={series}
             currentModelId={model.id}
@@ -303,7 +427,8 @@ export function ModelAdvancedSheet({
           />
           <IfcComplianceDiff
             baseModel={previousRevision}
-            changes={complianceDiff.data}
+            changes={complianceDiff.data?.changes ?? null}
+            truncated={complianceDiff.data?.truncated ?? false}
             isLoading={complianceDiff.isLoading}
             error={complianceDiff.error}
             onRun={complianceDiff.run}

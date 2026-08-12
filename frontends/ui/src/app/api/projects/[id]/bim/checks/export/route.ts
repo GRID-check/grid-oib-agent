@@ -12,6 +12,8 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { apiRoute, parseQuery } from '@/lib/api/handler'
 import { exportAccessibleComplianceBcf } from '@/lib/bim/model-service'
+import { BIM_HAUPTNUTZUNG } from '@/lib/bim/query'
+import { BIM_EXPORT_LIMIT } from '@/lib/limits'
 
 type Params = { id: string }
 
@@ -31,7 +33,10 @@ const paramsSchema = z
      */
     model: z.string().trim().min(1).max(255).optional(),
     gebaeudeklasse: z.coerce.number().int().min(1).max(5).nullish().catch(null),
-    hauptnutzung: z.string().trim().min(1).max(80).nullish().catch(null),
+    // `.catch(null)` degrades an unrecognised use to "not stated", which the
+    // catalogue reports WITH its reason — rather than to a value that makes
+    // rules stand down as "not applicable", which reads as a verdict.
+    hauptnutzung: z.enum(BIM_HAUPTNUTZUNG).nullish().catch(null),
   })
   .refine((value) => Boolean(value.modelId ?? value.model), {
     message: 'modelId or model is required',
@@ -65,5 +70,13 @@ export const GET = apiRoute<Params>(
     authz: {
       enforcedBy: 'exportAccessibleComplianceBcf (ifc-models flag + project:view + model tenancy)',
     },
+    /*
+      Declared, because reads are not defaulted and this is the heaviest read
+      in the product: a full catalogue run plus a ZIP, on the event loop. Its
+      memo is keyed on the two facts below, which are caller-supplied — so
+      without a bound one viewer could walk 54 URLs per model in a loop, miss
+      the cache every time, and hold the process there.
+    */
+    limits: { rule: BIM_EXPORT_LIMIT },
   }
 )

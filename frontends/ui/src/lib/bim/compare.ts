@@ -58,6 +58,16 @@ export interface BimComparison {
   changed: BimChangedElement[]
   /** Elements present in both revisions with no compared field different. */
   unchangedCount: number
+  /**
+   * How many elements each bucket actually holds, before the row cap.
+   *
+   * The lists are capped at {@link MAX_COMPARISON_ROWS} so a revision that
+   * rebuilt the whole model does not ship 40 000 rows to a drawer. The COUNTS
+   * are not capped, and must not be read off the lists: a revision that added
+   * three thousand elements rendered "Neu 500", which is not a number that
+   * exists anywhere in either file.
+   */
+  counts: { added: number; removed: number; changed: number }
   totals: { base: number; revision: number }
   /**
    * Set when either side was capped: the comparison then covers the elements
@@ -180,6 +190,7 @@ export function compareModels(input: {
       : a.ifcType.localeCompare(b.ifcType)
 
   return {
+    counts: { added: added.length, removed: removed.length, changed: changed.length },
     added: added.sort(byType).slice(0, MAX_COMPARISON_ROWS),
     removed: removed.sort(byType).slice(0, MAX_COMPARISON_ROWS),
     // Most-changed first: an element with six differing properties is the one
@@ -195,7 +206,11 @@ export function compareModels(input: {
 
 /** One-line German summary the agent can quote without recomputing anything. */
 export function renderComparison(comparison: BimComparison): string {
-  const { added, removed, changed, unchangedCount } = comparison
+  // The COUNTS, never the list lengths. The lists are capped at
+  // `MAX_COMPARISON_ROWS`, so quoting `added.length` had the agent answering
+  // "500 neu" for any revision that added more than that — a number from the
+  // row cap, presented as a fact about the building.
+  const { counts, unchangedCount } = comparison
   // The truncation note is appended to EVERY outcome, including "no
   // differences". A clean comparison over a partially indexed model is the most
   // dangerous sentence this function can produce — it reads as "nothing
@@ -204,13 +219,13 @@ export function renderComparison(comparison: BimComparison): string {
     ? ' Achtung: mindestens ein Stand ist gekürzt indiziert, der Vergleich kann unvollständig sein.'
     : ''
 
-  if (added.length === 0 && removed.length === 0 && changed.length === 0) {
+  if (counts.added === 0 && counts.removed === 0 && counts.changed === 0) {
     return `Keine Unterschiede: beide Stände enthalten dieselben ${unchangedCount} Bauteile mit gleichen Werten.${truncated}`
   }
   const parts = [
-    `${added.length} neu`,
-    `${removed.length} entfallen`,
-    `${changed.length} geändert`,
+    `${counts.added} neu`,
+    `${counts.removed} entfallen`,
+    `${counts.changed} geändert`,
     `${unchangedCount} unverändert`,
   ]
   return `Vergleich: ${parts.join(', ')}.${truncated}`

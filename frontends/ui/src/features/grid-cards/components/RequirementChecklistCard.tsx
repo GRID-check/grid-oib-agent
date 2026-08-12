@@ -56,7 +56,12 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
 
       <div className="mt-[9px] flex flex-col gap-[9px]">
         {items.map((item, index) => {
-          const Icon = STATUS_ICON[item.status]
+          // `?? CircleHelp`, because the nested card fields are `z.any()` in
+          // the generated schema: a status this build does not know reaches
+          // here as a string, `Icon` is `undefined`, and rendering it throws
+          // — taking the whole conversation with it, since nothing wraps
+          // `GridCards` in an error boundary.
+          const Icon = STATUS_ICON[item.status] ?? CircleHelp
           const color = statusColor(item.status)
           // The dummy checklist reference chip resolves against a per-item
           // reference, else the card's footer reference.

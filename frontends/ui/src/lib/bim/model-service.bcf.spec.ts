@@ -70,8 +70,18 @@ vi.mock('./query', () => ({
   }),
 }))
 
-import { exportAccessibleComplianceBcf } from './model-service'
-import { listBimModels, findBimModelById, listBimCheckConfirmations } from './repository'
+import {
+  confirmAccessibleCheck,
+  exportAccessibleComplianceBcf,
+  withdrawAccessibleCheck,
+} from './model-service'
+import {
+  listBimModels,
+  findBimModelById,
+  listBimCheckConfirmations,
+  upsertBimCheckConfirmation,
+  deleteBimCheckConfirmation,
+} from './repository'
 import { runBimQuery } from './query'
 import { readZipEntries } from '@/test-utils/read-zip'
 
@@ -237,5 +247,79 @@ describe('exportAccessibleComplianceBcf', () => {
     vi.mocked(isIfcModelsEnabled).mockReturnValueOnce(false)
 
     await expect(byName('Haus-A_V3.ifc')).rejects.toThrow(/not enabled/i)
+  })
+})
+
+/**
+ * The signed ledger, and whose building a signature can be filed against.
+ *
+ * `getAccessibleModel` authorizes against the MODEL's own project, which is a
+ * different question from the project the confirmation is being recorded
+ * under. An org admin bypasses per-project authorization entirely, and an
+ * ordinary member can hold `project:edit` on one project and `project:view` on
+ * another — so the two questions come apart in practice, not only in theory.
+ */
+describe('confirming and withdrawing against the right building', () => {
+  const OTHER = model({ id: 'm-other', filename: 'Anderes-Haus.ifc', projectId: 'proj-2' })
+
+  it('refuses to record a confirmation against another project’s model', async () => {
+    // The row would carry a `modelId` outside this project's revision series:
+    // invisible to `attachConfirmations`, and un-withdrawable, because the
+    // withdraw path deletes by the sibling ids of a model in THIS project. A
+    // permanent orphan in a table that records who signed off on what.
+    vi.mocked(findBimModelById).mockResolvedValue(OTHER)
+
+    await expect(
+      confirmAccessibleCheck(SESSION, 'proj-1', {
+        ruleId: 'oib2-feuerwiderstand-tragend',
+        modelId: 'm-other',
+        note: null,
+      })
+    ).rejects.toThrow(/not found in this project/i)
+    expect(upsertBimCheckConfirmation).not.toHaveBeenCalled()
+  })
+
+  it('refuses to withdraw against another project’s model', async () => {
+    vi.mocked(findBimModelById).mockResolvedValue(OTHER)
+
+    await expect(
+      withdrawAccessibleCheck(SESSION, 'proj-1', 'oib2-feuerwiderstand-tragend', 'm-other')
+    ).rejects.toThrow(/not found in this project/i)
+    expect(deleteBimCheckConfirmation).not.toHaveBeenCalled()
+  })
+
+  it('records one against a model this project does hold', async () => {
+    vi.mocked(findBimModelById).mockResolvedValue(model({ id: 'm-3', filename: 'Haus-A_V3.ifc' }))
+
+    await confirmAccessibleCheck(SESSION, 'proj-1', {
+      ruleId: 'oib2-feuerwiderstand-tragend',
+      modelId: 'm-3',
+      note: 'Gutachten liegt vor',
+    })
+
+    expect(upsertBimCheckConfirmation).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      projectId: 'proj-1',
+      ruleId: 'oib2-feuerwiderstand-tragend',
+      modelId: 'm-3',
+      // From the session, never from the body: a signature a caller could
+      // address to somebody else is not a signature.
+      confirmedBy: 'user-1',
+      note: 'Gutachten liegt vor',
+    })
+  })
+
+  it('accepts an org-wide Archiv model, which every project may speak for', async () => {
+    vi.mocked(findBimModelById).mockResolvedValue(
+      model({ id: 'm-archiv', filename: 'OIB-Muster.ifc', projectId: null })
+    )
+
+    await expect(
+      confirmAccessibleCheck(SESSION, 'proj-1', {
+        ruleId: 'oib2-feuerwiderstand-tragend',
+        modelId: 'm-archiv',
+        note: null,
+      })
+    ).resolves.toBeUndefined()
   })
 })

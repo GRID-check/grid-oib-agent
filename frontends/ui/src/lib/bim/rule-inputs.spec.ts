@@ -115,12 +115,36 @@ describe('projected rule inputs', () => {
     // fails the moment a new rule needs a new key.
     const source = readFileSync(join(process.cwd(), 'src', 'lib', 'bim', 'rules.ts'), 'utf8')
     const read = new Set(
-      [...source.matchAll(/(?:property|numericProperty|quantity)\(element, \[([^\]]*)\]/g)]
+      // `dimensionProperty` is in the alternation too: it is the
+      // positive-only reader the dimensional rules use, and a key visible only
+      // through it would be invisible to this scan — which is exactly the
+      // blind spot the second floor below exists to catch.
+      [...source.matchAll(/(?:dimensionProperty|numericProperty|property|quantity)\(element, \[([^\]]*)\]/g)]
         .flatMap((match) => [...match[1].matchAll(/'([A-Za-z]+)'/g)].map((k) => k[1]))
     )
     const missing = [...read].filter((key) => !RULE_INPUT_KEYS.includes(key))
 
     expect(missing).toEqual([])
+
+    /*
+      And the scan has to have SEEN something.
+
+      The regex only matches an inline array literal. A rule written as
+      `quantity(element, DOOR_WIDTH_KEYS)` contributes nothing to `read`,
+      `missing` is `[]`, and the guard whose entire purpose is "this fails the
+      moment a new rule needs a new key" passes having checked nothing at all.
+
+      Two floors: the scan found at least as many keys as the projection
+      declares, and no catalogue read is written in a form the scan cannot
+      see. The second is the one that keeps the first honest.
+    */
+    expect(read.size).toBeGreaterThanOrEqual(RULE_INPUT_KEYS.length)
+    const catalogue = source.slice(source.indexOf('const BIM_RULES'))
+    // `[^[\s]` rather than a lookahead: `\s*(?!\[)` backtracks to zero width
+    // and then succeeds against the space itself, so it matched every call.
+    expect(catalogue).not.toMatch(
+      /(?:dimensionProperty|numericProperty|property|quantity)\(element,\s*[^[\s]/
+    )
 
     // And the fields read straight off the element, not through a Pset. This
     // is the one that actually bit: the door rule reads

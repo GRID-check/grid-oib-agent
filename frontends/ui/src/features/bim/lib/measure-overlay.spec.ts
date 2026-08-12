@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MeasureOverlay, measurementText, type Projector } from './measure-overlay'
 import { completeMeasurement, type MeasureAnchor, type Measurement } from './viewer-measure'
 
-const LABELS = { horizontal: 'horizontal', vertical: 'vertical' }
+const LABELS = { horizontal: 'horizontal', vertical: 'vertical', locale: 'en-GB' }
 
 const at = (x: number, y: number, z: number, snap: MeasureAnchor['snap'] = 'vertex'): MeasureAnchor => ({
   point: { x, y, z },
@@ -53,11 +53,32 @@ describe('what the overlay draws', () => {
     overlay.setMeasurements([measurement(at(0, 0, 0), at(2, 3, 0))])
     overlay.update(flat)
 
-    const line = svg.querySelector('line')
-    expect(line?.getAttribute('x1')).toBe('0')
-    expect(line?.getAttribute('y1')).toBe('0')
-    expect(line?.getAttribute('x2')).toBe('20')
-    expect(line?.getAttribute('y2')).toBe('30')
+    // Two elements per dimension line: a wide `--background` halo and the
+    // hairline over it. Both are asserted, because a halo that stops tracking
+    // the line it protects is a smear across the model.
+    const [halo, line] = [...svg.querySelectorAll('line')]
+    for (const element of [halo, line]) {
+      expect(element.getAttribute('x1')).toBe('0')
+      expect(element.getAttribute('y1')).toBe('0')
+      expect(element.getAttribute('x2')).toBe('20')
+      expect(element.getAttribute('y2')).toBe('30')
+    }
+    expect(halo.getAttribute('stroke')).toBe('var(--background)')
+    expect(line.getAttribute('stroke')).toBe('var(--foreground)')
+  })
+
+  it('keeps a hairline readable over a facade of the same tone', () => {
+    // The model's colours are the model's: a dark render in light mode
+    // swallows a `--foreground` line entirely, and a measurement you cannot
+    // see is worse than one you never took. The halo has to be WIDER than the
+    // line it sits under, or it is not a halo.
+    const { svg, overlay } = build()
+    overlay.setMeasurements([measurement(at(0, 0, 0), at(1, 0, 0))])
+
+    const [halo, line] = [...svg.querySelectorAll('line')]
+    expect(Number(halo.getAttribute('stroke-width'))).toBeGreaterThan(
+      Number(line.getAttribute('stroke-width'))
+    )
   })
 
   it('follows the camera when it moves', () => {
@@ -109,7 +130,7 @@ describe('when a measurement is not on screen', () => {
     overlay.setMeasurements([measurement(at(0, 0, 0), at(1, 0, 0))])
     overlay.update(behind)
 
-    expect((svg.querySelector('line') as SVGElement).style.display).toBe('none')
+    for (const line of svg.querySelectorAll('line')) expect(line.style.display).toBe('none')
     expect((labels.firstElementChild as HTMLElement).style.display).toBe('none')
   })
 
@@ -119,7 +140,7 @@ describe('when a measurement is not on screen', () => {
     overlay.update(behind)
     overlay.update(flat)
 
-    expect((svg.querySelector('line') as SVGElement).style.display).toBe('')
+    for (const line of svg.querySelectorAll('line')) expect(line.style.display).toBe('')
   })
 })
 
@@ -131,9 +152,12 @@ describe('the measurement in progress', () => {
     overlay.setPending(at(0, 0, 0), at(1, 1, 0, 'edge'))
     overlay.update(flat)
 
-    const line = svg.querySelector('line')
-    expect(line?.getAttribute('stroke-dasharray')).toBe('4 3')
-    expect(line?.getAttribute('x2')).toBe('10')
+    // The halo is dashed with it. A solid halo under a dashed stroke reads as
+    // a solid line with a shadow — i.e. as a committed measurement.
+    const [halo, line] = [...svg.querySelectorAll('line')]
+    expect(halo.getAttribute('stroke-dasharray')).toBe('4 3')
+    expect(line.getAttribute('stroke-dasharray')).toBe('4 3')
+    expect(line.getAttribute('x2')).toBe('10')
   })
 
   it('reads out the distance as the cursor moves', () => {

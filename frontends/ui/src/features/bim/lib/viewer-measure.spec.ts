@@ -70,23 +70,27 @@ describe('when the components are worth printing', () => {
 describe('how a length is written', () => {
   it('keeps the trailing zero a dimension needs', () => {
     // `2.4 m` reads as a rounded estimate; `2.40 m` reads as a dimension.
-    expect(formatMetres(2.4)).toBe('2.40 m')
-    expect(formatMetres(1)).toBe('1.00 m')
+    expect(formatMetres(2.4, 'en-GB')).toBe('2.40 m')
+    // And the DIGITS follow the interface locale. `toFixed` wrote `2.40 m`
+    // into a German readout, where a point is a thousands separator — on the
+    // one number an architect checks a lichte Durchgangsbreite with.
+    expect(formatMetres(2.4, 'de-AT')).toBe('2,40 m')
+    expect(formatMetres(1, 'en-GB')).toBe('1.00 m')
   })
 
   it('rounds to the centimetre', () => {
-    expect(formatMetres(1.20449)).toBe('1.20 m')
-    expect(formatMetres(1.206)).toBe('1.21 m')
+    expect(formatMetres(1.20449, 'en-GB')).toBe('1.20 m')
+    expect(formatMetres(1.206, 'en-GB')).toBe('1.21 m')
   })
 
   it('switches to millimetres rather than printing 0.00 m', () => {
-    expect(formatMetres(0.004)).toBe('4 mm')
-    expect(formatMetres(-0.004)).toBe('-4 mm')
+    expect(formatMetres(0.004, 'en-GB')).toBe('4 mm')
+    expect(formatMetres(-0.004, 'en-GB')).toBe('-4 mm')
   })
 
   it('says so plainly when there is no number', () => {
-    expect(formatMetres(Number.NaN)).toBe('—')
-    expect(formatMetres(Number.POSITIVE_INFINITY)).toBe('—')
+    expect(formatMetres(Number.NaN, 'en-GB')).toBe('—')
+    expect(formatMetres(Number.POSITIVE_INFINITY, 'en-GB')).toBe('—')
   })
 })
 
