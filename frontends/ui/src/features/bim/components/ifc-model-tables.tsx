@@ -174,8 +174,15 @@ export function IfcRoomSchedule({
                 return (
                   <tbody key={storey.storeyName} className="border-t">
                     <tr className="bg-muted/30">
+                      {/*
+                        `rowgroup`, not `colgroup`. A colgroup header claims to
+                        head the rest of a COLUMN, so the rooms beneath were
+                        never associated with their storey — reading the
+                        Raumbuch cell by cell gave no way to tell which floor a
+                        room is on, which is the first thing the table sorts by.
+                      */}
                       <th
-                        scope="colgroup"
+                        scope="rowgroup"
                         colSpan={3}
                         className="px-2 py-1 text-left text-xs font-semibold"
                       >
@@ -191,13 +198,42 @@ export function IfcRoomSchedule({
                       <tr
                         key={room.globalId}
                         onClick={onSelect ? () => onSelect(room.globalId) : undefined}
-                        aria-selected={room.globalId === selectedGlobalId}
                         className={`border-t ${
                           onSelect ? 'cursor-pointer hover:bg-muted/50' : ''
                         } ${room.globalId === selectedGlobalId ? 'bg-muted' : ''}`}
                       >
                         <td className="px-2 py-1">
-                          {room.name}
+                          {/*
+                            A real button, the way the element table does it.
+                            A `<tr onClick>` is reachable by nothing else — no
+                            Tab stop, no Enter, nothing announced — so the
+                            Raumbuch was the one table on this page a keyboard
+                            could not select from.
+
+                            `aria-current` rather than `aria-selected` on the
+                            row: a `role="row"` inside a `role="table"` does
+                            not support `aria-selected`, so the selected room
+                            was conveyed by a background colour and nothing
+                            else.
+                          */}
+                          {onSelect ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                // The row's handler would fire again otherwise
+                                // — harmless today, and a re-selection loop the
+                                // first time the row handler does more.
+                                event.stopPropagation()
+                                onSelect(room.globalId)
+                              }}
+                              aria-current={room.globalId === selectedGlobalId}
+                              className="rounded-sm text-left focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none"
+                            >
+                              {room.name}
+                            </button>
+                          ) : (
+                            room.name
+                          )}
                           {room.category && (
                             <span className="ml-2 text-xs text-muted-foreground">
                               {room.category}
@@ -387,15 +423,23 @@ export function IfcQuantityTakeoff({
               </tbody>
             </table>
           </div>
-          {(rows?.length ?? 0) > visibleRows.length && (
+          {/*
+            A toggle, like the Raumbuch's above it. It used to only expand,
+            which deleted the button the reader had just pressed: focus fell
+            out of the table, nothing announced that a few hundred rows had
+            appeared, and there was no way back to the short list.
+          */}
+          {(rows?.length ?? 0) > VISIBLE_TAKEOFF_ROWS && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setExpandedRows(true)}
+              onClick={() => setExpandedRows(!expandedRows)}
               className="w-full"
             >
-              {t('takeoff.showAll', { count: (rows?.length ?? 0) - visibleRows.length })}
+              {expandedRows
+                ? t('takeoff.collapse')
+                : t('takeoff.showAll', { count: (rows?.length ?? 0) - visibleRows.length })}
             </Button>
           )}
         </>

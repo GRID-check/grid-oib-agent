@@ -27,7 +27,7 @@
  * than on a page of their own.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -106,6 +106,12 @@ export function ModelAdvancedSheet({
 
   // Each heavy table is fetched only once its tab is open: a Raumbuch over a
   // 200k-element model is a real query, and almost nobody opens this drawer.
+  /** The drawer's own heading — see the `tabIndex={-1}` on it below. */
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (open) headingRef.current?.focus()
+  }, [open])
+
   const [takeoffQuantity, setTakeoffQuantity] = useState<string>('NetSideArea')
   const [takeoffByMaterial, setTakeoffByMaterial] = useState(false)
   /**
@@ -213,7 +219,19 @@ export function ModelAdvancedSheet({
       )}
     >
       <div className="border-border flex items-center justify-between gap-2 border-b p-3">
-        <h2 className="text-sm font-semibold">{t('stage.advanced')}</h2>
+        {/*
+          Focused when the drawer opens, so a keyboard or screen-reader user
+          is told a panel appeared and starts inside it. Without this the
+          reader pressed "Erweitert" and stayed on a dock button while four
+          tabs of Prüfbuch, Raumbuch, Mengen and Revisionen mounted silently
+          behind them — the panel existed and was, for them, unreachable
+          except by Tabbing past the whole viewer chrome.
+
+          `tabIndex={-1}`: programmatically focusable, not a Tab stop.
+        */}
+        <h2 ref={headingRef} tabIndex={-1} className="text-sm font-semibold focus-visible:outline-none">
+          {t('stage.advanced')}
+        </h2>
         <Button
           type="button"
           variant="ghost"

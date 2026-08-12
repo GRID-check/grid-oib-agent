@@ -112,6 +112,60 @@ describe('IfcRoomSchedule', () => {
     expect(onSelect).toHaveBeenCalledWith('g-wohnen')
   })
 
+  it('lets a keyboard select a room, not just a pointer', async () => {
+    // The row carried the click handler and nothing else did: no Tab stop, no
+    // Enter, nothing announced as actionable. The Raumbuch was the one table
+    // on this page a keyboard could not select from — and selecting is how
+    // every other surface here is reached.
+    const onSelect = vi.fn()
+    render(
+      <IfcRoomSchedule
+        schedule={SCHEDULE}
+        isLoading={false}
+        error={null}
+        filename="haus-a.ifc"
+        onSelect={onSelect}
+      />
+    )
+    const room = screen.getByRole('button', { name: 'Wohnzimmer' })
+    room.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(onSelect).toHaveBeenCalledWith('g-wohnen')
+  })
+
+  it('says which room is selected, rather than only tinting its row', async () => {
+    // `aria-selected` on a `<tr>` inside a `role="table"` is dropped from the
+    // accessibility tree, so the selection was a background colour and
+    // nothing else.
+    render(
+      <IfcRoomSchedule
+        schedule={SCHEDULE}
+        isLoading={false}
+        error={null}
+        filename="haus-a.ifc"
+        onSelect={vi.fn()}
+        selectedGlobalId="g-wohnen"
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Wohnzimmer' })).toHaveAttribute(
+      'aria-current',
+      'true'
+    )
+  })
+
+  it('heads each block of rooms with the storey they are on', () => {
+    // `scope="colgroup"` claims to head the rest of a COLUMN, so reading the
+    // Raumbuch cell by cell never said which floor a room was on — which is
+    // the first thing the table is sorted by.
+    render(
+      <IfcRoomSchedule schedule={SCHEDULE} isLoading={false} error={null} filename="haus-a.ifc" />
+    )
+    // Queried as a DOM node rather than by role: `scope` is the whole point
+    // and it is exactly what changes which role the cell reports.
+    const heading = screen.getByText('Erdgeschoss').closest('th')
+    expect(heading).toHaveAttribute('scope', 'rowgroup')
+  })
+
   it('offers no CSV for a model with no rooms, and says why', () => {
     render(
       <IfcRoomSchedule

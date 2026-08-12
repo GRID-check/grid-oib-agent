@@ -378,17 +378,22 @@ export function IfcElementCard({
             <p className="text-muted-foreground">{element.materials.join(' · ')}</p>
           )}
           {Object.entries(element.properties).map(([setName, properties]) => (
-            <dl key={setName} className="space-y-0.5">
-              <dt className="text-xs font-semibold uppercase text-muted-foreground">{setName}</dt>
-              {Object.entries(properties).map(([name, value]) => (
-                <div key={name} className="flex justify-between gap-3">
-                  <dd className="text-muted-foreground">{name}</dd>
-                  <dd className="font-medium">
-                    {formatPropertyValue(value, locale)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            // The set name is a heading over the list, not a term IN it. It
+            // used to be the `<dt>` and every property name was a second
+            // `<dd>`, so each row arrived as two definitions with no term
+            // between them: "Feuerwiderstand" and "REI 90" were read out as an
+            // unlabelled pair, which is the whole content of the card.
+            <div key={setName} className="space-y-0.5">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">{setName}</p>
+              <dl className="space-y-0.5">
+                {Object.entries(properties).map(([name, value]) => (
+                  <div key={name} className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{name}</dt>
+                    <dd className="font-medium">{formatPropertyValue(value, locale)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           ))}
           {note && <p className="text-muted-foreground">{note}</p>}
         </div>

@@ -240,6 +240,7 @@ export const bim: typeof en.bim = {
   },
   takeoff: {
     showAll: 'Weitere {count} Gruppen anzeigen',
+    collapse: 'Weniger anzeigen',
     title: 'Massenermittlung',
     description:
       'Summiert die im Modell veröffentlichten Mengen je Bauteiltyp. Bauteile ohne Wert werden getrennt ausgewiesen — eine Summe über einen unvollständigen Satz ist keine Summe.',
@@ -334,6 +335,7 @@ export const bim: typeof en.bim = {
       'Pfeiltasten drehen, Umschalt mit Pfeiltaste verschiebt, Plus und Minus zoomen, F passt das Modell ein. Beim Messen setzt Eingabe einen Punkt, Esc bricht ab. Alle Bauteile stehen zusätzlich als Liste unter „Details“.',
     title: '3D-Ansicht',
     xray: 'Transparent',
+    xrayNeedsTarget: 'Durchsichtig — zuerst ein Bauteil auswählen oder eine markierte Antwort öffnen',
     view: {
       iso: 'Frei',
       top: 'Grundriss',

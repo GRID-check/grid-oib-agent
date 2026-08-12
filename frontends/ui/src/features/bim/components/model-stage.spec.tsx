@@ -56,7 +56,10 @@ vi.mock('./ifc-viewer-canvas', () => ({
       // disabled dock.
       onStatus?.(canvasStatus)
     }, [onStatus])
-    return <div data-testid="ifc-canvas" />
+    // A real `<canvas tabIndex={0}>`, because it is the landing spot for
+    // every viewer control that removes itself on activation — the stand-in
+    // has to be focusable for those assertions to mean anything.
+    return <canvas data-testid="ifc-canvas" tabIndex={0} />
   },
 }))
 
@@ -166,7 +169,9 @@ describe('ModelStage — what is on screen', () => {
 
   it('carries a handful of controls, not a toolbar of nine', () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
-    for (const name of ['Fit the whole model', 'View', 'Section', 'See through']) {
+    // "See through" is named for its disabled reason here — nothing is
+    // selected in this fixture. Its own test above covers that.
+    for (const name of ['Fit the whole model', 'View', 'Section']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument()
     }
     // The six view directions used to be six buttons in the bar, which is what
@@ -247,7 +252,11 @@ describe('ModelStage — every control is a link', () => {
     // neither it correctly ghosts nothing. Pressing it wrote `xray=1`, filled
     // the button and set `aria-pressed` — and the building did not change.
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'See through' })).toBeDisabled()
+    // And the name says why. A disabled button gets no tooltip — Radix's
+    // trigger never fires on one — so an inert eye with the bare name
+    // "See through" left the reader nothing to act on.
+    const xray = screen.getByRole('button', { name: /^See through — select a component/ })
+    expect(xray).toBeDisabled()
   })
 
   it('puts the cut in the URL, at a metre above the level in view', async () => {
@@ -434,6 +443,31 @@ describe('ModelStage — selection', () => {
     await userEvent.click(within(panel).getByRole('button', { name: 'Close' }))
     expect(lastQuery().has('element')).toBe(false)
   })
+
+  it('puts focus back on the building when the card closes', async () => {
+    // The close button unmounts the panel it lives in. Radix catches the
+    // removal and re-focuses the dialog CONTAINER, which is not a crash but
+    // is a lost place: the top of a full-screen surface with fifteen
+    // controls, and nothing said about where the reader was.
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const panel = screen.getByRole('complementary', { name: 'AW 38' })
+    await userEvent.click(within(panel).getByRole('button', { name: 'Close' }))
+    expect(document.activeElement).toBe(screen.getByTestId('ifc-canvas'))
+  })
+
+  it('puts focus back on the building when the selection is hidden', async () => {
+    // Hide deletes the card AND the button that was pressed, and its
+    // disappearance is the only feedback that anything happened.
+    // Hide is bound to the RENDERER id, so the element row has to be present
+    // — the card alone comes from the detail request.
+    state.elements = [
+      { globalId: 'g-w1', expressId: 21, ifcType: 'IfcWall', name: 'AW 38', storeyName: 'Erdgeschoss' },
+    ]
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const panel = screen.getByRole('complementary', { name: 'AW 38' })
+    await userEvent.click(within(panel).getByRole('button', { name: 'Hide' }))
+    expect(document.activeElement).toBe(screen.getByTestId('ifc-canvas'))
+  })
 })
 
 describe('ModelStage — the advanced surfaces', () => {
@@ -540,7 +574,18 @@ describe('ModelStage — recovering from a failure', () => {
  * of which any assistive technology announces.
  */
 describe('ModelStage — the status a screen reader hears', () => {
-  const announcement = () => screen.getByRole('status').textContent
+  // Two regions, deliberately: the stage's own status, and the measurement
+  // readout. A dimension the reader just took must not queue behind "Modell
+  // geladen", and a copy confirmation must not overwrite it.
+  const announcement = () => screen.getAllByRole('status')[0].textContent
+  const measurementSaid = () => screen.getAllByRole('status')[1].textContent
+
+  it('keeps the measurement channel silent until there is a measurement', () => {
+    // A live region that is inserted already holding text is not announced.
+    // Both regions are therefore mounted from the start and empty.
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(measurementSaid()).toBe('')
+  })
 
   it('says when the building has arrived', () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
@@ -617,9 +662,12 @@ describe('ModelStage — when the link and the project disagree', () => {
     searchParams = new URLSearchParams('model=Haus-Z.ifc')
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
 
+    // On screen, and spoken. Following an agent's link into the wrong
+    // building is the single failure this notice exists to prevent, and it
+    // used to be prevented only for people who can see it.
     expect(
-      screen.getByText(/This link names “Haus-Z.ifc”.*Showing “Haus-A.ifc” instead/)
-    ).toBeInTheDocument()
+      screen.getAllByText(/This link names “Haus-Z.ifc”.*Showing “Haus-A.ifc” instead/)
+    ).toHaveLength(2)
   })
 
   it('says nothing when the link named the model that opened', () => {
@@ -701,9 +749,10 @@ describe('ModelStage — the highlights a link carries', () => {
     })
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
 
-    expect(
-      screen.getByText(/A link can carry 2 of the 420 highlighted elements/)
-    ).toBeInTheDocument()
+    // Twice: the pill on screen, and the live region that speaks it. A
+    // reader who cannot see a small notice over a full-screen 3D view was the
+    // one person this warning was never reaching.
+    expect(screen.getAllByText(/A link can carry 2 of the 420 highlighted elements/)).toHaveLength(2)
   })
 
   it('does not call a highlight missing while the rows are still in flight', () => {
@@ -728,6 +777,8 @@ describe('ModelStage — the highlights a link carries', () => {
     searchParams = new URLSearchParams('model=Haus-A.ifc&hl=fail:g-1,g-nonexistent')
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
 
-    expect(screen.getByText(/1 of the highlighted elements are not in this model/)).toBeInTheDocument()
+    expect(
+      screen.getAllByText(/1 of the highlighted elements are not in this model/)
+    ).toHaveLength(2)
   })
 })

@@ -121,6 +121,11 @@ export function IfcModelCompare({
     setBaseModelId(requested.baseModelId)
     void run(requested.baseModelId)
     heading.current?.scrollIntoView({ block: 'nearest' })
+    // And focus, not only scroll. The comment above is about a button that
+    // reads as having done nothing — which is exactly what the timeline's
+    // "mit Vorgänger vergleichen" reads as to a reader who cannot see the
+    // panel scroll into view somewhere else on the page.
+    heading.current?.focus()
     // Keyed on the request token: re-running the same comparison is a valid
     // thing to ask for, and `run` is redefined every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,8 +135,10 @@ export function IfcModelCompare({
     <section aria-labelledby="bim-compare-heading" className="space-y-2">
       <h2
         ref={heading}
+        // Programmatically focusable, not a Tab stop — see the request effect.
+        tabIndex={-1}
         id="bim-compare-heading"
-        className="flex items-center gap-2 text-sm font-semibold"
+        className="flex items-center gap-2 text-sm font-semibold focus-visible:outline-none"
       >
         <GitCompare className="size-4 text-muted-foreground" aria-hidden="true" />
         {t('compare.title')}
@@ -210,11 +217,21 @@ export function IfcModelCompare({
             <p className="text-sm text-muted-foreground">{t('compare.empty')}</p>
           ) : (
             <ul className="space-y-1 text-sm">
+              {/*
+                The `+ − ~` glyphs are `aria-hidden`, and they were the ONLY
+                thing separating an added element from a deleted one: the three
+                buckets are concatenated into one list, so "Wall · Wand-3" read
+                identically whether that wall appeared or vanished — on the
+                panel an office resubmits from. An `sr-only` word beside each
+                glyph carries what the colour and the symbol carry visually,
+                and changes nothing on screen.
+              */}
               {comparison.result.added.slice(0, VISIBLE_ROWS).map((entry) => (
                 <li key={`added-${entry.globalId}`} className="flex gap-2">
                   <span aria-hidden="true" className="text-success">
                     +
                   </span>
+                  <span className="sr-only">{t('compare.added')}</span>
                   <span className="truncate">
                     {shortIfcType(entry.ifcType)} · {entry.name ?? entry.globalId}
                   </span>
@@ -225,6 +242,7 @@ export function IfcModelCompare({
                   <span aria-hidden="true" className="text-destructive">
                     −
                   </span>
+                  <span className="sr-only">{t('compare.removed')}</span>
                   <span className="truncate">
                     {shortIfcType(entry.ifcType)} · {entry.name ?? entry.globalId}
                   </span>
@@ -236,6 +254,7 @@ export function IfcModelCompare({
                     <span aria-hidden="true" className="text-warning">
                       ~
                     </span>
+                    <span className="sr-only">{t('compare.changed')}</span>
                     <span className="truncate">
                       {shortIfcType(entry.ifcType)} · {entry.name ?? entry.globalId}
                     </span>

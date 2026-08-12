@@ -1091,15 +1091,6 @@ export function IfcViewerCanvas({
    * somewhere else, and the next click would silently close a measurement
    * against a point they had forgotten was down.
    */
-  useEffect(() => {
-    if (measuring) return
-    anchorRef.current = null
-    cursorRef.current = null
-    overlayRef.current?.setPending(null, null)
-    onMeasurePendingRef.current?.(false)
-    requestFrame()
-  }, [measuring, requestFrame])
-
   /**
    * Where a click would land, and what it would lock onto.
    *
@@ -1131,6 +1122,47 @@ export function IfcViewerCanvas({
       return null
     }
   }, [hiddenPickOption])
+
+  /**
+   * Put the crosshair in the middle of the viewport.
+   *
+   * `cursorRef` is written by `handlePointerMove` and by nothing else, so a
+   * keyboard user — who has never moved a pointer — had a null cursor forever
+   * and the Enter branch below was a permanent no-op. The tool could be
+   * switched on from the keyboard and then not used, which is the exact
+   * failure the Enter branch was added to prevent.
+   *
+   * The centre of the canvas is where a keyboard user's attention is and the
+   * only point the app can name without a pointer; the arrow keys then move
+   * the building under it, which is how a viewport aims without a mouse.
+   */
+  const seedMeasureCursor = useCallback((): MeasureAnchor | null => {
+    const canvas = canvasRef.current
+    if (!canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    const seeded = measureAt(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    if (seeded) cursorRef.current = seeded
+    return seeded
+  }, [measureAt])
+
+  useEffect(() => {
+    if (!measuring) {
+      anchorRef.current = null
+      cursorRef.current = null
+      overlayRef.current?.setPending(null, null)
+      onMeasurePendingRef.current?.(false)
+      requestFrame()
+      return
+    }
+    // Arming the tool puts the crosshair in the middle of the viewport, so
+    // there is something to aim before a pointer has ever moved. Without it a
+    // keyboard user pressed Enter blind — see `seedMeasureCursor`.
+    if (cursorRef.current) return
+    const seeded = seedMeasureCursor()
+    if (!seeded) return
+    overlayRef.current?.setPending(anchorRef.current, seeded)
+    requestFrame()
+  }, [measuring, requestFrame, seedMeasureCursor])
 
   /** Place a point: the first arms the measurement, the second closes it. */
   const placeMeasurePoint = useCallback(
@@ -1442,7 +1474,10 @@ export function IfcViewerCanvas({
        */
       if ((event.key === 'Enter' || event.key === ' ') && measuringRef.current) {
         event.preventDefault()
-        const cursor = cursorRef.current
+        // Seeded here as well as when the tool arms, because arming can happen
+        // before the model is ready — and then the seed found nothing and the
+        // key would be dead for the rest of the session.
+        const cursor = cursorRef.current ?? seedMeasureCursor()
         if (cursor) {
           const pending = anchorRef.current
           if (!pending) {

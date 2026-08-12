@@ -178,7 +178,15 @@ export function IfcModelHealthPanel({
                 key={`${issue.rule}-${issue.detail ?? ''}`}
                 className="flex items-start gap-2 rounded-md border p-2 text-sm"
               >
+                {/*
+                  `role="img"` with the label, not a bare `aria-label` on an
+                  `<svg>`: a label on an element with no role is unreliably
+                  exposed, and the severity word appears nowhere else in the
+                  row — so "Fehler", "Warnung" and "Hinweis" were all silent
+                  and every health finding sounded equally serious.
+                */}
                 <Icon
+                  role="img"
                   className={cn('mt-0.5 size-4 shrink-0', SEVERITY_CLASS[issue.severity])}
                   aria-label={t(`health.severity.${issue.severity}`)}
                 />
@@ -422,7 +430,6 @@ export function IfcElementTable({
             {shown.map((element) => (
               <tr
                 key={element.globalId}
-                aria-selected={element.globalId === selectedGlobalId}
                 className={cn(
                   'cursor-pointer border-t hover:bg-muted/60',
                   element.globalId === selectedGlobalId && 'bg-muted'
@@ -438,10 +445,17 @@ export function IfcElementTable({
                     stop, no Enter, and nothing announced to a screen reader —
                     the element list was mouse-only, and it is the primary way
                     into every other surface on this page.
+
+                    `aria-current` sits here rather than `aria-selected` on the
+                    row: `role="row"` inside a `role="table"` does not support
+                    `aria-selected`, so it was dropped from the accessibility
+                    tree and the selected element was conveyed by `bg-muted`
+                    alone — invisible to a reader who cannot see it.
                   */}
                   <button
                     type="button"
                     onClick={() => onSelect(element)}
+                    aria-current={element.globalId === selectedGlobalId}
                     className="w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {element.name ?? t('elements.unnamed')}

@@ -20,7 +20,7 @@
  *    under-configured project look like a clean one.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -367,6 +367,27 @@ function Confirmation({
   // that was never recorded, on the one surface that exists to be a record.
   const [failed, setFailed] = useState(false)
 
+  /**
+   * Where focus goes when a control removes itself.
+   *
+   * Pressing "Bestätigen" unmounts the button that was pressed and mounts a
+   * note field in its place; saving or cancelling does the reverse. Neither
+   * moved focus, so each press threw the reader's place to the top of the
+   * enclosing dialog and left them Tabbing back through the whole Prüfbuch to
+   * reach a field they had just asked for — a signature workflow that a
+   * keyboard cannot complete without counting Tab stops.
+   */
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+  const openerRef = useRef<HTMLButtonElement>(null)
+  /** Only after an interaction: focusing on mount would steal it from the page. */
+  const interacted = useRef(false)
+
+  useEffect(() => {
+    if (!interacted.current) return
+    if (open) noteRef.current?.focus()
+    else openerRef.current?.focus()
+  }, [open])
+
   // Nothing to confirm on a rule that stood down or that the model settled
   // cleanly — offering a signature there would invite one nobody needs.
   const needsHuman = rule.applicable && (rule.failed > 0 || rule.undecidable > 0)
@@ -378,6 +399,10 @@ function Confirmation({
     setFailed(false)
     try {
       await onConfirm(rule.ruleId, note.trim())
+      // Sends focus back to the button that opened the form — which by then
+      // reads "Erneut bestätigen", so the reader lands on a control that
+      // confirms the save happened.
+      interacted.current = true
       setOpen(false)
       setNote('')
     } catch {
@@ -433,7 +458,11 @@ function Confirmation({
             size="sm"
             variant="ghost"
             data-testid="bim-confirm-open"
-            onClick={() => setOpen(true)}
+            ref={openerRef}
+            onClick={() => {
+              interacted.current = true
+              setOpen(true)
+            }}
           >
             {rule.confirmation
               ? t('compliance.confirmed.reconfirm')
@@ -456,6 +485,7 @@ function Confirmation({
       {onConfirm && open && (
         <div className="space-y-2">
           <Textarea
+            ref={noteRef}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             rows={2}
@@ -473,7 +503,15 @@ function Confirmation({
               {busy ? <Spinner className="size-3" /> : null}
               {t('compliance.confirmed.save')}
             </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                interacted.current = true
+                setOpen(false)
+              }}
+            >
               {t('compliance.confirmed.cancel')}
             </Button>
           </div>

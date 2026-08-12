@@ -279,6 +279,24 @@ describe('IfcCompliancePanel', () => {
       expect(onConfirm).toHaveBeenCalledWith('oib2-feuerwiderstand-tragend', 'Anhand des Plans geprüft')
     })
 
+    it('lands the reader in the note field they just asked for', async () => {
+      // Pressing "Bestätigen" unmounts the button that was pressed. Without a
+      // focus move the reader is thrown to the top of the enclosing dialog and
+      // has to Tab back through the whole Prüfbuch to reach a textarea that
+      // appeared because of them — a signature a keyboard cannot complete
+      // without counting Tab stops.
+      panel({ rules: [rule({ ruleId: 'oib2-feuerwiderstand-tragend', undecidable: 34 })], onConfirm: vi.fn() })
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm manually' }))
+      expect(document.activeElement).toBe(screen.getByLabelText('Why this is settled'))
+    })
+
+    it('gives focus back to the button that opened the form when it is cancelled', async () => {
+      panel({ rules: [rule({ ruleId: 'oib2-feuerwiderstand-tragend', undecidable: 34 })], onConfirm: vi.fn() })
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm manually' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Confirm manually' }))
+    })
+
     it('offers nothing to confirm on a rule the model settled cleanly', () => {
       // A signature there would be one nobody needs.
       panel({ rules: [rule({ ruleId: 'oib3-raumhoehe', passed: 9 })], onConfirm: vi.fn() })

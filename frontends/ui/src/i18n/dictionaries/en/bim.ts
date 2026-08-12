@@ -238,6 +238,7 @@ export const bim = {
   },
   takeoff: {
     showAll: 'Show {count} more groups',
+    collapse: 'Show fewer',
     title: 'Quantity take-off',
     description:
       "Sums the model's own published quantities per element type. Elements that publish nothing are counted separately — a total over an incomplete set is not a total.",
@@ -339,6 +340,7 @@ export const bim = {
       'Arrow keys orbit, Shift with an arrow pans, plus and minus zoom, F fits the model. While measuring, Enter places a point and Escape cancels. Every element is also listed as text under Details.',
     title: '3D view',
     xray: 'See through',
+    xrayNeedsTarget: 'See through — select a component or open a highlighted answer first',
     view: {
       iso: 'Free',
       top: 'Plan',
