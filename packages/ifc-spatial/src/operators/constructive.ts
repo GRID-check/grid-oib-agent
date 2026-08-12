@@ -60,7 +60,7 @@
  *     solid. `Plane.normal` from the geometry pass therefore says which
  *     ORIENTATION a face has, never which side is outside. Hence
  *     {@link facadePlaneOf}, which orients the normal against
- *     `GeometryIndex.plannCentre`, and hence the double-sided ray test below.
+ *     `GeometryIndex.planCentre`, and hence the double-sided ray test below.
  *  2. **Plane bins ignore the offset.** `measureTriangles` keys its bins on the
  *     quantised normal alone, so parallel faces at different offsets — the layer
  *     boundaries a sliced multi-layer wall exports — are averaged into one
@@ -308,7 +308,7 @@ export interface LightIncidence {
  * is why it does more work than reading `ElementGeometry.facade` back:
  *
  *  1. **Orientation.** `facade.normal` points into the solid on this kernel (see
- *     the module header), so it is re-oriented against `plannCentre` — the
+ *     the module header), so it is re-oriented against `planCentre` — the
  *     direction from the model's plan centre to the element's centroid. When
  *     that direction is degenerate (an interior wall standing near the middle of
  *     the plan) the answer says `outward: false` and carries a caveat rather
@@ -335,7 +335,7 @@ export function facadePlaneOf(graph: BuildingGraph, geometry: GeometryIndex, glo
   const geo = geometry.elements.get(globalId)
   if (!geo) return noGeometry<OrientedPlane>(globalId, method)
 
-  const centre = geometry.plannCentre
+  const centre = geometry.planCentre
   if (!centre) {
     return undecidable<OrientedPlane>({
       from: [globalId],

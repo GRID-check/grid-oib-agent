@@ -49,6 +49,10 @@ import { toRef, toRefs, type ElementRef } from '../operators/refs.js'
 import { inventory, renderBriefing, storeyHeights } from '../operators/model.js'
 import { azimuth, clearHeight, distance, elevation, extent, floorArea, sillAndHead } from '../operators/metric.js'
 import type { GeometryIndex } from '../geometry/pass.js'
+import { project, type ViewKind } from '../render/project.js'
+import { writeFile, mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 /** JSON-Schema-shaped input description. Deliberately plain objects. */
 export interface ToolDef {
@@ -408,6 +412,67 @@ export function createTools(cache: SpatialCache): ToolDef[] {
             (args.mode as 'min' | 'centroid' | 'horizontal' | 'vertical') ?? 'min'
           )
         )
+      },
+    },
+
+    {
+      name: 'draw',
+      title: 'Das Gebäude zeichnen',
+      description:
+        'Zeichnet einen Grundriss, Schnitt oder eine Ansicht als SVG — aus GENAU denselben Dreiecken, ' +
+        'aus denen auch gemessen wird. Frei einsetzbar, wann immer Hinsehen hilft: um zu verstehen, wie ' +
+        'etwas angeordnet ist, um zu klären, welches Bauteil gemeint ist, um eine Antwort zu belegen, ' +
+        'oder um zu prüfen, ob eine Zahl überhaupt plausibel sein kann.\n\n' +
+        'EINE Regel: Zahlen kommen nie aus dem Bild. Maße liefern measure/distance; das Bild zeigt die ' +
+        'Anordnung. Ein aus einer Zeichnung abgelesener Wert ist geraten, auch wenn er stimmt.\n\n' +
+        "view: 'plan' (Grundriss von oben), 'section' (Schnitt — zeigt Profile, Überstände, " +
+        "Anschlüsse), 'elevation' (Ansicht auf eine Fassade). include grenzt auf bestimmte Bauteile " +
+        'ein, context zeichnet die Umgebung blass dazu, highlight hebt hervor. Ohne include wird ' +
+        'alles gezeichnet, was Geometrie hat — bei großen Modellen lieber eingrenzen.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          model: { type: 'string' },
+          view: { type: 'string', enum: ['plan', 'section', 'elevation'] },
+          include: { type: 'array', items: { type: 'string' }, description: 'GlobalIds' },
+          context: { type: 'array', items: { type: 'string' } },
+          highlight: { type: 'array', items: { type: 'string' } },
+          planeOffset: { type: 'number', description: 'Lage der Schnitt-/Blickebene in Metern' },
+          planeNormal: { type: 'array', items: { type: 'number' }, description: '[x,y,z]; [0,0,1] schneidet waagrecht' },
+          widthPx: { type: 'number' },
+        },
+        required: ['model', 'view'],
+      },
+      handler: async (args) => {
+        const { model, geometry } = requireGeometry(args.model)
+        const answer = project(model.graph, geometry, {
+          view: String(args.view) as ViewKind,
+          ...(Array.isArray(args.include) ? { include: args.include as string[] } : {}),
+          ...(Array.isArray(args.context) ? { context: args.context as string[] } : {}),
+          ...(Array.isArray(args.highlight) ? { highlight: args.highlight as string[] } : {}),
+          ...(Array.isArray(args.planeNormal) ? { planeNormal: args.planeNormal as [number, number, number] } : {}),
+          ...(typeof args.planeOffset === 'number' ? { planeOffset: args.planeOffset } : {}),
+          ...(typeof args.widthPx === 'number' ? { widthPx: args.widthPx } : {}),
+        })
+        if (!answer.decidable || !answer.value) return answer
+
+        // The SVG goes to a file rather than into the reply. A whole-building
+        // plan is a few hundred kilobytes of path data — putting that in an
+        // agent's context would evict the conversation to deliver something the
+        // agent cannot read anyway. The host shows the file; the agent gets the
+        // facts about the drawing.
+        const dir = await mkdtemp(join(tmpdir(), 'ifc-spatial-'))
+        const file = join(dir, `${args.view}-${short(model.contentHash)}.svg`)
+        await writeFile(file, answer.value.svg, 'utf8')
+
+        const { svg, ...rest } = answer.value
+        return {
+          ...answer,
+          value: { ...rest, path: file, bytes: Buffer.byteLength(svg, 'utf8') },
+          note:
+            'Die Zeichnung liegt als Datei vor und kann dem Nutzer gezeigt werden. ' +
+            'Maße nicht aus dem Bild ablesen — dafür measure/distance verwenden.',
+        }
       },
     },
 

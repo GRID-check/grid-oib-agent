@@ -314,7 +314,7 @@ function synthetic(): GeometryIndex {
   return {
     elements,
     bounds: box([-0.5, -0.5, -0.2], [8.5, 4.5, 2.5]),
-    plannCentre: [4, 2],
+    planCentre: [4, 2],
     stats: {
       elementsWithGeometry: elements.size,
       unmatched: 0,

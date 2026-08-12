@@ -86,7 +86,15 @@ export interface ElementGeometry {
   floorArea: number
   /** Total surface area, m². */
   surfaceArea: number
-  /** Largest vertical planar cluster — the facade plane, when there is one. */
+  /**
+   * Largest vertical planar cluster.
+   *
+   * `area` is the real one-sided area of that face: the kernel emits one
+   * triangle per face with unreliable winding, not two opposed copies, so
+   * nothing here is double-counted. Verified by binning a wall's triangles by
+   * orientation AND offset — the two large bins are its two leaves at different
+   * offsets, not one face counted twice.
+   */
   facade: Plane | null
   /** Largest planar cluster of any orientation. */
   dominant: Plane | null
@@ -120,8 +128,16 @@ export interface GeometryIndex {
   elements: Map<string, ElementGeometry>
   /** Whole-model bounds in the file's frame. */
   bounds: Box | null
-  /** Centre of the model's plan extent — the reference for "which way is out". */
-  plannCentre: [number, number] | null
+  /**
+   * Centre of the model's plan extent — the reference for "which way is out".
+   *
+   * Every operator that needs an outward direction orients against this ONE
+   * point rather than inventing its own convention, so a drawing cannot face
+   * the opposite way from the bearing printed beside it. It is the plan centre
+   * of the bounding box, which is wrong for a strongly L-shaped building and
+   * is the known limit of the rule.
+   */
+  planCentre: [number, number] | null
   stats: {
     elementsWithGeometry: number
     /** Entities the kernel produced meshes for that no graph node claims. */
@@ -356,7 +372,7 @@ export async function runGeometryPass(
   return {
     elements,
     bounds: hasBounds ? bounds : null,
-    plannCentre: hasBounds ? [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2] : null,
+    planCentre: hasBounds ? [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2] : null,
     stats: {
       elementsWithGeometry: elements.size,
       unmatched,

@@ -462,7 +462,7 @@ export function azimuth(
     })
   }
 
-  const centre = geometry.plannCentre
+  const centre = geometry.planCentre
   if (!centre) {
     return undecidable<{ degrees: number; compass: string }>({
       from: [globalId],

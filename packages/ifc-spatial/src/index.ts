@@ -58,3 +58,14 @@ export { GraphCache, estimateBytes, hashBytes, type GraphCacheOptions } from './
 export * from './operators/topology.js'
 export * from './operators/refs.js'
 export * from './operators/model.js'
+
+// Geometry, the operators built on it, and the drawing surface. Added as one
+// block because they arrived together and are useless apart: a measurement
+// without the pass that produced it, or a drawing without the measurements it
+// annotates, is half a feature.
+export * from './operators/constructive.js'
+export * from './operators/metric.js'
+export * from './render/project.js'
+export * from './geometry/pass.js'
+export * from './geometry/boundaries.js'
+export * from './model.js'
