@@ -977,6 +977,85 @@ last tag is the control group, not padding.
 
 ---
 
+## 13b. Amendment (2026-08-12): the engine is IfcOpenShell
+
+§14 below rejects IfcOpenShell and states the condition under which that
+rejection stops holding. The condition was met, so the decision is reversed
+here rather than quietly contradicted by the code.
+
+### What changed the answer
+
+**The two engines agree.** The TS implementation (ifc-lite, triangles) and
+IfcOpenShell (OCCT, exact BREP) were run independently over the same sample
+house:
+
+| | IfcOpenShell | ours |
+|---|---|---|
+| Bedroom floor area | 15.41678125 m² | 15.416782274 m² |
+| Living room | 51.994825 m² | 51.994827271 m² |
+| Entrance hall | 8.69350625 m² | 8.693506722 m² |
+| window sill / head | 0.900 / 2.110 m | 0.900 / 2.110 m |
+| roof overhang past the north wall | 0.647 m | 0.647 m |
+
+Areas to seven significant figures, everything else to the millimetre. The
+rejection's premise — "the day they disagree, the agent and the viewer disagree
+in front of the user" — is not borne out where it was tested, and the agreement
+is itself the evidence that a swap is safe.
+
+**It is not only geometry.** The rejection weighed IfcOpenShell as a geometry
+kernel against another geometry kernel. That undersold it by a wide margin:
+`geom.tree` is the ray/clash/clearance layer §7 already models its constructive
+operators on; `util.shape` is the metric operators; `util.selector` is a query
+language; `ifctester` is IDS validation, which §5 item 11 wanted anyway;
+`ifc5d` is quantity take-off; `ifcdiff` is revision comparison; and `draw`
+produces real architectural plans — wall poché, room cells, openings as gaps —
+in 5.2 s, against which our own projector is a diagram.
+
+**The measurement that nearly decided it wrongly.** A first benchmark put
+`draw` at over ten minutes and was used to argue for keeping ours. It was
+wrong: two runaway processes of the same script were saturating both CPUs, and
+an expensive flag combination was layered on the defaults. Cleanly measured it
+is **0.2 s to open and 5.3 s to draw**. A wrong number stated confidently, in a
+document about not stating wrong numbers confidently.
+
+### How the invariant survives
+
+ADR-0045's real concern is not which library reads the file; it is that the
+agent and the viewer must never state different facts about the same building.
+That is preserved better than before, by drawing the line somewhere else:
+
+> **The server knows; the browser draws.**
+
+The viewport keeps ifc-lite because it must run in a browser, and it stops
+being an authority on anything. It renders pixels and reports a GlobalId when
+someone clicks. Every name, count, quantity and verdict comes from the server.
+Two readers can only contradict each other about facts they both assert, and
+after this the browser asserts none.
+
+### What is bought, and what still has to be built
+
+Adopted: geometry, spatial queries, ray/clash/clearance, quantities, IDS
+validation, revision diffing, and drawings.
+
+**Not bought, and still the whole point of this library:**
+
+- the **answer contract** — declared / computed / inferred, `decidable`,
+  tolerance, `method`, and triangulating a declared value against a measured
+  one. No BIM library carries epistemics, because no BIM library is talking to
+  something that will otherwise state a guess in a sentence;
+- the **briefing**, the **dialect map** and the **blind spots** — §8, the half
+  the literature under-weights;
+- **space boundaries derived when the file omits them**, which most exports do;
+- **room-use inference**, which is a legal classification and stays a proposal;
+- the **agent tool surface** and its German wording.
+
+That split is what §12 of this document already argued: the differentiator was
+never the representation, it was making the epistemics the product. Adopting a
+mature engine for the parts that are solved is what makes room to be good at
+the part that is not.
+
+---
+
 ## 14. Alternatives considered
 
 **Let the agent write geometry code in a sandbox** (IfcOpenShell + shapely per
