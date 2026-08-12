@@ -195,162 +195,69 @@ mechanisms replace the eyeball:
 
 # Audit backlog
 
-Seven parallel audits ran over the viewer, the agent, the data path, the
-analytical drawer, the chat round trip, the wording and accessibility.
-What they found and what is fixed is in the git history; this is what is
-**not** fixed, kept because each item was verified against the code and
-is cheaper to act on than to re-find.
+Thirteen parallel audits have now run over this feature: the viewer, the
+renderer contract, the agent, the data path, the analytical drawer, the
+chat round trip, extraction, the wording, accessibility, and the flows
+against Nielsen's heuristics.
 
-Ordered by what a user loses.
+**The 38 items this section used to list are closed.** What they were and
+how each was fixed is in the git history, one commit per batch, each
+commit naming the failure rather than the change.
 
-## Data and answers
+What follows is what is left: verified against the code, deliberately not
+fixed, and each with the reason.
 
-1. **`ifcTypes` filters do not normalise `…StandardCase`.**
-   `query.ts` matches `lower(ifc_type)` exactly, so on an IFC4 export
-   where every wall is an `IfcWallStandardCase`, `aggregate
-   {"ifcTypes":["IfcWall"]}` answers *"Kein Bauteil erfüllt die
-   Abfrage"* and the agent reports the building has no walls. `rules.ts`
-   already fixes exactly this, with a comment about ArchiCAD doors
-   matching zero times; the query layer never got it.
-2. **Unknown filter keys are stripped, not rejected.** `bimFilterSchema`
-   is not `.strict()`, so `{"storey":…}` (singular; the real key is
-   `storeys`) silently becomes "the whole building" and the agent
-   reports a filtered count that was never filtered.
-3. **`aggregate sum`/`avg` skip elements with no quantity but report the
-   full element count** — "250 m² über 100 Bauteile" when ninety of them
-   published nothing. `buildQuantityTakeoff` and `buildRoomSchedule`
-   both carry a `missing` count for this reason; `aggregate`, the
-   operation the tool description calls "how you answer how much", does
-   not.
-4. **`aggregate` groups are capped at 25 with no truncation signal**, so
-   a thirty-storey building returns twenty-five storeys as a complete
-   Flächenaufstellung. `limit` is also undocumented in the tool
-   description, so the model cannot raise it.
-5. **`groupBy: "property"` is advertised and unusable** — there is no
-   `group_property` tool argument, the query runs ungrouped, and the
-   renderer still takes the grouped path, so the grand total is printed
-   as one group named "(ohne Angabe)".
-6. **`summary.truncatedAt` never reaches the agent.** Only
-   `complianceRun` reads it. `overview` quotes the true total while
-   `types` and `aggregate` count only the stored rows, and the agent can
-   put both in one answer.
-7. **`aggregate` and `takeoff` report bare numbers with no unit** —
-   `const unit = request.metric === 'count' ? '' : ''`, a placeholder
-   never filled. A model in millimetres yields "4 120 000" and the agent
-   writes m².
-8. **Gebäudeklasse never parses.** The brief stores `"GK4"`;
-   `useProjectRuleFacts` does `Number(raw.gebaeudeklasse?.value)` → NaN
-   → null, so every card-side rule stands down as "nicht einschlägig"
-   while the agent — which passes `4` — returns real verdicts. The spec
-   pins the broken behaviour.
-9. **Every 4xx reaches the agent as "the model service is
-   unavailable".** A `group_by` typo, or the deliberate "gt/gte need a
-   numeric value" message, is flattened into a transport failure the
-   agent cannot correct.
-10. **Storey names are matched exactly with no guidance.** The tool
-    description warns emphatically about guessing property names and
-    says nothing about storeys, whose real-world spellings are `EG`,
-    `00 Erdgeschoss`, `Level 0`. A miss reads as "das Erdgeschoss hat
-    keine Wände".
+## Known and deliberately not fixed
 
-## The data path
+1. **The section cut shows open shells, not a hatched cap.** `showCap` is
+   passed and the renderer only draws a cap when a 2D overlay has been
+   uploaded for it (`Renderer.uploadSection2DOverlay`), which nothing
+   calls. Generating the cut polygons is real work — see "The section
+   cap" above — and the flag is left on so the section becomes a drawing
+   the moment they exist. Stated in `viewer-camera.ts` rather than
+   promised.
 
-11. **A failed `/source` presign is indistinguishable from loading** in
-    the stage (a progress veil forever) and is rendered as *"Der Viewer
-    benötigt WebGPU"* in the preview, where WebGPU has already been
-    ruled out one branch earlier.
-12. **No re-sign and no retry.** The URL is minted once with a 600 s
-    TTL; a device loss, a blip or an expiry is terminal until the stage
-    is closed and reopened. `reload()` exists on the hook and has no
-    caller; `bim.loadFailed.action` ("Erneut versuchen") is in both
-    dictionaries and is rendered nowhere.
-13. **A failed element walk renders as "Kein Bauteil entspricht diesem
-    Filter".** One bad page out of two hundred rejects the whole
-    `Promise.all` and discards every page already collected.
-14. **`/source` sets no `Cache-Control`** while every comparable route
-    in the repo sets one explicitly. A URL that expires in ten minutes
-    must never be reusable from a cache.
-15. **The internal query route turns every server failure into a 400**,
-    which as an `ApiError` also skips the handler's logging — a
-    statement timeout is reported to the agent as a malformed request
-    and to the operator as nothing at all.
+2. **Validation, and the property/material/quantity-set vocabularies, cover
+   the STORED elements.** Past the 200 000-element cap, "43 Bauteile keinem
+   Geschoß zugeordnet" is 43 out of the stored rows, and a property set
+   that occurs only in the dropped tail is missing from the filter list.
+   Making them exact means accumulating the counters during the extraction
+   walk, the way `quantityTotals` already is. Until then `health` carries
+   the cap caveat and both comments say what they cover.
 
-## The drawer
+3. **`schedule`, `takeoff` and `profile` read a 50 000-row window** —
+   `loadBimElementsForSchedule`'s own limit, separate from the extraction
+   cap. The `truncated` flag is set and now renders as "diese Zahlen
+   beziehen sich nur auf einen Teil des Modells" rather than as advice to
+   narrow the query, but the window itself is unchanged.
 
-16. **`truncated` is dropped for the Raumbuch, the Massenermittlung and
-    the compliance diff.** The query computes it; the hooks discard it.
-    "Keine Anforderung hat ihren Status geändert" therefore reads
-    identically for "nothing regressed" and "we compared half of each
-    revision".
-17. **The element table's "300 von 10.000" has a capped denominator**,
-    and the type filter is built from the loaded rows, so a type that
-    exists only past the cap is missing from the filter entirely.
-18. **A collapsed Raumbuch drops whole storeys, subtotals included**,
-    under a grand total that still counts them.
-19. **The Massenermittlung renders every row unbounded** — thousands of
-    groups in a 26 rem drawer once "nach Material trennen" is on — and
-    is the one table here with neither a cap nor a total.
-20. **Revision numbers are upload order, not the numbers in the
-    filenames**, so re-uploading an older export labels it as the newest
-    revision and the compliance diff reports the rollback as progress.
-21. **Timeline deltas colour every metric green when positive** —
-    `+300 Bauteile` is not good news, and the file's own header warns
-    that a re-export can move 300 elements without touching the design.
-22. **A confirmation is keyed per (org, project, rule)** with no notion
-    of a revision series, so two unrelated buildings in one project
-    share one confirmation and each labels the other's as "Älterer
-    Stand".
-23. **Switching drawer tabs destroys a comparison** that just read two
-    full element sets, and refires the gated queries the code says are
-    "fetched only once".
-24. **The Raumbuch CSV writes `24.5`** into a semicolon-separated file
-    declared for Austrian Excel, which reads it as text.
+4. **A truncated `compare` is windowed, not sampled.** Both revisions are
+   ordered by GlobalId so the two windows are the same slice of the id
+   space — which is what makes the comparison meaningful at all — but past
+   the limit the elements outside it are simply not compared, and
+   `truncated` is the only thing that says so.
 
-## Flow and chrome
+5. **`TREND_DE` in `rules.ts` duplicates `complianceDiff.trend.*`.** The
+   module is server-side and locale-free; it renders one German string for
+   the agent, which has no locale to read. The two wordings are aligned and
+   both carry a note; a shared source would mean giving the agent renderer
+   a dictionary.
 
-25. **The advanced drawer covers the dock, including its own toggle.**
-    The inspector was taught to step aside; the dock was not. On a phone
-    the drawer covers every viewer control.
-26. **The browser back button leaves the Files page** instead of closing
-    the stage — `openModel` uses `replace`, so the stage pushes no
-    history entry, and on a phone back is how anyone dismisses a
-    full-screen overlay.
-27. **Two dock buttons are called "Show everything"**, one of which
-    fits the camera and the other of which restores hidden geometry —
-    and the second does not clear the storey filter.
-28. **The drawer's open state is half in the URL**: closing it leaves
-    `tab=`, so a copied link opens a drawer the sender had shut, and
-    selecting Überblick deletes the parameter so the link loses the
-    drawer entirely.
-29. **A link with view parameters but no `?model=` opens the file
-    browser**, silently — and `?model=` naming a file the project does
-    not have falls back to the newest model with no notice. The
-    documented rename fallback (`includes`) does not fire for the
-    filenames links actually carry.
-30. **Highlight labels do not survive a link.** Only `status:ids` is
-    encoded, so "Fluchtweg > 40 m (12)" becomes "Fehler (12)"; and the
-    `unresolved` count the card shows is computed by the stage and
-    rendered nowhere.
-31. **Highlight groups are capped at 60 ids in a link** while the card
-    resolves the full set, so "Open model" quietly shows 60 of 420.
-32. **A malformed percent-escape in a chat link throws during render**
-    — `decodeURIComponent` unguarded in `parseElementLink`, called from
-    an answer's citation renderer.
+## How the next audit should be run
 
-## Wording
+Each of the thirteen was a single-purpose sweep with an explicit lens —
+"the renderer's actual contract", "every counted string at 1", "what a
+keyboard meets" — and a standing instruction to verify each finding
+against the code before reporting it and to say so when a concern turned
+out to be handled a few lines away. That last part is what made the
+results usable: roughly a fifth of what a broad sweep produces is already
+fixed nearby, and a list that includes those costs more to triage than it
+saves.
 
-33. **"Sie bleibt als Nachweis erhalten"** in the stale-confirmation
-    hint, two lines under a disclaimer promising "kein Nachweis". The
-    English says "record" and is right.
-34. **"Abgeleitet aus Geschoßhöhen"** — the profile derives from storey
-    ELEVATIONS; an architect reads Geschoßhöhe as clear height.
-35. **"Erfüllungsgrad vergleichen"** names a metric nothing computes.
-36. **Geschoß vs Geschoss** — the dictionary and the OIB catalogue use
-    the Austrian spelling; `profile.ts`, `schedule.ts`,
-    `validate.ts`, the CSV headers and `ifc-element-chip.tsx` use the
-    German one, and they render side by side.
-37. **"Grid" appears in four strings**; the product is Piloti
-    everywhere else in all 23 dictionaries.
-38. Twelve dictionary keys are defined in both locales and referenced
-    nowhere, including `loadFailed.action` and `empty.action` — the two
-    the error states need (item 12).
+Two mechanical checks caught things no reading did:
+
+- Running the DB-backed suite (`task db:test:rls`) found five assertions
+  that had been red since `measured`/`truncated` were added to grouped
+  aggregates. Nothing had run it.
+- Temporarily reverting a fix and re-running its new test — every time —
+  caught three tests that passed either way.
