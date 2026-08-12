@@ -239,17 +239,36 @@ export function buildModelDigest(
   lines.push('## Geschoße')
   lines.push('')
   const breakdown = buildStoreyBreakdown(summary, elements)
-  const storeyRows = summary.storeys.map((storey) => {
+  /*
+    One row per KEY, not per storey entry.
+
+    Keying the map fixed the misalignment this table used to have; it did not
+    fix the doubling underneath it. Two storeys written with the same GlobalId
+    — the export defect `validate.ts:identity` reports — collapse to one map
+    entry, and both rows then rendered THAT entry: `EG | 2 Bauteile | 2 Räume |
+    100 m²` and `1.OG | 2 | 2 | 100 m²` for a building with one room of 40 m²
+    on each. The Bauteile and Netto-Grundfläche columns summed to double the
+    building. This digest is indexed for retrieval, so the agent can quote it.
+  */
+  const renderedStoreys = new Set<string>()
+  const storeyRows = summary.storeys.flatMap((storey) => {
+    const key = storeyBreakdownKey(storey)
+    if (renderedStoreys.has(key)) return []
+    renderedStoreys.add(key)
     // By key, not by position — see `buildStoreyBreakdown`.
-    const entry = breakdown.get(storeyBreakdownKey(storey))
+    const entry = breakdown.get(key)
+    // A row is an array of cells, so `flatMap` needs it wrapped — otherwise
+    // the five cells become five rows.
     return [
-      storey.name ?? '(ohne Namen)',
-      storey.elevation === null ? '—' : `${formatNumber(storey.elevation)} m`,
-      entry?.elementCount ?? 0,
-      entry?.spaceCount ?? 0,
-      entry?.netFloorArea === null || entry?.netFloorArea === undefined
-        ? '—'
-        : `${formatNumber(entry.netFloorArea)} ${area}`,
+      [
+        storey.name ?? '(ohne Namen)',
+        storey.elevation === null ? '—' : `${formatNumber(storey.elevation)} m`,
+        entry?.elementCount ?? 0,
+        entry?.spaceCount ?? 0,
+        entry?.netFloorArea === null || entry?.netFloorArea === undefined
+          ? '—'
+          : `${formatNumber(entry.netFloorArea)} ${area}`,
+      ],
     ]
   })
   lines.push(...table(['Geschoß', 'Höhenlage', 'Bauteile', 'Räume', 'Netto-Grundfläche'], storeyRows))

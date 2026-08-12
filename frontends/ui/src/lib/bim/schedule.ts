@@ -53,8 +53,29 @@ export interface BimRoomSchedule {
 
 const NET_AREA_KEYS = ['NetFloorArea', 'NetArea']
 const GROSS_AREA_KEYS = ['GrossFloorArea', 'GrossArea']
-const VOLUME_KEYS = ['NetVolume', 'GrossVolume']
-const HEIGHT_KEYS = ['Height', 'FinishCeilingHeight', 'ClearHeight']
+/**
+ * Net volume only.
+ *
+ * `GrossVolume` used to be a fallback, so a storey's `Rauminhalt` was a
+ * mixture: rooms publishing net contributed net, rooms publishing only gross
+ * contributed gross, and on an ordinary Wohnbau those differ by roughly the
+ * enclosing construction. A single column headed "Rauminhalt" summing two
+ * different measures is worse than a column with gaps in it — the gaps are
+ * visible and the mixture is not, and this product's whole stance is that an
+ * absent figure stays absent rather than being approximated.
+ */
+const VOLUME_KEYS = ['NetVolume']
+/**
+ * Clear height first, which is what {@link BimRoomRow.height} promises.
+ *
+ * `Height` led, and `Qto_SpaceBaseQuantities.Height` is the STRUCTURAL height
+ * — floor slab to floor slab. The Prüfbuch deliberately prefers
+ * `FinishCeilingHeight`/`ClearHeight` for the 2,50 m rule, so the same room
+ * was reported at 2,70 m in the Raumbuch and 2,52 m in the Prüfbuch, and the
+ * Raumbuch column an architect eyeballs against that threshold was 15–25 cm
+ * optimistic.
+ */
+const HEIGHT_KEYS = ['FinishCeilingHeight', 'ClearHeight', 'Height']
 
 function quantity(element: BimElement, keys: readonly string[]): number | null {
   for (const set of Object.values(element.quantities)) {
@@ -110,6 +131,20 @@ export function buildRoomSchedule(
   const seen = new Set<string>()
   for (const storey of summary.storeys) {
     const name = storey.name ?? '(ohne Namen)'
+    /*
+      Once per NAME, because that is what the rooms are bucketed by.
+
+      A Wohnhausanlage exported as one IFC carries an `IfcBuildingStorey` named
+      `Erdgeschoß` under each `IfcBuilding`. Both resolved to the same room
+      array, so the schedule listed every ground-floor room twice, in two
+      identical blocks, and the building total counted them twice: two rooms of
+      40 m² and 60 m² came out as "4 Räume, 200 m²". That is the Netto-
+      Grundfläche an architect copies into a Flächenaufstellung.
+
+      `seen` was already being written here — it just was not being read until
+      the loop below.
+    */
+    if (seen.has(name)) continue
     const rooms = byStorey.get(name)
     if (!rooms) continue
     seen.add(name)
@@ -145,10 +180,19 @@ export function buildRoomSchedule(
       grossFloorArea: round(totals.grossFloorArea),
       netVolume: round(totals.netVolume),
     },
+    /*
+      The unit the MODEL declares, or none.
+
+      Defaulting to `m²` labelled raw model values with a unit nobody had
+      verified: a millimetre-unit file that declares no AREAUNIT publishes a
+      40 m² room as `40000000`, and the Raumbuch rendered "40000000 m²". A bare
+      number is wrong-looking and therefore safe; a wrong unit reads as a fact.
+      `query.ts` already takes this line.
+    */
     units: {
-      area: summary.units.area?.symbol ?? 'm²',
-      volume: summary.units.volume?.symbol ?? 'm³',
-      length: summary.units.length?.symbol ?? 'm',
+      area: summary.units.area?.symbol ?? '',
+      volume: summary.units.volume?.symbol ?? '',
+      length: summary.units.length?.symbol ?? '',
     },
   }
 }
@@ -224,16 +268,23 @@ export function buildQuantityTakeoff(
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.group.localeCompare(b.group))
 }
 
+/** `Netto-Grundfläche (m²)`, or just `Netto-Grundfläche` when none is declared. */
+function withUnit(label: string, unit: string): string {
+  return unit ? `${label} (${unit})` : label
+}
+
 /** CSV for the Raumbuch — the export an architect pastes into their own sheet. */
 export function roomScheduleToCsv(schedule: BimRoomSchedule): string {
   const header = [
     'Geschoß',
     'Raum',
     'Kategorie',
-    `Netto-Grundfläche (${schedule.units.area})`,
-    `Brutto-Grundfläche (${schedule.units.area})`,
-    `Rauminhalt (${schedule.units.volume})`,
-    `Höhe (${schedule.units.length})`,
+    // The unit only when the model declared one — see `units` above. `(…)`
+    // with nothing in it reads as a column whose unit went missing.
+    withUnit('Netto-Grundfläche', schedule.units.area),
+    withUnit('Brutto-Grundfläche', schedule.units.area),
+    withUnit('Rauminhalt', schedule.units.volume),
+    withUnit('Höhe', schedule.units.length),
     'GlobalId',
   ]
   /**

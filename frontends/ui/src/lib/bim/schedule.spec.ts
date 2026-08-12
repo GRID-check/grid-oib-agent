@@ -134,6 +134,33 @@ describe('buildRoomSchedule', () => {
     expect(lines.at(-1)).toContain('Gesamt;;;62,5')
   })
 
+  it('counts a room once when two storeys share a name', () => {
+    /*
+      A Wohnhausanlage exported as one IFC carries an `IfcBuildingStorey` named
+      `Erdgeschoß` under each `IfcBuilding`. Rooms are bucketed by storey NAME,
+      and the storey loop pushed a block for every summary entry resolving to
+      that bucket — so both blocks held the same rooms and the building total
+      counted them twice. Two rooms of 40 and 60 m² came out as "4 Räume,
+      200 m²", which is the Netto-Grundfläche an architect copies into a
+      Flächenaufstellung.
+    */
+    const summary = {
+      ...SUMMARY,
+      storeys: [
+        { globalId: 'S1', name: 'Erdgeschoss', elevation: 0, expressId: 10, elementCount: 0 },
+        { globalId: 'S2', name: 'Erdgeschoss', elevation: 0, expressId: 20, elementCount: 0 },
+      ],
+    } as typeof SUMMARY
+    const schedule = buildRoomSchedule(summary, [
+      space('Wohnen A', 'Erdgeschoss', { NetFloorArea: 40 }),
+      space('Wohnen B', 'Erdgeschoss', { NetFloorArea: 60 }),
+    ])
+
+    expect(schedule.totals.rooms).toBe(2)
+    expect(schedule.totals.netFloorArea).toBe(100)
+    expect(schedule.storeys).toHaveLength(1)
+  })
+
   it('escapes a room name containing the separator', () => {
     const csv = roomScheduleToCsv(buildRoomSchedule(SUMMARY, [space('Bad; WC', 'Erdgeschoss', { NetFloorArea: 6 })]))
     expect(csv).toContain('"Bad; WC"')

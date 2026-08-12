@@ -777,10 +777,24 @@ function groupExpression(
     case 'material':
       return sql`${bimElements.materials} ->> 0`
     case 'property':
-      return groupProperty
-        ? sql`${bimElements.properties} -> ${groupProperty.set} ->> ${groupProperty.name}`
-        : null
+      return groupProperty ? groupPropertyExpression(groupProperty) : null
   }
+}
+
+/**
+ * The value one element carries for the property a `group_by: 'property'` names.
+ *
+ * The same case-insensitive, set-optional lookup `propertyPredicate` and
+ * `quantityExpression` use, and for the same reason. It used to be a literal
+ * `properties -> <set> ->> <name>`, so the identical `{set, name}` that
+ * MATCHED 412 walls as a filter grouped all 412 under "(ohne Angabe)" — which
+ * is exactly the "412 walls have no fire rating" answer the schema's own
+ * `superRefine` was added to prevent, arrived at from the other side.
+ */
+function groupPropertyExpression(groupProperty: { set: string; name: string }): SQL {
+  const conditions: SQL[] = [sql`lower(p.prop_name) = lower(${groupProperty.name})`]
+  if (groupProperty.set) conditions.push(sql`lower(s.set_name) = lower(${groupProperty.set})`)
+  return sql`(SELECT p.prop_value #>> '{}' FROM ${unnestedProperties('property')} WHERE ${sql.join(conditions, sql` AND `)} LIMIT 1)`
 }
 
 /**

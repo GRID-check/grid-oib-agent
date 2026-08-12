@@ -194,8 +194,28 @@ function toPropertySets(
  * Restricted to the measures where zero is physically impossible. A zero
  * `Width` on a door is wrong too, but a zero COUNT is a real answer, and this
  * must not start discarding those.
+ *
+ * ## Any qualifier, not just Net/Gross
+ *
+ * The prefix used to be `(Net|Gross)?`, which covered the fallbacks and missed
+ * every PREFERRED key the dimensional rules read: `ClearWidth`,
+ * `FinishCeilingHeight`, `ClearHeight`, `RiserHeight`, `TreadLength`,
+ * `OverallWidth`. A Revit or ArchiCAD export that writes
+ * `Qto_DoorBaseQuantities` with `ClearWidth` unmeasured — the ordinary case —
+ * therefore stored `0`, and the escape-route rule read it as a measurement:
+ * "Lichte Durchgangsbreite 0,00 m — Schwellwert ≥ 0,80 m", **nicht erfüllt**,
+ * on a door nobody has measured. Worse, `missing` is only recorded for an
+ * undecidable element, so the shopping list left out the very property that
+ * would settle it. Same shape for `FinishCeilingHeight` on a room and for the
+ * two stair quantities.
+ *
+ * Matching on the SUFFIX is what makes that class of bug not come back: the
+ * measure decides, and whatever qualifier an exporter puts in front of it
+ * comes along. Count-shaped quantities (`NumberOfRisers`, `…Count`) end in
+ * none of these, so a real zero still stores.
  */
-const ZERO_MEANS_ABSENT = /^(Net|Gross)?(FloorArea|SideArea|Area|Volume|Height|Width|Length|Perimeter|Depth)$/
+const ZERO_MEANS_ABSENT =
+  /^[A-Za-z]*(FloorArea|SideArea|Area|Volume|Height|Width|Length|Perimeter|Depth|Thickness|Diameter|Radius)$/
 
 /** Flatten ifc-lite's qset shape, dropping non-finite values. */
 function toQuantitySets(

@@ -173,10 +173,14 @@ export function IfcRoomSchedule({
                     {t('schedule.room')}
                   </th>
                   <th scope="col" className="px-2 py-1.5 text-right font-medium">
-                    {t('schedule.netArea')} ({schedule.units.area})
+                    {/* The unit only when the model declared one: `()` with
+                        nothing in it reads as a column that lost its unit. */}
+                    {t('schedule.netArea')}
+                    {schedule.units.area && ` (${schedule.units.area})`}
                   </th>
                   <th scope="col" className="px-2 py-1.5 text-right font-medium">
-                    {t('schedule.volume')} ({schedule.units.volume})
+                    {t('schedule.volume')}
+                    {schedule.units.volume && ` (${schedule.units.volume})`}
                   </th>
                 </tr>
               </thead>

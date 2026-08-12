@@ -977,12 +977,22 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   })
 
   it('stands a rule down rather than assuming a Gebaeudeklasse it was not given', async () => {
+    /*
+      Stands down, but as UNDECIDABLE rather than "nicht einschlägig". The rule
+      applies to this building; it cannot be evaluated without the project's
+      Gebäudeklasse. Reported as inapplicable it also dropped out of
+      `rulesWithOpenWork` and out of the BCF export, so one unset project fact
+      quietly removed OIB 2 Feuerwiderstand from the Prüfbuch.
+    */
     const result = await run(bimQuerySchema.parse({ op: 'compliance' }))
     const fire = (result.compliance ?? []).find(
       (rule) => rule.ruleId === 'oib2-feuerwiderstand-tragend'
     )
-    expect(fire?.applicable).toBe(false)
-    expect(fire?.notApplicableReason).toContain('Gebäudeklasse')
+    expect(fire?.applicable).toBe(true)
+    expect(fire?.passed).toBe(0)
+    expect(fire?.failed).toBe(0)
+    expect(fire?.undecidable ?? 0).toBeGreaterThan(0)
+    expect(fire?.missing.map((entry) => entry.path)).toContain('Projektangabe: Gebäudeklasse')
   })
 
   it('derives project facts from the model, each with its evidence', async () => {

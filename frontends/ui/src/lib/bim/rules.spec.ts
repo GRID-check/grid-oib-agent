@@ -69,6 +69,63 @@ const STOREYS = [
   { name: 'Obergeschoss', elevation: 3 },
 ]
 
+describe('an unmeasured dimension is not a measurement of zero', () => {
+  /*
+    The parser substitutes `0` for a quantity written `$`, and `ClearWidth`,
+    `FinishCeilingHeight`, `RiserHeight` and `TreadLength` — the PREFERRED keys
+    of every dimensional rule — fell outside the extractor's zero-means-absent
+    pattern, which only covered `Net`/`Gross` prefixes. Read as a measurement,
+    an unmeasured clear width produces "Lichte Durchgangsbreite 0,00 m — nicht
+    erfüllt" on an escape-route rule, for a door nobody has measured; and
+    because `missing` is recorded only for undecidable elements, the shopping
+    list left out the property that would settle it.
+
+    Fixed in `extract.ts` for new uploads, and here for the rows already stored
+    under the old rule.
+  */
+  const door = (quantities: Record<string, number>): BimElement =>
+    element({
+      ifcType: 'IfcDoor',
+      name: 'Tür 01',
+      predefinedType: 'DOOR',
+      quantities: { Qto_DoorBaseQuantities: quantities },
+    })
+
+  it('does not fail a door on a ClearWidth of zero', () => {
+    const rule = ruleOf(
+      runBimRules([door({ ClearWidth: 0, Width: 900 })], { lengthScale: 0.001 }),
+      'oib4-tuer-durchgangsbreite'
+    )
+    expect(rule.failed).toBe(0)
+    // It falls through to the nominal width, which is what the rule is for.
+    expect(rule.passed + rule.undecidable).toBe(1)
+  })
+
+  it('asks for the clear width rather than reporting 0,00 m', () => {
+    const rule = ruleOf(
+      runBimRules([door({ ClearWidth: 0 })], { lengthScale: 0.001 }),
+      'oib4-tuer-durchgangsbreite'
+    )
+    expect(rule.failed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+    expect(rule.unknowns[0]?.reading).not.toContain('0,00')
+    expect(rule.missing.map((entry) => entry.path)).toContain(
+      'Qto_DoorBaseQuantities.ClearWidth'
+    )
+  })
+
+  it('does not fail a room on a FinishCeilingHeight of zero', () => {
+    const room = element({
+      ifcType: 'IfcSpace',
+      name: 'Wohnen',
+      quantities: { Qto_SpaceBaseQuantities: { FinishCeilingHeight: 0 } },
+    })
+    const rule = ruleOf(runBimRules([room], { lengthScale: 1 }), 'oib3-raumhoehe')
+    expect(rule.failed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+  })
+})
+
 describe('OIB 2 Tabelle 1b, row 1 — the storey decides the duration', () => {
   const wallOn = (storeyName: string, rating: string) =>
     element({
@@ -557,11 +614,77 @@ describe('oib2-feuerwiderstand-tragend', () => {
     expect(rule.passed + rule.failed + rule.undecidable).toBe(0)
   })
 
-  it('stands down when the Gebäudeklasse is unknown rather than assuming the mildest', () => {
-    // Assuming GK1 would turn a GK5 building's missing R 90 into a pass.
-    const rule = ruleOf(runBimRules([wall('R 30')], {}), 'oib2-feuerwiderstand-tragend')
-    expect(rule.applicable).toBe(false)
-    expect(rule.notApplicableReason).toContain('Gebäudeklasse')
+  it('cannot decide without the Gebäudeklasse — and says that, not "nicht einschlägig"', () => {
+    /*
+      Assuming GK1 would turn a GK5 building's missing R 90 into a pass, so
+      standing down is right. WHICH stand-down was not: this used to report
+      `applicable: false`, which the panel renders as the badge "Nicht
+      einschlägig" — the rule does not apply to your building. It does apply;
+      it cannot be evaluated. And `rulesWithOpenWork` / `outstandingRules` both
+      drop inapplicable rules, so the fire rule disappeared from "what still
+      needs a human before this can be signed" and its walls never reached the
+      BCF export. One unset project fact removed OIB 2 from the Prüfbuch.
+    */
+    // Storeys supplied, so the only thing missing is the Gebäudeklasse and
+    // the reading names it rather than the storey.
+    const rule = ruleOf(
+      runBimRules([wall('R 30')], { storeys: STOREYS }),
+      'oib2-feuerwiderstand-tragend'
+    )
+    expect(rule.applicable).toBe(true)
+    expect(rule.passed).toBe(0)
+    expect(rule.failed).toBe(0)
+    expect(rule.undecidable).toBe(1)
+    expect(rule.unknowns[0]?.reading).toContain('Gebäudeklasse unbekannt')
+    // And the fact itself lands on the shopping list, which is the only place
+    // that tells the reader what would settle it.
+    expect(rule.missing.map((entry) => entry.path)).toContain('Projektangabe: Gebäudeklasse')
+  })
+
+  it('refuses to call every storey the top one when the export wrote no elevations', () => {
+    /*
+      The classic broken export: `0.` for every `IfcBuildingStorey.Elevation`.
+      Every storey then equalled the maximum, so every storey classified as
+      `top` — the Kellergeschoß included — and `top` being non-null meant the
+      undecidable guard never fired. On GK1, whose top row carries no
+      requirement at all, three load-bearing walls with no FireRating came back
+      as three PASSES. "No contradiction found" rendered as compliant, on the
+      fire rule.
+    */
+    const flat = [
+      { name: 'Kellergeschoß', elevation: 0 },
+      { name: 'Erdgeschoß', elevation: 0 },
+      { name: '1.Obergeschoß', elevation: 0 },
+    ]
+    const walls = flat.map((storey, index) => ({
+      ...wall(null),
+      globalId: `w-${index}`,
+      storeyName: storey.name,
+    }))
+    const rule = ruleOf(
+      runBimRules(walls, { gebaeudeklasse: 1, storeys: flat }),
+      'oib2-feuerwiderstand-tragend'
+    )
+
+    expect(rule.passed).toBe(0)
+    expect(rule.undecidable).toBe(3)
+    expect(rule.unknowns[0]?.reading).toContain('Geschoßlage')
+  })
+
+  it('still names the top storey when the stack has real elevations', () => {
+    // The guard must not cost the ordinary case its answer.
+    const stack = [
+      { name: 'Erdgeschoß', elevation: 0 },
+      { name: '1.Obergeschoß', elevation: 3 },
+    ]
+    const rule = ruleOf(
+      runBimRules([{ ...wall(null), storeyName: '1.Obergeschoß' }], {
+        gebaeudeklasse: 1,
+        storeys: stack,
+      }),
+      'oib2-feuerwiderstand-tragend'
+    )
+    expect(rule.passed).toBe(1)
   })
 
   it('does not cry wolf over the older F-classification', () => {

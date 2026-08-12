@@ -1033,7 +1033,11 @@ export async function countBimElementsByType(
       .from(bimElements)
       .where(elementScope(modelId, organizationId))
       .groupBy(bimElements.ifcType)
-      .orderBy(desc(count()))
+      // Tie-broken on the type name, the same fix `aggregateBimElements`
+      // carries. Two IFC types with equal counts came back in whatever order
+      // the plan produced, so two runs of the `types` op over one unchanged
+      // export could list them differently — and the agent quotes that order.
+      .orderBy(desc(count()), asc(bimElements.ifcType))
   )
   return rows.map((row) => ({ ifcType: row.ifcType, elements: Number(row.elements) }))
 }

@@ -115,7 +115,11 @@ describe('projected rule inputs', () => {
     // fails the moment a new rule needs a new key.
     const source = readFileSync(join(process.cwd(), 'src', 'lib', 'bim', 'rules.ts'), 'utf8')
     const read = new Set(
-      [...source.matchAll(/(?:property|numericProperty|quantity)\(element, \[([^\]]*)\]/g)]
+      // `dimensionProperty` is in the alternation too: it is the
+      // positive-only reader the dimensional rules use, and a key visible only
+      // through it would be invisible to this scan — which is exactly the
+      // blind spot the second floor below exists to catch.
+      [...source.matchAll(/(?:dimensionProperty|numericProperty|property|quantity)\(element, \[([^\]]*)\]/g)]
         .flatMap((match) => [...match[1].matchAll(/'([A-Za-z]+)'/g)].map((k) => k[1]))
     )
     const missing = [...read].filter((key) => !RULE_INPUT_KEYS.includes(key))
@@ -138,7 +142,9 @@ describe('projected rule inputs', () => {
     const catalogue = source.slice(source.indexOf('const BIM_RULES'))
     // `[^[\s]` rather than a lookahead: `\s*(?!\[)` backtracks to zero width
     // and then succeeds against the space itself, so it matched every call.
-    expect(catalogue).not.toMatch(/(?:property|numericProperty|quantity)\(element,\s*[^[\s]/)
+    expect(catalogue).not.toMatch(
+      /(?:dimensionProperty|numericProperty|property|quantity)\(element,\s*[^[\s]/
+    )
 
     // And the fields read straight off the element, not through a Pset. This
     // is the one that actually bit: the door rule reads

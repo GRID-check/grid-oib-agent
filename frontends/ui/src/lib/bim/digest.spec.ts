@@ -65,6 +65,35 @@ describe('buildStoreyBreakdown', () => {
   })
 })
 
+describe('buildModelDigest — storeys the export wrote twice', () => {
+  it('renders one row per storey key, not one per colliding entry', async () => {
+    /*
+      Two storeys written with the same GlobalId — the export defect
+      `validate.ts:identity` reports — collapse to ONE entry in the breakdown
+      map, and the table rendered that entry once per summary storey: `EG | 2
+      Bauteile | 2 Räume | 100 m²` and `1.OG | 2 | 2 | 100 m²` for a building
+      with one room of 40 m² on each. The Bauteile and Netto-Grundfläche
+      columns then summed to double the building.
+
+      This digest is indexed for retrieval, so the agent can quote it back as a
+      fact about the project.
+    */
+    const index = await model()
+    const [first, second] = index.storeys
+    const collided = {
+      ...index,
+      storeys: [first, { ...second, globalId: first.globalId }],
+    }
+
+    const digest = buildModelDigest(collided, index.elements, { filename: 'x.ifc' })
+    const rows = digest
+      .split('\n')
+      .filter((line) => line.startsWith('| ') && line.includes(' m |'))
+
+    expect(rows).toHaveLength(1)
+  })
+})
+
 describe('buildModelDigest', () => {
   it('names the model and the source file', async () => {
     const index = await model()
