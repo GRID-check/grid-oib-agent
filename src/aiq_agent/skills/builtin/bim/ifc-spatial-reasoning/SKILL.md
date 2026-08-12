@@ -2,17 +2,18 @@
 name: ifc-spatial-reasoning
 description: >
   Vor dem ersten Aufruf von ifc_measure oder ifc_query laden: welches der beiden
-  Werkzeuge für diese Frage zuständig ist, in welcher Reihenfolge gemessen wird,
-  und woran man erkennt, dass eine Zahl etwas anderes misst als das, wonach
-  gefragt wurde. Auslöser: lichte Raumhöhe, Raumfläche, Brüstungs- und
-  Sturzhöhe, lichte Breite, Abstand zwischen zwei Bauteilen, Dachüberstand,
-  Himmelsrichtung einer Fassade, freier Lichteinfall und 45-Grad-Prisma, welcher
-  Raum an welchen grenzt, in welcher Wand ein Fenster sitzt, welche Bauteile
-  einen Raum begrenzen, Geschoßhöhen, Raumbuch, Bauteillisten und Zählungen,
-  Vergleich zweier Modellstände — und jedes „laut Modell", „im IFC", „stimmt das
-  so im Plan". Auch dann, wenn die Frage aus einer OIB-Anforderung kommt und das
-  Maß nur der Zwischenschritt zur Beurteilung ist. Nicht für reine Rechtsfragen
-  ohne Modellbezug.
+  Werkzeuge zuständig ist, in welcher Reihenfolge gemessen wird, und woran man
+  merkt, dass eine Zahl etwas anderes misst als das Gefragte. Auslöser: lichte
+  Raumhöhe, Raumfläche, Raumtiefe, Brüstungs- und Sturzhöhe, lichte Durchgangs-
+  und Nutzbreite, Abstand zweier Bauteile, Dachüberstand, Himmelsrichtung,
+  Lichteinfall und 45-Grad-Prisma, Lichteintrittsfläche, Fluchtweg und
+  Fluchtweglänge, Treppe, Rampe, Brandabschnitt, Fluchtniveau, thermische Hülle,
+  Kompaktheit, was über oder unter etwas liegt, welcher Raum an welchen grenzt,
+  in welcher Wand ein Fenster sitzt, was einen Raum begrenzt, Geschoßhöhen,
+  Raumbuch, Bauteillisten, Modellvergleich — und jedes „laut Modell", „im IFC",
+  „stimmt das so im Plan". Auch wenn die Frage aus einer OIB-Anforderung kommt
+  und das Maß nur der Zwischenschritt zur Beurteilung ist. Nicht für reine
+  Rechtsfragen ohne Modellbezug.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: ifc_viewer,ifc_element,ifc_schedule
@@ -39,7 +40,13 @@ richtig gemessene Zahl unter einem falschen Namen.
 | Ein Maß, das die Datei nicht deklariert | `ifc_measure`: `measure`, `distance`, `overhang` |
 | Eine deklarierte Zahl unabhängig gegenprüfen | `ifc_measure`: `measure` |
 | Was grenzt woran, was sitzt worin | `ifc_measure`: `relations` |
-| Freier Lichteinfall | `ifc_measure`: `light_incidence` |
+| Freier Lichteinfall, Tageslicht | `ifc_measure`: `light_incidence`, `measure: "lightEntryArea"`, `measure: "roomDepth"` |
+| Fluchtweg, welche Räume hängen zusammen | `ifc_measure`: `measure: "egressPath"`, `measure: "reachableFrom"` |
+| Lichte Durchgangsbreite, Treppe, Rampe | `ifc_measure`: `measure: "clearWidth"` |
+| Was liegt über oder unter etwas | `ifc_measure`: `relations` mit `above` / `below` |
+| Bauteilmaße bei schräger Lage | `ifc_measure`: `measure: "orientedExtent"` |
+| Welches Bauteil ist gemeint (hinsehen) | `ifc_measure`: `view` |
+| Was fehlt im Export, als Prüfdatei | `ifc_measure`: `shopping_list` |
 
 Faustregel: **eine** Fläche prüfen → `ifc_measure` mit `measure: "floorArea"`.
 **Alle** Flächen auflisten → `ifc_query` mit `operation: "schedule"`. Wer dreißig
@@ -71,7 +78,20 @@ Das Gegenstück auf der Metadatenseite ist `ifc_query` mit
 Gebäude → Geschoß → Raum → Bauteil. Jeder Schritt liefert die GlobalId für den
 nächsten; eine erfundene GlobalId wird namentlich abgelehnt.
 
-„Passt dieses Fenster mit dem Dach für den Lichteinfall?"
+Das Verfahren ist für **jede** OIB-Richtlinie dasselbe, und nur die Maße
+wechseln:
+
+1. **Welche Bestimmung** — aus der Wissensbasis, nicht aus dem Modell. Sie nennt
+   das verlangte Maß und den Grenzwert.
+2. **Welches Bauteil oder welcher Raum** — über `find_elements`, nie geraten.
+3. **Das Maß nehmen** — der Operator, der genau dieses Maß liefert.
+4. **Berichten**: Zahl, Toleranz, Herkunft, beteiligte Bauteile. Die Bewertung
+   gegen den Grenzwert ist ein eigener, ausgesprochener Schritt.
+
+Die folgenden Ketten sind Beispiele dieses Verfahrens, nicht das Verfahren
+selbst. Für eine Richtlinie, die hier nicht steht, gilt Schritt 1 bis 4 genauso.
+
+„Passt dieses Fenster mit dem Dach für den Lichteinfall?" (OIB 3)
 
 1. `operation: "find_elements"` mit `ifc_type: "IfcWindow"` → GlobalId des Fensters
 2. `operation: "relations"` mit `relation: "hostedIn"` → die Wand, in der es sitzt
@@ -84,12 +104,34 @@ nächsten; eine erfundene GlobalId wird namentlich abgelehnt.
 7. `operation: "light_incidence"` — `global_id` ist das Fenster, `angle_deg` und
    `swivel_deg` kommen aus der **Bestimmung** (für OIB 3: 45 und 30)
 
-„Ist die Raumhöhe im Wohnzimmer ausreichend?"
+„Ist die Raumhöhe im Wohnzimmer ausreichend?" (OIB 3)
 
 1. `operation: "briefing"` → der Geschoßname, wörtlich
 2. `operation: "find_elements"` mit `kind: "space"` und `name_contains: "Wohn"`
 3. `operation: "measure"` mit `measure: "clearHeight"`
 4. Die Mindesthöhe kommt aus der Bestimmung, nicht aus dem Modell.
+
+„Wie lang ist der Fluchtweg aus diesem Raum, und wie breit sind die Türen
+darin?" (OIB 2)
+
+1. `operation: "find_elements"` mit `kind: "space"` → der Raum
+2. `operation: "measure"` mit `measure: "egressPath"` → Räume, Türen, Länge
+3. für jede Tür aus dem Weg: `operation: "measure"` mit `measure: "clearWidth"`
+   → die lichte Durchgangsbreite, an der Öffnung selbst gemessen
+4. `operation: "measure"` mit `measure: "reachableFrom"`, wenn zu klären ist,
+   welche Räume überhaupt hinter einer Tür liegen
+
+Zur Länge gehört zwingend der Hinweis dazu: sie ist ein Streckenzug über
+Mittelpunkte und damit eine **Untergrenze**, keine Fluchtweglänge im Sinne der
+OIB 2. Wer sie ohne diesen Satz berichtet, lässt einen zu langen Weg
+unauffällig aussehen.
+
+„Steht dieses Bauteil schief im Raster?" (Maße für OIB 1 und 4)
+
+`operation: "measure"` mit `measure: "orientedExtent"` statt `extent`: Länge,
+Breite und Höhe entlang der **eigenen** Achsen des Bauteils. `extent` ist
+achsparallel zum Modell und meldet bei einem schrägen Bauteil Werte, die weder
+Länge noch Dicke sind.
 
 Nicht mit dem Prisma anfangen und nicht drei Operatoren ausprobieren, um zu
 sehen, welcher etwas liefert: die vier geometrischen Relationen (`bounds`,
@@ -106,7 +148,8 @@ Hostwand **nicht** automatisch aus, weil ein tief in einer dicken Wand sitzendes
 Fenster tatsächlich von seiner eigenen Leibung verschattet wird. Kommt die Wand
 aus Schritt 2 als einziges Hindernis zurück: Aufruf wiederholen mit
 `other_global_id` = diese Wand, und in der Antwort sagen, dass und warum sie
-ausgenommen wurde. `other_global_id` nimmt hier **genau ein** Bauteil aus.
+ausgenommen wurde. `other_global_id` nimmt hier mehrere GlobalIds, durch Komma
+getrennt — eine bereits gesetzte Ausnahme also mitnehmen und nicht ersetzen.
 
 **Geschoßhöhe ist nicht lichte Raumhöhe.** `storey_heights` und die Höhen im
 Briefing sind Rohbaumaße von Oberkante zu Oberkante, ohne Deckenaufbau. Für
