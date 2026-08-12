@@ -50,10 +50,22 @@ export interface Box {
 /**
  * The largest coplanar cluster of an element's surface.
  *
- * For a wall this is the facade — the plane a light-incidence prism is measured
- * from and the plane an overhang projects past. Stored as normal + a point on
- * it rather than as a polygon, because every operator that uses it wants a
- * signed distance and none of them wants an outline.
+ * For a wall this is the largest single face — one leaf of it, not both, since
+ * bins are keyed on offset as well as orientation. Stored as normal + a point
+ * on it rather than as a polygon, because every operator that uses it wants a
+ * signed distance and none wants an outline.
+ *
+ * Two things it is NOT, both of which cost a defect to learn:
+ *
+ * - **The normal is not an outward direction.** The kernel's faces point into
+ *   the solid as often as out of it (winding is unreliable by design), so a
+ *   wall's outer face can carry a normal aimed at the building. A caller that
+ *   needs "outside" must orient it against something — the model's plan centre
+ *   is what `facadePlaneOf` uses.
+ * - **The largest face is not necessarily the outer one.** A wall's two leaves
+ *   differ in area by whatever its openings happen to remove, so which one wins
+ *   is close to a coin flip. Measuring an overhang from the inner leaf
+ *   over-reports it by the wall's thickness.
  */
 export interface Plane {
   normal: Vec3
@@ -147,6 +159,23 @@ export interface GeometryOptions {
 
 /** Coplanarity threshold for clustering triangles into a plane, in radians. */
 const PLANE_TOLERANCE = 0.05
+/**
+ * How far apart two parallel faces must be to count as different planes, in
+ * metres.
+ *
+ * Binning on the normal ALONE merged them, which is wrong in the one case that
+ * matters most: a wall has two faces with the same orientation, roughly 0.3 m
+ * apart, and a multi-layer wall sliced by its export has several more. Merging
+ * them produced a "plane" whose point was the weighted blend of faces at
+ * y = 4.409 and y = 4.521 — a plane passing through no surface of the building,
+ * offered as the facade to measure an overhang from. On the sample house that
+ * blend sat 0.28 m inside the real outer face, which is a quarter of the
+ * overhang being measured.
+ *
+ * 20 mm is below any real wall leaf and above the tessellation noise of a
+ * nominally flat face.
+ */
+const PLANE_OFFSET_TOLERANCE = 0.02
 /** A face is "vertical" when its normal is within this of horizontal. */
 const VERTICAL_TOLERANCE = 0.15
 /**
@@ -401,7 +430,9 @@ function measureTriangles(triangles: Float64Array): {
     weightedCentroid[2] += cz3 * area
     totalWeight += area
 
-    const key = `${quantize(nx)} ${quantize(ny)} ${quantize(nz)}`
+    // Keyed on orientation AND offset: two parallel faces are two planes.
+    const offset = nx * ax + ny * ay + nz * az
+    const key = `${quantize(nx)} ${quantize(ny)} ${quantize(nz)} ${Math.round(offset / PLANE_OFFSET_TOLERANCE)}`
     let bin = bins.get(key)
     if (!bin) {
       bin = { area: 0, normal: [0, 0, 0], point: [0, 0, 0], count: 0 }
@@ -416,9 +447,12 @@ function measureTriangles(triangles: Float64Array): {
     bin.normal[0] += nx * area
     bin.normal[1] += ny * area
     bin.normal[2] += nz * area
-    bin.point[0] += cx3
-    bin.point[1] += cy3
-    bin.point[2] += cz3
+    // Area-weighted, for the same reason as the normal: a finely tessellated
+    // sliver otherwise drags the representative point further than its size
+    // warrants, and the point is what a signed distance is measured from.
+    bin.point[0] += cx3 * area
+    bin.point[1] += cy3 * area
+    bin.point[2] += cz3 * area
     bin.count++
   }
 
@@ -433,7 +467,7 @@ function measureTriangles(triangles: Float64Array): {
     if (length < 1e-12) continue
     const plane: Plane = {
       normal: [bin.normal[0] / length, bin.normal[1] / length, bin.normal[2] / length],
-      point: [bin.point[0] / bin.count, bin.point[1] / bin.count, bin.point[2] / bin.count],
+      point: [bin.point[0] / bin.area, bin.point[1] / bin.area, bin.point[2] / bin.area],
       area: bin.area,
     }
     if (!dominant || plane.area > dominant.area) dominant = plane
