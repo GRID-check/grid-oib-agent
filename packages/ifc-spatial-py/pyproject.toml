@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ifc-spatial-py"
+version = "0.1.0"
+description = "Spike: the ifc-spatial operator surface on IfcOpenShell, with the answer contract intact"
+readme = "COVERAGE.md"
+requires-python = ">=3.11"
+dependencies = [
+  "ifcopenshell>=0.8.5",
+  "numpy>=1.26",
+  "shapely>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
