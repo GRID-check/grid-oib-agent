@@ -65,8 +65,12 @@ export interface ElementGeometry {
   globalId: string
   expressId: number
   box: Box
+  /**
+   * Area-weighted centre of the element's SURFACES — not a volumetric centroid.
+   * Falls back to the mean of mesh vertices when no triangles were retained.
+   */
   centroid: Vec3
-  /** Sum of XY-projected downward-facing triangle areas, m². */
+  /** Sum of XY-projected horizontal triangle areas, halved, m². */
   floorArea: number
   /** Total surface area, m². */
   surfaceArea: number
@@ -123,8 +127,17 @@ export interface GeometryOptions {
 const PLANE_TOLERANCE = 0.05
 /** A face is "vertical" when its normal is within this of horizontal. */
 const VERTICAL_TOLERANCE = 0.15
-/** A face is "downward" when its normal points below this. */
-const DOWNWARD = -0.5
+/**
+ * How horizontal a face must be to count toward the floor area, as |n·z|.
+ *
+ * Named for what it tests. It was called `DOWNWARD` and documented as "a face
+ * is downward when its normal points below this", which described neither its
+ * value nor its use: winding is unreliable in this kernel, so a floor triangle
+ * may report either an up or a down normal and the test has to be on the
+ * magnitude. The behaviour was right and the name sent the next reader looking
+ * for a sign convention that is not there.
+ */
+const HORIZONTAL = 0.5
 
 export async function runGeometryPass(
   bytes: Uint8Array,
@@ -256,7 +269,14 @@ export async function runGeometryPass(
       globalId,
       expressId: acc.expressId,
       box: { min: [...acc.min] as Vec3, max: [...acc.max] as Vec3 },
-      centroid: [acc.sum[0] / acc.vertexCount, acc.sum[1] / acc.vertexCount, acc.sum[2] / acc.vertexCount],
+      // Area-weighted where surfaces are available; the vertex mean is the
+      // fallback, and is the weaker of the two because it drifts toward
+      // densely tessellated regions.
+      centroid: measures?.centroid ?? [
+        acc.sum[0] / acc.vertexCount,
+        acc.sum[1] / acc.vertexCount,
+        acc.sum[2] / acc.vertexCount,
+      ],
       floorArea: measures?.floorArea ?? 0,
       surfaceArea: measures?.surfaceArea ?? 0,
       facade: measures?.facade ?? null,
@@ -302,9 +322,12 @@ function measureTriangles(triangles: Float64Array): {
   surfaceArea: number
   facade: Plane | null
   dominant: Plane | null
+  centroid: Vec3 | null
 } {
   let floorArea = 0
   let surfaceArea = 0
+  const weightedCentroid: Vec3 = [0, 0, 0]
+  let totalWeight = 0
 
   /** normal key → { area, normal, pointSum, count } */
   const bins = new Map<string, { area: number; normal: Vec3; point: Vec3; count: number }>()
@@ -331,20 +354,40 @@ function measureTriangles(triangles: Float64Array): {
     // so a downward face is detected by |nz| and the projected area is taken
     // from the absolute value. Halving the total of both up- and down-facing
     // horizontal faces is what makes this the floor area rather than twice it.
-    if (Math.abs(nz) > -DOWNWARD) {
+    if (Math.abs(nz) > HORIZONTAL) {
       floorArea += Math.abs(nz) * area
     }
+
+    const cx3 = (ax + bx + cx) / 3
+    const cy3 = (ay + by + cy) / 3
+    const cz3 = (az + bz + cz) / 3
+
+    // Area-weighted, so a big element does not have its centre pulled toward
+    // whichever region happens to be densely tessellated — a wall with three
+    // window openings cut out of one half carries most of its triangles there.
+    weightedCentroid[0] += cx3 * area
+    weightedCentroid[1] += cy3 * area
+    weightedCentroid[2] += cz3 * area
+    totalWeight += area
 
     const key = `${quantize(nx)} ${quantize(ny)} ${quantize(nz)}`
     let bin = bins.get(key)
     if (!bin) {
-      bin = { area: 0, normal: [nx, ny, nz], point: [0, 0, 0], count: 0 }
+      bin = { area: 0, normal: [0, 0, 0], point: [0, 0, 0], count: 0 }
       bins.set(key, bin)
     }
     bin.area += area
-    bin.point[0] += (ax + bx + cx) / 3
-    bin.point[1] += (ay + by + cy) / 3
-    bin.point[2] += (az + bz + cz) / 3
+    // Accumulated and area-weighted rather than taken from whichever triangle
+    // opened the bin. `quantize` admits a spread of one PLANE_TOLERANCE (~2.9°)
+    // into a single bin, so keeping the first normal inherited that spread as
+    // bias — which showed up as a facade bearing off by up to three degrees,
+    // and a compass answer is not worth much at that resolution.
+    bin.normal[0] += nx * area
+    bin.normal[1] += ny * area
+    bin.normal[2] += nz * area
+    bin.point[0] += cx3
+    bin.point[1] += cy3
+    bin.point[2] += cz3
     bin.count++
   }
 
@@ -355,8 +398,10 @@ function measureTriangles(triangles: Float64Array): {
   let dominant: Plane | null = null
   let facade: Plane | null = null
   for (const bin of bins.values()) {
+    const length = Math.hypot(bin.normal[0], bin.normal[1], bin.normal[2])
+    if (length < 1e-12) continue
     const plane: Plane = {
-      normal: bin.normal,
+      normal: [bin.normal[0] / length, bin.normal[1] / length, bin.normal[2] / length],
       point: [bin.point[0] / bin.count, bin.point[1] / bin.count, bin.point[2] / bin.count],
       area: bin.area,
     }
@@ -364,7 +409,16 @@ function measureTriangles(triangles: Float64Array): {
     if (Math.abs(plane.normal[2]) < VERTICAL_TOLERANCE && (!facade || plane.area > facade.area)) facade = plane
   }
 
-  return { floorArea, surfaceArea, facade, dominant }
+  return {
+    floorArea,
+    surfaceArea,
+    facade,
+    dominant,
+    centroid:
+      totalWeight > 0
+        ? [weightedCentroid[0] / totalWeight, weightedCentroid[1] / totalWeight, weightedCentroid[2] / totalWeight]
+        : null,
+  }
 }
 
 function quantize(value: number): number {
