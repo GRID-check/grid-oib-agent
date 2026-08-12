@@ -52,6 +52,7 @@ import {
   Scissors,
   SlidersHorizontal,
   TriangleAlert,
+  Undo2,
   Video,
   X,
 } from 'lucide-react'
@@ -108,6 +109,15 @@ import {
 
 /** One shared empty array, so "no elements yet" has a stable identity. */
 const NO_ELEMENTS: readonly BimViewerElement[] = []
+
+/**
+ * How many views back the stage remembers.
+ *
+ * A bound rather than a policy: nobody presses back forty times, and an
+ * unbounded array of view objects held for as long as a model is open is a
+ * leak with no upper limit on a surface people leave open all day.
+ */
+const VIEW_HISTORY_DEPTH = 40
 
 /**
  * Where the legend sits, given how many pills the dock has stacked above
@@ -182,15 +192,65 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
     [searchParams]
   )
 
+  const navigate = useCallback(
+    (next: BimModelView) => {
+      // `replace`, not `push`: clicking through twenty elements should not make
+      // the BROWSER's back button walk back through twenty of them, and it must
+      // not be able to strand the reader outside the stage either. The stage
+      // keeps its own history instead — see below.
+      router.replace(`${pathname}${buildModelQuery(next)}`, { scroll: false })
+    },
+    [pathname, router]
+  )
+
+  /**
+   * Where the reader has been in this model.
+   *
+   * One click can change the view in more than one way — selecting an element
+   * on another level also moves the level filter — and every control that
+   * undoes something undoes only its own thing: the card's ✕ drops the
+   * selection, "Alle Geschoße" drops the filter, the x-ray toggle drops the
+   * ghosting. Three different affordances in three different places, and on a
+   * phone two of them are behind a collapsed rail. The reader's actual
+   * question is simply "put it back the way it was", and nothing answered it.
+   *
+   * Not the browser's history, deliberately. `navigate` replaces rather than
+   * pushes, because a stack that also holds every page before the model means
+   * Back eventually leaves the building entirely — and the whole view is one
+   * URL, so twenty selections would be twenty entries in the browser's own
+   * list. This stack holds only views of this model, and only what the reader
+   * changed on purpose: free orbit and zoom never reach the URL at all (only a
+   * view snap, a cut or the projection toggle do), so nothing here fills up
+   * while somebody turns the building around.
+   */
+  const [viewHistory, setViewHistory] = useState<BimModelView[]>([])
+
   const setView = useCallback(
     (patch: Partial<BimModelView>) => {
       const next = withModelView(view, patch)
-      // `replace`, not `push`: clicking through twenty elements should not make
-      // the back button walk back through twenty of them.
-      router.replace(`${pathname}${buildModelQuery(next)}`, { scroll: false })
+      // A patch that changes nothing is not a step — and it is not a
+      // navigation either. `setCamera` re-emits an identical camera on every
+      // gesture that ends where it started, which would otherwise stack empty
+      // entries the reader has to press through.
+      if (buildModelQuery(next) === buildModelQuery(view)) return
+      setViewHistory((stack) => [...stack, view].slice(-VIEW_HISTORY_DEPTH))
+      navigate(next)
     },
-    [pathname, router, view]
+    [navigate, view]
   )
+
+  /**
+   * One step back, without recording the step back as a step.
+   *
+   * The stack is read OUTSIDE the updater: navigating is a side effect, and
+   * React is free to call an updater twice.
+   */
+  const goBack = useCallback(() => {
+    const previous = viewHistory.at(-1)
+    if (!previous) return
+    setViewHistory((stack) => stack.slice(0, -1))
+    navigate(previous)
+  }, [navigate, viewHistory])
 
   const { data: models, isLoading, error, reload: reloadModels } = useProjectBimModels(projectId)
   const model = useMemo(() => pickStageModel(models ?? [], view.model), [models, view.model])
@@ -1010,12 +1070,27 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
             // drawer's own X are the ways back, and both restore focus here.
             className={cn(advancedOpen && 'max-sm:hidden sm:pr-[27rem]')}
             lead={
-              <ViewerIconButton
-                label={t('stage.home')}
-                icon={Home}
-                onClick={viewport.fit}
-                disabled={viewport.status.phase !== 'ready'}
-              />
+              <>
+                {/*
+                  In the leading pill, beside Home, because both answer the
+                  same question — "get me back" — and neither is a tool for
+                  looking at the building. Home undoes the CAMERA; this undoes
+                  the view. Keeping them together is what makes the pair
+                  legible: one returns the eye, the other returns the state.
+                */}
+                <ViewerIconButton
+                  label={t('stage.back')}
+                  icon={Undo2}
+                  onClick={goBack}
+                  disabled={viewHistory.length === 0}
+                />
+                <ViewerIconButton
+                  label={t('stage.home')}
+                  icon={Home}
+                  onClick={viewport.fit}
+                  disabled={viewport.status.phase !== 'ready'}
+                />
+              </>
             }
             above={
               <>

@@ -369,6 +369,13 @@ export const bim = {
     dialogLabel: 'Model {name}',
     close: 'Close',
     home: 'Fit the whole model',
+    /**
+     * One step back through the VIEW, not through the browser.
+     *
+     * Named for what it restores rather than "Back", which on a full-screen
+     * surface reads as "leave" — and this one never leaves the model.
+     */
+    back: 'Back to the previous view',
     views: 'View',
     advanced: 'Details & checks',
     models: 'Models',

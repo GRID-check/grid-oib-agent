@@ -215,6 +215,17 @@ Orbit is the least of it. The toolbar stands the model square and cuts it:
   shows you the part of the stair on that floor. **Ausgeblendetes wiederherstellen**
   appears in the toolbar as soon as anything is out of the way, and only then.
 - **Einpassen** re-frames the whole building without reloading it.
+- **Zurück zur vorherigen Ansicht** steps back through what you changed — the
+  element you selected, the level you filtered to, the cut, the drawer, the
+  model. It sits beside Einpassen because the two answer the same question:
+  Einpassen returns the camera, this returns the view. It never leaves the
+  model, and it never undoes a measurement or something you hid — those are
+  working notes with their own controls, the same reason they do not travel in
+  the link.
+
+  Your browser's own Back button deliberately does not do this. The whole view
+  is one address, so every element you clicked would be an entry in it, and
+  pressing Back enough times would take you out of the building altogether.
 
 On a tablet or a phone the same gestures are there under a finger: one finger
 orbits, two pinch to zoom and move to pan, and lifting one of the two leaves you

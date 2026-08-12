@@ -332,6 +332,7 @@ export const bim: typeof en.bim = {
     dialogLabel: 'Modell {name}',
     close: 'Schließen',
     home: 'Ganzes Modell einpassen',
+    back: 'Zurück zur vorherigen Ansicht',
     views: 'Ansicht',
     advanced: 'Details & Prüfung',
     models: 'Modelle',

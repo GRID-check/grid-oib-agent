@@ -228,6 +228,99 @@ describe('ModelStage — what is on screen', () => {
   })
 })
 
+describe('ModelStage — one step back', () => {
+  /**
+   * The stage keeps its own history, so `router.replace` has to be fed back in
+   * as the router eventually would — otherwise `view` never moves and every
+   * assertion here is about the first render.
+   */
+  const applyNavigation = (): void => {
+    const href = routerReplace.mock.calls.at(-1)?.[0] as string | undefined
+    if (href) searchParams = new URLSearchParams(href.split('?')[1] ?? '')
+  }
+  const back = () => screen.getByRole('button', { name: 'Back to the previous view' })
+
+  it('offers nothing to go back to before anything has changed', () => {
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(back()).toBeDisabled()
+  })
+
+  it('puts the view back the way it was', async () => {
+    /*
+      The reason this exists. One click can change the view in more than one
+      way — selecting an element on another level moves the level filter too —
+      and every control that undoes something undoes only its own thing: the
+      card's ✕ drops the selection, "All levels" drops the filter. Three
+      affordances in three places, two of them behind a collapsed rail on a
+      phone, for the one question the reader actually has.
+    */
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Obergeschoss' }))
+    expect(lastQuery().get('storey')).toBe('Obergeschoss')
+
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    await userEvent.click(back())
+
+    expect(lastQuery().get('storey')).toBeNull()
+    expect(lastQuery().get('model')).toBe('Haus-A.ifc')
+  })
+
+  it('walks back one step at a time, and stops at the beginning', async () => {
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    const step = async (name: string) => {
+      await userEvent.click(screen.getByRole('button', { name }))
+      applyNavigation()
+      rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    }
+
+    await step('Obergeschoss')
+    await step('Details & checks')
+    expect(lastQuery().get('tab')).toBe('overview')
+
+    // Back over the drawer...
+    await userEvent.click(back())
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastQuery().get('tab')).toBeNull()
+    expect(lastQuery().get('storey')).toBe('Obergeschoss')
+
+    // ...then over the level, and no further. Going back is not itself a step,
+    // so pressing it twice must not oscillate between two views.
+    await userEvent.click(back())
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastQuery().get('storey')).toBeNull()
+    expect(back()).toBeDisabled()
+  })
+
+  it('does not record a step for a patch that changes nothing', async () => {
+    // `setCamera` re-emits an identical camera on every gesture that ends
+    // where it started. Stacking those would make the reader press back
+    // through views indistinguishable from the one they are looking at.
+    searchParams = new URLSearchParams('model=Haus-A.ifc&storey=Obergeschoss')
+    const { rerender } = render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    // Clear the filter, then ask for "all storeys" again — the second press
+    // resolves to the view already on screen.
+    await userEvent.click(screen.getByRole('button', { name: 'All storeys' }))
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastQuery().get('storey')).toBeNull()
+    routerReplace.mockClear()
+
+    await userEvent.click(screen.getByRole('button', { name: 'All storeys' }))
+    expect(routerReplace).not.toHaveBeenCalled()
+
+    // And the one real step is still the only thing to go back over.
+    await userEvent.click(back())
+    applyNavigation()
+    rerender(<ModelStage projectId="p1" onClose={vi.fn()} />)
+    expect(lastQuery().get('storey')).toBe('Obergeschoss')
+    expect(back()).toBeDisabled()
+  })
+})
+
 describe('ModelStage — every control is a link', () => {
   it('puts the level filter in the URL', async () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
