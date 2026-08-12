@@ -928,7 +928,15 @@ export function IfcViewerCanvas({
   /** Forget a pointer and leave gesture state consistent, however it ended. */
   const endPointer = (event: React.PointerEvent<HTMLCanvasElement>): void => {
     pointersRef.current.delete(event.pointerId)
-    if (pointersRef.current.size < 2) pinchRef.current = null
+    if (pointersRef.current.size < 2) {
+      pinchRef.current = null
+    } else {
+      // Still a pinch, but possibly between a DIFFERENT pair: `pinchState`
+      // reads the first two pointers in the map, and the one that left may
+      // have been one of them. Carrying the old spread into the next move
+      // computes a ratio between two unrelated distances and jumps the camera.
+      pinchRef.current = pinchState()
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
