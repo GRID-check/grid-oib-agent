@@ -316,6 +316,13 @@
       "when": 1786320000005,
       "tag": "0044_conversation_job_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1786406400005,
+      "tag": "0045_bim_confirmations_per_model",
+      "breakpoints": true
     }
   ]
 }

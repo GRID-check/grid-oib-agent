@@ -163,6 +163,11 @@ export type NewBimElementRow = typeof bimElements.$inferInsert
  * Recorded against a model REVISION so a later revision makes it visibly
  * stale — see `0035_bim_check_confirmations.sql` for why that matters more
  * than it looks.
+ *
+ * One row per rule per revision (`0045`), NOT per rule per project. A project
+ * holds several buildings in the ordinary case, and the narrower key meant
+ * confirming a rule on the second silently overwrote the signature on the
+ * first. Which row is shown is decided on read — see `attachConfirmations`.
  */
 export const bimCheckConfirmations = pgTable(
   'bim_check_confirmations',
@@ -180,7 +185,12 @@ export const bimCheckConfirmations = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    unique('bim_check_confirmations_unique').on(table.organizationId, table.projectId, table.ruleId),
+    unique('bim_check_confirmations_unique').on(
+      table.organizationId,
+      table.projectId,
+      table.ruleId,
+      table.modelId
+    ),
     index('bim_check_confirmations_project_idx').on(table.organizationId, table.projectId),
   ]
 )

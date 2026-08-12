@@ -146,11 +146,6 @@ export function ModelAdvancedSheet({
   // The rule catalogue reads the project brief. A fact the brief does not
   // carry arrives as null and the rules that need it stand down, visibly.
   const ruleFacts = useProjectRuleFacts(projectId)
-  const compliance = useBimCompliance(
-    projectId,
-    opened('compliance') ? modelId : null,
-    ruleFacts
-  )
 
   /**
    * The revision series this model belongs to, read from the file names of the
@@ -160,6 +155,26 @@ export function ModelAdvancedSheet({
   const series = useMemo(
     () => findRevisionSeries(groupModelRevisions([...models]), model.id),
     [models, model.id]
+  )
+
+  /**
+   * The ids of those revisions, for scoping a human confirmation.
+   *
+   * A signature belongs to the building it was made about. Without this the
+   * Prüfbuch showed one building's confirmation on another's, labelled
+   * "Älterer Stand" — which says it is an earlier version of the same
+   * building, and it is not.
+   */
+  const seriesModelIds = useMemo(
+    () => (series ?? { revisions: [] }).revisions.map((entry) => entry.model.id),
+    [series]
+  )
+
+  const compliance = useBimCompliance(
+    projectId,
+    opened('compliance') ? modelId : null,
+    ruleFacts,
+    seriesModelIds
   )
 
   // The revision immediately before the one on screen — the only base a

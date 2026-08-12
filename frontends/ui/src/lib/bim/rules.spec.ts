@@ -1263,12 +1263,50 @@ describe('human confirmations', () => {
   })
 
   it('marks a confirmation made against another revision as stale', () => {
-    const [rule] = attachConfirmations(failing, [confirmation], 'rev-4').filter(
+    // `rev-3` and `rev-4` are two revisions of ONE building, so the series has
+    // to name both — a confirmation from outside the building on screen is not
+    // attached at all.
+    const [rule] = attachConfirmations(failing, [confirmation], 'rev-4', ['rev-3', 'rev-4']).filter(
       (entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite'
     )
     // Still there — a signature is not deleted by a re-export — but no longer
     // covering: it was true of the building that person looked at.
     expect(rule.confirmation).not.toBeNull()
+    expect(rule.confirmationStale).toBe(true)
+  })
+
+  it('does not show one building’s confirmation on another building’s Prüfbuch', () => {
+    // A project holds `Haus-A` and `Nebengebäude` side by side. A signature
+    // made on one says nothing whatsoever about the other, and showing it
+    // marked "Älterer Stand" asserts that it is an earlier version of the same
+    // building — which is a different, and false, claim.
+    const [rule] = attachConfirmations(failing, [confirmation], 'nebengebaeude-1', [
+      'nebengebaeude-1',
+    ]).filter((entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite')
+    expect(rule.confirmation).toBeNull()
+    expect(rule.confirmationStale).toBe(false)
+  })
+
+  it('prefers the current revision’s confirmation over an older one', () => {
+    const older = { ...confirmation, modelId: 'rev-3', confirmedBy: 'a.muster' }
+    const current = { ...confirmation, modelId: 'rev-4', confirmedBy: 'b.beispiel' }
+    const [rule] = attachConfirmations(failing, [older, current], 'rev-4', [
+      'rev-3',
+      'rev-4',
+    ]).filter((entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite')
+    expect(rule.confirmation?.confirmedBy).toBe('b.beispiel')
+    expect(rule.confirmationStale).toBe(false)
+  })
+
+  it('shows the most recent older confirmation when the current revision has none', () => {
+    const first = { ...confirmation, modelId: 'rev-2', confirmedAt: '2026-01-01T00:00:00.000Z' }
+    const second = { ...confirmation, modelId: 'rev-3', confirmedAt: '2026-03-02T09:00:00.000Z' }
+    const [rule] = attachConfirmations(failing, [first, second], 'rev-4', [
+      'rev-2',
+      'rev-3',
+      'rev-4',
+    ]).filter((entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite')
+    expect(rule.confirmation?.modelId).toBe('rev-3')
     expect(rule.confirmationStale).toBe(true)
   })
 

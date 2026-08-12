@@ -1226,9 +1226,47 @@ export interface BimRuleResultWithConfirmation extends BimRuleResult {
 export function attachConfirmations(
   results: readonly BimRuleResult[],
   confirmations: readonly BimCheckConfirmation[],
-  currentModelId: string
+  currentModelId: string,
+  /**
+   * Every revision of the building on screen, `currentModelId` included.
+   *
+   * A project holds several buildings. A confirmation made on `Nebengebäude`
+   * says nothing whatsoever about `Haus-A` — it is not an older revision of
+   * it, and showing it on Haus-A's Prüfbuch marked "Älterer Stand" asserted
+   * exactly that. Confirmations from outside this set are not attached at all.
+   *
+   * Omitted, only the current revision counts, which is the safe reading for a
+   * caller that cannot work out the series: it can under-attach (a real
+   * confirmation from a previous revision is not shown) but never mis-attach.
+   */
+  seriesModelIds: readonly string[] = [currentModelId]
 ): BimRuleResultWithConfirmation[] {
-  const byRule = new Map(confirmations.map((entry) => [entry.ruleId, entry]))
+  const inSeries = new Set(seriesModelIds.length > 0 ? seriesModelIds : [currentModelId])
+  inSeries.add(currentModelId)
+
+  /**
+   * The one confirmation to show per rule.
+   *
+   * The current revision's if there is one — that is the verdict that covers
+   * what is on screen. Otherwise the most recent from another revision of the
+   * same building, which is shown STALE: it is a real signature about a real
+   * earlier state of this building, and dropping it would lose a record; only
+   * presenting it as current would be the lie.
+   */
+  const byRule = new Map<string, BimCheckConfirmation>()
+  for (const entry of confirmations) {
+    if (!inSeries.has(entry.modelId)) continue
+    const held = byRule.get(entry.ruleId)
+    if (!held) {
+      byRule.set(entry.ruleId, entry)
+      continue
+    }
+    if (held.modelId === currentModelId) continue
+    if (entry.modelId === currentModelId || entry.confirmedAt > held.confirmedAt) {
+      byRule.set(entry.ruleId, entry)
+    }
+  }
+
   return results.map((result) => {
     const confirmation = byRule.get(result.ruleId) ?? null
     return {

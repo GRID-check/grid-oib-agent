@@ -1107,13 +1107,16 @@ export async function upsertBimCheckConfirmation(input: {
         note: input.note,
       })
       .onConflictDoUpdate({
+        // The MODEL is part of the key (0045). Without it, confirming a rule
+        // on the second building in a project updated the first building's row
+        // in place and its signature was gone with no record that it existed.
         target: [
           bimCheckConfirmations.organizationId,
           bimCheckConfirmations.projectId,
           bimCheckConfirmations.ruleId,
+          bimCheckConfirmations.modelId,
         ],
         set: {
-          modelId: input.modelId,
           confirmedBy: input.confirmedBy,
           note: input.note,
           updatedAt: new Date(),
@@ -1122,12 +1125,25 @@ export async function upsertBimCheckConfirmation(input: {
   )
 }
 
-/** Withdraw a confirmation — the rule returns to whatever the catalogue says. */
+/**
+ * Withdraw a confirmation — the rule returns to whatever the catalogue says.
+ *
+ * Scoped to `modelIds`: the revisions of the building the reader is looking at.
+ * Withdrawing is "I take that back about THIS building", and it has to cover
+ * the older revisions too, because a verdict from a previous revision is what
+ * the panel was showing (marked stale) when they pressed it. Leaving those
+ * behind would make the button appear to do nothing.
+ *
+ * It must NOT reach another building's rows, which is the whole point of 0045.
+ * An empty `modelIds` therefore deletes nothing rather than everything.
+ */
 export async function deleteBimCheckConfirmation(input: {
   organizationId: string
   projectId: string
   ruleId: string
+  modelIds: readonly string[]
 }): Promise<void> {
+  if (input.modelIds.length === 0) return
   const db = getDb()
   await withTenant({ organizationId: input.organizationId }, () =>
     db
@@ -1136,7 +1152,8 @@ export async function deleteBimCheckConfirmation(input: {
         and(
           eq(bimCheckConfirmations.organizationId, input.organizationId),
           eq(bimCheckConfirmations.projectId, input.projectId),
-          eq(bimCheckConfirmations.ruleId, input.ruleId)
+          eq(bimCheckConfirmations.ruleId, input.ruleId),
+          inArray(bimCheckConfirmations.modelId, [...input.modelIds])
         )
       )
   )

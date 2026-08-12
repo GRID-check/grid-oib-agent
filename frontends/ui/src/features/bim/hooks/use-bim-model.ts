@@ -639,7 +639,18 @@ const selectCompliance = (body: BimQueryResponse): BimComplianceView | null =>
 export function useBimCompliance(
   projectId: string | null,
   modelId: string | null,
-  facts: { gebaeudeklasse: number | null; hauptnutzung: string | null; ready?: boolean }
+  facts: { gebaeudeklasse: number | null; hauptnutzung: string | null; ready?: boolean },
+  /**
+   * Every revision of the building on screen.
+   *
+   * A confirmation is stored per revision and a project holds several
+   * BUILDINGS, so without this a signature made on `Nebengebäude` would show
+   * on `Haus-A`'s Prüfbuch marked "Älterer Stand" — which claims it is an
+   * earlier version of this same building. Empty means "only this revision
+   * counts", which under-attaches (a real confirmation from a previous
+   * revision goes unshown) and never mis-attaches.
+   */
+  seriesModelIds: readonly string[] = []
 ): AsyncState<BimComplianceView> & {
   confirm: (ruleId: string, note: string) => Promise<void>
   withdraw: (ruleId: string) => Promise<void>
@@ -696,9 +707,12 @@ export function useBimCompliance(
       // a pure function of the model and the confirmations are a pure function
       // of the project, and keeping them separate is what lets a confirmation
       // be recorded without recomputing the whole catalogue.
-      rules: attachConfirmations(run.data.rules, confirmations, modelId),
+      rules: attachConfirmations(run.data.rules, confirmations, modelId, [
+        ...seriesModelIds,
+        modelId,
+      ]),
     }
-  }, [run.data, confirmations, modelId])
+  }, [run.data, confirmations, modelId, seriesModelIds])
 
   return {
     ...run,
@@ -708,7 +722,12 @@ export function useBimCompliance(
         write('POST', { ruleId, modelId, note: note === '' ? null : note }),
       [write, modelId]
     ),
-    withdraw: useCallback((ruleId: string) => write('DELETE', { ruleId }), [write]),
+    // The model travels with the withdrawal: the endpoint deletes across THIS
+    // building's revisions and must not reach another building's signature.
+    withdraw: useCallback(
+      (ruleId: string) => write('DELETE', { ruleId, modelId }),
+      [write, modelId]
+    ),
   }
 }
 

@@ -23,6 +23,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildComplianceBcf, type BcfExport } from './bcf'
 import { buildBimDerivedKeys } from './service'
 import { attachConfirmations } from './rules'
+import { revisionSeriesKey } from './revision-series'
 import {
   deleteBimCheckConfirmation,
   findBimModelByDocument,
@@ -206,6 +207,35 @@ export async function getModelSource(
 // ---------------------------------------------------------------------------
 
 /**
+ * Every model in the project that is a revision of the same building.
+ *
+ * The lineage is the file name, the way the revision timeline reads it
+ * (`lib/bim/revision-series.ts`) — a lineage column would be exact and empty,
+ * because nobody fills those in. Used to scope a human confirmation: a
+ * signature belongs to the building it was made about, and a project holds
+ * several buildings in the ordinary case.
+ *
+ * Always contains the model itself, even when the listing is unavailable, so a
+ * caller can never end up with an empty scope and silently withdraw nothing.
+ */
+async function revisionSiblingIds(
+  organizationId: string,
+  projectId: string,
+  model: { id: string; filename: string }
+): Promise<string[]> {
+  const series = revisionSeriesKey(model.filename)
+  const models = await listBimModels(organizationId, {
+    projectId,
+    includeArchiv: true,
+    limit: 200,
+  })
+  const ids = models
+    .filter((candidate) => revisionSeriesKey(candidate.filename) === series)
+    .map((candidate) => candidate.id)
+  return ids.includes(model.id) ? ids : [...ids, model.id]
+}
+
+/**
  * The confirmations recorded for a project's Prüfbuch.
  *
  * `project:view` is enough to READ them: a confirmation is part of the record
@@ -335,7 +365,8 @@ export async function exportAccessibleComplianceBcf(
       note: entry.note,
       confirmedAt: entry.confirmedAt.toISOString(),
     })),
-    model.id
+    model.id,
+    await revisionSiblingIds(session.organizationId, projectId, model)
   )
 
   const root = model.summary?.spatial
@@ -359,13 +390,26 @@ export async function exportAccessibleComplianceBcf(
 export async function withdrawAccessibleCheck(
   session: AuthorizedSession,
   projectId: string,
-  ruleId: string
+  ruleId: string,
+  /**
+   * The building being withdrawn from.
+   *
+   * Required now that a confirmation is keyed per revision: without it there
+   * is no way to say WHICH signature is being taken back, and deleting every
+   * row for the rule would silently withdraw the other buildings' too.
+   */
+  modelId: string
 ): Promise<void> {
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:edit')
+  const model = await getAccessibleModel(session, modelId)
   await deleteBimCheckConfirmation({
     organizationId: session.organizationId,
     projectId,
     ruleId,
+    // Across the building's revisions: the panel may well have been showing a
+    // confirmation from an earlier one, marked stale, and that is the one the
+    // reader is taking back.
+    modelIds: await revisionSiblingIds(session.organizationId, projectId, model),
   })
 }
