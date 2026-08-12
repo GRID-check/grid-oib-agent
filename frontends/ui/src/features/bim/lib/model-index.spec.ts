@@ -238,10 +238,12 @@ describe('flattenSpatialTree', () => {
 
 describe('formatting', () => {
   it('signs elevations so a basement reads as one', () => {
-    expect(formatElevation({ elevation: 0 })).toBe('0 m')
-    expect(formatElevation({ elevation: 3.2 })).toBe('+3.2 m')
-    expect(formatElevation({ elevation: -2.85 })).toBe('-2.85 m')
-    expect(formatElevation({ elevation: null })).toBe('—')
+    expect(formatElevation({ elevation: 0 }, 'en-GB')).toBe('0 m')
+    expect(formatElevation({ elevation: 3.2 }, 'en-GB')).toBe('+3.2 m')
+    expect(formatElevation({ elevation: -2.85 }, 'en-GB')).toBe('-2.85 m')
+    // `+3.25 m` in a German Struktur tree reads as 325 metres.
+    expect(formatElevation({ elevation: -2.85 }, 'de-AT')).toBe('-2,85 m')
+    expect(formatElevation({ elevation: null }, 'en-GB')).toBe('—')
   })
 
   it('drops the Ifc prefix for table display but leaves other names alone', () => {

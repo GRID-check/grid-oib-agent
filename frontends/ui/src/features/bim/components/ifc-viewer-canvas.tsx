@@ -78,7 +78,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
  * type error at the call site, which is where it was always meant to be caught.
  */
 import type { Camera, RenderOptions, Renderer, Scene } from '@ifc-lite/renderer'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { BimViewerElement, Rgba } from '../lib/model-index'
 import { MeasureOverlay } from '../lib/measure-overlay'
@@ -371,6 +371,7 @@ export function IfcViewerCanvas({
   className,
 }: IfcViewerCanvasProps): JSX.Element {
   const t = useTranslations('bim')
+  const { locale } = useLocale()
   const keysId = useId()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlaySvgRef = useRef<SVGSVGElement | null>(null)
@@ -1230,13 +1231,17 @@ export function IfcViewerCanvas({
     const overlay = new MeasureOverlay(svg, labels, {
       horizontal: t('viewer.measure.horizontal'),
       vertical: t('viewer.measure.vertical'),
+      // The overlay writes its own text into the DOM, so it needs the number
+      // format as much as the words — `2.40 m` in a German readout reads as a
+      // thousands separator.
+      locale,
     })
     overlayRef.current = overlay
     return () => {
       overlay.destroy()
       overlayRef.current = null
     }
-  }, [t])
+  }, [t, locale])
 
   useEffect(() => {
     overlayRef.current?.setMeasurements(measurements ?? [])

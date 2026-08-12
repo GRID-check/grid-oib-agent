@@ -42,13 +42,20 @@ export const bim = {
     grossFloorArea: 'Gross floor area',
     netVolume: 'Net volume',
     lengthUnit: 'Length unit',
+    // Scoped: only the area and volume totals are complete. The same string
+    // is rendered under the element table and above the model check, and it
+    // was reassuring across two boundaries it does not cover.
     truncated:
-      'This model has more than {limit} elements. Totals are exact; the element list is capped.',
+      'This model has more than {limit} elements. Area and volume totals are complete; the element list, the model check and the filters see only that part.',
   },
   health: {
     title: 'Model check',
     score: 'Model quality {score}/100',
-    clean: 'No findings in these checks. Every element is placed, uniquely identified and named.',
+    // Not "every element": validation does not see the elements past the
+    // extraction cap, so on a capped model this was a clean bill of health
+    // issued over a subset — see `extract.ts`.
+    clean:
+      'No findings in these checks. Of the elements checked, every one is placed, uniquely identified and named.',
     showElements: 'Show elements',
     affected: '{count} of {total}',
     affectedAbsolute: '{count}',
@@ -103,6 +110,7 @@ export const bim = {
     },
     empty: 'No element matches this filter.',
     count: '{shown} of {total} matches',
+    countOne: '{shown} of {total} match',
     unnamed: '(unnamed)',
   },
   properties: {
@@ -112,7 +120,7 @@ export const bim = {
     globalId: 'GlobalId',
     ifcType: 'IFC type',
     predefinedType: 'Predefined type',
-    typeName: 'Type',
+    typeName: 'Type name',
     tag: 'Tag',
     storey: 'Storey',
     materials: 'Materials',
@@ -134,7 +142,8 @@ export const bim = {
     removed: 'Removed',
     changed: 'Changed',
     unchanged: 'Unchanged',
-    more: '… {count} more',
+    more: '… {count} more elements',
+    moreOne: '… one more element',
     truncated: 'At least one revision is capped — the comparison may be incomplete.',
     empty: 'No differences between these two revisions.',
   },
@@ -153,7 +162,11 @@ export const bim = {
     failures: 'Not met:',
     unknowns: 'Not decidable:',
     showInModel: 'show in model',
-    more: '{count} more',
+    more: '{count} more elements',
+    // The translator substitutes tokens and does not select plurals, so every
+    // counted string needs its sibling — a rule with seven findings shows six
+    // and renders "1 more".
+    moreOne: 'One more element',
     truncated: 'Further elements are affected — see the counts above.',
     missingFacts:
       'Some rules depend on project data this brief does not carry: {facts}. Those rules stood down rather than guessing.',
@@ -195,6 +208,7 @@ export const bim = {
       description:
         'Add these in your CAD and the requirements above become decidable. This is the list, not a score.',
       count: 'on {count} elements',
+      countOne: 'on one element',
     },
     export: {
       action: '{count} open items as BCF',
@@ -334,9 +348,16 @@ export const bim = {
     elevation: '{value} m',
     notReady: 'The model is still being read. This usually takes a few moments.',
     elementsFailed:
-      'The element list could not be loaded, so nothing in the model can be selected or filtered. The building itself is fine.',
+      // NOT "the building itself is fine" — this product never delivers a
+      // verdict on a building, least of all from an error toast, and the model
+      // may carry a hundred Modellprüfung findings while this is on screen.
+      // The German has always said only that the failure is not the building's
+      // doing.
+      'The element list could not be loaded, so nothing in the model can be selected or filtered. Nothing about the building caused this.',
     readFailed:
-      'The extractor could not read this file. Re-export it from your authoring tool and upload it again.',
+      // "The extractor" is an internal component; the German names none. What
+      // the reader needs is the fact and the next step.
+      'This file could not be read. Re-export it from your authoring tool and upload it again.',
     loading: 'Loading model…',
     building: 'Putting the building together…',
     ready: 'The model is on screen',
@@ -347,7 +368,10 @@ export const bim = {
     selection: {
       close: 'Close',
       loading: 'Loading…',
-      about: 'Component',
+      // `Element`, not `Component`. The one-word rule stated at the top of
+      // this block: the drawer's tables say `elements`, and this heading sits
+      // beside them. German said `Bauteil` in both places all along.
+      about: 'Element',
       hide: 'Hide',
       isolate: 'Isolate',
       technical: 'Technical details',
@@ -407,7 +431,9 @@ export const bim = {
     unsupported: {
       title: '3D view not available in this browser',
       description:
-        'The viewer needs WebGPU, which this browser does not provide. The model itself is fine — the assistant can still answer questions about it, and Chrome, Edge or a current Safari will show it.',
+        // Same rule as `elementsFailed`: this is a browser limitation, not a
+        // clean bill of health for the model.
+        'The viewer needs WebGPU, which this browser does not provide. This is a browser limitation, not a problem with the model — the assistant can still answer questions about it, and Chrome, Edge or a current Safari will show it.',
     },
   },
   /** The model's own facts, in the file preview's metadata rail. */

@@ -273,8 +273,30 @@ function withUnit(label: string, unit: string): string {
   return unit ? `${label} (${unit})` : label
 }
 
-/** CSV for the Raumbuch — the export an architect pastes into their own sheet. */
-export function roomScheduleToCsv(schedule: BimRoomSchedule): string {
+/**
+ * CSV for the Raumbuch — the export an architect pastes into their own sheet.
+ *
+ * This is the version of the Flächenaufstellung that leaves the product, so it
+ * carries what the screen carries: the totals of the rows it actually wrote,
+ * and every caveat attached to them.
+ */
+export function roomScheduleToCsv(
+  schedule: BimRoomSchedule,
+  options: {
+    /**
+     * Set when the file holds ONE storey rather than the building.
+     *
+     * The chat card downloads `{ ...schedule, storeys: filtered }`, and
+     * `totals` came through the spread untouched — so a file called
+     * "Raumbuch Erdgeschoss" ended in a row labelled `Gesamt` carrying the
+     * whole building's Netto-Grundfläche. The screen guards against exactly
+     * that and says so; the file that reaches the Einreichung did not.
+     */
+    storeyFilter?: string | null
+    /** The model was read only in part, so these are not building figures. */
+    truncated?: boolean
+  } = {}
+): string {
   const header = [
     'Geschoß',
     'Raum',
@@ -347,11 +369,65 @@ export function roomScheduleToCsv(schedule: BimRoomSchedule): string {
         .join(';')
     )
   }
+  /*
+    The footer is computed from the storeys WRITTEN, never from
+    `schedule.totals`. Those two are the same thing for a whole-building
+    export and are not for a filtered one, and the difference is a building's
+    Netto-Grundfläche presented as one floor's.
+  */
+  const written = schedule.storeys.reduce(
+    (acc, storey) => ({
+      netFloorArea: add(acc.netFloorArea, storey.netFloorArea),
+      grossFloorArea: add(acc.grossFloorArea, storey.grossFloorArea),
+      netVolume: add(acc.netVolume, storey.netVolume),
+      roomsWithoutArea: acc.roomsWithoutArea + storey.roomsWithoutArea,
+    }),
+    {
+      netFloorArea: null as number | null,
+      grossFloorArea: null as number | null,
+      netVolume: null as number | null,
+      roomsWithoutArea: 0,
+    }
+  )
   lines.push(
-    ['Gesamt', '', '', schedule.totals.netFloorArea, schedule.totals.grossFloorArea, schedule.totals.netVolume, '', '']
+    [
+      options.storeyFilter ? `Summe ${options.storeyFilter}` : 'Gesamt',
+      '',
+      '',
+      round(written.netFloorArea),
+      round(written.grossFloorArea),
+      round(written.netVolume),
+      '',
+      '',
+    ]
       .map(escape)
       .join(';')
   )
+
+  /*
+    And the two caveats the screen refuses to omit.
+
+    A Flächenaufstellung that is short by four rooms, or computed over half a
+    model, and does not say so is the one number in this product that could do
+    real damage — and the downloaded file was the only version of it with no
+    warning attached. Written as leading text in the first column so they
+    survive an import into any spreadsheet.
+  */
+  if (options.truncated) {
+    lines.push(
+      escape(
+        'Dieses Modell wurde nur teilweise eingelesen — die Summen oben sind keine Gebäudewerte.'
+      ) + ';'.repeat(header.length - 1)
+    )
+  }
+  if (written.roomsWithoutArea > 0) {
+    lines.push(
+      escape(
+        `Räume ohne Flächenangabe: ${written.roomsWithoutArea} — in diesen Summen nicht enthalten.`
+      ) + ';'.repeat(header.length - 1)
+    )
+  }
+
   // Semicolon-separated: the German/Austrian Excel default, where a
   // comma-separated file with decimal commas lands in one column.
   return lines.join('\n')

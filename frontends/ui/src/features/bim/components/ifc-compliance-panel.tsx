@@ -278,7 +278,12 @@ export function IfcCompliancePanel({
               <li key={entry.path} className="flex flex-wrap items-baseline gap-x-2">
                 <code className="rounded bg-muted px-1 py-0.5 text-xs">{entry.path}</code>
                 <span className="text-muted-foreground">
-                  {t('compliance.shoppingList.count', { count: entry.elements })}
+                  {/* One sibling key per counted string — the translator
+                      substitutes tokens and does not select plurals, and a
+                      property missing from exactly one element is common. */}
+                  {entry.elements === 1
+                    ? t('compliance.shoppingList.countOne')
+                    : t('compliance.shoppingList.count', { count: entry.elements })}
                 </span>
               </li>
             ))}
@@ -746,7 +751,9 @@ function VerdictList({
       </ul>
       {total > shown.length && (
         <p className="text-xs text-muted-foreground">
-          {t('compliance.more', { count: total - shown.length })}
+          {total - shown.length === 1
+            ? t('compliance.moreOne')
+            : t('compliance.more', { count: total - shown.length })}
         </p>
       )}
     </div>

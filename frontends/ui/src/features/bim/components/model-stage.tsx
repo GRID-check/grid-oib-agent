@@ -60,7 +60,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/use-is-mobile'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { storeyKey, supportsWebGpu, type BimViewerElement } from '../lib/model-index'
 import {
@@ -79,6 +79,7 @@ import {
   stageModelMatched,
 } from '../lib/stage-model'
 import { BIM_CAMERA_VIEWS, type BimCameraView } from '../lib/viewer-camera'
+import { formatMetresIn } from '../lib/format-value'
 import { measurementText } from '../lib/measure-overlay'
 import { screenshotFilename } from '../lib/viewer-performance'
 import {
@@ -164,6 +165,7 @@ export interface ModelStageProps {
 
 export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element {
   const t = useTranslations('bim')
+  const { locale } = useLocale()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -471,8 +473,13 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
 
   /** Injected into the overlay's readout so it stays a pure function. */
   const measureLabels = useMemo(
-    () => ({ horizontal: t('viewer.measure.horizontal'), vertical: t('viewer.measure.vertical') }),
-    [t]
+    () => ({
+      horizontal: t('viewer.measure.horizontal'),
+      vertical: t('viewer.measure.vertical'),
+      // The numbers are as translated as the words beside them.
+      locale,
+    }),
+    [t, locale]
   )
 
   /** Whether the rail has anything in it — see the toggle in the dock. */
@@ -821,7 +828,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                         meta={
                           level.elevation === null
                             ? undefined
-                            : t('stage.elevation', { value: formatLevelElevation(level.elevation) })
+                            : t('stage.elevation', { value: formatLevelElevation(level.elevation, locale) })
                         }
                         // The elevation is context, not identity: it must not
                         // become part of the row's spoken name.
@@ -1090,7 +1097,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   min={viewport.bounds.minMetres}
                   max={viewport.bounds.maxMetres}
                   value={section.atMetres}
-                  display={t('viewer.section.metres', { value: section.atMetres.toFixed(2) })}
+                  display={t('viewer.section.metres', { value: formatMetresIn(section.atMetres, locale) })}
                   // Per step: move the plane, now. Per gesture: write the
                   // link. Both were the second one, which is why the slider
                   // could not be dragged at all — see `viewer-slider.tsx`.

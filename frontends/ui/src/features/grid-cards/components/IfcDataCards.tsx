@@ -276,9 +276,17 @@ export function IfcScheduleCard({
       downloads it for.
 
       The storey filter is applied to the schedule, so the file is still
-      exactly the table on screen.
+      exactly the table on screen — INCLUDING its footer. `totals` came through
+      the spread untouched, so a file called "Raumbuch Erdgeschoss" ended in a
+      row labelled `Gesamt` carrying the whole building's Netto-Grundfläche.
+      The writer computes the footer from the storeys it is given and names the
+      scope; `truncated` travels with it so the caveat on screen is in the file
+      as well.
     */
-    const csv = roomScheduleToCsv({ ...schedule, storeys })
+    const csv = roomScheduleToCsv(
+      { ...schedule, storeys },
+      { storeyFilter: storey, truncated: payload?.truncated === true }
+    )
     const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }))
     const anchor = document.createElement('a')
     anchor.href = url
@@ -794,7 +802,9 @@ function DiffGroup({
       </ul>
       {total > DIFF_ROWS && (
         <p className="text-xs text-muted-foreground">
-          {t('compare.more', { count: total - DIFF_ROWS })}
+          {total - DIFF_ROWS === 1
+            ? t('compare.moreOne')
+            : t('compare.more', { count: total - DIFF_ROWS })}
         </p>
       )}
     </div>

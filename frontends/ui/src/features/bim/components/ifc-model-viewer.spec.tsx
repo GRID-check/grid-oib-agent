@@ -58,9 +58,15 @@ describe('IfcModelViewer without WebGPU', () => {
     render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
 
     expect(screen.getByText('3D view not available in this browser')).toBeInTheDocument()
-    // The message says what is unaffected rather than apologising: the model
-    // itself is fine and the assistant can still answer questions about it.
-    expect(screen.getByText(/The model itself is fine/)).toBeInTheDocument()
+    // The message says what is unaffected rather than apologising — and it
+    // says it WITHOUT delivering a verdict on the model. "The model itself is
+    // fine" is a clean bill of health issued by an error toast, on a product
+    // that never certifies anything and on a file that may carry a hundred
+    // Modellprüfung findings. The German always said only that the browser is
+    // the reason.
+    expect(
+      screen.getByText(/a browser limitation, not a problem with the model/)
+    ).toBeInTheDocument()
   })
 
   it('never mounts the viewport, so the WASM chunk is never fetched', () => {

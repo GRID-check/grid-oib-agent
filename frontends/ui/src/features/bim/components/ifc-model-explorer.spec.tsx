@@ -228,7 +228,9 @@ describe('IfcElementTable', () => {
         onSelect={vi.fn()}
       />
     )
-    expect(screen.getByText('1 of 1 matches')).toBeInTheDocument()
+    // Singular: the translator substitutes tokens and does not select
+    // plurals, so a one-row result needs its own key.
+    expect(screen.getByText('1 of 1 match')).toBeInTheDocument()
     expect(screen.getByText('Aussenwand OG')).toBeInTheDocument()
     expect(screen.queryByText('Innenwand EG')).not.toBeInTheDocument()
   })

@@ -146,7 +146,7 @@ describe('buildComplianceBcf', () => {
 
     expect(markup).toContain('Anforderung: Mindestens REI 60 in Gebäudeklasse 4')
     expect(markup).toContain('Quelle: OIB 2, Punkt 3.1')
-    expect(markup).toContain('Modellstand: Haus-A_V3.ifc (2026-05-04)')
+    expect(markup).toContain('Revision: Haus-A_V3.ifc (2026-05-04)')
     expect(markup).toContain('Ergebnis: 12 erfüllt, 1 nicht erfüllt, 2 nicht entscheidbar.')
     expect(markup).toContain('- Aussenwand Nord (EG): REI 30 — gefordert REI 60')
     expect(markup).toContain('- Pset_WallCommon.FireRating (2 Bauteile)')

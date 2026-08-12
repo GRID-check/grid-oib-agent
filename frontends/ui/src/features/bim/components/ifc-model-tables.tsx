@@ -113,7 +113,10 @@ export function IfcRoomSchedule({
     // Built in the browser from the rows on screen, so the file and the table
     // cannot disagree — and a BOM, because Excel reads a UTF-8 CSV without one
     // as Latin-1 and turns every "Grundfläche" into "GrundflÃ¤che".
-    const blob = new Blob([`﻿${roomScheduleToCsv(schedule)}`], {
+    // `truncated` travels into the file: the banner above the table says the
+    // sums are not building figures, and the downloaded version was the one
+    // copy of this Flächenaufstellung with no warning on it.
+    const blob = new Blob([`﻿${roomScheduleToCsv(schedule, { truncated })}`], {
       type: 'text/csv;charset=utf-8',
     })
     const url = URL.createObjectURL(blob)

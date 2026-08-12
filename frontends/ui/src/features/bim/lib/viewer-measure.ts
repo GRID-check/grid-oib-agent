@@ -33,6 +33,7 @@
  * Pure: no React, no renderer. The imperative half lives in the canvas.
  */
 
+import { formatMetresIn } from './format-value'
 import type { SnapOptions } from '@ifc-lite/renderer'
 
 /** A point in the renderer's Y-up world space, in metres. */
@@ -140,11 +141,11 @@ export function isSkew(from: MeasurePoint, to: MeasurePoint): boolean {
  * keep it for exactly that reason. Below a centimetre the number is reported
  * in millimetres instead, because `0.00 m` says nothing at all.
  */
-export function formatMetres(metres: number): string {
+export function formatMetres(metres: number, locale: string): string {
   if (!Number.isFinite(metres)) return '—'
   const magnitude = Math.abs(metres)
-  if (magnitude < 0.01) return `${Math.round(metres * 1000)} mm`
-  return `${metres.toFixed(2)} m`
+  if (magnitude < 0.01) return `${Math.round(metres * 1000).toLocaleString(locale)} mm`
+  return `${formatMetresIn(metres, locale)} m`
 }
 
 /**

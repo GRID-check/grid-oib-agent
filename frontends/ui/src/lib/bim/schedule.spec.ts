@@ -161,6 +161,38 @@ describe('buildRoomSchedule', () => {
     expect(schedule.storeys).toHaveLength(1)
   })
 
+  it('does not label a single storey\u2019s sum as the building total', () => {
+    /*
+      The chat card downloads `{ ...schedule, storeys: filtered }` and `totals`
+      came through the spread untouched — so a file called "Raumbuch
+      Erdgeschoss" ended in a row labelled `Gesamt` carrying the whole
+      building's Netto-Grundfläche. The screen guards against exactly this and
+      says so in a comment; the file that reaches the Einreichung did not.
+    */
+    const whole = buildRoomSchedule(SUMMARY, ROOMS)
+    const oneFloor = whole.storeys.filter((entry) => entry.storeyName === 'Erdgeschoss')
+    const csv = roomScheduleToCsv(
+      { ...whole, storeys: oneFloor },
+      { storeyFilter: 'Erdgeschoss' }
+    )
+
+    expect(csv).toContain('Summe Erdgeschoss;;;44,5')
+    // 62,5 is the building. It must not appear in a one-storey file at all.
+    expect(csv).not.toContain('62,5')
+    expect(csv).not.toContain('Gesamt')
+  })
+
+  it('carries the caveats that are mandatory on screen into the file', () => {
+    // The downloaded Raumbuch was the one version of this Flächenaufstellung
+    // with no warning attached to it.
+    const csv = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [...ROOMS, space('Bad', 'Erdgeschoss')]),
+      { truncated: true }
+    )
+    expect(csv).toContain('Dieses Modell wurde nur teilweise eingelesen')
+    expect(csv).toContain('Räume ohne Flächenangabe: 1')
+  })
+
   it('escapes a room name containing the separator', () => {
     const csv = roomScheduleToCsv(buildRoomSchedule(SUMMARY, [space('Bad; WC', 'Erdgeschoss', { NetFloorArea: 6 })]))
     expect(csv).toContain('"Bad; WC"')

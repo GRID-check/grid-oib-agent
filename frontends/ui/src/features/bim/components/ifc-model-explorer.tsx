@@ -235,6 +235,7 @@ export function IfcSpatialTree({
   onSelectStorey,
 }: IfcSpatialTreeProps): JSX.Element {
   const t = useTranslations('bim')
+  const { locale } = useLocale()
   const rows = useMemo(() => flattenSpatialTree(summary.spatial), [summary.spatial])
 
   const handleTreeKeys = (event: React.KeyboardEvent<HTMLUListElement>): void => {
@@ -306,7 +307,7 @@ export function IfcSpatialTree({
                   {row.label}
                   {row.elevation !== null && (
                     <span className="ml-2 text-xs text-muted-foreground tabular-nums">
-                      {formatElevation({ elevation: row.elevation })}
+                      {formatElevation({ elevation: row.elevation }, locale)}
                     </span>
                   )}
                 </span>
@@ -441,7 +442,9 @@ export function IfcElementTable({
         */}
         {isLoading || error
           ? ' '
-          : t('elements.count', { shown: shown.length, total: filtered.length })}
+          : filtered.length === 1
+            ? t('elements.countOne', { shown: shown.length, total: filtered.length })
+            : t('elements.count', { shown: shown.length, total: filtered.length })}
         {/*
           `total` is a count over the STORED rows, which stop at the
           extraction cap — so "300 von 10.000" was a fraction of a fraction,

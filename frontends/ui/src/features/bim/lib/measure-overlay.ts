@@ -58,6 +58,13 @@ export interface MeasureOverlayLabels {
   horizontal: string
   /** e.g. `vertical` / `vertikal` — prefixes the rise component. */
   vertical: string
+  /**
+   * The INTERFACE locale, carried alongside the words because the numbers are
+   * as translated as they are: `toFixed` writes `2.40 m` into a German
+   * readout, where a point is a thousands separator. This is the one number an
+   * architect checks a lichte Durchgangsbreite with.
+   */
+  locale: string
 }
 
 /** Radius of the tick drawn at each placed end, in CSS pixels. */
@@ -125,10 +132,10 @@ export function measurementText(
   labels: MeasureOverlayLabels
 ): string {
   const { from, to } = measurement
-  const total = formatMetres(distanceMetres(from.point, to.point))
+  const total = formatMetres(distanceMetres(from.point, to.point), labels.locale)
   if (!isSkew(from.point, to.point)) return total
-  const run = formatMetres(horizontalMetres(from.point, to.point))
-  const rise = formatMetres(Math.abs(verticalMetres(from.point, to.point)))
+  const run = formatMetres(horizontalMetres(from.point, to.point), labels.locale)
+  const rise = formatMetres(Math.abs(verticalMetres(from.point, to.point)), labels.locale)
   return `${total} · ${labels.horizontal} ${run} · ${labels.vertical} ${rise}`
 }
 
@@ -263,7 +270,8 @@ export class MeasureOverlay {
       if (this.anchor && this.cursor && anchor && cursor) {
         this.pendingLabel.style.display = ''
         this.pendingLabel.textContent = formatMetres(
-          distanceMetres(this.anchor.point, this.cursor.point)
+          distanceMetres(this.anchor.point, this.cursor.point),
+          this.labels.locale
         )
         this.pendingLabel.style.left = `${(anchor.x + cursor.x) / 2}px`
         this.pendingLabel.style.top = `${(anchor.y + cursor.y) / 2}px`

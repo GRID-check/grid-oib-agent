@@ -26,7 +26,7 @@ export const bim: typeof en.bim = {
     pending: 'In Warteschlange',
     extracting: 'Modell wird gelesen…',
     ready: 'Bereit',
-    failed: 'Modell konnte nicht gelesen werden',
+    failed: 'Nicht lesbar',
   },
   overview: {
     title: 'Modellübersicht',
@@ -45,12 +45,13 @@ export const bim: typeof en.bim = {
     netVolume: 'Netto-Rauminhalt',
     lengthUnit: 'Längeneinheit',
     truncated:
-      'Dieses Modell hat mehr als {limit} Bauteile. Die Summen sind vollständig, die Bauteilliste ist begrenzt.',
+      'Dieses Modell hat mehr als {limit} Bauteile. Flächen- und Rauminhaltssummen sind vollständig; Bauteilliste, Modellprüfung und Filter sehen nur diesen Teil.',
   },
   health: {
     title: 'Modellprüfung',
     score: 'Modellqualität {score}/100',
-    clean: 'Keine Auffälligkeiten in diesen Prüfpunkten. Jedes Bauteil ist verortet, eindeutig identifiziert und benannt.',
+    clean:
+      'In diesen Prüfpunkten wurden keine Auffälligkeiten gefunden. Bei den geprüften Bauteilen ist jedes verortet, eindeutig identifiziert und benannt.',
     showElements: 'Bauteile zeigen',
     affected: '{count} von {total}',
     affectedAbsolute: '{count}',
@@ -105,6 +106,7 @@ export const bim: typeof en.bim = {
     },
     empty: 'Kein Bauteil entspricht diesem Filter.',
     count: '{shown} von {total} Treffern',
+    countOne: '{shown} von {total} Treffer',
     unnamed: '(ohne Namen)',
   },
   properties: {
@@ -114,7 +116,7 @@ export const bim: typeof en.bim = {
     globalId: 'GlobalId',
     ifcType: 'IFC-Typ',
     predefinedType: 'Vordefinierter Typ',
-    typeName: 'Typ',
+    typeName: 'Bauteiltyp',
     tag: 'Kennzeichen',
     storey: 'Geschoß',
     materials: 'Materialien',
@@ -122,13 +124,13 @@ export const bim: typeof en.bim = {
     loadFailed: 'Das Bauteil konnte nicht geladen werden.',
   },
   compare: {
-    title: 'Stände vergleichen',
+    title: 'Revisionen vergleichen',
     description:
       'Abgeglichen über die IFC-GlobalId: Ein Re-Export, bei dem sich nur die internen Nummern der Datei ändern, meldet daher keine Änderung.',
     against: 'Vergleichen mit',
     ranAgainst: 'Verglichen mit {model}',
-    sameRevision: 'Beide Namen bezeichnen denselben Stand — es gibt nichts zu vergleichen.',
-    none: 'Laden Sie einen zweiten Stand hoch, um zu vergleichen.',
+    sameRevision: 'Beide Namen bezeichnen dieselbe Revision — es gibt nichts zu vergleichen.',
+    none: 'Laden Sie eine zweite Revision hoch, um zu vergleichen.',
     run: 'Vergleichen',
     running: 'Wird verglichen…',
     failed: 'Der Bauteilvergleich konnte nicht durchgeführt werden.',
@@ -136,10 +138,11 @@ export const bim: typeof en.bim = {
     removed: 'Entfallen',
     changed: 'Geändert',
     unchanged: 'Unverändert',
-    more: '… {count} weitere',
+    more: '… {count} weitere Bauteile',
+    moreOne: '… ein weiteres Bauteil',
     truncated:
       'Mindestens eine Revision wurde nur teilweise eingelesen — der Vergleich kann unvollständig sein.',
-    empty: 'Keine Unterschiede zwischen diesen beiden Ständen.',
+    empty: 'Keine Unterschiede zwischen diesen beiden Revisionen.',
   },
   compliance: {
     title: 'Anforderungsprüfung',
@@ -156,10 +159,11 @@ export const bim: typeof en.bim = {
     failures: 'Nicht erfüllt:',
     unknowns: 'Nicht entscheidbar:',
     showInModel: 'im Modell zeigen',
-    more: '{count} weitere',
+    more: '{count} weitere Bauteile',
+    moreOne: 'Ein weiteres Bauteil',
     truncated: 'Weitere Bauteile betroffen — siehe Anzahl oben.',
     missingFacts:
-      'Einige Regeln hängen an Projektangaben, die im Projekt-Briefing fehlen: {facts}. Diese Regeln wurden nicht angewendet, statt zu raten.',
+      'Einige Regeln hängen an Angaben, die das Projekt-Briefing nicht führt: {facts}. Diese Regeln wurden nicht angewendet, statt zu raten.',
     setFacts: 'Über den Assistenten ergänzen',
     factsFailed:
       'Das Projekt-Briefing konnte nicht gelesen werden — die davon abhängigen Regeln wurden daher nicht angewendet. Über das Briefing selbst sagt das nichts aus.',
@@ -172,14 +176,14 @@ export const bim: typeof en.bim = {
     },
     confirmed: {
       by: 'Bestätigt von {who} am {when}',
-      stale: 'Älterer Stand',
+      stale: 'Ältere Revision',
       staleHint:
         'Diese Bestätigung wurde gegen eine frühere Revision des Modells abgegeben. Sie bleibt als Eintrag erhalten, gilt aber nicht für die aktuelle Revision.',
       failed: 'Die Bestätigung konnte nicht gespeichert werden. Sie ist NICHT hinterlegt — bitte erneut versuchen.',
       denied:
         'Sie haben Lesezugriff auf dieses Projekt — Bestätigungen werden angezeigt, können aber nicht hinterlegt oder zurückgezogen werden. Jemand mit Bearbeitungsrecht kann das eintragen.',
       confirm: 'Manuell bestätigen',
-      reconfirm: 'Für diesen Stand erneut bestätigen',
+      reconfirm: 'Für diese Revision erneut bestätigen',
       withdraw: 'Zurückziehen',
       withdrawConfirm: 'Diese Bestätigung samt Notiz löschen?',
       save: 'Bestätigung speichern',
@@ -189,8 +193,8 @@ export const bim: typeof en.bim = {
     },
     card: {
       export: 'Offene Punkte als BCF',
-      unresolved: '{count} der angefragten Regeln sind nicht im Katalog.',
-      unresolvedOne: 'Eine der angefragten Regeln ist nicht im Katalog.',
+      unresolved: '{count} der angeforderten Regeln sind nicht im Katalog.',
+      unresolvedOne: 'Eine der angeforderten Regeln ist nicht im Katalog.',
       none: 'Keine der angeforderten Anforderungen ist im Katalog.',
     },
     shoppingList: {
@@ -198,6 +202,7 @@ export const bim: typeof en.bim = {
       description:
         'Ergänzen Sie diese Werte im CAD, dann werden die Anforderungen oben entscheidbar. Das ist die Liste, keine Note.',
       count: 'an {count} Bauteilen',
+      countOne: 'an einem Bauteil',
     },
     export: {
       action: '{count} offene Punkte als BCF',
@@ -206,13 +211,13 @@ export const bim: typeof en.bim = {
     },
   },
   complianceDiff: {
-    title: 'Was dieser Stand verändert hat',
+    title: 'Was diese Revision verändert hat',
     description:
-      'Führt die Anforderungsprüfung auf beiden Ständen aus und listet nur, was sich geändert hat — gegenüber {previous}.',
+      'Führt die Anforderungsprüfung auf beiden Revisionen aus und listet nur, was sich geändert hat — gegenüber {previous}.',
     run: 'Anforderungsstatus vergleichen',
     running: 'Wird verglichen…',
     failed: 'Der Statusvergleich konnte nicht durchgeführt werden.',
-    unchanged: 'Keine Anforderung hat ihren Status zwischen diesen beiden Ständen geändert.',
+    unchanged: 'Keine Anforderung hat ihren Status zwischen diesen beiden Revisionen geändert.',
     truncated:
       'Mindestens eine Revision wurde nur teilweise eingelesen — dieser Vergleich deckt jeweils nur einen Teil des Gebäudes ab. „Unverändert“ heißt hier nicht, dass sich nichts geändert hat.',
     counts:
@@ -233,8 +238,8 @@ export const bim: typeof en.bim = {
     title: 'Raumbuch',
     download: 'CSV',
     room: 'Raum',
-    netArea: 'Nettofläche',
-    volume: 'Rauminhalt',
+    netArea: 'Netto-Grundfläche',
+    volume: 'Netto-Rauminhalt',
     storeyTotal: 'Summe Geschoß',
     total: 'Gesamt',
     missing: 'Räume ohne Flächenangabe: {count} — in diesen Summen nicht enthalten.',
@@ -267,7 +272,7 @@ export const bim: typeof en.bim = {
   profile: {
     title: 'Projektangaben aus dem Modell',
     description:
-      'Abgeleitet aus den Höhenlagen der Geschoße und der Raumnutzung. Vorschläge, keine Messwerte — die Übernahme in die Projektdaten bestätigen Sie im Chat.',
+      'Abgeleitet aus den Höhenlagen der Geschoße und der Raumnutzung. Vorschläge, keine Messwerte — die Übernahme in das Projekt-Briefing bestätigen Sie im Chat.',
     ask: 'Über den Assistenten übernehmen',
     empty: 'Aus diesem Modell lassen sich keine Projektangaben ableiten.',
     failed: 'Die Projektangaben konnten nicht abgeleitet werden.',
@@ -287,7 +292,7 @@ export const bim: typeof en.bim = {
   timeline: {
     title: 'Revisionen',
     description: '{count} Revisionen von {name}, neueste zuerst.',
-    revision: '{index}. Stand',
+    revision: 'Revision {index}',
     latest: 'Aktuell',
     compare: 'Mit {previous} vergleichen',
     noDelta: 'Für diese Revision liegen keine vergleichbaren Kennzahlen vor.',

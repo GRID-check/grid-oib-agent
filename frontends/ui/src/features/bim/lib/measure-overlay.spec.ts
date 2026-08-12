@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MeasureOverlay, measurementText, type Projector } from './measure-overlay'
 import { completeMeasurement, type MeasureAnchor, type Measurement } from './viewer-measure'
 
-const LABELS = { horizontal: 'horizontal', vertical: 'vertical' }
+const LABELS = { horizontal: 'horizontal', vertical: 'vertical', locale: 'en-GB' }
 
 const at = (x: number, y: number, z: number, snap: MeasureAnchor['snap'] = 'vertex'): MeasureAnchor => ({
   point: { x, y, z },

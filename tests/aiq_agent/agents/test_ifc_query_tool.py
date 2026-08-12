@@ -876,6 +876,16 @@ class TestWhatTheTraceRecords:
         # operator reaches for before any metadata scan.
         assert self._recorded()["tags"] == ["feature:ifc"]
 
+    def test_a_list_clipped_by_one_reads_as_one(self):
+        # The renderer substitutes into a template and does nothing else, so
+        # "… 1 weitere Geschoße nicht gezeigt." was what every list clipped by
+        # exactly one produced — in an answer an architect reads as German.
+        from aiq_agent.agents.bim.register import _clipped
+
+        assert _clipped(list(range(21)), 20, "Geschoße") == "… ein weiteres Geschoß nicht gezeigt."
+        assert _clipped(list(range(22)), 20, "Geschoße") == "… 2 weitere Geschoße nicht gezeigt."
+        assert _clipped(list(range(20)), 20, "Geschoße") is None
+
     def test_the_model_handle_is_stable_and_not_the_name(self):
         # Stable, because an operator correlating two slow turns needs them to
         # match; not the name, because the name is the client and the address.

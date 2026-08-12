@@ -14,6 +14,7 @@
  * before they can look at their own building.
  */
 
+import { formatMetresIn } from './format-value'
 import { storeyKey } from './model-index'
 import type { BimModelSummary, BimStorey } from '@/lib/bim/types'
 
@@ -144,10 +145,14 @@ export function pickStageModel<T extends { filename: string; status: string; upd
  * number formatted in one language and captioned in another is exactly the
  * seam that produces `+3.20 m` in an otherwise German rail.
  */
-export function formatLevelElevation(metres: number): string {
+export function formatLevelElevation(metres: number, locale: string): string {
   const rounded = Math.round(metres * 100) / 100
-  if (rounded === 0) return '±0.00'
-  return `${rounded > 0 ? '+' : '−'}${Math.abs(rounded).toFixed(2)}`
+  // The DIGITS follow the interface locale for the same reason the unit does:
+  // `toFixed` writes `±0.00` and `+3.20` into a German rail, where a point is
+  // a thousands separator.
+  const digits = formatMetresIn(Math.abs(rounded), locale)
+  if (rounded === 0) return `±${digits}`
+  return `${rounded > 0 ? '+' : '−'}${digits}`
 }
 
 /**

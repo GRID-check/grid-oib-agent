@@ -171,7 +171,7 @@ export const POST = internalApiRoute(
         return {
           resolved: false,
           reason: 'compare_target_missing',
-          message: 'Für einen Vergleich muss der zweite Modellstand benannt werden.',
+          message: 'Für einen Vergleich muss die zweite Revision benannt werden.',
           models: readable.map(describe),
         }
       }
@@ -186,8 +186,8 @@ export const POST = internalApiRoute(
           reason: matches.length === 0 ? 'no_match' : 'ambiguous',
           message:
             matches.length === 0
-              ? `Kein zweiter Modellstand mit dem Namen „${compareWithName}“ gefunden.`
-              : `Mehrere Modellstände passen auf „${compareWithName}“. Bitte eindeutig benennen.`,
+              ? `Keine zweite Revision mit dem Namen „${compareWithName}“ gefunden.`
+              : `Mehrere Revisionen passen auf „${compareWithName}“. Bitte eindeutig benennen.`,
           models: readable.map(describe),
         }
       }

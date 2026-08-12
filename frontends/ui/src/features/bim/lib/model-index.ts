@@ -329,10 +329,11 @@ export function flattenSpatialTree(node: BimSpatialNode | null): SpatialTreeRow[
 }
 
 /** Format a storey's elevation for display, or `—` when it has none. */
-export function formatElevation(storey: Pick<BimStorey, 'elevation'>): string {
+export function formatElevation(storey: Pick<BimStorey, 'elevation'>, locale: string): string {
   if (storey.elevation === null) return '—'
   const rounded = Math.round(storey.elevation * 100) / 100
-  return `${rounded > 0 ? '+' : ''}${rounded} m`
+  // Locale digits: `+3.25 m` in a German Struktur tree reads as 325 metres.
+  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString(locale)} m`
 }
 
 /** `IfcWall` → `Wall`, for a table column that does not need the prefix. */

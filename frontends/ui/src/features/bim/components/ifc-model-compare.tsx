@@ -55,7 +55,12 @@ function DiffElided({ shown, total }: { shown: number; total: number }): JSX.Ele
   const t = useTranslations('bim')
   const listed = Math.min(shown, VISIBLE_ROWS)
   if (total <= listed) return null
-  return <li className="text-muted-foreground text-xs">{t('compare.more', { count: total - listed })}</li>
+  const elided = total - listed
+  return (
+    <li className="text-muted-foreground text-xs">
+      {elided === 1 ? t('compare.moreOne') : t('compare.more', { count: elided })}
+    </li>
+  )
 }
 
 export function IfcModelCompare({

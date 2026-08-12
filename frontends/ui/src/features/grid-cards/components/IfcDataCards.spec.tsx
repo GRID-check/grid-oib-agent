@@ -403,7 +403,7 @@ describe('IfcDiffCard', () => {
       />
     )
 
-    expect(await screen.findByText('… 3 more')).toBeInTheDocument()
+    expect(await screen.findByText('… 3 more elements')).toBeInTheDocument()
   })
 
   it('carries no heading for a side of the delta that is empty', async () => {

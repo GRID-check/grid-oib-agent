@@ -158,7 +158,7 @@ _TOOL_DESCRIPTION = (
     "`emit_card` IN ADDITION to your prose — this is the whole reason the building was uploaded:\n"
     "  • a set of elements the user would want to SEE (all external walls in the Erdgeschoss, "
     "the doors under 80 cm, the walls a requirement fails on) → `ifc_viewer`, one highlight group "
-    "per meaning. Set 'storey' to isolate a single Geschoss.\n"
+    "per meaning. Set 'storey' to isolate a single Geschoß.\n"
     "  • a compliance run → `ifc_compliance`, listing the ids from the 'Regel <id>:' lines "
     "above. Those are the only valid rule ids; never invent one.\n"
     "  • one element the answer is really about → `ifc_element` with its GlobalId.\n"
@@ -455,6 +455,30 @@ def _entry_label(entry: dict[str, Any], storey: bool = True) -> str:
     return f"{label} · {entry.get('storeyName') or '—'}" if storey else label
 
 
+# Plural nouns `_clipped` is called with, and the singular each one needs when
+# exactly one row was left out. A lookup rather than a rule, because German
+# plurals are not derivable and a wrong guess is worse than a wrong number.
+_SINGULAR_DE = {
+    "Geschoße": "Geschoß",
+    "Bauteile": "Bauteil",
+    "Bauteiltypen": "Bauteiltyp",
+    "betroffene Bauteile": "betroffenes Bauteil",
+    "Räume": "Raum",
+    "Regeln": "Regel",
+    "Gruppen": "Gruppe",
+    "Merkmale": "Merkmal",
+    "fehlende Merkmale": "fehlendes Merkmal",
+    "neue Bauteile": "neues Bauteil",
+    "entfallene Bauteile": "entfallenes Bauteil",
+    "geänderte Bauteile": "geändertes Bauteil",
+}
+
+
+def _singular(noun: str) -> str:
+    """The singular of a `_clipped` noun, or the plural unchanged."""
+    return _SINGULAR_DE.get(noun, noun)
+
+
 def _clipped(items: list, shown: int, noun: str) -> str | None:
     """A line saying what a clipped list left out, or None when nothing was.
 
@@ -465,7 +489,14 @@ def _clipped(items: list, shown: int, noun: str) -> str | None:
     listed fifty as though they were all of them.
     """
     missing = len(items) - shown
-    return f"… {missing} weitere {noun} nicht gezeigt." if missing > 0 else None
+    if missing <= 0:
+        return None
+    # Singular when there is one. The renderer substitutes into a template and
+    # does nothing else, so "… 1 weitere Geschoße nicht gezeigt." is what every
+    # list clipped by exactly one produced.
+    if missing == 1:
+        return f"… ein weiteres {_singular(noun)} nicht gezeigt."
+    return f"… {missing} weitere {noun} nicht gezeigt."
 
 
 def _render(
@@ -555,7 +586,10 @@ def _render(
         if link:
             lines.append(f"Link: {link}")
         if element.get("storeyName"):
-            lines.append(f"Geschoss: {element['storeyName']}")
+            # `Geschoß`, not `Geschoss`. Austrian usage keeps the ß, the
+            # whole UI writes it, and this file writes it correctly two
+            # renderers away.
+            lines.append(f"Geschoß: {element['storeyName']}")
         if element.get("materials"):
             lines.append("Materialien: " + ", ".join(element["materials"]))
         for set_name, properties in (element.get("properties") or {}).items():
@@ -598,7 +632,9 @@ def _render(
         shopping = result.get("complianceShoppingList") or []
         for entry in shopping[:15]:
             rules = ", ".join(entry.get("rules") or [])
-            lines.append(f"- fehlt: {entry.get('path')} an {entry.get('elements')} Bauteilen (entscheidet: {rules})")
+            count = entry.get("elements")
+            where = "an einem Bauteil" if count == 1 else f"an {count} Bauteilen"
+            lines.append(f"- fehlt: {entry.get('path')} {where} (entscheidet: {rules})")
         # Every cut list says what it left out — `_clipped`'s own invariant,
         # applied to six lists in this renderer and skipped for these three.
         clipped = _clipped(shopping, 15, "fehlende Merkmale")
