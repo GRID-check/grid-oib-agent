@@ -444,5 +444,14 @@ export const bim = {
     highlightsFailed:
       'The highlighted set could not be resolved, so nothing is marked here. That is not a result about the building.',
     noModel: 'The referenced model is not available in this project.',
+    /**
+     * The opposite failure to `noModel`, and it must not borrow its sentence:
+     * the model is in the project TWICE over. `ifc_query` refuses an ambiguous
+     * name rather than picking a revision, and the card refuses to draw one —
+     * telling the reader the file is missing would send them to re-upload a
+     * building that is already there.
+     */
+    ambiguousModel:
+      'Several models in this project match that name, so this card cannot say which building it is about.',
   },
 }

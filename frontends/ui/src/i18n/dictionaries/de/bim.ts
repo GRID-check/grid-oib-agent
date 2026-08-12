@@ -429,5 +429,7 @@ export const bim: typeof en.bim = {
     highlightsFailed:
       'Die hervorgehobene Auswahl konnte nicht ermittelt werden — hier ist daher nichts markiert. Das ist kein Ergebnis über das Gebäude.',
     noModel: 'Das referenzierte Modell ist in diesem Projekt nicht verfügbar.',
+    ambiguousModel:
+      'Auf diesen Namen passen mehrere Modelle in diesem Projekt — welches Gebäude gemeint ist, lässt sich hier nicht sagen.',
   },
 }

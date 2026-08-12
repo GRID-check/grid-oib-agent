@@ -214,6 +214,28 @@ describe('IfcScheduleCard', () => {
       await screen.findByText('The referenced model is not available in this project.')
     ).toBeInTheDocument()
   })
+
+  it('says a name matched several models, rather than that none of them exist', async () => {
+    // `haus-a` is a substring of BOTH fixtures, which is the case the resolver
+    // refuses. Refusing it correctly and then reporting it as "not available in
+    // this project" sends an architect to re-upload a building the project
+    // holds twice.
+    render(
+      <IfcScheduleCard
+        title="Raumbuch"
+        modelFile="haus-a"
+        storey={null}
+        note={null}
+        projectId="p1"
+      />
+    )
+    expect(
+      await screen.findByText(
+        'Several models in this project match that name, so this card cannot say which building it is about.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/not available in this project/)).not.toBeInTheDocument()
+  })
 })
 
 describe('IfcElementCard', () => {
@@ -414,6 +436,27 @@ describe('IfcDiffCard', () => {
       />
     )
     await waitFor(() => expect(screen.getByText(/not available in this project/)).toBeInTheDocument())
+    expect(queriedOps(fetchMock)).toEqual([])
+  })
+
+  it('refuses an ambiguous BASE revision instead of diffing against an arbitrary one', async () => {
+    // The base used to take the first substring hit. A diff names two
+    // buildings, so that produced a full revision history — additions,
+    // deletions, the lot — computed against whichever model happened to sort
+    // first, under a title claiming it was the Voreinreichung.
+    const fetchMock = stubFetch({ models: MODELS, query: COMPARISON })
+    render(
+      <IfcDiffCard
+        title="Änderungen"
+        baseModelFile="haus-a"
+        modelFile="haus-a_v2.ifc"
+        note={null}
+        projectId="p1"
+      />
+    )
+    await waitFor(() =>
+      expect(screen.getByText(/Several models in this project match that name/)).toBeInTheDocument()
+    )
     expect(queriedOps(fetchMock)).toEqual([])
   })
 })

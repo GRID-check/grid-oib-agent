@@ -24,7 +24,7 @@ import { IfcModelViewer } from '@/features/bim/components/ifc-model-viewer'
 import { resolveHighlights, storeyKey, supportsWebGpu } from '@/features/bim/lib/model-index'
 import { buildModelHref } from '@/features/bim/lib/model-link'
 import {
-  pickDefaultModel,
+  resolveModelByFilename,
   useBimElements,
   useBimHighlightGroups,
   useBimModelSource,
@@ -58,20 +58,14 @@ export function IfcViewerCard({
   // preview refuses to conflate these three and says so in a comment.
   const { data: models, isLoading: modelsLoading, error: modelsError } = useProjectBimModels(projectId)
 
-  const model = useMemo(() => {
-    if (!models) return null
-    const ready = models.filter((candidate) => candidate.status === 'ready')
-    if (!modelFile) return pickDefaultModel(ready)
-    const needle = modelFile.toLowerCase()
-    const exact = ready.find((candidate) => candidate.filename.toLowerCase() === needle)
-    if (exact) return exact
-    // AMBIGUOUS is not resolved — see the sibling resolver in
-    // `IfcDataCards.tsx`. `ifc_query` declines to answer when a name hits more
-    // than one ready model; taking the first hit here drew a different
-    // building under the agent's title.
-    const partial = ready.filter((candidate) => candidate.filename.toLowerCase().includes(needle))
-    return partial.length === 1 ? partial[0] : null
-  }, [models, modelFile])
+  // AMBIGUOUS is not resolved — see `resolveModelByFilename`, the rule this
+  // shares with the data cards beside it. `ifc_query` declines to answer when a
+  // name hits more than one ready model; taking the first hit here drew a
+  // different building under the agent's title.
+  const { model, ambiguous } = useMemo(
+    () => resolveModelByFilename((models ?? []).filter((c) => c.status === 'ready'), modelFile),
+    [models, modelFile]
+  )
 
   const { data: elements } = useBimElements(model?.id ?? null)
   /**
@@ -162,7 +156,13 @@ export function IfcViewerCard({
         </p>
       ) : !model ? (
         <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          {t('card.noModel')}
+          {/*
+            "Not available in this project" would be false for an ambiguous
+            name: the model is in the project twice over, which is exactly why
+            nothing is drawn. Told the wrong sentence, an architect goes looking
+            for a building that is already uploaded.
+          */}
+          {ambiguous ? t('card.ambiguousModel') : t('card.noModel')}
         </p>
       ) : storeyMissing ? (
         // A storey name the agent transcribed as `EG` where the export says

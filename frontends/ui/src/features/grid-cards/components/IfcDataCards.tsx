@@ -29,7 +29,7 @@ import { buildModelHref } from '@/features/bim/lib/model-link'
 import { formatPropertyValue } from '@/features/bim/lib/format-value'
 import { shortIfcType } from '@/features/bim/lib/model-index'
 import {
-  pickDefaultModel,
+  resolveModelByFilename,
   useProjectBimModels,
   useProjectRuleFacts,
   type BimElementDetail,
@@ -46,31 +46,27 @@ function useResolvedModel(
   /** True only while there is nothing to show — see `NoModel`. */
   isLoading: boolean
   error: string | null
+  /** The name matched several models, so none of them is "the" one. */
+  ambiguous: boolean
 } {
   const { data, isLoading, error } = useProjectBimModels(projectId)
   const models = useMemo(
     () => (data ?? []).filter((candidate) => candidate.status === 'ready'),
     [data]
   )
-  const model = useMemo(() => {
-    if (models.length === 0) return null
-    if (!modelFile) return pickDefaultModel(models)
-    const needle = modelFile.toLowerCase()
-    const exact = models.find((candidate) => candidate.filename.toLowerCase() === needle)
-    if (exact) return exact
-    // AMBIGUOUS is not resolved. `ifc_query` declines to answer when a name
-    // hits more than one ready model (`internal/bim/query/route.ts`), and this
-    // took the first hit — so for a project holding `haus-a.ifc` and
-    // `haus-a-alt.ifc` the tool correctly refused while the card beside that
-    // same answer drew a DIFFERENT building's geometry under the agent's
-    // title.
-    const partial = models.filter((candidate) => candidate.filename.toLowerCase().includes(needle))
-    return partial.length === 1 ? partial[0] : null
-  }, [models, modelFile])
+  // AMBIGUOUS is not resolved — see `resolveModelByFilename`. `ifc_query`
+  // declines to answer when a name hits more than one ready model, and this
+  // took the first hit: for a project holding `haus-a.ifc` and `haus-a-alt.ifc`
+  // the tool correctly refused while the card beside that same answer drew a
+  // DIFFERENT building's geometry under the agent's title.
+  const { model, ambiguous } = useMemo(
+    () => resolveModelByFilename(models, modelFile),
+    [models, modelFile]
+  )
   // `isLoading` is narrowed to "and nothing to show yet": the list polls every
   // four seconds while any model is extracting and keeps its previous data
   // across the refetch, so the raw flag would flicker every card in a thread.
-  return { model, models, isLoading: isLoading && data === null, error }
+  return { model, models, isLoading: isLoading && data === null, error, ambiguous }
 }
 
 /** POST one query to a model and keep the typed slice the caller asked for. */
@@ -158,9 +154,11 @@ function CardShell({
 function NoModel({
   isLoading = false,
   error = null,
+  ambiguous = false,
 }: {
   isLoading?: boolean
   error?: string | null
+  ambiguous?: boolean
 } = {}): JSX.Element {
   const t = useTranslations('bim')
   if (isLoading) {
@@ -172,7 +170,13 @@ function NoModel({
   }
   return (
     <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-      {error !== null ? t('preview.loadFailed') : t('card.noModel')}
+      {error !== null
+        ? t('preview.loadFailed')
+        : ambiguous
+          ? // "Not in this project" would be false: it is in the project
+            // twice over, which is why nothing is drawn.
+            t('card.ambiguousModel')
+          : t('card.noModel')}
     </p>
   )
 }
@@ -213,7 +217,12 @@ export function IfcScheduleCard({
 }: IfcScheduleCardProps): JSX.Element {
   const t = useTranslations('bim')
   const { locale } = useLocale()
-  const { model, isLoading: modelsLoading, error: modelsError } = useResolvedModel(projectId, modelFile)
+  const {
+    model,
+    isLoading: modelsLoading,
+    error: modelsError,
+    ambiguous,
+  } = useResolvedModel(projectId, modelFile)
   const { data: payload, isLoading, error } = useModelQuery(
     model?.id ?? null,
     { op: 'schedule' },
@@ -280,7 +289,7 @@ export function IfcScheduleCard({
       }
     >
       {!model ? (
-        <NoModel isLoading={modelsLoading} error={modelsError} />
+        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error ? (
@@ -415,7 +424,12 @@ export function IfcElementCard({
 }: IfcElementCardProps): JSX.Element {
   const t = useTranslations('bim')
   const { locale } = useLocale()
-  const { model, isLoading: modelsLoading, error: modelsError } = useResolvedModel(projectId, modelFile)
+  const {
+    model,
+    isLoading: modelsLoading,
+    error: modelsError,
+    ambiguous,
+  } = useResolvedModel(projectId, modelFile)
   const { data: element, isLoading, error } = useModelQuery(
     model?.id ?? null,
     { op: 'element', globalId },
@@ -445,7 +459,7 @@ export function IfcElementCard({
       }
     >
       {!model ? (
-        <NoModel isLoading={modelsLoading} error={modelsError} />
+        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error ? (
@@ -532,7 +546,12 @@ export function IfcComplianceCard({
   projectId,
 }: IfcComplianceCardProps): JSX.Element {
   const t = useTranslations('bim')
-  const { model, isLoading: modelsLoading, error: modelsError } = useResolvedModel(projectId, modelFile)
+  const {
+    model,
+    isLoading: modelsLoading,
+    error: modelsError,
+    ambiguous,
+  } = useResolvedModel(projectId, modelFile)
   // The SAME facts the model page runs the catalogue with. Without them the
   // fire-resistance rules stand down here and produce a verdict on the model
   // page, so the chat and the page disagreed about the same building.
@@ -609,7 +628,7 @@ export function IfcComplianceCard({
       }
     >
       {!model ? (
-        <NoModel isLoading={modelsLoading} error={modelsError} />
+        <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} />
       ) : isLoading ? (
         <Spinner className="size-4" />
       ) : error ? (
@@ -782,15 +801,17 @@ export function IfcDiffCard({
     models,
     isLoading: modelsLoading,
     error: modelsError,
+    ambiguous,
   } = useResolvedModel(projectId, modelFile)
-  const baseModel = useMemo(() => {
-    const needle = baseModelFile.toLowerCase()
-    return (
-      models.find((candidate) => candidate.filename.toLowerCase() === needle) ??
-      models.find((candidate) => candidate.filename.toLowerCase().includes(needle)) ??
-      null
-    )
-  }, [models, baseModelFile])
+  // The base revision resolves by the SAME rule as the current one. It used to
+  // take the first substring hit, which is the bug the sibling resolver exists
+  // to prevent — and worse here, because a diff names two buildings: `haus-a`
+  // against a project holding `haus-a.ifc` and `haus-a-alt.ifc` reported the
+  // additions and deletions of an arbitrary one of them as a revision history.
+  const { model: baseModel, ambiguous: baseAmbiguous } = useMemo(
+    () => resolveModelByFilename(models, baseModelFile),
+    [models, baseModelFile]
+  )
 
   const { data: comparison, isLoading, error } = useModelQuery(
     model && baseModel && model.id !== baseModel.id ? model.id : null,
@@ -801,7 +822,11 @@ export function IfcDiffCard({
   return (
     <CardShell title={title} icon={GitCompare}>
       {!model || !baseModel ? (
-        <NoModel isLoading={modelsLoading} error={modelsError} />
+        <NoModel
+          isLoading={modelsLoading}
+          error={modelsError}
+          ambiguous={ambiguous || baseAmbiguous}
+        />
       ) : model.id === baseModel.id ? (
         // Both names resolved to the same revision — the ordinary case of the
         // agent naming the current model as `base_model_file`, or a substring

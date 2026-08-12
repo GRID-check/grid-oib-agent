@@ -138,6 +138,25 @@ describe('IfcViewerCard — which of three situations it is in', () => {
     )
   })
 
+  it('says a name matched several models, rather than that none of them exist', async () => {
+    // Two ready models both contain `haus-a`, so the resolver refuses — the
+    // same refusal `ifc_query` makes server side. What it must NOT say is that
+    // the model is missing: it is in the project twice.
+    stubFetch({
+      models: {
+        models: [
+          MODELS.models[0],
+          { ...MODELS.models[0], id: 'model-2', documentId: 'doc-2', filename: 'haus-a-alt.ifc' },
+        ],
+      },
+    })
+    card({ modelFile: 'haus-a' })
+    await waitFor(() =>
+      expect(screen.getByText(/Several models in this project match that name/)).toBeInTheDocument()
+    )
+    expect(screen.queryByText(/not available in this project/i)).not.toBeInTheDocument()
+  })
+
   it('draws the building once the model resolves', async () => {
     stubFetch({ models: MODELS, query: ELEMENTS, source: { url: 'https://example.test/m.ifc' } })
     card()

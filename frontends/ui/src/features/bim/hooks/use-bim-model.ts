@@ -957,6 +957,38 @@ export function pickDefaultModel(models: readonly BimModelHeaderView[]): BimMode
   return models.find((model) => model.status === 'ready') ?? models[0] ?? null
 }
 
+/**
+ * Resolve one model from the FILE NAME an agent card names it by.
+ *
+ * The agent never sees model ids, so every card addresses a building by the
+ * string `ifc_query` reported in the same turn. Three call sites do this and
+ * they must agree, because they render side by side in one answer: the data
+ * cards, the viewer card, and the diff card's base revision.
+ *
+ * The rule is the one `internal/bim/query/route.ts` already applies server
+ * side: an exact name wins; a substring wins only when it hits exactly one
+ * model. A name that hits several is REFUSED rather than resolved to the first
+ * match — for a project holding `haus-a.ifc` and `haus-a-alt.ifc` the tool
+ * declines to answer, and a card that quietly picked one would draw a
+ * different building under the agent's title.
+ *
+ * `ambiguous` distinguishes that refusal from a genuine absence, which is the
+ * difference between "you have this twice" and "your upload is gone".
+ */
+export function resolveModelByFilename(
+  models: readonly BimModelHeaderView[],
+  filename: string | null
+): { model: BimModelHeaderView | null; ambiguous: boolean } {
+  if (models.length === 0) return { model: null, ambiguous: false }
+  if (!filename) return { model: pickDefaultModel(models), ambiguous: false }
+  const needle = filename.toLowerCase()
+  const exact = models.find((candidate) => candidate.filename.toLowerCase() === needle)
+  if (exact) return { model: exact, ambiguous: false }
+  const partial = models.filter((candidate) => candidate.filename.toLowerCase().includes(needle))
+  if (partial.length === 1) return { model: partial[0] ?? null, ambiguous: false }
+  return { model: null, ambiguous: partial.length > 1 }
+}
+
 /** Distinct IFC types present, for the element table's type filter. */
 export function useElementTypes(elements: readonly BimViewerElement[]): string[] {
   return useMemo(
