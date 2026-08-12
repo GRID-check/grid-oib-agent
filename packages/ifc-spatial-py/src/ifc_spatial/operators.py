@@ -68,8 +68,15 @@ from .geometry import (
     dominant_vertical_plane,
     outermost_parallel_face,
     signed_distance,
+    triangle_normals_areas,
 )
-from .model import AIR_TYPES, ElementGeometry, SpatialModel, UnknownElementError
+from .model import (
+    AIR_TYPES,
+    CONTACT_BUDGET_SECONDS,
+    ElementGeometry,
+    SpatialModel,
+    UnknownElementError,
+)
 
 # ── the error model, ported verbatim from metric.ts ─────────────────────────
 
@@ -389,7 +396,9 @@ def _derived_bounds(
         return [], missing
     low, high = geo.box
     found: list[Any] = []
-    for global_id in sorted(model.space_contacts(CONTACT).get(space.GlobalId, ())):
+    # One offset of THIS space, not of every space in the file: the model-wide
+    # map costs 0.5–2 s per room and answers a question nobody asked here.
+    for global_id in sorted(model.contacts_of(space, CONTACT)):
         element = model.file.by_guid(global_id)
         if element.is_a() in AIR_TYPES:
             continue
@@ -454,6 +463,28 @@ def _spaces_touching(model: SpatialModel, subject: Any, method: str) -> Any:
     if model.geometry(subject.GlobalId) is None:
         return _no_geometry(model, subject, method)
     contacts = model.space_contacts(CONTACT)
+    if not model.contacts_complete:
+        # The map is a SUBSET. Reporting the rooms found so far would be a short
+        # list wearing the shape of a complete one, which is the failure this
+        # library exists to prevent — so it refuses, and says how far it got.
+        total = len(model.file.by_type("IfcSpace"))
+        return undecidable(
+            from_=[subject.GlobalId],
+            method=method,
+            provenance="computed",
+            missing=MissingFact(
+                what="IfcRelSpaceBoundary (die Ableitung aus der Geometrie ist für dieses Modell zu teuer)",
+                remedy=(
+                    f"Dieser Export enthält keine Raumgrenzen, und die Ableitung aus den Körpern wurde nach "
+                    f"{model.contacts_covered} von {total} Räumen abgebrochen (Zeitbudget "
+                    f"{int(CONTACT_BUDGET_SECONDS)} s). Eine unvollständige Liste wäre nicht von einer "
+                    "vollständigen zu unterscheiden, deshalb wird keine ausgegeben. Abhilfe: Space Boundaries "
+                    "(2nd level) mitexportieren — in Revit/ArchiCAD eine Exporteinstellung — oder die "
+                    "Auswertung dieses Modells in einem Worker ohne Anfragezeitlimit fahren."
+                ),
+                elements=[subject.GlobalId],
+            ),
+        )
     return [
         model.file.by_guid(space_id)
         for space_id, touching in contacts.items()
@@ -729,8 +760,7 @@ def floor_area(model: SpatialModel, global_id: str, declared_area: Optional[floa
     if geo is None:
         return missing  # type: ignore[return-value]
 
-    triangulation = model.triangulation(global_id)
-    area = float(us.get_footprint_area(triangulation))
+    area = _footprint_area(geo.triangles)
     caveat = None
     if area == 0:
         caveat = (
@@ -747,25 +777,107 @@ def floor_area(model: SpatialModel, global_id: str, declared_area: Optional[floa
     )
 
     found = None
+    declared_method = f"NetFloorArea({global_id})"
+    declared_caveat = None
     if declared_area is None:
-        found = model.declared_quantity(subject, ("NetFloorArea", "NetArea", "GrossFloorArea", "Area"))
+        # `Area` and `NetArea` mean "floor area" only on something that HAS a
+        # floor. On a wall, Revit's `Dimensions.Area` is the elevation area —
+        # 26.48 m² against this wall's 4.10 m² of footprint — and triangulating
+        # the two produced "die Datei widerspricht sich" on every wall of every
+        # Revit export. Both numbers were right; they measure different things,
+        # and it is the comparison that was wrong. So the ambiguous names are
+        # only consulted for a spatial element.
+        names = ("NetFloorArea", "GrossFloorArea")
+        if model.kind_of(subject) == "space":
+            names = ("NetFloorArea", "NetArea", "GrossFloorArea", "Area")
+        found = model.declared_quantity(subject, names)
         if found is None:
             return measured
-        path, declared_area = found
+        declared_area = found.value
+        declared_method = f"{found.path}({global_id})"
+        if found.scale != 1.0:
+            declared_caveat = (
+                f"Die Datei deklariert {found.raw:.4f} {found.unit_label or '(Einheit der Datei)'}; "
+                f"umgerechnet {found.value:.4f} m². Verglichen wird in Metern."
+            )
+    else:
+        # A caller-supplied number is assumed to be SI already; it has to be,
+        # because nothing here can tell which unit the caller measured in.
+        declared_area = float(declared_area)
 
     # The measured value goes in first because `triangulate` reports the COMPUTED
     # side when the two disagree: a declared quantity that contradicts the
     # geometry it describes is the thing under suspicion.
-    return triangulate(
+    answer = triangulate(
         measured,
-        declared(
-            declared_area,
-            unit="m²",
-            from_=[global_id],
-            method=f"{found[0] if found else 'NetFloorArea'}({global_id})",
-        ),
+        declared(declared_area, unit="m²", from_=[global_id], method=declared_method),
         method=method,
     )
+    if declared_caveat:
+        answer.caveat = f"{answer.caveat} {declared_caveat}" if answer.caveat else declared_caveat
+    return answer
+
+
+def _vector_text(value: Any) -> str:
+    """A vector as it should read back in a `method`, whatever was passed in."""
+    try:
+        return "[" + ", ".join(f"{float(c):.3f}" for c in value) + "]"
+    except (TypeError, ValueError):
+        return repr(value)
+
+
+def _footprint_area(triangles: np.ndarray) -> float:
+    """The plan area of a solid, measured from whichever side its faces point.
+
+    ``util.shape.get_footprint_area`` keeps only triangles whose normal points
+    **towards** the given direction, so it silently returns ``0.0`` for a mesh
+    wound inside-out. Which is exactly what a Revit IFC2X3 ``IfcSpace`` is: the
+    Duplex apartment's *Hallway* has 28 downward-facing faces, no upward ones,
+    and reported **0 m² of floor** against a declared 7.80 m² — with a caveat
+    claiming the element has no horizontal surfaces, which was false. A confident
+    zero is the worst thing this library can produce, because zero is a number an
+    agent will put in a sentence.
+
+    Asking IfcOpenShell for the other direction is not a fix: ``direction=(0, 0,
+    -1)`` builds a degenerate basis inside ``get_footprint_area`` and raises
+    ``GEOSException: Points of LinearRing do not form a closed linestring``
+    (0.8.5, ``util/shape.py:611``) — so the down-facing projection is done here.
+    The method is the same one: keep the faces whose normal points along the
+    direction, project them to the plane, and take the shapely UNION so
+    overlapping horizontal faces cannot double-count.
+
+    Both projections are taken and the larger wins. For a closed solid the two
+    silhouettes have the same area, so nothing changes where the winding was
+    already right: the sample house's rooms still measure 15.41678125 /
+    51.994825 / 8.69350625 m², identical to the IfcOpenShell values the parity
+    suite asserts.
+    """
+    import shapely
+    import shapely.ops
+
+    if triangles is None or len(triangles) == 0:
+        return 0.0
+    normals, _ = triangle_normals_areas(triangles)
+    best = 0.0
+    for sign in (1.0, -1.0):
+        # 0.01 is IfcOpenShell's own `normal_tol`: close to perpendicular, with
+        # a fuzz for numerical noise. Kept identical so the two agree face for
+        # face on a correctly wound mesh.
+        facing = triangles[normals[:, 2] * sign > 0.01]
+        if len(facing) == 0:
+            continue
+        polygons = []
+        for tri in facing:
+            polygon = shapely.Polygon(tri[:, :2])
+            if polygon.is_valid and polygon.area > 0:
+                polygons.append(polygon)
+        if not polygons:
+            continue
+        try:
+            best = max(best, float(shapely.ops.unary_union(polygons).area))
+        except Exception:
+            continue
+    return best
 
 
 def elevation(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
@@ -1392,17 +1504,34 @@ def ray(
     ``None`` means the ray reached ``length`` without meeting anything — which is
     a real answer and must never be confused with "could not look".
     """
-    method = f"ray([{', '.join(f'{c:.3f}' for c in origin)}], [{', '.join(f'{c:.3f}' for c in direction)}]" + (
+    # Built defensively: the arguments are not validated yet, and a `method`
+    # string that formats them as floats crashed on `ray(model, "x", ...)` —
+    # before the check that was supposed to reject it could run.
+    method = f"ray({_vector_text(origin)}, {_vector_text(direction)}" + (
         f", {length})" if length is not None else ")"
     )
-    d = np.array(direction, dtype=float)
-    o = np.array(origin, dtype=float)
-    if float(np.linalg.norm(d)) < 1e-9 or not np.isfinite(o).all():
+    try:
+        d = np.array(direction, dtype=float).reshape(3)
+        o = np.array(origin, dtype=float).reshape(3)
+    except (TypeError, ValueError):
+        d = np.zeros(3)
+        o = np.full(3, np.nan)
+    bad_length = length is not None and (not np.isfinite(length) or float(length) <= 0)
+    if (
+        not np.isfinite(d).all()
+        or float(np.linalg.norm(d)) < 1e-9
+        or not np.isfinite(o).all()
+        or bad_length
+    ):
         return undecidable(
             from_=[], method=method, provenance="computed",
             missing=MissingFact(
-                what="brauchbarer Strahl (Richtung ≠ 0, endlicher Ursprung)",
-                remedy="ray() mit einem Richtungsvektor ungleich Null und endlichen Koordinaten aufrufen",
+                what="brauchbarer Strahl (Richtung ≠ 0, endlicher Ursprung, Länge > 0)",
+                remedy=(
+                    "ray() mit einem Richtungsvektor ungleich Null, endlichen Koordinaten und einer "
+                    "positiven, endlichen Länge aufrufen. Eine negative Länge liefert bei OCCT einen "
+                    "Treffer hinter dem Ursprung — die Antwort sähe gültig aus und wäre es nicht."
+                ),
             ),
         )
     d = d / np.linalg.norm(d)
@@ -1567,6 +1696,21 @@ def obstructions(
     Returns geometry, never a verdict: a cut prism ENLARGES the required
     Lichteintrittsfläche under OIB 3, it does not ban the window.
     """
+    # `volume` comes back from `prism()` and travels through a caller — an agent,
+    # a JSON round-trip, a cache from a DIFFERENT model. All three can hand back
+    # something that is not a prism, and a KeyError or a bare RuntimeError from
+    # deep inside the broad phase tells nobody what went wrong.
+    required = ("openingId", "angleDeg", "swivelDeg", "halfSpaces", "lowerEdge", "normal", "reach", "sillZ")
+    if not isinstance(volume, dict) or any(k not in volume for k in required):
+        absent = [k for k in required if not isinstance(volume, dict) or k not in volume]
+        return undecidable(
+            from_=[], method="obstructions(<kein Prisma>)", provenance="computed",
+            missing=MissingFact(
+                what=f"kein auswertbares Prisma: {', '.join(absent) or 'kein dict'} fehlt",
+                remedy="obstructions() nimmt den Rückgabewert von prism() entgegen, unverändert.",
+            ),
+        )
+
     opening_id = volume["openingId"]
     method = (
         f"obstructions(prism({opening_id}, {volume['angleDeg']}, {volume['swivelDeg']})"
@@ -1575,7 +1719,9 @@ def obstructions(
     )
 
     skip = {opening_id, *(exclude or ())}
-    subject = model.file.by_guid(opening_id)
+    # Through `by_id`, so a prism built against another model raises the contract
+    # error instead of a raw RuntimeError from the wrapper.
+    subject = _require(model, opening_id, method)
     for rel in getattr(subject, "HasFillings", []) or []:
         skip.add(rel.RelatedBuildingElement.GlobalId)
     for rel in getattr(subject, "FillsVoids", []) or []:

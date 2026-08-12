@@ -221,9 +221,13 @@ def test_the_declared_area_is_found_and_triangulated(model: SpatialModel) -> Non
     assert answer.agreement == "agree"
     declared = model.declared_quantity(model.file.by_guid(BEDROOM), ("NetFloorArea",))
     assert declared is not None
-    path, value = declared
-    record("floorArea (triangulated)", "bedroom", value, answer.value, tolerance=1e-6, unit="m²",
-           note=f"declared at {path}")
+    # This file declares its areas in square metres although it measures in
+    # millimetres, so the conversion is the identity here and the raw value and
+    # the SI value are the same number. On the Trapelo export they are not — see
+    # `test_corpus.py::test_a_declared_area_in_square_feet_is_compared_in_metres`.
+    assert declared.scale == 1.0
+    record("floorArea (triangulated)", "bedroom", declared.value, answer.value, tolerance=1e-6, unit="m²",
+           note=f"declared at {declared.path}")
 
     # And a wrong declared value must lose, loudly.
     disagreeing = op.floor_area(model, LIVING, declared_area=45.0)

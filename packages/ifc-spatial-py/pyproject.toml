@@ -15,7 +15,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The MCP SDK is optional on purpose: `ifc_spatial.tools` defines the whole tool
+# surface without a transport, so a host embedding the library in its own HTTP
+# route should not have to install pydantic, starlette, uvicorn and httpx to get
+# it. `pip install ifc-spatial-py[mcp]` is what the stdio server needs.
+mcp = ["mcp>=1.0"]
 dev = ["pytest>=8"]
+
+[project.scripts]
+ifc-spatial-mcp = "ifc_spatial.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

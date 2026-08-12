@@ -35,6 +35,7 @@ pays for neither, which is the disclosure ladder §8.2 asks for.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -74,6 +75,113 @@ AIR_TYPES = {
     "IfcAnnotation",
     "IfcGrid",
 }
+
+
+#: Above this, :class:`SpatialModel` refuses the file instead of reading it.
+#: Measured, not guessed — see ``CORPUS.md`` §4. A 22 MB IFC2X3 export reaches
+#: 1.5 GB of resident memory in the geometry pass and a 151 MB one is killed by
+#: the OOM reaper on a 16 GB machine. The number below is the largest file the
+#: corpus run completed inside a request-sized process; a bigger one is a job for
+#: a worker, and the honest answer is to say so rather than to start and die.
+MAX_FILE_BYTES = 64 * 1024 * 1024
+
+#: Seconds :meth:`SpatialModel.space_contacts` may spend before it gives up and
+#: reports the model-wide contact map as incomplete. One ``tree.select`` offset
+#: per space costs 0.5–2 s, so a 99-space office model spent **212 s** here
+#: before this bound existed — inside one call to ``opens_to`` on one window.
+CONTACT_BUDGET_SECONDS = 30.0
+
+
+class ModelUnreadableError(RuntimeError):
+    """This file cannot be opened, and a reason a person can act on.
+
+    Every failure mode of ``ifcopenshell.open`` reaches a caller as a different
+    exception type — ``OSError`` for an empty file, ``FileNotFoundError`` for a
+    missing one, ``ifcopenshell.Error`` for a header it cannot parse,
+    ``SchemaError`` for a schema it does not implement — and a **segmentation
+    fault** for a file truncated mid-entity, which no ``except`` clause can
+    catch. A consumer that has to enumerate four exception types and still gets
+    killed by the fifth cannot state a reason, and stating a reason is this
+    library's entire job.
+
+    So the constructor pre-flights the bytes and raises exactly this, with a
+    German ``reason``, for everything it can see coming. It is a refusal about
+    the FILE, which is why it is not an ``Answer``: an undecidable answer claims
+    "the model was read and cannot say", and here there is no model.
+    """
+
+    def __init__(self, path: str, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"{path}: {reason}")
+
+
+class ModelTooLargeError(ModelUnreadableError):
+    """The file is real and too big to read here — a stated limit, not a hang."""
+
+    def __init__(self, path: str, size: int, limit: int) -> None:
+        self.size = size
+        self.limit = limit
+        super().__init__(
+            path,
+            f"Diese Datei ist {size / 1e6:.1f} MB groß; hier werden höchstens "
+            f"{limit / 1e6:.0f} MB gelesen. Der Geometriedurchlauf braucht ein Vielfaches der "
+            "Dateigröße an Arbeitsspeicher — eine 22-MB-Datei belegt rund 1,5 GB. Ein Modell "
+            "dieser Größe gehört in einen Worker-Prozess mit eigenem Speicherbudget, nicht in "
+            "eine Anfrage. Das ist eine Absage, kein Fehler: die Datei ist in Ordnung.",
+        )
+
+
+def _preflight(path: str, max_bytes: int) -> None:
+    """Everything about the bytes that can be checked before the parser sees them.
+
+    The truncation check is the one that matters. ``ifcopenshell.open`` **crashes
+    the process** on a file cut mid-entity — measured on this corpus: a Duplex
+    export truncated to 100 000 and to 300 000 bytes both segfault, while the
+    same file cut at a line boundary parses fine. A crash cannot be caught, cannot
+    be reported and takes the request with it, so the only defence is to refuse
+    before handing the bytes over. A complete SPF file ends with
+    ``END-ISO-10303-21;``; a truncated download essentially never does.
+
+    This is a guard, not a validator. A file can still be malformed in ways only
+    the parser discovers, which is why the design doc's "extraction becomes a
+    worker" (§11) remains the real answer and this is the cheap half of it.
+    """
+    if not isinstance(path, (str, os.PathLike)):
+        raise ModelUnreadableError(str(path), "Kein Dateipfad übergeben.")
+    path = os.fspath(path)
+    if not os.path.exists(path):
+        raise ModelUnreadableError(path, "Diese Datei existiert nicht.")
+    if os.path.isdir(path):
+        raise ModelUnreadableError(path, "Das ist ein Verzeichnis, keine IFC-Datei.")
+    size = os.path.getsize(path)
+    if size == 0:
+        raise ModelUnreadableError(path, "Diese Datei ist leer (0 Bytes) — der Upload ist fehlgeschlagen.")
+    if size > max_bytes:
+        raise ModelTooLargeError(path, size, max_bytes)
+
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(64)
+            handle.seek(max(0, size - 4096))
+            tail = handle.read(4096)
+    except OSError as error:
+        raise ModelUnreadableError(path, f"Diese Datei ist nicht lesbar ({error}).") from None
+
+    if not head.lstrip()[:12].upper().startswith(b"ISO-10303-21"):
+        raise ModelUnreadableError(
+            path,
+            "Das ist keine IFC-SPF-Datei — sie beginnt nicht mit ISO-10303-21. Eine .ifcXML- oder "
+            ".ifcZIP-Datei muss vorher konvertiert bzw. entpackt werden.",
+        )
+    if b"END-ISO-10303-21" not in tail:
+        raise ModelUnreadableError(
+            path,
+            "Diese Datei ist unvollständig: der Abschluss END-ISO-10303-21; fehlt. Sie wurde "
+            "abgeschnitten — der Upload oder der Export ist abgebrochen. Eine abgeschnittene IFC-Datei "
+            "bringt den Parser zum Absturz und wird deshalb gar nicht erst geöffnet; die Datei bitte "
+            "vollständig neu hochladen.",
+        )
 
 
 class UnknownElementError(KeyError):
@@ -130,13 +238,80 @@ class Storey:
     elevation: Optional[float]
 
 
+@dataclass(frozen=True)
+class DeclaredQuantity:
+    """A quantity the file states, in SI, with the arithmetic that got it there.
+
+    ``raw`` and ``unit_label`` are kept beside ``value`` on purpose: an architect
+    reading a disagreement needs to see the number the way their own software
+    prints it (``68.10 SQUARE FOOT``) as well as the number this library
+    compares against (``6.327 m²``). Reporting only the converted value would
+    make a correct conversion indistinguishable from a wrong one.
+    """
+
+    path: str
+    #: In SI — m for a length, m² for an area, m³ for a volume.
+    value: float
+    #: Exactly as written in the file.
+    raw: float
+    #: ``value == raw * scale``.
+    scale: float
+    #: The declared unit's own name, when the file names one.
+    unit_label: Optional[str]
+
+
+def _unit_scale_to_si(unit: Any) -> float:
+    """The factor from an ``IfcNamedUnit`` to its SI base — the same walk
+    ``ifcopenshell.util.unit.calculate_unit_scale`` does for a whole project,
+    applied to one unit that may override it.
+
+    ``convert_unit`` cannot serve here: it matches on unit NAMES, and the name of
+    a conversion-based unit (``'SQUARE FOOT'``) is not in its SI table. The
+    conversion factor is on the entity, so it is read off the entity.
+    """
+    scale = 1.0
+    guard = 0
+    while unit is not None and unit.is_a("IfcConversionBasedUnit") and guard < 8:
+        guard += 1
+        factor = unit.ConversionFactor
+        try:
+            scale *= float(factor.ValueComponent.wrappedValue)
+        except Exception:
+            return scale
+        unit = factor.UnitComponent
+    if unit is not None and unit.is_a("IfcSIUnit"):
+        scale *= uu.get_prefix_multiplier(unit.Prefix)
+    return scale
+
+
+def _unit_label(unit: Any) -> Optional[str]:
+    try:
+        if unit.is_a("IfcConversionBasedUnit"):
+            return str(unit.Name)
+        if unit.is_a("IfcSIUnit"):
+            return f"{unit.Prefix or ''}{unit.Name}".strip()
+    except Exception:
+        return None
+    return None
+
+
 class SpatialModel:
     """An opened IFC file plus everything the operators need to measure it."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, *, max_bytes: int = MAX_FILE_BYTES) -> None:
+        _preflight(path, max_bytes)
         self.path = path
         t0 = time.perf_counter()
-        self.file = ifcopenshell.open(path)
+        try:
+            self.file = ifcopenshell.open(path)
+        except ModelUnreadableError:
+            raise
+        except BaseException as error:  # noqa: BLE001 — every parser failure, one refusal
+            raise ModelUnreadableError(
+                str(path),
+                f"IfcOpenShell konnte diese Datei nicht lesen ({type(error).__name__}: {error}). "
+                "Entweder ist das Schema nicht unterstützt oder die Datei ist beschädigt.",
+            ) from None
         self.open_seconds = time.perf_counter() - t0
         self.unit_scale = uu.calculate_unit_scale(self.file)
 
@@ -144,6 +319,11 @@ class SpatialModel:
         self._settings.set("use-world-coords", True)
 
         self._geometry: dict[str, Optional[ElementGeometry]] = {}
+        #: False once :meth:`space_contacts` has run out of budget — the
+        #: model-wide map is then a SUBSET and every operator reading it must say
+        #: so rather than report a short list as a complete one.
+        self.contacts_complete = True
+        self.contacts_covered = 0
         # The shapes we own, kept alive on purpose: ``util.shape``'s vertex and
         # face readers hand back NumPy views over the C++ buffer, so letting the
         # shape be collected turns a later `get_footprint_area` into an
@@ -158,11 +338,31 @@ class SpatialModel:
     # ── identity ────────────────────────────────────────────────────────────
 
     def by_id(self, global_id: str, method: str) -> Any:
-        """The entity, or :class:`UnknownElementError`. Never a silent ``None``."""
+        """The entity, or :class:`UnknownElementError`. Never a silent ``None``.
+
+        ``file.by_guid`` is not strict enough to build this on directly, and both
+        of its lenient paths are dangerous here:
+
+        - ``by_guid(None)`` returns ``None`` rather than raising, and the caller
+          then dies of ``AttributeError: 'NoneType' object has no attribute
+          'GlobalId'`` several frames away from the mistake;
+        - ``by_guid(123)`` falls through to lookup **by entity id** and hands
+          back ``#123=IfcArbitraryOpenProfileDef`` — a real entity, of the wrong
+          kind, for an id nobody asked about. An operator would then measure a
+          profile definition and report it as the answer.
+
+        So the type is checked, and the entity that comes back must actually
+        carry the GlobalId that was asked for.
+        """
+        if not isinstance(global_id, str) or not global_id.strip():
+            raise UnknownElementError(str(global_id), method)
         try:
-            return self.file.by_guid(global_id)
+            element = self.file.by_guid(global_id)
         except (RuntimeError, KeyError):
             raise UnknownElementError(global_id, method) from None
+        if element is None or getattr(element, "GlobalId", None) != global_id:
+            raise UnknownElementError(global_id, method)
+        return element
 
     def kind_of(self, element: Any) -> str:
         ifc_type = element.is_a()
@@ -415,24 +615,70 @@ class SpatialModel:
         intersection test and two solids that merely touch — a window in its
         reveal, a wall against a room — do not register. Measured: the window
         returns nothing at all at ``extend=0``.
+
+        ## The budget, and why the map can come back short
+
+        One offset costs 0.5–2 s and the loop is over every space in the file, so
+        the cost is unbounded in the model: a 4 MB office export with 99 rooms
+        spent **212 seconds** here, all of it inside a single ``opens_to()`` call
+        about a single window. That is a hang in a request process, so the loop
+        now stops at :data:`CONTACT_BUDGET_SECONDS` and sets
+        :attr:`contacts_complete` to ``False``. Callers must read that flag: a
+        truncated map looks exactly like a building with fewer neighbours.
+
+        Most callers do not need the map at all — :meth:`contacts_of` answers
+        "what touches THIS room" with one offset. The model-wide map is only
+        needed for the inverse question ("which rooms touch this wall"), and that
+        is the only place that pays for it.
         """
         key = round(contact, 6)
         cached = self._space_contacts.get(key)
-        if cached is not None:
+        spaces = self.file.by_type("IfcSpace")
+        if cached is not None and (len(cached) >= len(spaces) or not self.contacts_complete):
             return cached
-        t0 = time.perf_counter()
-        contacts: dict[str, set[str]] = {}
-        for space in self.file.by_type("IfcSpace"):
-            try:
-                touching = self.tree.select(space, extend=contact)
-            except Exception:
-                touching = []
-            contacts[space.GlobalId] = {
-                e.GlobalId for e in touching if e.GlobalId != space.GlobalId
-            }
-        self.contact_seconds = time.perf_counter() - t0
+        contacts: dict[str, set[str]] = cached if cached is not None else {}
         self._space_contacts[key] = contacts
+        t0 = time.perf_counter()
+        self.contacts_complete = True
+        for space in spaces:
+            if space.GlobalId in contacts:
+                continue
+            if time.perf_counter() - t0 > CONTACT_BUDGET_SECONDS:
+                self.contacts_complete = False
+                break
+            contacts[space.GlobalId] = self._contacts_for(space, contact)
+        self.contacts_covered = len(contacts)
+        self.contact_seconds = time.perf_counter() - t0
         return contacts
+
+    def contacts_of(self, space: Any, contact: float = 0.05) -> set[str]:
+        """What touches ONE space — one OCCT offset, cached, no model-wide loop.
+
+        The question ``bounds(space)`` actually asks. Splitting it out of
+        :meth:`space_contacts` is what turns a 212 s answer on a 99-room model
+        into a 2 s one, because 98 of those offsets were computed for a question
+        nobody had asked.
+        """
+        key = round(contact, 6)
+        cached = self._space_contacts.setdefault(key, {})
+        found = cached.get(space.GlobalId)
+        if found is None:
+            t0 = time.perf_counter()
+            found = self._contacts_for(space, contact)
+            cached[space.GlobalId] = found
+            self.contact_seconds += time.perf_counter() - t0
+        return found
+
+    def _contacts_for(self, space: Any, contact: float) -> set[str]:
+        try:
+            touching = self.tree.select(space, extend=contact)
+        except Exception:
+            touching = []
+        return {
+            e.GlobalId
+            for e in touching
+            if getattr(e, "GlobalId", None) and e.GlobalId != space.GlobalId
+        }
 
     @cached_property
     def tree(self) -> Any:
@@ -457,28 +703,89 @@ class SpatialModel:
 
     # ── quantities the file declares ────────────────────────────────────────
 
-    def declared_quantity(self, element: Any, names: Iterable[str]) -> Optional[tuple[str, float]]:
-        """The first declared quantity matching ``names``, with the path it came from.
+    def declared_quantity(self, element: Any, names: Iterable[str]) -> Optional[DeclaredQuantity]:
+        """The declared quantity best matching ``names``, converted to SI.
 
-        Deliberately not restricted to ``Qto_SpaceBaseQuantities``: this file
-        publishes its room areas in a Revit-flavoured pset called
-        ``BaseQuantities``, and a triangulation that only looked at the canonical
-        name would report "die Datei deklariert keine Fläche" about a file that
-        declares it 15.41678125 m². The pset the value was found in travels back
-        with it so the reader can see which dialect this export speaks.
+        Deliberately not restricted to ``Qto_SpaceBaseQuantities``: exports
+        publish room areas in ``BaseQuantities`` (Revit, Trapelo), in
+        ``SpaceQuantities`` (Allplan), in ``GSA Space Areas`` (the GSA Duplex),
+        and a triangulation that only looked at the canonical name would report
+        "die Datei deklariert keine Fläche" about a file that declares it. The
+        pset the value was found in travels back so the reader can see which
+        dialect this export speaks.
+
+        Three things this has to get right, each of which it got wrong on the
+        corpus before:
+
+        **The unit.** A quantity is stated in the file's own unit, and the file's
+        area unit is INDEPENDENT of its length unit — the sample house measures
+        in millimetres and declares areas in square metres, while the Trapelo
+        export measures in feet and declares them in square feet. Scaling by
+        ``unit_scale ** 2`` would be wrong in both directions. The right tool is
+        ``ifcopenshell.util.unit.get_property_unit``, which returns the
+        quantity's OWN unit when it overrides the project, and the project unit
+        for that measure otherwise; the conversion chain is then walked to SI.
+        Before this, ``floor_area`` compared 6.33 m² of measured geometry against
+        68.10 declared **square feet** and reported the export as 91 % wrong.
+
+        **Quantity sets outrank property sets.** ``get_psets`` merges
+        ``IfcElementQuantity`` and ``IfcPropertySet`` into one dictionary, and
+        iterating it in insertion order let ``PSet_Revit_Dimensions.Area`` — a
+        Revit dimension echo — beat the real ``Qto_SpaceBaseQuantities``. Real
+        quantity sets are searched first.
+
+        **Name order is priority order.** ``names`` is ranked by the caller;
+        looping psets on the outside made the answer depend on export order
+        instead, so ``Area`` in the first pset beat ``NetFloorArea`` in the
+        second.
         """
-        psets: dict[str, dict[str, Any]] = {}
-        psets.update(ue.get_psets(element, qtos_only=False) or {})
-        for pset_name, values in psets.items():
-            for key in names:
-                if key in values and isinstance(values[key], (int, float)):
-                    return f"{pset_name}.{key}", float(values[key])
+        wanted = list(names)
+        verbose = ue.get_psets(element, qtos_only=False, verbose=True) or {}
+        quantity_sets = set(ue.get_psets(element, qtos_only=True) or {})
+
+        for qtos_first in (True, False):
+            for key in wanted:
+                for pset_name, values in verbose.items():
+                    if (pset_name in quantity_sets) != qtos_first:
+                        continue
+                    entry = values.get(key)
+                    if not isinstance(entry, dict):
+                        continue
+                    raw = entry.get("value")
+                    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+                        continue
+                    scale, unit_label = self._quantity_scale(entry.get("id"))
+                    return DeclaredQuantity(
+                        path=f"{pset_name}.{key}",
+                        value=float(raw) * scale,
+                        raw=float(raw),
+                        scale=scale,
+                        unit_label=unit_label,
+                    )
         return None
+
+    def _quantity_scale(self, entity_id: Optional[int]) -> tuple[float, Optional[str]]:
+        """The factor from a quantity's declared unit to SI, and that unit's name."""
+        if entity_id is None:
+            return 1.0, None
+        try:
+            quantity = self.file.by_id(entity_id)
+            unit = uu.get_property_unit(quantity, self.file)
+        except Exception:
+            return 1.0, None
+        if unit is None:
+            return 1.0, None
+        return _unit_scale_to_si(unit), _unit_label(unit)
 
 
 __all__ = [
     "AIR_TYPES",
+    "CONTACT_BUDGET_SECONDS",
+    "MAX_FILE_BYTES",
+    "DeclaredQuantity",
     "ElementGeometry",
+    "ModelTooLargeError",
+    "ModelUnreadableError",
     "SpatialModel",
     "Storey",
     "UnknownElementError",
