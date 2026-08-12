@@ -4,7 +4,7 @@
 import { describe, test, expect } from 'vitest'
 import {
   KIND_TO_SIGNAL,
-  LEGACY_SCOPE_QUALIFIERS,
+  CITATION_KEY_QUALIFIERS,
   SHELVES,
   asShelf,
   asSourceKind,
@@ -126,28 +126,36 @@ describe('shelfLabel', () => {
   })
 })
 
-describe('scopeForQualifier (legacy citation keys)', () => {
-  test('every legacy qualifier still parses back to its shelf', () => {
-    for (const [qualifier, shelf] of LEGACY_SCOPE_QUALIFIERS) {
+describe('scopeForQualifier (citation keys — the versioned fallback)', () => {
+  test('every qualifier a writer can emit parses back to its shelf', () => {
+    for (const [qualifier, shelf] of CITATION_KEY_QUALIFIERS) {
       expect(scopeForQualifier(qualifier)).toBe(shelf)
     }
-    expect(LEGACY_SCOPE_QUALIFIERS.map(([, shelf]) => shelf)).toEqual([
+    // The three legacy strings, which keys already persisted still carry, plus
+    // the one ADR-0047 added: the backend appends a qualifier to keep a key
+    // unique when two shelves hold the same filename, so a session hit writes
+    // `(Private Sitzung)`. A reader that knew only the legacy three would leave
+    // that qualifier in the filename and lose the citation entirely.
+    expect(CITATION_KEY_QUALIFIERS.map(([, shelf]) => shelf)).toEqual([
       'archiv',
       'project',
       'base',
+      'session',
     ])
+  })
+
+  test('every shelf is reachable from a key, so no key can go unread', () => {
+    const qualified = new Set(CITATION_KEY_QUALIFIERS.map(([, shelf]) => shelf))
+    for (const shelf of SHELVES) expect(qualified.has(shelf)).toBe(true)
   })
 
   test('qualifiers are matched case-insensitively', () => {
     // The qualifier survives a round trip through an LLM, which may recase it.
     expect(scopeForQualifier('projektwissen')).toBe('project')
     expect(scopeForQualifier('  BÜROARCHIV  ')).toBe('archiv')
+    expect(scopeForQualifier('private sitzung')).toBe('session')
     expect(scopeForQualifier('Internal')).toBeUndefined()
     expect(scopeForQualifier('')).toBeUndefined()
     expect(scopeForQualifier(null)).toBeUndefined()
-  })
-
-  test('the legacy reader knows no session qualifier — no key ever carried one', () => {
-    expect(scopeForQualifier('Private Sitzung')).toBeUndefined()
   })
 })

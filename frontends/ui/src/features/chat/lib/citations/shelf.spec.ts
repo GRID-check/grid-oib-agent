@@ -18,6 +18,7 @@
 import { describe, test, expect } from 'vitest'
 import { buildCitationModel, decodeCitations, documentShelfLabel, documentTabLabel } from './index'
 import { citationFromWire } from '../wire-citation'
+import { parseKbLocator } from './locator'
 import { encodeCitations } from './persistence'
 import type { CitationSource, WireCitationSource } from '../../types'
 
@@ -186,5 +187,41 @@ describe('legacy citation keys still parse', () => {
 
     expect(doc?.shelf).toBeUndefined()
     expect(doc?.fileName).toBe('Bescheid (Kopie).pdf')
+  })
+})
+
+/**
+ * The writer/reader seam on the citation KEY.
+ *
+ * `shelfLabel` is display copy and may be reworded; the qualifier inside a
+ * citation key may NOT, because the backend appends one to keep a key unique
+ * when two retrieved files share a name across shelves. The reader therefore
+ * has to strip every qualifier the writer can emit — and the writer gained
+ * `Private Sitzung` in ADR-0047, which is exactly the case a "legacy means the
+ * three old strings" reading would have missed: the qualifier survives, the
+ * remainder fails `FILENAME_RE`, and the citation resolves to null.
+ *
+ * These strings are pinned byte-for-byte against `SHELF_QUALIFIERS` in
+ * `src/aiq_agent/common/source_kinds.py`.
+ */
+describe('citation-key qualifiers the backend can write', () => {
+  const cases: ReadonlyArray<readonly [qualifier: string, shelf: string]> = [
+    ['Büroarchiv', 'archiv'],
+    ['Projektwissen', 'project'],
+    ['Basiswissen', 'base'],
+    ['Private Sitzung', 'session'],
+  ]
+
+  test.each(cases)('strips %s and resolves it to the %s shelf', (qualifier, shelf) => {
+    const parsed = parseKbLocator(`Plan.pdf (${qualifier}), p.3`)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.filename).toBe('Plan.pdf')
+    expect(parsed?.shelf).toBe(shelf)
+  })
+
+  test('a parenthetical that is part of the filename is left alone', () => {
+    const parsed = parseKbLocator('Bescheid (Kopie).pdf, p.1')
+    expect(parsed?.filename).toBe('Bescheid (Kopie).pdf')
+    expect(parsed?.shelf).toBeUndefined()
   })
 })

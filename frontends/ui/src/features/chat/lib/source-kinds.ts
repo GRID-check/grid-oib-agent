@@ -139,35 +139,54 @@ export const shelfLabel = (shelf: Shelf): string => {
 }
 
 /**
- * LEGACY citation-key qualifiers — a versioned READER, not a writer.
+ * Citation-key qualifiers — the READER's side of a key's disambiguating suffix.
  *
- * Before ADR-0047 the shelf reached the frontend only as a German qualifier
- * inside a citation key (`Plan.pdf (Projektwissen), p.3`), which made display
- * copy a wire format. New payloads carry the shelf as data; these three strings
- * are FROZEN wire values kept solely so keys persisted in old messages still
- * resolve. They are deliberately independent of {@link shelfLabel}: renaming a
- * label must not change what a stored key parses to.
+ * Two different things used to be the same string. The SHELF now travels as data
+ * on the payload; nothing here is how a consumer learns it. What survives is the
+ * citation KEY, which is a human-readable identity (`Plan.pdf (Büroarchiv),
+ * p.3`) and still carries a qualifier when one filename was retrieved from more
+ * than one shelf in the same turn — otherwise two different `Plan.pdf`s would
+ * share a key. This table is what a reader must strip to recover the filename,
+ * and the shelf each qualifier names is a FALLBACK for payloads that carry no
+ * shelf field (every message persisted before ADR-0047).
  *
- * There is no `session` entry and there never will be — the legacy writer could
- * not express that shelf, which is precisely the bug ADR-0047 fixes.
+ * FROZEN wire values, pinned byte-for-byte against the backend's writer, and
+ * deliberately independent of {@link shelfLabel}: display copy may be reworded
+ * freely, these may not — renaming a label must not change what a stored key
+ * parses to, nor what today's keys strip to.
  */
-export const LEGACY_SCOPE_QUALIFIERS: ReadonlyArray<readonly [qualifier: string, shelf: Shelf]> = [
+export const CITATION_KEY_QUALIFIERS: ReadonlyArray<readonly [qualifier: string, shelf: Shelf]> = [
   ['Büroarchiv', 'archiv'],
   ['Projektwissen', 'project'],
   ['Basiswissen', 'base'],
+  // `session` DOES appear in keys written from ADR-0047 onward, even though no
+  // legacy key can contain it. The qualifier is not purely a legacy artefact:
+  // the backend still appends one to disambiguate a citation key when two
+  // retrieved files share a name across shelves (`_ambiguous_file_names`), so
+  // this list is the vocabulary a WRITER can emit, and a reader that knows only
+  // the legacy three fails to strip `(Private Sitzung)` — the key then misses
+  // `FILENAME_RE` and the whole citation resolves to null.
+  //
+  // So: German is rendering for DISPLAY (see `shelfLabel`), but a citation key
+  // is a human-readable identity and still carries a qualifier to stay unique.
+  // Both runtimes must agree on this set; `shelfLabel` may be reworded freely,
+  // this may not.
+  ['Private Sitzung', 'session'],
 ]
 
 /**
- * Parse a LEGACY citation key's qualifier back to a shelf.
+ * Parse a citation key's qualifier back to a shelf — the VERSIONED FALLBACK.
  *
- * Only ever a fallback for keys already written: a payload that carries the
- * shelf explicitly must be read from that field, never from this. Unknown
- * qualifiers yield undefined — unattributed, never a default shelf.
+ * Only ever a fallback: a payload that carries the shelf explicitly must be read
+ * from that field, never from this, and every consumer here does. It exists for
+ * the two cases where no field is available — a message persisted before
+ * ADR-0047, and a key whose qualifier is all the wire left behind. Unknown
+ * qualifiers yield undefined: unattributed, never a default shelf.
  */
 export const scopeForQualifier = (qualifier: string | null | undefined): Shelf | undefined => {
   const key = (qualifier ?? '').trim().toLowerCase()
   if (!key) return undefined
-  return LEGACY_SCOPE_QUALIFIERS.find(([label]) => label.toLowerCase() === key)?.[1]
+  return CITATION_KEY_QUALIFIERS.find(([label]) => label.toLowerCase() === key)?.[1]
 }
 
 /**

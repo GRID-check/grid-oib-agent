@@ -47,11 +47,11 @@ def test_the_legacy_qualifier_strings_resolve_to_the_same_shelf(mirror_source: s
     contract break. A DISAGREEMENT on a shared string is, and fails here.
     """
     block = re.search(
-        r"LEGACY_SCOPE_QUALIFIERS:[^=]*=\s*\[(.*?)\]\n",
+        r"CITATION_KEY_QUALIFIERS:[^=]*=\s*\[(.*?)\]\n",
         mirror_source,
         re.DOTALL,
     )
-    assert block, "LEGACY_SCOPE_QUALIFIERS not found in the frontend mirror"
+    assert block, "CITATION_KEY_QUALIFIERS not found in the frontend mirror"
     mirrored = re.findall(r"\['([^']*)',\s*'([^']*)'\]", block.group(1))
     assert mirrored, "the frontend mirror declares no legacy qualifiers"
     for label, shelf in mirrored:
