@@ -69,10 +69,91 @@ _RESOLVE_TIMEOUT_SECONDS = 10
 #: a turn open indefinitely.
 _DOWNLOAD_TIMEOUT_SECONDS = 120
 
-#: What this process will read into memory for one model. The BFF caps an
-#: upload at 250 MB; this is the same order with headroom, and it is a refusal
-#: rather than an OOM — a killed worker takes the whole conversation with it.
-MAX_MODEL_BYTES = 512 * 1024 * 1024
+#: Resident bytes per byte of IFC, once IfcOpenShell has the file open.
+#:
+#: Measured across the corpus, the ratio runs from 20× to about 143× — 2.3 MB of
+#: sample house occupies 47 MB, and a 151 MB office model peaked at 5.3 GB. The
+#: spread is real and it is not predictable from the file size: it tracks
+#: geometric complexity, so a dense curtain-wall facade costs far more per byte
+#: than a big flat slab.
+#:
+#: The LOW end is used deliberately. It makes the gate a NECESSARY condition and
+#: not a sufficient one: a file over the ceiling certainly cannot be measured
+#: here, while one under it merely might be. Using 143× would be honest about
+#: the worst case and would refuse a 30 MB model on a 4 GB pod, which is most
+#: real projects — the guard would have removed the capability instead of
+#: protecting it.
+PARSE_FOOTPRINT_RATIO = 20
+
+#: Floor and cap for the derived ceiling. The cap is the BFF's own upload limit
+#: rounded up; below the floor the tool is not worth having at all.
+_MIN_MODEL_BYTES = 16 * 1024 * 1024
+_MAX_MODEL_BYTES_CAP = 512 * 1024 * 1024
+
+
+def _container_memory_bytes() -> int | None:
+    """What this container may actually use, not what the host has.
+
+    ``os.sysconf`` reports the HOST's RAM inside a cgroup-limited container, so
+    a 2 GB pod on a 128 GB node would size its ceiling for 128 GB and be OOM-
+    killed by the kernel — silently, taking the conversation with it. cgroup v2
+    first, then v1, then the host as a last resort.
+    """
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(path, encoding="ascii") as handle:
+                raw = handle.read().strip()
+        except OSError:
+            continue
+        if raw == "max":
+            break
+        try:
+            value = int(raw)
+        except ValueError:
+            continue
+        # cgroup v1 writes a sentinel near 2^63 to mean "unlimited".
+        if 0 < value < (1 << 62):
+            return value
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def _derive_max_model_bytes() -> int:
+    """The largest model this process will admit, from the memory it actually has.
+
+    A fixed 512 MB was the previous rule, justified as "a refusal rather than an
+    OOM". It accounted for the DOWNLOAD and not for the parse: at 20× the low
+    end, a 512 MB file needs 10 GB resident before a single question is asked,
+    so on any ordinary pod the guard guaranteed exactly the OOM it named.
+
+    Half the container's memory, divided by the footprint ratio, leaves room for
+    the model already resident (``MAX_RESIDENT_MODELS`` is 2) and for the rest of
+    the process. Overridable, because an operator who has sized a dedicated
+    worker knows better than this arithmetic does.
+    """
+    override = os.environ.get("BIM_SPATIAL_MAX_MODEL_BYTES", "").strip()
+    if override:
+        try:
+            chosen = int(override)
+        except ValueError:
+            logger.warning("BIM_SPATIAL_MAX_MODEL_BYTES is not a number: %r — ignored", override)
+        else:
+            if chosen > 0:
+                return chosen
+            logger.warning("BIM_SPATIAL_MAX_MODEL_BYTES must be positive: %r — ignored", override)
+
+    available = _container_memory_bytes()
+    if not available:
+        return _MIN_MODEL_BYTES
+    derived = int(available * 0.5) // PARSE_FOOTPRINT_RATIO
+    return max(_MIN_MODEL_BYTES, min(_MAX_MODEL_BYTES_CAP, derived))
+
+
+#: What this process will read into memory for one model — a refusal rather than
+#: an OOM, because a killed worker takes the whole conversation with it.
+MAX_MODEL_BYTES = _derive_max_model_bytes()
 
 
 class SpatialEngineUnavailableError(RuntimeError):
@@ -82,6 +163,30 @@ class SpatialEngineUnavailableError(RuntimeError):
     the request, this deployment simply cannot answer geometric questions. The
     tool says so in those words rather than implying the building is unreadable.
     """
+
+
+class ModelTooLargeError(BimQueryUnavailableError):
+    """This model does not fit in this worker's memory.
+
+    A subclass so every existing handler keeps working, and its own type because
+    the sentence a user needs is completely different. Reported as the generic
+    „der Modelldienst ist nicht erreichbar", an architect waits for an outage
+    that will never end: the service is perfectly healthy and their 300 MB
+    export is never going to be measurable on this deployment. The fact is
+    about the FILE, and only a message that says so lets them act — split the
+    model by building section, or ask for a bigger worker.
+
+    Carries the numbers so the message can name them instead of gesturing at a
+    limit the reader cannot see.
+    """
+
+    def __init__(self, model_bytes: int | None, limit_bytes: int) -> None:
+        self.model_bytes = model_bytes
+        self.limit_bytes = limit_bytes
+        size = f"{model_bytes / (1024 * 1024):.0f} MB" if model_bytes else "the model"
+        super().__init__(
+            f"{size} exceeds the {limit_bytes // (1024 * 1024)} MB this worker can hold"
+        )
 
 
 class SpatialToolError(ValueError):
@@ -201,9 +306,8 @@ def _download(url: str, expected_bytes: Any = None) -> bytes:
     if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
         raise BimQueryUnavailableError("the model source URL was not usable")
     if isinstance(expected_bytes, (int, float)) and expected_bytes > MAX_MODEL_BYTES:
-        raise BimQueryUnavailableError(
-            f"the model is larger than {MAX_MODEL_BYTES // (1024 * 1024)} MB and cannot be measured here"
-        )
+        # Refused on the HEAD's byte count, before a single byte is transferred.
+        raise ModelTooLargeError(int(expected_bytes), MAX_MODEL_BYTES)
     try:
         with urllib.request.urlopen(url, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:  # noqa: S310
             # One byte past the ceiling, so "exactly at the limit" and "over it"
@@ -215,9 +319,8 @@ def _download(url: str, expected_bytes: Any = None) -> bytes:
         raise BimQueryUnavailableError("the model file could not be downloaded") from exc
 
     if len(data) > MAX_MODEL_BYTES:
-        raise BimQueryUnavailableError(
-            f"the model is larger than {MAX_MODEL_BYTES // (1024 * 1024)} MB and cannot be measured here"
-        )
+        # The store gave no Content-Length, or lied about it.
+        raise ModelTooLargeError(len(data), MAX_MODEL_BYTES)
     if "gzip" in encoding:
         # The internal route presigns the ORIGINAL object precisely so this
         # cannot happen — the viewer's `_bim/source.ifc.gz` is transparent only
@@ -415,9 +518,11 @@ def reset_cache_for_tests() -> None:
 
 __all__ = [
     "MAX_MODEL_BYTES",
+    "MAX_RESIDENT_MODELS",
+    "ModelTooLargeError",
+    "PARSE_FOOTPRINT_RATIO",
     "SpatialEngineUnavailableError",
     "SpatialToolError",
-    "MAX_RESIDENT_MODELS",
     "call_spatial_tool",
     "open_model",
     "reset_cache_for_tests",

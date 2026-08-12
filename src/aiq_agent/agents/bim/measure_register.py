@@ -46,10 +46,17 @@ call costs can decide it is worth it; one that finds out afterwards cannot.
 
 import asyncio
 import logging
+import math
 from typing import Any
 
 from pydantic import Field
 
+# Shared with `ifc_query` so the two halves of the BIM surface fail identically:
+# an agent that learns this sentence from one tool reads it correctly from the
+# other. The dependency runs measure -> register and never back, so `register`
+# stays loadable on a deployment without the spatial engine — which is the
+# independence the two entry points in pyproject.toml exist to preserve.
+from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -396,36 +403,97 @@ def _build_call(
 # ── rendering ────────────────────────────────────────────────────────────────
 
 
-def _num(value: Any) -> str:
-    """A number as the engine produced it.
+def _decimals(tolerance: Any) -> int | None:
+    """How many decimals a value carrying this tolerance may be shown to.
 
-    Deliberately not rounded, not localised and not shortened. The tool's whole
-    claim is that the agent reports what was measured; a renderer that quietly
-    reshaped the value would be the first thing to break that claim, and it
-    would do it invisibly.
+    One digit finer than the band, so nothing the operator actually resolved is
+    thrown away and nothing it did not is invented: ±0.01 m earns three decimals
+    (0.179 m), ±3° earns none (0°), ±0.15 m² earns two (15.42 m²).
+    """
+    if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)):
+        return None
+    # NaN and inf reach here from a division in an operator, and `math.log10`
+    # would raise on one and overflow the decimal count on the other.
+    if not math.isfinite(tolerance) or tolerance <= 0:
+        return None
+    return min(6, max(0, math.ceil(-math.log10(tolerance)) + 1))
+
+
+def _num(value: Any, decimals: int | None = None) -> str:
+    """A number as the engine produced it, to the precision it actually has.
+
+    The rule used to be "never round", on the reasoning that a renderer which
+    reshapes a value breaks the tool's only claim. That reasoning was right and
+    the conclusion was wrong, and the battery showed why: `floorArea` rendered
+    as „gemessen (±0.15416781250000042 m²): 15.41678125000004 m²“.
+
+    Seventeen digits against a 15-centimetre band is not fidelity, it is a
+    binary-float artifact wearing the costume of a measurement. It is LESS
+    faithful than 15.42, because it asserts precision the operator explicitly
+    disclaims — and the model reading it will quote the digits, because we told
+    it that numbers come from the tool and are never to be re-rounded.
+
+    So the value is shown to its tolerance and to nothing else. Where there is
+    no tolerance — a `declared` figure, a confidence — the value is the file's
+    own statement and is passed through untouched, which is the case the old
+    rule was really protecting.
     """
     if isinstance(value, bool) or value is None:
         return str(value)
     if isinstance(value, float):
-        text = repr(value)
-        return text
+        if decimals is not None:
+            return f"{value:.{decimals}f}"
+        return repr(value)
     return str(value)
 
 
-def _value_text(value: Any) -> str:
+def _tolerance_text(tolerance: Any) -> str:
+    """The band itself, at two significant figures.
+
+    A tolerance is an estimate of error; printing it to the same width as the
+    value suggests the estimate is exact. Trailing zeros are stripped so ±0.005
+    stays ±0.005 rather than becoming ±0.0050.
+    """
+    decimals = _decimals(tolerance)
+    if decimals is None:
+        return _num(tolerance)
+    text = f"{float(tolerance):.{decimals}f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _angle(value: Any) -> str:
+    """An angle the CALLER supplied, echoed back as they wrote it.
+
+    45.0° is not a measurement with a hundredth of a degree behind it; it is the
+    number the clause states, round-tripped through a float. Printing it as „45"
+    keeps the parameter distinguishable from everything else on the line, which
+    is measured.
+    """
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return str(value)
+    return str(int(value)) if float(value).is_integer() else _num(float(value), 1)
+
+
+def _value_text(value: Any, decimals: int | None = None) -> str:
     """The answer's value as one readable line."""
     if value is None:
         return "—"
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return _num(value)
+        return _num(value, decimals)
     if isinstance(value, dict):
         # `extent`, `elevation`, `sillAndHead` — a handful of named numbers.
-        return ", ".join(f"{key}={_value_text(inner)}" for key, inner in value.items())
+        # Nested one level (extent's `box`), the flat join produced
+        # "box=min=[…], max=[…]", which reads as one key with two values.
+        parts = []
+        for key, inner in value.items():
+            text = _value_text(inner, decimals)
+            parts.append(f"{key}=({text})" if isinstance(inner, dict) else f"{key}={text}")
+        return ", ".join(parts)
     if isinstance(value, list):
         # A coordinate is a list of three numbers, and counting it — "centroid=3
         # Einträge" — throws away the only part anybody wanted.
         if value and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in value):
-            return "[" + ", ".join(_num(item) for item in value) + "]"
+            return "[" + ", ".join(_num(item, decimals) for item in value) + "]"
         # German has a singular, and a renderer that substitutes into one
         # template produces "1 Einträge" in an answer an architect reads.
         return "1 Eintrag" if len(value) == 1 else f"{len(value)} Einträge"
@@ -460,7 +528,11 @@ def _provenance_line(answer: dict[str, Any]) -> str:
 
     unit = answer.get("unit")
     value = answer.get("value")
-    text = _value_text(value)
+    tolerance = answer.get("tolerance")
+    # A declared figure is the file's own statement and is never re-rounded; a
+    # measured one is shown to its band and no further.
+    decimals = _decimals(tolerance) if answer.get("provenance") == "computed" else None
+    text = _value_text(value, decimals)
     # A unit belongs after a NUMBER. Appended to a list or to a set of named
     # numbers it produces "2 Einträge m" and "sill=0.9, head=2.11 m", the second
     # of which reads as though only the last figure carried the unit.
@@ -474,10 +546,9 @@ def _provenance_line(answer: dict[str, Any]) -> str:
         confidence = answer.get("confidence")
         band = f" (Konfidenz {_num(confidence)})" if confidence is not None else ""
         return f"vermutlich: {text}{suffix}{band} — ein Vorschlag zur Bestätigung, keine Feststellung."
-    tolerance = answer.get("tolerance")
     # The tolerance is always a scalar in the value's unit, whatever shape the
     # value itself has — so it takes the plain unit, not the parenthesised one.
-    band = f" (±{_num(tolerance)}{' ' + unit if unit else ''})" if tolerance is not None else ""
+    band = f" (±{_tolerance_text(tolerance)}{' ' + unit if unit else ''})" if tolerance is not None else ""
     return f"gemessen{band}: {text}{suffix} — aus der Geometrie berechnet, nicht deklariert."
 
 
@@ -486,21 +557,64 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
     lines = [_provenance_line(answer)]
 
     value = answer.get("value")
+    decimals = _decimals(answer.get("tolerance")) if answer.get("provenance") == "computed" else None
     numbers = isinstance(value, list) and bool(value) and all(
         isinstance(item, (int, float)) and not isinstance(item, bool) for item in value
     )
+
+    # `light_incidence` answers a yes/no question with a list, and the list can
+    # be empty — which is the ANSWER (nothing intrudes) and renders as nothing
+    # at all without this line. It goes above the entries because it is the
+    # sentence the reader came for.
+    if "free" in answer:
+        unit = answer.get("unit") or "m"
+        prism = answer.get("prism") or {}
+        angles = (
+            f" (Prisma {_angle(prism.get('angleDeg'))}°"
+            + (f", seitlich {_angle(prism.get('swivelDeg'))}°" if prism.get("swivelDeg") else "")
+            + ")"
+            if prism
+            else ""
+        )
+        if answer.get("free"):
+            lines.append(f"FREI{angles}: kein Bauteil ragt in das Prisma.")
+        else:
+            count = len(value) if isinstance(value, list) else 0
+            deepest = max(
+                (e.get("intrusionDepth", 0) for e in value if isinstance(e, dict)), default=None
+            ) if isinstance(value, list) else None
+            depth = f", tiefster Eingriff {_num(deepest, decimals)} {unit}" if deepest is not None else ""
+            # Noun AND verb agree. „1 Bauteil ragen" is the kind of sentence that
+            # tells an Austrian architect the text was generated by something
+            # that does not speak German, and everything after it is read as
+            # machine output rather than as a finding.
+            subject = "1 Bauteil ragt" if count == 1 else f"{count} Bauteile ragen"
+            lines.append(f"NICHT FREI{angles}: {subject} in das Prisma{depth}.")
+
     if isinstance(value, list) and value and not numbers:
         # A coordinate triple is already in the line above; listing it again as
         # three bullets would read as three findings.
         shown = value[:list_limit]
         for entry in shown:
-            if isinstance(entry, dict) and "ifcType" in entry:
+            if isinstance(entry, dict) and "intrusionDepth" in entry:
+                # Was falling through to `- {dict repr}`, handing the model a
+                # Python literal for the flagship operator's own result.
+                unit = answer.get("unit") or "m"
+                lines.append(
+                    f"- {entry.get('name') or entry.get('globalId')} · GlobalId {entry.get('globalId')}"
+                    f" · ragt {_num(entry.get('intrusionDepth'), decimals)} {unit} in das Prisma"
+                )
+            elif isinstance(entry, dict) and "ifcType" in entry:
                 lines.append(_element_line(entry))
             elif isinstance(entry, dict) and "storey" in entry:
                 height = entry.get("height")
                 lines.append(
-                    f"- {entry.get('storey')}: Höhenlage {_num(entry.get('elevation'))}"
-                    + (f", Geschoßhöhe {_num(height)}" if height is not None else ", Geschoßhöhe nicht bestimmbar")
+                    f"- {entry.get('storey')}: Höhenlage {_num(entry.get('elevation'), decimals)}"
+                    + (
+                        f", Geschoßhöhe {_num(height, decimals)}"
+                        if height is not None
+                        else ", Geschoßhöhe nicht bestimmbar"
+                    )
                 )
             elif isinstance(entry, dict) and "confidence" in entry:
                 because = ", ".join(entry.get("because") or [])
@@ -672,6 +786,31 @@ UNAVAILABLE_TEXT = (
     "Do NOT state anything about the building's geometry; tell the user the model could not be read."
 )
 
+def _too_large_text(model_bytes: int | None, limit_bytes: int) -> str:
+    """A model this worker cannot hold — a fact about the FILE, not an outage.
+
+    Named separately from :data:`UNAVAILABLE_TEXT` because the two need opposite
+    actions from the reader. An outage means wait. This never resolves on its
+    own: the export has to get smaller or the worker bigger, and the message
+    says which, with the numbers in it so nobody is arguing with an invisible
+    limit.
+
+    `ifc_query` is offered by name because it still works — the metadata half
+    reads the extracted index and never touches these bytes, so "too large to
+    MEASURE" is a much narrower failure than it sounds.
+    """
+    size = f"{model_bytes / (1024 * 1024):.0f} MB" if model_bytes else "Dieses Modell"
+    limit = f"{limit_bytes // (1024 * 1024)} MB"
+    return (
+        f"Error: das Modell ({size}) ist zu groß für die geometrische Auswertung auf diesem Server "
+        f"(Grenze {limit}). Das ist eine Aussage über die DATEI, kein Ausfall — Warten hilft nicht. "
+        "Dem Nutzer sagen: entweder das Modell nach Bauteil oder Bauabschnitt getrennt exportieren, "
+        "oder einen größeren Auswerte-Server anfordern. Metadaten-Fragen (Bauteillisten, "
+        "Property-Werte, Zählungen) sind mit ifc_query weiterhin beantwortbar — die laufen über den "
+        "extrahierten Index und nicht über die Datei. Keine Maße schätzen."
+    )
+
+
 #: This deployment has no geometry engine. Not a fact about the building either.
 ENGINE_UNAVAILABLE_TEXT = (
     "Error: geometric measurement is not available in this deployment (the spatial engine is not "
@@ -714,6 +853,7 @@ class IfcMeasureConfig(FunctionBaseConfig, name="ifc_measure"):
 async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
     from aiq_agent.knowledge.bim_query import BimQueryRejectedError
     from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
+    from aiq_agent.knowledge.ifc_spatial_client import ModelTooLargeError
     from aiq_agent.knowledge.ifc_spatial_client import SpatialEngineUnavailableError
     from aiq_agent.knowledge.ifc_spatial_client import SpatialToolError
     from aiq_agent.knowledge.ifc_spatial_client import call_spatial_tool
@@ -756,6 +896,13 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
         if not organization_id:
             return "Error: organization unknown for this session — the BIM model cannot be read. Do not retry."
         project_id = get_project_id_from_context()
+        if not project_id:
+            # Same hole as `ifc_query`, same reason: `/api/internal/bim/source`
+            # needs a project to scope the model list to, this tool never sends
+            # a modelId, and the 400 that results reads as a correctable
+            # argument error. Refused here, where the reason is knowable.
+            _trace((operation or "").strip().lower(), "", outcome="no_project")
+            return NO_PROJECT_TEXT
 
         built = _build_call(
             operation=operation or "briefing",
@@ -792,6 +939,13 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
             logger.info("ifc_measure was rejected: %s", exc)
             _trace(name, detail, outcome="rejected")
             return _rejected_text(str(exc))
+        except ModelTooLargeError as exc:
+            # Caught BEFORE its base class, and reported as a fact about the
+            # FILE. As a generic outage this sent an architect off to wait for a
+            # service to recover that was never down.
+            logger.info("ifc_measure refused an oversized model: %s", exc)
+            _trace(name, detail, outcome="model_too_large")
+            return _too_large_text(exc.model_bytes, exc.limit_bytes)
         except BimQueryUnavailableError as exc:
             # "Could not look" is not "looked and found nothing" — say so, or a
             # transport failure gets reported as a fact about the building.

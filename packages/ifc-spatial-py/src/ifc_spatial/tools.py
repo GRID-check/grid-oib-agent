@@ -856,5 +856,11 @@ def _light_incidence(model: SpatialModel, args: dict[str, Any]) -> Any:
             "die erforderliche Lichteintrittsfläche, es verbietet das Fenster nicht. Die Bewertung "
             "gehört zum Regelwerk."
         )
-        payload["caveat"] = f"{payload['caveat']} {note}" if payload.get("caveat") else note
+        # `obstructions` already carries this warning, in its own words. Appending
+        # unconditionally printed it twice, and a caveat repeated is a caveat
+        # skimmed — the second copy teaches the reader that this paragraph is
+        # boilerplate, which is the opposite of what it is for.
+        existing = payload.get("caveat") or ""
+        if "kein Befund" not in existing:
+            payload["caveat"] = f"{existing} {note}".strip() if existing else note
     return payload

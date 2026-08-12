@@ -31,6 +31,7 @@ from aiq_agent.agents.bim.measure_register import _build_call
 from aiq_agent.agents.bim.measure_register import _provenance_line
 from aiq_agent.agents.bim.measure_register import _rejected_text
 from aiq_agent.agents.bim.measure_register import _render
+from aiq_agent.agents.bim.measure_register import _render_answer
 from aiq_agent.agents.bim.measure_register import _render_unresolved
 from aiq_agent.agents.bim.measure_register import _unrunnable_text
 
@@ -245,13 +246,67 @@ class TestProvenanceIsThreeDifferentSentences:
         assert "0.72" in line
         assert "keine Feststellung" in line
 
-    def test_a_measured_number_is_never_reshaped_on_the_way_out(self):
-        # The tool's whole claim is that the agent reports what was measured. A
-        # renderer that rounded would break that claim invisibly.
+    def test_a_number_with_no_tolerance_is_passed_through_untouched(self):
+        # Nothing says how precise this is, so nothing may be dropped from it.
         line = _provenance_line(
             {"value": 15.41678125, "unit": "m²", "tolerance": None, "provenance": "computed", "decidable": True}
         )
         assert "15.41678125" in line
+
+    def test_a_number_is_shown_to_its_tolerance_and_no_further(self):
+        """The false-precision rule, and why it is not "reshaping the value".
+
+        Before this, `floorArea` rendered as
+
+            gemessen (±0.15416781250000042 m²): 15.41678125000004 m²
+
+        Seventeen digits against a 15-centimetre band is a binary-float artifact
+        wearing the costume of a measurement — LESS faithful than 15.42, because
+        it asserts precision the operator disclaims in the same sentence. And the
+        skill tells the model that numbers come from the tool and are never to be
+        re-rounded, so it would have quoted every digit to an architect.
+        """
+        line = _provenance_line(
+            {
+                "value": 15.41678125000004,
+                "unit": "m²",
+                "tolerance": 0.15416781250000042,
+                "provenance": "computed",
+                "decidable": True,
+            }
+        )
+        assert "gemessen (±0.15 m²): 15.42 m²" in line
+        assert "15.41678125" not in line
+        assert "0.15416781" not in line
+
+    @pytest.mark.parametrize(
+        ("value", "tolerance", "shown"),
+        [
+            # One digit finer than the band, so nothing resolved is discarded.
+            (0.17913908774709064, 0.01, "0.179"),
+            (0.6466378093377606, 0.005, "0.6466"),
+            (2.1099999999999999, 0.01, "2.110"),
+            # A whole-number band still leaves a decimal to move in.
+            (0.0, 3, "0.0"),
+        ],
+    )
+    def test_the_precision_follows_the_band(self, value, tolerance, shown):
+        line = _provenance_line(
+            {"value": value, "unit": "m", "tolerance": tolerance, "provenance": "computed", "decidable": True}
+        )
+        assert f": {shown} m" in line
+
+    def test_a_declared_figure_is_never_re_rounded(self):
+        """The case the old „never round" rule was really protecting.
+
+        A declared value is the architect's own statement. Even where a tolerance
+        rides along, the renderer has no standing to restate it.
+        """
+        line = _provenance_line(
+            {"value": 0.235926059936681, "unit": "W/m²K", "tolerance": 0.01,
+             "provenance": "declared", "decidable": True}
+        )
+        assert "0.235926059936681" in line
 
 
 class TestUndecidableIsAFindingAboutTheExport:
@@ -407,7 +462,7 @@ class TestRendering:
                 "decidable": True,
             }
         )
-        assert "sill=0.9, head=2.11 (m)" in named
+        assert "sill=0.900, head=2.110 (m)" in named
         # The tolerance is a scalar in that unit whatever shape the value has.
         assert "±0.01 m" in named
 
@@ -417,6 +472,83 @@ class TestRendering:
              "provenance": "computed", "decidable": True}
         )
         assert "1 Eintrag" in line and "1 Einträge" not in line
+
+    # ── light_incidence, the flagship operator's own rendering ──────────────
+
+    BLOCKED = {
+        "value": [
+            {
+                "globalId": "3cUkl32yn9qRSPvBJVyWh4",
+                "name": "Basic Roof:Roof_Flat",
+                "intrusionDepth": 1.056308,
+            }
+        ],
+        "unit": "m",
+        "tolerance": 0.005,
+        "provenance": "computed",
+        "decidable": True,
+        "free": False,
+        "prism": {"angleDeg": 45.0, "swivelDeg": 30.0, "openingId": "3cUkl32yn9qRSPvBJVyWcE"},
+        "caveat": "Das ist Geometrie, kein Befund.",
+    }
+
+    def test_an_obstruction_is_a_sentence_and_not_a_python_dict(self):
+        """The defect the query battery caught.
+
+        `_render_answer` matched entries by `ifcType`, and an obstruction has
+        `intrusionDepth` instead — so the flagship operator's own result fell
+        through to `- {'globalId': …, 'intrusionDepth': 1.056308}`. Handing a
+        model a Python literal after telling it to quote our numbers verbatim
+        is how a repr ends up in front of an architect.
+        """
+        rendered = "\n".join(_render_answer(dict(self.BLOCKED)))
+        assert "{" not in rendered and "'globalId'" not in rendered
+        assert "Basic Roof:Roof_Flat · GlobalId 3cUkl32yn9qRSPvBJVyWh4 · ragt 1.0563 m in das Prisma" in rendered
+
+    def test_the_verdict_line_says_which_way_it_went(self):
+        """`free` was in the payload and in no sentence.
+
+        A caller reading only the rendered text could not tell a clear prism
+        from a blocked one — the answer to the question that was asked.
+        """
+        blocked = "\n".join(_render_answer(dict(self.BLOCKED)))
+        assert "NICHT FREI (Prisma 45°, seitlich 30°)" in blocked
+        assert "1 Bauteil ragt in das Prisma, tiefster Eingriff 1.0563 m" in blocked
+
+    def test_an_empty_list_is_the_answer_and_must_not_render_as_nothing(self):
+        # `free: true` carries no entries at all, so without its own line the
+        # renderer produced a provenance header and silence.
+        free = {**self.BLOCKED, "value": [], "free": True}
+        rendered = "\n".join(_render_answer(free))
+        assert "FREI (Prisma 45°, seitlich 30°): kein Bauteil ragt in das Prisma." in rendered
+        assert "NICHT FREI" not in rendered
+
+    def test_the_german_agrees_in_number(self):
+        """„1 Bauteil ragen" tells an Austrian architect a machine wrote this,
+        and everything after it is read as machine output rather than a finding."""
+        one = "\n".join(_render_answer(dict(self.BLOCKED)))
+        assert "1 Bauteil ragt" in one
+
+        two = {
+            **self.BLOCKED,
+            "value": [
+                self.BLOCKED["value"][0],
+                {"globalId": "g2", "name": "Vordach", "intrusionDepth": 0.4},
+            ],
+        }
+        assert "2 Bauteile ragen" in "\n".join(_render_answer(two))
+
+    def test_the_angles_are_echoed_as_written_not_as_floats(self):
+        # 45.0° suggests a measurement to a tenth of a degree. It is the number
+        # the clause states, round-tripped through a float.
+        rendered = "\n".join(_render_answer(dict(self.BLOCKED)))
+        assert "45°" in rendered and "45.0°" not in rendered
+
+    def test_the_verdict_never_becomes_a_compliance_finding(self):
+        # A cut prism ENLARGES the required Lichteintrittsfläche under OIB 3.
+        rendered = "\n".join(_render_answer(dict(self.BLOCKED))).lower()
+        for word in ("compliant", "erfüllt", "verstoß", "unzulässig"):
+            assert word not in rendered
 
     def test_an_unresolved_model_reports_the_reason_and_the_choices(self):
         rendered = _render_unresolved(
@@ -441,6 +573,179 @@ class TestRendering:
         )
         assert "noch nicht abfragbar" in rendered
         assert "Verfügbare Modelle" not in rendered
+
+
+class TestAConversationWithoutAProjectIsRefusedBeforeTheNetwork:
+    """The dead path, decided deliberately.
+
+    `/api/internal/bim/query` and `/api/internal/bim/source` both require
+    `projectId` OR `modelId`. Neither tool has ever sent a `modelId` — both
+    address a model by project and file name — so a conversation outside a
+    project produced a request that could only 400.
+
+    A 400 is a REJECTION here, and a rejection means „there was a problem with
+    the arguments, call the tool again". So the agent retried a call no argument
+    could fix, for as many turns as its budget allowed, and the user got silence
+    instead of the one sentence that would have helped them: open the
+    conversation inside the project.
+
+    The alternative was to start sending `modelId`, which the tools have no way
+    to obtain without a project first. So the path is not dead code to revive —
+    it is a request that should never be made, refused where the reason is known.
+    """
+
+    def test_both_halves_of_the_bim_surface_say_the_same_thing(self):
+        from aiq_agent.agents.bim.measure_register import NO_PROJECT_TEXT as measure_text
+        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT as query_text
+
+        # Literally the same string: an agent that learns it from one tool has
+        # to read it correctly from the other.
+        assert measure_text is query_text
+
+    def test_it_forbids_the_retry_that_used_to_burn_the_turn(self):
+        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+
+        assert "Do not retry" in NO_PROJECT_TEXT
+        assert "no argument to this tool can fix it" in NO_PROJECT_TEXT
+
+    def test_it_tells_the_user_what_to_actually_do(self):
+        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+
+        assert "not attached to a project" in NO_PROJECT_TEXT
+        assert "inside the project" in NO_PROJECT_TEXT
+        # And forbids the failure mode that made this worth finding: filling the
+        # silence with something plausible about the building.
+        assert "Do not state anything about the building" in NO_PROJECT_TEXT
+
+    def test_it_is_not_the_same_message_as_a_real_rejection(self):
+        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+
+        assert NO_PROJECT_TEXT != _rejected_text("Unrecognized key(s): 'storeys'")
+        assert NO_PROJECT_TEXT != UNAVAILABLE_TEXT
+
+
+class TestAModelTooBigToMeasureIsNotAnOutage:
+    """The third failure that was collapsing into „Dienst nicht erreichbar".
+
+    An outage means wait. A 300 MB export on a 4 GB worker never resolves on its
+    own, so the same sentence sent an architect off to wait for a service that
+    was never down — while `ifc_query` would have answered half their questions
+    the whole time.
+    """
+
+    def test_the_ceiling_comes_from_the_memory_this_container_actually_has(self, monkeypatch):
+        """`os.sysconf` reports the HOST's RAM inside a cgroup-limited pod.
+
+        Sizing a 2 GB pod's ceiling for a 128 GB node is how a guard that exists
+        to prevent an OOM causes one, silently, taking the conversation with it.
+        """
+        from aiq_agent.knowledge import ifc_spatial_client as client
+
+        monkeypatch.delenv("BIM_SPATIAL_MAX_MODEL_BYTES", raising=False)
+        monkeypatch.setattr(client, "_container_memory_bytes", lambda: 4 * 1024**3)
+        # Half the container, divided by the measured 20x parse footprint.
+        assert client._derive_max_model_bytes() == (2 * 1024**3) // 20
+
+        monkeypatch.setattr(client, "_container_memory_bytes", lambda: 512 * 1024**2)
+        # Never below the floor: under it the tool is not worth having.
+        assert client._derive_max_model_bytes() == client._MIN_MODEL_BYTES
+
+        monkeypatch.setattr(client, "_container_memory_bytes", lambda: 1024 * 1024**3)
+        assert client._derive_max_model_bytes() == client._MAX_MODEL_BYTES_CAP
+
+    def test_the_ratio_is_the_low_end_of_what_was_measured(self):
+        """Deliberately a NECESSARY and not a sufficient condition.
+
+        The footprint runs 20x–143x and tracks geometric complexity rather than
+        file size, so no static gate can be safe for both ends. At 143x the
+        guard would refuse a 30 MB model on a 4 GB pod — most real projects —
+        and would have removed the capability instead of protecting it.
+        """
+        from aiq_agent.knowledge.ifc_spatial_client import PARSE_FOOTPRINT_RATIO
+
+        assert PARSE_FOOTPRINT_RATIO == 20
+
+    def test_an_operator_who_sized_the_worker_can_override_the_arithmetic(self, monkeypatch):
+        from aiq_agent.knowledge import ifc_spatial_client as client
+
+        monkeypatch.setenv("BIM_SPATIAL_MAX_MODEL_BYTES", str(900 * 1024**2))
+        assert client._derive_max_model_bytes() == 900 * 1024**2
+
+    @pytest.mark.parametrize("value", ["", "   ", "viel", "-1", "0"])
+    def test_an_unusable_override_falls_back_instead_of_crashing_the_tool(self, monkeypatch, value):
+        from aiq_agent.knowledge import ifc_spatial_client as client
+
+        monkeypatch.setenv("BIM_SPATIAL_MAX_MODEL_BYTES", value)
+        monkeypatch.setattr(client, "_container_memory_bytes", lambda: 4 * 1024**3)
+        assert client._derive_max_model_bytes() == (2 * 1024**3) // 20
+
+    def test_a_cgroup_limit_wins_over_the_host(self, monkeypatch, tmp_path):
+        from aiq_agent.knowledge import ifc_spatial_client as client
+
+        limit = tmp_path / "memory.max"
+        limit.write_text("2147483648\n", encoding="ascii")
+        real_open = open
+
+        def fake_open(path, *args, **kwargs):
+            if path == "/sys/fs/cgroup/memory.max":
+                return real_open(limit, *args, **kwargs)
+            raise OSError("no such cgroup file")
+
+        monkeypatch.setattr("builtins.open", fake_open)
+        assert client._container_memory_bytes() == 2 * 1024**3
+
+    @pytest.mark.parametrize("raw", ["max", "9223372036854771712", "nonsense"])
+    def test_an_unlimited_or_unparsable_cgroup_falls_through(self, monkeypatch, tmp_path, raw):
+        """cgroup v1 writes a sentinel near 2^63 to mean "no limit"; taking it
+        literally would derive a ceiling of several exabytes."""
+        from aiq_agent.knowledge import ifc_spatial_client as client
+
+        limit = tmp_path / "memory.max"
+        limit.write_text(raw, encoding="ascii")
+        real_open = open
+        monkeypatch.setattr(
+            "builtins.open",
+            lambda path, *a, **k: real_open(limit, *a, **k)
+            if "cgroup" in str(path)
+            else real_open(path, *a, **k),
+        )
+        value = client._container_memory_bytes()
+        assert value is None or value < (1 << 62)
+
+    def test_the_message_is_about_the_file_and_names_both_numbers(self):
+        from aiq_agent.agents.bim.measure_register import _too_large_text
+
+        text = _too_large_text(310 * 1024 * 1024, 100 * 1024 * 1024)
+        assert "310 MB" in text and "100 MB" in text
+        # Not an outage, and it says so — waiting is the wrong action.
+        assert "kein Ausfall" in text and "Warten hilft nicht" in text
+        assert text != UNAVAILABLE_TEXT
+        # And the half that still works is offered by name.
+        assert "ifc_query" in text
+        assert "Keine Maße schätzen" in text
+
+    def test_it_is_still_an_unavailable_error_so_old_handlers_hold(self):
+        from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
+        from aiq_agent.knowledge.ifc_spatial_client import ModelTooLargeError
+
+        error = ModelTooLargeError(310 * 1024 * 1024, 100 * 1024 * 1024)
+        assert isinstance(error, BimQueryUnavailableError)
+        assert error.model_bytes == 310 * 1024 * 1024
+        assert "310 MB" in str(error)
+
+    def test_an_oversized_model_is_refused_before_a_byte_is_transferred(self, monkeypatch):
+        """On the HEAD's byte count. Downloading 300 MB to then refuse it wastes
+        the transfer and holds the turn open for the whole of it."""
+        from aiq_agent.knowledge import ifc_spatial_client as client
+        from aiq_agent.knowledge.ifc_spatial_client import ModelTooLargeError
+
+        monkeypatch.setattr(
+            client.urllib.request,
+            "urlopen",
+            lambda *a, **k: pytest.fail("the oversized model was downloaded"),
+        )
+        with pytest.raises(ModelTooLargeError):
+            client._download("https://example.test/big.ifc", client.MAX_MODEL_BYTES + 1)
 
 
 class TestUnavailableIsNotRejected:
