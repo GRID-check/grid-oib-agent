@@ -151,6 +151,25 @@ describe('buildRoomSchedule', () => {
     expect(csv).not.toMatch(/;=HYPERLINK/)
   })
 
+  it('quotes a room name holding a bare carriage return, so it cannot forge rows', () => {
+    // Excel and most CSV readers end a row on a lone `\r` exactly as on `\n`.
+    // Unquoted, a name out of an uploaded IFC could therefore write its own
+    // extra lines into the Raumbuch a colleague downloads — invented rooms
+    // with invented areas, indistinguishable from model data. `\r\n` was
+    // already caught through its `\n`; the bare one was not.
+    const csv = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [
+        space('Bad\rZ99;Erfundener Raum;;999', 'Erdgeschoss', { NetFloorArea: 6 }),
+      ])
+    )
+    expect(csv).toContain('"Bad\rZ99;Erfundener Raum;;999"')
+    // And no more rows than the same room with an ordinary name produces.
+    const benign = roomScheduleToCsv(
+      buildRoomSchedule(SUMMARY, [space('Bad', 'Erdgeschoss', { NetFloorArea: 6 })])
+    )
+    expect(csv.split('\n')).toHaveLength(benign.split('\n').length)
+  })
+
   it('still writes a negative number as a number, not as text', () => {
     // The guard is for STRINGS. A `-2.5` in a numeric column is a value the
     // spreadsheet has to be able to sum; prefixing it would break the one

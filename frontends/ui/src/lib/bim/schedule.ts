@@ -255,7 +255,13 @@ export function roomScheduleToCsv(schedule: BimRoomSchedule): string {
     // opened by whoever the Raumbuch was sent to. A leading apostrophe is
     // Excel's own "this is text" marker and does not show in the cell.
     const text = typeof value === 'string' && /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw
-    return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+    // `\r` as well as `\n`. A lone carriage return — which IFC exporters and
+    // hand-edited STEP files do emit in `IfcSpace.Name` — ends a row for Excel
+    // and for most CSV readers just as a newline does, so an unquoted one lets
+    // an uploaded model inject whole extra rows into the Raumbuch a colleague
+    // downloads: fabricated room names and areas that read as model data.
+    // `\r\n` was already caught through its `\n`; the bare one was not.
+    return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
   }
   const lines = [header.join(';')]
   for (const storey of schedule.storeys) {

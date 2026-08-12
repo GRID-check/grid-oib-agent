@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { apiRoute, parseQuery } from '@/lib/api/handler'
 import { exportAccessibleComplianceBcf } from '@/lib/bim/model-service'
 import { BIM_HAUPTNUTZUNG } from '@/lib/bim/query'
+import { BIM_EXPORT_LIMIT } from '@/lib/limits'
 
 type Params = { id: string }
 
@@ -69,5 +70,13 @@ export const GET = apiRoute<Params>(
     authz: {
       enforcedBy: 'exportAccessibleComplianceBcf (ifc-models flag + project:view + model tenancy)',
     },
+    /*
+      Declared, because reads are not defaulted and this is the heaviest read
+      in the product: a full catalogue run plus a ZIP, on the event loop. Its
+      memo is keyed on the two facts below, which are caller-supplied — so
+      without a bound one viewer could walk 54 URLs per model in a loop, miss
+      the cache every time, and hold the process there.
+    */
+    limits: { rule: BIM_EXPORT_LIMIT },
   }
 )

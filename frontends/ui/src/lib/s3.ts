@@ -76,6 +76,34 @@ export const bucketAdminS3Client = new S3Client({
  */
 export const bucketName = process.env.SEAWEED_BUCKET || "grid-documents";
 
+/**
+ * One safe segment of an object key, from a name a person chose.
+ *
+ * The upload's own filename and the folder names above it are the only parts
+ * of a key that are not machine-generated ids, and both went in verbatim. A
+ * part named
+ * `../../../../org/<other-org>/project/<p>/doc/<d>/model.ifc` passes the
+ * upload-type check — that only looks at the substring after the last dot —
+ * and lands in `Key` unchanged. Per-org buckets are off by default, so the
+ * `org/<id>/` prefix is the ONLY separation between tenants in the shared
+ * bucket, and the key is persisted and reused afterwards: on read, on the
+ * derived-key builder, and on the recursive prefix delete in
+ * `lib/bim/service.ts`, which lists and deletes everything under whatever
+ * prefix the traversed key implies. On a filer-backed gateway that resolves
+ * `..` — SeaweedFS stores keys as filer paths — that is a cross-tenant write
+ * and a cross-tenant delete.
+ *
+ * Separators are flattened rather than rejected because a name is not a
+ * mistake the uploader can necessarily see, and a file called `A/B.ifc` should
+ * store, not fail. A segment of nothing but dots is `.` or `..` itself, which
+ * has no flattening to do and is prefixed instead.
+ */
+export function storageKeySegment(raw: string): string {
+  const flattened = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/[/\\]/g, '_')
+  const guarded = /^\.+$/.test(flattened) ? `_${flattened}` : flattened
+  return guarded.trim().slice(0, 255).trim() || 'unnamed'
+}
+
 export function buildStorageKey(
   organizationId: string,
   projectId: string,
@@ -83,8 +111,13 @@ export function buildStorageKey(
   filename: string,
   folderPath?: string | null,
 ): string {
-  const folder = folderPath ? `${folderPath}/` : ''
-  return `org/${organizationId}/project/${projectId}/${folder}doc/${documentId}/${filename}`
+  // The folder path arrives already joined, and each name in it is as
+  // person-chosen as the filename — so it is sanitized per segment rather than
+  // as one string, which would flatten the separators the path needs.
+  const folder = folderPath
+    ? `${folderPath.split('/').filter(Boolean).map(storageKeySegment).join('/')}/`
+    : ''
+  return `org/${organizationId}/project/${projectId}/${folder}doc/${documentId}/${storageKeySegment(filename)}`
 }
 
 /**
@@ -98,7 +131,7 @@ export function buildArchivStorageKey(
   documentId: string,
   filename: string,
 ): string {
-  return `org/${organizationId}/archiv/doc/${documentId}/${filename}`
+  return `org/${organizationId}/archiv/doc/${documentId}/${storageKeySegment(filename)}`
 }
 
 /**

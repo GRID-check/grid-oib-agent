@@ -157,6 +157,32 @@ const BIM_QUERY_LIMIT = {
 }
 
 /**
+ * The Prüfbuch as a BCF archive (`GET /api/projects/[id]/bim/checks/export`).
+ *
+ * The heaviest thing this product will do for one GET, and reads are not
+ * defaulted — so it had no bound at all. It runs the full `compliance` op,
+ * whose memo is keyed on `(modelId, Gebäudeklasse, Hauptnutzung)` and holds 64
+ * entries process-wide; both facts are caller-supplied query parameters over a
+ * 5-value range and a 9-value enum, so 54 URLs per model each miss the cache,
+ * each parse the whole `rule_inputs` blob — tens of megabytes on a large model
+ * — run the catalogue synchronously on the event loop, and build a ZIP in
+ * memory. One project viewer could do that in a loop, for the whole
+ * deployment, with plain GETs.
+ *
+ * Much tighter than `bim-query` because the two are not the same kind of read:
+ * that one is sized for a pager walking a model page by page, this one is a
+ * person pressing Export. Twelve a minute is more exports than anyone makes
+ * and few enough that the cache cannot be walked.
+ * @type {LimitRule}
+ */
+const BIM_EXPORT_LIMIT = {
+  name: 'bim-export',
+  limit: 12,
+  windowMs: 60 * 1000,
+  burst: { limit: 3, windowMs: 5 * 1000 },
+}
+
+/**
  * The default budget for a mutating API route that has not declared one.
  *
  * `apiRoute` applies this to every POST/PUT/PATCH/DELETE unless the route says
@@ -179,6 +205,7 @@ const DEFAULT_MUTATION_LIMIT = {
 
 module.exports = {
   BIM_QUERY_LIMIT,
+  BIM_EXPORT_LIMIT,
   SHARE_LIMIT,
   TYPING_LIMIT,
   MENTION_LIMIT,

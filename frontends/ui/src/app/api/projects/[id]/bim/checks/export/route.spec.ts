@@ -10,7 +10,7 @@
  * a Gebäudeklasse that gets dropped between the panel and the export produces
  * an archive whose fire-resistance thresholds belong to a different building.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
   requireAuthorizedSession: vi.fn().mockResolvedValue({
@@ -31,6 +31,7 @@ vi.mock('@/lib/bim/model-service', () => ({
 
 import { GET } from './route'
 import { exportAccessibleComplianceBcf } from '@/lib/bim/model-service'
+import { BIM_EXPORT_LIMIT, createInProcessStore, setLimitStore } from '@/lib/limits'
 
 const MODEL_ID = '3f6e1c2a-0000-4000-8000-000000000001'
 
@@ -38,6 +39,17 @@ const call = (query: string): Promise<Response> =>
   GET(new Request(`https://grid.test/api/projects/proj-1/bim/checks/export${query}`), {
     params: Promise.resolve({ id: 'proj-1' }),
   })
+
+/*
+  A fresh limit store per test.
+
+  This route declares `bim-export`, which is deliberately tight — twelve a
+  minute, three in five seconds — because one GET here runs the whole rule
+  catalogue and builds a ZIP. Sharing one store across the file would make each
+  test's result depend on how many ran before it.
+*/
+beforeEach(() => setLimitStore(createInProcessStore()))
+afterEach(() => setLimitStore(null))
 
 describe('GET /api/projects/[id]/bim/checks/export', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -97,6 +109,23 @@ describe('GET /api/projects/[id]/bim/checks/export', () => {
   it('rejects a request that names no model at all', async () => {
     expect((await call('')).status).toBe(400)
     expect(exportAccessibleComplianceBcf).not.toHaveBeenCalled()
+  })
+
+  it('is bounded, because one GET here runs the whole catalogue', async () => {
+    // Reads are not rate-limited by default and this one is the heaviest thing
+    // the product does for a GET: a full `compliance` run plus a ZIP, on the
+    // event loop. Its memo is keyed on the two facts in the URL, so an
+    // unbounded caller could walk every combination and miss the cache every
+    // time. The assertion is that a budget is charged at all — the numbers
+    // themselves belong to the catalog.
+    const first = await Promise.all([
+      call(`?modelId=${MODEL_ID}`),
+      call(`?modelId=${MODEL_ID}`),
+      call(`?modelId=${MODEL_ID}`),
+      call(`?modelId=${MODEL_ID}`),
+    ])
+    expect(first.some((response) => response.status === 429)).toBe(true)
+    expect(BIM_EXPORT_LIMIT.name).toBe('bim-export')
   })
 
   it('rejects a model id that is not an id', async () => {

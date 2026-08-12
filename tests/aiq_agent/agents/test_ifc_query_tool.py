@@ -864,12 +864,33 @@ class TestWhatTheTraceRecords:
         assert self._recorded()["metadata"] == {
             "ifc_op": "compliance",
             "ifc_outcome": "resolved",
-            "ifc_model": "haus.ifc",
+            # A digest, not the file name. Langfuse is an external service and
+            # an Austrian project file is named for the client and the site;
+            # the trace only ever needed "the same building as that other
+            # turn", which a stable handle gives without the name.
+            "ifc_model": "e37fd06cb38e",
             "ifc_elements": 40000,
         }
+        assert "haus.ifc" not in str(self._recorded())
         # One tag, because "which turns read a building model" is the filter an
         # operator reaches for before any metadata scan.
         assert self._recorded()["tags"] == ["feature:ifc"]
+
+    def test_the_model_handle_is_stable_and_not_the_name(self):
+        # Stable, because an operator correlating two slow turns needs them to
+        # match; not the name, because the name is the client and the address.
+        from aiq_agent.agents.bim.register import _model_handle
+
+        assert _model_handle("Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc") == _model_handle(
+            "Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc"
+        )
+        assert _model_handle("Haus-A.ifc") != _model_handle("Haus-B.ifc")
+        handle = _model_handle("Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc")
+        assert handle is not None and "Mayr" not in handle and "Hauptstr" not in handle
+        # A model the payload did not name has no handle, rather than a handle
+        # for the empty string that every such turn would share.
+        assert _model_handle(None) is None
+        assert _model_handle("") is None
 
     def test_a_partial_answer_says_so_on_the_trace(self):
         # The one that matters for correctness rather than speed: a truncated

@@ -17,6 +17,7 @@ Every answer carries a rendered ``summary`` line the agent can quote verbatim.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 from typing import Any
@@ -713,6 +714,27 @@ def _truncation_note(op: str) -> str:
     return "(Weitere Treffer vorhanden — Abfrage eingrenzen oder aggregieren.)"
 
 
+def _model_handle(filename: Any) -> str | None:
+    """A stable, non-reversible name for one model, for the trace.
+
+    Langfuse is an external observability service, and an Austrian project file
+    is routinely named for the client and the site —
+    `Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc`. That is tenant content by the
+    same standard the rest of this feature applies: `bim_query.py` refuses to
+    log a response body because it can carry model data, and `_issue_summary`
+    reads only a Zod `path` and `message` and never the value that failed. The
+    file name was leaving on every model turn, out of the same function whose
+    docstring promises the shape of the query and not its contents.
+
+    A digest keeps what the trace is actually for — "the same model as that
+    other slow turn", "this operator ran nine queries against one building" —
+    and drops what it is not for, which is who the client is.
+    """
+    if not isinstance(filename, str) or not filename:
+        return None
+    return hashlib.sha256(filename.encode("utf-8")).hexdigest()[:12]
+
+
 def _trace(
     query: dict[str, Any],
     result: dict[str, Any] | None,
@@ -738,7 +760,8 @@ def _trace(
 
     No element names, no property values: this is the shape of the query, not
     its contents, which are already in `output.value` under the redaction
-    policy that governs it.
+    policy that governs it. The model is identified by a HANDLE rather than by
+    its file name, for the same reason — see `_model_handle`.
     """
     from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
     from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
@@ -766,7 +789,7 @@ def _trace(
     record_trace_metadata(
         ifc_op=operation,
         ifc_outcome="resolved",
-        ifc_model=model.get("filename"),
+        ifc_model=_model_handle(model.get("filename")),
         ifc_elements=model.get("elementCount"),
         # The honesty flags, verbatim from the payload. `truncated` means the
         # answer covers part of the building; `propertyScan.complete=false`

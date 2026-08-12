@@ -27,6 +27,7 @@ export type { LimitBudget, LimitRule, RateLimitDecision } from './types'
 export {
   CHAT_TURN_LIMIT,
   BIM_QUERY_LIMIT,
+  BIM_EXPORT_LIMIT,
   DEFAULT_MUTATION_LIMIT,
   LIMIT_CATALOG,
   MAX_MENTIONS_PER_MESSAGE,

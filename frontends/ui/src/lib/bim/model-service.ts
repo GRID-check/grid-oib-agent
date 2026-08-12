@@ -252,12 +252,32 @@ export async function listAccessibleCheckConfirmations(
 }
 
 /**
+ * The model is one this PROJECT can speak for.
+ *
+ * `getAccessibleModel` authorizes against the model's OWN project, which is a
+ * different question from the `projectId` in the URL. An org admin bypasses
+ * per-project authorization entirely, and an ordinary member can hold
+ * `project:edit` on A and `project:view` on B — so without this a confirmation
+ * about B's building could be written into A's ledger. `null` is the org-wide
+ * Archiv, which every project in the org may speak for.
+ *
+ * Not a second access check: the caller has already passed one. This is about
+ * which record the result is being filed under.
+ */
+function assertModelInProject(model: BimModelHeader, projectId: string): void {
+  if (model.projectId !== null && model.projectId !== projectId) {
+    throw new NotFoundError('Model not found in this project')
+  }
+}
+
+/**
  * Record a human verdict on one rule, against the revision they looked at.
  *
  * `project:edit`, and the confirming identity comes from the SESSION rather
  * than the request body — a signature a caller could address to somebody else
  * is not a signature. The model is re-resolved through `getAccessibleModel` so
- * a confirmation cannot be pinned to a revision in another tenant.
+ * a confirmation cannot be pinned to a revision in another tenant, and checked
+ * against this project so it cannot be filed under another one's ledger.
  */
 export async function confirmAccessibleCheck(
   session: AuthorizedSession,
@@ -267,6 +287,11 @@ export async function confirmAccessibleCheck(
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:edit')
   const model = await getAccessibleModel(session, input.modelId)
+  // Without this the row is written with a `modelId` that is not in this
+  // project's revision series: invisible to `attachConfirmations`, and
+  // un-withdrawable, because `withdrawAccessibleCheck` deletes by the sibling
+  // ids of a model in THIS project. A permanent orphan in a signed-off ledger.
+  assertModelInProject(model, projectId)
   await upsertBimCheckConfirmation({
     organizationId: session.organizationId,
     projectId,
@@ -339,9 +364,7 @@ export async function exportAccessibleComplianceBcf(
   const model = input.modelId
     ? await getAccessibleModel(session, input.modelId)
     : await resolveModelByName(session, projectId, input.modelName ?? '')
-  if (model.projectId !== null && model.projectId !== projectId) {
-    throw new NotFoundError('Model not found in this project')
-  }
+  assertModelInProject(model, projectId)
 
   const [result, confirmations, project] = await Promise.all([
     runBimQuery(
@@ -403,6 +426,7 @@ export async function withdrawAccessibleCheck(
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:edit')
   const model = await getAccessibleModel(session, modelId)
+  assertModelInProject(model, projectId)
   await deleteBimCheckConfirmation({
     organizationId: session.organizationId,
     projectId,
