@@ -101,6 +101,7 @@ import {
 } from '../lib/viewer-camera'
 import { captureFrameOptions, interactiveFrameOptions } from '../lib/viewer-performance'
 import {
+  observeViewerTheme,
   readViewerTheme,
   VIEWER_CLEAR_COLOR,
   viewerEnhancement,
@@ -416,11 +417,17 @@ export function IfcViewerCanvas({
   const cursorRef = useRef<MeasureAnchor | null>(null)
 
   /**
-   * The theme the model is lit for, captured once per mount.
+   * The theme the model is lit for.
    *
-   * Re-lighting on a theme switch would mean re-resolving the environment
-   * uniform mid-session, and the viewport lives inside a modal nobody switches
-   * themes underneath. Read at mount, honest at mount.
+   * Read at mount and kept current — see the observer below. It used to be
+   * captured once, on the reasoning that "nobody switches themes underneath a
+   * modal", which was wrong twice over: the theme can be `system`, in which
+   * case `prefers-color-scheme` flips it at sunset with nobody doing anything,
+   * and the command palette that toggles it opens over the dialog.
+   *
+   * A ref rather than state on purpose. It is read inside `frameOptions`,
+   * which the render loop calls sixty times a second; a state change here
+   * would re-render the whole canvas component to alter one uniform.
    */
   const themeRef = useRef<'light' | 'dark'>('light')
 
@@ -550,6 +557,24 @@ export function IfcViewerCanvas({
       drawFrame()
     })
   }, [drawFrame])
+
+  /**
+   * Re-light when the app's theme changes under the open viewport.
+   *
+   * The environment and the clear colour are read out of `themeRef` on every
+   * frame, so the whole correction is one ref write and one redraw — nothing
+   * is rebuilt, no geometry is re-uploaded. Without it the model keeps the
+   * clear colour of the theme it loaded in, which is the one element on the
+   * page that would not follow a switch.
+   */
+  useEffect(
+    () =>
+      observeViewerTheme((theme) => {
+        themeRef.current = theme
+        requestFrame()
+      }),
+    [requestFrame]
+  )
 
   /**
    * Run frames while the camera is still moving, then stop.

@@ -9,8 +9,9 @@
  * background.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  observeViewerTheme,
   readViewerTheme,
   VIEWER_CLEAR_COLOR,
   viewerEnhancement,
@@ -112,5 +113,91 @@ describe('readViewerTheme', () => {
     expect(readViewerTheme()).toBe('light')
     document.documentElement.classList.add('dark')
     expect(readViewerTheme()).toBe('dark')
+  })
+})
+
+/**
+ * The observer runs against a stand-in rather than the real thing.
+ *
+ * happy-dom ships a `MutationObserver` that never delivers attribute records,
+ * so observing `<html>` for real here would assert nothing while looking like
+ * it asserted everything — the worst kind of green. The stand-in gives the
+ * test the one control it needs: deliver a record, now. What is under test is
+ * this module's own logic — that it observes the right node and attribute,
+ * that it reports only an actual theme CHANGE, and that disconnecting stops it
+ * — and none of that depends on the DOM implementation.
+ */
+describe('observeViewerTheme', () => {
+  let deliver: (() => void) | null = null
+  let observed: { target: unknown; options: MutationObserverInit } | null = null
+  let disconnected = false
+
+  class FakeObserver {
+    constructor(private readonly callback: () => void) {
+      deliver = () => this.callback()
+    }
+    observe(target: unknown, options: MutationObserverInit): void {
+      observed = { target, options }
+    }
+    disconnect(): void {
+      disconnected = true
+      deliver = null
+    }
+  }
+
+  beforeEach(() => {
+    deliver = null
+    observed = null
+    disconnected = false
+    vi.stubGlobal('MutationObserver', FakeObserver)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    document.documentElement.classList.remove('dark')
+  })
+
+  it('watches the class on the element the theme actually lives on', () => {
+    observeViewerTheme(() => {})
+    expect(observed?.target).toBe(document.documentElement)
+    // Filtered, so the app's other classes do not wake the viewport.
+    expect(observed?.options.attributeFilter).toEqual(['class'])
+  })
+
+  it('reports a switch that happens under an open viewport', () => {
+    // The theme can be `system`, in which case this fires at sunset with
+    // nobody touching anything. Reading it once at load left the model lit for
+    // the wrong environment, with no control on screen to correct it.
+    const seen: string[] = []
+    observeViewerTheme((theme) => seen.push(theme))
+
+    document.documentElement.classList.add('dark')
+    deliver?.()
+    expect(seen).toEqual(['dark'])
+
+    document.documentElement.classList.remove('dark')
+    deliver?.()
+    expect(seen).toEqual(['dark', 'light'])
+  })
+
+  it('stays quiet when the class changed but the theme did not', () => {
+    // The callback redraws the viewport. Every unrelated class the app writes
+    // onto `<html>` would otherwise cost a frame.
+    const seen: string[] = []
+    observeViewerTheme((theme) => seen.push(theme))
+
+    deliver?.()
+    deliver?.()
+    expect(seen).toEqual([])
+  })
+
+  it('stops watching when the viewport goes away', () => {
+    const seen: string[] = []
+    const stop = observeViewerTheme((theme) => seen.push(theme))
+    stop()
+
+    expect(disconnected).toBe(true)
+    document.documentElement.classList.add('dark')
+    expect(seen).toEqual([])
   })
 })
