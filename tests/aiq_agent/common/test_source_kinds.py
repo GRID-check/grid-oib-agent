@@ -12,11 +12,15 @@ import pytest
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.source_kinds import DEFAULT_SOURCE_KIND
+from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
 from aiq_agent.common.source_kinds import SOURCE_KINDS
-from aiq_agent.common.source_kinds import collection_scope
+from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.common.source_kinds import kind_for_lane
+from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
+from aiq_agent.common.source_kinds import parse_shelf
 from aiq_agent.common.source_kinds import scope_for_qualifier
-from aiq_agent.common.source_kinds import scope_qualifier
+from aiq_agent.common.source_kinds import shelf_for_qualifier
+from aiq_agent.common.source_kinds import shelf_qualifier
 from aiq_agent.common.source_kinds import source_kind
 
 
@@ -120,38 +124,90 @@ class TestBindingNote:
         assert "binding_note" not in source_entry_to_wire(entry)
 
 
-class TestCollectionScope:
-    """The collection half of a document's `(collection, filename)` identity."""
+class TestShelf:
+    """The shelf — the wire vocabulary of ADR-0047, carried as data."""
+
+    def test_the_enum_holds_exactly_the_four_shelves(self):
+        # A fifth member is a wire change: the header, chunk metadata, the
+        # citation payload and the TS twin all have to learn it together.
+        assert {shelf.value for shelf in Shelf} == {"archiv", "project", "session", "base"}
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("archiv", Shelf.ARCHIV),
+            ("project", Shelf.PROJECT),
+            ("session", Shelf.SESSION),
+            ("base", Shelf.BASE),
+            ("  SESSION ", Shelf.SESSION),
+            (Shelf.BASE, Shelf.BASE),
+        ],
+    )
+    def test_a_stated_shelf_parses(self, value, expected):
+        assert parse_shelf(value) is expected
+
+    @pytest.mark.parametrize("value", [None, "", "projekt", "buero", "baurecht", "proj_alpha", 7, {"shelf": "base"}])
+    def test_anything_else_is_unknown_never_base(self, value):
+        # The pre-ADR defect: an unrecognised value fell open to `baurecht`, so
+        # an unknown document claimed to be authoritative building law.
+        assert parse_shelf(value) is None
+
+    def test_every_shelf_renders_a_qualifier(self):
+        assert {shelf: shelf_qualifier(shelf) for shelf in Shelf} == SHELF_QUALIFIERS
+
+    def test_a_session_file_is_no_longer_projektwissen(self):
+        # The headline bug: a file the user attached privately to a chat was
+        # cited as "Projektwissen" because `('s_', 'projekt')` was the only guess.
+        assert shelf_qualifier(Shelf.SESSION) == "Private Sitzung"
+        assert shelf_qualifier(Shelf.SESSION) != shelf_qualifier(Shelf.PROJECT)
+
+    def test_an_unknown_shelf_renders_unattributed(self):
+        assert shelf_qualifier(None) is None
+        assert shelf_qualifier("projekt") is None
+        assert shelf_qualifier("proj_alpha") is None
+
+    def test_the_qualifier_round_trips(self):
+        # A citation key carries the qualifier; resolution parses it back. If
+        # these two ever disagree, every qualified key stops resolving.
+        for shelf in Shelf:
+            assert shelf_for_qualifier(shelf_qualifier(shelf)) is shelf
+
+    def test_qualifiers_are_matched_case_insensitively(self):
+        # The qualifier survives a round trip through an LLM, which may recase it.
+        assert shelf_for_qualifier("projektwissen") is Shelf.PROJECT
+        assert shelf_for_qualifier("  BÜROARCHIV  ") is Shelf.ARCHIV
+        assert shelf_for_qualifier("private sitzung") is Shelf.SESSION
+
+    def test_an_unqualified_or_unknown_key_names_no_shelf(self):
+        assert shelf_for_qualifier(None) is None
+        assert shelf_for_qualifier("Internal") is None
+
+    def test_legacy_qualifier_keys_still_parse_to_the_old_vocabulary(self):
+        # Those strings are persisted inside citation keys in existing messages;
+        # a reader that stops understanding them silently unresolves them.
+        assert scope_for_qualifier("Projektwissen") == "projekt"
+        assert scope_for_qualifier("Büroarchiv") == "buero"
+        assert scope_for_qualifier("Basiswissen") == "baurecht"
+        assert scope_for_qualifier("Internal") is None
+
+
+class TestLegacyShelfFallback:
+    """The one surviving name→shelf guess, kept for pre-ADR-0047 producers."""
 
     @pytest.mark.parametrize(
         "collection,expected",
         [
-            ("archiv_org1", "buero"),
-            ("proj_alpha", "projekt"),
-            ("s_9f2a4c", "projekt"),
-            # A named collection that is neither project/session nor Archiv is
-            # the base knowledge corpus — same branch order as `lane_for_hit`.
-            ("oib_knowledge", "baurecht"),
-            ("", None),
-            (None, None),
+            ("archiv_org1", Shelf.ARCHIV),
+            ("proj_alpha", Shelf.PROJECT),
+            # NOT `project`: a session collection is its own shelf now.
+            ("s_9f2a4c", Shelf.SESSION),
         ],
     )
-    def test_scope_of_a_collection(self, collection, expected):
-        assert collection_scope(collection) == expected
+    def test_it_reads_the_known_prefixes(self, collection, expected):
+        assert legacy_shelf_for_collection_name(collection) is expected
 
-    def test_qualifier_round_trips_through_the_scope(self):
-        # A citation key carries the qualifier; resolution parses it back. If
-        # these two ever disagree, every qualified key stops resolving.
-        for collection in ("archiv_org1", "proj_alpha", "oib_knowledge"):
-            qualifier = scope_qualifier(collection)
-            assert scope_for_qualifier(qualifier) == collection_scope(collection)
-
-    def test_an_unqualified_or_unknown_key_names_no_scope(self):
-        assert scope_qualifier(None) is None
-        assert scope_for_qualifier(None) is None
-        assert scope_for_qualifier("Internal") is None
-
-    def test_qualifiers_are_matched_case_insensitively(self):
-        # The qualifier survives a round trip through an LLM, which may recase it.
-        assert scope_for_qualifier("projektwissen") == "projekt"
-        assert scope_for_qualifier("  BÜROARCHIV  ") == "buero"
+    @pytest.mark.parametrize("collection", ["oib_knowledge", "some_custom_corpus", "", None])
+    def test_it_fails_closed_on_anything_else(self, collection):
+        # `collection_scope` returned "baurecht" here, which is the fail-open
+        # ADR-0047 calls out: an unknown collection claimed base-law authority.
+        assert legacy_shelf_for_collection_name(collection) is None

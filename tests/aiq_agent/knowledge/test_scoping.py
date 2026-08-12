@@ -5,8 +5,11 @@ import json
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.knowledge.scoping import ScopedCollection
 from aiq_agent.knowledge.scoping import _base64url_decode
 from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 
 
 class TestBase64UrlDecode:
@@ -139,6 +142,98 @@ class TestGetCollectionScopeFromContext:
             assert result == ["only_one"]
 
 
+class TestTheShelfTravelsInTheHeader:
+    """``X-Grid-Collection-Scope`` carries the shelf as data (ADR-0047).
+
+    Both wire shapes are read: the current ``{collection, shelf}`` objects and
+    the legacy bare strings a not-yet-deployed BFF still sends. A bare string
+    states no shelf, and that stays UNKNOWN — the collection id is never
+    inspected to guess one back.
+    """
+
+    @staticmethod
+    def _ctx(payload):
+        return _MockContext(base64.urlsafe_b64encode(json.dumps(payload).encode()).decode())
+
+    def test_the_new_form_carries_a_shelf_per_collection(self):
+        ctx = self._ctx(
+            [
+                {"collection": "oib_knowledge", "shelf": "base"},
+                {"collection": "archiv_org1", "shelf": "archiv"},
+                {"collection": "proj_alpha", "shelf": "project"},
+                {"collection": "s_9f2a4c", "shelf": "session"},
+            ]
+        )
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            assert get_scoped_collections_from_context() == [
+                ScopedCollection("oib_knowledge", Shelf.BASE),
+                ScopedCollection("archiv_org1", Shelf.ARCHIV),
+                ScopedCollection("proj_alpha", Shelf.PROJECT),
+                ScopedCollection("s_9f2a4c", Shelf.SESSION),
+            ]
+
+    def test_a_session_collection_is_session_not_projekt(self):
+        # The headline bug: `('s_', 'projekt')` was the only guess available, so
+        # a private chat attachment was attributed to project knowledge.
+        ctx = self._ctx([{"collection": "s_9f2a4c", "shelf": "session"}])
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            (entry,) = get_scoped_collections_from_context()
+        assert entry.shelf is Shelf.SESSION
+        assert entry.shelf != Shelf.PROJECT
+
+    def test_the_legacy_bare_string_form_leaves_the_shelf_unknown(self):
+        ctx = self._ctx(["oib_knowledge", "s_9f2a4c"])
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            assert get_scoped_collections_from_context() == [
+                ScopedCollection("oib_knowledge", None),
+                ScopedCollection("s_9f2a4c", None),
+            ]
+
+    def test_an_unknown_shelf_value_reads_as_unknown_never_base(self):
+        # A shelf the reader does not know (a producer ahead of this deploy, or
+        # a stale label) must NOT fall open to `base`/`baurecht`.
+        ctx = self._ctx(
+            [
+                {"collection": "proj_alpha", "shelf": "projekt"},
+                {"collection": "archiv_org1", "shelf": ""},
+                {"collection": "oib_knowledge"},
+            ]
+        )
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            entries = get_scoped_collections_from_context()
+        assert [entry.shelf for entry in entries] == [None, None, None]
+        assert [entry.collection for entry in entries] == ["proj_alpha", "archiv_org1", "oib_knowledge"]
+
+    def test_the_new_form_still_normalizes_and_dedupes_collection_names(self):
+        ctx = self._ctx(
+            [
+                {"collection": "s_s_conv1", "shelf": "session"},
+                {"collection": "s_conv1"},
+                {"collection": "proj_alpha", "shelf": "project"},
+            ]
+        )
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            entries = get_scoped_collections_from_context()
+        # The double-prefixed name normalizes onto the same collection, and the
+        # FIRST entry wins so the stated shelf is not lost to a bare repeat.
+        assert entries == [
+            ScopedCollection("s_conv1", Shelf.SESSION),
+            ScopedCollection("proj_alpha", Shelf.PROJECT),
+        ]
+
+    def test_the_names_only_projection_matches(self):
+        ctx = self._ctx([{"collection": "proj_alpha", "shelf": "project"}, "s_9f2a4c"])
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            assert get_collection_scope_from_context() == ["proj_alpha", "s_9f2a4c"]
+
+    def test_an_entry_in_neither_shape_voids_the_whole_scope(self):
+        # The scope is an authorization boundary: an unreadable one is no scope,
+        # never a partially-read one.
+        ctx = self._ctx([{"collection": "proj_alpha", "shelf": "project"}, {"shelf": "session"}])
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            assert get_scoped_collections_from_context() is None
+
+
 class _HeaderContext:
     """Context mock backed by a real per-name header map."""
 
@@ -249,8 +344,8 @@ class TestGetCollectionScopeFromContextOr:
         with (
             patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx),
             patch(
-                "knowledge_layer.register._resolve_target_collections",
-                return_value=["oib_knowledge"],
+                "knowledge_layer.register._resolve_scoped_collections",
+                return_value=[ScopedCollection("oib_knowledge", Shelf.BASE)],
             ),
         ):
             result = get_collection_scope_from_context_or(mock_config, None)
@@ -271,9 +366,36 @@ class TestGetCollectionScopeFromContextOr:
         with (
             patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx),
             patch(
-                "knowledge_layer.register._resolve_target_collections",
-                return_value=["oib_knowledge", "s_abc", "proj_extra"],
+                "knowledge_layer.register._resolve_scoped_collections",
+                return_value=[
+                    ScopedCollection("oib_knowledge", Shelf.BASE),
+                    ScopedCollection("s_abc", Shelf.SESSION),
+                    ScopedCollection("proj_extra", Shelf.PROJECT),
+                ],
             ),
         ):
             result = get_collection_scope_from_context_or(mock_config, "s_abc")
             assert result == ["oib_knowledge", "s_abc", "proj_extra"]
+
+    def test_the_legacy_fallback_states_each_layer_s_shelf(self):
+        """The config path BUILDS the layers, so it knows which is which — the
+        shelf is stated there, not guessed back from the collection name."""
+        from aiq_agent.knowledge.scoping import get_scoped_collections_from_context_or
+
+        ctx = _MockContext(None)
+
+        mock_config = MagicMock()
+        mock_config.use_fixed_collection = False
+        mock_config.collection_name = "oib_knowledge"
+        mock_config.include_base_collection = True
+        mock_config.include_session_collection = True
+        mock_config.project_collections = ["proj_extra"]
+
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            result = get_scoped_collections_from_context_or(mock_config, "abc")
+
+        assert result == [
+            ScopedCollection("oib_knowledge", Shelf.BASE),
+            ScopedCollection("s_abc", Shelf.SESSION),
+            ScopedCollection("proj_extra", Shelf.PROJECT),
+        ]

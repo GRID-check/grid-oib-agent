@@ -1,10 +1,15 @@
-"""The collection-scope rule is a WIRE CONTRACT, so both ends must agree.
+"""The qualifier strings are a WIRE CONTRACT, so both ends must agree.
 
-``SCOPE_QUALIFIERS`` strings are embedded in citation keys that get persisted in
-messages, and the collection prefixes decide which shelf a document sits on. The
-backend writes them and the frontend parses them back, so a change on one side
-alone silently stops every qualified citation from resolving — the exact class of
-drift this identity model exists to remove.
+The legacy qualifier strings are embedded in citation keys that got persisted in
+messages. The backend writes them and the frontend parses them back, so a change
+on one side alone silently stops every qualified citation from resolving — the
+exact class of drift this identity model exists to remove.
+
+The collection-PREFIX parity test that used to live here is gone with
+``_COLLECTION_SCOPE_PREFIXES`` (ADR-0047): it policed the agreement of two
+guesses rather than removing the guess. The shelf now travels as data, and the
+round-trip contract test (``tests/knowledge_layer_tests/test_citation_key_scope.py``
+plus ``tests/aiq_agent/knowledge/test_scoping.py``) drives that seam instead.
 
 Parsed rather than exported, because a generated file would be one more thing to
 keep in sync; a mismatch here is a two-line fix on whichever side is behind.
@@ -17,11 +22,11 @@ from pathlib import Path
 
 import pytest
 
-from aiq_agent.common.source_kinds import _COLLECTION_SCOPE_PREFIXES
 from aiq_agent.common.source_kinds import _LANE_KIND_PREFIXES
 from aiq_agent.common.source_kinds import DEFAULT_SOURCE_KIND
-from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
 from aiq_agent.common.source_kinds import SOURCE_KINDS
+from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.source_kinds import shelf_for_qualifier
 
 _MIRROR = Path("frontends/ui/src/features/chat/lib/source-kinds.ts")
 
@@ -33,26 +38,27 @@ def mirror_source() -> str:
     return _MIRROR.read_text(encoding="utf-8")
 
 
-def test_the_qualifier_strings_match(mirror_source: str):
+def test_the_legacy_qualifier_strings_resolve_to_the_same_shelf(mirror_source: str):
+    """Every legacy qualifier the frontend parses must resolve, on this side, to
+    the SAME shelf — those strings are frozen inside keys already persisted.
+
+    One-directional (mirror ⊆ backend): the two runtimes deploy separately, so
+    a qualifier the backend knows and the frontend has not learned yet is not a
+    contract break. A DISAGREEMENT on a shared string is, and fails here.
+    """
     block = re.search(
-        r"SCOPE_QUALIFIERS:\s*Record<CollectionScope,\s*string>\s*=\s*\{(.*?)\}",
+        r"LEGACY_SCOPE_QUALIFIERS:[^=]*=\s*\[(.*?)\]\n",
         mirror_source,
         re.DOTALL,
     )
-    assert block, "SCOPE_QUALIFIERS not found in the frontend mirror"
-    mirrored = dict(re.findall(r"(\w+):\s*'([^']*)'", block.group(1)))
-    assert mirrored == SCOPE_QUALIFIERS
-
-
-def test_the_collection_prefixes_match(mirror_source: str):
-    block = re.search(
-        r"COLLECTION_SCOPE_PREFIXES:[^=]*=\s*\[(.*?)\]\n",
-        mirror_source,
-        re.DOTALL,
-    )
-    assert block, "COLLECTION_SCOPE_PREFIXES not found in the frontend mirror"
-    mirrored = tuple(re.findall(r"\['([^']*)',\s*'([^']*)'\]", block.group(1)))
-    assert mirrored == _COLLECTION_SCOPE_PREFIXES
+    assert block, "LEGACY_SCOPE_QUALIFIERS not found in the frontend mirror"
+    mirrored = re.findall(r"\['([^']*)',\s*'([^']*)'\]", block.group(1))
+    assert mirrored, "the frontend mirror declares no legacy qualifiers"
+    for label, shelf in mirrored:
+        assert shelf_for_qualifier(label) == Shelf(shelf), f"{label!r} disagrees across the two runtimes"
+    # The persisted vocabulary: keys already written into messages must keep
+    # parsing on both ends whatever else either side adds.
+    assert {label for label, _ in mirrored} >= {"Büroarchiv", "Projektwissen", "Basiswissen"}
 
 
 # ---------------------------------------------------------------------------
