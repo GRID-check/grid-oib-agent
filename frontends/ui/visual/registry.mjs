@@ -185,6 +185,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'main',
   },
   {
+    id: 'document-rename',
+    mobile: true,
+    path: '/dev/document-actions',
+    description:
+      'Renaming a document. The field holds the STEM and the extension sits beside it as a fact about the bytes, so nobody can rename a PDF into something else; a document that already carries a rename offers to restore its file name in the same dialog. Behind it, the resting state of the overflow trigger in a preview header — the control has to be ignorable until it is wanted.',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'document-delete',
+    mobile: true,
+    path: '/dev/document-actions?variant=delete',
+    description:
+      'Deleting a document, through the shared destructive ConfirmDialog. This replaces a full-width red button in the preview\u2019s metadata rail whose confirm step expanded IN PLACE, pushing the rest of the column down: the question now names the file, the answer says what is lost, focus is trapped, and the dialog cannot be dismissed mid-request.',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'file-preview',
     mobile: true,
     path: '/dev/file-preview',

@@ -159,7 +159,11 @@ export const documents = pgTable('documents', {
   projectId: uuid('project_id').notNull()
     .references(() => projects.id, { onDelete: 'cascade' }),
   createdBy: text('created_by').notNull(),
+  // The document's IDENTITY, written once at upload: the join key to the stored
+  // object and, as (collection_name, filename), to its chunks in the retrieval
+  // index. A rename never touches it — see `display_name` and migration 0046.
   filename: text('filename').notNull(),
+  displayName: text('display_name'),
   storageKey: text('storage_key').notNull(),
   // NULL = the deployment's shared bucket (SEAWEED_BUCKET). Recorded rather than
   // derived from the organization id, which is what makes per-organization
@@ -187,7 +191,8 @@ export const documents = pgTable('documents', {
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE CASCADE | **Nullable since ADR-0024**: `NULL` for org-wide `archiv` documents; set for `project` documents. |
 | `scope` | `text` | NOT NULL, DEFAULT `'project'` | ADR-0024 discriminator: `'project'` (hangs off `project_id`) or `'archiv'` (org-wide, `project_id` NULL, `collection_name = archiv_<orgId>`). |
 | `created_by` | `text` | NOT NULL | Uploading user ID |
-| `filename` | `text` | NOT NULL | Original filename |
+| `filename` | `text` | NOT NULL | Original filename — the document's IDENTITY, not its label. It addresses the SeaweedFS object and, as `(collection_name, filename)`, every chunk the retrieval index holds for the document, so it is written at upload and never updated. |
+| `display_name` | `text` | | **Migration `0046`**: what a reader sees, once somebody has renamed the document. `NULL` = never renamed → show `filename`, which is what every earlier row means (no backfill). Resolve the pair with `documentDisplayName` (`lib/documents/display-name`) rather than reading the column directly. Written by `PATCH /api/documents/{id}`, which also mirrors the value onto the backend metadata store's `display_title` so citation chips follow the rename without a re-ingestion. Renaming `filename` instead would orphan the document's chunks — the migration spells out why. |
 | `storage_key` | `text` | NOT NULL | Object storage key |
 | `storage_bucket` | `text` | | **ADR-0043** (migration `0033`): the S3 bucket holding this document's bytes. `NULL` means the deployment's shared bucket (`SEAWEED_BUCKET`), which is what every row written before per-organization buckets existed means — and the meaning is fixed, so no backfill is needed or wanted. Recorded rather than derived from `organization_id`: deriving it would make `SEAWEED_PER_ORG_BUCKETS` a cutover, where flipping it makes every earlier object unreachable. `resolveDocumentBucket` in `lib/storage/bucket` is the one place that turns it back into a name. |
 | `collection_name` | `text` | NOT NULL | Milvus collection for the vectorized content |

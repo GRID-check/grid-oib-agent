@@ -9,6 +9,7 @@ import { nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/fil
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { documentDisplayName } from '@/lib/documents/display-name'
 
 /**
  * The explorer's detail view — the one a person reaches for when the corpus has
@@ -140,8 +141,11 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
                       {ext || '—'}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12.5px] font-medium text-foreground" title={file.filename}>
-                        {file.filename}
+                      <span
+                        className="block truncate text-[12.5px] font-medium text-foreground"
+                        title={documentDisplayName(file)}
+                      >
+                        {documentDisplayName(file)}
                       </span>
                       {/* The summary earns its line here in a way it cannot on
                           a card: the row is already one line tall, so a second

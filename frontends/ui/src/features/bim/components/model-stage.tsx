@@ -46,6 +46,7 @@ import {
   Layers,
   Link2,
   MonitorX,
+  MoreHorizontal,
   PanelLeft,
   RotateCcw,
   Ruler,
@@ -63,6 +64,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { documentDisplayName } from '@/lib/documents/display-name'
+import { DocumentActionsMenu } from '@/features/documents/components/document-actions'
 import { storeyKey, supportsWebGpu, type BimViewerElement } from '../lib/model-index'
 import {
   buildModelQuery,
@@ -171,9 +174,22 @@ export interface ModelStageProps {
   projectId: string
   /** Closes the stage — the caller drops `?model=` from the URL. */
   onClose: () => void
+  /**
+   * The model on screen was renamed from the stage's own file menu. The page
+   * underneath lists the same document, so it is told rather than left to find
+   * out on the next load.
+   */
+  onModelRenamed?: (documentId: string, displayName: string | null) => void
+  /** The model on screen was deleted; the stage closes itself afterwards. */
+  onModelDeleted?: (documentId: string) => void
 }
 
-export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element {
+export function ModelStage({
+  projectId,
+  onClose,
+  onModelRenamed,
+  onModelDeleted,
+}: ModelStageProps): JSX.Element {
   const t = useTranslations('bim')
   const { locale } = useLocale()
   const router = useRouter()
@@ -786,7 +802,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         }}
       >
         <DialogTitle className="sr-only">
-          {model ? t('stage.dialogLabel', { name: model.filename }) : t('title')}
+          {model ? t('stage.dialogLabel', { name: documentDisplayName(model) }) : t('title')}
         </DialogTitle>
 
         <div className="bg-muted/40 relative min-h-0 flex-1">
@@ -846,7 +862,10 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   {(models ?? []).map((candidate) => (
                     <ViewerRailItem
                       key={candidate.id}
-                      label={stageModelLabel(candidate.filename)}
+                      // The name the document goes by, minus the extension.
+                      // `?model=` still carries the FILE name, so a rename
+                      // never breaks a link anyone has already sent.
+                      label={stageModelLabel(documentDisplayName(candidate))}
                       icon={<Boxes aria-hidden="true" />}
                       meta={candidate.status === 'ready' ? undefined : t(`status.${candidate.status}`)}
                       selected={candidate.id === model?.id}
@@ -932,6 +951,46 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 one a reader has to be able to discover on hover, so the
                 redundancy is worth what it costs there.
               */}
+              {/*
+                The file operations, on the building.
+
+                A model is a document like any other, and until now it was the
+                one document in the product you could not rename or delete
+                where you were looking at it — you had to close the viewer,
+                find the card again, and open a different surface. The menu is
+                the same one the file preview carries; only its trigger is
+                dressed for the viewport.
+              */}
+              {model && (
+                <DocumentActionsMenu
+                  document={{
+                    id: model.documentId,
+                    filename: model.filename,
+                    displayName: model.displayName,
+                  }}
+                  // The rail lists the project's models AND the org-wide
+                  // Archiv's (`listAccessibleModels` includes both, because
+                  // retrieval does). An Archiv model has no project, and its
+                  // delete goes to the org-scoped route — the project one
+                  // answers 404 for it on purpose.
+                  scope={model.projectId === null ? 'archiv' : 'files'}
+                  onRenamed={onModelRenamed}
+                  onDeleted={(documentId) => {
+                    onModelDeleted?.(documentId)
+                    // The building on screen no longer exists. Staying open on
+                    // a viewport of nothing is not a state worth offering.
+                    onClose()
+                  }}
+                  align="end"
+                  trigger={
+                    <ViewerIconButtonBase
+                      label={t('stage.fileActions')}
+                      icon={MoreHorizontal}
+                      data-testid="stage-file-actions"
+                    />
+                  }
+                />
+              )}
               <ViewerIconButton
                 label={copyFailed ? t('link.failed') : t('link.copy')}
                 icon={copyFailed ? MonitorX : copied ? Check : Link2}

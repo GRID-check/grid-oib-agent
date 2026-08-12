@@ -52,7 +52,19 @@ export interface BimModelHeader {
   id: string
   documentId: string
   projectId: string | null
+  /**
+   * The document's file name — the model's identity everywhere: the `?model=`
+   * deep link, the revision series, the chunk key. Never the label to print;
+   * see `displayName`.
+   */
   filename: string
+  /**
+   * The document's rename, when it has one (0046). NULL means the file name is
+   * the name. Carried on the header so the viewer's model rail and title can
+   * call a building what its owner called it without a second round trip —
+   * resolve the pair with `documentDisplayName`.
+   */
+  displayName: string | null
   status: BimModelStatus
   schemaVersion: string | null
   elementCount: number
@@ -67,12 +79,13 @@ export interface BimModelHeader {
   updatedAt: Date
 }
 
-/** Columns every model lookup returns, joined to the document's filename. */
+/** Columns every model lookup returns, joined to the document's name. */
 const MODEL_COLUMNS = {
   id: bimModels.id,
   documentId: bimModels.documentId,
   projectId: bimModels.projectId,
   filename: documents.filename,
+  displayName: documents.displayName,
   status: bimModels.status,
   schemaVersion: bimModels.schemaVersion,
   elementCount: bimModels.elementCount,

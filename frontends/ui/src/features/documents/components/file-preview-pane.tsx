@@ -33,6 +33,7 @@ import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
+import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
 interface FilePreviewPaneProps {
@@ -64,15 +65,12 @@ interface FilePreviewPaneProps {
    * gated — they predate the feature.
    */
   showMetadataPanel?: boolean
-  /**
-   * Extra action controls rendered in the right metadata column's action area,
-   * below the status/size rows and the re-ingest control (e.g. the Delete
-   * affordance, an authored full-width destructive button). A full-width control
-   * would misalign inside the icon-button header row, so it lives in the column
-   * where such buttons belong. Both the project Files and org Archiv workspaces
-   * supply a Delete here.
-   */
-  extraActions?: ReactNode
+  /** Which corpus the document belongs to — decides the file operations' route. */
+  scope?: DocumentScope
+  /** The document was renamed from the header menu. */
+  onRenamed?: (fileId: string, displayName: string | null) => void
+  /** The document was deleted from the header menu; the pane closes itself. */
+  onDeleted?: (fileId: string) => void
 }
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
@@ -115,7 +113,19 @@ interface VisualDetail {
 
 const VISUAL_CONTENT_TYPES = ['drawing', 'image', 'chart']
 
-export function FilePreviewPane({ file, projectId, projectName, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
+export function FilePreviewPane({
+  file,
+  projectId,
+  projectName,
+  canManage = true,
+  scope = 'files',
+  onClose,
+  onReingested,
+  onTagsUpdated,
+  onRenamed,
+  onDeleted,
+  showMetadataPanel = true,
+}: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -128,8 +138,6 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
-  const [isDownloading, setIsDownloading] = useState(false)
-  const [downloadFailed, setDownloadFailed] = useState(false)
   const [isReingesting, setIsReingesting] = useState(false)
   const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
   // "Detailed information": per-page VLM descriptions of the document's visual
@@ -220,23 +228,18 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
     })
   }, [file.id, details, detailsLoading])
 
-  // The download route returns JSON ({downloadUrl, ...}), not the file bytes —
-  // fetch it, then navigate to the presigned URL. Its Content-Disposition is
-  // `attachment`, so the browser downloads the file without leaving the page.
-  const handleDownload = useCallback(async () => {
-    setDownloadFailed(false)
-    setIsDownloading(true)
-    try {
-      const res = await fetch(`/api/documents/${file.id}/download`)
-      const data = res.ok ? await res.json() : null
-      if (data?.downloadUrl) window.location.assign(data.downloadUrl)
-      else setDownloadFailed(true)
-    } catch {
-      setDownloadFailed(true)
-    } finally {
-      setIsDownloading(false)
-    }
-  }, [file.id])
+  /**
+   * The document's name and its download, from the shared hook — this pane
+   * holds no request logic of its own any more.
+   *
+   * Download keeps a BUTTON of its own in the header (it is what most people
+   * came to do with a document they are looking at) while rename and delete sit
+   * in the menu beside it; offering download twice on one surface would be two
+   * controls for one job. Renames and deletions are the menu's, and they reach
+   * this pane the same way any other change does: the workspace updates the
+   * document it passes in.
+   */
+  const actions = useDocumentActions({ document: file, scope })
 
   // Re-dispatch a failed document to the ingest pipeline. On success the parent
   // flips its local status to 'pending' (the endpoint returns the new status),
@@ -275,8 +278,15 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
           {ext || <Icon className="size-4" />}
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[15px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
-            {file.filename}
+          {/* The name the document was GIVEN, if it was given one. `title`
+              carries it in full for the truncated case — and the file's own
+              name underneath it, which is the answer to "which file is this
+              actually" for anyone who renamed it. */}
+          <h3
+            className="truncate text-[15px] font-semibold leading-tight tracking-[-0.01em] text-foreground"
+            title={actions.isRenamed ? `${actions.name}\n${file.filename}` : actions.name}
+          >
+            {actions.name}
           </h3>
           {/* Type AND status on one line. The status badge used to live only in
               the metadata column, below the fold on a narrow panel — so the one
@@ -300,14 +310,27 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
           variant="outline"
           size="sm"
           className="h-8 shrink-0 gap-1.5 px-2 pointer-coarse:min-w-11 @md:px-3"
-          onClick={handleDownload}
-          disabled={isDownloading}
+          onClick={() => void actions.download()}
+          disabled={actions.isDownloading}
           aria-label={t('preview.download')}
           title={t('preview.download')}
         >
           <Download className="size-3.5" aria-hidden />
           <span className="hidden @md:inline">{t('preview.download')}</span>
         </Button>
+        {/* Rename and delete. In the header, with the controls that act on this
+            document — not in the metadata rail, which describes it. */}
+        <DocumentActionsMenu
+          document={file}
+          scope={scope}
+          actions={['rename', 'delete']}
+          canManage={canManage}
+          onRenamed={onRenamed}
+          onDeleted={(fileId) => {
+            onDeleted?.(fileId)
+            onClose?.()
+          }}
+        />
         {canExpandPreview && previewUrl && (
           <Button
             variant="ghost"
@@ -327,7 +350,7 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
         )}
       </div>
 
-      {downloadFailed && (
+      {actions.downloadFailed && (
         <div
           role="alert"
           className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-2"
@@ -338,8 +361,8 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
             variant="outline"
             size="sm"
             className="h-7 gap-1.5"
-            onClick={handleDownload}
-            disabled={isDownloading}
+            onClick={() => void actions.download()}
+            disabled={actions.isDownloading}
           >
             <RotateCcw className="size-3.5" aria-hidden />
             {t('preview.tryAgain')}
@@ -351,7 +374,7 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
         <PdfViewerDialog
           open={isLargePreviewOpen}
           onOpenChange={setIsLargePreviewOpen}
-          fileName={file.filename}
+          fileName={actions.name}
           // The enlarged view is the other place a full-size original used to
           // cross the wire whole, so it gets the optimizable path too when there
           // is one. A PDF goes to the same-origin stream instead of the
@@ -406,7 +429,7 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
               <iframe
                 src={previewUrl}
                 className="h-full w-full rounded-lg border bg-background shadow-lg"
-                title={file.filename}
+                title={actions.name}
               />
             ) : (
               // This is where the bytes actually were: the preview URL serves
@@ -424,7 +447,7 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
               // so the browser sizes to the image and not to the width="0".
               <Image
                 src={previewImageUrl ?? previewUrl}
-                alt={file.filename}
+                alt={actions.name}
                 width={0}
                 height={0}
                 sizes="(min-width: 1536px) 720px, 90vw"
@@ -641,9 +664,12 @@ export function FilePreviewPane({ file, projectId, projectName, canManage = true
             </div>
           )}
 
-          {/* Extra actions (e.g. Delete) — a full-width destructive control that
-              belongs in this column, not the icon-button header row. */}
-          {extraActions}
+          {/* No Delete block here any more. A full-width red button under the
+              tags made the most dangerous operation the loudest thing on a
+              column whose job is to DESCRIBE the document, and its confirm step
+              expanded in place, pushing the rest of the rail down. Both moved
+              into the header's actions menu, beside the other controls that act
+              on this file. */}
 
           <div className="flex-1" />
           {showMetadataPanel && (

@@ -10,7 +10,6 @@ import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
-import { DeleteDocumentButton } from './delete-document-button'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
@@ -18,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
 import { useTranslations } from '@/i18n'
+import { documentDisplayName } from '@/lib/documents/display-name'
 
 interface ArchivWorkspaceProps {
   /** Whether the viewer may upload/delete (holds `org:archiv:manage`). */
@@ -70,6 +70,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
         const docs: FileItem[] = (data.documents ?? []).map((d) => ({
           id: d.id as string,
           filename: d.filename as string,
+          displayName: (d.displayName as string | null) ?? null,
           fileSize: (d.fileSize as number | null) ?? null,
           contentType: (d.contentType as string | null) ?? null,
           status: (d.status as string | null) ?? null,
@@ -130,7 +131,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     files,
     useCallback(
       (file: FileItem) => {
-        toast.success(t('toast.ingestionComplete', { name: file.filename }), {
+        toast.success(t('toast.ingestionComplete', { name: documentDisplayName(file) }), {
           icon: <Archive className="size-4" style={{ color: sourceBase('office') }} aria-hidden />,
         })
       },
@@ -160,6 +161,13 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   const handleDeleted = useCallback((fileId: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== fileId))
     setSelectedFileId((current) => (current === fileId ? null : current))
+  }, [])
+
+  // A rename lands in the local corpus from the PATCH's own answer, so the
+  // library card and the preview header carry the new name in the same frame
+  // the dialog closes — no refetch of the whole Archiv for one string.
+  const handleRenamed = useCallback((fileId: string, displayName: string | null) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, displayName } : f)))
   }, [])
 
   // This session's own uploads, in every phase — see the same selector in
@@ -287,24 +295,19 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
           )}
         </div>
 
+        {/* The file operations live in the preview's header now. `canManage`
+            still decides whether they are offered at all: a member without
+            `org:archiv:manage` keeps download and sees no rename or delete. */}
         <FilePreviewDialog
           file={selectedFile}
           canManage={canManage}
+          scope="archiv"
           onClose={() => setSelectedFileId(null)}
           onReingested={handleReingested}
           onTagsUpdated={handleTagsUpdated}
+          onRenamed={handleRenamed}
+          onDeleted={handleDeleted}
           showMetadataPanel={showMetadataPanel}
-          extraActions={
-            canManage && selectedFile ? (
-              <DeleteDocumentButton
-                fileId={selectedFile.id}
-                filename={selectedFile.filename}
-                onDeleted={handleDeleted}
-                deleteUrl={`/api/archiv/documents/${selectedFile.id}`}
-                namespace="archiv"
-              />
-            ) : undefined
-          }
         />
       </div>
     </div>

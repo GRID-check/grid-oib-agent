@@ -55,6 +55,7 @@ function model(
   return {
     id: `id-${filename}`,
     documentId: `doc-${filename}`,
+    displayName: null,
     projectId: 'p1',
     filename,
     status: modelSummary ? 'ready' : 'failed',

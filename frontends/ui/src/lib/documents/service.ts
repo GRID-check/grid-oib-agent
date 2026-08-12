@@ -45,9 +45,11 @@ import {
   listProjectDocuments,
   markDocumentIngestFailed,
   markDocumentProcessing,
+  setDocumentDisplayName,
   setDocumentIngestJob,
   type DocumentListRow,
 } from './repository'
+import { documentDisplayName, validateDocumentName } from './display-name'
 import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
 import { isIfcFilename } from '@/lib/bim/types'
 
@@ -791,6 +793,100 @@ export async function updateDocumentTags(
 
   const body = await res.json().catch(() => ({}))
   return { id: doc.id, tags: Array.isArray(body.tags) ? body.tags : tags }
+}
+
+/**
+ * Rename a document — the label, never the file.
+ *
+ * Scope-aware like every other item operation here: `getAccessibleDocument`
+ * applies per-project FGA to a project document and `org:archiv:manage` to an
+ * Archiv one, so both corpora rename through this one function and one route.
+ *
+ * ## What actually changes
+ *
+ * `display_name` in the BFF row, and `display_title` on the backend's metadata
+ * row for the same document. Those are the two places a user-facing name is
+ * read from — the file lists and preview here, the citation chips there — and
+ * they are written together so a renamed document does not answer to two
+ * different names depending on which surface you are looking at.
+ *
+ * `filename` is untouched. It is the join key to the stored object and to every
+ * chunk in the retrieval index (see migration 0046), so renaming it would
+ * detach the document from its own content. That is also why this needs no
+ * re-ingestion: nothing about the indexed document changed.
+ *
+ * The backend PATCH is BEST-EFFORT, and the ordering says which side wins. The
+ * durable rename is the row here; a backend that is down, slow, or has no
+ * metadata row for the document (nothing was ever summarized — a failed
+ * ingestion, or a model, which has no summary row at all) must not stop a
+ * person from correcting a file name. The consequence is bounded and visible:
+ * the citation chip keeps the old title until the next rename.
+ *
+ * Passing `null` clears the rename and restores the file's own name.
+ */
+export async function renameDocument(
+  session: AuthorizedSession,
+  documentId: string,
+  requestedName: string | null,
+  request: Request,
+): Promise<{ id: string; filename: string; displayName: string | null }> {
+  const doc = await getAccessibleDocument(session, documentId, 'write')
+
+  let displayName: string | null = null
+  if (requestedName !== null) {
+    const validated = validateDocumentName(requestedName)
+    if (!validated.ok) {
+      throw new BadRequestError('The document name is not usable', { reason: validated.reason })
+    }
+    // A rename back to the file's own name is a CLEAR, not a stored duplicate.
+    // Otherwise the column would hold a value identical to `filename` and the
+    // "has this been renamed" question — which the UI asks to decide whether to
+    // offer "restore original name" — would answer yes for a document nobody
+    // renamed.
+    displayName = validated.value === doc.filename ? null : validated.value
+  }
+
+  await setDocumentDisplayName(documentId, session.organizationId, displayName)
+
+  // Mirror the name onto the backend's metadata row so citation chips follow
+  // the rename immediately, with no re-ingest (the retrieval layer prefers a
+  // stored `display_title` over the derived filename default). Best-effort by
+  // design — see the note above.
+  try {
+    await fetch(
+      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
+        doc.filename,
+      )}/display-title`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_title: displayName }),
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      },
+    )
+  } catch {
+    // ignore — the durable rename is the row above; the chip catches up on the
+    // next rename or the next re-ingestion.
+  }
+
+  // Data-provenance event: who called which file what. Both names are
+  // user-controlled, so both are capped before they reach the trail.
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: doc.scope === 'archiv' || doc.projectId === null ? 'archiv.document.renamed' : 'document.renamed',
+    targetType: 'document',
+    targetId: documentId,
+    metadata: {
+      filename: doc.filename.slice(0, 200),
+      previousName: documentDisplayName(doc).slice(0, 200),
+      displayName: (displayName ?? doc.filename).slice(0, 200),
+      collectionName: doc.collectionName,
+    },
+    request,
+  })
+
+  return { id: documentId, filename: doc.filename, displayName }
 }
 
 /**

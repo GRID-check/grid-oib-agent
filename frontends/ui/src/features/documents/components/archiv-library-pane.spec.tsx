@@ -5,6 +5,7 @@ import { ArchivLibraryPane } from './archiv-library-pane'
 import type { FileItem } from './project-file-workspace'
 
 const baseFile: Omit<FileItem, 'id' | 'filename'> = {
+  displayName: null,
   fileSize: 1024,
   contentType: 'application/pdf',
   status: 'completed',
@@ -24,6 +25,7 @@ const files: FileItem[] = [
     ...baseFile,
     id: 'a2',
     filename: 'fassade-schnitt.pdf',
+    displayName: null,
     tags: ['Brandschutz'],
     summary: 'Fassadenschnitt mit Attikadetail.',
   },

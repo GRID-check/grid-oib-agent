@@ -61,6 +61,7 @@ vi.mock('./repository', () => ({
   findDocumentInOrg: vi.fn(),
   listProjectDocuments: vi.fn(),
   deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
+  setDocumentDisplayName: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('./reconcile-status', () => ({
@@ -77,12 +78,14 @@ import {
   findDocumentInOrg,
   listProjectDocuments,
   deleteProjectDocument,
+  setDocumentDisplayName,
 } from './repository'
 import {
   listDocuments,
   uploadDocument,
   reingestDocument,
   deleteDocument,
+  renameDocument,
   searchProjectDocuments,
   joinHitsToFiles,
   deriveSearchTopK,
@@ -375,6 +378,7 @@ describe('listDocuments', () => {
       {
         id: 'doc-1',
         filename: 'plan.pdf',
+        displayName: null,
         fileSize: 1024,
         contentType: 'application/pdf',
         status: 'completed',
@@ -680,6 +684,148 @@ describe('deleteDocument', () => {
     expect(deleteProjectDocument).toHaveBeenCalledWith('doc-1', 'org-1', 'proj-1')
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'document.deleted' }),
+    )
+  })
+})
+
+describe('renameDocument', () => {
+  const projectDoc = makeDocument()
+  const request = () => new Request('http://x')
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) })
+  })
+
+  it('stores the trimmed name and mirrors it to the backend metadata row', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+
+    const result = await renameDocument(session, 'doc-1', '  Einreichplan.pdf  ', request())
+
+    expect(result).toEqual({ id: 'doc-1', filename: 'plan.pdf', displayName: 'Einreichplan.pdf' })
+    expect(setDocumentDisplayName).toHaveBeenCalledWith('doc-1', 'org-1', 'Einreichplan.pdf')
+
+    // The mirror keeps citation chips honest without a re-ingest — keyed by the
+    // document's UNCHANGED (collection, filename) pair.
+    const [url, init] = mockFetch.mock.calls.at(-1) ?? []
+    expect(String(url)).toBe(
+      'http://backend:8000/v1/collections/proj_abc/documents/plan.pdf/display-title',
+    )
+    expect((init as RequestInit)?.method).toBe('PATCH')
+    expect(JSON.parse(String((init as RequestInit)?.body))).toEqual({
+      display_title: 'Einreichplan.pdf',
+    })
+  })
+
+  it('never touches the file name — the join key to the object and the chunks', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+
+    await renameDocument(session, 'doc-1', 'Einreichplan.pdf', request())
+
+    // `setDocumentDisplayName` is the ONLY writer this path has; if a rename
+    // ever grows a second one, this fails and the reasoning gets re-read.
+    expect(setDocumentDisplayName).toHaveBeenCalledTimes(1)
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+  })
+
+  it('treats a rename back to the file name as a clear, not a stored duplicate', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, displayName: 'Einreichplan.pdf' })
+
+    const result = await renameDocument(session, 'doc-1', 'plan.pdf', request())
+
+    expect(result.displayName).toBeNull()
+    expect(setDocumentDisplayName).toHaveBeenCalledWith('doc-1', 'org-1', null)
+  })
+
+  it('clears the rename on null', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, displayName: 'Einreichplan.pdf' })
+
+    await renameDocument(session, 'doc-1', null, request())
+
+    expect(setDocumentDisplayName).toHaveBeenCalledWith('doc-1', 'org-1', null)
+    expect(JSON.parse(String((mockFetch.mock.calls.at(-1) ?? [])[1]?.body))).toEqual({
+      display_title: null,
+    })
+  })
+
+  it('refuses an unusable name (400) before writing anything', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+
+    await expect(renameDocument(session, 'doc-1', 'plans/EG.pdf', request())).rejects.toBeInstanceOf(
+      BadRequestError,
+    )
+    expect(setDocumentDisplayName).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('404s when the document is not in the org', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(null)
+
+    await expect(renameDocument(session, 'missing', 'x.pdf', request())).rejects.toBeInstanceOf(
+      NotFoundError,
+    )
+    expect(setDocumentDisplayName).not.toHaveBeenCalled()
+  })
+
+  it('rejects a caller without write access (403) before any side effect', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new ForbiddenError())
+
+    await expect(renameDocument(session, 'doc-1', 'x.pdf', request())).rejects.toBeInstanceOf(
+      ForbiddenError,
+    )
+    expect(setDocumentDisplayName).not.toHaveBeenCalled()
+  })
+
+  it('keeps the rename when the backend mirror fails — the row is the durable one', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    mockFetch.mockRejectedValue(new Error('backend down'))
+
+    const result = await renameDocument(session, 'doc-1', 'Einreichplan.pdf', request())
+
+    expect(result.displayName).toBe('Einreichplan.pdf')
+    expect(setDocumentDisplayName).toHaveBeenCalledWith('doc-1', 'org-1', 'Einreichplan.pdf')
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'document.renamed' }),
+    )
+  })
+
+  it('records both names in the audit trail, under the scope-correct action', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, displayName: 'Alt.pdf' })
+
+    await renameDocument(session, 'doc-1', 'Neu.pdf', request())
+
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'document.renamed',
+        targetType: 'document',
+        targetId: 'doc-1',
+        metadata: expect.objectContaining({
+          filename: 'plan.pdf',
+          previousName: 'Alt.pdf',
+          displayName: 'Neu.pdf',
+        }),
+      }),
+    )
+  })
+
+  it('renames an Archiv document too, under the Archiv action', async () => {
+    // Scope-aware: the Archiv has no project, so `getAccessibleDocument` applies
+    // the org-level manage check instead of project FGA. The session here holds
+    // it (admin role in `canManageArchiv` terms is asserted in the archiv specs);
+    // what this asserts is that the path is not project-only, as DELETE is.
+    vi.mocked(findDocumentInOrg).mockResolvedValue({
+      ...projectDoc,
+      projectId: null,
+      scope: 'archiv',
+      collectionName: 'archiv_org-1',
+    })
+
+    await expect(
+      renameDocument({ ...session, role: 'admin' }, 'doc-1', 'Musterordner.pdf', request()),
+    ).resolves.toMatchObject({ displayName: 'Musterordner.pdf' })
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'archiv.document.renamed' }),
     )
   })
 })

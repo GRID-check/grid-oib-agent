@@ -367,6 +367,7 @@ export const bim = {
    */
   stage: {
     dialogLabel: 'Model {name}',
+    fileActions: 'File actions',
     close: 'Close',
     home: 'Fit the whole model',
     /**

@@ -8,6 +8,7 @@ import { motion, springSnappy } from '@/components/motion'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
+import { documentDisplayName } from '@/lib/documents/display-name'
 import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
@@ -205,6 +206,7 @@ export function FileCard({
   testId = 'file-card',
 }: FileCardProps) {
   const t = useTranslations('files')
+  const name = documentDisplayName(file)
   const ext = fileExtensionLabel(file.filename)
   const isFailed = file.status === 'failed'
   const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
@@ -275,8 +277,11 @@ export function FileCard({
               )}
             </div>
 
-            <p className="mt-[10px] truncate text-[12.5px] font-medium leading-[1.4] text-foreground" title={file.filename}>
-              {file.filename}
+            {/* The name the document goes by. The format chip beside it still
+                comes from the FILE name, because that is what the bytes are —
+                a rename changes the label, never the format. */}
+            <p className="mt-[10px] truncate text-[12.5px] font-medium leading-[1.4] text-foreground" title={name}>
+              {name}
             </p>
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />

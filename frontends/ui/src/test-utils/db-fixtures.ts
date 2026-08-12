@@ -77,6 +77,8 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   scope: 'project',
   createdBy: 'user-1',
   filename: 'plan.pdf',
+  // Not renamed — what every document is until somebody renames it.
+  displayName: null,
   storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
   // NULL is what every row written before migration 0033 carries, and it means
   // the shared bucket — so it is the right default for a fixture standing in

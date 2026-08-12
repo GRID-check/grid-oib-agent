@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslations } from '@/i18n'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { documentDisplayName } from '@/lib/documents/display-name'
+import type { DocumentScope } from './document-actions'
 import type { FileItem } from './project-file-workspace'
 import { FilePreviewPane } from './file-preview-pane'
 
@@ -13,11 +15,15 @@ interface FilePreviewDialogProps {
   projectId?: string
   projectName?: string
   canManage?: boolean
+  /** Which corpus this document belongs to — decides the file operations' route. */
+  scope?: DocumentScope
   onReingested?: (fileId: string, status: string) => void
   onTagsUpdated?: (fileId: string, tags: string[]) => void
+  /** The document was renamed in the pane's header menu. */
+  onRenamed?: (fileId: string, displayName: string | null) => void
+  /** The document was deleted in the pane's header menu. */
+  onDeleted?: (fileId: string) => void
   showMetadataPanel?: boolean
-  /** Extra action controls (e.g. a Delete affordance) rendered in the pane. */
-  extraActions?: ReactNode
 }
 
 /**
@@ -51,10 +57,12 @@ export function FilePreviewDialog({
   projectId,
   projectName,
   canManage,
+  scope = 'files',
   onReingested,
   onTagsUpdated,
+  onRenamed,
+  onDeleted,
   showMetadataPanel,
-  extraActions,
 }: FilePreviewDialogProps) {
   const t = useTranslations('files')
 
@@ -128,7 +136,7 @@ export function FilePreviewDialog({
           {/* Radix requires a title for the accessible name. The pane renders
               the filename visually, so this one is screen-reader only. */}
           <DialogTitle className="sr-only">
-            {t('preview.dialogLabel', { name: file.filename })}
+            {t('preview.dialogLabel', { name: documentDisplayName(file) })}
           </DialogTitle>
 
           <FilePreviewPane
@@ -136,11 +144,13 @@ export function FilePreviewDialog({
             projectId={projectId}
             projectName={projectName}
             canManage={canManage}
+            scope={scope}
             onClose={onClose}
             onReingested={onReingested}
             onTagsUpdated={onTagsUpdated}
+            onRenamed={onRenamed}
+            onDeleted={onDeleted}
             showMetadataPanel={showMetadataPanel}
-            extraActions={extraActions}
           />
         </DialogContent>
       )}

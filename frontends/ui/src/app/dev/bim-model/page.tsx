@@ -278,6 +278,7 @@ function BimModelPreview(): JSX.Element {
                 documentId: 'doc-v1',
                 projectId: 'p1',
                 filename: 'wohnhaus-beispielgasse-v1.ifc',
+                displayName: null,
                 status: 'ready',
                 schemaVersion: 'IFC4',
                 elementCount: 171,

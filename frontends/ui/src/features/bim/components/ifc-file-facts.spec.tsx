@@ -61,6 +61,7 @@ function model(overrides: Partial<BimModelHeaderView> = {}): BimModelHeaderView 
     documentId: 'doc-1',
     projectId: 'proj-1',
     filename: 'Haus-A.ifc',
+    displayName: null,
     status: 'ready',
     schemaVersion: 'IFC4',
     elementCount: 1842,

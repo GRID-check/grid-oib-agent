@@ -116,6 +116,7 @@ function model(overrides: Partial<BimModelHeaderView> = {}): BimModelHeaderView 
     documentId: 'doc-1',
     projectId: 'p1',
     filename: 'Haus-A.ifc',
+    displayName: null,
     status: 'ready',
     schemaVersion: 'IFC4',
     elementCount: 120,
@@ -873,5 +874,84 @@ describe('ModelStage — the highlights a link carries', () => {
     expect(
       screen.getAllByText(/One of the highlighted elements is not in this model/)
     ).toHaveLength(2)
+  })
+})
+
+describe('ModelStage — the file operations on the building', () => {
+  it('offers rename and delete on the model that is open', async () => {
+    const user = userEvent.setup()
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    await user.click(await screen.findByTestId('stage-file-actions'))
+
+    // The same three the file preview carries — download included, because the
+    // viewport has no download button of its own.
+    expect(await screen.findByRole('menuitem', { name: /download/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /rename/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /delete/i })).toBeInTheDocument()
+  })
+
+  it('closes the stage after the building it was showing is deleted', async () => {
+    const onClose = vi.fn()
+    const onModelDeleted = vi.fn()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+
+    render(
+      <ModelStage
+        projectId="p1"
+        onClose={onClose}
+        onModelDeleted={onModelDeleted}
+      />
+    )
+
+    await user.click(await screen.findByTestId('stage-file-actions'))
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+    // Named, so nobody deletes the wrong building from a viewport showing one.
+    expect(await screen.findByText('Delete “Haus-A.ifc”?')).toBeInTheDocument()
+    await user.click(await screen.findByTestId('document-delete-confirm'))
+
+    // The DELETE goes to the document, because a model IS a document.
+    await waitFor(() => expect(onModelDeleted).toHaveBeenCalledWith('doc-1'))
+    expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1', { method: 'DELETE' })
+    expect(onClose).toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('calls a renamed building by its new name and leaves the link alone', async () => {
+    // `?model=` carries the FILE name — so a rename cannot break a link that
+    // was written into a chat answer weeks ago.
+    state.models = [
+      model({ displayName: 'Haus A – Bestand.ifc' }),
+      model({ id: 'm-2', documentId: 'doc-2', filename: 'Nebengebäude.ifc' }),
+    ]
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    const rail = await screen.findByRole('region', { name: 'Models' })
+    expect(within(rail).getByRole('button', { name: 'Haus A – Bestand' })).toBeInTheDocument()
+    expect(within(rail).queryByRole('button', { name: 'Haus-A' })).not.toBeInTheDocument()
+  })
+})
+
+describe('ModelStage — a model from the Büroarchiv', () => {
+  it('deletes it through the org-scoped route, not the project one', async () => {
+    // The rail lists the Archiv's models beside the project's, and an Archiv
+    // document is 404 on the project delete route by design.
+    state.models = [model({ projectId: null })]
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+
+    render(<ModelStage projectId="p1" onClose={vi.fn()} />)
+
+    await user.click(await screen.findByTestId('stage-file-actions'))
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+    await user.click(await screen.findByTestId('document-delete-confirm'))
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/archiv/documents/doc-1', { method: 'DELETE' })
+    )
+    vi.unstubAllGlobals()
   })
 })
