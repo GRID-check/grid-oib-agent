@@ -222,6 +222,105 @@ export const updateSkill = async (skillId: string, input: UpdateSkillInput): Pro
   return (await response.json()) as SkillListItem
 }
 
+/**
+ * Switch a platform-CURATED skill on or off for this organization.
+ *
+ * By name, not by id: a platform skill is a file, and what is stored is only
+ * the org's decision about it. The pipeline's own machinery is not addressable
+ * here — the server 404s anything that is not curated.
+ */
+export const setCuratedSkillEnabled = async (
+  name: string,
+  enabled: boolean,
+): Promise<SkillListItem> => {
+  const response = await fetch(`${skillsBase}/curated/${encodeURIComponent(name)}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify({ enabled }),
+  })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to update platform skill')
+  const data = (await response.json()) as { skill?: SkillListItem } | SkillListItem
+  return 'skill' in data && data.skill ? data.skill : (data as SkillListItem)
+}
+
+// ============================================================
+// Platform catalogue (Platform → Skills, platform owners only)
+// ============================================================
+
+/**
+ * A curated skill as the platform dashboard sees it.
+ *
+ * Carries a real `id` and a `published` flag, neither of which an organization
+ * ever sees: `GET /api/skills` hands a tenant the same skill with `id: null`,
+ * because the id addresses the fleet's copy and only the platform tier may
+ * write it.
+ */
+export interface PlatformSkillItem {
+  id: string
+  name: string
+  description: string
+  body: string
+  metadata: Record<string, string>
+  published: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PlatformSkillInput {
+  name: string
+  description: string
+  body: string
+  metadata?: Record<string, string>
+  published?: boolean
+}
+
+const platformSkillsBase = '/api/platform/skills'
+
+/** The whole curated catalogue, drafts included. */
+export const listPlatformSkills = async (): Promise<PlatformSkillItem[]> => {
+  const response = await fetch(platformSkillsBase, { headers: jsonHeaders })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to list platform skills')
+  const data = (await response.json()) as { skills?: PlatformSkillItem[] } | PlatformSkillItem[]
+  return Array.isArray(data) ? data : (data.skills ?? [])
+}
+
+export const createPlatformSkill = async (
+  input: PlatformSkillInput,
+): Promise<PlatformSkillItem> => {
+  const response = await fetch(platformSkillsBase, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to create platform skill')
+  const data = (await response.json()) as { skill?: PlatformSkillItem } | PlatformSkillItem
+  return 'skill' in data && data.skill ? data.skill : (data as PlatformSkillItem)
+}
+
+/** Edit one — including publishing and withdrawing it (`published`). */
+export const updatePlatformSkill = async (
+  skillId: string,
+  input: Partial<PlatformSkillInput>,
+): Promise<PlatformSkillItem> => {
+  const response = await fetch(`${platformSkillsBase}/${encodeURIComponent(skillId)}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to update platform skill')
+  const data = (await response.json()) as { skill?: PlatformSkillItem } | PlatformSkillItem
+  return 'skill' in data && data.skill ? data.skill : (data as PlatformSkillItem)
+}
+
+/** Withdraw one from the fleet. Org activation decisions are left alone. */
+export const deletePlatformSkill = async (skillId: string): Promise<void> => {
+  const response = await fetch(`${platformSkillsBase}/${encodeURIComponent(skillId)}`, {
+    method: 'DELETE',
+    headers: jsonHeaders,
+  })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to delete platform skill')
+}
+
 /** Delete an org skill (jobs keep their saved snapshot). */
 export const deleteSkill = async (skillId: string): Promise<void> => {
   const response = await fetch(`${skillsBase}/${encodeURIComponent(skillId)}`, {

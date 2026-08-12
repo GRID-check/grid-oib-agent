@@ -25,6 +25,7 @@ import {
   Scale,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -33,6 +34,10 @@ import { useTranslations } from '@/i18n'
 /** Section order = reading order: what you own, then what it produces, then upkeep. */
 export const PLATFORM_SECTIONS = [
   { key: 'overview', href: '/app/platform', icon: Building2 },
+  // Second, right after the fleet itself: a curated skill is the most direct
+  // thing this dashboard makes — write one here and every organization is
+  // offered it, no deploy and no per-tenant action.
+  { key: 'skills', href: '/app/platform/skills', icon: Sparkles },
   { key: 'models', href: '/app/platform/models', icon: Cpu },
   { key: 'retrieval', href: '/app/platform/retrieval', icon: SlidersHorizontal },
   { key: 'quality', href: '/app/platform/quality', icon: ShieldCheck },

@@ -11,35 +11,41 @@ import type { en } from '../en'
 export const skills: typeof en.skills = {
   title: 'Skills',
   subtitle:
-    'Wiederverwendbare Anweisungen, die Ihre Organisation im Chat mit „/“ aufrufen oder an einen Job anhängen kann. Ein bearbeiteter Skill ändert nie einen Job, der ihn bereits verwendet — dieser behält seinen gespeicherten Snapshot.',
+    'Wiederverwendbare Anweisungen, die Ihre Organisation einmal schreibt und danach im Chat mit „/“ aufruft oder an einen Job anhängt. Eine Bearbeitung ändert nie einen Job, der den Skill bereits verwendet — dieser behält seinen gespeicherten Snapshot.',
   tryAgain: 'Erneut versuchen',
 
   toolbox: {
-    heading: 'Skill-Bibliothek',
-    hint: 'Skills von Piloti sowie Skills, die Ihre Organisation erstellt oder geklont hat. Ein Job kann einen davon anhängen — ein bearbeiteter Skill ändert nie einen Job, der ihn bereits verwendet (dessen Snapshot bleibt erhalten).',
+    ownHeading: 'Ihre Skills',
     newSkill: 'Neuer Skill',
-    loadError: 'Die Skill-Bibliothek konnte nicht geladen werden.',
+    loadError: 'Ihre Skills konnten nicht geladen werden.',
     empty: {
       title: 'Noch keine Skills',
       description:
-        'Erstellen Sie einen Skill für Ihre Organisation oder klonen Sie einen von Piloti und passen Sie ihn an. Ein Skill ist eine wiederverwendbare Anweisung (agentskills.io-Format), die Chats und Jobs aufrufen können.',
+        'Schreiben Sie einen für Ihre Organisation. Ein Skill ist ein Name, eine Beschreibung, wann er gilt, und die Anweisung selbst.',
       action: 'Neuer Skill',
     },
     origin: {
-      platform: 'Von Piloti',
-      org: 'In dieser Organisation',
-      cloned: 'Geklont',
+      disabled: 'Ausgeschaltet',
     },
     scope: {
       chatOnly: 'Nur Chat-Agent',
       deepOnly: 'Nur Deep Research',
     },
     actions: {
-      clone: 'Klonen',
-      cloneAria: 'Skill „{name}“ in diese Organisation klonen',
       edit: 'Bearbeiten',
       delete: 'Löschen',
       viewBody: 'Anweisung ansehen',
+      enabledAria: 'Skill „{name}“ in dieser Organisation verwenden',
+    },
+  },
+
+  curated: {
+    heading: 'Empfohlene Skills',
+    origin: 'Von Piloti kuratiert',
+    count: '{active} von {total} aktiv',
+    hint: 'Skills, die Piloti für Ihre Organisation pflegt. Eingeschaltet darf der Agent sie verwenden; ausgeschaltet verschwinden sie aus dem „/“-Menü und aus der Auswahl des Agenten.',
+    actions: {
+      enabledAria: 'Piloti-Skill „{name}“ in dieser Organisation verwenden',
     },
   },
 
@@ -160,7 +166,6 @@ export const skills: typeof en.skills = {
       noMatches: 'Keine Card passt zu dieser Suche.',
       removeAria: 'Card-Typ „{type}“ aus der Präferenz entfernen',
     },
-    cloneFrom: 'Geklont von „{name}“',
     enabledLabel: 'Aktiviert',
     enabledHint:
       'Aus: Der Skill verschwindet aus dem „/“-Menü und aus der Auswahl des Agenten. Jobs, die ihn bereits verwenden, laufen mit ihrem gespeicherten Snapshot weiter.',

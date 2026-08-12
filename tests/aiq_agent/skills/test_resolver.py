@@ -268,3 +268,72 @@ def test_unknown_grid_agents_names_do_not_delete_the_skill(resolver: SkillResolv
     assert _agent_allows(typo, "shallow_researcher") is True
     real = Skill(name="real", description="d", body="b", metadata={"grid-agents": "deep_researcher"})
     assert _agent_allows(real, "shallow_researcher") is False
+
+
+# ---------------------------------------------------------------------------
+# grid-catalog: machinery vs. offers
+# ---------------------------------------------------------------------------
+
+CURATED = Skill(
+    name="fire-check",
+    description="Offered to organizations.",
+    body="body-3",
+    origin="platform",
+    collection="research",
+    metadata={"grid-catalog": "curated"},
+)
+
+
+@pytest.fixture
+def catalog_resolver(monkeypatch: pytest.MonkeyPatch) -> SkillResolver:
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
+    resolver = SkillResolver(agent="shallow_researcher")
+    resolver._builtin_by_name = {s.name: s for s in (*BUILTIN, CURATED)}
+    return resolver
+
+
+def test_curated_builtin_is_not_always_on(catalog_resolver: SkillResolver) -> None:
+    """An offer is off until an org takes it up — and the filesystem cannot say so.
+
+    The baseline this resolver starts from is the builtin directory, and the BFF
+    payload can only ADD to it. A curated skill left in that baseline would
+    therefore be on for every tenant no matter what any of them decided, which
+    is precisely the bug this split exists to prevent.
+    """
+    assert {s.name for s in catalog_resolver.always_on} == {"calc", "report"}
+    assert "fire-check" in {s.name for s in catalog_resolver.builtin}
+    assert "fire-check" not in {s.name for s in catalog_resolver.resolve(None)}
+
+
+def test_curated_builtin_arrives_when_the_org_switched_it_on(catalog_resolver: SkillResolver) -> None:
+    """Activated, it comes down the org payload like any other row."""
+    with mock.patch.object(
+        catalog_resolver,
+        "_fetch_org_skills",
+        return_value=[_row("fire-check")],
+    ):
+        resolved = catalog_resolver.resolve("org-1")
+    assert "fire-check" in {s.name for s in resolved}
+
+
+def test_machinery_survives_a_failed_fetch(catalog_resolver: SkillResolver) -> None:
+    """Fail-open means the pipeline keeps working, not that offers are guessed on."""
+    with mock.patch.object(catalog_resolver, "_fetch_org_skills", side_effect=RuntimeError("down")):
+        resolved = catalog_resolver.resolve("org-1")
+    assert {s.name for s in resolved} == {"calc", "report"}
+
+
+def test_unrecognised_catalog_value_reads_as_machinery(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The closed default: a typo must not expose an internal instruction as an offer."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
+    resolver = SkillResolver(agent="shallow_researcher")
+    typo = Skill(
+        name="typo",
+        description="Meant to be curated.",
+        body="b",
+        origin="platform",
+        collection="research",
+        metadata={"grid-catalog": "curatd"},
+    )
+    resolver._builtin_by_name = {typo.name: typo}
+    assert {s.name for s in resolver.always_on} == {"typo"}

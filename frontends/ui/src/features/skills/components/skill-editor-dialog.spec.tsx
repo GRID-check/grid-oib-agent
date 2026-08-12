@@ -217,21 +217,28 @@ describe('SkillEditorDialog — create', () => {
     }
   })
 
-  test('cloning flags the payload with clonedFrom and shows the source', async () => {
+  /**
+   * There is no clone any more, and this dialog no longer writes `clonedFrom`.
+   *
+   * Copying a platform skill produced a second skill frozen at the moment it
+   * was copied — an org maintaining an instruction it never wrote, missing
+   * every improvement shipped afterwards. What replaced it is a switch on the
+   * offer itself (`curated-skills.tsx`), so nothing authored here is a copy of
+   * anything: a skill written in this dialog is the org's own.
+   */
+  test('authoring never marks a skill as a copy of something else', async () => {
     createSkillMock.mockResolvedValue(orgSkill)
-    render(<SkillEditorDialog {...dialogProps} skill={null} cloneFrom="oib-fire-check" />)
+    render(<SkillEditorDialog {...dialogProps} skill={null} />)
 
     expect(screen.getByRole('heading', { name: 'New skill' })).toBeInTheDocument()
-    expect(
-      screen.getByText(/Cloned from .oib-fire-check/),
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/clone/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'oib-fire-check' } })
     fireEvent.change(screen.getByLabelText(/^Description/), {
-      target: { value: 'Adapted copy.' },
+      target: { value: 'Checks fire-safety guidelines.' },
     })
     fireEvent.change(screen.getByLabelText(/^Instruction/), {
-      target: { value: 'Adapted instruction.' },
+      target: { value: 'Act as a fire-safety reviewer.' },
     })
 
     const saveButton = screen.getByRole('button', { name: 'Save skill' })
@@ -239,7 +246,7 @@ describe('SkillEditorDialog — create', () => {
     fireEvent.click(saveButton)
 
     await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
-    expect(createSkillMock.mock.calls[0][0].clonedFrom).toBe('oib-fire-check')
+    expect(createSkillMock.mock.calls[0][0].clonedFrom).toBeUndefined()
   })
 
   test('a save failure surfaces inline and as an error toast', async () => {

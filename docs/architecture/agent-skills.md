@@ -75,11 +75,77 @@ types to the loaded body. Unknown names are a parse error for a builtin
   (`frontends/ui/scripts/sync-platform-skills.mjs`), so both tiers read one
   source of truth.
 - **Org** (`origin="org"` / `"platform-clone"`): rows in the `skills` table,
-  authored in the organization or cloned from a builtin. The backend reads
-  them through the BFF internal endpoint
-  `GET /api/internal/skills/resolve`. An org row whose name matches a builtin
-  **shadows** it — the tenant's version wins, mirroring BYOK's "explicit org
-  value beats deployment default" ordering (ADR-0022).
+  authored in the organization. The backend reads them through the BFF internal
+  endpoint `GET /api/internal/skills/resolve`. An org row whose name matches a
+  builtin **shadows** it — the tenant's version wins, mirroring BYOK's "explicit
+  org value beats deployment default" ordering (ADR-0022).
+  `platform-clone` is a legacy origin: it recorded a skill CLONED from a builtin
+  (see below), a flow the product no longer has. Existing rows keep the value
+  and behave as ordinary org rows; nothing writes it any more.
+
+### Three sources, three audiences
+
+| source | who writes it | who sees it |
+|---|---|---|
+| `src/aiq_agent/skills/builtin/**` (files) | this repository | **nobody.** Pipeline machinery: never listed, never switchable, always resolved. |
+| `platform_skills` (rows) | the platform owner, in **Platform → Skills** | every organization, as an OFFER it may switch on. |
+| `skills` (rows) | an organization | that organization. |
+
+The middle row is the fleet-wide curation channel: write a skill once in the
+platform dashboard, publish it, and every organization is offered it. The body
+lives in that one row — an edit reaches every org that switched the skill on,
+immediately, with nothing to re-take.
+
+That is what replaced **clone**. The Skills tab used to list all five builtins
+as equal cards with a "Clone" button, which copied the whole instruction into
+the org as a `platform-clone` row — leaving the tenant maintaining an
+instruction nobody there wrote and missing every improvement shipped afterwards.
+(The button also never seeded the editor, so what it actually opened was a blank
+form.) A switch replaces it: one living copy, ours, and switching off returns
+the org to where it started.
+
+An org's decision lives in `curated_skill_activations` (one row per
+organization × skill it has decided about; no row means off). It is NOT a
+`skills` row, precisely because a `skills` row carries a body and a body is a
+copy that drifts.
+
+### Machinery vs. offers (`grid-catalog`)
+
+A builtin FILE has one of two audiences, declared by `grid-catalog` in its
+frontmatter metadata:
+
+| value | meaning |
+|---|---|
+| *(absent — the default)* | **Machinery.** The deep-research pipeline's own instructions. Never listed on the Skills tab, never switchable, always resolved. |
+| `curated` | **An offer.** A capability published TO organizations: listed on the Skills tab with a switch, and **off** until the org turns it on. |
+
+Machinery is the default deliberately: a new builtin that says nothing about
+itself stays invisible, and exposing one to every tenant has to be a sentence
+somebody wrote. **All five builtins shipping today are machinery** — none
+declares this key. The door exists so a builtin can become org-facing without
+first becoming a database row; day to day, curation happens in `platform_skills`.
+
+The split is enforced on both tiers, and both must agree:
+
+- BFF — `isCuratedPlatformSkill` (`lib/skills/types.ts`) and `curatedOffers()`
+  (`lib/skills/service.ts`), which unions the published `platform_skills` rows
+  with any `grid-catalog: curated` file.
+  `listSkills` lists org rows plus curated offers and never machinery;
+  `resolveSkillsForAgent` and `resolveSkillSnapshot` gate curated skills on the
+  activation; `setCuratedSkillEnabled` 404s a non-curated name, so the machinery
+  cannot be switched off by hand-crafting a request.
+- Backend — `_is_curated` and `SkillResolver.always_on`
+  (`src/aiq_agent/skills/resolver.py`). `resolve()` starts from `always_on`
+  rather than every builtin, because the BFF payload can only ADD to that
+  baseline: a curated skill left in it would be on for every tenant regardless
+  of what any of them decided. An activated one arrives through the org payload
+  like any other row — which is also how a `platform_skills` row reaches a run,
+  since the backend has no copy of those at all. Fail-open therefore drops offers and keeps machinery,
+  which is the right way round — offers are additive, machinery is how deep
+  research works.
+
+Anything unrecognised in `grid-catalog` reads as machinery on both sides: a typo
+must not expose an internal instruction to every tenant as something switchable.
 
 ## Resolution
 
@@ -288,10 +354,13 @@ it (`chat_researcher/agent.py`).
 
 ## Data model (grid_app, Drizzle)
 
-Three tables, schema `frontends/ui/src/lib/db/schema/jobs.ts`. Created by
+Five tables. `skills`/`jobs`/`job_runs` live in
+`frontends/ui/src/lib/db/schema/jobs.ts`, created by
 `frontends/ui/drizzle/0041_agent_skills.sql` as `skills`/`skill_schedules`/
 `skill_runs` and reshaped by `0043_jobs.sql`; `0044_conversation_job_provenance.sql`
-adds the link from a conversation back to the job that produced it. Each table
+adds the link from a conversation back to the job that produced it, and
+`0046_curated_skill_activations.sql` adds `curated_skill_activations` and
+`0047_platform_skills.sql` adds `platform_skills`. Each tenant table
 joins the tenant boundary with a `grid_secure_table()` line (ADR-0041) —
 re-emitted by 0043 under the new names, because a rename carries the policy
 along but leaves its stored predicate written against the old table name.
@@ -310,7 +379,25 @@ along but leaves its stored predicate written against the old table name.
 - Indexes: unique `idx_skills_org_name` on `(organization_id, name)` — one
   skill per name per org, and the point query the fire/resolve paths make —
   plus `(organization_id)`
-- Platform-authored skills are **not** rows here; they are files (see Origins).
+- Platform-authored skills are **not** rows here — they are files
+  (`builtin/**`) or rows of `platform_skills` (see Origins).
+
+`platform_skills` — the fleet-wide curated catalogue
+- `id` uuid PK, `name` text with a UNIQUE index (`idx_platform_skills_name`):
+  the name is the key an organization's activation decision refers to, so two
+  curated skills sharing one would make that decision ambiguous
+- `description` / `body` / `metadata` — the same SKILL.md contract as an org row
+- `published` boolean NOT NULL default **false** — a draft is invisible
+  fleet-wide, which is what makes the dashboard usable as a writing surface
+- No `organization_id`: one row is offered to every tenant at once. Secured with
+  `grid_secure_platform_table` — every tenant reads it, only the platform role
+  writes it
+
+`curated_skill_activations` — an org's decision about one curated skill
+- PK `(organization_id, skill_name)`, `enabled` boolean NOT NULL default false
+- No row = the default, and for an offer the default is OFF
+- `skill_name` is plain text, not an FK: its referent may be a file. A row
+  naming a skill that no longer ships is inert, and survives if it returns
 
 `jobs` — project-scoped prompt on a timer (was `skill_schedules`)
 - `project_id` uuid NOT NULL → `projects.id` ON DELETE CASCADE,
@@ -401,13 +488,35 @@ adapters. Every query is additionally org-filtered.
 
 Org toolbox (`frontends/ui/src/app/api/skills/…`):
 
-- `GET  /api/skills` — the merged toolbox: every platform builtin plus every
-  org row, org rows shadowing platform entries of the same name. Any member
+- `GET  /api/skills` — what the organization has: its own rows plus the
+  platform's **curated** offers (each carrying the org's on/off decision), org
+  rows shadowing an offer of the same name. Never the machinery. Any member
   may read.
 - `POST /api/skills` — author a skill (`org:skills:manage`). Validates the
   name/description rules and the reserved `grid-cards` value against the
-  model-facing card catalog; a `clonedFrom` hint records a platform clone.
+  model-facing card catalog. (`clonedFrom` is still accepted for compatibility
+  but nothing sends it: the clone flow is gone.)
 - `PATCH`/`DELETE /api/skills/{skillId}` — `org:skills:manage`.
+- `PATCH /api/skills/curated/{name}` — switch a curated platform skill on or
+  off for this organization, body `{ enabled }` (`org:skills:manage`).
+  Addressed by NAME, not by id: a curated skill's id belongs to the platform
+  catalogue, and handing it to a tenant would invite a PATCH against the
+  fleet's copy. The service 404s any name that is not a published offer, so the
+  machinery cannot be switched off by hand-crafting a request.
+
+Platform catalogue (`frontends/ui/src/app/api/platform/skills/…`) — platform
+owners only (ADR-0016), no per-org feature flag; this is the layer *under*
+every tenant's skill list:
+
+- `GET  /api/platform/skills` — the whole catalogue, drafts included.
+- `POST /api/platform/skills` — add one. Created as a DRAFT unless `published`
+  says otherwise. A name that belongs to a builtin is refused: a curated skill
+  shadowing the machinery would silently replace how deep research writes its
+  report for every org that switched it on.
+- `PATCH`/`DELETE /api/platform/skills/{skillId}` — edit (including publishing
+  and withdrawing) or withdraw from the fleet. A withdrawal leaves activation
+  rows alone, so re-creating the skill under the same name restores the fleet
+  as it was.
 - `GET  /api/skills/invocable` — the `/name` picker's list (name +
   description only, chat-executable, enabled). Any org member.
 - `GET  /api/skills/attachable?output=chat|deep-research` — the job builder's
