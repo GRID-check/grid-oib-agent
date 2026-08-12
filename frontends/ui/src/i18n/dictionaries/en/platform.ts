@@ -372,8 +372,13 @@ export const platform = {
     new: 'New curated skill',
     draft: 'Draft',
     edit: 'Edit',
-    withdraw: 'Withdraw',
-    withdrawn: '“{name}” withdrawn from the fleet.',
+    delete: 'Delete',
+    deleted: '“{name}” deleted.',
+    deleteTitle: 'Delete this curated skill?',
+    deleteDescription:
+      'This removes “{name}” from the catalogue for good — its instruction lives only here. Organizations stop being offered it, and jobs that already attached it keep running from their saved snapshot. To take it off the shelf without losing it, switch it off instead.',
+    deleteConfirm: 'Delete skill',
+    cancel: 'Cancel',
     publishLabel: 'Published',
     publishHint:
       'On: every organization sees this skill on its Skills tab and can switch it on. Off: it is a draft nobody outside this dashboard can see, and organizations that had it switched on stop running it.',

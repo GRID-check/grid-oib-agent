@@ -233,7 +233,7 @@ export const setCuratedSkillEnabled = async (
   name: string,
   enabled: boolean,
 ): Promise<SkillListItem> => {
-  const response = await fetch(`${skillsBase}/platform/${encodeURIComponent(name)}`, {
+  const response = await fetch(`${skillsBase}/curated/${encodeURIComponent(name)}`, {
     method: 'PATCH',
     headers: jsonHeaders,
     body: JSON.stringify({ enabled }),

@@ -99,6 +99,14 @@ export function PlatformSkillEditorDialog({
         create: t('skills.createSuccess'),
         edit: t('skills.updateSuccess'),
       },
+      // Without this the confirmation would describe an org toolbox and the
+      // jobs a tenant's deletion leaves running — true there, wrong in front
+      // of somebody removing a skill from the whole fleet.
+      deleteCopy: {
+        title: t('skills.deleteTitle'),
+        description: t('skills.deleteDescription', { name: skill?.name ?? '' }),
+        confirm: t('skills.deleteConfirm'),
+      },
     }),
     [skill, t],
   )

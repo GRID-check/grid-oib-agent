@@ -131,6 +131,14 @@ export interface SkillPersistence {
   titles?: { create: string; edit: string; createSubtitle: string; editSubtitle: string }
   /** Toast on a successful save. */
   successMessage?: { create: string; edit: string }
+  /**
+   * Copy for the delete confirmation.
+   *
+   * The default text is about an org toolbox and the job snapshots a deletion
+   * leaves running — true there, and wrong in front of a platform owner
+   * withdrawing a skill from the whole fleet.
+   */
+  deleteCopy?: { title: string; description: string; confirm: string }
 }
 
 interface SkillEditorDialogProps {
@@ -695,9 +703,12 @@ export function SkillEditorDialog({
       <ConfirmDeleteDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title={t('editor.deleteTitle')}
-        description={t('editor.deleteDescription', { name: skill?.name ?? '' })}
-        confirmLabel={t('editor.deleteConfirm')}
+        title={persistence?.deleteCopy?.title ?? t('editor.deleteTitle')}
+        description={
+          persistence?.deleteCopy?.description ??
+          t('editor.deleteDescription', { name: skill?.name ?? '' })
+        }
+        confirmLabel={persistence?.deleteCopy?.confirm ?? t('editor.deleteConfirm')}
         cancelLabel={t('editor.cancel')}
         pending={deleting}
         onConfirm={() => void confirmDelete()}

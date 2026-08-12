@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   curatedSkillActivations,
@@ -122,6 +122,12 @@ export async function listCuratedSkillActivations(
     .select()
     .from(curatedSkillActivations)
     .where(eq(curatedSkillActivations.organizationId, organizationId))
+    // Ordered because it is BOUNDED. Activation rows outlive the skills they
+    // name (a decision about a withdrawn skill is kept), so an org can in
+    // principle accumulate more than the cap — and an unordered truncation
+    // would drop a different arbitrary set each query, silently reading as
+    // "not activated" for whichever rows fell off.
+    .orderBy(asc(curatedSkillActivations.skillName))
     .limit(limit)
 }
 

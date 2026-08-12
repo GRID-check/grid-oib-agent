@@ -142,8 +142,12 @@ describe('SkillToolbox', () => {
       name: /Use the Piloti skill .oib-fire-check./,
     })
     fireEvent.click(toggle)
+    // Optimistic FIRST, so the assertion below is a real state change rather
+    // than a switch that never moved.
+    expect(toggle).toBeChecked()
 
     await waitFor(() => expect(toggle).not.toBeChecked())
+    expect(setCuratedSkillEnabledMock).toHaveBeenCalledWith('oib-fire-check', true)
   })
 
   test('an org skill carries the same switch, on its own `enabled`', async () => {

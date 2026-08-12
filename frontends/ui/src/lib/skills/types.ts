@@ -238,7 +238,7 @@ export const patchSkillSchema = z.object({
 export type PatchSkillInput = z.infer<typeof patchSkillSchema>
 
 /**
- * Body of `PATCH /api/skills/platform/[name]` — an org switching a curated
+ * Body of `PATCH /api/skills/curated/[name]` — an org switching a curated
  * platform skill on or off. The NAME is in the path (a platform skill has no
  * id), so the decision is the whole body.
  */

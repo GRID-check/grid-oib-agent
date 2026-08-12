@@ -380,8 +380,13 @@ export const platform: typeof en.platform = {
     new: 'Neuer kuratierter Skill',
     draft: 'Entwurf',
     edit: 'Bearbeiten',
-    withdraw: 'Zurückziehen',
-    withdrawn: '„{name}“ wurde zurückgezogen.',
+    delete: 'Löschen',
+    deleted: '„{name}“ wurde gelöscht.',
+    deleteTitle: 'Diesen kuratierten Skill löschen?',
+    deleteDescription:
+      'Damit verschwindet „{name}“ endgültig aus dem Katalog — die Anweisung existiert nur hier. Organisationen wird er nicht mehr angeboten; Jobs, die ihn bereits angehängt haben, laufen mit ihrem gespeicherten Snapshot weiter. Wollen Sie ihn nur aus dem Angebot nehmen, schalten Sie ihn stattdessen aus.',
+    deleteConfirm: 'Skill löschen',
+    cancel: 'Abbrechen',
     publishLabel: 'Veröffentlicht',
     publishHint:
       'An: Jede Organisation sieht diesen Skill auf ihrem Skills-Tab und kann ihn einschalten. Aus: Er ist ein Entwurf, den niemand außerhalb dieses Dashboards sieht, und Organisationen, die ihn eingeschaltet hatten, führen ihn nicht mehr aus.',

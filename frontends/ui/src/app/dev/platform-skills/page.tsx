@@ -49,6 +49,12 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       if (url === '/api/platform/skills') {
         return Response.json({ skills: SKILLS })
       }
+      // The publish switch and the delete action. Unanswered, both roll back
+      // against the real backend and the preview shows an error toast instead
+      // of the control working.
+      if (url.startsWith('/api/platform/skills/')) {
+        return Response.json({ skill: SKILLS[0] })
+      }
       return real(input, init)
     }
   }

@@ -4,8 +4,8 @@
  * Dev preview for the Agent Skills tab. Renders the REAL SkillsPanel — the org's
  * skills and nothing else, since everything schedule-shaped moved to the Jobs
  * tab — with a fetch shim serving `/api/skills`, so every row variant is
- * reviewable without a backend: an org skill in play, one switched off, and two
- * of the platform's offers (one taken up, one not) behind the disclosure.
+ * reviewable without a backend: two of the platform's offers at the top (one
+ * taken up, one not), then an org skill in play and one switched off.
  *
  * The pipeline's own builtins are deliberately absent from the fixture, because
  * they are absent from the endpoint: they are machinery, they carry no
@@ -80,6 +80,12 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url === '/api/skills') {
         return Response.json({ skills: SKILLS })
+      }
+      // The activation switch. Without this the PATCH reaches the real backend,
+      // fails, and the switch rolls back with an error toast — so the preview
+      // could not show the one interaction this surface is about.
+      if (url.startsWith('/api/skills/curated/')) {
+        return Response.json({ skill: null })
       }
       return real(input, init)
     }

@@ -180,7 +180,7 @@ class SkillResolver:
         A builtin marked ``grid-catalog: curated`` is NOT machinery — it is a
         capability the platform offers organizations, and it runs only for the
         ones that switched it on. That decision lives in the BFF
-        (``platform_skill_activations``), so an activated curated skill arrives
+        (``curated_skill_activations``), so an activated curated skill arrives
         through the org payload like any other row and an un-activated one
         simply does not arrive.
 

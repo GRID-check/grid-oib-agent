@@ -136,12 +136,32 @@ describe('updatePlatformSkill', () => {
     )
   })
 
-  it('re-checks the name on a rename, against builtins too', async () => {
+  it('re-checks the name on a rename, against another curated row', async () => {
     vi.mocked(repository.findPlatformSkillRow).mockResolvedValue(makeRow())
     vi.mocked(repository.findPlatformSkillRowByName).mockResolvedValue(makeRow({ id: 'ps-9' }))
     await expect(updatePlatformSkill('ps-1', { name: 'taken' })).rejects.toBeInstanceOf(
       ConflictError
     )
+    expect(repository.updatePlatformSkillRow).not.toHaveBeenCalled()
+  })
+
+  it('re-checks the name on a rename against BUILTINS too', async () => {
+    vi.mocked(repository.findPlatformSkillRow).mockResolvedValue(makeRow())
+    vi.mocked(findPlatformSkill).mockImplementation((name) =>
+      name === 'long-form-report-writer'
+        ? {
+            name: 'long-form-report-writer',
+            description: 'Machinery.',
+            body: 'b',
+            metadata: {},
+            collection: 'synthesis',
+          }
+        : null
+    )
+    await expect(
+      updatePlatformSkill('ps-1', { name: 'long-form-report-writer' })
+    ).rejects.toBeInstanceOf(ConflictError)
+    expect(repository.updatePlatformSkillRow).not.toHaveBeenCalled()
   })
 
   it('lets a row keep its own name', async () => {

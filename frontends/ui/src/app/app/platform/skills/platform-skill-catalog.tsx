@@ -31,6 +31,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { ConfirmDeleteDialog } from '@/features/skills/components/confirm-delete-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
@@ -53,6 +54,15 @@ export function PlatformSkillCatalog(): JSX.Element {
   /** Fresh mount per open — the editor seeds its fields in state initialisers. */
   const [editorKey, setEditorKey] = useState(0)
   const [pending, setPending] = useState<string[]>([])
+  /**
+   * The row a deletion is pending on.
+   *
+   * Deleting is not the same act as unpublishing, and the two sat next to each
+   * other looking identical: the switch withdraws the offer and is reversible,
+   * this destroys the only copy of an authored SKILL.md. It gets a confirm
+   * step and the plainer word.
+   */
+  const [confirmDelete, setConfirmDelete] = useState<PlatformSkillItem | null>(null)
 
   const load = useCallback(() => {
     setSkills(null)
@@ -94,11 +104,12 @@ export function PlatformSkillCatalog(): JSX.Element {
   }
 
   const remove = async (skill: PlatformSkillItem) => {
+    setConfirmDelete(null)
     setPending((current) => [...current, skill.id])
     try {
       await deletePlatformSkill(skill.id)
       setSkills((prev) => prev?.filter((row) => row.id !== skill.id) ?? prev)
-      toast.success(t('skills.withdrawn', { name: skill.name }))
+      toast.success(t('skills.deleted', { name: skill.name }))
     } catch {
       toast.error(t('skills.saveError'))
     } finally {
@@ -195,9 +206,9 @@ export function PlatformSkillCatalog(): JSX.Element {
                       variant="ghost"
                       className="text-destructive hover:text-destructive"
                       disabled={pending.includes(skill.id)}
-                      onClick={() => void remove(skill)}
+                      onClick={() => setConfirmDelete(skill)}
                     >
-                      {t('skills.withdraw')}
+                      {t('skills.delete')}
                     </Button>
                   </div>
                 </CardContent>
@@ -206,6 +217,19 @@ export function PlatformSkillCatalog(): JSX.Element {
           ))}
         </ul>
       )}
+
+      <ConfirmDeleteDialog
+        open={confirmDelete !== null}
+        onOpenChange={(open) => !open && setConfirmDelete(null)}
+        title={t('skills.deleteTitle')}
+        description={t('skills.deleteDescription', { name: confirmDelete?.name ?? '' })}
+        confirmLabel={t('skills.deleteConfirm')}
+        cancelLabel={t('skills.cancel')}
+        pending={confirmDelete !== null && pending.includes(confirmDelete.id)}
+        onConfirm={() => {
+          if (confirmDelete) void remove(confirmDelete)
+        }}
+      />
 
       <PlatformSkillEditorDialog
         key={editorKey}
