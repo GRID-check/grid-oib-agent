@@ -164,16 +164,49 @@ const DOCK_ABOVE_OFFSET: Record<0 | 1 | 2, string> = {
  * be a state the reader can never reach — except in the one frame between
  * hiding the selected element and the selection clearing itself, which is
  * exactly when a live button would act on a component that is already gone.
+ *
+ * ## Why the two verbs read two different ids
+ *
+ * Hiding needs the element to be ON SCREEN. "Take this out of the way" said
+ * about something already out of the way is not an act, and the id it would
+ * use is the renderer's, which is deliberately null the moment a selection
+ * stops being drawn.
+ *
+ * Isolating does not — with one exception. "Show me nothing but this" is
+ * exactly what a reader means about an element that is not currently visible
+ * BECAUSE SOMETHING ELSE IS ISOLATED, which is the only way to reach that
+ * state through the rail. Reading the renderer's id for both left that card
+ * with no visibility controls at all: the reader had isolated one wall,
+ * picked another to look at, and arrived at a card whose two buttons had
+ * silently disappeared — the isolate button among them, which is what would
+ * have got them out.
+ *
+ * The exception is an element the reader HID. Isolating that means "show
+ * nothing but this thing I have also taken away", and the honest rendering of
+ * it is an empty viewport. So a hidden selection offers neither verb, exactly
+ * as it did before isolate learned to read past the renderer.
  */
 function visibilityActions(
   viewport: ReturnType<typeof useModelViewport>,
   clearSelection: () => void,
   focusViewport: () => void,
   asOneStep: (gesture: () => void) => void
-): { onHide?: () => void; onIsolate?: () => void } {
+): { onHide?: () => void; onIsolate?: () => void; isolated?: boolean } {
+  const elementId = viewport.selectedElementExpressId
+  if (elementId === null || viewport.visibility.hidden.has(elementId)) return {}
+  const isolated = viewport.visibility.isolated
+  const actions = {
+    // The MANUAL isolation only, never the level filter — the filter isolates
+    // a whole floor and this button did not do it, so a button reporting
+    // itself pressed for it would be claiming an act it cannot take back.
+    isolated: isolated !== null && isolated.size === 1 && isolated.has(elementId),
+    onIsolate: () => viewport.visibility.isolate([elementId]),
+  }
+
   const expressId = viewport.selectedExpressId
-  if (expressId === null) return {}
+  if (expressId === null) return actions
   return {
+    ...actions,
     // Hiding CLEARS the selection. The card is mounted on the URL's
     // `element=`, not on the renderer id, so without this the reader hid a
     // wall and kept a card describing it — the highlight gone, the pivot
@@ -193,7 +226,6 @@ function visibilityActions(
       // vanishing IS the only feedback, and it takes their place with it.
       focusViewport()
     },
-    onIsolate: () => viewport.visibility.isolate([expressId]),
   }
 }
 
