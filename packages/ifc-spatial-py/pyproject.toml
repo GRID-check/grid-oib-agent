@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ifc-spatial-py"
+version = "0.1.0"
+description = "Spike: the ifc-spatial operator surface on IfcOpenShell, with the answer contract intact"
+readme = "COVERAGE.md"
+requires-python = ">=3.11"
+dependencies = [
+  "ifcopenshell>=0.8.5",
+  "numpy>=1.26",
+  # 2.1 rather than 2.0 for the SUITE, not for the operators: nothing under
+  # `src/` calls anything newer than 2.0 (`Polygon`, `MultiPoint`, `box`,
+  # `ops.unary_union`, `convex_hull`). What needs 2.1 are the two GEOS
+  # functions this package checks its own hand-rolled geometry against —
+  # `shapely.minimum_rotated_rectangle` for the rotating calipers in
+  # `clearance.py` and `shapely.maximum_inscribed_circle` for the inscribed
+  # circle in `accessibility.py`, both added in 2.1.0. On 2.0 those two rows
+  # fail instead of comparing — one on its own `hasattr` guard, one with
+  # `AttributeError` — and this package IS its evidence: a cross-check against
+  # an independent implementation that cannot run is not a cross-check.
+  "shapely>=2.1.0",
+  # `render.plan` rasterises a storey so a language model can LOOK at it — a
+  # multimodal content block needs a raster behind its data URL. Pillow rather
+  # than cairosvg deliberately: cairosvg would let us reuse `ifcopenshell.draw`'s
+  # SVG, but it pulls native cairo, pango and libffi into the image to serve one
+  # call, and pure wheels are the difference between this working everywhere and
+  # working where someone remembered to apt-get. 10.1 is the floor because
+  # `ImageFont.load_default(size=…)` is what removes the system-font dependency.
+  "pillow>=10.1",
+]
+
+[project.optional-dependencies]
+# The MCP SDK is optional on purpose: `ifc_spatial.tools` defines the whole tool
+# surface without a transport, so a host embedding the library in its own HTTP
+# route should not have to install pydantic, starlette, uvicorn and httpx to get
+# it. `pip install ifc-spatial-py[mcp]` is what the stdio server needs.
+mcp = ["mcp>=1.0"]
+# `ids_export` writes the blind spots as buildingSMART IDS. `ifctester` ships
+# with IfcOpenShell but as its own distribution, so it is optional here and the
+# tool degrades to a named refusal when it is absent — the findings themselves
+# are still in the briefing under FEHLT and BLIND.
+ids = ["ifctester>=0.8"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ifc-spatial-mcp = "ifc_spatial.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
