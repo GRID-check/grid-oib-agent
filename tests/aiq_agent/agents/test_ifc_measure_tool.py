@@ -319,6 +319,15 @@ class TestTheEnumsMatchTheEngine:
 
         assert set(ENVELOPE_ASPECTS) == set(self._engine().ENVELOPE_ASPECTS)
 
+    def test_the_batch_ceiling_is_the_engine_s(self):
+        # The input model refuses a `measure` over more ids than this BEFORE the
+        # file is fetched. A ceiling higher than the engine's would let the
+        # expensive refusal through again; a lower one would refuse a call the
+        # engine would have answered.
+        from aiq_agent.agents.bim.measure_register import MAX_BATCH
+
+        assert MAX_BATCH == self._engine().MAX_BATCH
+
     def test_every_operation_this_tool_offers_exists_on_the_engine(self):
         """The gap this class exists for, checked one level up.
 
@@ -1272,29 +1281,21 @@ class TestTheDescriptionDescribesTheRealTool:
 
     @staticmethod
     def _description_and_parameters() -> tuple[str, list[str]]:
-        # Read through the AST rather than importing: `_ifc_measure` is nested
-        # inside a registration generator, so its signature is not reachable
-        # without standing up the whole NAT builder.
-        import ast
-        import inspect
+        """The description, and the arguments the tool actually takes.
 
-        from aiq_agent.agents.bim import measure_register
-
-        tree = ast.parse(inspect.getsource(measure_register))
-        description = next(
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "_TOOL_DESCRIPTION"
-        )
-        parameters = next(
-            [argument.arg for argument in node.args.args + node.args.kwonlyargs]
-            for node in ast.walk(tree)
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_ifc_measure"
-        )
+        The parameters used to be read off `_ifc_measure`'s signature through
+        the AST, because the function is nested inside a registration generator
+        and its signature is not reachable without standing up the whole NAT
+        builder. It now takes ONE argument — a validated
+        :class:`IfcMeasureInput` — so the signature no longer names anything,
+        and the spec moved to the model's fields. Which is the point: the model
+        is a real object, importable without a builder, and the invariant gets
+        cheaper rather than weaker.
+        """
         from aiq_agent.agents.bim.measure_register import _TOOL_DESCRIPTION
+        from aiq_agent.agents.bim.measure_register import IfcMeasureInput
 
-        assert isinstance(description, ast.Assign)  # the node exists; the value is built at import
-        return _TOOL_DESCRIPTION, parameters
+        return _TOOL_DESCRIPTION, list(IfcMeasureInput.model_fields)
 
     def test_every_argument_the_description_shows_being_set_exists(self):
         import re
@@ -1304,6 +1305,50 @@ class TestTheDescriptionDescribesTheRealTool:
 
         assert shown, "the invariant is vacuous if the description shows no arguments at all"
         assert sorted(shown - set(parameters)) == []
+
+    def test_every_argument_a_field_description_shows_being_set_exists(self):
+        """The same invariant where the argument teaching now lives.
+
+        Most of what the prose used to say about arguments is in the field
+        descriptions, and a field description that shows `kind='expensive'`
+        against a field called something else is the same defect one level down
+        — an instruction the model follows into a call that silently does
+        something else.
+        """
+        import re
+
+        from aiq_agent.agents.bim.measure_register import IfcMeasureInput
+
+        fields = set(IfcMeasureInput.model_fields)
+        shown = {
+            name
+            for field in IfcMeasureInput.model_fields.values()
+            for name in re.findall(r"\b([a-z][a-z0-9_]{2,})\s*=", field.description or "")
+        }
+
+        assert shown, "the invariant is vacuous if no field description shows an argument at all"
+        assert sorted(shown - fields) == []
+
+    def test_the_schema_and_the_dispatch_take_the_same_arguments(self):
+        """The model is the spec, and `_build_call` is what the spec dispatches to.
+
+        A field on the input model that `_build_call` has no parameter for is a
+        value the model can set and this tool silently drops. The reverse — a
+        `_build_call` parameter with no field — is a capability nothing can
+        reach, which is the failure `test_no_engine_tool_is_unreachable` guards
+        one layer further down.
+        """
+        import inspect
+
+        from aiq_agent.agents.bim.measure_register import IfcMeasureInput
+        from aiq_agent.agents.bim.measure_register import _build_call
+
+        dispatched = set(inspect.signature(_build_call).parameters)
+        fields = set(IfcMeasureInput.model_fields)
+        # `model_name` chooses WHICH file to open and never reaches the engine
+        # call, so it is the one field with no counterpart.
+        assert fields - dispatched == {"model_name"}
+        assert dispatched - fields == set()
 
     def test_every_operation_it_names_is_one_the_tool_accepts(self):
         import re
@@ -1807,3 +1852,510 @@ class TestOperationsThatNeedNoSubject:
     def test_an_unknown_measure_is_still_refused_by_name(self):
         answer = _build_call(operation="survey", measure="raumhoehe", ifc_type="IfcSpace")
         assert isinstance(answer, str) and "raumhoehe" in answer and "clearHeight" in answer
+
+
+class TestTheSchemaIsWhatTheModelActuallySees:
+    """A pydantic model whose constraints never reach the wire buys nothing.
+
+    The whole benefit of typing this tool's input is invisible unless the enums
+    and the per-parameter text survive the trip from `IfcMeasureInput` through
+    NAT's `FunctionInfo`, through the framework wrapper, and into the JSON
+    schema handed to the model. Each of those three hops is somebody else's
+    code, and the failure mode — a beautifully typed model, a bare schema on
+    the wire, and no way to tell from inside the process — is exactly what this
+    class exists to make impossible.
+
+    So it does not inspect `IfcMeasureInput`. It builds the tool the way the
+    agent builds it and reads the schema off the far end.
+    """
+
+    @staticmethod
+    def _wire_schema() -> dict:
+        """The `parameters` object an OpenAI-shaped tool call would carry.
+
+        The same two steps `nat.plugins.langchain.tool_wrapper` takes:
+        `args_schema=fn.input_schema` onto a `StructuredTool`, and whatever the
+        provider adapter makes of it.
+        """
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from langchain_core.tools.structured import StructuredTool
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        from aiq_agent.agents.bim.measure_register import IfcMeasureConfig
+        from aiq_agent.agents.bim.measure_register import ifc_measure
+
+        async def build() -> dict:
+            async with ifc_measure(IfcMeasureConfig(), MagicMock()) as info:
+                assert info.input_schema is not None, "NAT kept no input schema at all"
+                tool = StructuredTool.from_function(
+                    coroutine=info.single_fn,
+                    func=lambda **_: None,
+                    name="ifc_measure",
+                    description=info.description,
+                    args_schema=info.input_schema,
+                )
+                return convert_to_openai_tool(tool)["function"]["parameters"]
+
+        return asyncio.run(build())
+
+    @staticmethod
+    def _enum(field: dict) -> list[str] | None:
+        """The allowed values, wherever the serialiser put them.
+
+        An optional `Literal` comes out as `anyOf: [{enum: […]}, {type: null}]`
+        rather than a bare `enum`, and a test that only looked for the bare form
+        would report the enums missing when they are there.
+        """
+        if "enum" in field:
+            return list(field["enum"])
+        for branch in field.get("anyOf", []):
+            if "enum" in branch:
+                return list(branch["enum"])
+        return None
+
+    def test_the_enums_reach_the_wire_and_are_the_engine_s_own(self):
+        from aiq_agent.agents.bim.measure_register import ENVELOPE_ASPECTS
+        from aiq_agent.agents.bim.measure_register import FIRE_ASPECTS
+        from aiq_agent.agents.bim.measure_register import KINDS
+        from aiq_agent.agents.bim.measure_register import MEASURES
+        from aiq_agent.agents.bim.measure_register import OPERATIONS
+        from aiq_agent.agents.bim.measure_register import PROFILE_KINDS
+        from aiq_agent.agents.bim.measure_register import RELATIONS
+        from aiq_agent.agents.bim.measure_register import ROOM_KINDS
+
+        properties = self._wire_schema()["properties"]
+
+        assert self._enum(properties["operation"]) == list(OPERATIONS)
+        assert self._enum(properties["measure"]) == list(MEASURES)
+        assert self._enum(properties["relation"]) == list(RELATIONS)
+        assert self._enum(properties["room_kind"]) == list(ROOM_KINDS)
+        # `kind` is three vocabularies plus the profile opt-in, in that order.
+        assert self._enum(properties["kind"]) == [
+            *KINDS,
+            *FIRE_ASPECTS,
+            *ENVELOPE_ASPECTS,
+            *PROFILE_KINDS,
+        ]
+
+    def test_the_enum_order_is_stable_across_processes(self):
+        """`VALID_OPERATIONS` was a set, and string hashing is randomised.
+
+        A set-ordered enum reshuffles between restarts, which makes the tool
+        schema a different string to every prefix cache in front of the model
+        for no reason at all. Two fresh interpreters have to agree.
+        """
+        import subprocess
+        import sys
+
+        program = (
+            "from aiq_agent.agents.bim.measure_register import IfcMeasureInput;"
+            "import json;"
+            "print(json.dumps(IfcMeasureInput.model_json_schema()['properties']['operation']['enum']))"
+        )
+        runs = {
+            subprocess.run(
+                [sys.executable, "-c", program],
+                capture_output=True,
+                text=True,
+                check=True,
+                env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin"},
+            ).stdout.strip()
+            for seed in ("1", "2", "3")
+        }
+        assert len(runs) == 1, runs
+
+    def test_every_parameter_carries_its_own_description(self):
+        """The fact the prose used to carry, at the point where it is needed.
+
+        A parameter with no description is one the model has to learn about
+        from 4 000 tokens of narrative somewhere above — which is what this
+        whole change is undoing.
+        """
+        properties = self._wire_schema()["properties"]
+        undescribed = sorted(name for name, field in properties.items() if not field.get("description"))
+        assert undescribed == []
+
+    def test_the_operation_is_required_and_nothing_else_is(self):
+        """Every other field is scoped BY the operation, so it is the one
+        decision no caller can skip. Making the rest required would refuse
+        calls that are complete — `briefing` takes nothing at all."""
+        assert self._wire_schema()["required"] == ["operation"]
+
+    def test_the_measure_vocabulary_travels_with_its_meanings(self):
+        """The enum says WHICH names exist; only the text says which one
+        answers the question. Shipping the names without the meanings would
+        make `clearHeight` and `extent` look interchangeable, which is the
+        confusion a Raumhöhennachweis turns on."""
+        description = self._wire_schema()["properties"]["measure"]["description"]
+
+        assert "lichte Raumhöhe" in description
+        assert "NOT the height of the space solid" in description
+        for name in ("clearHeight", "turningCircle", "egressPath"):
+            assert f"{name} —" in description
+
+    def test_the_overloaded_fields_say_which_operations_they_belong_to(self):
+        """`mode`, `kind` and `other_global_id` mean different things per
+        operation. A flat model can carry that; it cannot carry it silently."""
+        properties = self._wire_schema()["properties"]
+
+        for operation in ("distance", "view"):
+            assert f"'{operation}'" in properties["mode"]["description"]
+        for operation in ("find_elements", "fire", "envelope", "element_profile"):
+            assert f"'{operation}'" in properties["kind"]["description"]
+        for operation in ("distance", "clearance", "overhang", "light_incidence"):
+            assert f"'{operation}'" in properties["other_global_id"]["description"]
+
+    def test_a_list_of_global_ids_is_expressible_as_a_real_array(self):
+        """The engine's `highlight`, `only` and `exclude` have always been
+        arrays. The wire can carry one, so the field offers one — and still
+        takes the comma-separated string the description teaches."""
+        branches = self._wire_schema()["properties"]["global_id"]["anyOf"]
+
+        assert {"type": "string"} in branches
+        assert {"type": "array", "items": {"type": "string"}} in branches
+
+    def test_no_enum_value_or_description_offers_the_model_a_verdict(self):
+        """The governing invariant, checked on the surface the model reads.
+
+        This layer MEASURES and the Bestimmung JUDGES. An enum value called
+        `compliant`, or a description that says what a number has to be, would
+        move the verdict into the tool — where nobody signs for it.
+        """
+        import json
+
+        properties = self._wire_schema()["properties"]
+        schema = json.dumps(properties, ensure_ascii=False)
+
+        # No VALUE the model can pick is a judgement. Every enum here names a
+        # quantity, a relation or a subject — never an outcome.
+        for name, field in properties.items():
+            for value in self._enum(field) or []:
+                assert not any(
+                    word in value.lower() for word in ("erfuellt", "erfüllt", "compliant", "zulaessig", "conform")
+                ), f"{name} offers the model a verdict: {value!r}"
+
+        # And no description states what a number has to BE.
+        for word in ("erfüllt", "compliant", "zulässig", "Grenzwert", "mindestens", "höchstens zulässig"):
+            assert word not in schema, f"the input schema applies a clause: {word!r}"
+
+        # `Gebäudeklasse` may appear ONLY where it is being refused: the height
+        # is geometry, the class that follows from it is law.
+        assert "Gebäudeklasse" in schema, "the sentence that refuses the class went missing"
+        assert "Returns a HEIGHT and never a class" in schema
+        # The two operators most likely to be read as a check say so themselves.
+        assert schema.count("Applies no threshold") == 2
+
+
+class TestAMalformedCallIsRefusedBeforeTheToolRuns:
+    """Where the refusal happens is the whole point of the typed input.
+
+    `_build_call` has always refused an unknown measure, and refused it well.
+    But it refuses it INSIDE the tool: the call was accepted, dispatched and
+    executed, and at `max_tool_iterations: 5` that is a fifth of everything the
+    agent will do about the question, spent to be told a name was wrong. The
+    same refusal from the input model happens before any of it — and most
+    models will not emit a value the schema forbids in the first place.
+    """
+
+    @staticmethod
+    def _model():
+        from aiq_agent.agents.bim.measure_register import IfcMeasureInput
+
+        return IfcMeasureInput
+
+    def test_an_operation_that_does_not_exist_never_reaches_the_tool(self):
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError) as refused:
+            self._model()(operation="measure_room", global_id="1kTv")
+
+        # And the permitted set travels with the refusal, so the retry is informed.
+        assert "storey_heights" in str(refused.value)
+
+    def test_a_measure_that_does_not_exist_never_reaches_the_tool(self):
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            self._model()(operation="measure", global_id="1kTv", measure="wandstaerke")
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("relation", "borders"),
+            ("kind", "raum"),
+            ("room_kind", "wohnraum"),
+            ("mode", "clear"),
+        ],
+    )
+    def test_every_other_vocabulary_is_closed_too(self, field, value):
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            self._model()(operation="find_elements", **{field: value})
+
+    def test_a_call_that_decided_nothing_is_refused(self):
+        """`operation` used to default to 'briefing', so a call with no
+        arguments at all came back as a successful briefing. That reads as
+        „the tool worked" for a call that named no question."""
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError) as refused:
+            self._model()()
+
+        assert "operation" in str(refused.value)
+
+    def test_a_batch_too_big_for_the_engine_is_refused_before_the_download(self):
+        """The engine refuses more than MAX_BATCH — after resolving, fetching
+        and tessellating the model. Seconds and a turn, to be told to count."""
+        import pydantic
+
+        from aiq_agent.agents.bim.measure_register import MAX_BATCH
+
+        ids = ",".join(f"id{n}" for n in range(MAX_BATCH + 1))
+        with pytest.raises(pydantic.ValidationError) as refused:
+            self._model()(operation="measure", measure="floorArea", global_id=ids)
+
+        assert str(MAX_BATCH) in str(refused.value)
+        # And it says what to do instead, in one sentence.
+        assert "survey" in str(refused.value)
+
+    def test_the_batch_ceiling_is_not_invented_for_the_other_list_operations(self):
+        """`view`, `fire` and `light_incidence` take lists and have no ceiling.
+        A schema stricter than the engine refuses calls that would have worked."""
+        ids = [f"id{n}" for n in range(80)]
+        assert self._model()(operation="view", global_id=ids).global_id.count(",") == 79
+
+    def test_an_angle_outside_the_prism_is_refused_at_the_boundary(self):
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            self._model()(operation="light_incidence", global_id="1kTv", angle_deg=120.0)
+
+    def test_a_name_this_surface_does_not_have_still_reaches_the_backlog(self, monkeypatch):
+        """The enums must not silence `capability_gaps`.
+
+        „measure='wandstaerke'" is not really a mistake — it is somebody asking
+        for a wall thickness this surface has no operator for, in one word, and
+        it is the most useful signal the BIM surface produces. `_build_call`
+        recorded it. Once the enum is on the wire the value never gets that
+        far, and the backlog would go quiet exactly as the refusals got cheaper.
+        """
+        import pydantic
+
+        recorded = self._gaps_recorded_by(
+            monkeypatch, pydantic, operation="measure", global_id="1kTv", measure="wandstaerke"
+        )
+
+        assert [entry["asked_for"] for entry in recorded] == ["wandstaerke"]
+        assert recorded[0]["field"] == "measure"
+
+    def test_a_bad_kind_is_recorded_against_the_vocabulary_its_operation_uses(self, monkeypatch):
+        """`kind` is three vocabularies. „fire kind='thermalEnvelope'" is a
+        different request from „find_elements kind='thermalEnvelope'", and a
+        backlog that merged them would rank neither."""
+        import pydantic
+
+        recorded = self._gaps_recorded_by(monkeypatch, pydantic, operation="fire", kind="brandabschnitt")
+
+        assert recorded[0]["field"] == "fire.kind"
+
+    @staticmethod
+    def _gaps_recorded_by(monkeypatch, pydantic, **arguments) -> list[dict]:
+        from aiq_agent.agents.bim import measure_register
+
+        recorded: list[dict] = []
+        monkeypatch.setattr(measure_register, "record_gap", lambda **kwargs: recorded.append(kwargs))
+        with pytest.raises(pydantic.ValidationError):
+            measure_register.IfcMeasureInput(**arguments)
+        return recorded
+
+
+class TestEveryWellFormedCallStillDispatchesIdentically:
+    """This is a schema refactor. The calls that worked have to work the same.
+
+    Each row is a call the tool accepted before the input model existed, driven
+    through the model and then through `_build_call`, and asserted against the
+    engine call it has always produced.
+    """
+
+    CALLS = [
+        (
+            {"operation": "briefing"},
+            ("briefing", {"format": "text"}),
+        ),
+        (
+            {"operation": "find_elements", "ifc_type": "IfcSpace", "storey": "Keller", "kind": "space"},
+            ("find_elements", {"limit": 50, "ifcType": "IfcSpace", "storey": "Keller", "kind": "space"}),
+        ),
+        (
+            {"operation": "element", "global_id": "1kTv"},
+            ("element", {"globalId": "1kTv"}),
+        ),
+        (
+            {"operation": "relations", "global_id": "1kTv", "relation": "opensTo"},
+            ("relations", {"globalId": "1kTv", "relation": "opensTo"}),
+        ),
+        (
+            {"operation": "measure", "global_id": "1kTv", "measure": "clearHeight"},
+            ("measure", {"globalId": "1kTv", "measure": "clearHeight"}),
+        ),
+        (
+            {"operation": "survey", "measure": "clearHeight", "ifc_type": "IfcSpace", "storey": "Keller"},
+            ("survey", {"measure": "clearHeight", "limit": 50, "ifcType": "IfcSpace", "storey": "Keller"}),
+        ),
+        (
+            {"operation": "element_profile", "global_id": "1kTv", "kind": "expensive"},
+            ("element_profile", {"globalId": "1kTv", "include": "expensive"}),
+        ),
+        (
+            {"operation": "distance", "global_id": "a", "other_global_id": "b", "mode": "horizontal"},
+            ("distance", {"a": "a", "b": "b", "mode": "horizontal"}),
+        ),
+        (
+            {"operation": "clearance", "global_id": "a", "other_global_id": "b"},
+            ("clearance", {"a": "a", "b": "b"}),
+        ),
+        (
+            {"operation": "sun_position", "when": "2026-06-21T12:00:00+02:00"},
+            ("sun_position", {"when": "2026-06-21T12:00:00+02:00"}),
+        ),
+        (
+            {"operation": "storey_heights"},
+            ("storey_heights", {}),
+        ),
+        (
+            {"operation": "room_inventory", "room_kind": "aufenthaltsraum"},
+            ("room_inventory", {"kind": "aufenthaltsraum"}),
+        ),
+        (
+            {"operation": "draw", "storey": "Keller", "ifc_type": "IfcWall"},
+            ("draw", {"storey": "Keller", "include": ["IfcWall"]}),
+        ),
+        (
+            {"operation": "shopping_list"},
+            ("shopping_list", {}),
+        ),
+        (
+            {"operation": "fire", "kind": "compartmentArea", "global_id": "a,b"},
+            ("fire", {"what": "compartmentArea", "globalId": "a,b"}),
+        ),
+        (
+            {"operation": "envelope", "kind": "compactness"},
+            ("envelope", {"what": "compactness"}),
+        ),
+        (
+            {"operation": "overhang", "global_id": "roof", "other_global_id": "wall"},
+            ("overhang", {"projecting": "roof", "facade": "wall"}),
+        ),
+        (
+            {
+                "operation": "light_incidence",
+                "global_id": "win",
+                "other_global_id": "wall,roof",
+                "angle_deg": 45.0,
+                "swivel_deg": 30.0,
+            },
+            ("light_incidence", {"globalId": "win", "angle": 45.0, "swivel": 30.0, "exclude": ["wall", "roof"]}),
+        ),
+        (
+            {"operation": "view", "global_id": "1kTv", "mode": "only"},
+            ("view", {"only": ["1kTv"]}),
+        ),
+    ]
+
+    @staticmethod
+    def _dispatch(**arguments):
+        """Exactly what `_ifc_measure` does between the model and the engine."""
+        from aiq_agent.agents.bim.measure_register import IfcMeasureInput
+
+        parsed = IfcMeasureInput(**arguments)
+        return _build_call(
+            operation=parsed.operation,
+            global_id=str(parsed.global_id),
+            other_global_id=str(parsed.other_global_id),
+            relation=parsed.relation or "",
+            measure=parsed.measure or "",
+            mode=parsed.mode or "",
+            ifc_type=parsed.ifc_type,
+            name_contains=parsed.name_contains,
+            storey=parsed.storey,
+            kind=parsed.kind or "",
+            room_kind=parsed.room_kind or "",
+            limit=parsed.limit if parsed.limit and parsed.limit > 0 else 50,
+            angle_deg=parsed.angle_deg or None,
+            swivel_deg=parsed.swivel_deg or None,
+            when=parsed.when,
+        )
+
+    @pytest.mark.parametrize("arguments,expected", CALLS, ids=[row[0]["operation"] for row in CALLS])
+    def test_the_engine_call_is_unchanged(self, arguments, expected):
+        assert self._dispatch(**arguments) == expected
+
+    def test_every_operation_is_covered_by_a_row(self):
+        """A parity table that quietly stops covering an operation proves
+        nothing about the one it dropped."""
+        from aiq_agent.agents.bim.measure_register import VALID_OPERATIONS
+
+        assert {row[0]["operation"] for row in self.CALLS} == set(VALID_OPERATIONS)
+
+    def test_an_array_of_ids_and_the_comma_string_are_the_same_call(self):
+        """The array is offered because the wire can carry one, not because it
+        means something different."""
+        assert self._dispatch(operation="view", global_id=["a", "b"]) == self._dispatch(
+            operation="view", global_id="a, b"
+        )
+
+    def test_a_view_without_a_mode_finally_reaches_the_engine(self):
+        """The one behaviour that DOES change, and it changes from broken.
+
+        `_ifc_measure` declared `mode: str = "min"` while the description
+        promised `view` defaulted to 'highlight'. Both were internally
+        consistent and they disagreed with each other, so every `view` call
+        that omitted `mode` — which is what the description invites — arrived
+        as mode='min', which `view` does not have, and was refused. The default
+        now lives in one place, and 'not given' reaches `_build_call` as 'not
+        given'.
+        """
+        assert self._dispatch(operation="view", global_id="1kTv") == ("view", {"highlight": ["1kTv"]})
+
+    def test_a_kind_the_operation_ignores_is_not_filed_as_a_missing_capability(self, monkeypatch):
+        """`element_profile` shrugs at a `kind` that is not 'expensive'.
+
+        `kind` is one field over four vocabularies and the enum is their union,
+        because `_build_call` is the layer that knows which one applies. A
+        ledger scoped to the operation's own vocabulary would file every one of
+        those shrugs as „somebody wanted a capability we lack", and drown the
+        entries that mean it.
+        """
+        from aiq_agent.agents.bim import measure_register
+
+        recorded: list[dict] = []
+        monkeypatch.setattr(measure_register, "record_gap", lambda **kwargs: recorded.append(kwargs))
+
+        parsed = measure_register.IfcMeasureInput(operation="element_profile", global_id="1kTv", kind="space")
+
+        assert parsed.kind == "space"
+        assert recorded == []
+
+    @pytest.mark.parametrize(
+        "field,written,canonical",
+        [
+            ("operation", "Briefing", "briefing"),
+            ("kind", "Compactness", "compactness"),
+            ("kind", "FLUCHTNIVEAU", "fluchtniveau"),
+            ("room_kind", "Aufenthaltsraum", "aufenthaltsraum"),
+            ("mode", "Horizontal", "horizontal"),
+        ],
+    )
+    def test_the_case_the_tool_always_tolerated_is_still_tolerated(self, field, written, canonical):
+        """`_build_call` lower-cases these four and case-folds the fire and
+        envelope aspects, so kind='Compactness' has always been answered. A
+        `Literal` is case-sensitive, and a schema that started refusing calls
+        the tool used to answer would be this refactor breaking the very thing
+        it exists to make cheaper."""
+        from aiq_agent.agents.bim.measure_register import IfcMeasureInput
+
+        arguments = {"operation": "envelope"} | {field: written}
+        assert getattr(IfcMeasureInput(**arguments), field) == canonical
