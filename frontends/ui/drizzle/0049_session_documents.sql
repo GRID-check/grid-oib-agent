@@ -61,8 +61,12 @@
 --
 -- ## The CHECK constraint
 --
--- `(scope = 'session') = (conversation_id IS NOT NULL)`: a session row has a
--- conversation and no other row does, both directions.
+-- Two halves, and a session row must satisfy both:
+--
+--   1. `(scope = 'session') = (conversation_id IS NOT NULL)` — a session row has
+--      a conversation and no other row does, in both directions.
+--   2. `scope <> 'session' OR project_id IS NULL` — and a session row has no
+--      project.
 --
 -- It is here because the scope partition used to be a convention held together
 -- by a coincidence. With two shelves, "is this an Archiv row" could be asked as
@@ -72,13 +76,45 @@
 -- different, so the tie between a scope and the column that owns it is written
 -- into the table rather than reconstructed by each query.
 --
+-- The second half is that same argument applied to the OTHER column a session
+-- row must leave alone, and the first half alone does not imply it: a row with
+-- `scope = 'session'`, a conversation AND a project satisfies the biconditional
+-- while being a contradiction — a file readable by one chat, filed inside a
+-- project's estate.
+--
+-- What makes it worth a constraint rather than a convention is the cascade.
+-- `documents.project_id` is `ON DELETE CASCADE` to `projects`, so deleting the
+-- project would take that row with it — silently, without going through
+-- `deleteSessionDocument`, which is the only path that purges the Chroma chunks
+-- and the SeaweedFS objects first. The row would vanish and its bytes and its
+-- chunks would stay, orphaned in two stores no cascade can reach.
+--
+-- The conversation cascade above reaches the same rows and is nonetheless
+-- sound, because every path that deletes a conversation knows it may be
+-- deleting session documents and clears the two stores first (see "Why
+-- CASCADE"). This one is different in kind: no path that deletes a project
+-- looks for session documents, because a session document is not supposed to
+-- have one. The cascade would be reached by code that does not know these rows
+-- can exist.
+--
+-- Nothing violates this today: the only writer of session rows is
+-- `uploadSessionDocument`, which passes `projectId: null` to both the insert and
+-- the dispatch (`lib/session-documents/service.ts`), and uses the project a chat
+-- belongs to only to create the conversation row. So this is a LATENT bug — the
+-- invariant currently holds because one function is careful, which is exactly
+-- the convention-versus-invariant gap this migration exists to close. A second
+-- writer (a backfill, an import, a "session documents can be promoted to a
+-- project" feature) is one careless column away from it, and the failure is
+-- silent data loss in the object store rather than an error anybody sees.
+--
 -- Added NOT VALID and validated separately. Both statements are needed for
 -- correctness of the FUTURE — an unvalidated constraint is still enforced on
 -- every insert and update — and splitting them keeps the ACCESS EXCLUSIVE lock
 -- to a catalog update while the scan over existing rows runs under SHARE UPDATE
 -- EXCLUSIVE, which does not block reads or writes. Every existing row satisfies
--- it trivially (`conversation_id` is new, so it is NULL everywhere, and no row
--- has `scope = 'session'` yet), so the scan finds nothing to reject.
+-- it trivially — `conversation_id` is new, so it is NULL everywhere, and no row
+-- has `scope = 'session'` yet, which also makes the `project_id` half vacuous —
+-- so the scan finds nothing to reject.
 --
 -- ## RLS
 --
@@ -131,9 +167,17 @@ CREATE INDEX "documents_conversation_idx"
 -- 4. The scope partition, as an invariant (see the header)
 -- ---------------------------------------------------------------------------
 --> statement-breakpoint
+-- The name says "requires conversation" and the constraint now says slightly
+-- more than that: a session row has a conversation AND has no project. Kept as
+-- one constraint under the original name because it is one statement — where a
+-- session document is filed — and splitting it would let half of the partition
+-- be dropped without the other noticing.
 ALTER TABLE "documents"
   ADD CONSTRAINT "documents_session_requires_conversation"
-  CHECK (("scope" = 'session') = ("conversation_id" IS NOT NULL))
+  CHECK (
+    ("scope" = 'session') = ("conversation_id" IS NOT NULL)
+    AND ("scope" <> 'session' OR "project_id" IS NULL)
+  )
   NOT VALID;
 
 --> statement-breakpoint

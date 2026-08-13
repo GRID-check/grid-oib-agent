@@ -12,16 +12,22 @@
 import { apiRoute, parseFormData } from '@/lib/api/handler'
 import { BadRequestError } from '@/lib/api/errors'
 import { uploadSessionDocument } from '@/lib/session-documents/service'
+import { parseConversationId } from '../conversation-id'
 
 export const POST = apiRoute(
   async ({ session, request }) => {
     const formData = await parseFormData(request)
-    const conversationId = formData.get('conversationId')
     const projectId = formData.get('projectId')
     const file = formData.get('file')
 
-    if (typeof conversationId !== 'string' || !conversationId || !(file instanceof File)) {
-      throw new BadRequestError('conversationId and file are required')
+    // The id decides which conversation is created or resolved, which rows the
+    // document is filed against, and which retrieval collection the bytes are
+    // ingested into — so its shape is checked here, at the edge, before any of
+    // that. Deliberately NOT `uuid()`: see `../conversation-id`.
+    const conversationId = parseConversationId(formData.get('conversationId'))
+
+    if (!(file instanceof File)) {
+      throw new BadRequestError('file is required')
     }
 
     return uploadSessionDocument(

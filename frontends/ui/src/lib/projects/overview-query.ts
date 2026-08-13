@@ -41,7 +41,28 @@ export async function getProjectOverviewData(
       totalSize: sql<number>`coalesce(sum(${documents.fileSize}), 0)::bigint`.as('total_size'),
     })
     .from(documents)
-    .where(and(eq(documents.projectId, projectId), eq(documents.organizationId, organizationId)))
+    .where(
+      and(
+        eq(documents.projectId, projectId),
+        eq(documents.organizationId, organizationId),
+        // The shelf, stated — the same predicate `listProjectDocuments` and
+        // `countDocumentsByProject` carry (`lib/documents/repository.ts`), so
+        // the overview's number is the count of the same thing the project's
+        // document list shows.
+        //
+        // It cannot leak today: the other two shelves both have a NULL
+        // `projectId` — the org-wide Archiv by construction, a session document
+        // because its shelf is the conversation — and NULL never satisfies a
+        // `project_id = $1` equality, so those rows are already excluded. It is
+        // stated anyway because that is a coincidence of the data, not a
+        // property of the query: the query asks "which rows have this project",
+        // and reads as "which documents belong to this project" only while no
+        // row can hold both a project and a non-project scope. The partition
+        // must be an invariant, not a coincidence — which is why migration 0049
+        // also writes it into the table.
+        eq(documents.scope, 'project')
+      )
+    )
 
   const recentDocs = await db
     .select({
@@ -53,7 +74,17 @@ export async function getProjectOverviewData(
       createdAt: documents.createdAt,
     })
     .from(documents)
-    .where(and(eq(documents.projectId, projectId), eq(documents.organizationId, organizationId)))
+    .where(
+      and(
+        eq(documents.projectId, projectId),
+        eq(documents.organizationId, organizationId),
+        // Same predicate as the count above, for the same reason, and here the
+        // two must agree by asking the same question: a "recent documents" list
+        // that could show a row the count above excluded (or the reverse) is a
+        // page that contradicts itself.
+        eq(documents.scope, 'project')
+      )
+    )
     .orderBy(desc(documents.createdAt))
     .limit(5)
 

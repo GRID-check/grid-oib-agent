@@ -24,6 +24,14 @@
 -- Dropping in the reverse order of creation: check, index, constraint, column.
 -- `DROP COLUMN` would take the dependents with it anyway; naming them keeps the
 -- rollback honest about everything it removes.
+--
+-- The check being dropped is the whole scope partition — a session row has a
+-- conversation, and a session row has no project. Both halves go, so after this
+-- runs nothing stops a `scope = 'session'` row from carrying a `project_id` and
+-- being cascade-deleted by a project purge with its SeaweedFS objects and Chroma
+-- chunks left behind. That is another reason the guard above refuses while any
+-- session document exists: the rollback is only safe when there is nothing left
+-- for the invariant to protect.
 
 DO $$
 DECLARE
