@@ -573,7 +573,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                     assignmentFilter === key ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {t(`assignment.filter${key === 'all' ? 'All' : key === 'mine' ? 'Mine' : 'Unassigned'}`)}
+                  {t(
+                    key === 'all'
+                      ? 'assignment.filterAll'
+                      : key === 'mine'
+                        ? 'assignment.filterMine'
+                        : 'assignment.filterUnassigned',
+                  )}
                 </button>
               ))}
             </div>

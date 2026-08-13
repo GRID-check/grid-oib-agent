@@ -477,9 +477,15 @@ describe('collaboration rows', () => {
     expect(table('inbox_items')).toBeGreaterThanOrEqual(0)
     expect(table('mention_requests')).toBeGreaterThanOrEqual(0)
     expect(table('resource_shares')).toBeGreaterThanOrEqual(0)
-    // `DELETE FROM conversations`, not `FROM conversations`: the three
-    // collaboration statements now name that table too, inside their subquery.
-    for (const name of ['inbox_items', 'mention_requests', 'resource_shares']) {
+    expect(table('resource_assignments')).toBeGreaterThanOrEqual(0)
+    // `DELETE FROM conversations`, not `FROM conversations`: the collaboration
+    // statements now name that table too, inside their subquery.
+    for (const name of [
+      'inbox_items',
+      'mention_requests',
+      'resource_shares',
+      'resource_assignments',
+    ]) {
       expect(table(name)).toBeLessThan(table('DELETE FROM conversations'))
     }
   })
@@ -517,17 +523,32 @@ describe('collaboration rows', () => {
     // No `tx(array)` anywhere: that call is the parameter expansion itself.
     expect(expansions).toEqual([])
 
-    const collaborationDeletes = executed.filter(
+    const conversationDeletes = executed.filter(
       (call) =>
         call.text.startsWith('DELETE') &&
+        call.text.includes("resource_type = 'conversation'") &&
         ['inbox_items', 'mention_requests', 'resource_shares'].some((name) =>
           call.text.includes(name),
         ),
     )
-    expect(collaborationDeletes).toHaveLength(3)
-    for (const call of collaborationDeletes) {
+    expect(conversationDeletes).toHaveLength(3)
+    for (const call of conversationDeletes) {
       expect(call.values).toEqual(['p1'])
       expect(call.text).toContain('IN (SELECT id FROM conversations WHERE project_id = $)')
+    }
+
+    const documentDeletes = executed.filter(
+      (call) =>
+        call.text.startsWith('DELETE') &&
+        call.text.includes("resource_type = 'document'") &&
+        ['inbox_items', 'mention_requests', 'resource_shares', 'resource_assignments'].some(
+          (name) => call.text.includes(name),
+        ),
+    )
+    expect(documentDeletes).toHaveLength(4)
+    for (const call of documentDeletes) {
+      expect(call.values).toEqual(['p1'])
+      expect(call.text).toContain('IN (SELECT id::text FROM documents WHERE project_id = $)')
     }
   })
 
@@ -546,7 +567,12 @@ describe('collaboration rows', () => {
     await purgeProject(tx, entry, makeDeps())
 
     const deletes = executed.filter((call) => call.text.startsWith('DELETE'))
-    for (const name of ['inbox_items', 'mention_requests', 'resource_shares']) {
+    for (const name of [
+      'inbox_items',
+      'mention_requests',
+      'resource_shares',
+      'resource_assignments',
+    ]) {
       expect(deletes.some((call) => call.text.includes(name))).toBe(true)
     }
   })

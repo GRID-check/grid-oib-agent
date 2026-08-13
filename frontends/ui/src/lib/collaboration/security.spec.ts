@@ -513,7 +513,7 @@ describe('sharing is never a back door into a project (matrix F36, spec SH-5)', 
 
 describe('an unregistered resource type (matrix F37)', () => {
   it('is refused before any lookup happens', async () => {
-    const unknownType = 'document' as ShareableResourceType
+    const unknownType = 'not-a-resource' as ShareableResourceType
 
     expect(() => describeResource(unknownType)).toThrow(/No registry entry/)
     await expect(resolveResourceAccess(session, unknownType, 'doc_1')).rejects.toThrow(
