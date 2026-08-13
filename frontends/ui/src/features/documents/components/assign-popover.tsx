@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useChatStore } from '@/features/chat'
@@ -15,6 +15,7 @@ export function AssignPopover({
   onPick,
   pickOnly = false,
   triggerLabel,
+  trigger,
 }: {
   documentId: string
   assignees: readonly FileAssignee[]
@@ -23,6 +24,8 @@ export function AssignPopover({
   onPick?: (person: FileAssignee) => void
   pickOnly?: boolean
   triggerLabel?: string
+  /** Viewport-dressed trigger. Default is the Files ghost button. */
+  trigger?: ReactElement
 }) {
   const t = useTranslations('files')
   const [open, setOpen] = useState(false)
@@ -109,9 +112,11 @@ export function AssignPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px]">
-          {triggerLabel ?? (assignees.length > 0 ? t('assignment.edit') : t('assignment.assign'))}
-        </Button>
+        {trigger ?? (
+          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px]">
+            {triggerLabel ?? (assignees.length > 0 ? t('assignment.edit') : t('assignment.assign'))}
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 space-y-2 p-3">
         {!pickOnly &&

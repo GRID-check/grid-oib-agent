@@ -48,6 +48,11 @@ below lives behind one button in the dock — **Details & Prüfung** — which o
 a drawer on the right holding five tabs. The building stays on screen behind
 it; the drawer is a panel over the model, not a page beside it.
 
+The top-right chrome is the same file chrome as Dateien: **Ask Piloti** (the
+building is the chat subject), and — when collaboration is on — who is
+responsible, with the same assign popover as a PDF. Rename and delete stay in
+the ⋯ menu next to those.
+
 ### Überblick
 
 **Modellübersicht** — what the file says about itself: project, site and

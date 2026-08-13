@@ -66,6 +66,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { DocumentActionsMenu } from '@/features/documents/components/document-actions'
+import { ModelFileOwnership } from './model-file-ownership'
 import {
   storeyKey,
   supportsWebGpu,
@@ -244,6 +245,8 @@ export interface ModelStageProps {
   onModelRenamed?: (documentId: string, displayName: string | null) => void
   /** The model on screen was deleted; the stage closes itself afterwards. */
   onModelDeleted?: (documentId: string) => void
+  /** Responsible people + Ask a colleague. Off when collaboration is off. */
+  canCollaborate?: boolean
 }
 
 export function ModelStage({
@@ -251,6 +254,7 @@ export function ModelStage({
   onClose,
   onModelRenamed,
   onModelDeleted,
+  canCollaborate = false,
 }: ModelStageProps): JSX.Element {
   const t = useTranslations('bim')
   const { locale } = useLocale()
@@ -1106,6 +1110,13 @@ export function ModelStage({
                 the same one the file preview carries; only its trigger is
                 dressed for the viewport.
               */}
+              {model && (
+                <ModelFileOwnership
+                  projectId={projectId}
+                  model={model}
+                  canCollaborate={canCollaborate}
+                />
+              )}
               {model && (
                 <DocumentActionsMenu
                   document={{
