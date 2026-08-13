@@ -44,7 +44,7 @@ def _mock_bff(monkeypatch, payload: object = None, error: Exception | None = Non
 
 class TestSanitize:
     def test_round_trip_known_keys(self):
-        raw = {"knowledge.top_k": 12, "ris.page_size": 50, "surface.max_files": 5}
+        raw = {"knowledge.top_k": 12, "ris.page_size": 50, "surface.max_files": 3}
         assert sanitize_retrieval_settings(raw) == raw
 
     def test_non_object_fails_open(self):

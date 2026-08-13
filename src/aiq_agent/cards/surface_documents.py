@@ -27,13 +27,24 @@ from nat.data_models.function import FunctionBaseConfig
 logger = logging.getLogger(__name__)
 
 _CHUNK_TOP_K = 40
-# Browse cap. A choice, not a search-results page. Platform → Retrieval can
-# lower this; it cannot raise the landfill back to twelve.
-MAX_SURFACED_FILES = 5
-# Weak absolute floor. A file below this is not worth showing even in browse.
-MIN_SURFACE_SCORE = 0.45
-# In browse, drop files that are far behind the winner (best * this).
-MANY_RELATIVE_FLOOR = 0.72
+# A short choice, never a catalogue. Platform → Retrieval can lower this.
+MAX_SURFACED_FILES = 3
+# Weak hits are how a citation-health screenshot pulls in every IFC in the
+# project. Floor is high on purpose.
+MIN_SURFACE_SCORE = 0.58
+# In browse, drop files that are not almost as good as the winner.
+MANY_RELATIVE_FLOOR = 0.88
+# If the winner is this far ahead of #2, there is no real choice.
+CLEAR_WINNER_GAP = 0.12
+
+_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff")
+_MODEL_EXT = (".ifc", ".ifczip")
+# Only kinds that must not leak into a different medium. A query like
+# "Lageplan" is a topic, not a file-kind filter — that would drop plan.pdf.
+_QUERY_KIND_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("image", ("screenshot", "bildschirm", "png", "jpg", "jpeg", "foto", "photo", "zitation", "citation", "zitier")),
+    ("model", ("ifc", "bim", "modell")),
+)
 
 SurfaceMode = Literal["one", "many"]
 
@@ -86,6 +97,28 @@ def _filename_mentioned_in_query(query: str, known: list[str]) -> str | None:
     return None
 
 
+def _file_kind(file_name: str) -> str:
+    """Coarse kind so a screenshot query does not also surface IFC models."""
+    lower = (file_name or "").lower()
+    if lower.endswith(_MODEL_EXT):
+        return "model"
+    if lower.endswith(_IMAGE_EXT):
+        return "image"
+    if any(token in lower for token in ("grundriss", "schnitt", "ansicht", "lageplan")):
+        return "drawing"
+    return "document"
+
+
+def _query_kind(query: str) -> str | None:
+    text = (query or "").strip().lower()
+    if not text:
+        return None
+    for kind, tokens in _QUERY_KIND_HINTS:
+        if any(token in text for token in tokens):
+            return kind
+    return None
+
+
 def _aggregate_hits(hits: list[tuple[object, str]]) -> list[dict]:
     """One best chunk per file, score-sorted, quality-gated."""
     best: dict[str, dict] = {}
@@ -117,22 +150,43 @@ def _pick_one(ordered: list[dict]) -> list[dict]:
 
 
 def _pick_many(ordered: list[dict], max_files: int) -> list[dict]:
-    """Keep the winner and only the files that are actually close to it."""
+    """Keep the winner, plus only same-kind files that are almost as good."""
     if not ordered:
         return []
+    winner = ordered[0]
+    if len(ordered) == 1:
+        return [winner]
+    best = float(winner["score"] or 0.0)
+    second = float(ordered[1]["score"] or 0.0)
+    if best - second >= CLEAR_WINNER_GAP:
+        return [winner]
+    winner_kind = _file_kind(str(winner["file_name"]))
     cap = max(1, min(max_files, MAX_SURFACED_FILES))
-    best = float(ordered[0]["score"] or 0.0)
     floor = max(MIN_SURFACE_SCORE, best * MANY_RELATIVE_FLOOR)
-    kept = [row for row in ordered if float(row["score"] or 0.0) >= floor]
-    return kept[:cap]
+    kept = [winner]
+    for row in ordered[1:]:
+        if len(kept) >= cap:
+            break
+        if _file_kind(str(row["file_name"])) != winner_kind:
+            continue
+        if float(row["score"] or 0.0) < floor:
+            continue
+        kept.append(row)
+    return kept
 
 
 def _aggregate_surfaced(
     hits: list[tuple[object, str]],
     max_files: int,
     mode: SurfaceMode = "one",
+    query: str = "",
 ) -> list[dict]:
     ordered = _aggregate_hits(hits)
+    hint = _query_kind(query)
+    if hint:
+        hinted = [row for row in ordered if _file_kind(str(row["file_name"])) == hint]
+        if hinted:
+            ordered = hinted
     if mode == "many":
         return _pick_many(ordered, max_files)
     return _pick_one(ordered)
@@ -153,8 +207,9 @@ _TOOL_DESCRIPTION = (
     "- `mode=one` (default) + `query=` when they asked to see the best matching "
     "file and you do not have the name. Opens one file. Not a follow-up to a "
     "citation.\n"
-    "- `mode=many` + `query=` only when they are browsing and need a short "
-    "choice among a few close files. Never a catalogue.\n"
+    "- `mode=many` + `query=` only when they are choosing among two or three "
+    "NEARLY EQUALLY relevant files of the same kind. Never a catalogue, never "
+    "the inventory.\n"
     "WHEN NOT TO CALL — to read, quote, or cite a passage, use `knowledge_search`. "
     "The UI already peeks the cited file; do not also call this tool after citing. "
     "Do not use this for OIB / RIS / web questions.\n"
@@ -329,7 +384,7 @@ async def _surface_search(
     max_files: int,
 ) -> list[dict]:
     hits = await _retrieve_all(targets, query, chunk_top_k)
-    return _aggregate_surfaced(hits, max_files, mode)
+    return _aggregate_surfaced(hits, max_files, mode, query)
 
 
 async def _retrieve_all(

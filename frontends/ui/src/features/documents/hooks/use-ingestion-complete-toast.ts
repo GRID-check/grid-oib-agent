@@ -1,18 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-
-/**
- * Ingestion statuses that mean a document is durably indexed and CITABLE — the
- * success family from {@link import('../components/document-status')}. The exact
- * instant a document crosses into one of these is when it becomes usable in an
- * answer, and the one moment worth confirming to the user.
- */
-const CITABLE_STATUSES = new Set(['ready', 'uploaded', 'ingested', 'success', 'completed'])
-
-function isCitable(status: string | null | undefined): boolean {
-  return status != null && CITABLE_STATUSES.has(status.toLowerCase())
-}
+import { isCitableStatus } from '../components/document-status'
 
 interface StatusTrackedFile {
   id: string
@@ -52,8 +41,8 @@ export function useIngestionCompleteToast<T extends StatusTrackedFile>(
     const previous = previousStatuses.current
     for (const file of files) {
       const seenBefore = previous.has(file.id)
-      const wasCitable = isCitable(previous.get(file.id))
-      if (seenBefore && !wasCitable && isCitable(file.status) && !alreadyToasted.current.has(file.id)) {
+      const wasCitable = isCitableStatus(previous.get(file.id))
+      if (seenBefore && !wasCitable && isCitableStatus(file.status) && !alreadyToasted.current.has(file.id)) {
         alreadyToasted.current.add(file.id)
         onCitableRef.current(file)
       }

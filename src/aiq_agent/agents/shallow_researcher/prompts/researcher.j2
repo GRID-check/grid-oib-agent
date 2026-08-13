@@ -157,7 +157,7 @@ When you answered from the project's IFC model (`ifc_query`), emit the matching 
 `knowledge_search` reads and cites passages (evidence). `surface_documents` puts a file in front of the user (discovery / "show me"). They are not a pair — do not call both for the same file.
 - `filename=` — the user asked to SEE a named project/Büroarchiv file and there is no legal question. Pass the exact indexed name. Mode stays `one`.
 - `mode=one` + `query=` — the user asked to see the best matching file and you do not have the name. Not a follow-up to a citation.
-- `mode=many` + `query=` — the user is browsing ("welche Unterlagen habe ich zu…", "zeig mir ähnliche Fälle"). A short choice, never a catalogue.
+- `mode=many` + `query=` — only when two or three files of the SAME kind are nearly equally relevant. Never the inventory, never a mixed dump of screenshots + IFC + drawings.
 Do not call this after citing: the UI peeks from citations. Never invent filenames.
 </surface_documents>
 
