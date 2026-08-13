@@ -37,7 +37,12 @@ import Link from 'next/link'
 import { ArrowUpRight, Boxes } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { useBimElements, useBimModelSource, useProjectBimModels } from '../hooks/use-bim-model'
+import {
+  useBimElements,
+  useBimModelSource,
+  useDocumentBimModel,
+  useProjectBimModels,
+} from '../hooks/use-bim-model'
 import { supportsWebGpu } from '../lib/model-index'
 import { buildModelHref } from '../lib/model-link'
 import { IfcModelViewer } from './ifc-model-viewer'
@@ -48,12 +53,18 @@ interface IfcFilePreviewProps {
   /** File name, which is how the workspace addresses a model in a link. */
   filename: string
   /**
-   * The project whose models are searched. Required: models are listed per
-   * project (`/api/projects/[id]/bim/models`, which is where the flag and the
-   * access check live), so the org-wide Archiv — which has no project in hand —
-   * keeps the ordinary file preview rather than getting a half-wired viewport.
+   * The project whose model list resolves this file, when the surface has one.
+   *
+   * Optional, and that is the whole point. Models used to be reachable ONLY
+   * through `/api/projects/[id]/bim/models`, so a project was a prerequisite
+   * for looking at a model — and the org-wide Archiv, which has no project,
+   * therefore showed the ordinary "no inline preview" placeholder for a
+   * building it had already parsed and indexed. Without a project the model is
+   * resolved by its document instead (`useDocumentBimModel`), which is the more
+   * direct question anyway; the project path is kept as-is because it shares
+   * its in-flight list with every other model surface on the page.
    */
-  projectId: string
+  projectId?: string | null
   className?: string
 }
 
@@ -62,36 +73,52 @@ export function IfcFilePreview({ documentId, filename, projectId, className }: I
   // Detected here, not passed in: the documents pane should not have to learn
   // what WebGPU is to show a file.
   const webGpu = useMemo(() => supportsWebGpu(), [])
-  const models = useProjectBimModels(projectId)
+  // Exactly one of these does any work — the other is passed null and stays
+  // idle. Both are called unconditionally because hooks are.
+  const models = useProjectBimModels(projectId ?? null)
+  const documentModel = useDocumentBimModel(projectId ? null : documentId)
 
   // The model is addressed by its DOCUMENT, because that is what the pane has
   // and what the user clicked. A file whose extraction has not finished (or
   // failed) simply has no ready model, and says so rather than rendering an
   // empty viewport.
   const model = useMemo(
-    () => models.data?.find((candidate) => candidate.documentId === documentId) ?? null,
-    [models.data, documentId]
+    () =>
+      projectId
+        ? (models.data?.find((candidate) => candidate.documentId === documentId) ?? null)
+        : documentModel.data,
+    [projectId, models.data, documentModel.data, documentId]
   )
   const ready = model?.status === 'ready' ? model : null
 
   const source = useBimModelSource(ready?.id ?? null, webGpu && ready !== null)
   const elements = useBimElements(ready?.id ?? null)
 
+  // Which lookup's state the branches below read.
+  const lookup = projectId
+    ? { isLoading: models.isLoading, hasData: models.data !== null, error: models.error }
+    : { isLoading: documentModel.isLoading, hasData: documentModel.data !== null, error: documentModel.error }
+
   // The link opens THIS file, not whichever model the workspace would default
   // to — the workspace resolves a model by file name (`?model=`), which is also
   // why no UUID travels through the URL.
-  const href = buildModelHref(projectId, { model: filename })
+  //
+  // Null without a project: the model workspace IS a project surface, and a
+  // link that cannot be built must not be rendered as one that goes nowhere.
+  // The Archiv's preview is therefore the viewport itself, with no way out —
+  // which is honest, and better than the placeholder it replaced.
+  const href = projectId ? buildModelHref(projectId, { model: filename }) : undefined
 
   // Only while there is nothing to show. The list polls every four seconds
   // whenever any model in the project is extracting and keeps its previous
   // `data` across the refetch, so keying on the flag alone made this preview
   // blink back to "Modell wird geladen…" — and remount the viewport under it —
   // for the whole minute after somebody uploads anything.
-  if (models.isLoading && models.data === null) {
+  if (lookup.isLoading && !lookup.hasData) {
     return <PreviewNote className={className} text={t('preview.loading')} />
   }
 
-  if (models.error !== null) {
+  if (lookup.error !== null) {
     // "The list did not load" is NOT "there is no model", and saying the latter
     // would tell the reader their upload vanished.
     return <PreviewNote className={className} text={t('preview.loadFailed')} href={href} label={t('preview.open')} />
@@ -155,7 +182,8 @@ export function IfcFilePreview({ documentId, filename, projectId, className }: I
         elements={elements.data ?? NO_ELEMENTS}
         className="min-h-[220px] flex-1"
       />
-      <OpenInWorkspace href={href} label={t('preview.open')} />
+      {/* Absent in the Archiv, where there is no project workspace to open. */}
+      {href && <OpenInWorkspace href={href} label={t('preview.open')} />}
     </div>
   )
 }

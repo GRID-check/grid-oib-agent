@@ -32,26 +32,36 @@ import { Boxes, Layers3, Ruler, ScrollText, Square } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { useProjectBimModels } from '../hooks/use-bim-model'
+import { useDocumentBimModel, useProjectBimModels } from '../hooks/use-bim-model'
 import { formatMeasure } from '../lib/format-value'
 
 interface IfcFileFactsProps {
   /** The document being previewed; its model carries the facts. */
   documentId: string
-  projectId: string
+  /**
+   * The project whose model list resolves this file, when the surface has one.
+   * Absent in the org-wide Archiv, where the model is looked up by its document
+   * instead — see {@link IfcFilePreview} for why that path exists at all.
+   */
+  projectId?: string | null
   className?: string
 }
 
 export function IfcFileFacts({ documentId, projectId, className }: IfcFileFactsProps): JSX.Element | null {
   const t = useTranslations('bim')
   const { locale } = useLocale()
-  // Shares the in-flight request with the viewport beside it (see
-  // `fetchProjectModels`), so the rail costs nothing extra.
-  const { data: models } = useProjectBimModels(projectId)
+  // Shares the in-flight request with the viewport beside it — the project list
+  // (see `fetchProjectModels`) or the document lookup (`fetchDocumentModel`),
+  // whichever the surface uses — so the rail costs nothing extra either way.
+  const { data: models } = useProjectBimModels(projectId ?? null)
+  const { data: documentModel } = useDocumentBimModel(projectId ? null : documentId)
 
   const model = useMemo(
-    () => models?.find((candidate) => candidate.documentId === documentId) ?? null,
-    [models, documentId]
+    () =>
+      projectId
+        ? (models?.find((candidate) => candidate.documentId === documentId) ?? null)
+        : documentModel,
+    [projectId, models, documentModel, documentId]
   )
   const summary = model?.status === 'ready' ? model.summary : null
 

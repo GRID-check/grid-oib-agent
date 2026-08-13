@@ -152,9 +152,13 @@ export function FilePreviewPane({
    * classifies a model by format (it has to, for the card thumbnails), and the
    * viewport is behind one dynamic import.
    *
-   * Project scope only: models are listed per project, so the org-wide Archiv —
-   * which has no project in hand — keeps the ordinary preview instead of a
-   * viewport that could never resolve a model.
+   * Every shelf, not just a project's. This used to require a `projectId`,
+   * because a model could only be resolved through a project's model list — so
+   * a model uploaded into the org-wide Archiv previewed as a grey "no inline
+   * preview" page mock, and the file the whole feature is about was the one
+   * file the Archiv could do nothing with. The document-scoped lookup behind
+   * `IfcFilePreview` removed that prerequisite; the surfaces that have a
+   * project still use it, and the ones that do not now work.
    */
   const isModel =
     inferDocumentKind({ filename: file.filename, contentType: file.contentType, tags: file.tags }) === 'model'
@@ -415,7 +419,7 @@ export function FilePreviewPane({
             drawing on a desk actually looks like, and the whole reason this
             column exists rather than a download link. */}
         <div className="flex h-[50dvh] shrink-0 min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7">
-          {isModel && projectId ? (
+          {isModel ? (
             <IfcFilePreview
               documentId={file.id}
               filename={file.filename}
@@ -500,7 +504,7 @@ export function FilePreviewPane({
               IS. Ungated by the metadata flag, which covers what INGESTION
               derived — these come out of the IFC itself. Renders nothing until
               a model has actually been read. */}
-          {isModel && projectId && (
+          {isModel && (
             <IfcFileFacts
               documentId={file.id}
               projectId={projectId}

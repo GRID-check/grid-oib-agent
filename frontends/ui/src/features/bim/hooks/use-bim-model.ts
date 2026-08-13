@@ -182,6 +182,93 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
 }
 
 /**
+ * In-flight `GET /api/documents/<id>/model` per document — the same burst
+ * collapsing `fetchProjectModels` does, for the same reason: the file preview's
+ * viewport and its metadata rail both ask, in the same frame, about the same
+ * document.
+ */
+const documentModelInFlight = new Map<string, Promise<{ model: BimModelHeaderView | null }>>()
+
+function fetchDocumentModel(documentId: string): Promise<{ model: BimModelHeaderView | null }> {
+  const existing = documentModelInFlight.get(documentId)
+  if (existing) return existing
+  const request = getJson<{ model: BimModelHeaderView | null }>(
+    `/api/documents/${documentId}/model`
+  ).finally(() => {
+    documentModelInFlight.delete(documentId)
+  })
+  documentModelInFlight.set(documentId, request)
+  return request
+}
+
+/**
+ * The model read from ONE document, wherever that document lives.
+ *
+ * `useProjectBimModels` answers "which models may this project see", and every
+ * model surface used to be built on it — which quietly made a project a
+ * prerequisite for looking at a model at all. The org-wide Archiv has no
+ * project, so a model uploaded there could not be resolved by any surface in
+ * the Archiv: the file was parsed, indexed and listed as ready, and the preview
+ * beside it said there was no model.
+ *
+ * Same polling contract as the project list, because the wait is the same one:
+ * a freshly uploaded model arrives `extracting` and nothing else would tell the
+ * page when that finished. Polling stops as soon as the model is terminal, so a
+ * ready model costs one request.
+ */
+export function useDocumentBimModel(documentId: string | null): AsyncState<BimModelHeaderView | null> & {
+  reload: () => void
+} {
+  const [state, setState] = useState<AsyncState<BimModelHeaderView | null>>(IDLE)
+  const [tick, setTick] = useState(0)
+  /** Which document the answer on screen is about — see the carry-over below. */
+  const shownFor = useRef<string | null>(null)
+  /** Whether the last SUCCESSFUL answer was still being read. See the project list. */
+  const [extracting, setExtracting] = useState(false)
+
+  useEffect(() => {
+    if (!documentId) {
+      shownFor.current = null
+      setState(IDLE)
+      setExtracting(false)
+      return
+    }
+    let cancelled = false
+    if (shownFor.current !== documentId) setExtracting(false)
+    // A refetch is not a reset: blanking `data` on every poll tick would take
+    // the model id to null four seconds at a time, and the viewport under it
+    // re-downloads and re-triangulates the whole building when that happens.
+    const carryOver = shownFor.current === documentId
+    shownFor.current = documentId
+    setState((previous) => ({
+      data: carryOver ? previous.data : null,
+      isLoading: true,
+      error: null,
+    }))
+    fetchDocumentModel(documentId)
+      .then((body) => {
+        if (cancelled) return
+        setState({ data: body.model, isLoading: false, error: null })
+        setExtracting(body.model?.status === 'pending' || body.model?.status === 'extracting')
+      })
+      .catch(() => {
+        if (!cancelled) setState({ data: null, isLoading: false, error: 'load-failed' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [documentId, tick])
+
+  useEffect(() => {
+    if (!extracting) return
+    const timer = setInterval(() => setTick((value) => value + 1), EXTRACTION_POLL_MS)
+    return () => clearInterval(timer)
+  }, [extracting])
+
+  return { ...state, reload: useCallback(() => setTick((value) => value + 1), []) }
+}
+
+/**
  * Walk every element matching a filter, paged through until complete.
  *
  * Shared by the viewer's full-model load (`filter: {}`) and by a card's

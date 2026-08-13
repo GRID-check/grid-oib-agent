@@ -30,16 +30,25 @@ interface ModelsState {
 /** What the mocked hooks return for the test currently running. */
 const state: {
   models: ModelsState
+  /** The document-scoped lookup, which is what the Archiv resolves through. */
+  documentModel: { data: BimModelHeaderView | null; isLoading: boolean; error: string | null }
   elements: BimViewerElement[]
   source: string | null
 } = {
   models: { data: [], isLoading: false, error: null },
+  documentModel: { data: null, isLoading: false, error: null },
   elements: [],
   source: 'https://example.test/model.ifc',
 }
 
+/** Idle is what either hook returns when it is the one passed null. */
+const IDLE = { data: null, isLoading: false, error: null, reload: () => {} }
+
 vi.mock('../hooks/use-bim-model', () => ({
-  useProjectBimModels: () => ({ ...state.models, reload: () => {} }),
+  useProjectBimModels: (projectId: string | null) =>
+    projectId ? { ...state.models, reload: () => {} } : IDLE,
+  useDocumentBimModel: (documentId: string | null) =>
+    documentId ? { ...state.documentModel, reload: () => {} } : IDLE,
   useBimElements: () => ({ data: state.elements, isLoading: false, error: null }),
   useBimModelSource: (modelId: string | null, enabled: boolean) => ({
     data: modelId && enabled ? state.source : null,
@@ -79,9 +88,15 @@ function renderPreview(): void {
   render(<IfcFilePreview documentId="doc-1" filename="Haus-A.ifc" projectId="proj-1" />)
 }
 
+/** The same preview on a shelf that has no project — the org-wide Archiv. */
+function renderArchivPreview(): void {
+  render(<IfcFilePreview documentId="doc-1" filename="Haus-A.ifc" />)
+}
+
 afterEach(() => {
   setWebGpu(false)
   state.models = { data: [], isLoading: false, error: null }
+  state.documentModel = { data: null, isLoading: false, error: null }
   state.elements = []
   state.source = 'https://example.test/model.ifc'
 })
@@ -165,5 +180,50 @@ describe('IfcFilePreview', () => {
     renderPreview()
 
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  /*
+    The org-wide Archiv, which has no project.
+
+    Every model surface used to be reached through a project's model list, so
+    an `.ifc` uploaded into the Archiv — parsed, indexed, listed as ready —
+    previewed as the grey "no inline preview" placeholder every unknown format
+    gets. The file the feature is about was the one file the Archiv could do
+    nothing with.
+  */
+  describe('without a project (the org Archiv)', () => {
+    it('shows the building, resolved by its document rather than a project list', async () => {
+      setWebGpu(true)
+      // Deliberately populated: reading the project list here would be reading
+      // a list this surface must never have asked for.
+      state.models = { data: [], isLoading: false, error: null }
+      state.documentModel = { data: model({ projectId: null }), isLoading: false, error: null }
+      renderArchivPreview()
+
+      const canvas = await screen.findByTestId('ifc-canvas')
+      expect(canvas.dataset.source).toBe('https://example.test/model.ifc')
+    })
+
+    it('still says which of the four things is true — here, still being read', () => {
+      setWebGpu(true)
+      state.documentModel = {
+        data: model({ projectId: null, status: 'extracting' }),
+        isLoading: false,
+        error: null,
+      }
+      renderArchivPreview()
+
+      expect(screen.getByText(/still reading this model/)).toBeInTheDocument()
+      expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
+    })
+
+    it('offers no workspace link, because the workspace is a project surface', async () => {
+      setWebGpu(true)
+      state.documentModel = { data: model({ projectId: null }), isLoading: false, error: null }
+      renderArchivPreview()
+
+      await screen.findByTestId('ifc-canvas')
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
   })
 })

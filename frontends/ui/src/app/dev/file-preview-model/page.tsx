@@ -5,9 +5,17 @@
  * `FilePreviewDialog` as `/dev/file-preview`, with a model fixture instead of a
  * document one, so the two can be compared side by side.
  *
+ * `?shelf=archiv` renders the SAME file with no project — a model in the
+ * org-wide Archiv, which is what the Archiv's own preview dialog passes. The
+ * building and its figures are identical; only "Im Modellbereich öffnen" is
+ * gone, because the model workspace is a project surface. Worth pinning
+ * because this shelf used to show the grey "no inline preview" placeholder for
+ * a model that had been parsed and indexed.
+ *
  * A module-scope fetch shim (browser + dev only) serves the project's model
- * list, the element query and — as a blob — a real, tiny IFC, so the viewport
- * parses an actual building with no backend, no object store and no fixture in
+ * list, the document-scoped model lookup the Archiv resolves through, the
+ * element query and — as a blob — a real, tiny IFC, so the viewport parses an
+ * actual building with no backend, no object store and no fixture in
  * `public/`. Whether the capture ends up showing the geometry or the viewer's
  * degraded state depends on the WebGPU adapter the capturing browser has; both
  * are worth pinning, and the degraded one has to read as "the picture is
@@ -16,6 +24,7 @@
  * Not linked from anywhere and 404s outside development.
  */
 
+import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
@@ -118,6 +127,10 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       if (url.includes(`/api/projects/${PROJECT_ID}/bim/models`)) {
         return Response.json({ models: [MODEL] })
       }
+      // How a project-less shelf resolves the same model: by the document.
+      if (url.includes(`/api/documents/${FIXTURE.id}/model`)) {
+        return Response.json({ model: { ...MODEL, projectId: null } })
+      }
       if (/\/api\/bim\/models\/dev-bim-1\/query$/.test(url)) {
         // Empty on purpose: the pane shows the building, and every table that
         // would need element rows lives in the workspace one link away.
@@ -138,7 +151,16 @@ export default function FilePreviewModelDevPage(): JSX.Element {
     notFound()
   }
 
-  return (
+  // Read in an effect, not during render, so the first paint is identical on
+  // server and client — the same rule the other /dev previews follow.
+  const [archiv, setArchiv] = useState(false)
+  useEffect(() => {
+    setArchiv(new URLSearchParams(window.location.search).get('shelf') === 'archiv')
+  }, [])
+
+  return archiv ? (
+    <FilePreviewDialog file={FIXTURE} scope="archiv" canManage onClose={() => {}} />
+  ) : (
     <FilePreviewDialog
       file={FIXTURE}
       projectId={PROJECT_ID}

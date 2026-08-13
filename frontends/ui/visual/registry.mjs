@@ -217,6 +217,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'file-preview-model-archiv',
+    mobile: true,
+    path: '/dev/file-preview-model?shelf=archiv',
+    description:
+      'The same model previewed from the org-wide Archiv, which has no project. Compare it with `file-preview-model`: the building, the Aus-dem-Modell figures and the metadata rail are identical, and the ONLY difference is that "Im Modellbereich öffnen" is absent, because the model workspace is a project surface. What this pins is that the shelf no longer decides whether a model can be looked at — this surface used to render the grey "no inline preview" placeholder for a file that had been parsed, indexed and listed as ready.',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'upload-tray',
     mobile: true,
     path: '/dev/upload-tray',
