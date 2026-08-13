@@ -227,6 +227,18 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'document' }],
     metadata: { filename: 'string', collectionName: 'string' },
   },
+  // A file attached privately to one chat (ADR-0047 Phase 2). Its own pair
+  // rather than reusing `document.*`: the provenance question these answer is
+  // "which conversation", and a null `projectId` in a `document.uploaded` event
+  // could not distinguish a session attachment from an Archiv one.
+  'session.document.uploaded': {
+    targets: [{ type: 'document' }],
+    metadata: { conversationId: 'string', filename: 'string', fileSize: 'number' },
+  },
+  'session.document.deleted': {
+    targets: [{ type: 'document' }],
+    metadata: { conversationId: 'string', filename: 'string', collectionName: 'string' },
+  },
   'archiv.document.renamed': {
     targets: [{ type: 'document' }],
     metadata: {

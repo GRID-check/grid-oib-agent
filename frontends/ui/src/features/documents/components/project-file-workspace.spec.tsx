@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
+import { useProjectDocuments } from '../hooks/use-project-documents'
 
 const mockUploadFiles = vi.fn()
 
@@ -461,6 +462,105 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
         expect.anything()
       )
     )
+  })
+})
+
+/**
+ * A late answer must never overwrite a newer one.
+ *
+ * `useSettlingRefresh` serialises its OWN polls, so at most one poll is in
+ * flight — but nothing coordinated that poll with a FOREGROUND load (mount,
+ * upload settled, `onComplete`, retry). A slow poll carrying `processing` could
+ * land after a newer foreground load had already brought back `ready`, putting
+ * the "Wird gelesen…" badge back on a document the user had just been told was
+ * citable — and, because the row read as unsettled again, restarting the poll
+ * that was supposed to have stopped. The Archiv workspace carries the twin of
+ * this test over its own loader.
+ */
+describe('ProjectFileWorkspace — only the newest answer may win', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const corpus = (status: string) =>
+    HttpResponse.json({
+      documents: [
+        {
+          id: 'doc-ifc',
+          filename: 'Haus-A.ifc',
+          fileSize: 148_900_000,
+          contentType: 'application/octet-stream',
+          status,
+          folderId: null,
+          createdAt: '2026-01-01T00:00:00Z',
+          errorMessage: null,
+        },
+      ],
+    })
+
+  /**
+   * Let the released response travel msw → fetch → React, WITHOUT letting the
+   * 4 s settling poll fire. If a stale answer regressed the badge, a restarted
+   * poll would immediately fetch the real `ready` again and heal it — the test
+   * would then pass while the user still saw the flicker. Well under one poll
+   * interval of fake time, spent in many small awaits, is what separates the
+   * two.
+   */
+  const flushWithoutPolling = async () => {
+    for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(50)
+  }
+
+  it('ignores a poll response that resolves after a newer foreground load', async () => {
+    let documentCalls = 0
+    const gate: { release: (() => void) | null } = { release: null }
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', async () => {
+        documentCalls += 1
+        const call = documentCalls
+        // The POLL (call 2) is held open until a newer foreground load (call 3)
+        // has already answered `ready`, then answers the stale `processing`.
+        if (call === 2) {
+          await new Promise<void>((resolve) => (gate.release = resolve))
+          return corpus('processing')
+        }
+        return corpus(call === 1 ? 'processing' : 'ready')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    expect(await screen.findByText('Processing')).toBeInTheDocument()
+
+    // The settling poll goes out and hangs.
+    await vi.advanceTimersByTimeAsync(4_100)
+    await waitFor(() => expect(documentCalls).toBe(2))
+
+    // Meanwhile the upload orchestrator finishes and asks for the corpus again —
+    // a foreground load, uncoordinated with the poll already in flight.
+    const onComplete = vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete
+    expect(onComplete).toBeTypeOf('function')
+    onComplete?.()
+    await waitFor(() => expect(documentCalls).toBe(3))
+    await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
+
+    // Now the stale poll answers. It is older than what is on screen, so it
+    // must not commit.
+    gate.release?.()
+    await flushWithoutPolling()
+
+    expect(screen.getByText('Citable')).toBeInTheDocument()
+    expect(screen.queryByText('Processing')).not.toBeInTheDocument()
+
+    // …and it must not resurrect the poll either: the corpus is terminal, so
+    // nothing more is asked for.
+    await vi.advanceTimersByTimeAsync(8_000)
+    expect(documentCalls).toBe(3)
   })
 })
 

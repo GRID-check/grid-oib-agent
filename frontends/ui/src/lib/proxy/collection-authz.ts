@@ -19,6 +19,7 @@ import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { archivCollectionName } from '@/lib/archiv/collection'
+import { sessionCollectionName } from '@/lib/collection-scope'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import { errorEnvelope, handleAuthzError } from '@/lib/backend-proxy'
 
@@ -70,9 +71,13 @@ export function resolveRequestContext(
   }
 }
 
-export function normalizeSessionCollectionName(value: string): string {
-  return value.startsWith('s_') ? value : `s_${value}`
-}
+/**
+ * Re-exported under the name this module's callers already use. The rule itself
+ * lives in `@/lib/collection-scope` — one definition, because a disagreement
+ * between the name a request is authorized against and the name it is written
+ * to is a cross-conversation read.
+ */
+export { sessionCollectionName as normalizeSessionCollectionName }
 
 /** Injectable data/authz lookups so the decision logic is unit-testable. */
 export interface CollectionAuthzDeps {
@@ -145,7 +150,7 @@ export async function validateCollectionName(
   }
 
   if (collectionName.startsWith('s_')) {
-    if (!context.conversationId || normalizeSessionCollectionName(context.conversationId) !== collectionName) {
+    if (!context.conversationId || sessionCollectionName(context.conversationId) !== collectionName) {
       return errorEnvelope(400, 'INVALID_COLLECTION', 'Collection does not match active conversation')
     }
     return null

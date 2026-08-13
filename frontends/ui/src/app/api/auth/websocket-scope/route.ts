@@ -31,13 +31,20 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { scope, headerValue } = await buildCollectionScopeFromRequest(session, {
-      projectId,
-      conversationId,
-    })
+    const { scope, scopedCollections, headerValue } = await buildCollectionScopeFromRequest(
+      session,
+      {
+        projectId,
+        conversationId,
+      }
+    )
 
     const response: Record<string, unknown> = {
       scope,
+      // `server.js` signs these into the request-context envelope, which is the
+      // copy `scoping.py` trusts for an authenticated turn. `scope` stays as the
+      // bare-name list existing clients read (ADR-0047).
+      scopedCollections,
       header: headerValue,
     }
 

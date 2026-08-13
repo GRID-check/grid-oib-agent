@@ -78,6 +78,11 @@ vi.mock('@/lib/db/schema', () => ({
 // or the projects domain: the signed URL is the authorization here, and the
 // only question under test is the scope the document query runs in.
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// The session shelf's authorizer (ADR-0047 Phase 2). Off this path for the same
+// reason `requireProjectAccess` is, and mocked for one more: the sharing
+// registry reads schema table objects at module scope, which the narrow
+// `@/lib/db/schema` double above deliberately does not provide.
+vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 vi.mock('@/lib/projects/repository', () => ({ findProjectInOrg: vi.fn() }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))

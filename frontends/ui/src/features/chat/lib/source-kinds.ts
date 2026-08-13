@@ -9,6 +9,10 @@
  * needs (binding law vs. an adopted technical guideline vs. an external
  * standard). Color = "how much can I trust this?"; badge = "which rung of the
  * authority ladder?".
+ *
+ * A THIRD, separate axis lives at the bottom of this file: the {@link Shelf} a
+ * document sits on (ADR-0047) — "whose document is this?". It is neither
+ * derived from nor merged into the display taxonomy above.
  */
 
 import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
@@ -57,58 +61,132 @@ export const kindForLane = (lane: string | null | undefined): SourceKind => {
 }
 
 // ---------------------------------------------------------------------------
-// Collection scope — the collection half of a document's identity
+// Shelf — WHERE a document sits (ADR-0047)
 // ---------------------------------------------------------------------------
 //
-// Mirror of the backend `source_kinds.collection_scope` / `SCOPE_QUALIFIERS`.
-// A document is `(collection, filename)` — the PRIMARY KEY of `document_metadata`
-// and the only pair that is unique, because one knowledge_search fans out across
-// the base corpus, the session collection and the project collections at once.
-// A citation key cannot carry a raw collection id, so it carries the SCOPE.
+// The shelf TRAVELS AS DATA. It is carried explicitly by the scope header, the
+// chunk metadata and the citation payload; nothing here derives it from a
+// collection-id prefix (`archiv_` / `proj_` / `s_`) and nothing parses it back
+// out of a German label. The prefix table that used to live at this spot
+// (`COLLECTION_SCOPE_PREFIXES`) is deleted — its absence is ADR-0047's
+// acceptance test, because while it existed the shelf was still a guess.
+//
+// SHELF ≠ SOURCE KIND. They are two axes and conflating them is what produced
+// the defects the ADR names:
+//
+//   Shelf      — whose document is this / which collection retrieval searched.
+//                `archiv | project | session | base`.
+//   SourceKind — the ADR-0026 DISPLAY taxonomy driving chip colour and badge:
+//                `baurecht | buero | projekt | web`.
+//
+// A `projekt`-kind document can sit on the `session` shelf (a file the user
+// dropped into the chat); a `baurecht`-kind document sits on `base`. Neither
+// enum is derivable from the other, so neither is defined in terms of the other.
 
-/** The shelf a document sits on. A strict subset of SourceKind (never `web`). */
-export type CollectionScope = Extract<SourceKind, 'baurecht' | 'buero' | 'projekt'>
+/** The four shelves a retrieved chunk can come from. */
+export type Shelf = 'archiv' | 'project' | 'session' | 'base'
 
-const COLLECTION_SCOPE_PREFIXES: ReadonlyArray<readonly [string, CollectionScope]> = [
-  ['archiv_', 'buero'],
-  ['proj_', 'projekt'],
-  ['s_', 'projekt'],
-]
+/** Every shelf, for iteration. Kept in step with {@link Shelf} by `satisfies`. */
+export const SHELVES = ['archiv', 'project', 'session', 'base'] as const satisfies readonly Shelf[]
 
-/** Scope owning a retrieval collection; undefined when there is no collection. */
-export const collectionScope = (
-  collection: string | null | undefined
-): CollectionScope | undefined => {
-  const key = (collection ?? '').trim().toLowerCase()
-  if (!key) return undefined
-  for (const [prefix, scope] of COLLECTION_SCOPE_PREFIXES) {
-    if (key.startsWith(prefix)) return scope
-  }
-  // A named collection that is neither project/session nor Archiv is the base
-  // knowledge corpus (matches `lane_for_hit`'s final `if collection` branch).
-  return 'baurecht'
+const SHELF_SET: ReadonlySet<string> = new Set<string>(SHELVES)
+
+/**
+ * Narrow an untrusted wire value to a Shelf, else undefined.
+ *
+ * Unknown reads as UNKNOWN and renders unattributed. It is never defaulted to
+ * `base` (nor to the old `baurecht`): the predecessor of this function failed
+ * OPEN, so an unrecognised collection claimed to be authoritative base law —
+ * the strongest provenance claim this UI can make.
+ */
+export const asShelf = (value: string | null | undefined): Shelf | undefined => {
+  const key = (value ?? '').trim().toLowerCase()
+  return SHELF_SET.has(key) ? (key as Shelf) : undefined
 }
 
 /**
- * Scope → the qualifier a citation key uses (`Plan.pdf (Projektwissen), p.3`).
- * These strings are part of persisted citation keys — changing one invalidates
- * keys in messages already written. Kept byte-identical to the backend's
- * `SCOPE_QUALIFIERS`, which a parity test enforces.
+ * Exhaustiveness guard. A shelf added to {@link Shelf} without a case in every
+ * switch below is a COMPILE error here, not a silent fallthrough at runtime.
  */
-export const SCOPE_QUALIFIERS: Record<CollectionScope, string> = {
-  buero: 'Büroarchiv',
-  projekt: 'Projektwissen',
-  baurecht: 'Basiswissen',
+const unhandledShelf = (shelf: never): never => {
+  throw new Error(`Unhandled shelf: ${String(shelf)}`)
 }
 
-/** Inverse of SCOPE_QUALIFIERS — parse a citation key's qualifier back to a scope. */
-export const scopeForQualifier = (
-  qualifier: string | null | undefined
-): CollectionScope | undefined => {
+/**
+ * Shelf → German label. **Rendering only** (ADR-0047 §5: German is rendering,
+ * never transport). Nothing persists these strings any more, so renaming one is
+ * a copy change and no longer invalidates citation keys already written.
+ *
+ * `session` gets its OWN label: a file the user attached privately to a chat
+ * used to be cited as "Projektwissen", because `('s_', 'projekt')` was the only
+ * guess the prefix table could offer. It is the same wording the upload target
+ * uses ("Private Sitzung", `de/research.ts`), so the citation now agrees with
+ * what the user was told when the file went up.
+ */
+export const shelfLabel = (shelf: Shelf): string => {
+  switch (shelf) {
+    case 'archiv':
+      return 'Büroarchiv'
+    case 'project':
+      return 'Projektwissen'
+    case 'session':
+      return 'Private Sitzung'
+    case 'base':
+      return 'Basiswissen'
+    default:
+      return unhandledShelf(shelf)
+  }
+}
+
+/**
+ * Citation-key qualifiers — the READER's side of a key's disambiguating suffix.
+ *
+ * Two different things used to be the same string. The SHELF now travels as data
+ * on the payload; nothing here is how a consumer learns it. What survives is the
+ * citation KEY, which is a human-readable identity (`Plan.pdf (Büroarchiv),
+ * p.3`) and still carries a qualifier when one filename was retrieved from more
+ * than one shelf in the same turn — otherwise two different `Plan.pdf`s would
+ * share a key. This table is what a reader must strip to recover the filename,
+ * and the shelf each qualifier names is a FALLBACK for payloads that carry no
+ * shelf field (every message persisted before ADR-0047).
+ *
+ * FROZEN wire values, pinned byte-for-byte against the backend's writer, and
+ * deliberately independent of {@link shelfLabel}: display copy may be reworded
+ * freely, these may not — renaming a label must not change what a stored key
+ * parses to, nor what today's keys strip to.
+ */
+export const CITATION_KEY_QUALIFIERS: ReadonlyArray<readonly [qualifier: string, shelf: Shelf]> = [
+  ['Büroarchiv', 'archiv'],
+  ['Projektwissen', 'project'],
+  ['Basiswissen', 'base'],
+  // `session` DOES appear in keys written from ADR-0047 onward, even though no
+  // legacy key can contain it. The qualifier is not purely a legacy artefact:
+  // the backend still appends one to disambiguate a citation key when two
+  // retrieved files share a name across shelves (`_ambiguous_file_names`), so
+  // this list is the vocabulary a WRITER can emit, and a reader that knows only
+  // the legacy three fails to strip `(Private Sitzung)` — the key then misses
+  // `FILENAME_RE` and the whole citation resolves to null.
+  //
+  // So: German is rendering for DISPLAY (see `shelfLabel`), but a citation key
+  // is a human-readable identity and still carries a qualifier to stay unique.
+  // Both runtimes must agree on this set; `shelfLabel` may be reworded freely,
+  // this may not.
+  ['Private Sitzung', 'session'],
+]
+
+/**
+ * Parse a citation key's qualifier back to a shelf — the VERSIONED FALLBACK.
+ *
+ * Only ever a fallback: a payload that carries the shelf explicitly must be read
+ * from that field, never from this, and every consumer here does. It exists for
+ * the two cases where no field is available — a message persisted before
+ * ADR-0047, and a key whose qualifier is all the wire left behind. Unknown
+ * qualifiers yield undefined: unattributed, never a default shelf.
+ */
+export const scopeForQualifier = (qualifier: string | null | undefined): Shelf | undefined => {
   const key = (qualifier ?? '').trim().toLowerCase()
-  return (Object.keys(SCOPE_QUALIFIERS) as CollectionScope[]).find(
-    (scope) => SCOPE_QUALIFIERS[scope].toLowerCase() === key
-  )
+  if (!key) return undefined
+  return CITATION_KEY_QUALIFIERS.find(([label]) => label.toLowerCase() === key)?.[1]
 }
 
 /**

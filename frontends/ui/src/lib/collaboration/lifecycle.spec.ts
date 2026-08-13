@@ -59,6 +59,15 @@ vi.mock('@/lib/auth/require-auth', () => ({
   authzErrorResponse: () => null,
 }))
 
+vi.mock('@/lib/session-documents/repository', () => ({
+  // Discarding a chat erases the files attached to it (ADR-0047 Phase 2).
+  // Stubbed empty here: the erasure has its own spec, and what matters for
+  // these tests is that it runs BEFORE the conversation row goes.
+  listSessionDocumentsForCleanup: vi.fn().mockResolvedValue([]),
+  deleteSessionDocumentsByIds: vi.fn().mockResolvedValue(undefined),
+  SESSION_DOCUMENT_LIST_LIMIT: 100,
+}))
+
 vi.mock('@/lib/conversations/repository', () => ({
   deleteConversationInOrg: vi.fn().mockResolvedValue(undefined),
   findConversationInOrg: vi.fn(),
@@ -70,6 +79,10 @@ vi.mock('@/lib/conversations/repository', () => ({
   listConversationIdsForProject: vi.fn(),
   listMessagesForConversation: vi.fn(),
   listVisibleConversations: vi.fn(),
+  // The discard stamps the conversation as deleting BEFORE it erases the files
+  // attached to it, so an upload racing the discard has something to refuse on
+  // (ADR-0047 Phase 2).
+  markConversationDeleting: vi.fn().mockResolvedValue({ id: 'conv_1' }),
   mergeMessageMetadata: vi.fn(),
   updateConversationMetaInOrg: vi.fn(),
   updateConversationTitleInOrg: vi.fn(),

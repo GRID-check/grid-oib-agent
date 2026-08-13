@@ -36,7 +36,15 @@ repos:
         # skill signatures are binary-ish blobs; pnpm-lock.yaml is a lockfile of
         # integrity hashes (not covered by detect-secrets' is_lock_file filter) —
         # neither holds real secrets, so keep them out of the scan.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$)
+        #
+        # scope_header.json is the ADR-0047 wire fixture: its `header` fields are
+        # `base64url(JSON.stringify([...]))` of collection NAMES, which is high
+        # entropy by construction and a secret by no construction at all. It is
+        # excluded rather than baselined because a baseline entry pins a hash to a
+        # LINE NUMBER, and this file grows by a case every time a shelf is added —
+        # the same trap the Pulumi note below describes. JSON cannot carry the
+        # inline `pragma: allowlist secret` comment that would be the other way out.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #

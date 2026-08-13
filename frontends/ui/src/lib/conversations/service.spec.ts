@@ -43,6 +43,7 @@ vi.mock('@/lib/conversations/repository', () => ({
   insertMessages: vi.fn(),
   listMessagesForConversation: vi.fn(),
   listVisibleConversations: vi.fn(),
+  markConversationDeleting: vi.fn(),
   mergeMessageMetadata: vi.fn(),
   updateConversationMetaInOrg: vi.fn(),
   updateConversationTitleInOrg: vi.fn(),
@@ -55,6 +56,12 @@ vi.mock('@/lib/sharing/repository', () => ({
 }))
 
 vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
+// Discarding a chat now erases state that lives OUTSIDE Postgres before it
+// touches a row (ADR-0047 Phase 2). Mocked at the boundary so this suite can
+// state what the service does with each outcome; the erasure itself is tested
+// in `session-documents/cleanup.spec.ts`.
+vi.mock('@/lib/session-documents/cleanup', () => ({ purgeSessionDocuments: vi.fn() }))
+vi.mock('@/lib/collaboration/cleanup', () => ({ purgeConversationCollaboration: vi.fn() }))
 vi.mock('@/lib/events/bus', () => ({ publishToUsers: vi.fn() }))
 vi.mock('@/lib/inbox/service', () => ({
   emitInboxItems: vi.fn(),
@@ -85,6 +92,7 @@ import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
 import { applyMessageMentions, resolveRequestsOnReply } from '@/lib/mentions/service'
 import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
+import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
 import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
 import {
   deleteConversationInOrg,
@@ -96,6 +104,7 @@ import {
   insertMessages,
   listMessagesForConversation,
   listVisibleConversations,
+  markConversationDeleting,
   updateConversationMetaInOrg,
   updateConversationTitleInOrg,
   upsertConversationRead,
@@ -351,6 +360,57 @@ describe('writing requires more than reading', () => {
     vi.mocked(findConversationTenancy).mockResolvedValue(null)
 
     await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toThrow(NotFoundError)
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * A chat's private attachments live in SeaweedFS and in a retrieval collection
+ * — two stores no foreign key reaches — while the rows that NAME them cascade
+ * off the conversation. So the discard is ordered, and the order is the whole
+ * safety property (ADR-0047 Phase 2).
+ */
+describe('discarding a chat that holds attachments', () => {
+  beforeEach(() => {
+    stubConversation({ createdBy: 'user_me' })
+    vi.mocked(markConversationDeleting).mockResolvedValue({ id: CONVERSATION_ID } as never)
+    vi.mocked(purgeSessionDocuments).mockResolvedValue({ ok: true, purged: 0, retained: 0, failures: [] })
+  })
+
+  it('marks the conversation as deleting BEFORE it erases anything', async () => {
+    const order: string[] = []
+    vi.mocked(markConversationDeleting).mockImplementation(async () => {
+      order.push('mark')
+      return { id: CONVERSATION_ID } as never
+    })
+    vi.mocked(purgeSessionDocuments).mockImplementation(async () => {
+      order.push('purge')
+      return { ok: true, purged: 0, retained: 0, failures: [] }
+    })
+    vi.mocked(deleteConversationInOrg).mockImplementation(async () => {
+      order.push('delete')
+    })
+
+    await deleteConversation(session, CONVERSATION_ID)
+
+    // Marked first, so an upload arriving at any point during the purge has
+    // something to refuse on — without it, one landing between the purge and
+    // the row delete lost its row to the cascade and left its bytes behind.
+    expect(order).toEqual(['mark', 'purge', 'delete'])
+  })
+
+  it('KEEPS the conversation when the external cleanup could not finish', async () => {
+    vi.mocked(purgeSessionDocuments).mockResolvedValue({
+      ok: false,
+      purged: 0,
+      retained: 1,
+      failures: ['doc-1: object delete failed'],
+    })
+
+    await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toThrow(/attachments failed/)
+
+    // Deleting it would cascade away the retained document rows, and those rows
+    // are the only handle on the object and chunks still sitting in the stores.
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
   })
 })

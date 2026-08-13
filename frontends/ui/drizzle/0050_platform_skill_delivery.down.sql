@@ -1,6 +1,6 @@
--- Reverse 0049: every curated skill becomes an offer again.
+-- Reverse 0050: every curated skill becomes an offer again.
 --
--- Dropping the column does NOT restore the pre-0049 fleet, and the difference
+-- Dropping the column does NOT restore the pre-0050 fleet, and the difference
 -- matters when reading a rollback plan. A published `delivery = 'standard'` row
 -- was resolving for every organization with no activation row behind it; after
 -- this migration it is an ordinary published offer, which means it appears on
@@ -12,7 +12,7 @@
 -- were saying. Withdraw those rows (`published = false`) before rolling back if
 -- an offer nobody has taken up is not what you want them to become.
 --
--- Re-applying 0049 does not bring them back either: the column is recreated with
+-- Re-applying 0050 does not bring them back either: the column is recreated with
 -- the 'offer' default, so which rows were standard is not recorded anywhere
 -- after this runs.
 DROP INDEX IF EXISTS "idx_platform_skills_standard";

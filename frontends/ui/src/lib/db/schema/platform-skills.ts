@@ -8,7 +8,7 @@ import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'dri
  * no tenant decision in it at all — the platform's own house instruction, live
  * for the whole fleet the moment it is published.
  *
- * Mirrored by the `platform_skills_delivery_check` constraint (0049), which is
+ * Mirrored by the `platform_skills_delivery_check` constraint (0050), which is
  * the one that survives a psql session: the resolver asks `delivery ===
  * 'standard'`, so an unrecognised value fails toward "offer" and would silently
  * demote a fleet instruction to something nobody was told to switch on.

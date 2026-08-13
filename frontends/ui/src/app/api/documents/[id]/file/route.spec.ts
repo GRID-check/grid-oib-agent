@@ -58,6 +58,11 @@ const PDF_ROW = {
   filename: 'Einreichplan Ostfassade.pdf',
   organizationId: 'org-1',
   projectId: 'proj-1',
+  // NOT NULL with a 'project' default in the schema, so a row without it is a
+  // row the database cannot produce. The item routes authorize per SHELF now
+  // (ADR-0047 Phase 2) — an omitted scope is an unattributable document, and
+  // this fixture is meant to stand for an ordinary project upload.
+  scope: 'project',
 }
 
 const call = (): Promise<Response> =>

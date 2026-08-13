@@ -9,11 +9,11 @@ import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
+import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
-import { isSettlingStatus } from './document-status'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
@@ -120,13 +120,6 @@ type OptionalWireField =
  */
 type FileView = 'cards' | 'list' | 'tree'
 
-/**
- * How often the list re-asks while something is unsettled. Matches the model
- * surfaces' extraction poll, which is sized against the same work: a model
- * takes tens of seconds, so this is a handful of requests, and none at all once
- * everything has landed.
- */
-const SETTLING_POLL_MS = 4_000
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
 export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false }: ProjectFileWorkspaceProps) {
@@ -202,10 +195,28 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const [filesError, setFilesError] = useState(false)
 
   /**
+   * Only the LATEST request may commit its answer.
+   *
+   * `useSettlingRefresh` serialises its OWN polls, but nothing coordinated a
+   * poll already in flight with a FOREGROUND load (mount, upload settled,
+   * `onComplete`, retry). A slow poll response carrying `processing` could
+   * therefore land after a newer foreground response carrying `ready` and
+   * overwrite it — regressing the badge the user was just told had flipped,
+   * and, because the row went back to unsettled, restarting the poll. A
+   * monotonic generation stamped when the request goes out and re-checked
+   * before every state write makes the newest request the only one that can
+   * win, whatever order the responses come back in. The Archiv workspace
+   * carries the same guard over its own loader.
+   */
+  const loadGeneration = useRef(0)
+
+  /**
    * @param quiet Refresh without the skeleton — used by the settling poll
    *   below, which would otherwise flash the whole grid every few seconds.
    */
   const loadFiles = useCallback((quiet = false) => {
+    const generation = ++loadGeneration.current
+    const isStale = () => generation !== loadGeneration.current
     if (!quiet) setIsLoadingFiles(true)
     setFilesError(false)
     const params = new URLSearchParams({ projectId })
@@ -215,6 +226,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         return r.json() as Promise<{ documents?: DocumentWireRow[] }>
       })
       .then((data) => {
+        if (isStale()) return
         const docs: FileItem[] = (data.documents ?? []).map((d) => ({
           id: d.id,
           filename: d.filename,
@@ -235,12 +247,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       })
       .catch(() => {
         // A failed POLL must not empty a list the user is looking at; only a
-        // foreground load owns the error state.
-        if (quiet) return
+        // foreground load owns the error state — and only while it is still the
+        // latest one, so a late failure cannot blank a newer successful list.
+        if (quiet || isStale()) return
         setFiles([])
         setFilesError(true)
       })
       .finally(() => {
+        // Deliberately NOT generation-guarded: the spinner belongs to the
+        // foreground loads alone, and a quiet poll starting mid-load would
+        // otherwise leave it spinning forever with nobody left to clear it.
         if (!quiet) setIsLoadingFiles(false)
       })
   }, [projectId])
@@ -328,48 +344,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     )
   )
 
-  /**
-   * Re-ask while anything is still being read.
-   *
-   * The list was fetched once and never again, so a document that finished
-   * indexing after the page loaded kept its "Wird gelesen…" badge until someone
-   * reloaded. For a PDF that is a stale label; for an `.ifc` it hides the only
-   * moment that matters. IFC extraction is DETACHED and has no ingest job at
-   * upload time (`beginModelExtraction` returns a null job id), so the upload
-   * orchestrator — which polls by job id — never watches a model at all. The
-   * card for a 150 MB building therefore sat at "processing" forever, on
-   * exactly the file whose payoff is "now ask it something".
-   *
-   * The poll runs only while something is unsettled and stops the moment
-   * everything is terminal, so a corpus of finished documents makes no
-   * requests. `useIngestionCompleteToast` above turns the transition it
-   * observes into the confirmation.
-   */
-  const hasSettlingFile = useMemo(
-    () => files.some((file) => isSettlingStatus(file.status)),
-    [files]
-  )
-  useEffect(() => {
-    if (!hasSettlingFile) return
-    // Chained, not `setInterval`. An interval fires again whether or not the
-    // previous refresh came back, so a slow endpoint accumulated requests and
-    // let an older response land after a newer one — overwriting a document
-    // that had just finished with its earlier "still reading" row. Scheduling
-    // the next poll only once the current one settles makes at most one in
-    // flight and puts them in order by construction.
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const tick = () => {
-      void loadFiles(true).finally(() => {
-        if (!cancelled) timer = setTimeout(tick, SETTLING_POLL_MS)
-      })
-    }
-    timer = setTimeout(tick, SETTLING_POLL_MS)
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  }, [hasSettlingFile, loadFiles])
+  // Re-ask while anything is still being read, and stop the moment everything
+  // is terminal. The Archiv workspace runs the same poll over its own loader —
+  // see `useSettlingRefresh` for why a detached `.ifc` extraction needs it.
+  useSettlingRefresh(files, loadFiles)
 
   // Refetch the corpus when an upload batch settles (covers non-orchestrated paths).
   const wasUploading = useRef(false)

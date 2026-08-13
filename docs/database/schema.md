@@ -481,7 +481,7 @@ in or out of the boundary.
 
 ---
 
-## platform_skills / curated_skill_activations (migrations 0046, 0047, 0049)
+## platform_skills / curated_skill_activations (migrations 0046, 0047, 0050)
 
 The other two tiers of the skills substrate (`docs/architecture/agent-skills.md`).
 `skills` above is what an ORGANIZATION writes; these are what the PLATFORM writes
@@ -500,7 +500,7 @@ and what each organization decided about it. Schema:
   - `published` boolean NOT NULL default **false** — whether the skill is live
     at all. A draft is invisible fleet-wide, which is what makes the dashboard a
     writing surface rather than a publish-on-save wire.
-  - `delivery` text NOT NULL default **`'offer'`** (0049), constrained by
+  - `delivery` text NOT NULL default **`'offer'`** (0050), constrained by
     `platform_skills_delivery_check` to `offer | standard` — whether
     organizations CHOOSE the skill or simply run it. `offer` puts it on every
     org's Skills tab behind a switch; `standard` is fleet standard equipment:
@@ -528,7 +528,7 @@ and what each organization decided about it. Schema:
   but not read, so promoting and then demoting returns the fleet to where it
   started rather than to a blank slate.
 
-**Migration 0049** is `ADD COLUMN ... DEFAULT`, catalog-only in Postgres 11+, so
+**Migration 0050** is `ADD COLUMN ... DEFAULT`, catalog-only in Postgres 11+, so
 NOT NULL with a default needs no rewrite and no scan. It makes no
 `grid_secure_*` call and is deliberately absent from `rls-coverage.spec.ts`'s
 `BOUNDARY_MIGRATIONS`: 0047 secured the table, and adding a column does not move

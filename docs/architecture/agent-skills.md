@@ -501,7 +501,7 @@ Five tables. `skills`/`jobs`/`job_runs` live in
 adds the link from a conversation back to the job that produced it, and
 `0046_curated_skill_activations.sql` adds `curated_skill_activations`,
 `0047_platform_skills.sql` adds `platform_skills` and
-`0049_platform_skill_delivery.sql` adds its `delivery` column. Each tenant table
+`0050_platform_skill_delivery.sql` adds its `delivery` column. Each tenant table
 joins the tenant boundary with a `grid_secure_table()` line (ADR-0041) —
 re-emitted by 0043 under the new names, because a rename carries the policy
 along but leaves its stored predicate written against the old table name.
@@ -531,7 +531,7 @@ along but leaves its stored predicate written against the old table name.
 - `description` / `body` / `metadata` — the same SKILL.md contract as an org row
 - `published` boolean NOT NULL default **false** — a draft is invisible
   fleet-wide, which is what makes the dashboard usable as a writing surface
-- `delivery` text NOT NULL default **`'offer'`** (migration 0049), constrained by
+- `delivery` text NOT NULL default **`'offer'`** (migration 0050), constrained by
   `platform_skills_delivery_check` to `offer | standard`. Orthogonal to
   `published`, and the two closed defaults mean different things: unpublished is
   *invisible*, `offer` *requires consent*. The CHECK is in the database and not

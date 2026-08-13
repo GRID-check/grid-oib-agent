@@ -210,6 +210,48 @@ def _as_str_list(value: Any) -> list[str] | None:
     return None
 
 
+def _as_scope_entries(value: Any) -> list[Any] | None:
+    """The raw ``collectionScope`` payload, in either wire shape (ADR-0047).
+
+    Current shape: ``[{"collection": "s_9f2a", "shelf": "session"}, …]`` — the
+    shelf travels as data. Legacy shape: a bare array of collection names, which
+    states no shelf at all. Entries may be mixed while a rollout is in flight.
+    An entry in NEITHER shape (an object with no ``collection``, a number)
+    rejects the payload wholesale, exactly as ``_as_str_list`` did: the scope is
+    an authorization boundary, so an UNREADABLE one is no scope at all.
+
+    A BLANK name (``""``, ``{"collection": "   "}``) is a different case and is
+    kept here on purpose: it is perfectly readable and simply names no
+    collection, so it is dropped per-entry by :func:`_scope_names` instead of
+    voiding an otherwise valid payload. Same rule, same reasoning, as the twin
+    parser ``aiq_agent.knowledge.scoping._parse_scope_payload`` — see its
+    docstring for why a blank name is not an unreadable one.
+    """
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if isinstance(item, str):
+            continue
+        if isinstance(item, dict) and isinstance(item.get("collection"), str):
+            continue
+        return None
+    return value
+
+
+def _scope_names(entries: list[Any] | None) -> list[str] | None:
+    """Collection names of :func:`_as_scope_entries`' output, shelves dropped.
+
+    A blank name is dropped rather than projected: it authorizes nothing, and
+    emitting ``""`` here would put an entry in this list that the resolver
+    (``aiq_agent.knowledge.scoping._parse_scope_payload``) skips — the two sides
+    of the seam would then disagree about what the same payload means.
+    """
+    if entries is None:
+        return None
+    names = [item if isinstance(item, str) else item["collection"] for item in entries]
+    return [name for name in names if name.strip()]
+
+
 def _as_str_dict(value: Any) -> dict[str, str] | None:
     if isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
         return value
@@ -240,6 +282,11 @@ class GridRequestContext:
     user_id: str | None = None
     project_id: str | None = None
     collection_scope: list[str] | None = None
+    #: The same scope with each entry's SHELF still attached, when the producer
+    #: sent the ADR-0047 object shape (``{"collection", "shelf"}``); the bare
+    #: legacy strings otherwise. ``collection_scope`` above is its names-only
+    #: projection, kept for every consumer that only authorizes on the name.
+    collection_scope_entries: list[Any] | None = None
     project_context: str | None = None
     project_memory: str | None = None
     model_overrides: dict[str, str] | None = None
@@ -270,11 +317,13 @@ class GridRequestContext:
         if envelope is not None:
             return envelope
 
+        scope_entries = _as_scope_entries(_read_json_header(COLLECTION_SCOPE_HEADER))
         return cls(
             organization_id=_normalize_raw_id(_read_header(ORGANIZATION_ID_HEADER)),
             user_id=_normalize_raw_id(_read_header(USER_ID_HEADER)),
             project_id=_normalize_raw_id(_read_header(PROJECT_ID_HEADER)),
-            collection_scope=_as_str_list(_read_json_header(COLLECTION_SCOPE_HEADER)),
+            collection_scope=_scope_names(scope_entries),
+            collection_scope_entries=scope_entries,
             project_context=normalize_project_context(_read_encoded_header(PROJECT_CONTEXT_HEADER)),
             project_memory=normalize_project_context(_read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000),
             model_overrides=_as_str_dict(_read_json_header(MODEL_OVERRIDES_HEADER)),
@@ -340,11 +389,13 @@ class GridRequestContext:
             logger.warning("X-Grid-Request-Context envelope JSON is not an object; ignoring")
             return None
 
+        scope_entries = _as_scope_entries(payload.get("collectionScope"))
         return cls(
             organization_id=_normalize_raw_id(payload.get("organizationId")),
             user_id=_normalize_raw_id(payload.get("userId")),
             project_id=_normalize_raw_id(payload.get("projectId")),
-            collection_scope=_as_str_list(payload.get("collectionScope")),
+            collection_scope=_scope_names(scope_entries),
+            collection_scope_entries=scope_entries,
             project_context=normalize_project_context(payload.get("projectContext"), max_chars=4000),
             project_memory=normalize_project_context(payload.get("projectMemory"), max_chars=2000),
             model_overrides=_as_str_dict(payload.get("modelOverrides")),
@@ -405,11 +456,13 @@ class GridRequestContext:
                 return None
             return normalize_project_context(_base64url_decode_text(value), max_chars=max_chars)
 
+        scope_entries = _as_scope_entries(json_field(COLLECTION_SCOPE_HEADER))
         return cls(
             organization_id=_normalize_raw_id(raw(ORGANIZATION_ID_HEADER)),
             user_id=_normalize_raw_id(raw(USER_ID_HEADER)),
             project_id=_normalize_raw_id(raw(PROJECT_ID_HEADER)),
-            collection_scope=_as_str_list(json_field(COLLECTION_SCOPE_HEADER)),
+            collection_scope=_scope_names(scope_entries),
+            collection_scope_entries=scope_entries,
             project_context=text_field(PROJECT_CONTEXT_HEADER, 4000),
             project_memory=text_field(PROJECT_MEMORY_HEADER, 2000),
             model_overrides=_as_str_dict(json_field(MODEL_OVERRIDES_HEADER)),

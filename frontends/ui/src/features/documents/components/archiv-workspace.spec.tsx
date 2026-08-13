@@ -1,9 +1,22 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { ArchivWorkspace } from './archiv-workspace'
+import { useArchivDocuments } from '../hooks/use-archiv-documents'
+
+/**
+ * The completion toast is an assertion here, not decoration: it is the only
+ * moment the Archiv tells a user that the file they uploaded became usable.
+ */
+const toastSuccess = vi.fn()
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: vi.fn(),
+  },
+}))
 
 const mockUploadFiles = vi.fn()
 
@@ -130,6 +143,243 @@ describe('ArchivWorkspace — permissions', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('document-actions-trigger')).not.toBeInTheDocument()
     )
+  })
+})
+
+/**
+ * An Archiv upload has to stop saying "Wird gelesen…" on its own.
+ *
+ * The Archiv asked for its list on mount and once more from `onComplete` —
+ * which fires when the BYTES land, i.e. the moment extraction STARTS. An `.ifc`
+ * has no ingest job at all (`beginModelExtraction` returns a null job id), so
+ * the upload orchestrator never watched it either: every model uploaded here
+ * sat at "Processing" until someone reloaded the page, and the ingestion-
+ * complete toast never fired. The project Files workspace had a settling poll
+ * for exactly this; both surfaces now share it.
+ */
+describe('ArchivWorkspace — a settling document settles on screen', () => {
+  /** How many times the Archiv list has been asked for, across the poll. */
+  let documentCalls = 0
+
+  const corpus = (status: string) =>
+    HttpResponse.json({
+      documents: [
+        {
+          id: 'doc-ifc',
+          filename: 'Haus-A.ifc',
+          fileSize: 148_900_000,
+          contentType: 'application/octet-stream',
+          status,
+          createdAt: '2026-01-01T00:00:00Z',
+          errorMessage: null,
+          tags: [],
+        },
+      ],
+      collectionName: 'archiv_org-1',
+      canManage: true,
+    })
+
+  beforeEach(() => {
+    documentCalls = 0
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('re-asks while a model is being read, and stops once it is', async () => {
+    server.use(
+      http.get('/api/archiv/documents', () => {
+        documentCalls += 1
+        // Still extracting on the first read; done by the time the poll fires.
+        return corpus(documentCalls === 1 ? 'processing' : 'ready')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ArchivWorkspace canManage />)
+    await waitFor(() => expect(documentCalls).toBe(1))
+    expect(await screen.findByText('Processing')).toBeInTheDocument()
+
+    await vi.advanceTimersByTimeAsync(4_100)
+    await waitFor(() => expect(documentCalls).toBe(2))
+    // The badge the user is actually looking at flips, without a reload.
+    await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
+
+    // Everything is terminal now, so the polling stops rather than asking
+    // forever about a corpus that cannot change on its own.
+    const settled = documentCalls
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(documentCalls).toBe(settled)
+  })
+
+  it('confirms the moment the document becomes citable', async () => {
+    server.use(
+      http.get('/api/archiv/documents', () => {
+        documentCalls += 1
+        return corpus(documentCalls === 1 ? 'processing' : 'ready')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ArchivWorkspace canManage />)
+    await waitFor(() => expect(documentCalls).toBe(1))
+    expect(toastSuccess).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(4_100)
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith(
+        expect.stringContaining('Haus-A.ifc'),
+        expect.anything()
+      )
+    )
+  })
+
+  it('keeps at most one poll in flight, however slow the endpoint is', async () => {
+    // `setInterval` would fire again whether or not the previous refresh had
+    // come back, letting an older response land after a newer one — overwriting
+    // a document that had just finished with its earlier "still reading" row.
+    let inFlight = 0
+    let peak = 0
+    const gate: { release: (() => void) | null } = { release: null }
+    server.use(
+      http.get('/api/archiv/documents', async () => {
+        documentCalls += 1
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        if (documentCalls > 1) await new Promise<void>((resolve) => (gate.release = resolve))
+        inFlight -= 1
+        return corpus('processing')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ArchivWorkspace canManage />)
+    await waitFor(() => expect(documentCalls).toBe(1))
+
+    // Three poll windows pass while the second request is still hanging.
+    await vi.advanceTimersByTimeAsync(13_000)
+    expect(documentCalls).toBe(2)
+    expect(peak).toBe(1)
+
+    gate.release?.()
+  })
+
+  it('polls quietly — the grid the user is reading is never replaced by a skeleton', async () => {
+    // The poll is held open, so the assertion lands WHILE a refresh is in
+    // flight: a foreground load would have swapped the whole pane for skeletons
+    // every four seconds, which is the reason the flag exists.
+    const gate: { release: (() => void) | null } = { release: null }
+    server.use(
+      http.get('/api/archiv/documents', async () => {
+        documentCalls += 1
+        if (documentCalls > 1) await new Promise<void>((resolve) => (gate.release = resolve))
+        return corpus('processing')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ArchivWorkspace canManage />)
+    expect(await screen.findByText('Haus-A.ifc')).toBeInTheDocument()
+
+    await vi.advanceTimersByTimeAsync(4_100)
+    await waitFor(() => expect(documentCalls).toBe(2))
+    expect(screen.getByText('Haus-A.ifc')).toBeInTheDocument()
+
+    gate.release?.()
+  })
+})
+
+/**
+ * A late answer must never overwrite a newer one.
+ *
+ * `useSettlingRefresh` serialises its OWN polls, so at most one poll is in
+ * flight — but nothing coordinated that poll with a FOREGROUND load. A slow
+ * poll carrying `processing` could land after a newer foreground load had
+ * already brought back `ready`, putting the "Wird gelesen…" badge back on a
+ * document the user had just been told was citable — and, because the row read
+ * as unsettled again, restarting the poll that was supposed to have stopped.
+ */
+describe('ArchivWorkspace — only the newest answer may win', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const corpus = (status: string) =>
+    HttpResponse.json({
+      documents: [
+        {
+          id: 'doc-ifc',
+          filename: 'Haus-A.ifc',
+          fileSize: 148_900_000,
+          contentType: 'application/octet-stream',
+          status,
+          createdAt: '2026-01-01T00:00:00Z',
+          errorMessage: null,
+          tags: [],
+        },
+      ],
+      collectionName: 'archiv_org-1',
+      canManage: true,
+    })
+
+  /**
+   * Let the released response travel msw → fetch → React, WITHOUT letting the
+   * 4 s settling poll fire. If a stale answer regressed the badge, a restarted
+   * poll would immediately fetch the real `ready` again and heal it — the test
+   * would then pass while the user still saw the flicker. Well under one poll
+   * interval of fake time, spent in many small awaits, is what separates the
+   * two.
+   */
+  const flushWithoutPolling = async () => {
+    for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(50)
+  }
+
+  it('ignores a poll response that resolves after a newer foreground load', async () => {
+    let documentCalls = 0
+    const gate: { release: (() => void) | null } = { release: null }
+    server.use(
+      http.get('/api/archiv/documents', async () => {
+        documentCalls += 1
+        const call = documentCalls
+        // The POLL (call 2) is held open until a newer foreground load (call 3)
+        // has already answered `ready`, then answers the stale `processing`.
+        if (call === 2) {
+          await new Promise<void>((resolve) => (gate.release = resolve))
+          return corpus('processing')
+        }
+        return corpus(call === 1 ? 'processing' : 'ready')
+      })
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ArchivWorkspace canManage />)
+    expect(await screen.findByText('Processing')).toBeInTheDocument()
+
+    // The settling poll goes out and hangs.
+    await vi.advanceTimersByTimeAsync(4_100)
+    await waitFor(() => expect(documentCalls).toBe(2))
+
+    // Meanwhile the upload orchestrator finishes and asks for the list again —
+    // a foreground load, uncoordinated with the poll already in flight.
+    const onComplete = vi.mocked(useArchivDocuments).mock.calls.at(-1)?.[0]?.onComplete
+    expect(onComplete).toBeTypeOf('function')
+    onComplete?.()
+    await waitFor(() => expect(documentCalls).toBe(3))
+    await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
+
+    // Now the stale poll answers. It is older than what is on screen, so it
+    // must not commit.
+    gate.release?.()
+    await flushWithoutPolling()
+
+    expect(screen.getByText('Citable')).toBeInTheDocument()
+    expect(screen.queryByText('Processing')).not.toBeInTheDocument()
+
+    // …and it must not resurrect the poll either: the corpus is terminal, so
+    // nothing more is asked for.
+    await vi.advanceTimersByTimeAsync(8_000)
+    expect(documentCalls).toBe(3)
   })
 })
 

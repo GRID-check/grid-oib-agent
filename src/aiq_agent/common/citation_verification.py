@@ -40,9 +40,12 @@ from urllib.parse import urlunparse
 
 from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
 from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
-from aiq_agent.common.source_kinds import collection_scope
+from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.common.source_kinds import kind_for_lane
-from aiq_agent.common.source_kinds import scope_for_qualifier
+from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
+from aiq_agent.common.source_kinds import parse_shelf
+from aiq_agent.common.source_kinds import shelf_for_qualifier
+from aiq_agent.common.source_kinds import shelf_qualifier
 
 if TYPE_CHECKING:
     from aiq_agent.common.norm_registry import NormRegistry
@@ -67,6 +70,11 @@ class SourceEntry:
     # parsed from the knowledge-layer tool output's `Collection:` field. None for
     # URL/web sources and for output produced before the field was threaded.
     collection: str | None = None
+    # The SHELF the hit came from (`archiv`/`project`/`session`/`base`), stated
+    # by the knowledge layer's ``Shelf:`` field (ADR-0047). None when the
+    # producer did not state one — unknown, and never re-derived from the
+    # collection id here.
+    shelf: str | None = None
     # Explicit per-document classification ("Dokumentart" / doc_class), parsed
     # from the knowledge-layer tool output's `Dokumentart:` field. When present
     # it is the FIRST-priority signal for lane/kind placement, overriding the
@@ -151,27 +159,32 @@ def _normalize_url(url: str) -> str:
 _PAGE_RE = re.compile(r"[,\s]\s*(?:p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))", re.IGNORECASE)
 
 
-# Optional scope qualifier a citation key carries when one filename was retrieved
-# from more than one collection in the same turn: `Plan.pdf (Projektwissen), p.3`.
+# Optional shelf qualifier a citation key carries when one filename was retrieved
+# from more than one shelf in the same turn: `Plan.pdf (Projektwissen), p.3`.
 # Only the known qualifiers match, so a parenthetical that is part of a real
-# filename ("Bescheid (Kopie).pdf") is never mistaken for one.
-_SCOPE_QUALIFIER_ALTERNATION = "|".join(re.escape(label) for label in SCOPE_QUALIFIERS.values())
+# filename ("Bescheid (Kopie).pdf") is never mistaken for one. The alternation is
+# built from the LEGACY table too, because those strings are persisted inside
+# citation keys in existing messages and must keep parsing (ADR-0047: German is
+# rendering, and a versioned reader keeps reading what was already written).
+_SCOPE_QUALIFIER_ALTERNATION = "|".join(re.escape(label) for label in dict.fromkeys(SCOPE_QUALIFIERS.values()).keys())
 #: The qualifier at the END of a key's filename part (parsing a whole key).
 _SCOPE_QUALIFIER_RE = re.compile(rf"\s*\(({_SCOPE_QUALIFIER_ALTERNATION})\)\s*$", re.IGNORECASE)
 #: The qualifier at the START of the text FOLLOWING a filename (scanning a line).
 _SCOPE_QUALIFIER_TOKEN_RE = re.compile(rf"\s*\(({_SCOPE_QUALIFIER_ALTERNATION})\)", re.IGNORECASE)
 
 
-def _parse_citation_ref(key: str) -> tuple[str, str | None, int | None]:
-    """Extract (filename, scope, page_number) from a citation key.
+def _parse_citation_ref(key: str) -> tuple[str, Shelf | None, int | None]:
+    """Extract (filename, shelf, page_number) from a citation key.
 
     Handles: "report.pdf, p.15", "report.pdf, page 15", "report.pdf",
     "report.pdf, p.15, Table 1", "Plan.pdf (Projektwissen), p.3"
 
-    ``scope`` is the coarse kind the key names (see
-    ``source_kinds.collection_scope``) or None when the key is unqualified —
-    which is the common case, because a filename is only qualified when the same
-    name was retrieved from two different collections in one turn.
+    ``shelf`` is the :class:`Shelf` the key's qualifier NAMES, or None when the
+    key is unqualified — which is the common case, because a filename is only
+    qualified when the same name was retrieved from two different shelves in one
+    turn. Reading a qualifier is not shelf INFERENCE: the qualifier was written
+    from a stated shelf, and legacy keys are the one place the label is all
+    that was persisted.
     """
     page_match = _PAGE_RE.search(key)
     page = int(page_match.group(1)) if page_match else None
@@ -180,16 +193,27 @@ def _parse_citation_ref(key: str) -> tuple[str, str | None, int | None]:
         filename = key[: page_match.start()].rstrip(", ").strip()
     else:
         filename = key.strip()
-    scope = None
+    shelf = None
     qualifier_match = _SCOPE_QUALIFIER_RE.search(filename)
     if qualifier_match:
-        scope = scope_for_qualifier(qualifier_match.group(1))
+        shelf = shelf_for_qualifier(qualifier_match.group(1))
         filename = filename[: qualifier_match.start()].rstrip(", ").strip()
-    return filename, scope, page
+    return filename, shelf, page
+
+
+def _entry_shelf(entry: SourceEntry) -> Shelf | None:
+    """The shelf a registry entry sits on; ``None`` when unknown.
+
+    Prefers the STATED shelf. The collection-name fallback exists only for
+    entries captured before the knowledge layer emitted ``Shelf:`` (an older
+    deploy's tool output replayed into this registry) and goes away with
+    :func:`legacy_shelf_for_collection_name`.
+    """
+    return parse_shelf(entry.shelf) or legacy_shelf_for_collection_name(entry.collection)
 
 
 def _parse_citation_key(key: str) -> tuple[str, int | None]:
-    """(filename, page) from a citation key — :func:`_parse_citation_ref` without the scope.
+    """(filename, page) from a citation key — :func:`_parse_citation_ref` without the shelf.
 
     Kept as the narrow form for the many call sites that only ever needed the
     document's name and page (wire serialization, chunk merging, display).
@@ -407,10 +431,10 @@ class SourceRegistry:
     def _entries_for_key(self, key: str) -> tuple[list[SourceEntry], int | None]:
         """Registry entries a citation key names, plus the page it asked for.
 
-        Filename (case-insensitive) is the match. A key that carries a scope
+        Filename (case-insensitive) is the match. A key that carries a shelf
         qualifier — `Plan.pdf (Projektwissen), p.3`, emitted only when one
-        filename was retrieved from several collections in the same turn —
-        narrows to the entries actually on that shelf.
+        filename was retrieved from several shelves in the same turn — narrows
+        to the entries actually on that shelf.
 
         The narrowing is FAIL-OPEN: a qualifier that matches no entry is
         ignored rather than rejecting the key. Verification only ever removes
@@ -418,13 +442,13 @@ class SourceRegistry:
         source over a qualifier the model mistyped, and the unqualified filename
         was already proof enough that the document was retrieved.
         """
-        target_file, target_scope, target_page = _parse_citation_ref(key)
+        target_file, target_shelf, target_page = _parse_citation_ref(key)
         target_lower = target_file.lower()
         matches = [
             entry for entry in self._citation_keys if _parse_citation_key(entry.citation_key)[0].lower() == target_lower
         ]
-        if target_scope:
-            scoped = [entry for entry in matches if collection_scope(entry.collection) == target_scope]
+        if target_shelf:
+            scoped = [entry for entry in matches if _entry_shelf(entry) == target_shelf]
             if scoped:
                 return scoped, target_page
         return matches, target_page
@@ -517,6 +541,7 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             source_type=item.get("source_type", ""),
                             tool_name=item.get("tool_name", ""),
                             collection=item.get("collection"),
+                            shelf=item.get("shelf"),
                             doc_class=item.get("doc_class"),
                             chunk_text=item.get("chunk_text"),
                         )
@@ -902,6 +927,9 @@ def _parse_generic_urls(content: str, tool_name: str) -> list[SourceEntry]:
 _KL_CITATION_RE = re.compile(r"^Citation:\s*(.+)$", re.MULTILINE)
 _KL_SOURCE_RE = re.compile(r"^Source:\s*(.+)$", re.MULTILINE)
 _KL_COLLECTION_RE = re.compile(r"^Collection:\s*(.+)$", re.MULTILINE)
+# The shelf the hit came from, stated by the producer (ADR-0047). Absent from
+# output produced before the shelf travelled — absent means unknown.
+_KL_SHELF_RE = re.compile(r"^Shelf:\s*(.+)$", re.MULTILINE)
 # Machine-readable doc_class field emitted by the knowledge layer's
 # `_format_results` (``Dokumentart: <doc_class_key>``). ``Doc-Class:`` is
 # accepted as an alias for robustness.
@@ -1007,17 +1035,20 @@ def _kl_entry(
     citation_key: str,
     title: str | None,
     collection: str | None,
+    shelf: str | None = None,
     doc_class: str | None,
     chunk_text: str | None,
     tool_name: str,
 ) -> SourceEntry:
     """Build a knowledge-layer :class:`SourceEntry` from one hit's fields."""
+    parsed_shelf = parse_shelf(shelf)
     return SourceEntry(
         citation_key=citation_key.strip(),
         title=title,
         source_type="knowledge_layer",
         tool_name=tool_name,
         collection=collection or None,
+        shelf=str(parsed_shelf) if parsed_shelf else None,
         doc_class=doc_class or None,
         chunk_text=chunk_text or None,
     )
@@ -1059,6 +1090,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                     citation_key=citation_key,
                     title=_first(_KL_SOURCE_RE, header),
                     collection=_first(_KL_COLLECTION_RE, header),
+                    shelf=_first(_KL_SHELF_RE, header),
                     doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
                     chunk_text=_kl_block_body(block),
                     tool_name=tool_name,
@@ -1218,16 +1250,16 @@ def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | N
         return None
 
     tail = ref_text[best_end:]
-    # A scope qualifier stated right after the filename is part of the document's
+    # A shelf qualifier stated right after the filename is part of the document's
     # IDENTITY, not an annotation to trim: it is the only thing separating two
     # same-named documents on different shelves. Canonicalize its spelling so the
     # rebuilt key matches the registry regardless of how the line cased it.
     qualifier = ""
     qualifier_match = _SCOPE_QUALIFIER_TOKEN_RE.match(tail)
     if qualifier_match:
-        scope = scope_for_qualifier(qualifier_match.group(1))
-        if scope:
-            qualifier = f" ({SCOPE_QUALIFIERS[scope]})"
+        label = shelf_qualifier(shelf_for_qualifier(qualifier_match.group(1)))
+        if label:
+            qualifier = f" ({label})"
             tail = tail[qualifier_match.end() :]
     # The page stated after the filename (and its qualifier), when there is one.
     page_match = _PAGE_RE.search(tail)
@@ -1283,8 +1315,8 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
             # qualifier regex is case-insensitive, hence matching the lowered
             # section is safe.
             qualifier_match = _SCOPE_QUALIFIER_TOKEN_RE.match(lowered[end:])
-            scope = scope_for_qualifier(qualifier_match.group(1)) if qualifier_match else None
-            key = f"{entry_file} ({SCOPE_QUALIFIERS[scope]})" if scope else entry_file
+            label = shelf_qualifier(shelf_for_qualifier(qualifier_match.group(1))) if qualifier_match else None
+            key = f"{entry_file} ({label})" if label else entry_file
             match = registry.entry_for_citation_key(key) or entry
             identity = _document_identity(match)
             if identity in seen:
@@ -1536,6 +1568,10 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         "title": entry.title or file_name,
         "citation_key": entry.citation_key,
         "collection": entry.collection,
+        # The SHELF this passage came from, carried explicitly (ADR-0047) so the
+        # frontend labels it instead of prefix-matching the collection id. Absent
+        # when unknown — the renderer must leave such a source unattributed.
+        "shelf": entry.shelf,
         "source_type": entry.source_type or None,
         "tool": entry.tool_name or None,
         "url": entry.url,

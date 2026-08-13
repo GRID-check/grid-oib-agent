@@ -31,6 +31,7 @@ taxonomy + German labels, so both ends share one source of truth.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,7 @@ def source_kind(key: str | None) -> SourceKind:
 
 
 # ---------------------------------------------------------------------------
-# Collection scope — the collection half of a document's identity
+# Shelf — where a retrieved chunk came from (ADR-0047)
 # ---------------------------------------------------------------------------
 #
 # A document is identified by ``(collection, filename)``: that is the PRIMARY KEY
@@ -129,55 +130,145 @@ def source_kind(key: str | None) -> SourceKind:
 # a project upload and `Plan.pdf` from the Büroarchiv can arrive in the SAME
 # result set and are different documents.
 #
-# The citation key an LLM writes cannot carry a raw collection id (`s_9f2a…` is
-# neither reproducible nor readable if it leaks into prose), so it carries the
-# collection's SCOPE instead — which shelf the document sits on. That is enough
-# to separate every collision the fan-out can actually produce, and it stays
-# legible when the key is shown to a user.
+# The SHELF is the coarse half of that identity: the org-wide Archiv, a project,
+# a private chat session, or the base corpus. ADR-0047 makes it TRAVEL AS DATA —
+# it is carried explicitly in the ``X-Grid-Collection-Scope`` header, in chunk
+# metadata and in the knowledge-tool citation payload. Nothing downstream may
+# recover it by inspecting a collection-id prefix or a German display label; the
+# prefix table that used to do that is deleted, and its absence is this ADR's
+# acceptance test.
+#
+# A missing/unknown shelf reads as UNKNOWN and renders unattributed. It is never
+# defaulted to ``base``/``baurecht`` — the old fail-open let an unrecognised
+# collection claim to be authoritative building law.
 
-#: Collection-id prefix → owning coarse kind. Mirrors ``norm_registry.lane_for_hit``'s
-#: collection heuristic; kept here because scope is an identity question, not a
-#: display one, and both the citation registry and the frontend need it.
-_COLLECTION_SCOPE_PREFIXES: tuple[tuple[str, str], ...] = (
-    ("archiv_", "buero"),
-    ("proj_", "projekt"),
-    ("s_", "projekt"),
-)
 
-#: Scope → the short qualifier a citation key uses (`Plan.pdf (Projektwissen), p.3`).
-#: Deliberately shorter than ``SourceKind.label`` ("Baurecht & Richtlinien" reads
-#: badly inside a parenthetical) and stable: it is part of a citation key, so
-#: changing a string here invalidates keys in already-persisted messages.
+class Shelf(StrEnum):
+    """The shelf a retrieved chunk came from. The wire vocabulary of ADR-0047.
+
+    Deliberately its OWN enum, not a subset of :data:`SOURCE_KINDS`: the display
+    taxonomy (``baurecht | buero | projekt | web``) is a different axis, and
+    conflating the two is what folded private session attachments into
+    "Projektwissen".
+
+    The TypeScript twin declares the same four members
+    (``frontends/ui/src/features/chat/lib/source-kinds.ts``); neither runtime
+    imports the other's — three constants declared twice is looser coupling than
+    a generated artifact on the core retrieval path.
+    """
+
+    ARCHIV = "archiv"
+    PROJECT = "project"
+    SESSION = "session"
+    BASE = "base"
+
+
+def parse_shelf(value: object) -> Shelf | None:
+    """Narrow a wire value to a :class:`Shelf`; ``None`` when unknown.
+
+    Fails CLOSED: anything that is not one of the four members — a missing
+    field, a stale label, a collection id — is unknown, never ``base``.
+    """
+    if isinstance(value, Shelf):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return Shelf(value.strip().lower())
+    except ValueError:
+        return None
+
+
+#: Shelf → the short German qualifier a citation key uses
+#: (`Plan.pdf (Projektwissen), p.3`). RENDERING ONLY — the shelf itself is what
+#: travels. Deliberately shorter than ``SourceKind.label`` ("Baurecht &
+#: Richtlinien" reads badly inside a parenthetical) and stable: the strings are
+#: embedded in citation keys already persisted in messages, so changing one
+#: invalidates those keys.
+SHELF_QUALIFIERS: dict[Shelf, str] = {
+    Shelf.ARCHIV: "Büroarchiv",
+    Shelf.PROJECT: "Projektwissen",
+    Shelf.SESSION: "Private Sitzung",
+    Shelf.BASE: "Basiswissen",
+}
+
+#: LEGACY citation-key vocabulary → qualifier. The keys are the pre-ADR-0047
+#: coarse-kind scopes (``buero``/``projekt``/``baurecht``) that qualified keys
+#: persisted in existing messages were written against; they are kept so those
+#: keys keep PARSING. ``session`` never existed in that vocabulary, so it takes
+#: the shelf's own name. Do not treat this table as transport.
 SCOPE_QUALIFIERS: dict[str, str] = {
-    "buero": "Büroarchiv",
-    "projekt": "Projektwissen",
-    "baurecht": "Basiswissen",
+    "buero": SHELF_QUALIFIERS[Shelf.ARCHIV],
+    "projekt": SHELF_QUALIFIERS[Shelf.PROJECT],
+    "baurecht": SHELF_QUALIFIERS[Shelf.BASE],
+    "session": SHELF_QUALIFIERS[Shelf.SESSION],
 }
 
 _QUALIFIER_SCOPES: dict[str, str] = {label.lower(): scope for scope, label in SCOPE_QUALIFIERS.items()}
 
+_QUALIFIER_SHELVES: dict[str, Shelf] = {label.lower(): shelf for shelf, label in SHELF_QUALIFIERS.items()}
 
-def collection_scope(collection: str | None) -> str | None:
-    """Coarse kind key owning ``collection``; None when there is no collection.
 
-    A named collection that is neither project/session nor Archiv is the base
-    knowledge corpus, matching ``lane_for_hit``'s final ``if collection`` branch.
+def shelf_qualifier(shelf: Shelf | str | None) -> str | None:
+    """The citation-key qualifier for ``shelf``; ``None`` when the shelf is unknown.
+
+    Exhaustive over :class:`Shelf`: the final ``case`` is a guard, so adding a
+    member without deciding how it renders raises here instead of silently
+    rendering as unattributed.
     """
-    key = (collection or "").strip().lower()
-    if not key:
-        return None
-    for prefix, kind in _COLLECTION_SCOPE_PREFIXES:
-        if key.startswith(prefix):
-            return kind
-    return "baurecht"
+    match parse_shelf(shelf):
+        case Shelf.ARCHIV:
+            return SHELF_QUALIFIERS[Shelf.ARCHIV]
+        case Shelf.PROJECT:
+            return SHELF_QUALIFIERS[Shelf.PROJECT]
+        case Shelf.SESSION:
+            return SHELF_QUALIFIERS[Shelf.SESSION]
+        case Shelf.BASE:
+            return SHELF_QUALIFIERS[Shelf.BASE]
+        case None:
+            # Unknown shelf → unattributed. NEVER `base`/`baurecht`.
+            return None
+        case other:  # pragma: no cover — unreachable until a member is added
+            raise AssertionError(f"unhandled shelf: {other!r}")
 
 
-def scope_qualifier(collection: str | None) -> str | None:
-    """The citation-key qualifier for ``collection`` (None when unknown)."""
-    scope = collection_scope(collection)
-    return SCOPE_QUALIFIERS.get(scope) if scope else None
+def shelf_for_qualifier(qualifier: str | None) -> Shelf | None:
+    """Inverse of :func:`shelf_qualifier` — read a key's qualifier back to a shelf.
+
+    Accepts the legacy qualifiers unchanged (they are the same four strings), so
+    a citation key persisted before ADR-0047 still resolves.
+    """
+    return _QUALIFIER_SHELVES.get((qualifier or "").strip().lower())
 
 
 def scope_for_qualifier(qualifier: str | None) -> str | None:
-    """Inverse of :func:`scope_qualifier` — parse a key's qualifier back to a scope."""
+    """LEGACY: a key's qualifier back to the pre-ADR-0047 coarse-scope token.
+
+    Kept for readers that still speak the old ``buero``/``projekt``/``baurecht``
+    vocabulary. New code wants :func:`shelf_for_qualifier`.
+    """
     return _QUALIFIER_SCOPES.get((qualifier or "").strip().lower())
+
+
+def legacy_shelf_for_collection_name(collection: str | None) -> Shelf | None:
+    """LEGACY ROLLOUT FALLBACK — guess a shelf from a collection id. REMOVE ME.
+
+    ADR-0047 deletes shelf-by-prefix inference. This is the ONE place the guess
+    survives, for exactly one reason: payloads produced BEFORE the shelf
+    travelled (an old BFF sending a bare-string scope header, a citation payload
+    persisted by a previous deploy) carry a collection name and nothing else.
+    Delete this function — and every call to it — once no such producer is left.
+
+    Returns ``None`` for anything it does not recognise. The predecessor
+    (``collection_scope``) fell OPEN to ``baurecht``, so an unknown collection
+    claimed to be authoritative building law; unknown now means unknown, and an
+    unknown shelf renders unattributed.
+    """
+    key = (collection or "").strip().lower()
+    if key.startswith("archiv_"):
+        return Shelf.ARCHIV
+    if key.startswith("proj_"):
+        return Shelf.PROJECT
+    if key.startswith("s_"):
+        return Shelf.SESSION
+    return None

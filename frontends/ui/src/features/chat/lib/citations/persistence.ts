@@ -59,6 +59,8 @@ const wireSourceSchema = z
     file_name: z.string().nullish(),
     page: z.number().int().positive().nullish(),
     kind: z.string().nullish(),
+    /** Shelf the chunk came from (ADR-0047). Absent on messages stored before it. */
+    shelf: z.string().nullish(),
     lane: z.string().nullish(),
     lane_label: z.string().nullish(),
     binding_note: z.string().nullish(),
@@ -104,6 +106,7 @@ export const encodeCitations = (
       file_name: citation.fileName,
       page: citation.page,
       kind: citation.kind,
+      shelf: citation.shelf,
       lane: citation.lane,
       lane_label: citation.laneLabel,
       binding_note: citation.bindingNote,
