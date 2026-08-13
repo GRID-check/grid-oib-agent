@@ -1190,14 +1190,19 @@ describe('InputArea', () => {
       expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['web_search', 'ris'])
     })
 
-    test('active preset renders a provenance chip inside the composer', () => {
-      mockActiveSourcePreset = 'law'
+    test('active preset does not add a second inert chip inside the composer', () => {
+      mockActiveSourcePreset = 'project'
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
-      // The colored provenance chip (icon + label) inside the composer card,
-      // in addition to the pressed shortcut chip below it.
-      expect(screen.getAllByText('Building law & guidelines').length).toBeGreaterThanOrEqual(2)
+      // The shortcut row still shows the pressed preset. The control row
+      // used to repeat it as a dead "Project documents" span — that label
+      // is not a control, so it stays off the composer.
+      expect(screen.getAllByText('Project documents')).toHaveLength(1)
+      expect(screen.getByRole('button', { name: /project documents/i })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
     })
 
     test('shortcut chips are hidden once the thread has messages', () => {
@@ -1210,6 +1215,17 @@ describe('InputArea', () => {
       expect(
         screen.queryByRole('button', { name: /building law & guidelines/i })
       ).not.toBeInTheDocument()
+    })
+
+    test('an active preset does not linger as a label after the shortcuts go away', () => {
+      mockActiveSourcePreset = 'project'
+      mockConversationMessages = [
+        { id: 'msg-1', role: 'user', content: 'Show me the plan', messageType: 'user' },
+      ]
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      expect(screen.queryByText('Project documents')).not.toBeInTheDocument()
     })
   })
 

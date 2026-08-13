@@ -226,6 +226,22 @@ describe('FileCard while the document is still being read', () => {
     expect(screen.getByText('Verschlüsseltes PDF')).toBeInTheDocument()
   })
 
+  it('omits the size · time strip when hideFooter is set', () => {
+    render(
+      <FileCard
+        file={file('c2', 'Schnitt.pdf', 'application/pdf')}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="en"
+        hideFooter
+      />,
+    )
+
+    const card = screen.getByTestId('file-card')
+    expect(card.lastElementChild?.className).toContain('flex-1')
+    expect(screen.queryByText(/KB|MB/)).not.toBeInTheDocument()
+  })
+
   it('shows the rename, and still reads the format from the file itself', () => {
     render(
       <FileCard

@@ -281,7 +281,7 @@ values render "fehlende Angabe", never a guess. See
 | `energy_performance` | Heizwärmebedarf on the A++–G energy-class ladder + HWB/fGEE bars | Energieausweis (OIB 6) |
 | `elevator_requirement` | served-storey stack + lift shaft, requirement verdict + cabin/door checks | barrier-free lift (OIB 4) |
 | `parking_requirement` | slot grid (required vs provided) + count bars for cars/bikes | Stellplatznachweis (Bauordnung) |
-| `document_grid` *(system)* | files the user asked to see — FileCard preview, one peeks, several is a short grid | document discovery |
+| `document_grid` *(system)* | files the user asked to see — FileCard preview + human summary (not retrieval snippet/score), one peeks, several is a short grid | document discovery |
 | `memory_proposal` *(system)* **(interactive)** | a finding the `remember` tool wants written to org- or project-scoped memory — the user completes the write through their own session | memory |
 
 **(interactive)** marks a card whose answer is a commitment and is therefore

@@ -20,9 +20,9 @@ interface DocumentGridCardProps {
 /**
  * Files the assistant asked the user to look at.
  *
- * Visual: the same raised {@link FileCard} (thumbnail well, name, snippet)
- * the Files grid uses. One file is that card plus an automatic peek.
- * Several close matches are a short FileGrid — never a text list.
+ * Visual: the same raised {@link FileCard} (thumbnail well, name, summary)
+ * the Files grid uses — without search ranking chrome. One file is that
+ * card plus an automatic peek. Several close matches are a short FileGrid.
  */
 export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query: _query, documents, projectId }) => {
   const t = useTranslations('chat')
@@ -37,7 +37,10 @@ export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query: _que
         file: entry.file
           ? {
               ...entry.file,
-              summary: entry.file.summary ?? entry.surfaced.summary ?? entry.surfaced.snippet ?? null,
+              // Live AI summary only. The retrieval snippet is a ranking
+              // leftover (VLM dumps, page/score) — Files search can show it;
+              // chat is "here is the file", not "here is why it ranked".
+              summary: entry.file.summary ?? entry.surfaced.summary ?? null,
             }
           : null,
       })),
@@ -89,16 +92,8 @@ export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query: _que
                   source={entry.docSource}
                   sourceLabel={entry.docSource ? t(`documentGrid.source.${entry.docSource}`) : undefined}
                   hideStatusWhenReady
+                  hideFooter
                   ariaLabel={t('documentGrid.openAria', { label: file.filename })}
-                  match={
-                    entry.surfaced.snippet
-                      ? {
-                          snippet: entry.surfaced.snippet,
-                          page: entry.surfaced.page ?? null,
-                          score: entry.surfaced.score ?? 0,
-                        }
-                      : undefined
-                  }
                 />
               ) : (
                 <UnresolvedCard key={entry.key} entry={entry} projectId={projectId} />

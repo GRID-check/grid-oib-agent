@@ -67,7 +67,7 @@ import { computePresetSourceIds } from '../lib/source-presets'
 import { researchSessionState } from '../lib/research-session-state'
 import type { SourcePresetId } from '../types'
 import type { DataSource } from '../data-sources'
-import { SourceSignalChip, SourceSignalChipToggle } from './SourceSignalChip'
+import { SourceSignalChipToggle } from './SourceSignalChip'
 import { DataConnectionCard } from './DataConnectionCard'
 import { FileSourcesTab } from './FileSourcesTab'
 import { UploadDestinationNote } from './UploadDestination'
@@ -1703,17 +1703,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               <SourcesPopoverContent />
             </PopoverContent>
           </Popover>
-
-          {/* Active source preset — colored provenance chip (icon+label+color) */}
-          {activeSourcePreset && (
-            <SourceSignalChip
-              signal={activeSourcePreset}
-              className="max-w-40"
-              title={tChat(`shortcuts.presets.${activeSourcePreset}`)}
-            >
-              {tChat(`shortcuts.presets.${activeSourcePreset}`)}
-            </SourceSignalChip>
-          )}
 
           {/* Deep-Research intent pill — preference, NOT a hard trigger:
               the agent auto-escalates on its own (spec §2.2(6)) */}

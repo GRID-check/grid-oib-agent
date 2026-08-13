@@ -172,7 +172,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/document-grid',
     description:
-      'Chat document_grid surfacing card — FileCard previews; one file peeks, several is a short grid.',
+      'Chat document_grid surfacing card — FileCard previews and human summaries; one file peeks, several is a short grid. No retrieval snippet or score.',
     // Wait for the real card to mount and its resolution fetch to settle.
     waitFor: '[data-testid="document-grid-card"]',
   },
