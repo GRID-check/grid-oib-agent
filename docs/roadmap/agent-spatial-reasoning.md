@@ -598,6 +598,114 @@ versioned like `rule_inputs` is. Edge names align to **BOT** where BOT has a
 name, because a published vocabulary beats a private one and because it makes
 an RDF export later a rename rather than a redesign.
 
+### 6.0 The system as it is actually wired
+
+§9's loop is what the agent *reasons*; this is what *runs*. It is drawn from the
+shipped code, not from this document, and the `file:line` references are the
+claim — each box is a place someone can open, not an intention. Excalidraw
+source:
+[agent-spatial-reasoning-architecture.excalidraw](agent-spatial-reasoning-architecture.excalidraw)
+(open it at excalidraw.com or in the VS Code Excalidraw extension). The same
+graph renders below.
+
+```mermaid
+flowchart TB
+    subgraph AGENT["Agent process (Python) — src/aiq_agent"]
+        direction TB
+        A1["ifc_measure<br/>configs/config_oib_openrouter.yml:481"]
+        A2["asyncio.to_thread<br/>agents/bim/measure_register.py:1256"]
+        A3["ifc_spatial_client<br/>resolve · download · spill to disk"]
+        A4["BFF POST /api/internal/bim/source<br/>presigned URL, tenancy, MAX_MODEL_BYTES"]
+        A5["source-identity cache<br/>_HANDLE_BY_SOURCE / _PATH_BY_SOURCE<br/>2nd question = dict hit, no download"]
+        A1 --> A2 --> A3
+        A3 -->|"first time only"| A4
+        A3 --- A5
+    end
+
+    subgraph PY["packages/ifc-spatial-py — THE AUTHORITY for every measured number"]
+        direction TB
+        P1["tools.py — create_tools / call<br/>the tool surface, no MCP import"]
+        P2["mcp_server.py<br/>ifc-spatial-mcp (stdio)"]
+        P3["cache.py SpatialCache<br/>sha256(bytes) · single-flight · LRU 2"]
+        P4["model.py SpatialModel<br/>ifcopenshell.open — 205-215 ms<br/>entity graph free: inverse attributes, no build step"]
+        P5["geometry_pass()<br/>LAZY — 1.5-1.9 s"]
+        P6["geom.tree (native)<br/>LAZY — rays, clash, clearance"]
+        P7["space_contacts()<br/>LAZY — 5.4-5.6 s<br/>DERIVED BOUNDARIES, budget 30 s"]
+        P8["operators · relations · clearance · daylight<br/>fire · accessibility · circulation · stairs<br/>briefing · render · ids_export"]
+        P9["envelope.py — the Answer contract<br/>declared / computed / inferred<br/>decidable · tolerance · method · from"]
+        P1 --> P3 --> P4
+        P1 --- P2
+        P4 --> P5
+        P4 --> P6
+        P4 --> P7
+        P1 --> P8 --> P9
+    end
+
+    subgraph TS["packages/ifc-spatial (TypeScript) — parity reference, ships nowhere"]
+        direction TB
+        T1["graph/build.ts buildGraph<br/>GRAPH CONSTRUCTION, @ifc-lite — 196-305 ms"]
+        T2["geometry/pass.ts:263 runGeometryPass<br/>WASM kernel — 120-364 ms"]
+        T3["geometry/boundaries.ts withDerivedBoundaries<br/>box-adjacency — 0.4-1.9 ms"]
+        T4["model.ts:68 openModel — awaits all three EAGERLY<br/>SpatialCache LRU 4 · cache.ts GraphCache LRU 8"]
+        T5["mcp/tools.ts + mcp/server.ts<br/>no deployment installs it"]
+        T1 --> T2 --> T3 --> T4 --> T5
+    end
+
+    subgraph UI["frontends/ui — the viewport"]
+        V1["@ifc-lite/renderer<br/>draws pixels, reports a GlobalId<br/>asserts no number (§13b)"]
+    end
+
+    A3 -->|"call(tools, name, args)"| P1
+    P8 -.->|"test_parity.py asserts every Python<br/>number against the TS value"| T1
+    A4 --- UI
+```
+
+**The line that decides everything else is the authority boundary.** Three
+things in this repo read IFC and exactly one of them may state a number:
+
+| reader | reads IFC | asserts a number | shipped |
+|---|---|---|---|
+| `packages/ifc-spatial-py` (IfcOpenShell / OCCT) | yes | **yes — every measured number** | `deploy/Dockerfile:67,95,98` installs it |
+| `packages/ifc-spatial` (TypeScript, `@ifc-lite`) | yes | only inside `tests/test_parity.py` | no `package.json` in the repo depends on it |
+| `frontends/ui` viewport (`@ifc-lite/renderer`) | yes | no — pixels and a GlobalId | yes |
+
+That is §13b's *„the server knows; the browser draws"* extended one step: the
+TypeScript engine is not a second server either, it is the cross-check that
+keeps the authority honest. `tests/test_parity.py` asserts each IfcOpenShell
+answer against the TypeScript operator's full-precision value at the operators'
+own stated tolerances, and the BFF route says the same thing from the other
+side — *„the alternative is a second geometry stack in Node that would have to
+agree with the first about every number"*
+(`frontends/ui/src/app/api/internal/bim/source/route.ts:14-21`).
+
+Five things the diagram is there to make legible, because prose keeps getting
+them wrong:
+
+- **Graph construction happens on one side only.** `buildGraph`
+  (`packages/ifc-spatial/src/graph/build.ts`) turns `@ifc-lite`'s relationship
+  graph into a typed, direction-normalised `BuildingGraph` — 196-305 ms on the
+  sample house. On the authority side there is no build step at all:
+  IfcOpenShell already holds every inverse attribute, so the same edges are
+  attribute reads (`packages/ifc-spatial-py/src/ifc_spatial/model.py:1-10`).
+  §6.1 and §6.2 below therefore specify a *vocabulary*, not a data structure
+  that gets built twice.
+- **Geometry processing is eager on the reference side and lazy on the shipping
+  side.** `openModel` awaits `runGeometryPass`; `SpatialModel` does not run one
+  until an operator needs a model-wide quantity. `tools.py:29-38` states the
+  rule as a rule: *„Nothing here may run geometry behind the caller's back."*
+- **Derived boundaries are two different mechanisms with the same name.**
+  TypeScript: a bounding-box contact test, 0.4-1.9 ms. Python: a real OCCT
+  offset per space, 5.4-5.6 s on a four-room house, with a time budget and a
+  product-count refusal. §6.2's `interfaceOf` *(fallback)* row is the same edge
+  either way — the cost is not.
+- **Caching is three layers and none of them is a worker.** Source identity in
+  the agent, content hash in the engine, and per-artefact memoisation inside a
+  resident model. §11b has the measured effect of each.
+- **The MCP surface is defined without a transport on both sides.** `tools.py`
+  and `mcp/tools.ts` import no protocol; `mcp_server.py` and `mcp/server.ts` are
+  the only files that know what MCP is. The agent does not use either server —
+  it calls `call(tools, …)` in-process (`ifc_spatial_client.py:491-493`).
+
 ### 6.1 Nodes
 
 | node | from | key attributes |
@@ -842,7 +950,7 @@ trustworthy. Most quantities are knowable two or three independent ways:
 
 | fact | declared | computed | third route |
 |---|---|---|---|
-| window area — **name the target first** | `Qto_WindowBaseQuantities.Area`, whichever area the exporter chose to publish | opening geometry via `voids`: the structural clear opening (Rohbaulichte) | `OverallWidth × OverallHeight` — a **nominal rectangle off the type**, not a measurement of this opening |
+| window area — **name the target first** | `Qto_WindowBaseQuantities.Area`, whichever area the exporter chose to publish | opening geometry via `voids`: the structural clear opening (Rohbaulichte) | `OverallWidth × OverallHeight` — a **nominal rectangle** off the window entity, not a measurement of this opening |
 | room area | `Qto_SpaceBaseQuantities.NetFloorArea` | footprint polygon | sum of bounding surfaces |
 | storey height | next elevation − this one | slab top to soffit | `Qto_*.Height` on the space |
 | wall length | `Qto_WallBaseQuantities.Length` | OBB principal axis | axis from `connects` |
@@ -856,11 +964,38 @@ That licence has one condition, and the window row is the one that fails it:
 **two routes may only be compared once they are known to answer the same
 question.** `Qto_WindowBaseQuantities.Area` is whichever area the exporter
 decided to publish; the opening geometry is the Rohbaulichte; and
-`OverallWidth × OverallHeight` is a nominal rectangle that includes the frame
-and describes a non-rectangular opening not at all. On an ordinary window those
-are 15–25 % apart — the figure `clear_opening_width`'s own caveat already
-carries — so triangulating across them manufactures an export defect out of
-three correct numbers.
+`OverallWidth × OverallHeight` is a nominal rectangle that describes a
+non-rectangular opening not at all.
+
+Which of the three is the outlier is not something to reason about — it is
+measured, and on the sample house it is not the one this paragraph used to
+accuse. Its bedroom window (`3cUkl32yn9qRSPvBJVyWcE`, type `1810x1210mm`) and
+its interior door (`3cUkl32yn9qRSPvBJVyWaG`, type `810x2110mm`):
+
+| route | window | door |
+|---|---|---|
+| `OverallWidth × OverallHeight` | 2,19010 m² | 1,70910 m² |
+| opening geometry via `voids` (Rohbaulichte) | 2,19010 m² | 1,70910 m² |
+| declared `BaseQuantities.Area` | 3,53486 m² | 2,27348 m² |
+| element body, the `voids`-less fallback | 2,19135 m² | 1,88206 m² |
+
+The nominal rectangle and the clear opening are the **same number to 1e-9 m²**,
+because this exporter writes `OverallWidth` as the rough-opening dimension.
+Earlier this paragraph claimed the two were „15–25 % apart" and that the nominal
+rectangle „includes the frame"; both were borrowed from `clear_opening_width`'s
+caveat, which says that about an entirely different pair — Rohbaulichte against
+lichte Durchgangsbreite — and neither survives contact with the file. The route
+that does include the frame is the fourth one, the body fallback, and it is
++0,06 % on the window and +10,1 % on the door, exactly as
+`clear_opening_width` already labels it.
+
+The genuinely unlike measure is the **declared** one: +61 % on the window,
++33 % on the door, and not normalisable by anything, because only the exporter
+knows what it published. Triangulated against geometry it manufactures an export
+defect out of correct numbers — measured, if `floor_area`'s declared-quantity
+search is widened to accept `Area` on a window, the sample house reports
+„Abweichung 81,9 %. Das ist ein Befund über den Export" against a file that is
+right.
 
 So: **normalise to one named target — gross, structural clear, or clear less
 frame and sash — before anything is called a disagreement**, and where a route
@@ -871,6 +1006,19 @@ version of this mistake costs: an area-unit bug had `triangulate` publish a
 99 % „WIDERSPRUCH" against a file that was right. A false accusation against a
 correct export is the same failure as a wrong number, and it arrives wearing the
 same tolerance.
+
+None of this is a description of shipped behaviour. Neither engine reads
+`Qto_WindowBaseQuantities`, `OverallWidth` or `OverallHeight` at all, and no
+`triangulate` call takes a window or opening area — the four that exist take a
+space's floor area (`operators.floor_area`), Σ space volumes
+(`envelope_geometry.compactness`), a stair's riser and tread (`stairs`), and, in
+the TS engine, a host-supplied room area (`operators/metric.floorArea`, which no
+host in this repo supplies one to). What keeps it that way is one tuple:
+`floor_area` narrows its declared-quantity search to
+`("NetFloorArea", "GrossFloorArea")` for anything that is not an `IfcSpace`, so
+the window's `Area` is never found. `TestAWindowsDeclaredAreaIsNotAnOpeningArea`
+in `packages/ifc-spatial-py/tests/test_review_regressions.py` pins that, and
+carries the numbers above.
 
 ---
 
@@ -917,21 +1065,9 @@ an IFC; the current parse is fast precisely because it never tessellates. Expect
 single-digit seconds for a house and minutes for a large federated model, with
 peak memory several times the file size. This forces the move ADR-0045 already
 flags: **extraction must leave the request process and become a worker.** Treat
-that as a precondition of Phase 2, not a consequence.
-
-Measured rather than intended, neither reader has that boundary today. The
-TypeScript `openModel` awaits `runGeometryPass` directly, and on the shipping
-Python path `SpatialModel.geometry_pass()` runs in the calling process —
-`ifc_measure` hands the blocking unit to `asyncio.to_thread`, which keeps the
-event loop answering and is **not** isolation: the tessellations, the OCCT tree
-and the contact map sit in the request process's address space, so a model that
-exhausts memory takes the conversation down with it. What stands in for the
-worker is an admission gate (`MAX_MODEL_BYTES`, derived from container memory
-and overridable with `BIM_SPATIAL_MAX_MODEL_BYTES`) and
-`CONTACT_BUDGET_SECONDS`, which turn an OOM and a hang into refusals. Both
-bound the damage; neither removes it, and ADR-0045 should carry the worker as
-an **open** precondition rather than an assumed one — the gate is the reason
-this has not hurt yet, not a reason it will not.
+that as a precondition of Phase 2, not a consequence. (§11b measured this on the
+shipped engine and the first clause is wrong: the geometry pass is not the
+expensive half.)
 
 **A second derived thing to keep in step.** Mitigated the way the codebase
 already does it: `graph_version`, a miss rather than a stale hit, no backfill.
@@ -955,6 +1091,89 @@ from the modeller's own sloppiness. Every geometric result states one, and
 - **Models without rooms.** No `IfcSpace` means no room area. Reconstructing
   polygons from wall loops is possible in simple cases and is exactly the kind
   of thing that must be labelled `inferred` — or deferred.
+
+### 11b. Amendment (2026-08-13): measured, and the expensive half is not the geometry pass
+
+A review finding asked for `runGeometryPass` to be moved off the request path.
+**The synchronous call is real and the request path is not.**
+`runGeometryPass` (`packages/ifc-spatial/src/geometry/pass.ts:263`) has exactly
+one non-test caller — `openModel`, `packages/ifc-spatial/src/model.ts:68` —
+which is reached only from `SpatialCache.load` (`model.ts:194`) and from there
+only from the TypeScript MCP server's `open_model` handler
+(`packages/ifc-spatial/src/mcp/tools.ts:238`). That server ships nowhere:
+`deploy/Dockerfile:67,95,98` installs `packages/ifc-spatial-py` and nothing
+else, no `package.json` in the repo depends on `@grid/ifc-spatial`, and
+`ifc_measure` (`configs/config_oib_openrouter.yml:481`) reaches the engine
+through `src/aiq_agent/knowledge/ifc_spatial_client.py`, which imports the
+**Python** `ifc_spatial` (lines 410-415, 491-493). The TypeScript package is the
+parity reference §13b keeps, not a server — §6.0 draws the boundary.
+
+On the path that does serve requests the geometry pass is already lazy, and
+`ifc_spatial.tools` states that as a rule rather than an accident:
+*„Nothing here may run geometry behind the caller's back"*
+(`packages/ifc-spatial-py/src/ifc_spatial/tools.py:29-38`). `open_model`,
+`briefing`, `find_elements` and `element` stay purely topological;
+`SpatialModel.geometry_pass()` (`model.py:679`) is reached only through
+`bounds` / `plan_centre` / `diagonal` (`model.py:700-728`); and the derived
+space boundaries come from `space_contacts()` (`model.py:731`), which is lazier
+still and several times dearer.
+
+Measured on `Ifc4_SampleHouse.ifc` (2.3 MB, 74 products, 69 with geometry),
+three runs, IfcOpenShell 0.8.5 on 4 cores:
+
+| call | first time | again | what it actually pays for |
+|---|---|---|---|
+| `open_model` | 380-389 ms | dict hit | `ifcopenshell.open` only — the tool reports `geometry: noch nicht gelaufen` |
+| `briefing` | 146-169 ms | — | topology; no geometry |
+| `relations` `hostedIn` | 0.3 ms | 0.3 ms | an inverse attribute |
+| `measure` `floorArea` / `extent` | 4.4-13.5 ms | 1.5-1.7 ms | ONE element shaped, not the model |
+| `measure` `clearHeight` | 1 407 ms | ~1 ms | the OCCT tree and a 5x5 ray grid |
+| `measure` `sillAndHead` / `azimuth` | 1 909-2 012 ms | ~1 ms | the model-wide `geometry_pass()`, via `bounds` / `plan_centre` |
+| `relations` `opensTo` / `bounds` / `adjacentSpaces` | 5 212-5 378 ms | 0.2-0.4 ms | `space_contacts()` — the **derived boundaries** |
+| peak RSS | 340-350 MB | | roughly 150x the file |
+
+Which corrects the paragraph above: on the shipping engine the model-wide
+geometry pass is **1.5-1.9 s** and the derived-boundary contact map is
+**5.4-5.6 s**. The pass is not the expensive half — the boundary derivation is,
+by about 3.5x, and it is reached by a `relations` call that looks free. (The
+TypeScript reference on the same file, for scale: `buildGraph` 196-305 ms,
+`runGeometryPass` 364 ms cold and 120-143 ms warm — the difference is WASM
+kernel init — `withDerivedBoundaries` 0.4-1.9 ms, because it is a bounding-box
+test where the Python side does a real OCCT offset per space.)
+
+**Caching is already in front of all of it, three layers deep**, which is why
+this has stayed survivable without a worker:
+
+- source identity in the agent — `_HANDLE_BY_SOURCE` / `_PATH_BY_SOURCE`,
+  `ifc_spatial_client.py:371-375`, keyed on the object's ETag, so the second
+  question about a building is a dictionary lookup with no download and no hash;
+- content hash in the engine — `ifc_spatial.cache.SpatialCache`, `sha256(bytes)`
+  with a single-flight table, bounded at `MAX_RESIDENT_MODELS = 2`
+  (`ifc_spatial_client.py:343`);
+- per-artefact memoisation inside a resident model — the shape cache,
+  `geometry_pass`'s `_pass_done`, `cached_property tree`, and the per-tolerance
+  `_space_contacts` map. Every warm column in the table above is one of these.
+
+**What remains true is the roadmap item, and it is not this function.** The
+worker does not exist. All of the above runs in the agent's own process:
+`ifc_measure` hands the blocking unit to `asyncio.to_thread`
+(`src/aiq_agent/agents/bim/measure_register.py:1256`), which keeps the event
+loop answering and is **not** isolation — the tessellations, the OCCT tree and
+the contact map sit in the request process's address space, so a model that
+exhausts memory takes the conversation down with it. What stands in for the
+worker is a set of admission gates and budgets — `MAX_MODEL_BYTES` (derived from
+container memory, overridable with `BIM_SPATIAL_MAX_MODEL_BYTES`),
+`MAX_FILE_BYTES`, `CONTACT_BUDGET_SECONDS` and
+`DERIVED_BOUNDARY_MAX_PRODUCTS` (`model.py:84-113`) — which turn an OOM and a
+hang into refusals. They bound the damage; none removes it, and ADR-0045 should
+carry the worker as an **open** precondition rather than an assumed one: the
+gates are the reason this has not hurt yet, not a reason it will not.
+
+So §12b's „extraction → worker, **not done**" stands, and the number that sizes
+it is `space_contacts()` — 5.4-5.6 s on a four-room house and **212 s** on a
+99-room office export (`model.py:96-99`), inside one call to `opens_to` about
+one window. Sizing the worker off the geometry pass would under-build it by more
+than 3x.
 
 ---
 
@@ -984,7 +1203,7 @@ is live in `configs/config_oib_openrouter.yml`, backed by
 | **0** relation graph | **done** | IfcOpenShell holds every inverse attribute; `relations` exposes eleven of them |
 | **1** placements, AABB, azimuth, footprints | **done except OBB** | `measure/extent` is AXIS-ALIGNED — on a skewed wall `width`/`depth` are systematically too large and are not its length and thickness |
 | **2** space polygons, adjacency, boundary fallback | **done** | `bounds`/`adjacentSpaces`/`opensTo` fall back to a geometric contact map with a budget; the sample house declares no `IfcRelSpaceBoundary` at all |
-| **2** extraction → worker | **not done** | still in-request, bounded instead by a memory-derived admission gate (`BIM_SPATIAL_MAX_MODEL_BYTES`) |
+| **2** extraction → worker | **not done** | still in-request, bounded instead by a memory-derived admission gate (`BIM_SPATIAL_MAX_MODEL_BYTES`). §11b has the measured cost, and it is `space_contacts()` (5.4-5.6 s) rather than the geometry pass (1.5-1.9 s) that sizes it |
 | **3** prism, obstructions, ray, overhang | **done** | `light_incidence`, `overhang`; the original failing turn is a standing regression |
 | **3** Lichteinfall **ratio** | **done** | `measure/lightEntryArea` — the „Raum-%" half of the failing answer, external openings only |
 | **3** clear widths | **done** (2026-08-13) | `measure/clearWidth` measures the aperture face-to-face — 0.810 m against `extent`'s 0.178 m on the same door. It is the **Rohbaulichte**, and the skill is required to say so |
