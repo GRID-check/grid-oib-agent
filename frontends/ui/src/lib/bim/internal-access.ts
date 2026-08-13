@@ -130,6 +130,26 @@ export async function resolveInternalModel(
   if (input.modelId) {
     const selected = candidates.find((model) => model.id === input.modelId)
     if (!selected) throw new NotFoundError('Model not found in this organization')
+    // An id is not a readiness claim, and this branch is the only one that
+    // could mistake it for one: every other path below resolves against
+    // `readable`. Without this check `POST /api/internal/bim/source` presigned
+    // the raw `.ifc` of a model whose extraction had not finished — the route
+    // does not re-check `status` itself, so the agent would measure a
+    // half-written building and report the numbers as fact. `.../query`
+    // happened to survive it only because `runBimQuery` throws
+    // `BimModelNotReadyError` further in; the two routes must refuse here,
+    // identically, as ADR-0045 says they do.
+    if (selected.status !== 'ready') {
+      return {
+        resolved: false,
+        reason: 'not_ready',
+        message:
+          selected.status === 'failed'
+            ? 'Dieses IFC-Modell konnte nicht gelesen werden.'
+            : 'Dieses IFC-Modell wird derzeit verarbeitet. Es steht noch nicht zur Abfrage bereit.',
+        models: [describeModel(selected)],
+      }
+    }
     return { resolved: true, model: selected, readable }
   }
 
