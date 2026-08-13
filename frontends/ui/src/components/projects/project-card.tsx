@@ -56,7 +56,10 @@ export function ProjectCard({ project, docCount = 0, activityAt }: ProjectCardPr
     <RaisedCard interactive>
       <RaisedCardBody>
         <div className="flex items-center justify-between gap-2.5">
-          <h3 className="min-w-0 truncate text-sm font-medium">
+          {/* `text-sm font-semibold` is the ramp's card/subsection title — and
+              it is what makes the rail outrank the list typographically rather
+              than only by shape, since the row's name is `font-medium`. */}
+          <h3 className="min-w-0 truncate text-sm font-semibold">
             <ProjectOpenLink project={project} />
           </h3>
           <ProjectStatusChip status={status} />

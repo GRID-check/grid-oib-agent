@@ -39,10 +39,41 @@ describe('ProjectListRow', () => {
     expect(screen.getByTitle(/^Last activity:/)).toBeInTheDocument()
   })
 
-  test('falls back to the shared summary line when the project has no brief', () => {
+  /**
+   * The card's fallback brief is an invitation. Repeated verbatim down a list it
+   * stops being one — it becomes the longest line on the page, on the rows that
+   * carry the least. A row with no brief shows no second line instead.
+   */
+  test('leaves the brief line out entirely when the project has none', () => {
     renderRow()
     expect(
-      screen.getByText('OIB/RIS building-compliance workspace. Add documents and a brief to ground Piloti.'),
-    ).toBeInTheDocument()
+      screen.queryByText('OIB/RIS building-compliance workspace. Add documents and a brief to ground Piloti.'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('shows the brief when the project has one', () => {
+    renderRow({
+      project: makeProject({
+        id: 'p1',
+        name: 'Wohnbau Seestadt',
+        profileDisplay: {
+          title: 'Wohnbau Seestadt',
+          summary: 'Wohnbau · 214 Wohneinheiten · GK 5 · Wien',
+          keyFacts: [],
+          missingInfo: [],
+        },
+      }),
+    })
+    expect(screen.getByText('Wohnbau · 214 Wohneinheiten · GK 5 · Wien')).toBeInTheDocument()
+  })
+
+  /**
+   * `getProjectStatus` can only return `active`, so on a list the chip is the
+   * same tinted pill on every row — a band of chroma carrying no information.
+   * It stays on the card and comes back here when a second status exists.
+   */
+  test('does not repeat the constant status chip on every row', () => {
+    renderRow()
+    expect(screen.queryByText('Active')).not.toBeInTheDocument()
   })
 })

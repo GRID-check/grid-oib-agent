@@ -13,8 +13,8 @@ export const projects: typeof en.projects = {
       heading: 'Weitermachen',
       fallbackHeading: 'Ihre Projekte',
     },
-    all: {
-      heading: 'Alle Projekte',
+    more: {
+      heading: 'Weitere Projekte',
     },
     results: {
       heading: 'Treffer',

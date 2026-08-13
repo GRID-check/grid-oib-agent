@@ -24,9 +24,11 @@
 import { useMemo, useState } from 'react'
 import { FolderOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/ui/page-header'
+import { SectionLabel } from '@/components/ui/section-label'
 import { splitForResume } from '@/features/projects/lib/resume-selection'
 import type { Project } from '@/lib/db/schema'
 import { useTranslations } from '@/i18n'
@@ -44,15 +46,24 @@ interface ProjectsGridProps {
   autoOpenCreate?: boolean
 }
 
-/** Quiet uppercase section label with an optional count beside it. */
-function SectionLabel({ id, children, count }: { id: string; children: string; count?: number }): JSX.Element {
+/**
+ * Section eyebrow with an optional count beside it.
+ *
+ * Both pieces come from the primitives — `SectionLabel` for the ~10.5px
+ * uppercase eyebrow, `CountPill` for the quiet number next to a heading. This
+ * wrapper is only the arrangement of the two. It briefly hand-rolled both, at
+ * nearly double the documented tracking and with the count dimmed to
+ * `text-muted-foreground/70` — about 2.2:1 on paper, which is not a hierarchy
+ * signal, it is an unreadable number. The pill's fill does that job at full
+ * contrast instead.
+ */
+function SectionHeading({ id, children, count }: { id: string; children: string; count?: number }): JSX.Element {
   return (
-    <div className="mb-3 flex items-baseline gap-2.5">
-      <h2 id={id} className="text-[11px] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+    <div className="mb-3 flex items-center gap-2.5">
+      <SectionLabel as="h2" id={id}>
         {children}
-      </h2>
-      {count !== undefined && <span className="text-[11px] tabular-nums text-muted-foreground/70">{count}</span>}
-      <span aria-hidden className="h-px flex-1 bg-border" />
+      </SectionLabel>
+      {count !== undefined && <CountPill>{count}</CountPill>}
     </div>
   )
 }
@@ -144,21 +155,23 @@ export function ProjectsGrid({
             />
           ) : (
             <section aria-labelledby="projects-results" className="animate-in fade-in-0">
-              <SectionLabel id="projects-results" count={rest.length}>
+              <SectionHeading id="projects-results" count={rest.length}>
                 {t('list.results.heading')}
-              </SectionLabel>
+              </SectionHeading>
               <ul className="-mx-3">{rest.map(renderRow)}</ul>
             </section>
           )
         ) : (
-          <div className="flex flex-col gap-9 animate-in fade-in-0">
+          // `gap-8` is the documented gap between major sections; whitespace
+          // does the separating, so neither heading needs a rule under it.
+          <div className="flex flex-col gap-8 animate-in fade-in-0">
             <section aria-labelledby="projects-resume">
-              <SectionLabel id="projects-resume">
+              <SectionHeading id="projects-resume">
                 {basis === 'activity' ? t('list.resume.heading') : t('list.resume.fallbackHeading')}
-              </SectionLabel>
+              </SectionHeading>
               {/* The staple project card, unchanged — the rail is a selection
                   and an ordering, not a new kind of card. */}
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
                 {resume.map((project) => (
                   <ProjectCard
                     key={project.id}
@@ -171,10 +184,13 @@ export function ProjectsGrid({
             </section>
 
             {rest.length > 0 && (
-              <section aria-labelledby="projects-all">
-                <SectionLabel id="projects-all" count={rest.length}>
-                  {t('list.all.heading')}
-                </SectionLabel>
+              <section aria-labelledby="projects-more">
+                {/* "More projects", not "All projects": this list is everything
+                    MINUS the rail, so an "all" heading would sit above a count
+                    that disagrees with the page. */}
+                <SectionHeading id="projects-more" count={rest.length}>
+                  {t('list.more.heading')}
+                </SectionHeading>
                 <ul className="-mx-3">{rest.map(renderRow)}</ul>
               </section>
             )}

@@ -101,7 +101,7 @@ describe('ProjectsGrid', () => {
       'Semmering',
     ])
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
-    expect(screen.getByRole('heading', { level: 2, name: 'All projects' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'More projects' })).toBeInTheDocument()
   })
 
   test('fills the rail with any three projects, and says so, when the viewer has no activity', () => {

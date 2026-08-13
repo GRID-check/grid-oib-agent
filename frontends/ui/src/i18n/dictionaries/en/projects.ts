@@ -14,8 +14,10 @@ export const projects = {
       // filled by project recency instead. Never claim a "continue" that isn't.
       fallbackHeading: 'Your projects',
     },
-    all: {
-      heading: 'All projects',
+    // "More", not "All": this list is everything minus the resume rail, and a
+    // count that disagrees with the heading above it is worse than a plainer word.
+    more: {
+      heading: 'More projects',
     },
     results: {
       heading: 'Matches',

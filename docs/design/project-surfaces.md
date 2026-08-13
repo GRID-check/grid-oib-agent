@@ -23,6 +23,7 @@ projects-home rework grew a second, larger `ProjectResumeCard` beside
 | File | What it is |
 |---|---|
 | `components/ui/raised-card.tsx` | The **shape**: the tray, the laid-in white sheet, the footer tab. Shared with the document and job cards |
+| `components/ui/section-label.tsx`, `components/ui/count-pill.tsx` | The eyebrow and the quiet number beside it. The grid's `SectionHeading` is only the arrangement of these two |
 | `components/projects/project-atoms.tsx` | The **project-specific parts**: links, brief, activity, doc count, initials tile |
 | `components/projects/project-card.tsx` | **The card.** `RaisedCard` + the atoms. Use this by default |
 | `components/projects/project-list-row.tsx` | The dense row — the same atoms in a different arrangement |
@@ -33,6 +34,13 @@ exists because that two-surface shape had been hand-rolled four times over
 (`file-card`, `file-grid`, `DocumentGridCard`, `project-card`) and drifted. The
 projects-home rework migrated `project-card` onto it; a project-owned copy of
 `rounded-b-[10px] bg-card shadow-xs` would have been the fifth.
+
+The same rework hand-rolled the section eyebrow and its count too, and the drift
+was immediate and measurable: the eyebrow at nearly double the documented
+tracking, and the count dimmed to `text-muted-foreground/70` — roughly 2.2:1 on
+paper, well under the 4.5:1 floor. That is what reaching for a bespoke `<span>`
+costs. **Before styling anything on a project surface, check `components/ui/`
+for the primitive.** It is usually there.
 
 ## The atoms
 

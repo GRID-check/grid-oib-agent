@@ -77,17 +77,29 @@ export function ProjectOpenLink({
   )
 }
 
-/** The brief line, falling back to the shared invitation when a project has none. */
+/**
+ * The brief line.
+ *
+ * `fallback` is on for a card, where the shared invitation ("add documents and a
+ * brief") is a crafted empty state and there is room for it. It is off for a
+ * dense list, where an invitation stops being one: repeated verbatim down
+ * fifteen rows it becomes the longest line on the page, and the rows carrying
+ * the LEAST information end up shouting the loudest. With it off, a project
+ * without a brief simply has no second line, which is the truth, quietly.
+ */
 export function ProjectSummaryLine({
   project,
+  fallback = true,
   className,
 }: {
   project: Pick<Project, 'profileDisplay'>
+  fallback?: boolean
   className?: string
-}): JSX.Element {
+}): JSX.Element | null {
   const t = useTranslations('projects')
-  const summary = project.profileDisplay?.summary?.trim() || t('card.summaryFallback')
-  return <p className={cn('truncate text-[12.5px] text-muted-foreground', className)}>{summary}</p>
+  const summary = project.profileDisplay?.summary?.trim() || (fallback ? t('card.summaryFallback') : '')
+  if (!summary) return null
+  return <p className={cn('truncate text-xs text-muted-foreground', className)}>{summary}</p>
 }
 
 /**
@@ -175,7 +187,10 @@ export function ProjectSettingsLink({
       href={`/app/projects/${project.id}/settings`}
       aria-label={t('card.settingsAria', { name: project.name })}
       className={cn(
-        'relative z-10 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none',
+        // p-2 around a 14px glyph is a 30px target — over WCAG 2.2's 24px floor
+        // with room to spare, which this one needs: on a row it is the only
+        // control besides the stretched link covering everything else.
+        'relative z-10 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none',
         className,
       )}
     >
