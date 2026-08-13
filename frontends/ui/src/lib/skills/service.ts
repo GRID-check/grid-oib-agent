@@ -116,22 +116,42 @@ function toCurated(row: {
  * is likewise nobody's decision. Machinery is the DEFAULT there, so a builtin
  * becomes org-facing only by saying so (see METADATA_CATALOG).
  *
- * Names cannot collide with the machinery from either side:
- * `platform-service.ts::assertNameIsFree` refuses ANY curated row named after a
- * builtin, so neither switching an offer on nor publishing a standard skill can
- * replace how deep research writes its report.
+ * A standard row named after a BUILTIN is dropped here, and that is the second
+ * half of a guard whose first half cannot cover it.
+ * `platform-service.ts::assertNameIsFree` refuses a row named after an existing
+ * builtin, at create and at rename — but it only guards the row direction. The
+ * other direction is a deploy: shipping a new `SKILL.md` whose name matches a
+ * standard row somebody published months ago. No write boundary can see that
+ * coming, and the consequence would be severe, because standard is merged after
+ * the org's rows and therefore after the machinery: a dashboard row would
+ * silently replace how deep research writes its report for every tenant at once,
+ * and `resolveSkillSnapshot` would 404 the machinery a job needs to attach.
+ *
+ * So the collision is made INERT rather than destructive, and it is made inert
+ * at READ time, where both resolvers see the same answer. Machinery wins; the
+ * standard row simply does not exist while a builtin owns its name, and starts
+ * working again if that builtin is ever removed. Dropping it against
+ * `findPlatformSkill` — every builtin, not just the machinery — closes the
+ * curated-file case in the same line: a `grid-catalog: curated` FILE and a
+ * standard ROW sharing a name would otherwise put that name in BOTH halves,
+ * which is exactly the state where a standard skill appears on the Skills tab
+ * with a working switch.
  */
 async function livePlatformSkills(): Promise<LivePlatformSkills> {
-  const rows = await platformRepository.listPublishedPlatformSkillRows()
+  const [offerRows, standardRows] = await Promise.all([
+    platformRepository.listPublishedOfferRows(),
+    platformRepository.listPublishedStandardRows(),
+  ])
   const offers = new Map<string, CuratedSkill>()
   for (const file of listPlatformSkills()) {
     if (isCuratedPlatformSkill(file.metadata)) offers.set(file.name, file)
   }
+  for (const row of offerRows) offers.set(row.name, toCurated(row))
+
   const standard = new Map<string, CuratedSkill>()
-  for (const row of rows) {
-    // `name` is unique fleet-wide, so a row lands in exactly one half — the two
-    // maps can never both hold it, whichever way the row is delivered.
-    ;(row.delivery === 'standard' ? standard : offers).set(row.name, toCurated(row))
+  for (const row of standardRows) {
+    if (findPlatformSkill(row.name)) continue
+    standard.set(row.name, toCurated(row))
   }
   return { offers: [...offers.values()], standard: [...standard.values()] }
 }
@@ -395,6 +415,20 @@ export async function updateSkill(
   const existing = await repository.findSkill(skillId, session.organizationId)
   if (!existing) throw new NotFoundError('Skill not found.')
 
+  // The row's CURRENT name, checked on every edit and not only on a rename.
+  //
+  // A row that predates the standard skill wearing its name is inert: the
+  // resolver deletes that name before merging the platform's version, so nothing
+  // typed here will ever reach an agent. Letting the edit succeed is the exact
+  // "green save, and an agent that never once follows it" failure the create
+  // boundary exists to prevent — the same trap, reached by editing a row that
+  // was already there instead of by authoring a new one.
+  //
+  // Refused rather than hidden: the row stays on the Skills tab and `deleteSkill`
+  // still works, so the author can see what they have and remove it. Hiding it
+  // would leave an invisible row nobody can delete.
+  await assertNameNotStandardised(existing.name)
+
   if (patch.name !== undefined && patch.name !== existing.name) {
     const other = await repository.findSkillByName(patch.name, session.organizationId)
     if (other) throw new ConflictError(`A skill named "${patch.name}" already exists in this organization.`)
@@ -445,7 +479,13 @@ export async function resolveSkillSnapshot(
   name: string,
   organizationId: string,
 ): Promise<SkillSnapshot> {
-  if (await platformRepository.findStandardPlatformSkillRowByName(name)) {
+  // Guarded on the builtin lookup, which is in-memory, for both correctness and
+  // cost. Correctness: `livePlatformSkills` drops a standard row whose name a
+  // builtin owns, so asking the catalogue here would 404 a machinery skill that
+  // the run itself still resolves — the two resolvers have to agree, and only
+  // this one runs when a job pins its snapshot. Cost: a machinery name never
+  // pays a `platform_skills` query to learn nothing.
+  if (!findPlatformSkill(name) && (await platformRepository.findStandardPlatformSkillRowByName(name))) {
     throw new NotFoundError(`Unknown skill "${name}".`)
   }
   const orgSkill = await repository.findSkillByName(name, organizationId)
@@ -550,10 +590,15 @@ async function resolveAll(
   }
 
   // The offers this org took up, then the machinery. Machinery before the org's
-  // own rows but after the offers: the catalogue already refuses a curated name
-  // that collides with a builtin (`platform-service.ts::assertNameIsFree`), and
-  // this ordering means that even if such a row somehow existed it could not
-  // replace how deep research writes its report.
+  // own rows but after the offers, so an offer can never replace how deep
+  // research writes its report.
+  //
+  // Note this ordering does NOT protect machinery from a standard skill, which
+  // is merged after the org's rows and so after this. Nothing here could: org
+  // rows deliberately shadow machinery (ADR-0022's "explicit org value beats
+  // deployment default"), and standard has to outrank org rows, so standard
+  // necessarily outranks machinery too. That collision is prevented by name
+  // instead — `livePlatformSkills` drops any standard row a builtin has named.
   const machinery = listPlatformSkills().filter((skill) => !isCuratedPlatformSkill(skill.metadata))
   const taken = live.offers.filter((offer) => isActivated(activations, offer.name))
   for (const platform of [...taken, ...machinery]) put(platform, 'platform')

@@ -12,7 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./platform-repository', () => ({
   listPlatformSkillRows: vi.fn(),
-  listPublishedPlatformSkillRows: vi.fn(),
+  listPublishedOfferRows: vi.fn(),
+  listPublishedStandardRows: vi.fn(),
   findPlatformSkillRow: vi.fn(),
   findPlatformSkillRowByName: vi.fn(),
   insertPlatformSkillRow: vi.fn(),

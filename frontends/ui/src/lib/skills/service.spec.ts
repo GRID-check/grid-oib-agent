@@ -28,7 +28,8 @@ vi.mock('./platform-skills', () => ({
 }))
 
 vi.mock('./platform-repository', () => ({
-  listPublishedPlatformSkillRows: vi.fn(),
+  listPublishedOfferRows: vi.fn(),
+  listPublishedStandardRows: vi.fn(),
   findStandardPlatformSkillRowByName: vi.fn(),
 }))
 
@@ -134,7 +135,12 @@ const STANDARD_ROW = platformRow({
 
 /** Publish `rows` into the fleet catalogue, wiring both reads consistently. */
 function publishPlatformRows(rows: PlatformSkillRow[]): void {
-  vi.mocked(platformRepository.listPublishedPlatformSkillRows).mockResolvedValue(rows)
+  vi.mocked(platformRepository.listPublishedOfferRows).mockResolvedValue(
+    rows.filter((row) => row.delivery === 'offer' && row.published)
+  )
+  vi.mocked(platformRepository.listPublishedStandardRows).mockResolvedValue(
+    rows.filter((row) => row.delivery === 'standard' && row.published)
+  )
   vi.mocked(platformRepository.findStandardPlatformSkillRowByName).mockImplementation(
     async (name) =>
       rows.find((row) => row.name === name && row.delivery === 'standard' && row.published) ?? null
@@ -366,7 +372,8 @@ describe('resolveSkillSnapshot', () => {
     const snapshot = await resolveSkillSnapshot('data-table-analysis', 'org_1')
     expect(snapshot.origin).toBe('platform')
     // In-memory, so the platform_skills query is never made for machinery.
-    expect(platformRepository.listPublishedPlatformSkillRows).not.toHaveBeenCalled()
+    expect(platformRepository.listPublishedOfferRows).not.toHaveBeenCalled()
+    expect(platformRepository.findStandardPlatformSkillRowByName).not.toHaveBeenCalled()
     expect(repository.listCuratedSkillActivations).not.toHaveBeenCalled()
   })
 
@@ -536,6 +543,92 @@ describe('platform standard skills', () => {
       updateSkill(session, 'skill-1', { name: 'house-citation-style' })
     ).rejects.toBeInstanceOf(ConflictError)
     expect(repository.updateSkill).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The same trap reached from the other side: not authoring the name, but
+   * editing a row that was already wearing it. The row is inert — the resolver
+   * deletes the name before merging the platform's version — so a successful
+   * save here would be the "green save, agent never follows it" failure the
+   * create boundary exists to prevent.
+   *
+   * Refused, not hidden: the row stays listed and stays deletable.
+   */
+  it('refuses to edit a legacy row already wearing a standardised name', async () => {
+    vi.mocked(repository.findSkill).mockResolvedValue(
+      makeSkill({ name: 'house-citation-style' })
+    )
+    await expect(
+      updateSkill(session, 'skill-1', { body: 'NEW ORG BODY' })
+    ).rejects.toThrow(/reserved/i)
+    expect(repository.updateSkill).not.toHaveBeenCalled()
+
+    // Still theirs to see and to remove.
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'house-citation-style' }),
+    ])
+    expect((await listSkills(session)).skills.map((s) => s.name)).toContain('house-citation-style')
+    await expect(deleteSkill(session, 'skill-1')).resolves.toEqual({ deleted: true })
+  })
+
+  /**
+   * The collision no write boundary can catch: `assertNameIsFree` refuses a ROW
+   * named after an existing builtin, but the other direction is a DEPLOY —
+   * shipping a `SKILL.md` whose name matches a standard row published months
+   * ago. Standard is merged after the org's rows and therefore after the
+   * machinery, so left alone that row would silently replace how deep research
+   * writes its report for every tenant at once.
+   *
+   * Made inert at read time instead, in both resolvers: machinery wins, and the
+   * standard row simply does not exist while a builtin owns its name.
+   */
+  it('yields to the machinery when a builtin ships under a standardised name', async () => {
+    publishPlatformRows([
+      platformRow({ ...STANDARD_ROW, name: 'data-table-analysis', body: 'DASHBOARD OVERRIDE' }),
+    ])
+    const { skills } = await resolveSkillsForAgent('org_1')
+    expect(skills.find((s) => s.name === 'data-table-analysis')?.body).toBe(
+      PLATFORM_SKILL.body
+    )
+
+    // And the job path agrees, which is the half that actually runs on a save.
+    vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+    expect((await resolveSkillSnapshot('data-table-analysis', 'org_1')).body).toBe(
+      PLATFORM_SKILL.body
+    )
+  })
+
+  /**
+   * The same guard, reached through a CURATED builtin file rather than
+   * machinery. Without it the name would sit in both halves at once — offered
+   * on the Skills tab with a working switch, which breaks invisibility and
+   * non-targetability together.
+   */
+  it('yields to a curated builtin file too, rather than sitting in both halves', async () => {
+    publishPlatformRows([
+      platformRow({ ...STANDARD_ROW, name: 'oib-fire-check', body: 'DASHBOARD OVERRIDE' }),
+    ])
+    const { skills } = await listSkills(session)
+    const listed = skills.filter((s) => s.name === 'oib-fire-check')
+    expect(listed).toHaveLength(1)
+    expect(listed[0].body).toBe(CURATED_SKILL.body)
+    // An offer, so still switchable — as the file always was.
+    vi.mocked(repository.upsertCuratedSkillActivation).mockResolvedValue(
+      activation('oib-fire-check', true)
+    )
+    await expect(setCuratedSkillEnabled(session, 'oib-fire-check', true)).resolves.toBeTruthy()
+  })
+
+  /**
+   * Fleet policy is read UNCAPPED, and that is a correctness property rather
+   * than a performance one. The offer list keeps its 200-row rail; standard rows
+   * cannot share it, because a truncated standard read would stop policy running
+   * for every organization on the platform — silently, since nothing errors —
+   * while the name stayed reserved and job attachment stayed 404'd.
+   */
+  it('reads the standard set without the catalogue cap', async () => {
+    await resolveSkillsForAgent('org_1')
+    expect(platformRepository.listPublishedStandardRows).toHaveBeenCalledWith()
   })
 
   it('leaves an unpublished standard draft imposing nothing and reserving nothing', async () => {

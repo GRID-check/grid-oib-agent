@@ -147,7 +147,10 @@ organization a grip on platform policy.
 | **default-on** | merged into `resolveAll` unconditionally — no activation row consulted, no decision to make |
 | **non-targetable** | `setCuratedSkillEnabled` resolves against `curatedOffers()` only, so a hand-crafted `PATCH /api/skills/curated/{name}` gets a 404 |
 | **non-shadowable** | merged LAST in `resolveAll`, after the org's own rows, as a `delete` **then** a put. The one place the ordering is load-bearing rather than defensive |
-| **platform-owned** | `assertNameNotStandardised` refuses the name at the org write boundary; `grid_secure_platform_table` means a tenant role has SELECT on `platform_skills` and nothing else |
+| **platform-owned** | `assertNameNotStandardised` refuses the name at the org write boundary — on create, on rename, and on every edit of a row already wearing it; `grid_secure_platform_table` means a tenant role has SELECT on `platform_skills` and nothing else |
+
+And one property it deliberately does NOT have: a standard skill does not
+outrank the pipeline machinery (see below).
 
 Two of those need their reasoning stated rather than just their location.
 
@@ -191,6 +194,50 @@ prevent, arriving through the targeting gate instead of through the merge order.
 The rule is therefore stated positively: **a standardised name resolves to the
 platform's skill or to nothing; it never resolves to a tenant's.**
 
+**Standard does NOT outrank the machinery, and cannot be allowed to.** Merge
+order alone cannot deliver that: org rows deliberately shadow machinery
+(ADR-0022), standard has to outrank org rows, so standard necessarily outranks
+machinery too. `assertNameIsFree` guards only one direction — it refuses a ROW
+named after an existing builtin — and the other direction is a deploy: shipping
+a new `SKILL.md` whose name matches a standard row published months ago. No
+write boundary can see that coming, and the consequence would be a dashboard row
+silently replacing how deep research writes its report for every tenant at once.
+
+So the collision is made **inert at read time** instead:
+`livePlatformSkills()` drops any standard row whose name `findPlatformSkill`
+knows. Machinery wins, both resolvers give the same answer, and the standard row
+starts working again if that builtin is ever removed. Dropping against *every*
+builtin rather than only the machinery also closes the curated-file case — a
+`grid-catalog: curated` FILE and a standard ROW sharing a name would otherwise
+put that name in BOTH halves, which is precisely the state where a standard
+skill appears on the Skills tab with a working switch.
+
+**Editing a legacy row wearing a standardised name is refused, not just
+renaming it.** `updateSkill` checks the row's CURRENT name on every edit. Such a
+row is inert — the resolver deletes the name before merging the platform's
+version — so a successful save would be the same green-save-no-effect failure
+the create boundary exists to prevent, reached by editing a row that was already
+there. Refused rather than hidden: the row stays on the Skills tab and
+`deleteSkill` still works, so the author can see what they have and remove it.
+
+**Fleet policy is read uncapped.** `listPublishedOfferRows` keeps the 200-row
+catalogue rail; `listPublishedStandardRows` deliberately has none. A truncated
+standard read would stop policy running for every organization on the platform —
+silently, since nothing errors — while `findStandardPlatformSkillRowByName`
+(uncapped) went on reserving the name and 404ing job attachment. A cap is a rail
+against an unbounded read; this set is bounded by how many house rules somebody
+wrote, and `idx_platform_skills_standard` covers the predicate exactly. That is
+two queries where one used to do, and the round trip is worth it.
+
+**A job that pinned a snapshot before publication keeps running it.** Jobs
+snapshot the attached skill's body at save time and `buildFirePrompt` inlines it
+verbatim, so a job attached to a legacy org row named X goes on sending that
+tenant's instruction under X's name after X is standardised. This is the
+existing, deliberate WYSIWYG-snapshot contract — the same reason a withdrawn
+offer keeps running in jobs that already attached it — and
+`resolveSkillSnapshot`'s guard only stops NEW attachments. Detaching or
+re-saving the job clears it.
+
 **Fail-open drops them**, like offers — see Resolution below. Standard skills
 reach a run through the BFF payload, and the backend's fail-open baseline is the
 filesystem. A BFF outage therefore suspends fleet policy for the duration rather
@@ -218,9 +265,10 @@ The split is enforced on both tiers, and both must agree:
 
 - BFF — `isCuratedPlatformSkill` (`lib/skills/types.ts`) and
   `livePlatformSkills()` (`lib/skills/service.ts`), which reads the published
-  `platform_skills` rows once and partitions them by `delivery`, unioning the
-  `offer` half with any `grid-catalog: curated` file. `curatedOffers()` is the
-  thin wrapper returning that half alone.
+  offers and the published standard rows (two queries — see "Fleet policy is
+  read uncapped" above), unions the offers with any `grid-catalog: curated`
+  file, and drops any standard row a builtin has named. `curatedOffers()` is the
+  thin wrapper returning the offer half alone.
   `listSkills` lists org rows plus offers — never machinery and never standard
   skills; `resolveSkillsForAgent` and `resolveSkillSnapshot` gate offers on the
   activation; `setCuratedSkillEnabled` 404s anything that is not an offer, so

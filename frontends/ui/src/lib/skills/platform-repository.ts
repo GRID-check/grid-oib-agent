@@ -40,24 +40,48 @@ export async function listPlatformSkillRows(
 }
 
 /**
- * Every LIVE row, whichever way it is delivered — the published ones.
+ * The published OFFERS — what organizations are shown and may switch on.
  *
- * Deliberately one query rather than one per `delivery`. Both kinds are needed
- * together on the hot path (`resolveSkillsForAgent` wants the offers this org
- * took up AND the fleet's standard set in the same resolution), and the
- * catalogue is capped at 200 rows, so splitting it would buy a second round trip
- * and nothing else. The service partitions what comes back.
+ * Capped, like every list read here. Truncating this list costs an organization
+ * a listing for a capability it was never running anyway, which is what a safety
+ * rail on a catalogue read is for.
  */
-export async function listPublishedPlatformSkillRows(
+export async function listPublishedOfferRows(
   limit = PLATFORM_SKILLS_LIST_LIMIT,
 ): Promise<PlatformSkillRow[]> {
   const db = getDb()
   return db
     .select()
     .from(platformSkills)
-    .where(eq(platformSkills.published, true))
+    .where(and(eq(platformSkills.published, true), eq(platformSkills.delivery, 'offer')))
     .orderBy(asc(platformSkills.name))
     .limit(limit)
+}
+
+/**
+ * The published STANDARD rows — the fleet's policy set. Deliberately UNCAPPED.
+ *
+ * This is a second query where one used to do, and the round trip is worth it.
+ * A single capped read partitioned in the service looks cheaper and has a
+ * failure mode the cap was never meant to cover: past the limit, standard rows
+ * sorting after the cut stop resolving for every organization on the platform —
+ * silently, since nothing errors — while `findStandardPlatformSkillRowByName`
+ * (uncapped, by design) goes on reserving their names and 404ing job
+ * attachments. Fleet policy would be off with the catalogue still insisting it
+ * owns the name.
+ *
+ * A cap is a rail against an unbounded read. This set is bounded by how many
+ * house rules a platform owner has written, and the partial index
+ * `idx_platform_skills_standard` covers the predicate exactly, so there is
+ * nothing here to rail against.
+ */
+export async function listPublishedStandardRows(): Promise<PlatformSkillRow[]> {
+  const db = getDb()
+  return db
+    .select()
+    .from(platformSkills)
+    .where(and(eq(platformSkills.published, true), eq(platformSkills.delivery, 'standard')))
+    .orderBy(asc(platformSkills.name))
 }
 
 /**
