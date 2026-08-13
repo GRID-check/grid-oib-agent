@@ -18,7 +18,7 @@ import 'server-only'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
-import { documents, type DocumentScope, type NewDocument } from '@/lib/db/schema'
+import { documents, DOCUMENT_SCOPES, type DocumentScope, type NewDocument } from '@/lib/db/schema'
 
 /** Bytes and document count for one scope. */
 export interface StorageScopeUsage {
@@ -26,13 +26,20 @@ export interface StorageScopeUsage {
   documents: number
 }
 
-export interface StorageUsageByScope {
-  project: StorageScopeUsage
-  archiv: StorageScopeUsage
-  total: StorageScopeUsage
-}
+/**
+ * Per-shelf breakdown plus the total. One key per `DocumentScope` member, built
+ * from `DOCUMENT_SCOPES` rather than written out, so a shelf added to the enum
+ * appears here as a key that has to be handled instead of silently landing in
+ * somebody else's bucket.
+ */
+export type StorageUsageByScope = Record<DocumentScope | 'total', StorageScopeUsage>
 
 const emptyScope = (): StorageScopeUsage => ({ bytes: 0, documents: 0 })
+
+/** `true` for a scope the schema declares — the coercion for a raw `text` column. */
+function isDocumentScope(value: string): value is DocumentScope {
+  return (DOCUMENT_SCOPES as readonly string[]).includes(value)
+}
 
 /**
  * Stored bytes per scope for one organization.
@@ -57,21 +64,26 @@ export async function aggregateStorageUsage(
     .where(and(eq(documents.organizationId, organizationId), isNull(documents.deletedAt)))
     .groupBy(documents.scope)
 
-  const usage: StorageUsageByScope = {
-    project: emptyScope(),
-    archiv: emptyScope(),
-    total: emptyScope(),
-  }
+  const usage = Object.fromEntries(
+    [...DOCUMENT_SCOPES, 'total' as const].map((scope) => [scope, emptyScope()]),
+  ) as StorageUsageByScope
 
   for (const row of rows) {
-    const scope: DocumentScope = row.scope === 'archiv' ? 'archiv' : 'project'
     const bytes = Number(row.bytes) || 0
     const count = Number(row.documents) || 0
-    usage[scope] = { bytes, documents: count }
+    // Always counted toward the total, whatever the scope reads. It used to
+    // FOLD an unrecognised scope into `project` — which for `session` would
+    // have reported a chat attachment as project storage, and for a genuinely
+    // unknown value would attribute bytes to a shelf that does not hold them.
+    // The quota itself never had this problem (`sumStorageBytes` and the
+    // admitting insert sum every row regardless of scope), so this is about the
+    // breakdown telling the truth, not about the ceiling.
     usage.total = {
       bytes: usage.total.bytes + bytes,
       documents: usage.total.documents + count,
     }
+    if (!isDocumentScope(row.scope)) continue
+    usage[row.scope] = { bytes, documents: count }
   }
 
   return usage

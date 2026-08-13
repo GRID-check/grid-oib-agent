@@ -122,6 +122,28 @@ class TestGridRequestContextFromContext:
         monkeypatch.setattr(pc, "_read_header", lambda name: None)
         assert pc.GridRequestContext.from_context() == pc.GridRequestContext()
 
+    def test_a_blank_collection_name_is_dropped_not_projected(self, monkeypatch):
+        """A blank name authorizes nothing, so it is skipped — and the payload
+        around it survives. Emitting ``""`` here would put an entry in
+        ``collection_scope`` that the resolver
+        (``aiq_agent.knowledge.scoping._parse_scope_payload``) skips, which is
+        exactly the seam disagreement this rule removes.
+        """
+        scope = [{"collection": "proj_proj_1", "shelf": "project"}, {"collection": "  "}, ""]
+        headers = {
+            pc.COLLECTION_SCOPE_HEADER: base64.urlsafe_b64encode(json.dumps(scope).encode("utf-8"))
+            .decode("ascii")
+            .rstrip("=")
+        }
+        monkeypatch.setattr(pc, "_read_header", lambda name: headers.get(name))
+
+        ctx = pc.GridRequestContext.from_context()
+
+        assert ctx.collection_scope == ["proj_proj_1"]
+        # The entries keep their raw shape (the shelf travels with them); only
+        # the names-only projection drops the blanks.
+        assert ctx.collection_scope_entries == scope
+
     def test_malformed_json_headers_degrade_to_none_not_an_exception(self, monkeypatch):
         monkeypatch.setattr(pc, "_read_header", lambda name: "not-valid-base64url-json!!!")
         ctx = pc.GridRequestContext.from_context()

@@ -53,6 +53,7 @@
  */
 
 import { createHmac } from 'node:crypto'
+import type { ScopedCollection } from '@/lib/collection-scope'
 
 export interface GridBudgetSnapshot {
   remainingOrgUsd: number | null
@@ -71,8 +72,16 @@ export interface GridRequestContextInput {
    * → `X-Grid-Collection-Scope` (base64url JSON array). Omitted when empty —
    * callers that always want a scope header should pass at least the base
    * collection (`computeCollectionScope` never returns an empty array).
+   *
+   * Entries are either a bare collection name (legacy, shelf unknown) or a
+   * `{collection, shelf}` pair (ADR-0047). Both shapes ship here AND in the
+   * signed envelope below, because `scoping.py` prefers the ENVELOPE and reads
+   * the raw header only when no valid envelope is present — a shelf written to
+   * the header alone would never reach an authenticated turn. The Python
+   * reader (`_as_scope_entries`) accepts either shape, so a BFF that still
+   * passes bare names degrades to "unknown shelf", never to a wrong one.
    */
-  collectionScope?: string[] | null
+  collectionScope?: ReadonlyArray<string | ScopedCollection> | null
   /** → `X-Grid-Project-Context` (base64url text). Omitted when falsy/blank. */
   projectContext?: string | null
   /** → `X-Grid-Project-Memory` (base64url text). Omitted when falsy/blank. */

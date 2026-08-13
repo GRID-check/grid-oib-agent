@@ -4,7 +4,7 @@
  */
 
 import type { CitationSource, WireCitationSource } from '../types'
-import { asSourceKind } from './source-kinds'
+import { asShelf, asSourceKind } from './source-kinds'
 
 const trimmed = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -59,6 +59,9 @@ export const citationFromWire = (
         ? wire.number
         : undefined,
     kind: asSourceKind(wire.kind),
+    // The shelf as the backend stated it (ADR-0047). An unrecognised or missing
+    // value stays undefined — unknown, never a default shelf.
+    shelf: asShelf(wire.shelf),
     lane: trimmed(wire.lane),
     laneLabel: trimmed(wire.lane_label),
     bindingNote: trimmed(wire.binding_note),

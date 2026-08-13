@@ -21,6 +21,7 @@ import {
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -128,13 +129,24 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
 }
 
 /**
- * Load a document (org-scoped in SQL) and enforce access appropriate to its
- * scope, so the SAME item routes (download/preview/status/reingest/tags) serve
- * both project documents and org-wide Archiv documents:
+ * Load a document (org-scoped in SQL) and enforce the access its OWN shelf
+ * calls for, so the SAME item routes (download/preview/status/reingest/tags)
+ * serve all three shelves:
  *
- *   - `project` documents → per-project FGA via `requireProjectAccess`.
- *   - `archiv` documents (org-wide, `projectId` NULL) → any org member may read
- *     (read); writes require `org:archiv:manage`.
+ *   - `project` → per-project FGA via `requireProjectAccess`.
+ *   - `archiv`  → org-wide: any member reads, writes need `org:archiv:manage`.
+ *   - `session` → as private as the chat it hangs off: `viewer` to read,
+ *     `collaborator` to write, resolved on the conversation (ADR-0032).
+ *
+ * ## Why this switches on `scope` and not on `projectId`
+ *
+ * It used to read `doc.scope === 'archiv' || doc.projectId === null`, which was
+ * correct while a null project could only mean the Archiv. A session document
+ * also has a null project (ADR-0047 Phase 2), so that disjunction would have
+ * handed every private chat attachment to the Archiv branch — where any member
+ * of the organization may read it. The upload is private; the download would
+ * not have been. A `switch` over the scope union is exhaustive, so a fourth
+ * shelf cannot fall through to somebody else's rule: it fails to compile.
  *
  * Cross-tenant and no-access lookups both surface as 404. The `intent` maps to
  * `project:view` for reads and `project:documents:write` (accepting the legacy
@@ -148,22 +160,53 @@ async function getAccessibleDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
 
-  if (doc.scope === 'archiv' || doc.projectId === null) {
-    // The Archiv is org-scoped: findDocumentInOrg already confirmed the row
-    // belongs to the caller's org (so any member may read it). Only mutations
-    // need the manage permission.
-    if (intent === 'write' && !canManageArchiv(session)) {
-      throw new ForbiddenError()
+  switch (doc.scope) {
+    case 'archiv': {
+      // Org-scoped: findDocumentInOrg already confirmed the row belongs to the
+      // caller's org (so any member may read it). Only mutations need the
+      // manage permission.
+      if (intent === 'write' && !canManageArchiv(session)) throw new ForbiddenError()
+      return doc
     }
-    return doc
+    case 'session': {
+      // A row that contradicts `documents_session_requires_conversation`
+      // (migration 0049) is not something to guess about — it is unattributable,
+      // so it is not found.
+      if (!doc.conversationId) throw new NotFoundError()
+      await requireResourceAccess(
+        session,
+        'conversation',
+        doc.conversationId,
+        intent === 'write' ? 'collaborator' : 'viewer',
+      )
+      return doc
+    }
+    case 'project': {
+      // A `project` row with no project is a corrupt row, not an org-wide one.
+      // The old disjunction quietly re-read it as an Archiv document and handed
+      // it to every member; there is nothing to authorize against, so it is not
+      // found.
+      if (doc.projectId === null) throw new NotFoundError()
+      await requireProjectAccess(
+        session,
+        doc.projectId,
+        intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
+      )
+      return doc
+    }
+    default: {
+      // Two jobs. At COMPILE time the `never` annotation is the exhaustiveness
+      // check ADR-0047 decision 3 asks for: add a shelf to `DocumentScope` and
+      // this line stops type-checking until it has a rule here. At RUN time it
+      // catches what the type cannot — `scope` is a plain `text` column, so a
+      // row can hold a value no version of this code knows. There is no
+      // authorization rule to apply to such a row, and defaulting to another
+      // shelf's is how a private document becomes an org-wide one.
+      const unhandledScope: never = doc.scope
+      void unhandledScope
+      throw new NotFoundError()
+    }
   }
-
-  await requireProjectAccess(
-    session,
-    doc.projectId,
-    intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
-  )
-  return doc
 }
 
 /**
@@ -575,26 +618,15 @@ export async function uploadDocument(
     status: 'uploaded',
   })
 
-  // An IFC model does NOT go to the ingestor as-is: its STEP source would be
-  // embedded as unreadable noise. It is parsed here instead, and the Markdown
-  // digest that parse produces is what gets ingested (see `@/lib/bim/service`).
-  const { jobId: ingestJobId, status: ingestStatus } = isIfcFilename(file.name)
-    ? await beginModelExtraction({
-        organizationId: session.organizationId,
-        projectId,
-        documentId,
-        filename: file.name,
-        storageKey,
-        storageBucket,
-        collectionName,
-      })
-    : await dispatchIngest(
-        documentId,
-        collectionName,
-        storageKey,
-        session.organizationId,
-        storageBucket,
-      )
+  const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId,
+    documentId,
+    filename: file.name,
+    storageKey,
+    storageBucket,
+    collectionName,
+  })
 
   // Data-provenance event: who brought which file into which project.
   await recordAuditEvent({
@@ -624,6 +656,47 @@ export interface BeginModelExtractionInput {
   storageKey: string
   storageBucket: string | null
   collectionName: string
+}
+
+/**
+ * What a stored object needs before anything can be started for it. Identical
+ * to {@link BeginModelExtractionInput} because the IFC branch is the one that
+ * needs more: `dispatchIngest` uses a strict subset of these fields.
+ */
+export type DispatchDocumentInput = BeginModelExtractionInput
+
+export interface DispatchDocumentResult {
+  jobId: string | null
+  /** `processing` is the IFC path — see {@link beginModelExtraction}. */
+  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+}
+
+/**
+ * The ONE place that decides what happens to a freshly-stored object: an IFC
+ * model is parsed, everything else is ingested.
+ *
+ * An IFC model must NOT go to the ingestor as-is — its STEP source would be
+ * embedded as unreadable noise. It is parsed here instead, and the Markdown
+ * digest that parse produces is what gets ingested (see `@/lib/bim/service`).
+ *
+ * That branch used to be written out at each call site — the project upload,
+ * the project re-ingest, and the org-wide Archiv upload — which made "does this
+ * caller remember that a model is not a document?" a question every new caller
+ * had to be asked. Session uploads are the third shelf (ADR-0047 Phase 2) and
+ * would have been the fourth copy. There is one copy now, so a caller cannot
+ * forget the branch: it cannot see it.
+ */
+export async function dispatchDocument(input: DispatchDocumentInput): Promise<DispatchDocumentResult> {
+  if (isIfcFilename(input.filename)) {
+    return beginModelExtraction(input)
+  }
+  return dispatchIngest(
+    input.documentId,
+    input.collectionName,
+    input.storageKey,
+    input.organizationId,
+    input.storageBucket,
+  )
 }
 
 /**
@@ -723,24 +796,17 @@ export async function reingestDocument(
   // A failed IFC document is retried by re-EXTRACTING it, not by re-dispatching
   // its bytes: the raw model was never what ingestion consumed, so handing the
   // STEP file to the ingestor here would "succeed" into a collection full of
-  // geometry noise — a green status on a model still unopenable.
-  const { jobId, status } = isIfcFilename(doc.filename)
-    ? await beginModelExtraction({
-        organizationId: session.organizationId,
-        projectId: doc.projectId,
-        documentId: doc.id,
-        filename: doc.filename,
-        storageKey: doc.storageKey,
-        storageBucket: doc.storageBucket,
-        collectionName: doc.collectionName,
-      })
-    : await dispatchIngest(
-        doc.id,
-        doc.collectionName,
-        doc.storageKey,
-        session.organizationId,
-        doc.storageBucket,
-      )
+  // geometry noise — a green status on a model still unopenable. That is
+  // `dispatchDocument`'s single branch, shared with every upload path.
+  const { jobId, status } = await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId: doc.projectId,
+    documentId: doc.id,
+    filename: doc.filename,
+    storageKey: doc.storageKey,
+    storageBucket: doc.storageBucket,
+    collectionName: doc.collectionName,
+  })
   return { id: doc.id, status, jobId }
 }
 
@@ -896,9 +962,12 @@ export async function renameDocument(
  * {@link import('@/lib/archiv/service').deleteArchivDocument}, differing only in
  * scope: per-project FGA instead of org-level `org:archiv:manage`.
  *
- * Org-wide Archiv documents (NULL `projectId`) are NOT deletable here — they go
- * through the org-scoped `/api/archiv/documents/[id]` route — so an Archiv id
- * surfaces as a 404 rather than being force-fit through project FGA.
+ * Only `project` documents are deletable here. An Archiv id goes through the
+ * org-scoped `/api/archiv/documents/[id]` route and a session attachment
+ * through `/api/session/documents/[id]`, each with its own authorization — so
+ * either surfaces as a 404 rather than being force-fit through project FGA.
+ * The scope is asked for by name: "has no project" used to mean "is an Archiv
+ * document" and stopped meaning that when session documents became rows.
  */
 export async function deleteDocument(
   session: AuthorizedSession,
@@ -906,7 +975,7 @@ export async function deleteDocument(
   request: Request,
 ): Promise<void> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
-  if (!doc || doc.projectId === null) throw new NotFoundError()
+  if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
   await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
 

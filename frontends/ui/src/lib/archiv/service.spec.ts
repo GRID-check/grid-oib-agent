@@ -34,7 +34,10 @@ vi.mock('@/lib/audit/service', () => ({
 vi.mock('@/lib/documents/service', () => ({
   assertFileSizeAllowed: vi.fn(),
   assertUploadTypeAllowed: vi.fn().mockResolvedValue(undefined),
-  dispatchIngest: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'pending' }),
+  // The ONE model-vs-ingest dispatcher every shelf shares. The Archiv used to
+  // call `dispatchIngest` with its own `isIfcFilename` branch beside it; the
+  // branch now lives in `dispatchDocument`, which is what this asserts on.
+  dispatchDocument: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'pending' }),
   // The semantic-search join is unit-tested in the documents service; here we
   // assert the Archiv service wires the collection + hits through it correctly.
   fetchSemanticHits: vi.fn(),
@@ -59,7 +62,7 @@ vi.mock('./repository', () => ({
 }))
 
 import { canManageArchiv } from '@/lib/authz/organizations'
-import { assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToFiles } from '@/lib/documents/service'
+import { assertUploadTypeAllowed, dispatchDocument, fetchSemanticHits, joinHitsToFiles } from '@/lib/documents/service'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -215,12 +218,15 @@ describe('uploadArchivDocument', () => {
     // ingest dispatch mints — the download and the thumbnail slot — have to
     // name the bucket the object was actually written to, and with the flag
     // off that is the shared one.
-    expect(dispatchIngest).toHaveBeenCalledWith(
-      expect.any(String),
-      'archiv_org-1',
-      expect.stringMatching(/^org\/org-1\/archiv\/doc\/[^/]+\/plan\.pdf$/),
-      'org-1',
-      'test-bucket',
+    expect(dispatchDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-1',
+        projectId: null,
+        filename: 'plan.pdf',
+        collectionName: 'archiv_org-1',
+        storageKey: expect.stringMatching(/^org\/org-1\/archiv\/doc\/[^/]+\/plan\.pdf$/),
+        storageBucket: 'test-bucket',
+      }),
     )
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiv.document.uploaded', organizationId: 'org-1' }),

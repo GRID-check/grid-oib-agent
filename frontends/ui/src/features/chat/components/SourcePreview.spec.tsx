@@ -10,8 +10,12 @@ import {
 } from './SourcePreview'
 
 vi.mock('../store', () => ({
-  useChatStore: (selector: (s: { projectId: string | null }) => unknown) =>
-    selector({ projectId: 'project-1' }),
+  useChatStore: (
+    selector: (s: {
+      projectId: string | null
+      currentConversation: { id: string } | null
+    }) => unknown
+  ) => selector({ projectId: 'project-1', currentConversation: { id: 'conv-1' } }),
 }))
 
 const jsonResponse = (data: unknown) => ({ ok: true, json: async () => data })
@@ -44,7 +48,24 @@ const fetchMock = vi.fn((input: RequestInfo | URL) => {
       })
     )
   }
-  if (url === '/api/documents/doc-1/preview' || url === '/api/documents/archiv-1/preview') {
+  // This conversation's private attachments. `Brandschutzkonzept.pdf` is
+  // deliberately a name the project shelf ALSO holds: the two copies are
+  // different documents, and only the citation's shelf can tell them apart.
+  if (url === '/api/session/documents?conversationId=conv-1') {
+    return Promise.resolve(
+      jsonResponse({
+        documents: [
+          { id: 'sess-1', filename: 'Brandschutzkonzept.pdf', contentType: 'application/pdf' },
+        ],
+        collectionName: 's_conv-1',
+      })
+    )
+  }
+  if (
+    url === '/api/documents/doc-1/preview' ||
+    url === '/api/documents/sess-1/preview' ||
+    url === '/api/documents/archiv-1/preview'
+  ) {
     return Promise.resolve(jsonResponse({ url: 'https://storage.example/presigned.pdf' }))
   }
   return Promise.resolve({ ok: false, json: async () => ({}) })
@@ -177,6 +198,37 @@ describe('SourcePreviewChip', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/documents/archiv-1/preview')
+  })
+
+  test('a citation on the session shelf opens THIS chat’s attachment, not the project copy', async () => {
+    // The `session` shelf had no rows in the index at all — `storedDocuments`
+    // listed project and Archiv only — so a private attachment matched nothing
+    // and quietly resolved to the project document of the same name.
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        citation={ref({
+          content: '[KB] Brandschutzkonzept.pdf, p.3',
+          citationKey: 'Brandschutzkonzept.pdf, p.3',
+          fileName: 'Brandschutzkonzept.pdf',
+          collection: 's_conv-1',
+          shelf: 'session',
+          kind: 'projekt',
+          page: 3,
+        })}
+      />
+    )
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Preview source: Brandschutzkonzept' })
+    )
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/session/documents?conversationId=conv-1'
+    )
+    expect(fetchMock).toHaveBeenCalledWith('/api/documents/sess-1/preview')
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/documents/doc-1/preview')
   })
 
   test('an unresolvable KB citation with a passage opens an info popover — no viewer', async () => {

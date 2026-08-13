@@ -59,13 +59,55 @@ async function assertNoHold(tx, entry) {
 }
 
 /**
+ * Ask the backend to erase one Chroma collection (and the summaries, job rows
+ * and checkpoints that hang off it), throwing on anything short of success.
+ *
+ * Extracted because the project's own collection is no longer the only one a
+ * project purge has to erase: every chat inside it may hold a private
+ * `s_<conversationId>` collection of its own (ADR-0047 Phase 2). The endpoint
+ * takes an arbitrary collection name, so nothing about it is project-specific
+ * except its name.
+ *
+ * The two failure shapes are both retryable and both must throw: a non-2xx, and
+ * a 200 whose body says `status: "failed"` — the endpoint answers 200 when the
+ * collection existed and `delete_collection` returned falsy, which is an
+ * orphaned collection reported as an erasure.
+ *
+ * @param {PurgeDeps} deps
+ * @param {typeof fetch} fetchImpl
+ * @param {string | null} collectionName
+ * @param {string[]} conversationIds
+ * @returns {Promise<void>}
+ */
+async function purgeBackendCollection(deps, fetchImpl, collectionName, conversationIds) {
+  const res = await fetchImpl(`${deps.backendUrl}/v1/maintenance/purge-project-resources`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-internal-token': deps.internalToken,
+    },
+    body: JSON.stringify({
+      collection_name: collectionName,
+      conversation_ids: conversationIds,
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`backend purge failed with status ${res.status}`)
+  }
+  const body = typeof res.json === 'function' ? await res.json().catch(() => ({})) : {}
+  if (body && body.status === 'failed') {
+    throw new Error(`backend purge reported failure for collection ${collectionName}`)
+  }
+}
+
+/**
  * @param {Tx} tx
  * @param {QueueEntry} entry
  * @param {PurgeDeps} deps
  * @returns {Promise<void>}
  */
 async function purgeProject(tx, entry, deps) {
-  const { backendUrl, internalToken, bucket, workos, deleteStoragePrefix } = deps
+  const { bucket, workos, deleteStoragePrefix } = deps
   const fetchImpl = deps.fetchImpl || fetch
   const projectId = entry.entity_id
   const orgId = entry.organization_id
@@ -79,36 +121,66 @@ async function purgeProject(tx, entry, deps) {
   // Gather pointers BEFORE destroying anything. Fall back to the payload
   // snapshot if a previous partial run already removed the row.
   const [project] = await tx`SELECT * FROM projects WHERE id = ${projectId}`
-  const collectionName = project
-    ? project.collection_name
-    : (entry.payload && entry.payload.collectionName) || null
+  // Narrowed at the boundary like every other raw SQL / payload read here: both
+  // sources are `unknown` to the compiler and the name is a string or nothing.
+  const collectionName = /** @type {string | null} */ (
+    project ? project.collection_name : (entry.payload && entry.payload.collectionName) || null
+  )
   // Narrowed at the boundary, where the SQL shape is known — the same rule
   // AGENTS.md sets for raw `sql<T>` results in the repositories.
   const conversations = /** @type {{ id: string }[]} */ (
     await tx`SELECT id FROM conversations WHERE project_id = ${projectId}`
   )
 
+  //    The private attachments hanging off this project's chats (ADR-0047
+  //    Phase 2), read HERE for the same reason as everything else on this line:
+  //    step 4 deletes the conversations, the document rows cascade off them, and
+  //    after that nothing names these objects or these collections.
+  //
+  //    They are invisible to every other query in this file, which is exactly
+  //    how they were being stranded. A session document has a NULL `project_id`
+  //    (its shelf is the conversation), so the bucket read below does not see
+  //    it. Its object lives under `org/<org>/session/<conversation>/`, which the
+  //    project prefix sweep does not cover. And its chunks live in the chat's
+  //    own `s_<conversation>` collection, which the backend purge — given only
+  //    the PROJECT's collection name — does not touch. Three misses, one
+  //    outcome: the cascade took the rows and every byte of it survived.
+  const sessionDocuments = /** @type {{ conversation_id: string, collection_name: string | null, storage_bucket: string | null }[]} */ (
+    await tx`
+      SELECT DISTINCT conversation_id, collection_name, storage_bucket
+        FROM documents
+       WHERE scope = 'session'
+         AND conversation_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
+  )
+  // Same subquery discipline as step 4: one bound parameter regardless of how
+  // many conversations the project holds, and it reads the conversation set at
+  // statement time rather than from the snapshot above.
+
   // 1. Python-side stores: Chroma collection, summaries, job rows, checkpoints.
-  const res = await fetchImpl(`${backendUrl}/v1/maintenance/purge-project-resources`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-internal-token': internalToken,
-    },
-    body: JSON.stringify({
-      collection_name: collectionName,
-      conversation_ids: conversations.map((c) => c.id),
-    }),
-  })
-  if (!res.ok) {
-    throw new Error(`backend purge failed with status ${res.status}`)
-  }
-  // The backend returns 200 even when the collection delete failed; treat an
-  // explicit failure as retryable rather than orphaning the Chroma collection.
-  const body =
-    typeof res.json === 'function' ? await res.json().catch(() => ({})) : {}
-  if (body && body.status === 'failed') {
-    throw new Error(`backend purge reported failure for collection ${collectionName}`)
+  await purgeBackendCollection(
+    deps,
+    fetchImpl,
+    collectionName,
+    conversations.map((c) => c.id),
+  )
+
+  // 1b. The per-chat collections. One call each, and only for chats that
+  //     actually hold attachments — the rows say which, so a project of ten
+  //     thousand chats and one uploaded PDF makes one call.
+  //
+  //     A failure here throws exactly like the project collection's does, which
+  //     is the point: the whole purge is retried and NOTHING below has run, so
+  //     the document rows that name these collections still exist to drive the
+  //     retry. Deleting the conversations first would have removed the only
+  //     record that these collections were ever ours to erase.
+  const sessionCollections = new Set(
+    sessionDocuments.map((row) => row.collection_name).filter((name) => Boolean(name)),
+  )
+  for (const sessionCollection of sessionCollections) {
+    // Per collection, not once for the loop: each is an external destructive
+    // step, and a hold placed part way through must stop the rest (file header).
+    await assertNoHold(tx, entry)
+    await purgeBackendCollection(deps, fetchImpl, sessionCollection, [])
   }
 
   // Re-check the hold before EACH external destructive step to keep the TOCTOU
@@ -149,6 +221,40 @@ async function purgeProject(tx, entry, deps) {
     // continues past the moment someone said stop, and reports success.
     await assertNoHold(tx, entry)
     await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)
+  }
+
+  // 2b. SeaweedFS objects under each CHAT's prefix.
+  //
+  //     A session attachment is written to
+  //     `org/<org>/session/<conversation>/doc/<id>/<file>` (`lib/s3.ts`), which
+  //     shares no prefix with `org/<org>/project/<project>/` — so the loop above
+  //     sweeps past it however many buckets it visits. One prefix per
+  //     conversation is what makes it a sweep rather than a per-row loop, and it
+  //     also catches the object whose row insert failed after the write, which
+  //     no row-driven delete could find.
+  //
+  //     The bucket set is per conversation, from that conversation's own rows,
+  //     plus the shared bucket — the same rule and the same reason as above.
+  //     Session rows are the only ones that answer here: their `project_id` is
+  //     NULL, so the query above cannot see them.
+  //
+  //     The prefix uses the conversation id verbatim. `buildSessionStorageKey`
+  //     passes it through `storageKeySegment`, which is the identity for every
+  //     id the app mints (`s_<uuid>`: no separators, no control characters, far
+  //     under the length cap) — the sanitiser is there to stop a hand-crafted id
+  //     climbing out of the org prefix, not to rewrite real ones.
+  /** @type {Map<string, Set<string>>} */
+  const sessionBuckets = new Map()
+  for (const row of sessionDocuments) {
+    const forConversation = sessionBuckets.get(row.conversation_id) ?? new Set([bucket])
+    if (row.storage_bucket) forConversation.add(row.storage_bucket)
+    sessionBuckets.set(row.conversation_id, forConversation)
+  }
+  for (const [conversationId, buckets] of sessionBuckets) {
+    for (const target of buckets) {
+      await assertNoHold(tx, entry)
+      await deleteStoragePrefix(target, `org/${orgId}/session/${conversationId}/`)
+    }
   }
 
   await assertNoHold(tx, entry)

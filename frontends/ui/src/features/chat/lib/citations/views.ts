@@ -8,7 +8,7 @@
  */
 
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
-import { KIND_TO_SIGNAL } from '../source-kinds'
+import { KIND_TO_SIGNAL, shelfLabel } from '../source-kinds'
 import { splitReportSources, type ReportSourceEntry } from '@/features/layout/lib/report-citations'
 import {
   citationNumbers,
@@ -152,9 +152,28 @@ const COARSE_TAB: Record<SourceSignal, string> = {
 }
 
 /**
+ * The German label for the shelf a document sits on, or undefined when the wire
+ * carried no shelf.
+ *
+ * Rendering only, and a pure function of the shelf (ADR-0047 §5) — the string is
+ * never read back to recover the shelf. Undefined means UNATTRIBUTED: a document
+ * whose shelf is unknown says nothing about where it is filed rather than
+ * guessing, which is what the deleted prefix table used to do.
+ */
+export const documentShelfLabel = (doc: CitedDocument): string | undefined =>
+  doc.shelf ? shelfLabel(doc.shelf) : undefined
+
+/**
  * The provenance tab a document's Herleitung card is filed under: its fine lane
- * label ("OIB-Richtlinie", "Bundesrecht") when the backend classified one, else
- * the coarse stratum.
+ * label ("OIB-Richtlinie", "Bundesrecht") when the backend classified one, then
+ * the SHELF the wire stated, and only then the coarse display stratum.
+ *
+ * The shelf outranks the coarse stratum because the two answer different
+ * questions and only one of them is a fact about this document's filing: a file
+ * the user attached privately to the chat is `projekt`-KIND (it is project-ish
+ * material, and paints in that family) but sits on the `session` SHELF — and
+ * labelling it "Projektwissen" told the reader it was project knowledge the
+ * office had filed, which was never true.
  */
 export const documentTabLabel = (doc: CitedDocument): string =>
-  doc.laneLabel?.trim() || COARSE_TAB[KIND_TO_SIGNAL[doc.kind]]
+  doc.laneLabel?.trim() || documentShelfLabel(doc) || COARSE_TAB[KIND_TO_SIGNAL[doc.kind]]

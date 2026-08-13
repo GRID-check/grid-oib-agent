@@ -28,6 +28,7 @@
 import { NextResponse } from 'next/server'
 import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import type { ScopedCollection } from '@/lib/collection-scope'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
@@ -72,7 +73,7 @@ import type { GridSession } from '@/lib/auth/types'
  */
 async function resolveGridContextHeaders(
   session: GridSession | null,
-  extra: { projectId?: string; collectionScope?: string[] }
+  extra: { projectId?: string; collectionScope?: ReadonlyArray<string | ScopedCollection> }
 ): Promise<Record<string, string>> {
   const input: GridRequestContextInput = {
     organizationId: session?.organizationId ?? null,
@@ -257,13 +258,15 @@ export const POST = tenantSlotRoute(async function POST(
       if (gated) return gated
     }
 
-    const { headerValue, scope, projectId } = await buildCollectionScopeFromRequest(
+    const { headerValue, scopedCollections, projectId } = await buildCollectionScopeFromRequest(
       session,
       parseBodyContext(parsedBody)
     )
+    // The shelf-bearing entries, not the bare names: the signed envelope is the
+    // copy `scoping.py` trusts for an authenticated turn (ADR-0047).
     const gridContextHeaders = await resolveGridContextHeaders(session, {
       projectId,
-      collectionScope: scope,
+      collectionScope: scopedCollections,
     })
 
     // Forward the request to the backend.

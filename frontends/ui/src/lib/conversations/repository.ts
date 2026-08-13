@@ -284,6 +284,37 @@ export async function updateConversationMetaInOrg(
 }
 
 /**
+ * Stamp a conversation as DELETING, before anything is actually erased.
+ *
+ * `deleted_at` already means "this conversation is gone" everywhere it is read
+ * — `resolveResourceAccess` answers 404 on it (`lib/sharing/access.ts`) — so
+ * setting it is what closes the window a discard used to leave open: cleanup
+ * erased the attachments' objects and chunks, then the conversation row was
+ * deleted, and an upload that slipped between the two landed its bytes after
+ * the sweep had walked past them and then had its row taken by the cascade. A
+ * mark set BEFORE the sweep gives the upload path something to refuse on.
+ *
+ * The mark is also what survives a cleanup that FAILS: the conversation and its
+ * document rows both stay, which is the only state a retry can work from.
+ *
+ * Returns null when no such row exists in this organization (caller maps to
+ * 404). Idempotent — re-stamping a conversation already being deleted is how a
+ * retry begins.
+ */
+export async function markConversationDeleting(
+  conversationId: string,
+  organizationId: string,
+): Promise<Conversation | null> {
+  const db = getDb()
+  const [row] = await db
+    .update(conversations)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
+    .returning()
+  return row ?? null
+}
+
+/**
  * Delete a conversation (messages cascade). Tenant isolation lives in the
  * WHERE clause — deleting by id alone would let any signed-in user delete
  * another org's conversation by guessing ids.

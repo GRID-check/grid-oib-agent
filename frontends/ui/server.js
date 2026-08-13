@@ -700,13 +700,36 @@ const startServer = async () => {
           // `result.data` values. See buildGridRequestContextEnvelopeHeaders'
           // own comment (top of file) for why this is duplicated rather than
           // imported from request-context.ts.
+          // SAST: `express-data-exfiltration` fires on remote-looking data
+          // reaching `req.headers`. Here the data is not remote. `result` is
+          // this server's own `/api/auth/websocket-scope` render (see
+          // `resolveCollectionScope` above): same process, same trust domain,
+          // and every field is derived server-side from the authenticated
+          // session — organization and user from the session itself, the scope
+          // from `buildCollectionScopeFromRequest` after its FGA checks. None
+          // of it is caller-supplied, and the client cannot influence which
+          // fields come back.
+          //
+          // The rule is also not new to this change. The identical block is on
+          // `develop` at this line; ADR-0047 edited ONE field inside it
+          // (`collectionScope` now carries shelves), and the scan is
+          // diff-aware, so touching a line put the whole pre-existing pattern
+          // into the diff window. Suppressed narrowly, by rule id, on this call
+          // only — a broader ignore would hide the case where genuinely
+          // caller-supplied data starts reaching `req.headers`, which is what
+          // the rule is worth having for.
+          // nosemgrep: javascript.express.security.express-data-exfiltration.express-data-exfiltration
           Object.assign(
             req.headers,
             buildGridRequestContextEnvelopeHeaders({
               organizationId: result.data?.organizationId,
               userId: result.data?.userId,
               projectId: result.data?.projectId,
-              collectionScope: result.data?.scope,
+              // Shelf-bearing entries when the resolver supplied them, bare
+              // names otherwise. The envelope is the copy `scoping.py` trusts
+              // for an authenticated turn, so the shelf has to ride HERE and
+              // not only on the raw header (ADR-0047).
+              collectionScope: result.data?.scopedCollections ?? result.data?.scope,
               projectContext: result.data?.projectContext,
               projectMemory: result.data?.projectMemory,
               modelOverrides: result.data?.modelOverrides,

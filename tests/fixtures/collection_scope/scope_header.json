@@ -1,0 +1,100 @@
+{
+  "description": "X-Grid-Collection-Scope payloads (ADR-0047). The BFF encodes, the agent decodes. Both runtimes assert against this file so a change to either end fails exactly one side.",
+  "header_name": "X-Grid-Collection-Scope",
+  "encoding": "base64url(JSON.stringify(entries))",
+  "cases": [
+    {
+      "name": "every shelf the BFF can attribute",
+      "emittedByBff": true,
+      "entries": [
+        {
+          "collection": "oib_knowledge",
+          "shelf": "base"
+        },
+        {
+          "collection": "archiv_org_1",
+          "shelf": "archiv"
+        },
+        {
+          "collection": "proj_3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+          "shelf": "project"
+        },
+        {
+          "collection": "s_conv_abc",
+          "shelf": "session"
+        }
+      ],
+      "parsed": [
+        {
+          "collection": "oib_knowledge",
+          "shelf": "base"
+        },
+        {
+          "collection": "archiv_org_1",
+          "shelf": "archiv"
+        },
+        {
+          "collection": "proj_3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+          "shelf": "project"
+        },
+        {
+          "collection": "s_conv_abc",
+          "shelf": "session"
+        }
+      ],
+      "header": "W3siY29sbGVjdGlvbiI6Im9pYl9rbm93bGVkZ2UiLCJzaGVsZiI6ImJhc2UifSx7ImNvbGxlY3Rpb24iOiJhcmNoaXZfb3JnXzEiLCJzaGVsZiI6ImFyY2hpdiJ9LHsiY29sbGVjdGlvbiI6InByb2pfM2YyNTA0ZTAtNGY4OS0xMWQzLTlhMGMtMDMwNWU4MmMzMzAxIiwic2hlbGYiOiJwcm9qZWN0In0seyJjb2xsZWN0aW9uIjoic19jb252X2FiYyIsInNoZWxmIjoic2Vzc2lvbiJ9XQ"
+    },
+    {
+      "name": "a project collection whose name carries no prefix still states its shelf",
+      "emittedByBff": true,
+      "entries": [
+        {
+          "collection": "kb_custom_7",
+          "shelf": "project"
+        }
+      ],
+      "parsed": [
+        {
+          "collection": "kb_custom_7",
+          "shelf": "project"
+        }
+      ],
+      "header": "W3siY29sbGVjdGlvbiI6ImtiX2N1c3RvbV83Iiwic2hlbGYiOiJwcm9qZWN0In1d"
+    },
+    {
+      "name": "an unattributable collection omits the shelf and is read as unknown",
+      "emittedByBff": true,
+      "entries": [
+        {
+          "collection": "some_custom_corpus"
+        }
+      ],
+      "parsed": [
+        {
+          "collection": "some_custom_corpus",
+          "shelf": null
+        }
+      ],
+      "header": "W3siY29sbGVjdGlvbiI6InNvbWVfY3VzdG9tX2NvcnB1cyJ9XQ"
+    },
+    {
+      "name": "legacy bare-string array still parses, every shelf unknown",
+      "emittedByBff": false,
+      "entries": [
+        "oib_knowledge",
+        "s_conv_abc"
+      ],
+      "parsed": [
+        {
+          "collection": "oib_knowledge",
+          "shelf": null
+        },
+        {
+          "collection": "s_conv_abc",
+          "shelf": null
+        }
+      ],
+      "header": "WyJvaWJfa25vd2xlZGdlIiwic19jb252X2FiYyJd"
+    }
+  ]
+}

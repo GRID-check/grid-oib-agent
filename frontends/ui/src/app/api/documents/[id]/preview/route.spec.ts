@@ -76,6 +76,10 @@ describe('GET /api/documents/[id]/preview', () => {
             filename: 'plan.pdf',
             organizationId: 'org-1',
             projectId: 'proj-1',
+            // NOT NULL with a 'project' default in the schema; the item routes
+            // authorize per SHELF (ADR-0047 Phase 2), so a row without it is
+            // unattributable rather than a project document.
+            scope: 'project',
           },
         ]),
       })
@@ -105,6 +109,10 @@ describe('GET /api/documents/[id]/preview', () => {
             filename: 'archive.zip',
             organizationId: 'org-1',
             projectId: 'proj-1',
+            // NOT NULL with a 'project' default in the schema; the item routes
+            // authorize per SHELF (ADR-0047 Phase 2), so a row without it is
+            // unattributable rather than a project document.
+            scope: 'project',
           },
         ]),
       })
