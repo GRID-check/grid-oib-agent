@@ -334,6 +334,48 @@ class TestTheEnumsMatchTheEngine:
         # `open_model` is the host's job, not an operation the model picks.
         assert VALID_OPERATIONS <= engine_tools, VALID_OPERATIONS - engine_tools
 
+    def test_no_engine_tool_is_unreachable_from_the_agent(self):
+        """The SAME check in the other direction, which is the one that fails.
+
+        The assertion above catches an operation advertised and not implemented.
+        It cannot catch the opposite, and the opposite is what keeps happening:
+        `overhang`, `light_incidence`, `envelope`, `clearance` and `sun_position`
+        each shipped implemented, tested, and callable by nobody, so every
+        question they answered came back „das kann dieser Export nicht" — a
+        sentence about the file that was really about our wiring. `survey`
+        repeated it within one release.
+
+        A capability nobody can call is indistinguishable from a missing one,
+        and the second is what the user was told. The engine-side test that
+        caught this for OPERATORS has no counterpart for TOOLS; this is it.
+        """
+        from aiq_agent.agents.bim.measure_register import VALID_OPERATIONS
+
+        engine_tools = {tool.name for tool in self._engine().create_tools()}
+        unreachable = engine_tools - VALID_OPERATIONS - {"open_model"}
+        assert not unreachable, (
+            f"{sorted(unreachable)} exist on the engine and no operation reaches them. Either add "
+            "them to VALID_OPERATIONS and describe them in _TOOL_DESCRIPTION, or take them off "
+            "create_tools() — shipping them halfway is the failure this test exists for."
+        )
+
+    def test_every_operation_is_actually_described_to_the_model(self):
+        """Reachable is not the same as findable.
+
+        An operation in VALID_OPERATIONS that `_TOOL_DESCRIPTION` never mentions
+        is reachable only by a model that guesses the name. The description IS
+        the discovery mechanism — it is the only place the model learns an
+        operation exists — so an undocumented one is shipped off.
+        """
+        from aiq_agent.agents.bim.measure_register import _TOOL_DESCRIPTION
+        from aiq_agent.agents.bim.measure_register import VALID_OPERATIONS
+
+        undocumented = {name for name in VALID_OPERATIONS if name not in _TOOL_DESCRIPTION}
+        assert not undocumented, (
+            f"{sorted(undocumented)} can be called and are never mentioned to the model. "
+            "The model cannot pick an operation it has not been told about."
+        )
+
 
 class TestProvenanceIsThreeDifferentSentences:
     """The reason this tool exists.
@@ -1717,3 +1759,51 @@ class TestRenderingASurvey:
         """The line this branch exists to prevent."""
         text = self._text()
         assert "results=" not in text and "summary=" not in text and "Einträge" not in text
+
+
+class TestOperationsThatNeedNoSubject:
+    """The guard that ate `survey`.
+
+    `_build_call` refuses, with a helpful sentence, any operation reaching the
+    bottom of the function without a `global_id`. That is right for `measure`
+    and `relations`, which are about one element. It is wrong for the operations
+    that take a SELECTION — and `survey` shipped below the guard, so every call
+    the skill teaches („alle Räume dieses Geschoßes") came back
+
+        Error: operation 'survey' needs a global_id
+
+    while the engine underneath it was correct, tested, and never reached. The
+    engine tests could not see this: they call the handler directly. The
+    renderer tests could not see it either, because a payload that never arrives
+    is never rendered. Only the dispatch layer knows, so the test belongs here.
+    """
+
+    SUBJECTLESS = [
+        ("find_elements", {"ifc_type": "IfcSpace"}),
+        ("survey", {"measure": "clearHeight", "ifc_type": "IfcSpace", "storey": "Keller"}),
+        ("draw", {"storey": "Keller"}),
+        ("briefing", {}),
+        ("storey_heights", {}),
+    ]
+
+    @pytest.mark.parametrize("operation,extra", SUBJECTLESS)
+    def test_it_dispatches_without_a_global_id(self, operation, extra):
+        built = _build_call(operation=operation, **extra)
+        assert isinstance(built, tuple), (
+            f"'{operation}' takes a selection, not a subject, and came back as the string {built!r}. "
+            "Its branch is below the `if not subject` guard in `_build_call`."
+        )
+        assert built[0] == operation
+
+    def test_survey_carries_the_whole_selection_through(self):
+        """The selector is the operation. Dropping `storey` here would silently
+        survey the entire building and report its spread as the Keller's."""
+        name, args = _build_call(operation="survey", measure="clearHeight", ifc_type="IfcSpace", storey="Keller")
+        assert name == "survey"
+        assert args["measure"] == "clearHeight"
+        assert args["ifcType"] == "IfcSpace"
+        assert args["storey"] == "Keller"
+
+    def test_an_unknown_measure_is_still_refused_by_name(self):
+        answer = _build_call(operation="survey", measure="raumhoehe", ifc_type="IfcSpace")
+        assert isinstance(answer, str) and "raumhoehe" in answer and "clearHeight" in answer

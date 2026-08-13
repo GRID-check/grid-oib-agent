@@ -73,6 +73,7 @@ VALID_OPERATIONS = {
     "relations",
     "measure",
     "survey",
+    "element_profile",
     "distance",
     "clearance",
     "sun_position",
@@ -321,6 +322,11 @@ _TOOL_DESCRIPTION = (
     "moment the question is plural — 'wie hoch ist der Keller' names one room and means seventeen, and "
     "'all 17 at 2.70 m' and '16 at 2.70 m, one at 0.25 m' are different answers to it. Measuring one "
     "element and generalising supports neither. Up to 50 elements.\n"
+    "  'element_profile' — the reverse: EVERY measure that applies to ONE element, in one call. Set "
+    "'global_id'. Which measures apply follows from the element's IFC type, so a door is not asked for "
+    "its lichte Raumhöhe. Reach for it once an element has become interesting — the outlier a survey "
+    "named — instead of guessing a measure at a time. Escape route, reachability, turning circle and "
+    "door approach are left out unless 'kind' is 'expensive'.\n"
     "  'distance'       — the distance between TWO elements. Set 'global_id' and 'other_global_id', "
     "and 'mode':\n"
     f"{_enum_lines(DISTANCE_MODES)}\n"
@@ -622,6 +628,36 @@ def _build_call(
             args["include"] = [_clean(ifc_type)]
         return "draw", args
 
+    if op == "survey":
+        # Sits with `find_elements` and `draw`, ABOVE the subject guard, because
+        # it takes no element: its subject IS the selection. The selection half
+        # is `find_elements` and the measuring half is `measure`, and the reason
+        # the two are fused into one operation is the turn budget — composed
+        # from primitives, „wie hoch ist der Keller" costs find_elements +
+        # measure + a GlobalId→Name join the agent has to carry in its head,
+        # three of five turns for a question that has one call in it.
+        wanted = _clean(measure)
+        if wanted not in MEASURES:
+            record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
+            return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
+        # Capped at 50 rather than find_elements' 500: every row here is a real
+        # geometric measurement, not an index lookup.
+        args = {"measure": wanted, "limit": max(1, min(int(limit or 50), 50))}
+        if _clean(ifc_type):
+            args["ifcType"] = _clean(ifc_type)
+        if _clean(name_contains):
+            args["nameContains"] = _clean(name_contains)
+        if _clean(storey):
+            args["storey"] = _clean(storey)
+        if _clean(kind):
+            if _clean(kind).lower() not in KINDS:
+                return (
+                    f"Error: kind '{kind}' does not exist. Use one of: {', '.join(KINDS)}. "
+                    "'kind' is the spatial ROLE (a room is 'space'); an IFC type goes in 'ifc_type'."
+                )
+            args["kind"] = _clean(kind).lower()
+        return "survey", args
+
     # Everything below needs a subject element.
     if not subject:
         return (
@@ -646,33 +682,16 @@ def _build_call(
             return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
         return "measure", {"globalId": subject, "measure": wanted}
 
-    if op == "survey":
-        # The selection half is `find_elements`, the measuring half is
-        # `measure`, and the reason the two are fused into one operation is the
-        # turn budget: composed from primitives, „wie hoch ist der Keller" costs
-        # find_elements + measure + a GlobalId→Name join the agent carries in its
-        # head — three of five turns to answer a question that has one call in it.
-        wanted = _clean(measure)
-        if wanted not in MEASURES:
-            record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
-            return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
-        # Capped at 50 rather than find_elements' 500: every row here is a real
-        # geometric measurement, not an index lookup.
-        args: dict[str, Any] = {"measure": wanted, "limit": max(1, min(int(limit or 50), 50))}
-        if _clean(ifc_type):
-            args["ifcType"] = _clean(ifc_type)
-        if _clean(name_contains):
-            args["nameContains"] = _clean(name_contains)
-        if _clean(storey):
-            args["storey"] = _clean(storey)
-        if _clean(kind):
-            if _clean(kind).lower() not in KINDS:
-                return (
-                    f"Error: kind '{kind}' does not exist. Use one of: {', '.join(KINDS)}. "
-                    "'kind' is the spatial ROLE (a room is 'space'); an IFC type goes in 'ifc_type'."
-                )
-            args["kind"] = _clean(kind).lower()
-        return "survey", args
+    if op == "element_profile":
+        # Below the subject guard, correctly: this one IS about a single
+        # element. `kind` carries the expensive opt-in rather than a new
+        # parameter, because the field is already the tool's catch-all
+        # vocabulary slot and one more boolean on a sixteen-parameter signature
+        # buys less than it costs.
+        args = {"globalId": subject}
+        if _clean(kind).lower() == "expensive":
+            args["include"] = "expensive"
+        return "element_profile", args
 
     if op == "clearance":
         if not _clean(other_global_id):
@@ -1280,6 +1299,38 @@ def _render(
         lines.append(
             "Die Zeichnung liegt als Datei auf dem Server. Maße NICHT aus dem Bild ablesen — dafür "
             "operation='measure' oder 'distance' verwenden."
+        )
+        return "\n".join(line for line in lines if line)
+
+    # Every measure that applies to one element. Without this branch the payload
+    # falls through to `str(payload)` at the bottom of this function and dumps a
+    # raw Python dict — thousands of tokens of `{'value': {...}, 'tolerance':
+    # 0.005, ...}` with the German provenance verbs stripped out, which is the
+    # rendering defect this whole module exists to prevent, at the largest
+    # payload on the surface.
+    if isinstance(payload, dict) and "measures" in payload and "element" in payload:
+        element = payload.get("element") or {}
+        head = f"gemessen an {element.get('name') or element.get('globalId')} ({element.get('ifcType')}"
+        if payload.get("storey"):
+            head += f", {payload['storey']}"
+        lines.append(head + "):")
+        for name, answer in (payload.get("measures") or {}).items():
+            answer = answer or {}
+            if answer.get("error"):
+                lines.append(f"- {name}: FEHLER — {answer['error']}")
+            elif answer.get("decidable"):
+                value = _value_text(answer.get("value"))
+                unit = answer.get("unit") or ""
+                lines.append(f"- {name}: {value} {unit}".rstrip())
+            else:
+                missing = (answer.get("missing") or {}).get("what") or "nicht entscheidbar"
+                lines.append(f"- {name}: NICHT ENTSCHEIDBAR — {missing}")
+        skipped = payload.get("notMeasured") or {}
+        if skipped.get("kinds"):
+            lines.append(f"Nicht gemessen: {', '.join(skipped['kinds'])}. {skipped.get('why') or ''}".strip())
+        lines.append(
+            "Verkürzte Übersicht: Toleranz, Herkunft und Methode je Kennwert liefert operation='measure' "
+            "für den einen, auf den es ankommt. Lange Listen sind gekürzt."
         )
         return "\n".join(line for line in lines if line)
 
