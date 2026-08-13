@@ -59,10 +59,27 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   const [loadError, setLoadError] = useState(false)
 
   /**
+   * Only the LATEST request may commit its answer.
+   *
+   * `useSettlingRefresh` serialises its OWN polls, but nothing coordinated a
+   * poll already in flight with a FOREGROUND load (mount, upload settled,
+   * `onComplete`, retry). A slow poll response carrying `processing` could
+   * therefore land after a newer foreground response carrying `ready` and
+   * overwrite it — regressing the badge the user was just told had flipped,
+   * and, because the row went back to unsettled, restarting the poll. A
+   * monotonic generation stamped when the request goes out and re-checked
+   * before every state write makes the newest request the only one that can
+   * win, whatever order the responses come back in.
+   */
+  const loadGeneration = useRef(0)
+
+  /**
    * @param quiet Refresh without the skeleton — used by the settling poll
    *   below, which would otherwise flash the whole grid every few seconds.
    */
   const loadDocuments = useCallback((quiet = false) => {
+    const generation = ++loadGeneration.current
+    const isStale = () => generation !== loadGeneration.current
     if (!quiet) setIsLoading(true)
     setLoadError(false)
     return fetch('/api/archiv/documents')
@@ -71,6 +88,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
         return r.json() as Promise<ArchivListResponse>
       })
       .then((data) => {
+        if (isStale()) return
         setCollectionName(data.collectionName)
         const docs: FileItem[] = (data.documents ?? []).map((d) => ({
           id: d.id as string,
@@ -92,12 +110,16 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       })
       .catch(() => {
         // A failed POLL must not empty a list the user is looking at; only a
-        // foreground load owns the error state.
-        if (quiet) return
+        // foreground load owns the error state — and only while it is still the
+        // latest one, so a late failure cannot blank a newer successful list.
+        if (quiet || isStale()) return
         setFiles([])
         setLoadError(true)
       })
       .finally(() => {
+        // Deliberately NOT generation-guarded: the spinner belongs to the
+        // foreground loads alone, and a quiet poll starting mid-load would
+        // otherwise leave it spinning forever with nobody left to clear it.
         if (!quiet) setIsLoading(false)
       })
   }, [])

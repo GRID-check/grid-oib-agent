@@ -63,12 +63,34 @@ def _base64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value)
 
 
-def _parse_scope_entry(item: Any) -> ScopedCollection | None:
-    """One decoded scope entry → :class:`ScopedCollection`, or None if unusable.
+class _UnreadableScopeEntry:
+    """Verdict sentinel: a scope entry in NEITHER wire shape.
 
-    Accepts both wire shapes. A malformed entry is DROPPED rather than widening
-    the scope: the list is an authorization boundary, so failing closed on the
-    entry we cannot read is the safe direction.
+    Kept distinct from ``None`` because the two verdicts differ in kind, not in
+    degree — see :func:`_parse_scope_entry`.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return "<unreadable scope entry>"
+
+
+_UNREADABLE = _UnreadableScopeEntry()
+
+
+def _parse_scope_entry(item: Any) -> ScopedCollection | _UnreadableScopeEntry | None:
+    """One decoded scope entry → :class:`ScopedCollection`, or a verdict on why not.
+
+    Accepts both wire shapes and distinguishes the two ways an entry can fail:
+
+    - :data:`_UNREADABLE` — the entry is in NEITHER wire shape (a number, an
+      object whose ``collection`` is not a string). We cannot know what was
+      meant, so the caller voids the whole payload rather than honoring a
+      partially-read authorization boundary.
+    - ``None`` — the entry IS in a known wire shape and simply names no
+      collection (an empty or whitespace-only name). It is readable; it just
+      selects nothing, so the caller skips this entry alone.
     """
     if isinstance(item, str):
         name = item.strip()
@@ -76,23 +98,45 @@ def _parse_scope_entry(item: Any) -> ScopedCollection | None:
         return ScopedCollection(_normalize_collection_name(name)) if name else None
     if isinstance(item, dict):
         raw_name = item.get("collection")
-        if not isinstance(raw_name, str) or not raw_name.strip():
+        if not isinstance(raw_name, str):
+            return _UNREADABLE
+        name = raw_name.strip()
+        if not name:
             return None
         return ScopedCollection(
-            _normalize_collection_name(raw_name.strip()),
+            _normalize_collection_name(name),
             parse_shelf(item.get("shelf")),
         )
-    return None
+    return _UNREADABLE
 
 
 def _parse_scope_payload(scope: Any) -> list[ScopedCollection] | None:
     """Decoded header/envelope value → deduplicated scoped collections.
 
-    Fails CLOSED on anything unreadable — a non-list payload, or a list holding
-    an entry in neither wire shape, yields ``None`` (no scope at all) rather
-    than a partially-read authorization boundary. De-duplication keeps the FIRST
-    entry for a collection name, so a stated shelf is not lost to a later
-    bare-string repeat of the same collection.
+    Fails CLOSED on anything UNREADABLE — a non-list payload, or a list holding
+    an entry in neither wire shape, yields ``None`` rather than a partially-read
+    authorization boundary (ADR-0047).
+
+    ``None`` means "no readable scope", NOT "deny this turn". Callers read it as
+    ABSENT: :func:`get_scoped_collections_from_context_or` falls back to the
+    config-derived layers, so a rejected payload ends up resolving against the
+    legacy layers rather than blocking retrieval. Nobody should read rejection
+    here as denial.
+
+    A BLANK collection name is deliberately NOT treated as unreadable. It is
+    well-formed and simply names no collection, so no guessing is required to
+    handle it and skipping it removes exactly zero authority — the remaining
+    entries stay precisely what the producer stated. Voiding the whole payload
+    over one blank name would do the opposite of failing closed in practice,
+    because ``None`` hands the turn to the config-derived fallback above, which
+    can be WIDER than the scope actually sent. Fail-closed means refusing to
+    guess at an entry we cannot parse; a blank name needs no guess. This matches
+    ``aiq_agent.project_context._as_scope_entries``/``_scope_names``, the twin
+    parser on the envelope side, which likewise keeps the payload and drops only
+    the blank entry.
+
+    De-duplication keeps the FIRST entry for a collection name, so a stated
+    shelf is not lost to a later bare-string repeat of the same collection.
     """
     if not isinstance(scope, list):
         return None
@@ -100,9 +144,12 @@ def _parse_scope_payload(scope: Any) -> list[ScopedCollection] | None:
     seen: set[str] = set()
     for item in scope:
         parsed = _parse_scope_entry(item)
-        if parsed is None:
+        if isinstance(parsed, _UnreadableScopeEntry):
             logger.debug("Unreadable collection-scope entry, ignoring the whole scope: %r", item)
             return None
+        if parsed is None:
+            logger.debug("Blank collection name in collection-scope, skipping this entry only: %r", item)
+            continue
         if parsed.collection in seen:
             continue
         seen.add(parsed.collection)

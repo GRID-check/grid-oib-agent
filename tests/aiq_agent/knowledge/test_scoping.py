@@ -234,6 +234,74 @@ class TestTheShelfTravelsInTheHeader:
             assert get_scoped_collections_from_context() is None
 
 
+class TestABlankNameMeansTheSameOnBothSidesOfTheSeam:
+    """A blank collection name is READABLE and names nothing — not unreadable.
+
+    The two parsers used to disagree about it. The resolver
+    (``scoping._parse_scope_payload``) threw the WHOLE payload away over one
+    blank name, while the envelope parser
+    (``project_context._as_scope_entries``/``_scope_names``) kept it and
+    projected ``""`` straight through. Both now skip just the blank entry.
+
+    Voiding the payload was also not the fail-closed direction it looked like:
+    ``None`` reads as ABSENT downstream, so
+    ``get_scoped_collections_from_context_or`` replaces it with the
+    config-derived layers — potentially WIDER than the scope actually sent.
+    """
+
+    @staticmethod
+    def _ctx(payload):
+        return _MockContext(base64.urlsafe_b64encode(json.dumps(payload).encode()).decode())
+
+    def test_a_blank_object_name_skips_only_that_entry(self):
+        ctx = self._ctx(
+            [
+                {"collection": "proj_alpha", "shelf": "project"},
+                {"collection": "", "shelf": "archiv"},
+                {"collection": "s_conv1", "shelf": "session"},
+            ]
+        )
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            assert get_scoped_collections_from_context() == [
+                ScopedCollection("proj_alpha", Shelf.PROJECT),
+                ScopedCollection("s_conv1", Shelf.SESSION),
+            ]
+
+    def test_a_whitespace_only_name_is_blank_too(self):
+        ctx = self._ctx([{"collection": "   "}, "proj_alpha", "  "])
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            assert get_scoped_collections_from_context() == [ScopedCollection("proj_alpha", None)]
+
+    def test_both_parsers_read_the_same_payload_the_same_way(self):
+        from aiq_agent.project_context import _as_scope_entries
+        from aiq_agent.project_context import _scope_names
+
+        payload = [
+            {"collection": "proj_alpha", "shelf": "project"},
+            {"collection": "  "},
+            "",
+            "s_conv1",
+        ]
+        envelope_names = _scope_names(_as_scope_entries(payload))
+
+        ctx = self._ctx(payload)
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            resolver_names = get_collection_scope_from_context()
+
+        assert envelope_names == ["proj_alpha", "s_conv1"]
+        assert resolver_names == envelope_names
+
+    def test_an_unreadable_entry_still_voids_the_payload_on_both_sides(self):
+        from aiq_agent.project_context import _as_scope_entries
+
+        payload = [{"collection": "proj_alpha", "shelf": "project"}, {"shelf": "session"}]
+        assert _as_scope_entries(payload) is None
+
+        ctx = self._ctx(payload)
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            assert get_scoped_collections_from_context() is None
+
+
 class _HeaderContext:
     """Context mock backed by a real per-name header map."""
 

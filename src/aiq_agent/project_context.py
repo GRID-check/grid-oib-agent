@@ -218,7 +218,14 @@ def _as_scope_entries(value: Any) -> list[Any] | None:
     states no shelf at all. Entries may be mixed while a rollout is in flight.
     An entry in NEITHER shape (an object with no ``collection``, a number)
     rejects the payload wholesale, exactly as ``_as_str_list`` did: the scope is
-    an authorization boundary, so an unreadable one is no scope at all.
+    an authorization boundary, so an UNREADABLE one is no scope at all.
+
+    A BLANK name (``""``, ``{"collection": "   "}``) is a different case and is
+    kept here on purpose: it is perfectly readable and simply names no
+    collection, so it is dropped per-entry by :func:`_scope_names` instead of
+    voiding an otherwise valid payload. Same rule, same reasoning, as the twin
+    parser ``aiq_agent.knowledge.scoping._parse_scope_payload`` — see its
+    docstring for why a blank name is not an unreadable one.
     """
     if not isinstance(value, list):
         return None
@@ -232,10 +239,17 @@ def _as_scope_entries(value: Any) -> list[Any] | None:
 
 
 def _scope_names(entries: list[Any] | None) -> list[str] | None:
-    """Collection names of :func:`_as_scope_entries`' output, shelves dropped."""
+    """Collection names of :func:`_as_scope_entries`' output, shelves dropped.
+
+    A blank name is dropped rather than projected: it authorizes nothing, and
+    emitting ``""`` here would put an entry in this list that the resolver
+    (``aiq_agent.knowledge.scoping._parse_scope_payload``) skips — the two sides
+    of the seam would then disagree about what the same payload means.
+    """
     if entries is None:
         return None
-    return [item if isinstance(item, str) else item["collection"] for item in entries]
+    names = [item if isinstance(item, str) else item["collection"] for item in entries]
+    return [name for name in names if name.strip()]
 
 
 def _as_str_dict(value: Any) -> dict[str, str] | None:
