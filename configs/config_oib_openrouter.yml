@@ -544,6 +544,35 @@ functions:
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true
     skill_allowlist: []
+    # Retrieval-based tool narrowing. OFF, deliberately — the block below is the
+    # tested configuration, not a suggestion, and it is commented out because on
+    # THIS surface the trade is not yet worth taking.
+    #
+    # The two BIM tools are 81 % of the ~9 000 tokens of tool schema that ride on
+    # every call here, so narrowing to four tools saves ~24 % of that payload on
+    # average and 81 % on a pure-Normen question. But tokens are not what this
+    # agent runs out of — TURNS are, and narrowing does not buy one back. What it
+    # can spend is an answer: measured against these eleven tools, a lexical rank
+    # over the user's turn alone keeps the answering tool for only 71 % of a
+    # realistic German question set. The pins below carry that to 100 %, because
+    # they cover the two shapes a query-time ranking structurally cannot see —
+    # tools named by INTENT rather than subject (`remember`, `emit_card`,
+    # `use_skill`, `surface_documents`) and tools that are SEQUENCED, whose turn
+    # comes from what a previous tool returned (`ris_fetch_tool` after
+    # `ris_search_tool`). Both are guarded by tests.
+    #
+    # Turn it on when the surface grows past what a prompt can hold — an MCP
+    # server with thirty tools — not to shave tokens off eleven.
+    #
+    # tool_search:
+    #   enabled: true
+    #   top_k: 4
+    #   always_include:
+    #     - remember
+    #     - emit_card
+    #     - use_skill
+    #     - surface_documents
+    #     - ris_fetch_tool
 
   deep_research_agent:
     _type: deep_research_agent

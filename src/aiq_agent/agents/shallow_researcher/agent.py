@@ -54,6 +54,10 @@ from .markers import answer_confidence_capped_reason
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
 from .models import ShallowResearchAgentState
+from .tool_search import ToolSearchIndex
+from .tool_search import ToolSearchSettings
+from .tool_search import build_query_parts
+from .tool_search import tool_basename
 
 logger = logging.getLogger(__name__)
 
@@ -71,18 +75,17 @@ AGENT_DIR = Path(__file__).parent
 # never loses the tool it was routed here to use.
 _INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card"})
 
-# Function-group separators used by NAT-qualified tool names, mirroring
-# ``data_source_registry._GROUP_SEPARATORS``.
-_TOOL_NAME_SEPARATORS = ("__", ".")
+# Tool-name base resolution lives with the retrieval that also needs it
+# (``tool_search.tool_basename``) so both the meta partition and the
+# ``always_include`` pin set resolve a group-qualified name the same way.
+_tool_basename = tool_basename
 
-
-def _tool_basename(tool_name: str) -> str:
-    """Return the final segment of a (possibly group-qualified) tool name."""
-    base = tool_name
-    for sep in _TOOL_NAME_SEPARATORS:
-        if sep in base:
-            base = base.rsplit(sep, 1)[-1]
-    return base
+# Cap on both tool-search caches (query → selection, selection → bound LLM).
+# A shared agent serves many requests, so each map is dropped WHOLE at the cap
+# rather than grown or LRU-tracked: a miss costs one re-rank (0.05 ms) or one
+# bind_tools (pure CPU, no network), while an unbounded dict on a long-lived
+# worker costs memory forever.
+_MAX_CACHED_BINDINGS = 32
 
 
 def _is_search_tool(tool_name: str) -> bool:
@@ -192,6 +195,7 @@ class ShallowResearcherAgent:
         max_llm_turns: int = 10,
         max_tool_iterations: int = 5,
         callbacks: list[Any] | None = None,
+        tool_search: ToolSearchSettings | None = None,
     ) -> None:
         """
         Initialize the shallow researcher agent.
@@ -205,12 +209,17 @@ class ShallowResearcherAgent:
             max_tool_iterations: Maximum tool-calling iterations before forcing
                                 synthesis (default 5).
             callbacks: Optional list of LangGraph callbacks.
+            tool_search: Optional retrieval-based tool narrowing. None (or a
+                disabled settings object) leaves every path below exactly as it
+                was: the full binding, the full prompt tool list, the full
+                ToolNode.
         """
         self.llm_provider = llm_provider
         self.tools = list(tools)
         self.max_llm_turns = max_llm_turns
         self.max_tool_iterations = max_tool_iterations
         self.callbacks = callbacks or []
+        self.tool_search = tool_search if (tool_search is not None and tool_search.enabled) else None
 
         # Load prompts
         self.system_prompt = system_prompt or self._load_system_prompt()
@@ -245,6 +254,22 @@ class ShallowResearcherAgent:
         self._llm_with_meta_tools: Any = None
         self._meta_tool_names: set[str] | None = None
         self._meta_tool_node: ToolNode | None = None
+
+        # Retrieval-based tool narrowing (off unless configured). The index is
+        # built HERE, once, off the hot path: it is a pure in-process BM25 over
+        # tool name + description, so construction touches no network and no
+        # model, and a turn never pays for it. Nothing is built at all when the
+        # feature is off, so a deployment that does not ask for it does not
+        # even tokenize its tool descriptions.
+        self._tool_search_index: ToolSearchIndex | None = ToolSearchIndex(self.tools) if self.tool_search else None
+        # Selected-tool-set → bound LLM. Keyed by the SELECTION rather than the
+        # query so two questions that retrieve the same tools share one
+        # binding.
+        self._narrowed_bindings: dict[frozenset[str], Any] = {}
+        # Query string → selection, so the retrieval runs once per run instead
+        # of once per tool-loop iteration (the query is built from human turns
+        # only, which do not change while the loop appends AI/Tool messages).
+        self._tool_search_selections: dict[str, Any] = {}
 
     def _load_system_prompt(self) -> str:
         """Load the default system prompt."""
@@ -319,6 +344,98 @@ class ShallowResearcherAgent:
         narrowed = [ti for ti in tools_info if ti.get("name") in meta_names]
         return self._llm_with_meta_tools, narrowed
 
+    def _select_tools_for_query(self, messages: Sequence[Any]) -> Any:
+        """Run (or replay) the tool-search retrieval for this run's question.
+
+        Cached on the query string: the query is built from HUMAN turns only,
+        so it is identical across every iteration of one run, and the retrieval
+        runs once per run rather than once per LLM call. That stability also
+        keeps the per-run ``cached_system_prompt`` honest — the prompt's tool
+        list cannot disagree with the binding on iteration two.
+
+        Returns ``None`` when the feature is off or the retrieval could not
+        produce a decision; both mean "use the full set".
+        """
+        settings = self.tool_search
+        index = self._tool_search_index
+        if settings is None or index is None:
+            return None
+        try:
+            query_parts = build_query_parts(messages)
+            if not query_parts:
+                return None
+            cache_key = "\n<<part>>\n".join(f"{part.weight}:{part.text}" for part in query_parts)
+            cached = self._tool_search_selections.get(cache_key)
+            if cached is not None:
+                return cached
+            selection = index.select(
+                query_parts,
+                top_k=settings.top_k,
+                always_include=settings.always_include,
+            )
+        except Exception:
+            # A ranking is a convenience; the tool set is the contract. Any
+            # failure here falls back to binding everything, which is the
+            # behaviour this agent had before tool search existed.
+            logger.warning("[ToolSearch] retrieval failed; binding the full tool set", exc_info=True)
+            return None
+
+        # ADR-0045: the shape of the call, never the building. Tool names are
+        # code identifiers from our own config — no user text, no model output,
+        # no element names, no property values.
+        logger.info(
+            "[ToolSearch] %s: bound %d/%d tool(s) — selected=%s withheld=%s",
+            selection.reason,
+            len(selection.selected),
+            len(index.tool_names),
+            list(selection.selected),
+            list(selection.withheld),
+        )
+        if len(self._tool_search_selections) >= _MAX_CACHED_BINDINGS:
+            self._tool_search_selections.clear()
+        self._tool_search_selections[cache_key] = selection
+        return selection
+
+    def _research_tool_binding(
+        self,
+        messages: Sequence[Any],
+        tools_info: list[dict[str, str]],
+    ) -> tuple[Any, list[dict[str, str]]]:
+        """LLM + prompt tool list for a RESEARCH turn, narrowed if configured.
+
+        With tool search off this returns the prebuilt full binding and the
+        caller's tool list untouched — the same two objects the agent used
+        before this method existed.
+
+        With it on, the narrowing happens HERE: around the LLM call, not inside
+        the tool loop. The model is offered fewer tools; it is not asked to
+        find them. No node is added to the graph, no message is added to the
+        history, and ``tool_iterations`` is not touched, so a narrowed turn
+        costs exactly what an unnarrowed one costs. That is the whole point —
+        an agent that force-synthesizes after five tool calls cannot afford to
+        spend one of them on discovery.
+
+        The prompt's tool list is narrowed to match the binding, so the model
+        is never told about a tool it has not been given.
+        """
+        selection = self._select_tools_for_query(messages)
+        if selection is None or not selection.narrowed:
+            return self._llm_with_tools, tools_info
+
+        chosen = frozenset(selection.selected)
+        bound = self._narrowed_bindings.get(chosen)
+        if bound is None:
+            narrowed_tools = [t for t in self.tools if t.name in chosen]
+            if not narrowed_tools:
+                # Belt and braces over ``select``'s own empty guard: an empty
+                # binding would leave the model with no way to answer at all.
+                return self._llm_with_tools, tools_info
+            bound = self._get_llm().bind_tools(narrowed_tools, parallel_tool_calls=True)
+            if len(self._narrowed_bindings) >= _MAX_CACHED_BINDINGS:
+                self._narrowed_bindings.clear()
+            self._narrowed_bindings[chosen] = bound
+        return bound, [ti for ti in tools_info if ti.get("name") in chosen]
+
     def _build_graph(self) -> CompiledStateGraph:
         """Build the LangGraph StateGraph."""
 
@@ -335,8 +452,13 @@ class ShallowResearcherAgent:
             # search tools, so a greeting or memory request cannot fire a web or
             # knowledge-base search. This also narrows the prompt's tool list
             # below so the model is not told it has search it must not use.
+            #
+            # Research turns take the full binding unless tool search is
+            # configured, in which case the bound set is narrowed by retrieval
+            # BEFORE this LLM call — no discovery turn, no extra node, no
+            # change to the iteration budget.
             if state.requires_sources:
-                active_llm_with_tools: Any = self._llm_with_tools
+                active_llm_with_tools, tools_info = self._research_tool_binding(messages, tools_info)
             else:
                 active_llm_with_tools, tools_info = self._meta_tool_binding(tools_info)
 
@@ -482,6 +604,20 @@ class ShallowResearcherAgent:
             invalid-tool error instead of running. Falls back to the full
             ToolNode on research turns (and when no interaction tool exists,
             where the meta path binds no tools and this node is unreachable).
+
+            Tool search deliberately does NOT get the same second defense. The
+            meta partition has two arms because firing a web search on a
+            greeting is a POLICY violation: refusing to execute it is the
+            correct outcome even though the refusal costs a turn. Tool-search
+            narrowing is not a policy, it is a GUESS about relevance, and its
+            one real failure mode is withholding the tool that would have
+            answered. If the model calls a withheld tool anyway — it can, by
+            copying a name out of an earlier turn's history — then the guess
+            was wrong and the model is right. Executing it spends a turn and
+            produces evidence; refusing it spends the same turn and produces an
+            error, out of a budget of five. So research turns keep the full
+            ToolNode, and execution stays the escape hatch that makes a
+            recall-biased retrieval safe to run at all.
             """
             active_tool_node = tool_node
             if not state.requires_sources:

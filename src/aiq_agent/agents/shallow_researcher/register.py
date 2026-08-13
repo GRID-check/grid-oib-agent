@@ -28,6 +28,7 @@ from nat.data_models.function import FunctionBaseConfig
 
 from .agent import ShallowResearcherAgent
 from .models import ShallowResearchAgentState
+from .tool_search import ToolSearchSettings
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,16 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
     skill_allowlist: list[str] = Field(
         default_factory=list,
         description="Optional skill-name allowlist; empty = every resolved skill is offered.",
+    )
+    tool_search: ToolSearchSettings = Field(
+        default_factory=ToolSearchSettings,
+        description=(
+            "Retrieval-based tool narrowing (default OFF). When enabled, a local lexical ranking over "
+            "tool name + description picks the tools bound for a research turn, BEFORE the LLM call — "
+            "never as a tool the model has to call first, which would spend one of the five tool "
+            "iterations on discovery. Absent from the YAML this validates to enabled=false and the "
+            "agent binds every tool exactly as it always has."
+        ),
     )
 
 
@@ -99,6 +110,7 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
         max_llm_turns=config.max_llm_turns,
         max_tool_iterations=config.max_tool_iterations,
         callbacks=callbacks,
+        tool_search=config.tool_search,
     )
 
     async def _run(state: ShallowResearchAgentState) -> ShallowResearchAgentState:
@@ -153,6 +165,11 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                     max_llm_turns=config.max_llm_turns,
                     max_tool_iterations=config.max_tool_iterations,
                     callbacks=callbacks,
+                    # The per-run agent is narrowed by data_sources/skills, so
+                    # it indexes a DIFFERENT tool set — it has to carry the
+                    # setting or tool search would silently stop applying on
+                    # exactly the requests that select sources.
+                    tool_search=config.tool_search,
                 )
 
             if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):
