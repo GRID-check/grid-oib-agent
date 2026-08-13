@@ -33,6 +33,12 @@ const PROJECT = '44444444-4444-4444-4444-444444444444'
 
 const model = (over: Partial<BimModelHeader> & Pick<BimModelHeader, 'id' | 'filename'>): BimModelHeader => ({
   documentId: `doc-${over.id}`,
+  // Every REQUIRED field of `BimModelHeader` needs a default here, or a
+  // `Partial` spread leaves it `undefined` and the fixture stops satisfying the
+  // type it claims to be. `displayName` arrived on develop after this spec was
+  // written and broke exactly that way — invisibly on the branch, and only in
+  // CI, which type-checks the merge rather than the branch.
+  displayName: null,
   projectId: PROJECT,
   status: 'ready',
   schemaVersion: 'IFC4',
@@ -169,6 +175,36 @@ describe('POST /api/internal/bim/source', () => {
       const body = await (await post({ organizationId: 'org-1', projectId: PROJECT })).json()
 
       expect(body).toMatchObject({ resolved: false, reason: 'not_ready' })
+      expect(getSignedUrl).not.toHaveBeenCalled()
+    })
+
+    it('reports a modelId whose extraction has not finished as not ready', async () => {
+      // The selector-less case above went through `readable`; this one did not.
+      // A `modelId` naming a model still being extracted used to resolve, and
+      // this route — unlike its sibling — never re-checks `status`, so it
+      // presigned the raw `.ifc` of a half-written building.
+      vi.mocked(listBimModels).mockResolvedValue([model({ ...NEW, status: 'extracting' }), OLD])
+
+      const body = await (
+        await post({ organizationId: 'org-1', projectId: PROJECT, modelId: NEW.id })
+      ).json()
+
+      expect(body).toMatchObject({ resolved: false, reason: 'not_ready' })
+      expect(body.message).toContain('wird derzeit verarbeitet')
+      expect(getSignedUrl).not.toHaveBeenCalled()
+    })
+
+    it('reports a modelId whose extraction failed as not ready, in its own words', async () => {
+      // "Still being read" and "cannot be read" are different answers, and
+      // waiting only helps for one of them.
+      vi.mocked(listBimModels).mockResolvedValue([model({ ...NEW, status: 'failed' }), OLD])
+
+      const body = await (
+        await post({ organizationId: 'org-1', projectId: PROJECT, modelId: NEW.id })
+      ).json()
+
+      expect(body).toMatchObject({ resolved: false, reason: 'not_ready' })
+      expect(body.message).toContain('konnte nicht gelesen werden')
       expect(getSignedUrl).not.toHaveBeenCalled()
     })
 
