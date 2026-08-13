@@ -80,7 +80,10 @@ independent of access grants and of upload provenance.**
 
 - **UI collapse.** A face on a file card will be read as “owner” in the access
   sense unless the copy says verantwortlich / unassigned and the share chip
-  stays a separate control. Mitigated in the Files surfaces, not in the schema.
+  stays a separate control. The spec forbids an AccessChip on project-visible
+  files and forbids rendering `createdBy` as verantwortlich. Mitigated in the
+  Files surfaces (`docs/superpowers/specs/2026-08-13-file-native-ownership-design.md`
+  § UX language), not in the schema.
 - **A missed call site writes `createdBy` into the assignment table** “as a
   default.” Forbidden. Tests must show a fresh upload has zero assignment rows.
 

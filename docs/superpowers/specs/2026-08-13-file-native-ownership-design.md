@@ -1,7 +1,7 @@
 # File-native work objects — design
 
 Date: 2026-08-13
-Status: proposed (awaiting review)
+Status: proposed (awaiting review; UX pass added the same day)
 Branch: `feature/document-ownership` (worktree `.worktrees/document-ownership`)
 
 Related: [ADR-0032](../../adr/0032-shareable-resource-model.md),
@@ -85,6 +85,18 @@ obligation in `AGENTS.md` and the closing section of the shareable-type doc.
 8. **First vertical is project files.** Archiv assignment and org-container
    *product* behaviour can wait. The substrate still grows a real container
    probe (§3.10) so Archiv does not inherit a lie.
+9. **Utilization is single-player; people are multiplayer.** “Piloti dazu
+   fragen” works with collaboration off. Faces, Unvergeben, Zuweisen, Kollegin
+   fragen, and the new inbox types live behind the existing `collaboration`
+   flag. A solo architect must not see an empty people chrome.
+10. **A conversation that starts from a file has a subject column**
+    (`conversations.subject_resource_type` + `subject_resource_id`). The chip
+    on reopen, “chats about this file”, and retrieval focus all read it. First
+    message metadata is not enough — a thread you return to tomorrow must
+    still be about the file.
+11. **You can mention anyone in the project.** Assignment is a separate,
+    lasting fact. The UI may do both in one gesture (“Zuweisen und fragen”).
+    Asking does not silently assign; assigning does not open a thread.
 
 ## The two planes
 
@@ -115,6 +127,334 @@ have nobody or several responsible people → **Piloti dazu fragen** (subject +
 filename focus) and **Kollegin fragen** (assignment + mention + inbox, landing
 on the same subject).
 
+## UX language
+
+The existing Files and collaboration chrome already has a voice. This feature
+speaks it; it does not invent a second one.
+
+- **A face is assignment. A lock is access.** They never share a chip. Project-
+  visible files (almost all of them) show **no** AccessChip — a library of
+  padlocks that all say “Projekt” is noise. The chip appears only when
+  visibility is `private`.
+- **Unvergeben is a word, not an empty avatar.** A grey circle reads as a
+  broken image. The empty state is the word, in the same type as a name.
+- **The card stays one button.** It opens the preview. Faces sit in
+  `footerLead` (already the card’s extension slot) and are not nested
+  buttons. Filtering by person is a chip *above* the grid, never a click
+  target on the tile.
+- **Ask is the payoff of “Zitierbar.”** It lives where the reader already
+  learned the file is in Piloti’s knowledge: the preview header, the ingest
+  toast, the overflow menu. It does not live on the card — the card’s job is
+  still “what is this / who / open it.”
+- **Download stays a button.** People still come to fetch a PDF. Ask does not
+  replace it; it sits next to it, primary only once status is `ready`.
+- **Sie-Form, DE first**, like `collaboration.ts`. “Verantwortlich”, never
+  “Owner”. “Fragen”, never “Chat starten”.
+- **Reuse, don’t redraw.** `PersonAvatar` / avatar-stack, `MentionPicker`
+  (disabled rows, not hidden), inbox row (who / what / where / when without
+  opening), `?ask=` (IFC and applicable standards), ShareDialog (access only,
+  later). Assignment is a *popover*, not a second ShareDialog — it has no
+  visibility radio and no roles.
+
+## Surfaces and chrome
+
+Where every new pixel lives. If it is not in this table, it does not ship in
+the first vertical.
+
+| Surface | What the reader sees | Interaction |
+|---|---|---|
+| **Filter strip** (above the existing search bar) | Chips: `Alle` · `Meine` · `Unvergeben`. When the project has assignees, one more chip per distinct person is too many — a single `Person ▾` picker instead. | AND with folder + text + semantic search. `Unvergeben` + list view reveals bulk checkboxes (see F9). Hidden entirely when collaboration is off. |
+| **File card footer** | Avatar stack (1–3 faces, then `+N`) **or** the word `Unvergeben`. Tooltip on faces = names. | Display only. Click still opens preview. |
+| **File list** | New column `Verantwortlich` after status, sortable (unassigned last when sorting by name-of-person; unassigned first when the Unvergeben filter is on). | Display only, except checkboxes when the Unvergeben filter is active. |
+| **Preview header** | Existing identity row unchanged. New second row under the status line: faces / Unvergeben + quiet `Zuweisen`. When `ready`: primary `Piloti dazu fragen`. Secondary text button `Kollegin fragen`. Download stays outline, as today. | Ask disabled (not hidden) while processing, hint `Sobald die Datei zitierbar ist`. Hidden while `failed` — retry stays the only action. |
+| **Preview overflow** | Existing rename / delete. Add `Link kopieren` (`/files?doc=`). Add `Piloti dazu fragen` so the header can lose the button on a ~360px sheet without losing the verb. | |
+| **Upload tray** | After a successful batch: keep today’s “N Dokumente hinzugefügt”. Add `Zuweisen` next to `Ausblenden`. | Opportunistic. The tray still auto-retires (~6s today). Missing it is fine — cards say Unvergeben. Do **not** stop auto-retire; do **not** nag. |
+| **Ingest toast** | Today: “ist jetzt zitierbar”. Add two toast actions: `Fragen` · `Zuweisen`. | Same href / popover as the preview. |
+| **Chat composer** | Subject chip `Frage zu {name}` with an × that drops focus (retrieval goes back to the whole project). Placeholder becomes `Frage zu {name}…`. Chip is a link back to `/files?doc=`. | Set by A1 navigation, by “existing file as subject” picker (F11), or by A4 weiterfragen. |
+| **Chat, existing-file picker** | From the composer paperclip *menu*, a second item: `Aus dem Projekt` — not another upload. Picker of project documents, sets the subject chip. | Upload remains “new bytes”. Attaching an existing file must not re-ingest. |
+| **Citation chip popover** | Existing page + excerpt + open preview. Add: `Weiterfragen`. Quiet line `Verantwortlich: Anna, Ben` or `Unvergeben`. If assigned: `Anna fragen` per person. | Weiterfragen = A1 with this file (and page, if known) as subject. |
+| **Assign popover** | Typeahead of project members (MentionPicker rules: disabled + reason, never omitted). Click adds; × on a face removes. `Mir zuweisen` as the first row when the viewer is not already assigned. | No confirm on add or remove (reversible). No roles. Stays open after an add so a second person is one more click. |
+| **Ask-a-person sheet** | To: picker. Message: textarea. Quiet check `Auch zuweisen` if the addressee is not already assigned, **off** by default. Send. | Creates a conversation with the file as subject, first message addressed to that person, agent silent (existing mention hand-off). |
+| **Inbox** | `document.assigned_to_you` — informational, file name in the title. `mention.requested` on a document-subject thread — actionable, file name in the body, never `Chat ohne Titel`. | Assigned → `/files?doc=`. Mention → the subject conversation (`?session=` + chip). |
+| **Bulk bar** (list + Unvergeben only) | Sticky: `{n} Dateien ohne Verantwortliche · Alle auswählen · Zuweisen`. | One assign popover applied to the checked set. |
+
+A3 (docked preview beside chat) and A5 (activity list) are specified below as
+follow-on chrome on the same primitives. They do not add a flag.
+
+## User flows
+
+Every flow is a click path a person can walk without being taught the model.
+If a step needs a new noun, the chrome table above is missing a row.
+
+```mermaid
+flowchart LR
+  subgraph Start
+    U[Upload] --> L[Library]
+    L --> P[Preview]
+    C[Chat citation] --> P
+  end
+  P --> Ask[Piloti fragen]
+  P --> Who[Zuweisen]
+  P --> Human[Kollegin fragen]
+  Ask --> Thread[Chat with subject chip]
+  Human --> Inbox[Anna's inbox]
+  Inbox --> Thread
+  Who --> Card[Faces on card]
+```
+
+### F1 — Bulk upload, then decide who (the secretary test)
+
+1. Drop forty PDFs. Tray behaves exactly as today (bytes, “Wird gelesen”,
+   “Zitierbar”).
+2. Batch settles. Heading: `40 Dokumente hinzugefügt`. Actions: `Zuweisen` ·
+   `Ausblenden`.
+3. They click **Ausblenden**, or the tray retires itself. Nothing is assigned.
+   Every new card’s footer says **Unvergeben**. That is success, not a missed
+   step.
+4. They click **Zuweisen**. A sheet lists *this batch only* (not the whole
+   project). Each row: name, Unvergeben, a face slot. Header: one picker
+   “Allen zuweisen”. Per-row picker still works for the two that are not
+   Anna’s. Confirm is just closing the sheet — assignments persist as they
+   are made.
+5. They never have to do this now. Tomorrow the lead opens Files, hits
+   **Unvergeben**, and does F9.
+
+No toast “Sie sind jetzt verantwortlich.” The uploader is not.
+
+### F2 — Scan the library
+
+1. Files opens as today (cards, search, folders).
+2. Collaboration on: filter strip appears. Default `Alle`.
+3. Cards show faces or Unvergeben in the footer, left of size · time.
+4. Hover a face: `Anna Berger`. The tile does not become a people control.
+5. Switch to list: new column, sortable. A hundred Einreichunterlagen are
+   scannable by “who” the same way they are scannable by size.
+
+### F3 — Open a file
+
+1. Click a card. Preview sheet/pane as today. Identity row unchanged.
+2. Under the format · status line: `Unvergeben` + `Zuweisen`, or two faces +
+   `Bearbeiten`.
+3. Status `ready`: `Piloti dazu fragen` is the filled button. `Kollegin
+   fragen` is a ghost next to it. Download stays outline on the right, as
+   now.
+4. Status `processing`: Ask is visible, disabled, title
+   `Sobald die Datei zitierbar ist`. You **can** still assign — Anna can be
+   on the hook while Piloti is still reading.
+5. Status `failed`: Ask and Kollegin are gone. Retry is the only verb. You
+   can still assign (the failure is ingest, not ownership).
+6. Narrow sheet: the filled Ask button collapses into the overflow; Download
+   icon-only, as today. The assignment row stays — it is one line of faces.
+
+### F4 — Ask Piloti about this file
+
+1. Click `Piloti dazu fragen`.
+2. Navigate to `/app/projects/{id}/chat?ask=&doc={fileId}` (empty `ask` is
+   intentional). Do **not** dump a canned question the user has to delete.
+   IFC’s canned sentence is right for a *selected wall*; a whole file is a
+   place, not a question.
+3. Composer has the subject chip and focus. Cursor in an empty field.
+   Placeholder: `Frage zu Brandschutzplan.pdf…`.
+4. Optional starter chips *under* the composer, two, static, citation-shaped —
+   not an LLM: `Was sind die Kernaussagen?` · `Welche OIB-Stellen gelten hier?`
+   Clicking one fills and can send. They are shortcuts, not a third agent.
+5. They type and send. Retrieval is focused on this file (`include_file_names`)
+   and may still cite law. The answer’s “Belegt durch” should usually include
+   this file; if it does not, that is a retrieval bug, not a UI one.
+6. The chip stays for the life of the thread. × drops focus for *this turn
+   onward* (they want to compare with another file) but does not rewrite
+   history. A small `Datei anzeigen` on the chip goes to `/files?doc=`.
+
+They left Files. The chip is what stops that from feeling like they dropped
+the drawing on the floor. A3 later keeps the drawing on screen.
+
+### F5 — Ask without leaving the drawing (A3, follow-on)
+
+1. Same click as F4, but the Files layout keeps the preview and opens chat
+   in the remaining column (desktop). Mobile still navigates (no usable
+   split).
+2. Citations in the answer that belong to this file scroll the preview to
+   the page and use the existing passage highlight. No new viewer.
+3. Closing chat returns to the ordinary preview. The thread remains listed
+   under History with the file’s name as the title seed.
+
+### F6 — Assign one file
+
+1. Click `Zuweisen` / `Bearbeiten`. Popover under the faces, not a modal.
+2. First row: `Mir zuweisen` (hidden if already on it).
+3. Type “an” → Anna, highlighted. Enter adds her. Popover stays open.
+4. Click Ben. Two faces on the preview *and* on the card behind it (the
+   workspace list is live).
+5. × on Anna removes her. No confirm.
+6. Anna gets an informational inbox row. It is not a demand and not a
+   mention. Deep link: the file, not a chat.
+7. A colleague not in the project appears disabled, with the same reason
+   line the share picker already uses. Assignment never grants project
+   access.
+
+### F7 — “Hey, what’s up with this?”
+
+1. Click `Kollegin fragen`. A **sheet**, because this is a message, not a
+   roster edit.
+2. To: picker (project members). Message: “Kannst du dir den Fluchtweg auf
+   Blatt 3 ansehen?”
+3. `Auch zuweisen` is unchecked. They can check it. One Send.
+4. A conversation is created with this file as subject, Anna addressed, the
+   agent silent (existing hand-off). Matthias stays in that thread, chip on
+   the composer, preview a click away.
+5. Anna’s inbox: actionable, title names Matthias, body names the file,
+   excerpt is the question. Not “1 neue Nachricht in Chat ohne Titel”.
+6. She clicks. She lands in the thread, chip on, file one click away. She
+   answers. The agent stays out until someone releases or @Piloti, exactly
+   as in a shared chat today.
+
+They never had to open Chat, remember the filename, and type `@Anna`. That
+path still works (F11) — this is the file-native one.
+
+### F8 — Anna starts from the inbox
+
+Covered in F6 (assignment, informational) and F7 (mention, actionable).
+Inert rules unchanged: if the file was deleted or the project membership
+lost, the row is plain text, not a link.
+
+### F9 — The lead clears Unvergeben before the Einreichung
+
+1. Open Files. Click `Unvergeben`. Twelve cards, or switch to list.
+2. List view under this filter: checkboxes appear. Sticky bar:
+   `12 Dateien ohne Verantwortliche`.
+3. Select all, `Zuweisen`, pick Anna. Twelve faces update. Filter now shows
+   empty — and the empty state is **`Alle Dateien haben jemanden`**, a
+   success, not a sad void.
+4. Checkboxes do not appear under `Alle`. Bulk is a tool for the gap, not a
+   second way to click a card.
+
+### F10 — From an answer, back into the file
+
+1. A chat that was *not* started from Files cites `Brandschutzplan.pdf` p. 3.
+2. Citation chip as today. Popover grows: excerpt, `Weiterfragen`,
+   `Verantwortlich: Anna`, `Anna fragen`, open preview.
+3. `Weiterfragen` opens (or focuses) a thread with this file as subject and
+   the page in the focus payload, composer empty, placeholder mentioning
+   the page if we have it.
+4. `Anna fragen` is F7 with the addressee prefilled and the excerpt quoted
+   into the message field, editable.
+
+This is the citation-first loop closing. The answer is not a dead end.
+
+### F11 — Start from Chat, not Files
+
+1. In the composer, paperclip menu: `Hochladen` (today) and `Aus dem Projekt`.
+2. `Aus dem Projekt` opens a compact picker (search + recent). Choosing a
+   file sets the subject chip. No bytes move. No second ingest.
+3. They can still `@Anna` in the textarea. Combined with the chip, that is
+   the Chat-native version of F7.
+
+### F12 — Ingest finishes while they have gone elsewhere
+
+1. Toast: `„Brandschutzplan.pdf“ ist jetzt in Pilotis Wissen – zitierbar`.
+   Actions: `Fragen` · `Zuweisen`.
+2. `Fragen` is F4. `Zuweisen` opens the assign popover against that file
+   (or navigates to `/files?doc=` with the popover open if they are not on
+   Files).
+3. If they ignore the toast, the card is Unvergeben. No second toast.
+
+### F13 — Someone leaves the project
+
+Same cascade as a lost grant: their assignment rows are released. If they
+were the last assignee, the file returns to Unvergeben. Open mention
+requests are voided (existing SH-13 / cleanup, once it is resource-typed).
+The file does not become theirs because they uploaded it.
+
+### F14 — Copy a link (the “copy” from the original brief)
+
+Overflow: `Link kopieren`. Writes the deep link
+`/app/projects/{id}/files?doc={fileId}` to the clipboard. Anyone with
+`project:view` opens the preview. This is not external sharing and not a
+second access path.
+
+### F15 — Private draft (not first vertical, painted so we don’t collide)
+
+When a file is `private`, an AccessChip (`Privat` / `Geteilt mit N`)
+appears on the preview header, far from the faces. Opening ShareDialog from
+that chip is the existing dialog, noun interpolated to “Datei”. Assignment
+is untouched. First vertical does not offer the chip on `project` files.
+
+## Copy (DE / EN)
+
+Primary product language is German, Sie-Form.
+
+| Key | DE | EN |
+|---|---|---|
+| Ask | Piloti dazu fragen | Ask Piloti |
+| Ask (disabled) | Sobald die Datei zitierbar ist | Once the file is citable |
+| Ask person | Kollegin fragen | Ask a colleague |
+| Assign | Zuweisen | Assign |
+| Edit assignees | Bearbeiten | Edit |
+| Self-assign | Mir zuweisen | Assign to me |
+| Empty assignment | Unvergeben | Unassigned |
+| Filter mine | Meine | Mine |
+| Filter unassigned | Unvergeben | Unassigned |
+| Also assign | Auch zuweisen | Also assign |
+| Subject chip | Frage zu {name} | Asking about {name} |
+| Show file | Datei anzeigen | Show file |
+| From project | Aus dem Projekt | From this project |
+| Ask again | Weiterfragen | Ask follow-up |
+| Responsible line | Verantwortlich: {names} | Responsible: {names} |
+| Copy link | Link kopieren | Copy link |
+| Bulk bar | {n} Dateien ohne Verantwortliche | {n} files with nobody responsible |
+| Unvergeben empty | Alle Dateien haben jemanden | Every file has someone |
+| Mine empty | Ihnen ist noch nichts zugewiesen | Nothing is assigned to you yet |
+| Assigned inbox | {actor} hat Ihnen {file} zugewiesen | {actor} assigned {file} to you |
+| Starter 1 | Was sind die Kernaussagen? | What are the key points? |
+| Starter 2 | Welche OIB-Stellen gelten hier? | Which OIB provisions apply here? |
+
+Never: Owner, Chat starten, Ihnen zugewiesen (as a default after upload),
+Chat ohne Titel (for a file-subject row).
+
+## States, niceties, and the unglamorous paths
+
+- **Mobile.** Preview is already a sheet. Assignment is one line. Ask
+  navigates (F4), no split. Filter chips scroll horizontally. Toast actions
+  remain tappable (existing sonner pattern).
+- **Keyboard.** List arrows unchanged. Assign popover is the MentionPicker
+  contract (↑↓↵⇥esc, focus stays in the field). Ask-a-person sheet: To field
+  first, ⌘↵ sends.
+- **a11y.** Faces on the card are not buttons inside a button. The footer
+  word / names go into the card’s `aria-label`
+  (`Brandschutzplan.pdf, unvergeben` / `…, verantwortlich Anna Berger`).
+  Filter chips are a toolbar. Unvergeben empty is a status, `role="status"`.
+- **Starter chips** are the only “suggested questions.” No model-generated
+  question list on the file. That would be a new intelligence surface.
+- **Do not prefill a canned whole-file question.** Empty composer + chip.
+  The two starters are opt-in.
+- **Assignment during ingest is allowed.** Asking is not. The disabled Ask
+  button teaches the difference.
+- **Several people.** 1 = name next to the face on the preview row. 2 = two
+  faces + both names. 3+ = stack, `+N`, tooltip lists everyone. Never
+  “Anna und Team”.
+- **Self-assign is one click.** After a bulk dump of *your* drawings, that
+  is the whole flow: Unvergeben → select yours → Mir zuweisen.
+- **Collaboration off.** Filter strip, faces, Zuweisen, Kollegin fragen,
+  tray/toast assign, inbox types: all gone. Ask Piloti, subject chip, F4,
+  F10 Weiterfragen, F11, F14 remain. The solo architect’s file is still a
+  subject.
+- **Deep links.** `?doc=` selects and opens the preview (today’s workspace
+  already polls/selects by other query params for models). Unknown / other-
+  project id: Files opens with no preview, no error toast that names a file
+  the caller may not see (404 as empty).
+- **Title seed.** A thread started from a file takes the file’s display
+  name as the conversation title until someone renames it, so History does
+  not say “Neue Unterhaltung”.
+
+## What “feels native” is, operationally
+
+An architect can dump a folder, leave everything Unvergeben, come back,
+filter the gap, take their own drawings in one click, open one, ask it a
+question that comes back cited, and from that citation ask Anna about page
+3 — without opening a second product, without being told they “own” forty
+files they did not draw, and without the inbox calling any of it a chat
+without a title.
+
 ## Plane A — utilization work pieces
 
 Each piece is a function with one job.
@@ -127,8 +467,9 @@ Each piece is a function with one job.
 | A4 | Citation → ask again | “Belegt durch” opens the page | “Weiterfragen” on that locus, same `?ask=` + focus. |
 | A5 | File activity | Citation-events pipeline (platform dashboard) | Project-side “which threads cited this file”. Read-only first. |
 
-A1+A2 are in the first vertical. A3–A5 ship on the same primitive once A2
-exists; they must not invent a parallel “chat about file” flag.
+A1+A2 are in the first vertical (F4, F10, F11, F12). A3 is F5. A5 is a
+quiet “Gefragt in” block on the preview rail, read-only, once the subject
+column exists. They must not invent a parallel “chat about file” flag.
 
 ## Plane B — people work pieces
 
@@ -141,7 +482,9 @@ exists; they must not invent a parallel “chat about file” flag.
 
 B1 is not a grant. A grant raises access. An assignment names accountability.
 A project-visible file needs no grant for colleagues to open it, and still
-needs assignment so Anna is the person you go to.
+needs assignment so Anna is the person you go to. B2 is F2/F6/F9/F12. B3
+is F7/F8/F10. B4 is what F15 will click; it is registered in this change
+even though the first vertical does not offer the chip on `project` files.
 
 ## Substrate lifts — all of §3, none deferred
 
@@ -214,8 +557,10 @@ These are unused *features*. They stay out until a later spec.
 - Utilization: `documentQuestionHref` contract (mirror `element-question.spec`);
   `include_file_names` filter unit test next to `exclude_file_names`; focus
   header reaches the retrieval call.
-- UI: preview CTA, faces, Unvergeben, `/dev` preview + screenshots for every
-  new user-visible surface.
+- UI: preview CTA, faces, Unvergeben, filter strip, assign popover, ask-a-
+  person sheet, subject chip, citation popover extras, `/dev` preview +
+  screenshots for every new user-visible surface. Walk F1, F4, F6, F7, F9
+  in the browser before calling the vertical done.
 
 ## Documentation in the same change
 
@@ -228,13 +573,19 @@ These are unused *features*. They stay out until a later spec.
 | User-facing | `docs/user-guides/` for Files |
 | The rule itself | `AGENTS.md` conventions (this spec’s principle) |
 
-## Open questions (do not block the spec)
+## Open questions
 
-1. Subject-file persistence: a column on `conversations` vs. first message
-   metadata. Prefer a column if we filter “chats about this file”; prefer
-   metadata if it is only a first-turn hint. Decide in the A2 implementation
-   plan, not here.
-2. Whether “Ask Anna” requires the file to already have Anna assigned, or
-   assigning *is* the ask. Prefer: you can mention anyone in the project; the
-   inbox item is a question. Assignment is a separate, lasting fact. The UI
-   can offer “zuweisen und fragen” as one gesture that does both.
+Resolved by the UX pass (decisions 10–11):
+
+1. **Subject lives on the conversation row**, not only in the first message.
+   Reopen, History title seed, “Gefragt in”, and retrieval focus all need it.
+2. **Asking and assigning are independent.** Mention anyone; `Auch zuweisen`
+   is an opt-in on the ask sheet. Assigning never opens a thread.
+
+Still open, still not blocking:
+
+3. Exact `?doc=` + `?ask=` + `?session=` coexistence when a model is also
+   open (`?model=`). Files workspace already owns that query string; A1
+   must add `doc` without stealing a model view. Implementation plan.
+4. Whether starter chips send immediately or only fill. Prefer fill, user
+   sends — one less accidental turn, and they can edit.
