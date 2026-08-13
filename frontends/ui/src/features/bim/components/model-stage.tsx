@@ -46,6 +46,7 @@ import {
   Layers,
   Link2,
   MonitorX,
+  MoreHorizontal,
   PanelLeft,
   RotateCcw,
   Ruler,
@@ -63,6 +64,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { documentDisplayName } from '@/lib/documents/display-name'
+import { DocumentActionsMenu } from '@/features/documents/components/document-actions'
 import {
   storeyKey,
   supportsWebGpu,
@@ -164,16 +167,49 @@ const DOCK_ABOVE_OFFSET: Record<0 | 1 | 2, string> = {
  * be a state the reader can never reach — except in the one frame between
  * hiding the selected element and the selection clearing itself, which is
  * exactly when a live button would act on a component that is already gone.
+ *
+ * ## Why the two verbs read two different ids
+ *
+ * Hiding needs the element to be ON SCREEN. "Take this out of the way" said
+ * about something already out of the way is not an act, and the id it would
+ * use is the renderer's, which is deliberately null the moment a selection
+ * stops being drawn.
+ *
+ * Isolating does not — with one exception. "Show me nothing but this" is
+ * exactly what a reader means about an element that is not currently visible
+ * BECAUSE SOMETHING ELSE IS ISOLATED, which is the only way to reach that
+ * state through the rail. Reading the renderer's id for both left that card
+ * with no visibility controls at all: the reader had isolated one wall,
+ * picked another to look at, and arrived at a card whose two buttons had
+ * silently disappeared — the isolate button among them, which is what would
+ * have got them out.
+ *
+ * The exception is an element the reader HID. Isolating that means "show
+ * nothing but this thing I have also taken away", and the honest rendering of
+ * it is an empty viewport. So a hidden selection offers neither verb, exactly
+ * as it did before isolate learned to read past the renderer.
  */
 function visibilityActions(
   viewport: ReturnType<typeof useModelViewport>,
   clearSelection: () => void,
   focusViewport: () => void,
   asOneStep: (gesture: () => void) => void
-): { onHide?: () => void; onIsolate?: () => void } {
+): { onHide?: () => void; onIsolate?: () => void; isolated?: boolean } {
+  const elementId = viewport.selectedElementExpressId
+  if (elementId === null || viewport.visibility.hidden.has(elementId)) return {}
+  const isolated = viewport.visibility.isolated
+  const actions = {
+    // The MANUAL isolation only, never the level filter — the filter isolates
+    // a whole floor and this button did not do it, so a button reporting
+    // itself pressed for it would be claiming an act it cannot take back.
+    isolated: isolated !== null && isolated.size === 1 && isolated.has(elementId),
+    onIsolate: () => viewport.visibility.isolate([elementId]),
+  }
+
   const expressId = viewport.selectedExpressId
-  if (expressId === null) return {}
+  if (expressId === null) return actions
   return {
+    ...actions,
     // Hiding CLEARS the selection. The card is mounted on the URL's
     // `element=`, not on the renderer id, so without this the reader hid a
     // wall and kept a card describing it — the highlight gone, the pivot
@@ -193,7 +229,6 @@ function visibilityActions(
       // vanishing IS the only feedback, and it takes their place with it.
       focusViewport()
     },
-    onIsolate: () => viewport.visibility.isolate([expressId]),
   }
 }
 
@@ -201,9 +236,22 @@ export interface ModelStageProps {
   projectId: string
   /** Closes the stage — the caller drops `?model=` from the URL. */
   onClose: () => void
+  /**
+   * The model on screen was renamed from the stage's own file menu. The page
+   * underneath lists the same document, so it is told rather than left to find
+   * out on the next load.
+   */
+  onModelRenamed?: (documentId: string, displayName: string | null) => void
+  /** The model on screen was deleted; the stage closes itself afterwards. */
+  onModelDeleted?: (documentId: string) => void
 }
 
-export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element {
+export function ModelStage({
+  projectId,
+  onClose,
+  onModelRenamed,
+  onModelDeleted,
+}: ModelStageProps): JSX.Element {
   const t = useTranslations('bim')
   const { locale } = useLocale()
   const router = useRouter()
@@ -899,7 +947,7 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
         }}
       >
         <DialogTitle className="sr-only">
-          {model ? t('stage.dialogLabel', { name: model.filename }) : t('title')}
+          {model ? t('stage.dialogLabel', { name: documentDisplayName(model) }) : t('title')}
         </DialogTitle>
 
         <div className="bg-muted/40 relative min-h-0 flex-1">
@@ -959,7 +1007,10 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                   {(models ?? []).map((candidate) => (
                     <ViewerRailItem
                       key={candidate.id}
-                      label={stageModelLabel(candidate.filename)}
+                      // The name the document goes by, minus the extension.
+                      // `?model=` still carries the FILE name, so a rename
+                      // never breaks a link anyone has already sent.
+                      label={stageModelLabel(documentDisplayName(candidate))}
                       icon={<Boxes aria-hidden="true" />}
                       meta={candidate.status === 'ready' ? undefined : t(`status.${candidate.status}`)}
                       selected={candidate.id === model?.id}
@@ -1045,6 +1096,46 @@ export function ModelStage({ projectId, onClose }: ModelStageProps): JSX.Element
                 one a reader has to be able to discover on hover, so the
                 redundancy is worth what it costs there.
               */}
+              {/*
+                The file operations, on the building.
+
+                A model is a document like any other, and until now it was the
+                one document in the product you could not rename or delete
+                where you were looking at it — you had to close the viewer,
+                find the card again, and open a different surface. The menu is
+                the same one the file preview carries; only its trigger is
+                dressed for the viewport.
+              */}
+              {model && (
+                <DocumentActionsMenu
+                  document={{
+                    id: model.documentId,
+                    filename: model.filename,
+                    displayName: model.displayName,
+                  }}
+                  // The rail lists the project's models AND the org-wide
+                  // Archiv's (`listAccessibleModels` includes both, because
+                  // retrieval does). An Archiv model has no project, and its
+                  // delete goes to the org-scoped route — the project one
+                  // answers 404 for it on purpose.
+                  scope={model.projectId === null ? 'archiv' : 'files'}
+                  onRenamed={onModelRenamed}
+                  onDeleted={(documentId) => {
+                    onModelDeleted?.(documentId)
+                    // The building on screen no longer exists. Staying open on
+                    // a viewport of nothing is not a state worth offering.
+                    onClose()
+                  }}
+                  align="end"
+                  trigger={
+                    <ViewerIconButtonBase
+                      label={t('stage.fileActions')}
+                      icon={MoreHorizontal}
+                      data-testid="stage-file-actions"
+                    />
+                  }
+                />
+              )}
               <ViewerIconButton
                 label={copyFailed ? t('link.failed') : t('link.copy')}
                 icon={copyFailed ? MonitorX : copied ? Check : Link2}

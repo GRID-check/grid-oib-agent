@@ -56,6 +56,18 @@ export interface ModelInspectorProps {
    */
   onHide?: () => void
   onIsolate?: () => void
+  /**
+   * Whether THIS element is the one currently isolated.
+   *
+   * Isolate is a toggle, and a toggle that looks identical in both of its
+   * states is a control the reader cannot read: everything else had just
+   * vanished from the viewport and the button that did it sat there looking
+   * exactly as it had before the press, as if nothing had been registered.
+   * Filled ink and `aria-pressed`, the same as every other toggle in the
+   * viewer's chrome — which is also what says the press that took the
+   * building away is the press that brings it back.
+   */
+  isolated?: boolean
   className?: string
 }
 
@@ -68,6 +80,7 @@ export function ModelInspector({
   onClose,
   onHide,
   onIsolate,
+  isolated = false,
   className,
 }: ModelInspectorProps): JSX.Element {
   const t = useTranslations('bim')
@@ -109,12 +122,19 @@ export function ModelInspector({
               of the way, isolating takes everything else. Side by side
               because the reader is choosing between them, not working down a
               list.
+
+              Only one of them is a toggle. Hiding removes the card it is
+              pressed from, so there is never a hide button in a "pressed"
+              state to look at; isolating leaves both the element and its card
+              exactly where they were, so its button has two states and has to
+              show which one it is in. Same filled ink as the dock's toggles.
             */}
             {(onHide || onIsolate) && (
               <div className="flex gap-1">
                 {onIsolate && (
                   <Button
-                    variant="ghost"
+                    aria-pressed={isolated}
+                    variant={isolated ? 'default' : 'ghost'}
                     size="sm"
                     className="flex-1 justify-start gap-2"
                     onClick={onIsolate}

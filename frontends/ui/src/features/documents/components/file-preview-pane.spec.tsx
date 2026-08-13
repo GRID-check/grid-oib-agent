@@ -23,6 +23,7 @@ describe('FilePreviewPane', () => {
   const mockFile = {
     id: 'doc-1',
     filename: 'plan.pdf',
+    displayName: null,
     fileSize: 1048576,
     contentType: 'application/pdf',
     status: 'ready',
@@ -405,6 +406,7 @@ describe('FilePreviewPane', () => {
       ...mockFile,
       id: 'doc-ifc',
       filename: 'Haus-A.ifc',
+      displayName: null,
       // What the object store reports for an IFC; nothing about the preview may
       // depend on it, because exporters disagree about this string.
       contentType: 'application/octet-stream',
@@ -501,5 +503,62 @@ describe('FilePreviewPane', () => {
     expect(screen.getByText('Ingestion failed')).toBeDefined()
     expect(screen.getByText('Ingestion could not be started')).toBeDefined()
     expect(screen.getByRole('button', { name: /retry ingestion/i })).toBeDefined()
+  })
+
+  describe('the file operations', () => {
+    it('puts them in the header, beside Download, and not in the metadata rail', async () => {
+      const user = userEvent.setup()
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+
+      // The full-width red button under the tags is gone; what is left is one
+      // menu next to the other controls that act on this document.
+      expect(screen.queryByRole('button', { name: /delete document/i })).toBeNull()
+      await user.click(screen.getByTestId('document-actions-trigger'))
+
+      expect(await screen.findByRole('menuitem', { name: /rename/i })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: /delete/i })).toBeInTheDocument()
+      // Download has its own button in the header — offering it twice on one
+      // surface would be two controls for one job.
+      expect(screen.queryByRole('menuitem', { name: /download/i })).toBeNull()
+    })
+
+    it('shows the rename, and keeps the file name reachable on the title', () => {
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, displayName: 'Einreichplan EG.pdf' }}
+          projectId="proj-1"
+        />
+      )
+
+      const heading = screen.getByRole('heading', { name: 'Einreichplan EG.pdf' })
+      expect(heading).toHaveAttribute('title', expect.stringContaining('plan.pdf'))
+    })
+
+    it('closes itself once the document it describes has been deleted', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
+      const onClose = vi.fn()
+      const onDeleted = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <FilePreviewPane
+          file={mockFile}
+          projectId="proj-1"
+          onClose={onClose}
+          onDeleted={onDeleted}
+        />
+      )
+
+      await user.click(screen.getByTestId('document-actions-trigger'))
+      await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+      await user.click(await screen.findByTestId('document-delete-confirm'))
+
+      await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('doc-1'))
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('offers a read-only viewer nothing that mutates', () => {
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" canManage={false} />)
+      expect(screen.queryByTestId('document-actions-trigger')).toBeNull()
+    })
   })
 })

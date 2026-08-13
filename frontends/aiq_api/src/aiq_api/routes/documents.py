@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from aiq_agent.knowledge import get_available_documents_async
+from aiq_agent.knowledge import set_document_display_title
 from aiq_agent.knowledge import update_document_tags
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
@@ -265,6 +266,58 @@ def add_document_routes(router: APIRouter):
             )
 
         return {"collection_name": collection_name, "file_name": file_name, "tags": deduped}
+
+    class UpdateDisplayTitleRequest(BaseModel):
+        display_title: str | None = Field(
+            default=None,
+            description="User-facing document name. Null or blank clears it, restoring the derived default.",
+        )
+
+    @router.patch(
+        "/v1/collections/{collection_name}/documents/{file_name}/display-title",
+        tags=["documents"],
+        summary="Rename a document (user-facing display title)",
+    )
+    async def update_document_display_title_route(
+        collection_name: str,
+        file_name: str,
+        request: UpdateDisplayTitleRequest,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+    ) -> dict[str, str | None]:
+        """Set the user-facing ``display_title`` on one document's metadata row.
+
+        The tenant-scoped twin of the base-corpus rename
+        (``/v1/admin/oib/documents/{file_name}/display-title``): same factory
+        seam, same store, same effect — retrieval prefers a stored
+        ``display_title`` over the filename when it builds a citation chip, so a
+        rename shows up there immediately and NOTHING is re-ingested. The
+        document's ``file_name`` stays its identity; only the label moves.
+
+        Follows the documents-router auth model: end-user access is enforced at
+        the BFF, which resolves the caller's permission on the document before
+        it addresses this route by collection.
+
+        - A null or blank title clears the override, restoring the derived
+          default (``guess_display_title``).
+        - No metadata row for ``(collection, file_name)`` → 404. The summary is
+          the anchor, as it is for tags: a document that was never summarized
+          has nothing to carry a title. The BFF treats that as non-fatal — the
+          rename it stores on its own row is the durable one.
+        """
+        new_title = (request.display_title or "").strip() or None
+
+        updated = set_document_display_title(collection_name, file_name, new_title)
+        if not updated:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No summary found for '{file_name}' in collection '{collection_name}'",
+            )
+
+        return {
+            "collection_name": collection_name,
+            "file_name": file_name,
+            "display_title": new_title,
+        }
 
     @router.delete(
         "/v1/collections/{collection_name}/documents",

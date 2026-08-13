@@ -29,7 +29,23 @@ export const documents = pgTable('documents', {
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   scope: text('scope').$type<DocumentScope>().notNull().default('project'),
   createdBy: text('created_by').notNull(),
+  /**
+   * The document's identity, not its label — see `displayName` below.
+   *
+   * This is the join key to the SeaweedFS object and, through
+   * `(collectionName, filename)`, to every chunk the retrieval index holds for
+   * this document. It is written once at upload and never updated.
+   */
   filename: text('filename').notNull(),
+  /**
+   * What a reader sees, when somebody has renamed the document (migration 0048).
+   *
+   * NULL means "never renamed": the file's own name is shown, which is what
+   * every row written before renaming existed means. Resolve it with
+   * `documentDisplayName` (`@/lib/documents/display-name`) rather than reading
+   * the column directly, so the fallback is decided in one place.
+   */
+  displayName: text('display_name'),
   storageKey: text('storage_key').notNull(),
   /**
    * The S3 bucket holding this document's bytes (ADR-0043, migration 0033).

@@ -32,6 +32,7 @@ const PROJECT = '44444444-4444-4444-4444-444444444444'
 
 const model = (over: Partial<BimModelHeader> & Pick<BimModelHeader, 'id' | 'filename'>): BimModelHeader => ({
   documentId: `doc-${over.id}`,
+  displayName: null,
   projectId: PROJECT,
   status: 'ready',
   schemaVersion: 'IFC4',

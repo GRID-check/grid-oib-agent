@@ -29,6 +29,9 @@ import {
   Video,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { I18nProvider } from '@/i18n'
+import { ModelInspector } from '@/features/bim/components/model-inspector'
+import type { BimElementDetail } from '@/features/bim/hooks/use-bim-model'
 import {
   ViewerDock,
   ViewerDockSeparator,
@@ -45,6 +48,24 @@ import {
 
 /** The model's vertical extent, as the loaded fixture reports it. */
 const CUT_RANGE = { minMetres: -0.25, maxMetres: 6.25 }
+
+/** The wall the selection stages are about. */
+const SELECTED_WALL: BimElementDetail = {
+  globalId: '2O2Fr$t4X7Zf8NOew3FLKU',
+  expressId: 21,
+  ifcType: 'IfcWallStandardCase',
+  name: 'AW 38',
+  description: null,
+  predefinedType: null,
+  objectType: null,
+  tag: null,
+  typeName: null,
+  storeyName: 'Erdgeschoss',
+  materials: ['Stahlbeton', 'Mineralwolle'],
+  classifications: [],
+  properties: {},
+  quantities: { Qto_WallBaseQuantities: { NetSideArea: 18.44, Width: 0.38 } },
+}
 
 function Stage({
   title,
@@ -71,6 +92,9 @@ export default function BimViewportDevPage(): JSX.Element {
   const [xray, setXray] = useState(false)
   const [railOpen, setRailOpen] = useState(true)
   const [storey, setStorey] = useState<string | null>('Erdgeschoss')
+  // Starts pressed: the state that had no drawing at all is the one worth
+  // capturing, and one click shows the other.
+  const [isolated, setIsolated] = useState(true)
 
   if (process.env.NODE_ENV !== 'development') {
     notFound()
@@ -229,6 +253,43 @@ export default function BimViewportDevPage(): JSX.Element {
             </ViewerFieldGroup>
           </ViewerPanel>
         </div>
+      </Stage>
+
+      {/*
+        The real card, not the atoms above it, because the thing being pinned
+        here is a STATE and a state that only the component knows how to draw.
+        Isolieren is the one control on the card that stays put after it is
+        pressed — hiding takes its own card away with it — so it is the one
+        that has to look different afterwards. It used to look identical,
+        which is how "nothing else is on screen any more" arrived with no
+        indication of what had done it or what would take it back.
+      */}
+      <Stage
+        title="Isolieren is a toggle"
+        description="Pressed: everything else is off. The same press puts the building back. Interactive."
+      >
+        {/*
+          Pinned to German, like every other string on this page. The card
+          reads its copy from the dictionary rather than from props, and
+          without a provider it would fall back to English — half a preview in
+          the wrong language, which is exactly the kind of thing these
+          captures exist to catch.
+        */}
+        <I18nProvider initialLocale="de" fixedLocale>
+          <div className="absolute top-4 right-4 z-20 flex max-h-[calc(100%-2rem)]">
+            <ModelInspector
+              element={SELECTED_WALL}
+              isLoading={false}
+              error={null}
+              projectId="p-preview"
+              modelFilename="Haus-A_v3.ifc"
+              onClose={() => {}}
+              onHide={() => {}}
+              isolated={isolated}
+              onIsolate={() => setIsolated((on) => !on)}
+            />
+          </div>
+        </I18nProvider>
       </Stage>
 
       <Stage

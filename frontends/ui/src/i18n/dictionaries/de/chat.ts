@@ -521,4 +521,10 @@ export const chat: typeof en.chat = {
     },
     thanks: 'Danke für Ihr Feedback.',
   },
+  // Schaltfläche „Nachricht kopieren" auf den Nutzernachrichtenblasen
+  copyMessage: {
+    copy: 'Nachricht kopieren',
+    copied: 'Kopiert',
+    failed: 'Nachricht konnte nicht kopiert werden',
+  },
 }

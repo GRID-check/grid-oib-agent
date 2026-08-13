@@ -25,6 +25,7 @@ export async function listArchivDocuments(
     .select({
       id: documents.id,
       filename: documents.filename,
+      displayName: documents.displayName,
       fileSize: documents.fileSize,
       contentType: documents.contentType,
       status: documents.status,

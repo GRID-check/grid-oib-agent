@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
+import { documentDisplayName } from '@/lib/documents/display-name'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
@@ -92,8 +93,11 @@ export function FileBrowserPane({
   const filteredFiles = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return files
+    // Both names, deliberately: somebody who renamed a document looks for what
+    // they called it, and somebody who uploaded it looks for the file they sent.
     return files.filter(
       (f) =>
+        documentDisplayName(f).toLowerCase().includes(q) ||
         f.filename.toLowerCase().includes(q) ||
         (f.summary ?? '').toLowerCase().includes(q) ||
         (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))

@@ -39,6 +39,7 @@ function makeFile(id: string, filename: string, summary: string, extra: Record<s
   return {
     id,
     filename,
+    displayName: null,
     fileSize: 2_400_000,
     contentType: 'application/pdf',
     status: 'ready',

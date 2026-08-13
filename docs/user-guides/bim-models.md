@@ -212,11 +212,20 @@ Orbit is the least of it. The toolbar stands the model square and cuts it:
   *Ausblenden* removes the slab in front of the stair, *Isolieren* removes
   everything that is not the stair. Both combine with a level filter rather
   than replacing it, so isolating a stair while filtered to the first floor
-  shows you the part of the stair on that floor. **Alle Bauteile wieder
-  einblenden** appears in the toolbar as soon as anything is out of the way,
-  and only then. It is a reset: it clears every hide and every isolation at
-  once, which is what you want after eight of them and never after one. For
-  one, use **Letzte Änderung rückgängig machen** below.
+  shows you the part of the stair on that floor.
+
+  *Isolieren* is a **switch, and it stays lit while it is on**. Press it again
+  on the same component and the building comes back — only the isolation, so
+  anything you had hidden beforehand stays hidden. Isolating a *different*
+  component instead replaces the isolation rather than narrowing it, because
+  "show me nothing but this" is a fresh question each time; two components at
+  once would otherwise leave you with an empty screen.
+
+  **Alle Bauteile wieder einblenden** appears in the toolbar as soon as
+  anything is out of the way, and only then. It is a reset: it clears every
+  hide and every isolation at once, which is what you want after eight of them
+  and never after one. For one, use the switch itself, or **Letzte Änderung
+  rückgängig machen** below.
 - **Einpassen** re-frames the whole building without reloading it.
 - **Letzte Änderung rückgängig machen** steps back through what you changed —
   the element you selected, the level you filtered to, the cut, the drawer, the

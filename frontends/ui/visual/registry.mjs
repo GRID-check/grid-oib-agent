@@ -185,6 +185,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'main',
   },
   {
+    id: 'document-rename',
+    mobile: true,
+    path: '/dev/document-actions',
+    description:
+      'Renaming a document. The field holds the STEM and the extension sits beside it as a fact about the bytes, so nobody can rename a PDF into something else; a document that already carries a rename offers to restore its file name in the same dialog. Behind it, the resting state of the overflow trigger in a preview header — the control has to be ignorable until it is wanted.',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'document-delete',
+    mobile: true,
+    path: '/dev/document-actions?variant=delete',
+    description:
+      'Deleting a document, through the shared destructive ConfirmDialog. This replaces a full-width red button in the preview\u2019s metadata rail whose confirm step expanded IN PLACE, pushing the rest of the column down: the question now names the file, the answer says what is lost, focus is trapped, and the dialog cannot be dismissed mid-request.',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'file-preview',
     mobile: true,
     path: '/dev/file-preview',
@@ -696,7 +712,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/bim-viewport',
     description:
-      'The model viewer\'s chrome, over the muted panel the stage itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but every control is now an atom that owns no canvas, so the whole of what an architect touches is capturable. Four states: the stage (rail of models and levels on the left, a floating dock at the bottom, nothing at all in the middle — the building is the surface), the selection card that does not exist until something is selected and leads with "Wall" rather than with IfcWallStandardCase, and the two loading states, which differ on purpose: a download reports its real percentage, and geometry-building reports none, because it has no honest one and the mesh count it used to show measured the exporter\'s tessellation settings rather than the wait. The three ways back are drawn together on purpose, because their names are the whole distinction between them: Undo takes back the last thing the reader did (a level, a cut, a hide, an isolate — one press, one act), the camera button re-frames the building without changing anything, and the reset drops every hide and isolation at once. All three used to be reachable and two of them were called some version of "show everything".',
+      'The model viewer\'s chrome, over the muted panel the stage itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but every control is now an atom that owns no canvas, so the whole of what an architect touches is capturable. Four states: the stage (rail of models and levels on the left, a floating dock at the bottom, nothing at all in the middle — the building is the surface), the selection card that does not exist until something is selected and leads with "Wall" rather than with IfcWallStandardCase, that card again with Isolieren pressed — the one control on it that survives its own press, so the only one that has two states to draw; it read as a one-way door for exactly as long as it drew them the same — and the two loading states, which differ on purpose: a download reports its real percentage, and geometry-building reports none, because it has no honest one and the mesh count it used to show measured the exporter\'s tessellation settings rather than the wait. The three ways back are drawn together on purpose, because their names are the whole distinction between them: Undo takes back the last thing the reader did (a level, a cut, a hide, an isolate — one press, one act), the camera button re-frames the building without changing anything, and the reset drops every hide and isolation at once. All three used to be reachable and two of them were called some version of "show everything".',
     waitFor: '[data-testid="bim-viewport-preview"]',
   },
 ]

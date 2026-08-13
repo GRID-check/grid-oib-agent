@@ -330,6 +330,7 @@ export const bim: typeof en.bim = {
   },
   stage: {
     dialogLabel: 'Modell {name}',
+    fileActions: 'Dateiaktionen',
     close: 'Schließen',
     home: 'Ganzes Modell einpassen',
     back: 'Letzte Änderung rückgängig machen',

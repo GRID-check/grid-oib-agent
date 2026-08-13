@@ -13,7 +13,6 @@ import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
-import { DeleteDocumentButton } from './delete-document-button'
 import { isSettlingStatus } from './document-status'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
@@ -22,6 +21,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { documentDisplayName } from '@/lib/documents/display-name'
 
 interface ProjectFileWorkspaceProps {
   projectId: string
@@ -67,7 +67,13 @@ export interface FolderItem {
 
 export interface FileItem {
   id: string
+  /**
+   * The file's own name — its identity, and what its format is read from.
+   * What to SHOW is `documentDisplayName(file)`, never this directly.
+   */
   filename: string
+  /** The rename, when somebody has given the document one; else null. */
+  displayName: string | null
   fileSize: number | null
   contentType: string | null
   status: string | null
@@ -96,6 +102,7 @@ export interface FileItem {
 type DocumentWireRow = Omit<FileItem, OptionalWireField> & Partial<Pick<FileItem, OptionalWireField>>
 
 type OptionalWireField =
+  | 'displayName'
   | 'folderId'
   | 'errorMessage'
   | 'summary'
@@ -211,6 +218,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         const docs: FileItem[] = (data.documents ?? []).map((d) => ({
           id: d.id,
           filename: d.filename,
+          displayName: d.displayName ?? null,
           fileSize: d.fileSize,
           contentType: d.contentType,
           status: d.status,
@@ -306,7 +314,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             tags: file.tags,
           }) === 'model'
         toast.success(
-          t(isModel ? 'toast.modelReady' : 'toast.ingestionComplete', { name: file.filename }),
+          t(isModel ? 'toast.modelReady' : 'toast.ingestionComplete', { name: documentDisplayName(file) }),
           {
             icon: isModel ? (
               <Boxes className="size-4" style={{ color: sourceBase('project') }} aria-hidden />
@@ -441,6 +449,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const handleDeleted = useCallback((fileId: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== fileId))
     setSelectedFileId((current) => (current === fileId ? null : current))
+  }, [])
+
+  // A rename is durable the moment the PATCH returns, so the corpus is updated
+  // from the response rather than refetched: the card, the list row and the
+  // preview header all read the same `files` state, and they should carry the
+  // new name in the same frame the dialog closes.
+  const handleRenamed = useCallback((fileId: string, displayName: string | null) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, displayName } : f)))
   }, [])
 
   // This session's own uploads for this project's corpus — every phase, so the
@@ -645,28 +661,34 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         page it opened from is still visible at the edges, which is what makes
         closing it feel like closing a preview rather than navigating back.
       */}
-      {stageModel && <ModelStage projectId={projectId} onClose={closeModel} />}
+      {stageModel && (
+        <ModelStage
+          projectId={projectId}
+          onClose={closeModel}
+          // The viewport carries the same file operations as every other
+          // document surface, so its renames and deletions have to land in this
+          // page's corpus — otherwise closing the stage reveals a grid still
+          // showing the old name, or a card for a building that is gone.
+          onModelRenamed={handleRenamed}
+          onModelDeleted={handleDeleted}
+        />
+      )}
 
-      {/* Preview — the shared centered-modal dialog (identical in Files + Archiv). */}
+      {/* Preview — the shared centered-modal dialog (identical in Files + Archiv).
+          The file operations live in its header now (rename, delete), so this
+          hands down the two callbacks that keep the corpus on screen truthful
+          rather than a hand-built Delete control. */}
       <FilePreviewDialog
         file={selectedFile}
         projectId={projectId}
         projectName={projectName}
+        scope="files"
         onClose={() => setSelectedFileId(null)}
         onReingested={handleReingested}
         onTagsUpdated={handleTagsUpdated}
+        onRenamed={handleRenamed}
+        onDeleted={handleDeleted}
         showMetadataPanel={showMetadataPanel}
-        extraActions={
-          selectedFile && (
-            <DeleteDocumentButton
-              fileId={selectedFile.id}
-              filename={selectedFile.filename}
-              onDeleted={handleDeleted}
-              deleteUrl={`/api/documents/${selectedFile.id}`}
-              namespace="files"
-            />
-          )
-        }
       />
     </div>
   )

@@ -112,6 +112,9 @@ export function trackedFileToFileItem(file: TrackedFile): FileItem {
   return {
     id: file.serverFileId ?? file.id,
     filename: file.fileName,
+    // An upload in flight has no rename: the row it will become was created a
+    // moment ago and nobody has had the chance.
+    displayName: null,
     fileSize: file.fileSize ?? null,
     contentType: null,
     status: file.status,

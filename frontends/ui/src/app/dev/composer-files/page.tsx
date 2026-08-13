@@ -88,6 +88,7 @@ const PAGE_SVG =
 const PREVIEW_FIXTURE: FileItem = {
   id: 'f1',
   filename: 'Einreichplan_EG.pdf',
+  displayName: null,
   fileSize: 2_400_000,
   contentType: 'image/png',
   status: 'ready',

@@ -117,34 +117,52 @@ describe('ArchivWorkspace — permissions', () => {
     expect(screen.getByRole('button', { name: /upload/i })).toBeInTheDocument()
   })
 
-  it('hides upload and delete for read-only members', async () => {
+  it('leaves a read-only member the download and nothing that mutates', async () => {
     render(<ArchivWorkspace canManage={false} />)
     await screen.findByText('brandschutz-gutachten.pdf')
     expect(screen.queryByRole('button', { name: /upload/i })).not.toBeInTheDocument()
 
     const user = userEvent.setup()
     await user.click(screen.getByText('brandschutz-gutachten.pdf'))
+    // The menu carries only mutations here (download has its own button), so
+    // with nothing left to offer it does not render at all — an empty overflow
+    // menu is a control that lies about being one.
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: /delete from archiv/i })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('document-actions-trigger')).not.toBeInTheDocument()
     )
   })
 })
 
-describe('ArchivWorkspace — preview and delete', () => {
-  it('opens the shared preview pane on card selection with the two-step delete for managers', async () => {
+/** Open the Archiv preview for a document and its file-actions menu. */
+async function openActions(user: ReturnType<typeof userEvent.setup>, filename: string) {
+  await user.click(await screen.findByText(filename))
+  await user.click(await screen.findByTestId('document-actions-trigger'))
+}
+
+describe('ArchivWorkspace — file operations', () => {
+  it('asks before deleting, names the document, and cancels without deleting', async () => {
+    let deleted = false
+    server.use(
+      http.delete('/api/archiv/documents/:id', () => {
+        deleted = true
+        return new HttpResponse(null, { status: 204 })
+      })
+    )
     const user = userEvent.setup()
     render(<ArchivWorkspace canManage />)
 
-    await user.click(await screen.findByText('brandschutz-gutachten.pdf'))
+    await openActions(user, 'brandschutz-gutachten.pdf')
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
 
-    // First click arms the confirmation; nothing is deleted yet.
-    const deleteButton = await screen.findByRole('button', { name: /delete from archiv/i })
-    await user.click(deleteButton)
+    // The question names the file, and the answer says what is lost.
+    expect(await screen.findByText('Delete “brandschutz-gutachten.pdf”?')).toBeInTheDocument()
     expect(screen.getByText(/removes the document for the whole organization/i)).toBeInTheDocument()
 
-    // Cancel returns to the armed-off state.
     await user.click(screen.getByRole('button', { name: /cancel/i }))
-    expect(screen.getByRole('button', { name: /delete from archiv/i })).toBeInTheDocument()
+    expect(deleted).toBe(false)
+    // The card is still in the grid (the preview header names it too, hence
+    // "all").
+    expect(screen.getAllByText('brandschutz-gutachten.pdf').length).toBeGreaterThan(0)
   })
 
   it('deletes on confirm and removes the card from the grid', async () => {
@@ -154,11 +172,42 @@ describe('ArchivWorkspace — preview and delete', () => {
     const user = userEvent.setup()
     render(<ArchivWorkspace canManage />)
 
-    await user.click(await screen.findByText('fassadendetail.pdf'))
-    await user.click(await screen.findByRole('button', { name: /delete from archiv/i }))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await openActions(user, 'fassadendetail.pdf')
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+    await user.click(await screen.findByTestId('document-delete-confirm'))
 
     await waitFor(() => expect(screen.queryByText('fassadendetail.pdf')).not.toBeInTheDocument())
     expect(screen.getByText('brandschutz-gutachten.pdf')).toBeInTheDocument()
+  })
+
+  it('renames through the scope-aware document route and shows the new name on the card', async () => {
+    const patched: Array<{ id: string; body: unknown }> = []
+    server.use(
+      http.patch('/api/documents/:id', async ({ params, request }) => {
+        const body = (await request.json()) as { displayName: string | null }
+        patched.push({ id: String(params.id), body })
+        return HttpResponse.json({ id: params.id, filename: 'fassadendetail.pdf', ...body })
+      })
+    )
+    const user = userEvent.setup()
+    render(<ArchivWorkspace canManage />)
+
+    await openActions(user, 'fassadendetail.pdf')
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }))
+
+    const field = await screen.findByLabelText('Name')
+    await user.clear(field)
+    await user.type(field, 'Fassade Nord')
+    await user.click(screen.getByTestId('rename-submit'))
+
+    // The extension is the pane's, not the typist's: it is a fact about the
+    // bytes and survives whatever is typed into the stem.
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toEqual({
+      id: 'doc-2',
+      body: { displayName: 'Fassade Nord.pdf' },
+    })
+    // Both the card and the preview header carry the new name.
+    expect((await screen.findAllByText('Fassade Nord.pdf')).length).toBeGreaterThan(0)
   })
 })

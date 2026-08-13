@@ -20,6 +20,7 @@ function candidate(id: string, filename: string): BimModelHeaderView {
   return {
     id,
     documentId: `doc-${id}`,
+    displayName: null,
     projectId: 'p1',
     filename,
     status: 'ready',

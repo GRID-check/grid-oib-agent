@@ -43,6 +43,7 @@ function toSemanticHit(d: Record<string, unknown>): SemanticHit {
   return {
     id: d.id as string,
     filename: d.filename as string,
+    displayName: (d.displayName as string | null) ?? null,
     fileSize: (d.fileSize as number | null) ?? null,
     contentType: (d.contentType as string | null) ?? null,
     status: (d.status as string | null) ?? null,
