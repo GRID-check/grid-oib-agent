@@ -1993,14 +1993,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       setStreaming(true)
       setLoading(true)
 
-      // Retrieval follows the file the user can SEE. A hidden peek or a
-      // leftover composerSubject must not silently re-aim the next turn.
+      // Retrieval follows the composer bar ("Asking about this file").
+      // A visible peek is the fallback when there is no bar yet.
       const preview = useFilePreviewStore.getState()
-      const focusFileName = isFilePeekVisible(preview)
-        ? preview.file?.filename.trim() ||
-          useChatStore.getState().composerSubject?.filename?.trim() ||
-          undefined
-        : undefined
+      const subject = useChatStore.getState().composerSubject
+      const subjectName = subject?.filename?.trim() || subject?.title?.trim() || undefined
+      const peekName = isFilePeekVisible(preview) ? preview.file?.filename.trim() || undefined : undefined
+      const focusFileName = subjectName || peekName
       const outgoingPayload: PendingOutgoing = {
         kind: 'message',
         content,
