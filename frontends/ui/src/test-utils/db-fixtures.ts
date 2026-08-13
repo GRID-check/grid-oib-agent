@@ -79,7 +79,6 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   // constraint says so in both directions), and the default fixture is an
   // ordinary project document.
   conversationId: null,
-  visibility: 'project',
   createdBy: 'user-1',
   filename: 'plan.pdf',
   // Not renamed — what every document is until somebody renames it.
