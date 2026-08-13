@@ -55,6 +55,30 @@ spacings between consecutive clusters ARE the risers; the plan distance between
 consecutive cluster centroids is the going; the width of the tread surfaces is
 the Nutzbreite. No stair-specific kernel call is needed and none exists.
 
+Two things that reading assumes are not true of real exports, and both cost this
+module a confident wrong number on the first third-party file it met:
+
+**One body is not one flight.** ArchiCAD writes the Institute's „Treppe-EG" as a
+single ``IfcStair`` — no ``IfcStairFlight``, no landing slab, no
+``PredefinedType`` — and it is a three-flight dogleg. Taking the chord from its
+first tread centre to its last gives a diagonal across the stairwell, and every
+number measured against that axis is a number about the stairwell: the reported
+„Nutzbreite" of **0.318 m** is one tread measured across that diagonal — the
+depth of a step, not the width of a flight — on flights that are **1.500 m**
+wide. So the levels are split into runs at the turns and at the Podeste, and each
+run is measured on its own axis (:func:`_read_body`).
+
+**One step is not one face.** The same export writes each step twice — the
+structural step and its tread finish 60 mm above it — so every riser was counted
+twice and halved: **45 risers of 0.065 m** for 21 of 0.137 m. A face with another
+face directly above it is not a walking surface, and :func:`_walking_surfaces`
+drops it.
+
+What cannot be read as a straight run is REFUSED, with the measurement that
+decided it: a winder whose tread centres bow off their own chord, a "riser" of
+0.065 m that no leg climbs. The refusal is a true statement about the file; the
+number it replaces was a false statement about the building.
+
 ## Why the Durchgangshöhe is measured perpendicular
 
 A vertical ray from a tread measures the wrong thing, and it is wrong in the
@@ -81,7 +105,12 @@ The exclusion discipline is :func:`~ifc_spatial.operators.clear_height`'s, not a
 new one: :data:`~ifc_spatial.model.AIR_TYPES` and
 :data:`~ifc_spatial.operators.FURNISHING` are skipped and everything else counts.
 Unfiltered rays have already cost this repository three wrong answers, and a
-chair is not a Durchgangshöhe.
+chair is not a Durchgangshöhe. ``IfcRailing`` was proposed for that list and is
+deliberately not in it — every stair in the corpus was reporting its own
+balustrade as the thing a head hits (0.415 m on the FZK Wendeltreppe, 0.117 m on
+each of the four Institute stairs, which measure 1.745 m), and the cause was the
+rake and not the filter. See :data:`HEADROOM_TRANSPARENT` for the measurement
+that settled it.
 
 ## What this module refuses to do
 
@@ -175,6 +204,100 @@ HEADROOM_SAMPLE_SPACING = 0.10
 #: stairwell wall beside it, and a wall beside a stair is not a Durchgangshöhe.
 HEADROOM_LATERAL = (0.25, 0.5, 0.75)
 
+#: Types that never stop a :func:`headroom` ray. ``clear_height``'s list, and
+#: ``clear_height``'s reason: a chair is not a Durchgangshöhe.
+#:
+#: ``IfcRailing`` was proposed for this list and is deliberately NOT in it, and
+#: the reason is worth keeping because the evidence pointed the other way at
+#: first. Every stair in the corpus reported its own balustrade as the tight
+#: point over the flight — 0.415 m on the FZK Wendeltreppe (``IfcRailing
+#: 0o5vgCKyTBzO5$QJcI2YDP``), 0.117 m on each of the four Institute stairs —
+#: which reads exactly like a missing type filter, and ArchiCAD does contain the
+#: balustrade in the STOREY rather than in the stair, so no ``IfcRelAggregates``
+#: exclusion could have reached it.
+#:
+#: It was not the filter. Those rays were cast from the rake that
+#: :func:`_read_body` replaces: one plane fitted across a three-flight dogleg,
+#: 0.318 m wide and tilted along the diagonal of the stairwell, which passes
+#: through everything standing in the well — the balustrade included. Measured
+#: with the flights read correctly and railings still counted, **no railing is a
+#: ray candidate on any of the twelve flights of the four Institute stairs**, and
+#: the tight point is the slab it always was (1.745 m under „Decke-001").
+#:
+#: So the type ban would have been a bandage over a fault that no longer exists,
+#: and it would cost something real: a balustrade that genuinely stands over a
+#: walking line — a gallery edge above the flight below, a handrail that leans
+#: into the middle of a narrow stair — is something a head meets, and this
+#: operator has to be able to say so. The lateral sampling at
+#: :data:`HEADROOM_LATERAL` already keeps a railing standing at the EDGE of its
+#: own flight out of the measurement, which is the case that was feared.
+HEADROOM_TRANSPARENT = FURNISHING
+
+#: How much of a horizontal face may lie under another horizontal face of the
+#: SAME body before it stops being a walking surface — as a fraction of its own
+#: plan area.
+#:
+#: ArchiCAD writes every step of ``AC20-Institute-Var-2.ifc`` twice: the
+#: structural step and, 60 mm above it, the tread finish. Both are up-facing,
+#: both are level within themselves and both clear the sliver filter, so the
+#: reader counted **45 risers of 0.065 m** where the stair has 21 of 0.137 m.
+#: The rule that separates them is physical rather than statistical: you cannot
+#: walk on a surface that has another surface directly above it. Two consecutive
+#: treads of a real flight are offset by their going and do not overlap in plan
+#: at all, so half the face's own area is a wide margin.
+BURIED_OVERLAP_FRACTION = 0.5
+
+#: How close above a horizontal face another face may stand, in metres, for the
+#: lower one to be BURIED rather than walked on.
+#:
+#: Not a headroom: on a dogleg the upper flight passes ~2 m over the lower one
+#: within the same body, and a large window here would delete the lower flight.
+#: 0.30 m is above the 60 mm finish layer and above the 0.20 m at which the
+#: Institute's stair slab meets its landing, and far below any distance a person
+#: could pass through — nothing walkable has 0.30 m of clear height over it.
+BURIED_CLEARANCE = 0.30
+
+#: How far the plan direction from one tread to the next may turn, in degrees,
+#: before the two treads belong to different flights.
+#:
+#: Generous on purpose. The Institute's dogleg turns 88° at each landing, so
+#: anything under ~60° separates its three flights; a WINDER turns 15–25° per
+#: step, and a tight threshold would cut it into fifteen one-tread "flights"
+#: that each measure nothing. A winder must fail :data:`FLIGHT_STRAIGHTNESS` as
+#: one piece and be refused as one piece, which is what 30° arranges.
+FLIGHT_TURN_DEGREES = 30.0
+
+#: How far a tread centre may lie off the straight line through the first and
+#: last tread centre of its run, in metres, before the run is not a straight
+#: flight and nothing directional may be measured on it.
+#:
+#: A straight flight holds its centres on that line to within tessellation noise
+#: (the Institute's three flights: below 1 mm). The FZK Wendeltreppe's centres
+#: bow 0.5 m off their own chord, which is what makes „Auftritt 0.184 m,
+#: Nutzbreite 0.200 m" on that stair a measurement of a chord across a stairwell
+#: rather than of a step.
+FLIGHT_STRAIGHTNESS = 0.05
+
+#: How many times the median tread area a horizontal surface must cover before
+#: it is a Podest rather than a Stufe.
+#:
+#: Measured on both sides. Institute: treads 0.598 m², landings 2.518 m² and
+#: 2.783 m² — a factor of 4.2. FZK Wendeltreppe: every winder tread 0.107 m²,
+#: so no factor at all and nothing is misread as a landing. Area rather than
+#: depth because a winder tread's minimal rectangle is nearly as deep as it is
+#: wide and a depth test calls all fifteen of them Podeste.
+LANDING_AREA_FACTOR = 2.0
+
+#: The band a measured riser must fall into to be a step at all, in metres.
+#:
+#: This is NOT OIB 4's maximum — that number belongs to the Bestimmung and this
+#: layer must not know it. It is the band outside which the number cannot be a
+#: step of any kind: below 0.08 m it is a finish layer, a chamfer or a drainage
+#: fall (the Institute's doubled faces measured 0.065 m and were reported as a
+#: stair), above 0.40 m nobody climbs it in one movement. Inside the band every
+#: value is reported without comment, including ones OIB 4 would reject.
+PLAUSIBLE_RISER = (0.08, 0.40)
+
 #: How far the step from the flight's own underside to its first tread may
 #: deviate from the median of the visible risers before it is dropped.
 #:
@@ -227,14 +350,19 @@ class _Tread:
 
 @dataclass(frozen=True)
 class _Flight:
-    """Everything one flight's solid says about its steps."""
+    """Everything one flight's solid says about its steps.
+
+    One flight, not one body: a body that runs up, turns at a landing and runs
+    up again holds three of these. See :func:`_read_body`.
+    """
 
     global_id: str
     treads: list[_Tread]
     #: Riser heights, bottom to top. See :data:`BASE_RISER_RELATIVE_SLACK` for
     #: when the first one is in here and when it cannot be.
     risers: list[float]
-    #: Whether the bottom riser (body base → first tread) is among them.
+    #: Whether the bottom riser (body base → first tread, or landing → first
+    #: tread where a landing carries this flight) is among them.
     base_riser_used: bool
     #: Goings, bottom to top — plan distance between consecutive tread centres.
     goings: list[float]
@@ -249,6 +377,27 @@ class _Flight:
     across: np.ndarray
     #: Nosing points, bottom to top: the front edge of each tread at its centre.
     nosings: np.ndarray
+    #: A Podest carries the foot of this flight / receives its head. Both are
+    #: false for a flight that starts on the floor and ends on the storey above.
+    landing_below: bool = False
+    landing_above: bool = False
+
+
+@dataclass(frozen=True)
+class _Body:
+    """What one solid holds: its flights, its landings, and what it refused.
+
+    ``refusals`` is the part of the body the reader would not turn into numbers,
+    in German and with the measurement that decided it. It is not an error
+    channel — a body can yield two good flights and one refusal — and it is what
+    the operators put in front of the reader instead of a number they made up.
+    """
+
+    flights: list[_Flight]
+    landings: int
+    refusals: list[str]
+    #: Horizontal faces the body showed at all, after the buried ones are gone.
+    levels: int
 
 
 def _tread_surfaces(geo: ElementGeometry) -> list[tuple[float, float, np.ndarray, np.ndarray]]:
@@ -298,42 +447,216 @@ def _tread_surfaces(geo: ElementGeometry) -> list[tuple[float, float, np.ndarray
     return [c for c in out if c[1] >= floor]
 
 
-def _read_flight(model: SpatialModel, element: Any) -> _Flight | None:
-    """One flight's body → its risers, goings, width and nosing line.
+def _plan_polygon(vertices: np.ndarray) -> Any:
+    """The plan outline of one cluster, as a shapely polygon.
 
-    ``None`` when the body carries no usable tread surfaces at all: a flight
-    exported as a bounding box, or a curved flight whose "treads" are a single
-    swept face. That is a fact about the export and the callers turn it into an
-    undecidable that says so.
+    ``vertices`` is the flattened triangle array ``_tread_surfaces`` carries, so
+    it reshapes back into the triangles it was made of — the union of those in
+    plan is the face's real outline. A bounding box would not do: two consecutive
+    treads of a flight running diagonally in plan have boxes that overlap by more
+    than half while the treads themselves only touch along their nosing, and the
+    buried-face rule below would then delete every second step.
     """
-    geo = model.geometry(element.GlobalId)
-    if geo is None:
-        return None
-    clusters = _tread_surfaces(geo)
-    if not clusters:
-        return None
+    import shapely
+    import shapely.ops
 
-    if len(clusters) >= 2:
-        travel = clusters[-1][2][:2] - clusters[0][2][:2]
-    else:
-        # A single step: no two centres to take a direction from, so the body's
-        # longer plan axis is used. It is only needed for the width and the
-        # nosing here, and a one-step flight has no going to get wrong.
-        low, high = geo.box
-        wider_in_x = (high[0] - low[0]) >= (high[1] - low[1])
-        travel = np.array([high[0] - low[0], 0.0]) if wider_in_x else np.array([0.0, high[1] - low[1]])
-    length = float(np.linalg.norm(travel))
-    if length < 1e-9:
-        # Every tread centre over the same point in plan — a spiral stair whose
-        # flight closes on itself. Direction-based measurements are meaningless
-        # here and pretending otherwise is how a Wendeltreppe gets reported with
-        # a 0.00 m Auftritt.
+    polygons = []
+    for tri in vertices.reshape(-1, 3, 3):
+        polygon = shapely.Polygon(tri[:, :2])
+        if polygon.is_valid and polygon.area > 0:
+            polygons.append(polygon)
+    if not polygons:
         return None
-    along = np.array([travel[0] / length, travel[1] / length, 0.0])
+    return shapely.ops.unary_union(polygons)
+
+
+def _walking_surfaces(
+    clusters: list[tuple[float, float, np.ndarray, np.ndarray]],
+) -> list[tuple[float, float, np.ndarray, np.ndarray]]:
+    """The clusters a foot can land on — the buried ones dropped.
+
+    A horizontal face with another horizontal face of the same body directly
+    above it is not a step; it is under one. ArchiCAD writes each step of
+    ``AC20-Institute-Var-2.ifc`` as a structural step and a tread finish 60 mm
+    above it, both up-facing and both level, and every step was therefore counted
+    twice: **45 risers of 0.065 m** on a stair with 21 of 0.137 m, with the
+    doubled count and the halved riser both reported as measurements. The same
+    rule removes the four faces that sit 0.20 m under that stair's landings.
+
+    The test is the physical one and not a spacing heuristic: overlap in plan by
+    more than :data:`BURIED_OVERLAP_FRACTION` of the lower face's own area, with
+    the upper face within :data:`BURIED_CLEARANCE`. Consecutive treads of a real
+    flight are offset by their going and do not overlap at all, so nothing a foot
+    can reach is dropped by it.
+    """
+    if len(clusters) < 2:
+        return list(clusters)
+
+    polygons = [_plan_polygon(vertices) for _, _, _, vertices in clusters]
+    keep: list[tuple[float, float, np.ndarray, np.ndarray]] = []
+    for index, cluster in enumerate(clusters):
+        mine = polygons[index]
+        buried = False
+        for other in range(index + 1, len(clusters)):
+            gap = clusters[other][0] - cluster[0]
+            if gap > BURIED_CLEARANCE:
+                break  # ascending, so everything past this one is further up
+            theirs = polygons[other]
+            if mine is None or theirs is None or mine.area <= 0:
+                continue
+            if mine.intersection(theirs).area >= BURIED_OVERLAP_FRACTION * mine.area:
+                buried = True
+                break
+        if not buried:
+            keep.append(cluster)
+    return keep
+
+
+def _landing_levels(clusters: list[tuple[float, float, np.ndarray, np.ndarray]]) -> list[bool]:
+    """Which of these surfaces are Podeste — by area against the median tread.
+
+    A landing is not a step and must not be measured as one: on the Institute
+    stair the two landings are 2.518 m² and 2.783 m² against a median tread of
+    0.598 m², and taking them as treads is what produced „Auftritte 0.023 m bis
+    1.053 m" there. The median is the tread, because a flight has many more
+    treads than landings; :data:`LANDING_AREA_FACTOR` is the factor between them.
+    """
+    if not clusters:
+        return []
+    median = float(np.median([area for _, area, _, _ in clusters]))
+    if median <= 0:
+        return [False] * len(clusters)
+    return [area > LANDING_AREA_FACTOR * median for _, area, _, _ in clusters]
+
+
+def _runs(
+    clusters: list[tuple[float, float, np.ndarray, np.ndarray]], landings: list[bool]
+) -> list[tuple[list[int], bool, bool]]:
+    """Split the levels into flights: ``(tread indices, Podest below, above)``.
+
+    Two things end a flight and they are both what ends one on a drawing:
+
+    * **a Podest.** It is the head of the flight under it and the foot of the
+      flight over it, and it belongs to neither one's Auftritt.
+    * **a turn.** Where the plan direction from one tread to the next swings by
+      more than :data:`FLIGHT_TURN_DEGREES`, the treads after the turn are a
+      different flight — the case a dogleg makes when the export writes no
+      ``IfcStairFlight`` at all, which is the ArchiCAD case this exists for.
+
+    Indices rather than the clusters themselves, because a cluster carries numpy
+    arrays and ``list.index`` on one of those raises rather than compares.
+    """
+    groups: list[tuple[list[int], bool, bool]] = []
+    current: list[int] = []
+    carried_landing = False
+    for index in range(len(clusters)):
+        if landings[index]:
+            if current:
+                groups.append((current, carried_landing, True))
+            current, carried_landing = [], True
+            continue
+        if len(current) >= 2:
+            previous = clusters[current[-1]][2][:2] - clusters[current[-2]][2][:2]
+            step = clusters[index][2][:2] - clusters[current[-1]][2][:2]
+            if _turn_degrees(previous, step) > FLIGHT_TURN_DEGREES:
+                groups.append((current, carried_landing, False))
+                current, carried_landing = [], False
+        current.append(index)
+    if current:
+        groups.append((current, carried_landing, False))
+    return groups
+
+
+def _turn_degrees(first: np.ndarray, second: np.ndarray) -> float:
+    """Angle between two plan steps, in degrees. 0° for a degenerate one."""
+    a, b = float(np.linalg.norm(first)), float(np.linalg.norm(second))
+    if a < 1e-9 or b < 1e-9:
+        return 0.0
+    cosine = float(np.clip(np.dot(first, second) / (a * b), -1.0, 1.0))
+    return math.degrees(math.acos(cosine))
+
+
+def _measure_run(
+    element: Any,
+    treads_in: list[tuple[float, float, np.ndarray, np.ndarray]],
+    *,
+    base_z: float,
+    landing_below: tuple[float, float, np.ndarray, np.ndarray] | None,
+    landing_above: tuple[float, float, np.ndarray, np.ndarray] | None,
+    alone: bool = False,
+) -> tuple[_Flight | None, str | None]:
+    """One straight run → a ``_Flight``, or ``None`` and the reason in German.
+
+    The refusals are the point of this function. A stair that cannot be measured
+    has to say so: the reader has already shipped „Nutzbreite 0.318 m" for a
+    1.500 m flight and „16 Steigungen von 0.177 m bis 0.850 m" for a
+    Wendeltreppe, and both were `decidable=True` with a confident number in them.
+    Nothing here reports a value it could not derive.
+
+    ``alone`` says this run is the whole body. A body that shows exactly one
+    tread is a Blockstufe and is measured; a run of one tread cut out of a longer
+    sequence by a turn on either side is a winder step, and at one of those there
+    is no direction of travel to measure an Auftritt or a Nutzbreite along.
+    """
+    if len(treads_in) < 2 and landing_below is None and landing_above is None and not alone:
+        return None, (
+            "Ein Abschnitt des Körpers besteht aus einer einzelnen Trittfläche zwischen zwei "
+            "Richtungswechseln. An einer gewendelten Stufe sind Auftritt und Nutzbreite nicht messbar."
+        )
+
+    if len(treads_in) >= 2:
+        travel = treads_in[-1][2][:2] - treads_in[0][2][:2]
+        length = float(np.linalg.norm(travel))
+        if length < 1e-9:
+            # Every tread centre over the same point in plan — a spiral flight
+            # that closes on itself. Direction-based measurements are meaningless
+            # here and pretending otherwise is how a Wendeltreppe gets reported
+            # with a 0.00 m Auftritt.
+            return None, (
+                "Die Trittflächen liegen in der Draufsicht übereinander — ein Lauf, der sich um seine "
+                "eigene Achse dreht. Auftritt und Nutzbreite sind daran nicht messbar."
+            )
+        along = np.array([travel[0] / length, travel[1] / length, 0.0])
+    else:
+        # A single tread between two Podeste is a real thing (one step down into
+        # a room). Its travel direction is the SHORT axis of the tread: a step is
+        # wide across and shallow along, so the short side of its own minimal
+        # rectangle is the direction a person walks.
+        along = _short_axis(treads_in[0][3])
+        if along is None:
+            return None, (
+                "Eine einzelne Trittfläche ohne erkennbare Laufrichtung — an ihr ist keine Laufrichtung "
+                "und damit keine Nutzbreite messbar."
+            )
     across = np.array([-along[1], along[0], 0.0])
 
+    if len(treads_in) >= 3:
+        # Collinearity. A straight flight holds its tread centres on the line
+        # through the first and the last to within tessellation noise; a winder
+        # bows off it by half a metre, and every directional number measured
+        # across that bow is a number about a chord and not about a step.
+        first = treads_in[0][2][:2]
+        last = treads_in[-1][2][:2]
+        direction = last - first
+        direction = direction / float(np.linalg.norm(direction))
+        # The 2-D cross product, written out: numpy 2.0 deprecates `np.cross` on
+        # 2-vectors and the perpendicular offset of a point from a unit line is
+        # exactly this scalar.
+        offsets = [
+            abs(float(direction[0] * (cluster[2][1] - first[1]) - direction[1] * (cluster[2][0] - first[0])))
+            for cluster in treads_in
+        ]
+        deviation = max(offsets)
+        if deviation > FLIGHT_STRAIGHTNESS:
+            return None, (
+                f"Die Trittflächen liegen nicht auf einer Geraden: ihre Mitten weichen bis zu "
+                f"{deviation:.3f} m von der Verbindungslinie zwischen erster und letzter Trittfläche ab. "
+                "Das ist ein gewendelter Lauf; Steigung, Auftritt und Nutzbreite eines gewendelten Laufs "
+                "sind entlang der Lauflinie zu messen, und die Lauflinie steht in dieser Datei nicht."
+            )
+
     treads: list[_Tread] = []
-    for z, area, centre, vertices in clusters:
+    for z, area, centre, vertices in treads_in:
         a = vertices @ along
         b = vertices @ across
         treads.append(
@@ -342,16 +665,34 @@ def _read_flight(model: SpatialModel, element: Any) -> _Flight | None:
 
     levels = [t.z for t in treads]
     steps = [levels[i + 1] - levels[i] for i in range(len(levels) - 1)]
-    base = float(geo.box[0][2])
-    bottom = levels[0] - base
-    if steps:
-        median = float(np.median(steps))
-        base_riser_used = abs(bottom - median) <= BASE_RISER_RELATIVE_SLACK * median
+    if landing_below is not None:
+        # The Podest under a flight IS its floor line, so the step up off it is
+        # this flight's bottom riser and there is nothing to guess about.
+        bottom = levels[0] - landing_below[0]
+        base_riser_used = True
     else:
-        # Nothing to compare against. The body's underside is the only candidate
-        # for a floor line, and the caveat says the measurement rests on it.
-        base_riser_used = bottom > MIN_INTRUSION
+        bottom = levels[0] - base_z
+        if steps:
+            median = float(np.median(steps))
+            base_riser_used = abs(bottom - median) <= BASE_RISER_RELATIVE_SLACK * median
+        else:
+            # Nothing to compare against. The body's underside is the only
+            # candidate for a floor line, and the caveat says the measurement
+            # rests on it.
+            base_riser_used = bottom > MIN_INTRUSION
     risers = ([bottom] if base_riser_used else []) + steps
+    if landing_above is not None:
+        risers = risers + [landing_above[0] - levels[-1]]
+
+    if risers:
+        median_riser = float(np.median(risers))
+        low, high = PLAUSIBLE_RISER
+        if not low <= median_riser <= high:
+            return None, (
+                f"Die am Körper gemessene Steigungshöhe wäre {median_riser:.3f} m. Eine Stufe dieser Höhe "
+                f"gibt es nicht (messbar sind {low:.2f} m bis {high:.2f} m) — die waagrechten Flächen dieses "
+                "Körpers sind an dieser Stelle keine Stufen, sondern etwa Belagsschichten oder Auflager."
+            )
 
     goings = [float(np.linalg.norm(treads[i + 1].centre[:2] - treads[i].centre[:2])) for i in range(len(treads) - 1)]
     widths = [t.span[3] - t.span[2] for t in treads]
@@ -361,19 +702,95 @@ def _read_flight(model: SpatialModel, element: Any) -> _Flight | None:
         [[*(t.centre[:2] + along[:2] * (t.span[0] - float(t.centre[:2] @ along[:2]))), t.z] for t in treads]
     )
 
-    return _Flight(
-        global_id=element.GlobalId,
-        treads=treads,
-        risers=risers,
-        base_riser_used=base_riser_used,
-        goings=goings,
-        clear_width=float(min(widths)),
-        total_going=float(treads[-1].span[1] - treads[0].span[0]),
-        total_rise=float(sum(risers)),
-        along=along,
-        across=across,
-        nosings=nosings,
+    return (
+        _Flight(
+            global_id=element.GlobalId,
+            treads=treads,
+            risers=risers,
+            base_riser_used=base_riser_used,
+            goings=goings,
+            clear_width=float(min(widths)),
+            total_going=float(treads[-1].span[1] - treads[0].span[0]),
+            total_rise=float(sum(risers)),
+            along=along,
+            across=across,
+            nosings=nosings,
+            landing_below=landing_below is not None,
+            landing_above=landing_above is not None,
+        ),
+        None,
     )
+
+
+def _short_axis(vertices: np.ndarray) -> np.ndarray | None:
+    """Unit plan direction across the SHORT side of a face's minimal rectangle."""
+    import shapely
+
+    polygon = _plan_polygon(vertices)
+    if polygon is None or polygon.area <= 0:
+        return None
+    rectangle = shapely.minimum_rotated_rectangle(polygon)
+    corners = np.array(rectangle.exterior.coords[:-1]) if hasattr(rectangle, "exterior") else None
+    if corners is None or len(corners) != 4:
+        return None
+    sides = [corners[(i + 1) % 4] - corners[i] for i in range(4)]
+    shortest = min(sides[:2], key=lambda side: float(np.linalg.norm(side)))
+    length = float(np.linalg.norm(shortest))
+    if length < 1e-9:
+        return None
+    return np.array([shortest[0] / length, shortest[1] / length, 0.0])
+
+
+def _read_body(model: SpatialModel, element: Any) -> _Body:
+    """One solid → every flight in it, its landings, and what it refused.
+
+    The reader used to assume that one body is one flight, and took the chord
+    from the first tread centre to the last as the direction of travel. On the
+    Institute's „Treppe-EG" — a three-flight dogleg written as ONE ``IfcStair``
+    with no parts and no ``PredefinedType``, so nothing in the file announces the
+    flights — that chord runs diagonally across the stairwell. Everything
+    measured against it was measured against the wrong axis: the „Nutzbreite"
+    it reported, **0.318 m**, is the depth of one tread across that diagonal —
+    a step's going, near enough — on a flight that is **1.500 m** wide. A 4.7×
+    understatement of the one number OIB 4's Nutzbreite question turns on, and
+    in the direction that fails a stair which complies.
+
+    So the levels are split into runs first — at the landings and at the turns —
+    and each run is measured on its own axis. Whatever cannot be split into a
+    straight run is refused with the measurement that decided it, never averaged
+    into a number that looks like a stair.
+    """
+    geo = model.geometry(element.GlobalId)
+    if geo is None:
+        return _Body(flights=[], landings=0, refusals=[], levels=0)
+    clusters = _walking_surfaces(_tread_surfaces(geo))
+    if not clusters:
+        return _Body(flights=[], landings=0, refusals=[], levels=0)
+
+    landings = _landing_levels(clusters)
+    groups = _runs(clusters, landings)
+    landing_positions = [index for index, is_landing in enumerate(landings) if is_landing]
+
+    flights: list[_Flight] = []
+    refusals: list[str] = []
+    for indices, below, above in groups:
+        first, last = indices[0], indices[-1]
+        landing_under = next((clusters[i] for i in reversed(landing_positions) if i < first), None) if below else None
+        landing_over = next((clusters[i] for i in landing_positions if i > last), None) if above else None
+        flight, refusal = _measure_run(
+            element,
+            [clusters[i] for i in indices],
+            base_z=float(geo.box[0][2]),
+            landing_below=landing_under,
+            landing_above=landing_over,
+            alone=len(groups) == 1,
+        )
+        if flight is not None:
+            flights.append(flight)
+        elif refusal is not None and refusal not in refusals:
+            refusals.append(refusal)
+
+    return _Body(flights=flights, landings=len(landing_positions), refusals=refusals, levels=len(clusters))
 
 
 def _spread(values: list[float]) -> dict[str, float]:
@@ -568,6 +985,21 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
     no parts is measured directly: Revit writes the whole staircase as one body
     and refusing that file would refuse most files.
 
+    ## …and the assemblies that are not declared as one
+
+    A body with no parts is not the same thing as a body with one flight, and
+    treating it as one is what this operator got wrong. ArchiCAD writes the
+    Institute's „Treppe-EG" as a single ``IfcStair`` with no ``IfcStairFlight``,
+    no landing slab and no ``PredefinedType`` — nothing in the file says it is a
+    three-flight dogleg — and the reader took the chord from its first tread to
+    its last, which runs diagonally across the stairwell. It reported
+    ``riserCount 45``, ``riserHeight 0.065``, ``clearWidth 0.318``, ``landings 0``
+    with ``decidable=True``, for a stair with 21 risers of 0.137 m, a going of
+    0.348 m, a **1.500 m** Nutzbreite and two Podeste. So the flights are found
+    at the body — at the turns and at the landings — and each is measured on its
+    own axis (:func:`_read_body`). What cannot be read as a straight flight is
+    refused with the measurement that decided it rather than averaged.
+
     No threshold is applied and no verdict is returned. The maximum riser and the
     minimum Nutzbreite are in OIB 4, and OIB 4 is not this layer.
     """
@@ -586,8 +1018,10 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
     bodies = flights if flights else [subject]
     schedule_sources = [subject, *flights]
 
-    readings = [(element, _read_flight(model, element)) for element in bodies]
-    measured = [(element, flight) for element, flight in readings if flight is not None]
+    readings = [(element, _read_body(model, element)) for element in bodies]
+    measured = [(element, flight) for element, body in readings for flight in body.flights]
+    refusals = [reason for _, body in readings for reason in body.refusals]
+    measured_landings = sum(body.landings for _, body in readings)
 
     count, count_on = _declared_count(model, schedule_sources)
     riser_declared, riser_on = _declared_length(model, schedule_sources, _RISER_HEIGHT_NAMES)
@@ -602,21 +1036,40 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
             geo, missing = _geometry_or_answer(model, subject, method)
             if geo is None:
                 return missing  # type: ignore[return-value]
+            # Two different absences, and they must not be reported as one. The
+            # body that shows no horizontal face at all is an export defect; the
+            # body that shows steps the reader would not measure is a stair this
+            # engine cannot measure, and the reason it refused is the answer.
             return undecidable(
                 from_=[global_id],
                 method=method,
                 provenance="computed",
                 missing=MissingFact(
                     what=(
-                        f"keine waagrechten Trittflächen am Körper von {subject.is_a()} "
-                        f"„{model.label(subject) or global_id}“"
+                        (f"kein gerader Lauf am Körper von {subject.is_a()} „{model.label(subject) or global_id}“")
+                        if refusals
+                        else (
+                            f"keine waagrechten Trittflächen am Körper von {subject.is_a()} "
+                            f"„{model.label(subject) or global_id}“"
+                        )
                     ),
                     remedy=(
-                        "Der Körper dieses Bauteils zeigt keine auswertbaren Stufen — er ist als Hüllquader, "
-                        "als reine Fläche oder als eine einzige geschwungene Rampe exportiert. Abhilfe: die "
-                        "Treppe im CAD als Treppenbauteil (IfcStair mit IfcStairFlight) mit voller "
-                        "Körpergeometrie exportieren, oder Steigungshöhe und Auftritt in "
-                        "Pset_StairCommon.RiserHeight / .TreadLength deklarieren."
+                        " ".join(
+                            [
+                                *refusals,
+                                "Abhilfe: die Treppe im CAD als Treppenbauteil mit je einem IfcStairFlight "
+                                "pro Lauf exportieren, oder Steigungshöhe und Auftritt in "
+                                "Pset_StairCommon.RiserHeight / .TreadLength deklarieren.",
+                            ]
+                        )
+                        if refusals
+                        else (
+                            "Der Körper dieses Bauteils zeigt keine auswertbaren Stufen — er ist als Hüllquader, "
+                            "als reine Fläche oder als eine einzige geschwungene Rampe exportiert. Abhilfe: die "
+                            "Treppe im CAD als Treppenbauteil (IfcStair mit IfcStairFlight) mit voller "
+                            "Körpergeometrie exportieren, oder Steigungshöhe und Auftritt in "
+                            "Pset_StairCommon.RiserHeight / .TreadLength deklarieren."
+                        )
                     ),
                     elements=[global_id],
                 ),
@@ -652,30 +1105,49 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
             "totalGoing": None,
             "flights": [],
             "landings": len(landings),
+            "declaredLandings": len(landings),
+            # Not zero: nothing was measured here, and a zero would read as „am
+            # Körper ist kein Podest" about a body that was never read.
+            "measuredLandings": None,
         }
         return declared(
             value,
             unit="m",
             from_=_sources(global_id, *[e for e in (count_on, riser_on, tread_on, width_on) if e]),
             method=method,
-            caveat=(
-                "Ausschließlich aus den deklarierten Eigenschaften gelesen — dieses Bauteil trägt in der "
-                "Datei keinen auswertbaren Körper. Die Werte sind also das, was jemand eingetragen hat, und "
-                "nicht das, was gebaut wird; ob die Steigungen tatsächlich gleich sind, lässt sich daraus "
-                "grundsätzlich nicht sagen."
+            caveat=" ".join(
+                [
+                    "Ausschließlich aus den deklarierten Eigenschaften gelesen — dieses Bauteil trägt in "
+                    "der Datei keinen auswertbaren Körper. Die Werte sind also das, was jemand eingetragen "
+                    "hat, und nicht das, was gebaut wird; ob die Steigungen tatsächlich gleich sind, lässt "
+                    "sich daraus grundsätzlich nicht sagen.",
+                    *refusals,
+                ]
             ),
         )
 
     risers: list[float] = []
     goings: list[float] = []
     per_flight: list[dict[str, Any]] = []
+    # How many flights came out of each body, so that a body split into three can
+    # say WHICH of the three each row is. The GlobalId cannot say it — the three
+    # flights of „Treppe-EG" are one IfcStair — and a reader looking at three rows
+    # with the same id has to be able to tell them apart.
+    per_body = {element.GlobalId: len(body.flights) for element, body in readings}
+    seen: dict[str, int] = {}
     for element, flight in measured:
         risers.extend(flight.risers)
         goings.extend(flight.goings)
+        index = seen[element.GlobalId] = seen.get(element.GlobalId, 0) + 1
+        label = model.label(element)
         per_flight.append(
             {
                 "globalId": element.GlobalId,
-                "name": model.label(element),
+                "name": (
+                    label
+                    if per_body[element.GlobalId] <= 1
+                    else f"{label or element.GlobalId} — Lauf {index} von {per_body[element.GlobalId]}"
+                ),
                 "risers": len(flight.risers),
                 "riserHeight": _spread(flight.risers) if flight.risers else None,
                 "treadDepth": _spread(flight.goings) if flight.goings else None,
@@ -683,6 +1155,12 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
                 "totalRise": flight.total_rise,
                 "totalGoing": flight.total_going,
                 "treadSurfaces": len(flight.treads),
+                # A flight read out of a body that was not split into flights in
+                # the file. The number is a measurement either way; where it came
+                # from is not the same statement and the reader may need both.
+                "fromBody": per_body[element.GlobalId] > 1 or not flights,
+                "landingBelow": flight.landing_below,
+                "landingAbove": flight.landing_above,
             }
         )
 
@@ -730,7 +1208,13 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
         "totalRise": total_rise,
         "totalGoing": total_going,
         "flights": per_flight,
-        "landings": len(landings),
+        # Landings from BOTH routes, because a file states them in either. The
+        # synthetic assembly declares its Podest as an IfcSlab/LANDING part; the
+        # Institute's dogleg declares nothing at all and its two Podeste are only
+        # in the solid, where `landings 0` used to be reported over them.
+        "landings": len(landings) + measured_landings,
+        "declaredLandings": len(landings),
+        "measuredLandings": measured_landings,
     }
 
     caveats: list[str] = []
@@ -747,10 +1231,22 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
                 "im Rahmen der Tessellierungsgenauigkeit gleich hoch."
             )
     if tread_stats is not None and tread_stats["count"] > 1 and tread_stats["spread"] > 2 * COORDINATE_TOLERANCE:
+        # „Auch" only when the risers were the previous sentence's finding. On a
+        # stair with equal risers and a 25 mm spread in the goings — the
+        # Institute's dogleg, where the top tread is the floor slab's own face —
+        # it made the answer read as if the risers had been unequal too.
+        uneven_risers = riser_stats is not None and riser_stats["spread"] > COORDINATE_TOLERANCE
         caveats.append(
-            f"Auch die Auftritte sind ungleich ({tread_stats['min']:.3f} m bis {tread_stats['max']:.3f} m). "
+            f"{'Auch die' if uneven_risers else 'Die'} Auftritte sind ungleich "
+            f"({tread_stats['min']:.3f} m bis {tread_stats['max']:.3f} m). "
             "Eine einzelne deutlich tiefere Stufe ist oft ein Podest, das im selben Körper steckt und hier "
-            "als Stufe mitgemessen wird — stepsOf() zeigt, ob die Datei ein eigenes Podest führt."
+            "als Stufe mitgemessen wird — "
+            + (
+                f"{value['landings']} Podest(e) sind an diesem Körper erkannt und aus den Auftritten "
+                "herausgerechnet; ein weiteres, flacheres kann darin stecken."
+                if measured_landings
+                else "stepsOf() zeigt, ob die Datei ein eigenes Podest führt."
+            )
         )
     if not all(flight.base_riser_used for _, flight in measured):
         caveats.append(
@@ -758,11 +1254,34 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
             "Höhe des Antritts (eine Laufplatte mit Untersicht). Gezählt und gemessen sind nur die Steigungen "
             "zwischen zwei sichtbaren Trittflächen."
         )
+    if len(per_flight) > 1:
+        # Which flights, and where they came from. „landings 0" over a body with
+        # two Podeste in it was the previous answer on the Institute's dogleg,
+        # and a reader had no way to see that the three flights had been averaged
+        # into one.
+        from_body = sum(1 for f in per_flight if f["fromBody"])
+        caveats.append(
+            f"Gemessen sind {len(per_flight)} Läufe"
+            + (
+                f", davon {from_body} am Körper selbst erkannt (die Datei gliedert diesen Körper nicht in "
+                "IfcStairFlight; die Läufe sind an den Richtungswechseln und an den Podesten getrennt)"
+                if from_body
+                else ""
+            )
+            + f". Die Steigungen sind über alle Läufe zusammengefasst; {value['landings']} Podest(e) sind "
+            "erkannt und zählen nicht als Stufe."
+        )
+    if refusals:
+        caveats.append(
+            "Ein Teil dieses Körpers ist nicht mitgemessen: " + " ".join(refusals) + " Die ausgewiesenen "
+            "Werte gelten nur für die Läufe, die gemessen werden konnten."
+        )
     caveats.append(
-        f"Nutzbreite {clear_width:.3f} m ist die schmalste gemessene Trittfläche. Sie ist eine Rohbaulichte: "
-        "Handläufe, Wandbekleidungen und Geländer schmälern sie und sind nur enthalten, soweit sie den "
-        "Trittflächenkörper selbst begrenzen. Ist der Lauf samt Wangen als ein Körper exportiert, misst diese "
-        "Zahl über die Wangen hinweg und ist dann zu groß."
+        f"Nutzbreite {clear_width:.3f} m ist die schmalste gemessene Trittfläche, quer zur Laufrichtung "
+        "dieses Laufs gemessen. Sie ist eine Rohbaulichte: Handläufe, Wandbekleidungen und Geländer "
+        "schmälern sie und sind nur enthalten, soweit sie den Trittflächenkörper selbst begrenzen. Ist der "
+        "Lauf samt Wangen als ein Körper exportiert, misst diese Zahl über die Wangen hinweg und ist dann "
+        "zu groß."
     )
     for conflict in (riser_conflict, tread_conflict):
         if conflict:
@@ -1071,8 +1590,8 @@ class _Rake:
     width: float
 
 
-def _rake_of(model: SpatialModel, element: Any) -> _Rake | None:
-    """The raking plane a Durchgangshöhe is measured from.
+def _rakes_of(model: SpatialModel, element: Any) -> tuple[list[_Rake], list[str]]:
+    """The raking planes a Durchgangshöhe is measured from, and what was refused.
 
     For a stair that is the plane through the NOSINGS — not the treads, not the
     soffit. The nosing line is what a person's head clears; a plane through the
@@ -1080,45 +1599,60 @@ def _rake_of(model: SpatialModel, element: Any) -> _Rake | None:
     that is too large by ``going × sin(pitch)``, about 15 cm on an ordinary
     flight.
 
+    A LIST because one body can hold more than one flight: a dogleg written as a
+    single ``IfcStair`` has three pitch lines pointing three ways, and one plane
+    fitted across all of them is a plane through the stairwell rather than over
+    a walking surface. Each flight gets its own rake and the tightest one wins.
+
     For a ramp it is the running surface itself.
     """
     if element.is_a("IfcRampFlight") or element.is_a("IfcRamp"):
-        surface = _running_surface(model, element)
-        if surface is None:
-            return None
-        pitch = surface.uphill if surface.uphill is not None else np.array([1.0, 0.0, 0.0])
-        if surface.uphill is not None:
-            tangent = float(math.hypot(surface.normal[0], surface.normal[1]) / surface.normal[2])
-            pitch = surface.uphill * math.cos(math.atan(tangent)) + np.array([0.0, 0.0, 1.0]) * math.sin(
-                math.atan(tangent)
-            )
-        across = np.array([-pitch[1], pitch[0], 0.0])
-        across = across / float(np.linalg.norm(across))
-        vertices = surface.corners
-        along = vertices @ pitch
-        side = vertices @ across
-        low, high = float(along.min()), float(along.max())
-        left, right = float(side.min()), float(side.max())
-        height = float((vertices @ surface.normal).mean())
-        corners = np.array(
-            [
-                pitch * low + across * left + surface.normal * height,
-                pitch * low + across * right + surface.normal * height,
-                pitch * high + across * right + surface.normal * height,
-                pitch * high + across * left + surface.normal * height,
-            ]
-        )
-        return _Rake(
-            global_id=element.GlobalId,
-            corners=corners,
-            normal=surface.normal,
-            pitch=pitch,
-            length=high - low,
-            width=right - left,
-        )
+        rake = _ramp_rake(model, element)
+        return ([rake] if rake is not None else []), []
 
-    flight = _read_flight(model, element)
-    if flight is None or len(flight.nosings) < 2:
+    body = _read_body(model, element)
+    rakes = [rake for flight in body.flights if (rake := _flight_rake(element, flight)) is not None]
+    return rakes, body.refusals
+
+
+def _ramp_rake(model: SpatialModel, element: Any) -> _Rake | None:
+    """The running surface of a ramp, as the rectangle a head clears."""
+    surface = _running_surface(model, element)
+    if surface is None:
+        return None
+    pitch = surface.uphill if surface.uphill is not None else np.array([1.0, 0.0, 0.0])
+    if surface.uphill is not None:
+        tangent = float(math.hypot(surface.normal[0], surface.normal[1]) / surface.normal[2])
+        pitch = surface.uphill * math.cos(math.atan(tangent)) + np.array([0.0, 0.0, 1.0]) * math.sin(math.atan(tangent))
+    across = np.array([-pitch[1], pitch[0], 0.0])
+    across = across / float(np.linalg.norm(across))
+    vertices = surface.corners
+    along = vertices @ pitch
+    side = vertices @ across
+    low, high = float(along.min()), float(along.max())
+    left, right = float(side.min()), float(side.max())
+    height = float((vertices @ surface.normal).mean())
+    corners = np.array(
+        [
+            pitch * low + across * left + surface.normal * height,
+            pitch * low + across * right + surface.normal * height,
+            pitch * high + across * right + surface.normal * height,
+            pitch * high + across * left + surface.normal * height,
+        ]
+    )
+    return _Rake(
+        global_id=element.GlobalId,
+        corners=corners,
+        normal=surface.normal,
+        pitch=pitch,
+        length=high - low,
+        width=right - left,
+    )
+
+
+def _flight_rake(element: Any, flight: _Flight) -> _Rake | None:
+    """One flight's nosing plane, as the rectangle a head clears."""
+    if len(flight.nosings) < 2:
         return None
     first, last = flight.nosings[0], flight.nosings[-1]
     pitch = last - first
@@ -1176,9 +1710,15 @@ def _overhead_hits(
     The exclusion discipline is :func:`~ifc_spatial.operators.clear_height`'s,
     reused rather than re-derived: :data:`~ifc_spatial.model.AIR_TYPES` never
     stops a ray (a space is air and an opening is a subtraction), and every entry
-    of :data:`~ifc_spatial.operators.FURNISHING` is tested with ``is_a`` because
+    of :data:`HEADROOM_TRANSPARENT` is tested with ``is_a`` because
     ``IfcFurniture`` is only a SUBTYPE of ``IfcFurnishingElement`` in IFC4 — in
     IFC2X3 it is not, and a chair once stopped a clear-height ray for that reason.
+
+    ``IfcRailing`` is NOT in that list, and :data:`HEADROOM_TRANSPARENT` records
+    the measurement that decided it: the balustrades this pass used to report
+    were reached by the old single-plane rake across a whole dogleg, not by the
+    filter, and with the flights read one at a time no railing is a candidate at
+    all.
     """
     shortest: float | None = None
     hit_by: dict[str, float] = {}
@@ -1194,7 +1734,7 @@ def _overhead_hits(
             (float(origin[0]), float(origin[1]), float(origin[2])), ray, length=HEADROOM_REACH
         ):
             element = model.file.by_id(hit.instance.id())
-            if element.is_a() in AIR_TYPES or any(element.is_a(name) for name in FURNISHING):
+            if element.is_a() in AIR_TYPES or any(element.is_a(name) for name in HEADROOM_TRANSPARENT):
                 continue
             if element.GlobalId in exclude:
                 continue
@@ -1291,8 +1831,9 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
 
     flights, _, _ = _flight_parts(subject)
     bodies = flights if flights else [subject]
-    rakes = [(element, _rake_of(model, element)) for element in bodies]
-    usable = [(element, rake) for element, rake in rakes if rake is not None]
+    readings = [(element, *_rakes_of(model, element)) for element in bodies]
+    usable = [(element, rake) for element, rakes, _ in readings for rake in rakes]
+    refusals = [reason for _, _, reasons in readings for reason in reasons]
     if not usable:
         geo, missing = _geometry_or_answer(model, subject, method)
         if geo is None:
@@ -1302,11 +1843,15 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
             method=method,
             provenance="computed",
             missing=MissingFact(
-                what=f"keine Lauflinie an {subject.is_a()} „{model.label(subject) or global_id}“",
-                remedy=(
-                    "Eine Durchgangshöhe wird über der Lauflinie gemessen, und die ergibt sich aus den "
-                    "Trittflächen bzw. der Lauffläche. Dieser Körper zeigt keine — die Treppe bzw. Rampe mit "
-                    "voller Körpergeometrie neu exportieren."
+                what=f"keine gerade Lauflinie an {subject.is_a()} „{model.label(subject) or global_id}“",
+                remedy=" ".join(
+                    [
+                        *refusals,
+                        "Eine Durchgangshöhe wird senkrecht über der Lauflinie gemessen, und die ergibt sich "
+                        "aus den Trittflächen bzw. der Lauffläche. Dieser Körper zeigt keine auswertbare — "
+                        "die Treppe bzw. Rampe mit voller Körpergeometrie und je einem IfcStairFlight pro "
+                        "Lauf neu exportieren.",
+                    ]
                 ),
                 elements=[global_id],
             ),
@@ -1323,8 +1868,16 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     # nichts die Durchgangshöhe" while the same question asked about Lauf UG
     # alone answered 1.280 m. „Nichts darüber" is read as a gap in the export;
     # here it was a stair, and the direction of the error is the dangerous one.
+    #
+    # The exclusion is still per BODY and not per flight, and it has to be: the
+    # ray tree knows elements, not the runs this module reads out of one. So on a
+    # dogleg written as a single IfcStair, the upper flight cannot limit the lower
+    # one — the caveat says as much where it applies. Where the export gives each
+    # flight its own IfcStairFlight, the sibling case above still works.
     excluded_self = {global_id}
 
+    per_body = {element.GlobalId: len(rakes) for element, rakes, _ in readings}
+    seen: dict[str, int] = {}
     per_flight: list[dict[str, Any]] = []
     for element, rake in usable:
         samples = _rake_samples(rake)
@@ -1332,10 +1885,16 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
         sampled, candidates = _overhead_hits(model, samples, rake.normal, exclude)
         vertical, _ = _overhead_hits(model, samples, np.array([0.0, 0.0, 1.0]), exclude)
         exact, culprit = _exact_clearance(model, rake, candidates)
+        index = seen[element.GlobalId] = seen.get(element.GlobalId, 0) + 1
+        label = model.label(element)
         per_flight.append(
             {
                 "globalId": element.GlobalId,
-                "name": model.label(element),
+                "name": (
+                    label
+                    if per_body[element.GlobalId] <= 1
+                    else f"{label or element.GlobalId} — Lauf {index} von {per_body[element.GlobalId]}"
+                ),
                 "headroom": exact if exact is not None else sampled,
                 "sampledPerpendicular": sampled,
                 "vertical": vertical,
@@ -1399,10 +1958,19 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
             )
     if culprit_name:
         caveats.append(f"Die engste Stelle liegt unter: {culprit_name}.")
+    if len(per_flight) > 1:
+        caveats.append(
+            f"Gemessen über {len(per_flight)} Läufen; ausgewiesen ist der engste. Läuft ein Lauf über einen "
+            "anderen desselben Körpers hinweg, kann er ihn hier nicht begrenzen — die Datei müsste dafür je "
+            "Lauf ein eigenes IfcStairFlight führen."
+        )
+    if refusals:
+        caveats.append("Ein Teil dieses Körpers ist nicht mitgemessen: " + " ".join(refusals))
     caveats.append(
         "Gemessen von der Ebene durch die Stufenvorderkanten (bei einer Rampe: von der Lauffläche) bis zur "
-        "Oberfläche des nächstliegenden Bauteils darüber. Möblierung ist ausgenommen; Unterzüge, abgehängte "
-        "Decken und Leitungen zählen mit, soweit sie als Körper im Modell stehen."
+        "Oberfläche des nächstliegenden Bauteils darüber, über der mittleren Hälfte der Laufbreite. "
+        "Möblierung ist ausgenommen; Unterzüge, abgehängte Decken, Leitungen und auch ein Geländer, das "
+        "tatsächlich über der Lauflinie steht, zählen mit, soweit sie als Körper im Modell stehen."
     )
 
     return computed(
@@ -1437,11 +2005,16 @@ def steps_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
        statement and not by its name, because the name is „Podest" in one export
        and „Slab:Generic 200mm:314159" in the next.
 
-    An empty result on a stair that plainly has flights is a real finding and
-    gets a caveat rather than a bare ``[]``: Revit writes staircases as a single
-    ``IfcStair`` with one body and no parts at all, and „diese Treppe hat keine
-    Läufe" would be a statement about the building where the truth is a statement
-    about the export.
+    A stair with no parts is an ``undecidable`` and not an empty list. Revit and
+    ArchiCAD both write staircases as a single ``IfcStair`` with one body and no
+    ``IfcRelAggregates`` at all, and ``{"flights": [], "landings": []}`` with
+    ``decidable=True`` says „diese Treppe hat keine Läufe und keine Podeste" —
+    a statement about the building, and one that is false for every building ever
+    built. The Institute's „Treppe-EG" answered exactly that while carrying three
+    flights and two Podeste in its solid, and a caller reading
+    ``value["landings"] == []`` had no way to know. The caveat that used to sit
+    beside the empty lists already said the statement could not be made; it is
+    now where it belongs, in ``missing.what`` and ``missing.remedy``.
     """
     method = f"stepsOf({global_id})"
     subject = _require(model, global_id, method)
@@ -1480,26 +2053,46 @@ def steps_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     }
 
     if not flights:
-        caveat = (
-            "Diese Treppe bzw. Rampe ist in der Datei nicht in Läufe gegliedert: sie trägt keine "
-            "IfcRelAggregates-Beziehung auf IfcStairFlight/IfcRampFlight. Das heißt NICHT, dass sie aus einem "
-            "einzigen Lauf besteht — mehrere Exporte (Revit an erster Stelle) schreiben die ganze Treppe als "
-            "einen Körper. Eine Aussage „so viele Steigungen je Lauf ohne Podest“ ist an dieser Datei deshalb "
-            "nicht zu treffen; stairGeometry() misst den Körper als Ganzes. Abhilfe: im CAD die Treppe als "
-            "Treppenbauteil mit Läufen und Podesten exportieren."
+        # The empty list is not an answer, and this operator used to return one
+        # with `decidable=True` beside a caveat that said the statement could not
+        # be made. A caller reading `value["landings"] == []` concluded that the
+        # stair has no Podest; the Institute's „Treppe-EG" has two, and its parts
+        # list is empty only because ArchiCAD wrote no IfcRelAggregates at all.
+        # An empty list that would be false for every building ever built is an
+        # `undecidable` — the rule `relations.connects` states in its own module
+        # docstring, applied here to the same shape of absence.
+        return undecidable(
+            from_=[global_id],
+            method=method,
+            missing=MissingFact(
+                what=(
+                    f"{subject.is_a()} „{model.label(subject) or global_id}“ ist in der Datei nicht in Läufe "
+                    "gegliedert: keine IfcRelAggregates-Beziehung auf IfcStairFlight/IfcRampFlight"
+                ),
+                remedy=(
+                    "Das heißt NICHT, dass diese Treppe aus einem einzigen Lauf besteht — mehrere Exporte "
+                    "(Revit und ArchiCAD an erster Stelle) schreiben die ganze Treppe als einen Körper. Eine "
+                    "Aussage „so viele Steigungen je Lauf ohne Podest“ ist an dieser Datei deshalb nicht zu "
+                    "treffen. stairGeometry() misst den Körper und weist die darin erkannten Läufe und "
+                    "Podeste aus; als Bauteilbezug bleibt dann aber nur die Treppe selbst. Abhilfe: im CAD "
+                    "die Treppe als Treppenbauteil mit einzelnen Läufen (IfcStairFlight) und Podesten "
+                    "(IfcSlab mit PredefinedType = LANDING) exportieren."
+                ),
+                elements=[global_id],
+            ),
         )
-    else:
-        undeclared = [gid for gid, count in risers_per_flight.items() if count is None]
-        caveat = (
-            f"{len(flights)} Läufe und {len(landings)} Podeste, aus IfcRelAggregates gelesen. Podeste sind "
-            "über IfcSlab.PredefinedType = LANDING erkannt; ein Podest, das der Export als gewöhnliche Decke "
-            "schreibt, steht in other und fehlt in dieser Zählung."
+
+    undeclared = [gid for gid, count in risers_per_flight.items() if count is None]
+    caveat = (
+        f"{len(flights)} Läufe und {len(landings)} Podeste, aus IfcRelAggregates gelesen. Podeste sind "
+        "über IfcSlab.PredefinedType = LANDING erkannt; ein Podest, das der Export als gewöhnliche Decke "
+        "schreibt, steht in other und fehlt in dieser Zählung."
+    )
+    if undeclared:
+        caveat += (
+            f" Für {len(undeclared)} der Läufe deklariert die Datei keine Steigungszahl "
+            "(Pset_StairFlightCommon.NumberOfRiser) — stairGeometry() zählt sie am Körper nach."
         )
-        if undeclared:
-            caveat += (
-                f" Für {len(undeclared)} der Läufe deklariert die Datei keine Steigungszahl "
-                "(Pset_StairFlightCommon.NumberOfRiser) — stairGeometry() zählt sie am Körper nach."
-            )
 
     return declared(
         value,
@@ -1510,9 +2103,16 @@ def steps_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
 
 
 __all__ = [
+    "BURIED_CLEARANCE",
+    "BURIED_OVERLAP_FRACTION",
+    "FLIGHT_STRAIGHTNESS",
+    "FLIGHT_TURN_DEGREES",
     "HEADROOM_LATERAL",
     "HEADROOM_REACH",
     "HEADROOM_SAMPLE_SPACING",
+    "HEADROOM_TRANSPARENT",
+    "LANDING_AREA_FACTOR",
+    "PLAUSIBLE_RISER",
     "RAMP_TYPES",
     "STAIR_TYPES",
     "TREAD_FLATNESS",
