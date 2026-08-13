@@ -1117,3 +1117,79 @@ class TestARoomWhoseBodyIsAShellIsStillMeasurable:
         assert "extent()" in remedy
         # And the reason it is unreachable, pinned: no tool takes the argument.
         assert "samples" not in inspect.getsource(tools.create_tools)
+
+
+class TestAnExternalWallBoundsMoreThanOneRoom:
+    """„Bounds two rooms, therefore a partition" is wrong for the ordinary case.
+
+    An external wall runs along a whole side of a building, so it bounds every
+    room on that side. The count called that a Trennbauteil, and on
+    `AC20-FZK-Haus.ifc` — which declares `IsExternal` on NONE of its 26 walls,
+    so this rung decided all of them — it put `Wand-Ext-ERDG-1` (3 rooms), `-2`
+    (3), `-3` (2) and `-4` (2) outside the thermal envelope. Four external
+    ground-floor walls missing from an OIB 6 envelope, described as partitions.
+
+    What separates inside from outside is having rooms on ONE SIDE only, so the
+    test is the side and not the count. Measured against the exporter's own
+    naming on that house (every wall is `Wand-Ext-*` or `Wand-Int-*`): **26 of
+    26 correct, against 22 of 26 for the count.**
+
+    The knock-on was larger than the envelope. A window is external when its
+    wall is, and `_faces_outside` could only read a DECLARED flag off the host
+    wall — so every window in that house was undetermined and
+    `light_entry_area` reported **0.00 %** for the Schlafzimmer, the Bad, the
+    Büro, the Küche and the Galerie. A house with a window in every room.
+
+    The fixture is `Wand-Ext-ERDG-1`, the three rooms it bounds, its two
+    openings and their windows, extracted from that file.
+    """
+
+    FIXTURE = FIXTURES / "aussenwand-ohne-isexternal.ifc"
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def model(cls) -> SpatialModel:
+        return SpatialModel(str(cls.FIXTURE))
+
+    @staticmethod
+    def _wall(model: SpatialModel):
+        walls = list(model.file.by_type("IfcWall")) + list(model.file.by_type("IfcWallStandardCase"))
+        return walls[0]
+
+    def test_the_file_really_declares_nothing(self, model: SpatialModel) -> None:
+        """The anti-vacuity guard: if this wall ever declares `IsExternal`, the
+        first rung decides it and nothing below is being exercised."""
+        assert model.declared_property(self._wall(model), ("IsExternal",)) is None
+
+    def test_it_really_does_bound_more_than_one_room(self, model: SpatialModel) -> None:
+        """…which is what made the count call it a partition."""
+        rooms = op.enclosed_by(model, self._wall(model).GlobalId)
+        assert rooms.decidable and len(rooms.value or []) >= 2
+
+    def test_the_wall_is_external_because_its_rooms_are_all_on_one_side(self, model: SpatialModel) -> None:
+        wall = self._wall(model)
+        rooms = op.enclosed_by(model, wall.GlobalId)
+        assert op._rooms_on_one_side(model, wall, rooms.value) is True
+
+        external, _route, why = eg._external_route(model, wall)
+        assert external is True
+        assert "alle auf derselben Seite" in why
+
+    def test_a_window_in_an_undeclared_wall_faces_outside(self, model: SpatialModel) -> None:
+        """The rung that turned five rooms of daylight from 0.00 % into a
+        measurement. Without it the window is undetermined — honest, and still a
+        0 % headline on an OIB 3 check."""
+        windows = list(model.file.by_type("IfcWindow")) + list(model.file.by_type("IfcWindowStandardCase"))
+        assert windows, "the fixture carries the windows the defect was about"
+        for window in windows:
+            faces_outside, why = op._faces_outside(model, window)
+            assert faces_outside is True, model.label(window)
+            assert "tragende Wand" in why and "Geometrie" in why
+
+    def test_a_partition_is_still_a_partition(self, house: SpatialModel) -> None:
+        """The fix must not simply call everything external. The sample house's
+        interior partition has rooms on both sides and stays out of the
+        envelope — checked on the fixture that DOES declare its flags, so the
+        first rung is what answers here."""
+        external, _route, _why = eg._external_route(house, house.file.by_guid("3cUkl32yn9qRSPvBJVyWY1"))
+        assert external is False

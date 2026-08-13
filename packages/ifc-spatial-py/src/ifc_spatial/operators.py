@@ -2191,6 +2191,54 @@ def _clear_opening_area(model: SpatialModel, opening: Any, z_band: tuple[float, 
     return area if area > 0 else None
 
 
+#: How far a room centroid must sit off an element's plane to count as a side.
+#:
+#: A room whose centroid lands essentially ON the plane says nothing about which
+#: side it is on, and the commonest way that happens is a space modelled to the
+#: wall's centre line rather than its face. Ignored rather than guessed.
+SIDE_TOLERANCE = 0.05
+
+
+def _rooms_on_one_side(model: SpatialModel, element: Any, rooms: Sequence[Any]) -> bool | None:
+    """Whether every room this element bounds lies on the SAME side of it.
+
+    ``True`` → outside is on the other side. ``False`` → rooms both sides, so it
+    is a Trennbauteil. ``None`` → the element's plane could not be established,
+    and the caller must not fall back to counting (see :func:`_external_route`).
+
+    The element's DOMINANT plane rather than its vertical one, so the same test
+    serves a slab: a floor with rooms above and below is internal by exactly the
+    reasoning that makes a wall with rooms left and right internal, and a ground
+    slab carrying rooms only above it is external by the same test that catches
+    a facade. The centroid is the point on that plane — for a wall it sits in
+    the middle of the thickness, which is where the two sides part.
+    """
+    geo = model.geometry(element.GlobalId)
+    if geo is None or geo.faces.size == 0:
+        return None
+    normal = dominant_plane(geo.verts[geo.faces])
+    if normal is None:
+        return None
+    length = float(np.linalg.norm(normal))
+    if length <= 0:
+        return None
+    normal = np.asarray(normal, dtype=float) / length
+    origin = np.asarray(geo.centroid, dtype=float)
+
+    sides: set[bool] = set()
+    for ref in rooms:
+        room = model.geometry(getattr(ref, "global_id", ref))
+        if room is None:
+            continue
+        offset = float(np.dot(np.asarray(room.centroid, dtype=float) - origin, normal))
+        if abs(offset) < SIDE_TOLERANCE:
+            continue
+        sides.add(offset > 0)
+    if not sides:
+        return None
+    return len(sides) == 1
+
+
 def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]:
     """Whether this window or door lets daylight IN from outside.
 
@@ -2234,6 +2282,28 @@ def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]
             found = model.declared_property(wall, ("IsExternal",))
             if isinstance(found, bool):
                 return found, "Pset_*Common.IsExternal der Wand (deklariert)"
+        # The wall declares nothing — so MEASURE the wall instead of giving up.
+        #
+        # A window is outside-facing exactly when the wall carrying it is, and
+        # whether a wall is external is a question about its sides: rooms on one
+        # side only means outside is on the other. Without this rung an export
+        # that omits `IsExternal` — which `AC20-FZK-Haus.ifc` does on all 26 of
+        # its walls — leaves every window undetermined, and
+        # `light_entry_area` then reported **0.00 %** for the Schlafzimmer, the
+        # Bad, the Büro, the Küche and the Galerie of a house with a window in
+        # each of them. Honest (the windows land under „unbestimmt" and the
+        # caveat says so) and still a 0 % headline on an OIB 3 daylight check,
+        # which reads as a finding about the building.
+        for ref in hosts_.value or []:
+            wall = model.file.by_guid(ref.global_id)
+            walls_rooms = enclosed_by(model, wall.GlobalId)
+            if not walls_rooms.decidable or not walls_rooms.value:
+                continue
+            one_side = _rooms_on_one_side(model, wall, walls_rooms.value)
+            if one_side is True:
+                return True, "die tragende Wand hat Räume nur auf einer Seite (aus der Geometrie)"
+            if one_side is False:
+                return False, "die tragende Wand hat Räume auf beiden Seiten (aus der Geometrie)"
 
     # The space-count fallback is a DOOR heuristic and is applied ONLY to doors.
     # A curtain-wall pane runs past a floor, so it touches the room and the one
