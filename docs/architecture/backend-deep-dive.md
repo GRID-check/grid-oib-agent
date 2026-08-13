@@ -753,7 +753,7 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    allowed vocabulary instead of an empty result. A miss names the filters
    that produced it and tells the agent how to retry — it is not permission
    to invent a citation. Showing a file is `surface_documents` (one
-   `document_grid` card: FileCard preview, one file peeks, several is a short grid); after
+   `document_grid` card: FileCard preview + human summary, one file peeks, several is a short grid); after
    a citation the UI peeks the cited project/Büro file itself
    (`useCitationPeek`) so the two tools are not a pair.
 

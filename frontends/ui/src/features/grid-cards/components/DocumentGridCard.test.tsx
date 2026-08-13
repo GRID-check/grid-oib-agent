@@ -1,9 +1,9 @@
 /**
  * Render tests for the DocumentGridCard — the chat surfacing card that presents
  * REAL project/Büroarchiv files. Focus: surfaced file names resolve to their
- * live document rows (project + Archiv), the match snippet renders as the "why
- * it surfaced" evidence, and a file that no longer resolves degrades to a lean
- * "not available" card instead of vanishing or crashing.
+ * live document rows (project + Archiv), the card shows the human summary
+ * (never the retrieval snippet / score), and a file that no longer resolves
+ * degrades to a lean "not available" card instead of vanishing or crashing.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -46,14 +46,22 @@ afterEach(() => {
 })
 
 describe('DocumentGridCard', () => {
-  it('resolves surfaced files to project + Archiv rows and shows the match snippet', async () => {
+  it('resolves surfaced files to project + Archiv rows and shows the human summary', async () => {
     server.use(
-      http.get('/api/documents', () => HttpResponse.json({ documents: [row('p1', 'Fluchtwegplan.pdf')] })),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [row('p1', 'Fluchtwegplan.pdf', { summary: 'Fluchtwegplan EG mit zweitem Ausgang.' })],
+        }),
+      ),
       http.get('/api/archiv/documents', () =>
-        HttpResponse.json({ documents: [row('a1', 'Referenzprojekt.pdf')], collectionName: 'archiv_o', canManage: false })
+        HttpResponse.json({
+          documents: [row('a1', 'Referenzprojekt.pdf', { summary: 'Vergleichbarer Grundriss aus dem Archiv.' })],
+          collectionName: 'archiv_o',
+          canManage: false,
+        }),
       ),
       // Thumbnails fail → deterministic SVG sketch fallback (no backend needed).
-      http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 }))
+      http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 })),
     )
 
     render(
@@ -62,10 +70,16 @@ describe('DocumentGridCard', () => {
         query="Fluchtwege"
         projectId="proj-1"
         documents={[
-          { file_name: 'Fluchtwegplan.pdf', snippet: 'Der zweite Fluchtweg führt…', page: 2, score: 0.83, source: 'projekt' },
+          {
+            file_name: 'Fluchtwegplan.pdf',
+            snippet: '[DRAWING from page 1] ZEICHNUNGSTYP: Fluchtwegplan',
+            page: 2,
+            score: 0.83,
+            source: 'projekt',
+          },
           { file_name: 'Referenzprojekt.pdf', snippet: 'Ähnlicher Grundriss…', page: null, score: 0.6, source: 'buero' },
         ]}
-      />
+      />,
     )
 
     await waitFor(() =>
@@ -73,11 +87,16 @@ describe('DocumentGridCard', () => {
     )
     expect(screen.getByTestId('document-grid-card')).toHaveAttribute('data-layout', 'choice')
 
-    // Both surfaced files resolve to real file cards (name + summary/hint).
     await waitFor(() => expect(screen.getByText('Fluchtwegplan.pdf')).toBeInTheDocument())
     expect(screen.getByText('Referenzprojekt.pdf')).toBeInTheDocument()
-    expect(screen.getByText('Der zweite Fluchtweg führt…')).toBeInTheDocument()
-    // Provenance badges name each corpus.
+    expect(screen.getByText('Fluchtwegplan EG mit zweitem Ausgang.')).toBeInTheDocument()
+    expect(screen.getByText('Vergleichbarer Grundriss aus dem Archiv.')).toBeInTheDocument()
+    // Ranking leftovers stay off the card — they belong in Files search.
+    expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
+    expect(screen.queryByText(/DRAWING from page/)).not.toBeInTheDocument()
+    expect(screen.queryByText('83%')).not.toBeInTheDocument()
+    expect(screen.queryByText('60%')).not.toBeInTheDocument()
+    expect(screen.queryByText(/2\.4 MB|1 KB|yesterday/i)).not.toBeInTheDocument()
     expect(screen.getByText('Project')).toBeInTheDocument()
     expect(screen.getByText('Office')).toBeInTheDocument()
   })

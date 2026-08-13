@@ -49,7 +49,7 @@ The composer is a white card with the message field on top and a control row bel
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
 - **Attach / file counter / send**: unchanged file-upload and send affordances.
 
-Under the composer, on an empty thread, a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (law sources such as RIS), *Projektunterlagen* (project documents; external sources off), and *Büroarchiv* (office archive). A preset maps onto the data sources the backend actually exposes; selecting one shows a colored provenance chip inside the composer, and any manual change in the Data Sources panel takes you off the preset again.
+Under the composer, on an empty thread, a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (law sources such as RIS), *Projektunterlagen* (project documents; external sources off), and *Büroarchiv* (office archive). A preset maps onto the data sources the backend actually exposes; the pressed shortcut is the only place the preset is named. Any manual change in the Data Sources panel takes you off the preset again. The composer control row does not repeat the preset as a second chip.
 
 ## Invoking a skill (`/name`)
 

@@ -179,6 +179,8 @@ export interface FileCardProps {
   isBusy?: boolean
   /** Extra footer content on the left of the size · time strip. */
   footerLead?: ReactNode
+  /** Drop the size · time footer (chat surfacing — Files-browser chrome). */
+  hideFooter?: boolean
   /** Override the card's test id (e.g. the Archiv surface keeps its own). */
   testId?: string
 }
@@ -188,8 +190,8 @@ export interface FileCardProps {
  * block (thumbnail, provenance/extension chips, name, one-line description or
  * match evidence) sitting proud of a subtle outer surface, a footer tab with
  * size · time, and a spring hover-lift. Shared by the Files browser and the chat
- * `document_grid` surfacing card so documents look identical everywhere, and
- * mirrors `ProjectCard` / the Archiv library card.
+ * `document_grid` surfacing card. Chat passes {@link FileCardProps.hideFooter}
+ * and no {@link FileCardProps.match} — ranking chrome stays in Files search.
  */
 export function FileCard({
   file,
@@ -203,6 +205,7 @@ export function FileCard({
   ariaLabel,
   isBusy,
   footerLead,
+  hideFooter,
   testId = 'file-card',
 }: FileCardProps) {
   const t = useTranslations('files')
@@ -245,7 +248,13 @@ export function FileCard({
             leftover height showed as a band of dead surface underneath. Growing
             the white block instead puts every footer on the bottom edge, so the
             row reads as one strip whatever each card carries above it. */}
-        <div className="w-full flex-1 overflow-hidden rounded-b-[10px] bg-card shadow-xs">
+        <div
+          className={cn(
+            'w-full flex-1 overflow-hidden bg-card shadow-xs',
+            // The inner radius only exists to reveal the muted footer tab.
+            !hideFooter && 'rounded-b-[10px]',
+          )}
+        >
           <div className="relative h-[124px] w-full overflow-hidden border-b bg-card">
             <ThumbnailWithFallback file={file} />
             {showStatus && (
@@ -307,22 +316,23 @@ export function FileCard({
           </div>
         </div>
 
-        {/* Footer tab on the subtle outer surface: optional lead + size · time. */}
-        <div className="flex w-full items-center gap-1.5 px-3.5 pb-2.5 pt-[9px] text-[11px] text-muted-foreground/80">
-          {footerLead ?? <span className="flex-1" />}
-          <span className="shrink-0 tabular-nums">{formatBytes(file.fileSize, locale)}</span>
-          <span aria-hidden className="text-muted-foreground/40">
-            ·
-          </span>
-          <time
-            dateTime={file.createdAt}
-            title={formatAbsoluteTime(file.createdAt, locale)}
-            suppressHydrationWarning
-            className="shrink-0 tabular-nums"
-          >
-            {formatRelativeTime(file.createdAt, locale)}
-          </time>
-        </div>
+        {!hideFooter && (
+          <div className="flex w-full items-center gap-1.5 px-3.5 pb-2.5 pt-[9px] text-[11px] text-muted-foreground/80">
+            {footerLead ?? <span className="flex-1" />}
+            <span className="shrink-0 tabular-nums">{formatBytes(file.fileSize, locale)}</span>
+            <span aria-hidden className="text-muted-foreground/40">
+              ·
+            </span>
+            <time
+              dateTime={file.createdAt}
+              title={formatAbsoluteTime(file.createdAt, locale)}
+              suppressHydrationWarning
+              className="shrink-0 tabular-nums"
+            >
+              {formatRelativeTime(file.createdAt, locale)}
+            </time>
+          </div>
+        )}
       </button>
     </motion.div>
   )
