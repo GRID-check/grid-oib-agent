@@ -385,7 +385,7 @@ const FileChip: FC<{
   return (
     <span
       className={cn(
-        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-xl border px-2 text-[12px]',
+        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
         // A finger has to be able to hit the remove-x, and that button can only
         // grow inside a taller chip — the strip scrolls horizontally, so the
         // extra height costs nothing but a slightly shorter filename.

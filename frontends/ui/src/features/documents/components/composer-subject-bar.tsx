@@ -62,7 +62,7 @@ export function ComposerSubjectBar({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 4 }}
           transition={easeQuiet}
-          className="mb-2 flex items-start gap-2.5 rounded-xl border px-2.5 py-2"
+          className="mb-2 flex items-start gap-2.5 rounded-lg border px-2.5 py-2"
           style={sourceTint('project')}
         >
           <span
