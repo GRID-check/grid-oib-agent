@@ -135,6 +135,30 @@ export function buildArchivStorageKey(
 }
 
 /**
+ * Storage key for a file attached privately to one chat (ADR-0047 Phase 2).
+ *
+ * Third sibling of the two above and the same shape for the same reason: the
+ * key states the owner, so an object can be found from its prefix alone when a
+ * row is missing, and a prefix sweep can erase exactly one owner's bytes.
+ * `org/<org>/session/<conversationId>/doc/<documentId>/<filename>` — the
+ * conversation segment is what makes discarding one chat a single prefix
+ * delete rather than a per-row loop.
+ *
+ * The conversation id is passed through `storageKeySegment` like every other
+ * user-influenced segment. Ids the app mints are already `s_<uuid>` and survive
+ * it unchanged; sanitising anyway means a hand-crafted id cannot climb out of
+ * the organization's prefix.
+ */
+export function buildSessionStorageKey(
+  organizationId: string,
+  conversationId: string,
+  documentId: string,
+  filename: string,
+): string {
+  return `org/${organizationId}/session/${storageKeySegment(conversationId)}/doc/${documentId}/${storageKeySegment(filename)}`
+}
+
+/**
  * The preview thumbnail that sits beside a document, replacing the filename
  * segment of its key with `_thumb.jpg`.
  *

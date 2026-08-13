@@ -70,6 +70,7 @@ import type { DataSource } from '../data-sources'
 import { SourceSignalChip, SourceSignalChipToggle } from './SourceSignalChip'
 import { DataConnectionCard } from './DataConnectionCard'
 import { FileSourcesTab } from './FileSourcesTab'
+import { UploadDestinationNote } from './UploadDestination'
 import { useAppConfig } from '@/shared/context'
 import { useTranslations } from '@/i18n'
 import { useFileUpload, useFileDragDrop } from '@/features/documents'
@@ -1430,10 +1431,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   ? t('inputArea.unsupportedFileType')
                   : t('inputArea.dropToUpload')}
               </span>
-              {isUnsupportedDrag && (
+              {isUnsupportedDrag ? (
                 <span className="text-muted-foreground text-xs">
                   {t('inputArea.accepts', { types: fileUploadConfig.acceptedTypes })}
                 </span>
+              ) : (
+                /* WHERE the drop lands, in the sources panel's own words. The
+                   overlay used to state the accepted types and nothing else, so
+                   the one moment the user is deciding to hand over a file was
+                   also the one moment the app said nothing about which shelf it
+                   would go on — while the panel, one click away, both asked and
+                   answered that question. */
+                <UploadDestinationNote target="session" />
               )}
             </div>
           </div>
@@ -1479,6 +1488,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             ))}
           </div>
         )}
+
+        {/* The destination of the chips above — the composer attaches to the
+            PRIVATE SESSION and cannot be told otherwise, unlike the sources
+            panel, which offers the project corpus as well. Stated in the same
+            words the panel uses (shared primitive), so a user who has seen both
+            surfaces reads one vocabulary rather than two. */}
+        {sessionFiles.length > 0 && <UploadDestinationNote target="session" className="mb-2" />}
 
         {/* Mobile-only entry to the full manage-files sheet. The desktop
             manage-files button is hidden on phones (the action row stays one

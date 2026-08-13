@@ -60,7 +60,21 @@ export async function listProjectDocuments(
         metadata: documents.metadata,
       })
       .from(documents)
-      .where(and(eq(documents.projectId, projectId), eq(documents.organizationId, organizationId)))
+      .where(
+        and(
+          eq(documents.projectId, projectId),
+          eq(documents.organizationId, organizationId),
+          // The shelf, stated. This query used to filter on `project_id` alone
+          // and be correct by accident: the only other shelf was the Archiv,
+          // whose rows carry a NULL project, so `project_id = $1` excluded them
+          // without ever saying that was the intent. `session` is a third shelf
+          // that also has a NULL project (ADR-0047 Phase 2) — so the accident
+          // still holds, and one row that ever carries both a project and a
+          // non-project scope would end it silently. A project listing lists
+          // project documents; that is now what it asks for.
+          eq(documents.scope, 'project'),
+        ),
+      )
       .orderBy(desc(documents.createdAt))
       .limit(boundedLimit),
   )
@@ -360,7 +374,17 @@ export async function countDocumentsByProject(
     db
       .select({ projectId: documents.projectId, total: count() })
       .from(documents)
-      .where(and(eq(documents.organizationId, organizationId), inArray(documents.projectId, projectIds)))
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          inArray(documents.projectId, projectIds),
+          // Same reason as `listProjectDocuments`: the grid's number must be
+          // the count of what the project list shows, and the two must agree by
+          // asking the same question rather than by both happening to exclude
+          // the other shelves.
+          eq(documents.scope, 'project'),
+        ),
+      )
       .groupBy(documents.projectId),
   )
   return Object.fromEntries(rows.map((row) => [row.projectId, Number(row.total)]))

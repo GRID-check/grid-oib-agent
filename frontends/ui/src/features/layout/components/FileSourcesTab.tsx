@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { AnimatePresence } from '@/components/motion'
 import { FileSourceCard, FileSourceCardSkeleton } from './FileSourceCard'
 import { DeleteFileConfirmationModal } from './DeleteFileConfirmationModal'
+import { useUploadDestination } from './UploadDestination'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 import {
   useFileUpload,
@@ -150,12 +151,9 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   const isAwaitingFiles =
     isLoadingFiles || (isThisSessionProcessing && targetFiles.length === 0) || sessionExpectsFiles
 
-  const uploadTargetLabel = isProjectTarget
-    ? t('fileSourcesTab.targetProject')
-    : t('fileSourcesTab.targetSession')
-  const uploadTargetLabelLower = isProjectTarget
-    ? t('fileSourcesTab.targetProjectLower')
-    : t('fileSourcesTab.targetSessionLower')
+  // The destination, in the shared vocabulary the composer now states too.
+  const destination = useUploadDestination(isProjectTarget ? 'project' : 'session')
+  const uploadTargetLabel = destination.label
   const uploadDisabled = isUploading || (isProjectTarget && !projectCollectionName)
 
   // Delete confirmation modal state
@@ -308,7 +306,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             variant="bare"
             icon={UploadCloud}
             title={t('fileSourcesTab.noAttachedFiles')}
-            description={t('fileSourcesTab.filesGoTo', { target: uploadTargetLabelLower })}
+            description={destination.sentence}
           />
         )}
 

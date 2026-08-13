@@ -4,8 +4,8 @@
  * The Archiv is a hierarchical add-on on top of the existing documents domain:
  * an Archiv document is a `documents` row with `scope = 'archiv'`, `projectId`
  * NULL, and `collectionName = archiv_<orgId>`. That lets this service REUSE the
- * document pipeline wholesale — the SeaweedFS upload, the `/v1/ingest` dispatch
- * (`dispatchIngest`), the server-side upload allow-list (`assertUploadTypeAllowed`),
+ * document pipeline wholesale — the SeaweedFS upload, the model-vs-ingest
+ * dispatcher (`dispatchDocument`), the server-side upload allow-list (`assertUploadTypeAllowed`),
  * status reconciliation (`reconcileDocumentStatuses`), and the item routes
  * (download/preview/status/reingest/tags, which are scope-aware in
  * `lib/documents/service`). The ONLY thing that differs is authorization scope:
@@ -32,14 +32,12 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import {
   assertFileSizeAllowed,
   assertUploadTypeAllowed,
-  beginModelExtraction,
-  dispatchIngest,
+  dispatchDocument,
   fetchSemanticHits,
   joinHitsToFiles,
   type SearchedDocument,
 } from '@/lib/documents/service'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
-import { isIfcFilename } from '@/lib/bim/types'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
@@ -160,26 +158,18 @@ export async function uploadArchivDocument(
     status: 'uploaded',
   })
 
-  // Same IFC branch as the project path: the STEP source is never embedded, so
-  // an uploaded model is parsed here and its digest is what reaches the
+  // Same dispatcher as every other shelf: the STEP source of an IFC is never
+  // embedded, so an uploaded model is parsed and its digest is what reaches the
   // org-wide Archiv collection.
-  const { jobId, status } = isIfcFilename(file.name)
-    ? await beginModelExtraction({
-        organizationId: session.organizationId,
-        projectId: null,
-        documentId,
-        filename: file.name,
-        storageKey,
-        storageBucket,
-        collectionName,
-      })
-    : await dispatchIngest(
-        documentId,
-        collectionName,
-        storageKey,
-        session.organizationId,
-        storageBucket,
-      )
+  const { jobId, status } = await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId: null,
+    documentId,
+    filename: file.name,
+    storageKey,
+    storageBucket,
+    collectionName,
+  })
 
   // Data-provenance event: who brought which file into the org Archiv.
   await recordAuditEvent({

@@ -13,7 +13,12 @@
  * - In anonymous mode, no Authorization header is sent.
  *
  * Collection scoping:
- * - Attaches X-Grid-Collection-Scope to every upstream request.
+ * - Attaches X-Grid-Collection-Scope to every upstream request. Its payload is
+ *   `base64url(JSON.stringify([{collection, shelf?}, ...]))` — each collection
+ *   states its shelf (`archiv | project | session | base`) explicitly, so no
+ *   consumer re-derives it from a name prefix (ADR-0047). The value is built
+ *   whole by `buildCollectionScopeFromRequest`, which is where the shelves are
+ *   known; this route only forwards it.
  * - Validates collection_name for collection-scoped routes (e.g. uploads)
  *   via `@/lib/proxy/collection-authz`.
  *

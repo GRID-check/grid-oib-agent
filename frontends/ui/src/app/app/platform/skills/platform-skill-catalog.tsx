@@ -1,27 +1,35 @@
 'use client'
 
 /**
- * Platform → Skills: the curated catalogue, and where it is written.
+ * Platform → Skills: the fleet-wide catalogue, and where it is written.
  *
- * One row here is offered to every organization at once. That is the whole
- * point of the tier, and it is what replaced the "clone a platform skill"
- * button organizations used to get: a clone copied the instruction into one
- * tenant and froze it there, so every improvement we shipped afterwards went to
- * a skill nobody was running. The body lives in this catalogue and only here.
+ * One row here reaches every organization at once. That is the whole point of
+ * the tier, and it is what replaced the "clone a platform skill" button
+ * organizations used to get: a clone copied the instruction into one tenant and
+ * froze it there, so every improvement we shipped afterwards went to a skill
+ * nobody was running. The body lives in this catalogue and only here.
  *
- * Two states per row, and they are not the same question:
+ * THREE states per row, and no two of them are the same question:
  *
- *   published   Whether organizations can SEE it. Ours. A draft is invisible
+ *   published   Whether the skill is live at all. Ours. A draft is invisible
  *               fleet-wide, which is what makes this usable as a writing
  *               surface rather than a publish-on-save wire.
- *   switched on Whether a given organization RUNS it. Theirs, on their own
- *               Skills tab. Nothing here can decide it — publishing offers, it
- *               does not impose.
+ *   delivery    Whether organizations CHOOSE it or simply run it. Ours.
+ *               `offer` puts it on their Skills tab with a switch; `standard`
+ *               is the house instruction — live for everyone, on nobody's tab,
+ *               and not something a tenant can switch off or shadow.
+ *   switched on Whether a given organization RUNS an OFFER. Theirs, on their
+ *               own Skills tab. Nothing here can decide it, and a standard skill
+ *               does not ask.
  *
- * The editor is the org authoring dialog (`SkillEditorDialog`) deliberately: a
- * curated skill is not a privileged shape, it is the same SKILL.md document
- * written one tier up, and it deserves the same live preview, the same reviewer
- * and the same raw-document escape hatch.
+ * Delivery is a row control rather than a field in the editor, deliberately.
+ * The editor writes the DOCUMENT — the same agentskills.io document either way,
+ * which is why it is the org authoring dialog (`SkillEditorDialog`) and not a
+ * second editor that would rot. Delivery is not part of the document; it is who
+ * the document is for, and imposing an instruction on every tenant deserves to
+ * be its own act rather than a control someone tabs past while writing prose.
+ * A new skill is therefore always born as an offer draft, and takes two
+ * deliberate moves to become fleet standard.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -33,6 +41,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDeleteDialog } from '@/features/skills/components/confirm-delete-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
@@ -41,6 +56,7 @@ import {
   deletePlatformSkill,
   listPlatformSkills,
   updatePlatformSkill,
+  type PlatformSkillDelivery,
   type PlatformSkillItem,
 } from '@/adapters/api/skills-client'
 import { PlatformSkillEditorDialog } from './platform-skill-editor-dialog'
@@ -97,6 +113,36 @@ export function PlatformSkillCatalog(): JSX.Element {
         (prev) =>
           prev?.map((row) => (row.id === skill.id ? { ...row, published: !published } : row)) ?? prev,
       )
+      toast.error(t('skills.saveError'))
+    } finally {
+      setPending((current) => current.filter((id) => id !== skill.id))
+    }
+  }
+
+  /**
+   * Move a skill between the two deliveries.
+   *
+   * Not optimistic, unlike publishing. Publishing is one property of one row and
+   * cheap to undo; this changes who is running the instruction — promoting takes
+   * the choice away from every organization on the platform, including ones that
+   * had switched the skill off. Showing that as done before the server said so
+   * would be showing a fleet-wide state we do not yet know we have. The control
+   * disables while the write is in flight and the list re-reads on success.
+   */
+  const setDelivery = async (skill: PlatformSkillItem, delivery: PlatformSkillDelivery) => {
+    if (delivery === skill.delivery) return
+    setPending((current) => [...current, skill.id])
+    try {
+      await updatePlatformSkill(skill.id, { delivery })
+      setSkills(
+        (prev) => prev?.map((row) => (row.id === skill.id ? { ...row, delivery } : row)) ?? prev,
+      )
+      toast.success(
+        delivery === 'standard'
+          ? t('skills.deliveryNowStandard', { name: skill.name })
+          : t('skills.deliveryNowOffer', { name: skill.name }),
+      )
+    } catch {
       toast.error(t('skills.saveError'))
     } finally {
       setPending((current) => current.filter((id) => id !== skill.id))
@@ -189,6 +235,14 @@ export function PlatformSkillCatalog(): JSX.Element {
                           draft is the state worth naming, because it is the one
                           where nobody else can see what you are looking at. */}
                       {!skill.published && <Badge variant="outline">{t('skills.draft')}</Badge>}
+                      {/* The same rule for delivery: "Offer" is the default and
+                          says nothing, "Standard" is the state that changed what
+                          the fleet is running and is worth reading at a glance.
+                          Only meaningful once published — an unpublished
+                          standard skill imposes on nobody yet. */}
+                      {skill.published && skill.delivery === 'standard' && (
+                        <Badge variant="secondary">{t('skills.standardBadge')}</Badge>
+                      )}
                       <Switch
                         checked={skill.published}
                         disabled={pending.includes(skill.id)}
@@ -198,6 +252,24 @@ export function PlatformSkillCatalog(): JSX.Element {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={skill.delivery}
+                      disabled={pending.includes(skill.id)}
+                      onValueChange={(next) => void setDelivery(skill, next as PlatformSkillDelivery)}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="w-auto"
+                        aria-label={t('skills.deliveryAria', { name: skill.name })}
+                        data-testid={`platform-skill-delivery-${skill.name}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="offer">{t('skills.deliveryOffer')}</SelectItem>
+                        <SelectItem value="standard">{t('skills.deliveryStandard')}</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Button size="sm" variant="outline" onClick={() => openEditor(skill)}>
                       {t('skills.edit')}
                     </Button>

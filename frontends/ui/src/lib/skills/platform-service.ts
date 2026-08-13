@@ -16,7 +16,7 @@
 
 import 'server-only'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
-import type { PlatformSkillRow } from '@/lib/db/schema'
+import type { PlatformSkillDelivery, PlatformSkillRow } from '@/lib/db/schema'
 import * as repository from './platform-repository'
 import { findPlatformSkill } from './platform-skills'
 import type { CreatePlatformSkillInput, PatchPlatformSkillInput } from './types'
@@ -29,6 +29,8 @@ export type PlatformSkillListItem = {
   body: string
   metadata: Record<string, string>
   published: boolean
+  /** `offer` — organizations choose it. `standard` — the whole fleet runs it. */
+  delivery: PlatformSkillDelivery
   createdAt: Date
   updatedAt: Date
 }
@@ -41,6 +43,7 @@ function toListItem(row: PlatformSkillRow): PlatformSkillListItem {
     body: row.body,
     metadata: { ...row.metadata },
     published: row.published,
+    delivery: row.delivery,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -90,6 +93,10 @@ export async function createPlatformSkill(
     body: input.body,
     metadata: input.metadata ?? {},
     published: input.published ?? false,
+    // An OFFER unless the author says otherwise, for the same reason it is a
+    // draft unless they say otherwise: the closed default is the one where a
+    // half-considered save cannot impose an instruction on the whole fleet.
+    delivery: input.delivery ?? 'offer',
     createdBy: author.userId,
     createdByEmail: author.email,
   })
@@ -97,11 +104,28 @@ export async function createPlatformSkill(
 }
 
 /**
- * Edit a curated skill — including publishing and withdrawing it.
+ * Edit a curated skill — including publishing it, withdrawing it, and moving it
+ * between the two deliveries.
  *
- * An edit reaches every organization that switched the skill on, immediately
- * and without anyone re-taking it. That is the property the removed clone flow
- * could not have: a copy stops being ours the moment it is made.
+ * An edit reaches every organization that runs the skill immediately and without
+ * anyone re-taking it. That is the property the removed clone flow could not
+ * have: a copy stops being ours the moment it is made.
+ *
+ * Changing `delivery` changes who runs it, and the two directions are not
+ * symmetrical:
+ *
+ *   offer → standard  Every organization starts running it, including the ones
+ *                     that had explicitly switched it off. Their activation rows
+ *                     are left alone but stop being consulted — a standard skill
+ *                     asks nobody. This is the one edit here that imposes.
+ *   standard → offer  Every organization stops running it until it switches the
+ *                     skill on, and the activation rows come back into force, so
+ *                     an org that switched the skill off back when it was an
+ *                     offer stays off. A demotion is therefore a fleet-wide
+ *                     deactivation, not a relabelling.
+ *
+ * Activation rows survive both moves precisely so that a promotion followed by a
+ * demotion returns the fleet to where it started rather than to a blank slate.
  */
 export async function updatePlatformSkill(
   skillId: string,

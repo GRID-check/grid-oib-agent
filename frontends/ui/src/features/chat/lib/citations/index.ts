@@ -76,6 +76,7 @@ export {
   answerDocuments,
   answerSourceAnchorPrefix,
   bibliographyRows,
+  documentShelfLabel,
   documentTabLabel,
   splitAnswerBody,
   totalHits,

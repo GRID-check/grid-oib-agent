@@ -28,7 +28,7 @@ import 'server-only'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { FEATURE_FLAGS, isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { getBackendUrl } from '@/lib/backend-proxy'
-import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type {
   Conversation,
@@ -39,6 +39,7 @@ import type {
   ResourceVisibility,
 } from '@/lib/db/schema'
 import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
+import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
 import { publishToUsers } from '@/lib/events/bus'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
@@ -70,6 +71,7 @@ import {
   insertMessages,
   listMessagesForConversation,
   listVisibleConversations,
+  markConversationDeleting,
   mergeMessageMetadata,
   updateConversationMetaInOrg,
   updateConversationTitleInOrg,
@@ -398,6 +400,69 @@ export async function generateConversationTitle(
 }
 
 /**
+ * `owner` on the conversation, INCLUDING one that is already marked deleting.
+ *
+ * A conversation stamped `deleted_at` is a 404 to `resolveResourceAccess`, and
+ * that is right for every other operation — but it would also make the one
+ * operation that has to be repeatable impossible to repeat. A discard whose
+ * external cleanup failed leaves the mark set on purpose (the rows are the
+ * retry handle); if the retry could not authorize, the handle would exist and
+ * be unreachable, which is the same outcome as not keeping it.
+ *
+ * This grants no access the normal path would not. It reproduces the container
+ * check verbatim and then requires that the caller CREATED the conversation —
+ * "the creator always owns it" is `resolveResourceAccess`'s own rule. The only
+ * thing it skips is the `deleted_at` rejection, and only for a row that carries
+ * the mark.
+ */
+async function authorizeConversationDelete(
+  session: AuthorizedSession,
+  conversationId: string,
+): Promise<void> {
+  try {
+    await requireResourceAccess(session, 'conversation', conversationId, 'owner')
+    return
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) throw error
+
+    const tenancy = await findConversationTenancy(conversationId)
+    if (
+      !tenancy?.deletedAt ||
+      tenancy.organizationId !== session.organizationId ||
+      tenancy.createdBy !== session.userId
+    ) {
+      throw error
+    }
+    // Same container gate as step (2) of `resolveResourceAccess`; its denial is
+    // already a NotFoundError.
+    if (tenancy.projectId) {
+      await requireProjectAccess(session, tenancy.projectId, 'project:view')
+    }
+  }
+}
+
+/**
+ * Refuse a write that would attach new external state to a conversation whose
+ * erasure has already begun.
+ *
+ * Called by `session-documents/service` immediately before the object write —
+ * see the comment there for why that is the moment. Deliberately NOT an access
+ * check: the caller has already been authorized by `createConversation`, and
+ * what this answers is a different question, "is this conversation still
+ * accepting bytes", whose honest answer is 409 rather than 404.
+ */
+export async function assertConversationAcceptsUploads(
+  conversationId: string,
+  organizationId: string,
+): Promise<void> {
+  const tenancy = await findConversationTenancy(conversationId)
+  if (!tenancy || tenancy.organizationId !== organizationId) throw new NotFoundError()
+  if (tenancy.deletedAt) {
+    throw new ConflictError('This chat is being deleted; no further files can be attached to it.')
+  }
+}
+
+/**
  * Delete a conversation. Requires `owner`.
  *
  * **This function reports the truth and answers `NotFoundError` for both "no such
@@ -414,9 +479,49 @@ export async function generateConversationTitle(
  * DELETE handler therefore answers **204 for `NotFoundError` either way** — one
  * response for both, which is what SH-6 actually demands — while this function
  * stays honest for every internal caller and every test.
+ *
+ * **It is also two-phase**, because the attachments live in stores no foreign
+ * key reaches: mark deleting → erase the external state → delete the rows. A
+ * failure in the middle stops before the rows, and the marked conversation plus
+ * its retained document rows are what a retry runs on.
  */
 export async function deleteConversation(session: AuthorizedSession, conversationId: string): Promise<void> {
-  await requireResourceAccess(session, 'conversation', conversationId, 'owner')
+  await authorizeConversationDelete(session, conversationId)
+
+  // Announce the deletion BEFORE erasing anything.
+  //
+  // The purge below and the row delete under it are two steps, and an upload
+  // that arrived between them used to land its object and its chunks after the
+  // purge had walked past them, and then lose its row to the foreign key's
+  // cascade — private bytes and private chunks in the tenant's stores with
+  // nothing left naming them. `deleted_at` is already read as "gone" by
+  // `resolveResourceAccess`, so this one write both hides the thread and gives
+  // `assertConversationAcceptsUploads` something to refuse on, for the whole
+  // duration of the purge rather than only at its end.
+  const marked = await markConversationDeleting(conversationId, session.organizationId)
+  if (!marked) throw new NotFoundError()
+
+  // The files the user dropped into this chat (ADR-0047 Phase 2). Their rows
+  // would cascade off the conversation's foreign key on their own, but a
+  // cascade reaches neither SeaweedFS nor the retrieval collection — so this
+  // runs FIRST, while the rows that name those objects still exist. Skipping it
+  // would leave bytes nothing lists, nothing can delete, and that still count
+  // against the organization's storage quota.
+  const purge = await purgeSessionDocuments(conversationId, session.organizationId)
+  if (!purge.ok) {
+    // STOP. Deleting the conversation now would cascade away exactly the rows
+    // that still name the objects and chunks the purge could not erase, and
+    // there is no other handle on them: no listing, no ledger entry, no id.
+    // Both the conversation and its retained document rows stay, marked
+    // deleting, and a repeated DELETE resumes from here.
+    console.error(
+      `[conversations] session document cleanup incomplete for ${conversationId} — ` +
+        `${purge.retained} row(s) retained for retry:`,
+      purge.failures.join('; '),
+    )
+    throw new UpstreamError('Deleting the chat’s attachments failed; the chat was kept so it can be retried.')
+  }
+
   await deleteConversationInOrg(conversationId, session.organizationId)
 
   // `messages` and `conversation_reads` cascade through their foreign keys;

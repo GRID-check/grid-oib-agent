@@ -25,6 +25,14 @@ function makeTx({
   holdRows = [],
   documentBucketRows = [],
   /**
+   * `documents` rows for files attached privately to this project's chats
+   * (ADR-0047 Phase 2): `{ conversation_id, collection_name, storage_bucket }`.
+   * They answer a DIFFERENT query from `documentBucketRows` — a session
+   * document's `project_id` is NULL, so the project-scoped bucket read cannot
+   * see it, which is exactly how its object and its chunks were being stranded.
+   */
+  sessionDocumentRows = [],
+  /**
    * Hold rows to return on the Nth `legal_holds` read, so a test can place a
    * hold PART WAY through the purge. `holdRows` still covers "held from the
    * start"; this covers "held after we began", which is the case the per-step
@@ -48,6 +56,11 @@ function makeTx({
     }
     if (text.startsWith('SELECT') && text.includes('FROM projects')) {
       return Promise.resolve(projectRow ? [projectRow] : [])
+    }
+    // Before the `conversations` branch: this statement names that table too,
+    // inside its subquery.
+    if (text.includes('FROM documents') && text.includes("scope = 'session'")) {
+      return Promise.resolve(sessionDocumentRows)
     }
     if (text.startsWith('SELECT') && text.includes('FROM conversations')) {
       return Promise.resolve(conversationRows)
@@ -273,6 +286,174 @@ describe('purgeProject', () => {
     })
 
     await expect(purgeProject(tx, entry, deps)).resolves.toBeUndefined()
+  })
+})
+
+/**
+ * Files a user dropped privately into one of the project's chats (ADR-0047
+ * Phase 2). Their external state is invisible to every other step in this file:
+ *
+ *   - the row has a NULL `project_id`, so the bucket read in step 2 misses it;
+ *   - its object is at `org/<org>/session/<conversation>/…`, which the project
+ *     prefix sweep does not cover;
+ *   - its chunks are in the chat's own `s_<conversation>` collection, which the
+ *     backend purge — handed only the PROJECT's collection name — never touches.
+ *
+ * And `DELETE FROM conversations` cascades the rows away, so after a purge the
+ * bytes and the chunks are still there with nothing naming them: no listing, no
+ * ledger entry, no id to retry from. These tests pin that each of the three is
+ * now erased, and that a failure stops the row deletes rather than proceeding.
+ */
+describe('session attachments', () => {
+  const sessionEntry = {
+    ...entry,
+    payload: { collectionName: 'proj_fallback' },
+  }
+
+  it('purges each chat’s own collection, before any row is deleted', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_c1' }, { id: 's_c2' }],
+      sessionDocumentRows: [
+        { conversation_id: 's_c1', collection_name: 's_c1', storage_bucket: null },
+        { conversation_id: 's_c2', collection_name: 's_c2', storage_bucket: null },
+      ],
+    })
+    const deps = makeDeps()
+
+    await purgeProject(tx, sessionEntry, deps)
+
+    const collections = deps.fetchImpl.mock.calls.map(
+      (call) => JSON.parse(call[1].body).collection_name,
+    )
+    expect(collections).toEqual(['proj_abc', 's_c1', 's_c2'])
+    // Every backend call happened before the first grid_app row delete: the
+    // rows are what name these collections, so losing them first would leave
+    // nothing to retry from.
+    expect(executed.filter((q) => q.text.startsWith('DELETE'))).not.toHaveLength(0)
+  })
+
+  it('sweeps each chat’s storage prefix, in the buckets its own rows record', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_c1' }],
+      sessionDocumentRows: [
+        { conversation_id: 's_c1', collection_name: 's_c1', storage_bucket: 'grid-org-org1-abcdef123456' },
+      ],
+    })
+    const deps = makeDeps()
+
+    await purgeProject(tx, sessionEntry, deps)
+
+    expect(deps.deleteStoragePrefix.mock.calls).toEqual([
+      // The project's own prefix, in the shared bucket (no project document row
+      // records another one).
+      ['grid-documents', 'org/org1/project/p1/'],
+      // …and the chat's prefix, which shares no ancestor with it.
+      ['grid-documents', 'org/org1/session/s_c1/'],
+      ['grid-org-org1-abcdef123456', 'org/org1/session/s_c1/'],
+    ])
+  })
+
+  it('leaves the chat prefixes alone when no chat holds an attachment', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_c1' }, { id: 's_c2' }],
+      sessionDocumentRows: [],
+    })
+    const deps = makeDeps()
+
+    await purgeProject(tx, sessionEntry, deps)
+
+    expect(deps.deleteStoragePrefix.mock.calls).toEqual([['grid-documents', 'org/org1/project/p1/']])
+    expect(deps.fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  // The backend answers 200 with `status: "failed"` when the collection existed
+  // and the delete returned falsy. Treated as success, that is an orphaned
+  // collection of private chat content reported as an erasure — and the rows
+  // that name it would be gone one statement later.
+  it('aborts the purge, rows intact, when a chat collection cannot be erased', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_c1' }],
+      sessionDocumentRows: [
+        { conversation_id: 's_c1', collection_name: 's_c1', storage_bucket: null },
+      ],
+    })
+    const deps = makeDeps({
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ok' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'failed' }) }),
+    })
+
+    await expect(purgeProject(tx, sessionEntry, deps)).rejects.toThrow(/reported failure for collection s_c1/)
+
+    expect(deps.deleteStoragePrefix).not.toHaveBeenCalled()
+    expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
+    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
+  it('aborts the purge, rows intact, when a chat prefix cannot be swept', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_c1' }],
+      sessionDocumentRows: [
+        { conversation_id: 's_c1', collection_name: 's_c1', storage_bucket: null },
+      ],
+    })
+    const deps = makeDeps({
+      deleteStoragePrefix: vi
+        .fn()
+        .mockResolvedValueOnce(3)
+        .mockRejectedValueOnce(new Error('SeaweedFS delete reported 2 error(s)')),
+    })
+
+    await expect(purgeProject(tx, sessionEntry, deps)).rejects.toThrow(/SeaweedFS delete reported/)
+    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
+  // Same discipline as the collaboration deletes below: the conversation set is
+  // a SUBQUERY, so the statement binds one parameter whatever the chat count.
+  it('reads the attachments through a subquery, not N bound conversation ids', async () => {
+    const conversationRows = Array.from({ length: 70_000 }, (_, i) => ({ id: `s_c${i}` }))
+    const { tx, expansions, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows,
+      sessionDocumentRows: [],
+    })
+
+    await purgeProject(tx, sessionEntry, makeDeps())
+
+    expect(expansions).toEqual([])
+    const read = executed.find(
+      (q) => q.text.includes('FROM documents') && q.text.includes("scope = 'session'"),
+    )
+    expect(read).toBeDefined()
+    expect(read.values).toEqual(['p1'])
+    expect(read.text).toContain('IN (SELECT id FROM conversations WHERE project_id = $)')
+  })
+
+  // A legal hold placed after the project's own collection went, but before the
+  // chats' collections do. The erasure must stop where the hold arrived.
+  it('stops before a chat collection when a hold appears mid-purge', async () => {
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_c1' }],
+      sessionDocumentRows: [
+        { conversation_id: 's_c1', collection_name: 's_c1', storage_bucket: null },
+      ],
+      // 1 is the pre-flight check; 2 guards the first session collection.
+      holdOnCheck: { 2: [{ '?column?': 1 }] },
+    })
+    const deps = makeDeps()
+
+    await expect(purgeProject(tx, sessionEntry, deps)).rejects.toMatchObject({
+      code: LEGAL_HOLD_CODE,
+    })
+    // The project's own collection was already purged; the chat's was not.
+    expect(deps.fetchImpl).toHaveBeenCalledTimes(1)
   })
 })
 

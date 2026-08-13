@@ -340,22 +340,29 @@ def _resolve_base_collection(config: KnowledgeRetrievalConfig) -> str:
     return config.collection_name
 
 
-def _resolve_target_collections(
+def _resolve_scoped_collections(
     config: KnowledgeRetrievalConfig, session_id: str | None, base_collection: str | None = None
-) -> list[str]:
+):
     """
-    Build the ordered, de-duplicated set of collections to search.
+    Build the ordered, de-duplicated set of collections to search, WITH shelves.
 
     Layers (in order): base corpus, per-session collection, project collections.
 
     - When the ``X-Grid-Collection-Scope`` header is present via NAT context,
       it takes precedence and is returned directly regardless of legacy flags.
+      Its entries carry the shelf the BFF stated (ADR-0047); a legacy
+      bare-string entry states none, and that is left UNKNOWN rather than
+      guessed back from the collection id.
     - Legacy: when ``use_fixed_collection`` is True, only the base collection is
       searched (the session collection is ignored). This preserves
       backward-compatible pinned behavior.
     - Otherwise the search set is assembled from the enabled layers and
       de-duplicated while preserving order. If nothing is selected, fall back to
       the base collection.
+
+    In the legacy path the shelf is not inferred either: this function BUILDS the
+    layers, so it knows which is the base corpus, which is the session store and
+    which are project stores, and simply states it.
 
     Args:
         config: Knowledge retrieval configuration.
@@ -364,13 +371,16 @@ def _resolve_target_collections(
             by the caller). Defaults to ``config.collection_name`` when omitted.
 
     Returns:
-        Ordered, de-duplicated list of collection names (never empty).
+        Ordered, de-duplicated list of ``ScopedCollection`` (never empty).
     """
+    from aiq_agent.common.source_kinds import Shelf
+    from aiq_agent.knowledge.scoping import ScopedCollection
+
     # Header-based collection scope takes precedence.
     try:
-        from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+        from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 
-        header_scope = get_collection_scope_from_context()
+        header_scope = get_scoped_collections_from_context()
         if header_scope:
             return header_scope
     except ImportError:
@@ -387,29 +397,40 @@ def _resolve_target_collections(
 
     if config.use_fixed_collection:
         # Legacy pinned behavior: base only, never the session collection.
-        return [base]
+        return [ScopedCollection(base, Shelf.BASE)]
 
     session_collection = _normalize_session_collection_name(session_id)
 
-    targets: list[str] = []
+    targets: list[ScopedCollection] = []
     if config.include_base_collection and base:
-        targets.append(base)
+        targets.append(ScopedCollection(base, Shelf.BASE))
     if config.include_session_collection and session_collection:
-        targets.append(session_collection)
-    targets.extend(config.project_collections)
+        targets.append(ScopedCollection(session_collection, Shelf.SESSION))
+    targets.extend(ScopedCollection(name, Shelf.PROJECT) for name in config.project_collections)
 
     # De-duplicate while preserving order.
     seen: set[str] = set()
-    ordered: list[str] = []
-    for name in targets:
-        if name and name not in seen:
-            seen.add(name)
-            ordered.append(name)
+    ordered: list[ScopedCollection] = []
+    for entry in targets:
+        if entry.collection and entry.collection not in seen:
+            seen.add(entry.collection)
+            ordered.append(entry)
 
     # Empty search set -> fall back to the base collection.
     if not ordered:
-        return [base]
+        return [ScopedCollection(base, Shelf.BASE)]
     return ordered
+
+
+def _resolve_target_collections(
+    config: KnowledgeRetrievalConfig, session_id: str | None, base_collection: str | None = None
+) -> list[str]:
+    """Names-only projection of :func:`_resolve_scoped_collections`.
+
+    Returns:
+        Ordered, de-duplicated list of collection names (never empty).
+    """
+    return [entry.collection for entry in _resolve_scoped_collections(config, session_id, base_collection)]
 
 
 def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict | None:
@@ -786,28 +807,38 @@ def _trace_lanes_json(
         return '{"lanes":[]}'
 
 
+def _chunk_shelf(chunk):
+    """The shelf a hit came from, as STATED in its metadata (ADR-0047).
+
+    ``None`` when the producer stated none. It is not recovered from the
+    collection id: an unknown shelf is unknown, and a citation for it stays
+    unqualified rather than claiming a shelf the pipeline guessed.
+    """
+    from aiq_agent.common.source_kinds import parse_shelf
+
+    return parse_shelf((chunk.metadata or {}).get("shelf"))
+
+
 def _ambiguous_file_names(chunks) -> set[str]:
-    """Filenames this result set holds under MORE THAN ONE collection scope.
+    """Filenames this result set holds on MORE THAN ONE shelf.
 
     A search fans out across the base corpus, the session collection and the
     project collections concurrently, so one result set can carry a project
     `Plan.pdf` and a Büroarchiv `Plan.pdf` — different documents that a bare
-    filename cannot tell apart. Those names (and only those) get a scope
+    filename cannot tell apart. Those names (and only those) get a shelf
     qualifier in their citation key, so the common case stays a plain filename.
 
-    Scope, not raw collection, is the grouping: it is all a citation key can
+    Shelf, not raw collection, is the grouping: it is all a citation key can
     express, so two collections on the same shelf are not a distinction the
     model could act on anyway.
     """
-    from aiq_agent.common.source_kinds import collection_scope
-
-    scopes_by_name: dict[str, set[str | None]] = {}
+    shelves_by_name: dict[str, set] = {}
     for chunk in chunks:
         name = (chunk.file_name or "").strip()
         if not name:
             continue
-        scopes_by_name.setdefault(name.lower(), set()).add(collection_scope((chunk.metadata or {}).get("collection")))
-    return {name for name, scopes in scopes_by_name.items() if len(scopes) > 1}
+        shelves_by_name.setdefault(name.lower(), set()).add(_chunk_shelf(chunk))
+    return {name for name, shelves in shelves_by_name.items() if len(shelves) > 1}
 
 
 def _format_results(retrieval_result, query: str) -> str:
@@ -846,11 +877,14 @@ def _format_results(retrieval_result, query: str) -> str:
         # When the same filename arrived from two different shelves in this very
         # result set, the name alone no longer identifies a document, so it is
         # qualified: "Plan.pdf (Projektwissen), p.3".
+        shelf = _chunk_shelf(chunk)
         name = chunk.file_name
         if name and name.lower() in ambiguous:
-            from aiq_agent.common.source_kinds import scope_qualifier
+            from aiq_agent.common.source_kinds import shelf_qualifier
 
-            qualifier = scope_qualifier((chunk.metadata or {}).get("collection"))
+            # Rendering, not transport: the qualifier is how the shelf READS in a
+            # key the model copies. An unknown shelf gets none (unattributed).
+            qualifier = shelf_qualifier(shelf)
             if qualifier:
                 name = f"{name} ({qualifier})"
         if chunk.page_number and chunk.page_number > 0:
@@ -868,6 +902,11 @@ def _format_results(retrieval_result, query: str) -> str:
         collection = (chunk.metadata or {}).get("collection")
         if collection:
             lines.append(f"Collection: {collection}")
+        # The shelf travels as DATA (ADR-0047): the citation payload states it so
+        # the source registry never re-derives it from the collection id. Omitted
+        # when unknown — the reader must see the absence, not a default.
+        if shelf is not None:
+            lines.append(f"Shelf: {shelf}")
         # Explicit per-document classification ("Dokumentart"). Emit the machine
         # doc_class key first (the citation parser reads it) followed by the
         # German label so the LLM is told the document's role in the norm
@@ -1033,12 +1072,17 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         # Austria; the seam that points retrieval at country #2's corpus).
         base_collection = _resolve_base_collection(config)
 
-        # Build the ordered, de-duplicated layered search set.
-        target_collections = _resolve_target_collections(config, session_collection, base_collection)
+        # Build the ordered, de-duplicated layered search set (with shelves).
+        target_collections = _resolve_scoped_collections(config, session_collection, base_collection)
 
-        logger.info(f"Knowledge search: query='{query[:100]}...' collections={target_collections}")
+        logger.info(
+            "Knowledge search: query='%s...' collections=%s",
+            query[:100],
+            [(entry.collection, entry.shelf) for entry in target_collections],
+        )
 
-        async def _retrieve_collection(coll: str):
+        async def _retrieve_collection(entry):
+            coll = entry.collection
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
@@ -1047,8 +1091,14 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.
+            # The SHELF rides along explicitly (ADR-0047): this is the last point
+            # at which it is known for free, and nothing downstream may recover
+            # it from the collection id. An unstated shelf stays absent — absent
+            # means unknown, and unknown renders unattributed.
             for chunk in getattr(result, "chunks", []) or []:
                 chunk.metadata.setdefault("collection", coll)
+                if entry.shelf is not None:
+                    chunk.metadata.setdefault("shelf", str(entry.shelf))
 
             # Named retrieve: the agent's `file_name=` (explicit) or the
             # visible peek (`focus_file_name`) so similarity is not the only
@@ -1070,6 +1120,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         )
                         for chunk in getattr(named, "chunks", []) or []:
                             chunk.metadata.setdefault("collection", coll)
+                            if entry.shelf is not None:
+                                chunk.metadata.setdefault("shelf", str(entry.shelf))
                         if getattr(named, "success", False) and named.chunks:
                             result = result.model_copy(
                                 update={"chunks": list(named.chunks) + list(getattr(result, "chunks", []) or [])}
@@ -1081,7 +1133,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         try:
             # Fan out across all layers concurrently; tolerate empty/missing layers.
             results = await asyncio.gather(
-                *(_retrieve_collection(coll) for coll in target_collections),
+                *(_retrieve_collection(entry) for entry in target_collections),
                 return_exceptions=True,
             )
 

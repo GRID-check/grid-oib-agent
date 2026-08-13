@@ -75,6 +75,10 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   organizationId: 'org-1',
   projectId: 'proj-1',
   scope: 'project',
+  // Only a `scope: 'session'` row names a conversation (migration 0049's CHECK
+  // constraint says so in both directions), and the default fixture is an
+  // ordinary project document.
+  conversationId: null,
   createdBy: 'user-1',
   filename: 'plan.pdf',
   // Not renamed — what every document is until somebody renames it.

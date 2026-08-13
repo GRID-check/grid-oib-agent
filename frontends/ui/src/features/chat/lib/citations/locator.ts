@@ -11,15 +11,22 @@
  * `citation-wire-contract.spec.ts`.
  */
 
-import { SCOPE_QUALIFIERS, scopeForQualifier, type CollectionScope } from '../source-kinds'
+import { CITATION_KEY_QUALIFIERS, scopeForQualifier, type Shelf } from '../source-kinds'
 import { stripOriginToken } from './model'
 
 /** A knowledge-layer citation locator: filename + optional page + optional shelf. */
 export interface KbCitationLocator {
   filename: string
   page?: number
-  /** Scope named by the key's `(Projektwissen)` qualifier, when it carries one. */
-  scope?: CollectionScope
+  /**
+   * Shelf named by the key's `(Projektwissen)` qualifier, when it carries one.
+   *
+   * A payload carrying the shelf as data (ADR-0047) always wins; this is the
+   * fallback for messages persisted before that field existed, and the reading
+   * for keys the backend still qualifies today to keep one filename unique
+   * across two shelves.
+   */
+  shelf?: Shelf
 }
 
 /**
@@ -33,15 +40,23 @@ const PAGE_REF_RE = /[,\s]\s*(?:p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))/i
 const FILENAME_RE = /^.+\.\w{2,5}$/
 
 /**
- * Trailing scope qualifier of a citation key (`Plan.pdf (Projektwissen)`) —
- * mirrors the backend's `_SCOPE_QUALIFIER_RE`. Only the KNOWN qualifiers match,
- * so a parenthetical that is genuinely part of a filename ("Bescheid
- * (Kopie).pdf") is never mistaken for one.
+ * Trailing qualifier of a citation key (`Plan.pdf (Projektwissen)`) — mirrors
+ * the backend's `_SCOPE_QUALIFIER_RE`.
+ *
+ * Only qualifiers a WRITER can emit match, so a parenthetical that is genuinely
+ * part of a filename ("Bescheid (Kopie).pdf") is never mistaken for one, and a
+ * display label reworded on the rendering side cannot start eating filenames.
+ *
+ * That set is four, not the legacy three: the backend still appends a qualifier
+ * to keep a key unique when two retrieved files share a name across shelves, so
+ * it writes `(Private Sitzung)` for a session hit. A reader that knew only the
+ * legacy three left the qualifier in place, the remainder missed `FILENAME_RE`,
+ * and the citation resolved to null.
  */
 const SCOPE_QUALIFIER_RE = new RegExp(
-  `\\s*\\((${Object.values(SCOPE_QUALIFIERS)
-    .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|')})\\)\\s*$`,
+  `\\s*\\((${CITATION_KEY_QUALIFIERS.map(([label]) =>
+    label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  ).join('|')})\\)\\s*$`,
   'i'
 )
 
@@ -60,12 +75,12 @@ export const parseKbLocator = (text: string): KbCitationLocator | null => {
   const page = pageMatch ? Number(pageMatch[1]) : undefined
   let filename = (pageMatch ? line.slice(0, pageMatch.index) : line).replace(/[\s,]+$/, '').trim()
   const qualifierMatch = SCOPE_QUALIFIER_RE.exec(filename)
-  const scope = qualifierMatch ? scopeForQualifier(qualifierMatch[1]) : undefined
+  const shelf = qualifierMatch ? scopeForQualifier(qualifierMatch[1]) : undefined
   if (qualifierMatch) {
     filename = filename.slice(0, qualifierMatch.index).replace(/[\s,]+$/, '').trim()
   }
   if (!FILENAME_RE.test(filename)) return null
-  return { filename, page, scope }
+  return { filename, page, shelf }
 }
 
 /** Filename carried by a pseudo-URL (`kb://corpus/Plan.pdf`), if any. */

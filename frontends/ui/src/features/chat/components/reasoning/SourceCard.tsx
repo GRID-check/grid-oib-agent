@@ -52,6 +52,10 @@ export const SourceCard: FC<{
   live?: boolean
 }> = ({ document: doc, hitLabel, gapLabel, live = false }) => {
   const t = useTranslations('chat')
+  // The tab states the document's provenance: its fine lane, else the SHELF the
+  // wire carried (ADR-0047 — read as data, never prefix-matched off a collection
+  // id), else the coarse display stratum. A document with no shelf on the wire
+  // is simply not attributed to one; it never inherits a guessed shelf.
   const tabLabel = documentTabLabel(doc)
   // Icon keys off the coarse SIGNAL (all Baurecht shares the scales glyph); the
   // tint keys off the fine ACCENT so OIB and RIS are distinguishable at a

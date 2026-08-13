@@ -1,11 +1,12 @@
 'use client'
 
 /**
- * Dev preview for Platform → Skills: the catalogue Piloti curates for every
+ * Dev preview for Platform → Skills: the catalogue Piloti writes for every
  * organization. Renders the REAL `PlatformSkillCatalog` with a fetch shim
- * serving `/api/platform/skills`, so both row states are reviewable without a
- * backend — a published skill (offered to the fleet) and a draft (invisible to
- * every tenant until the switch is flipped).
+ * serving `/api/platform/skills`, so every row state is reviewable without a
+ * backend: a published OFFER (on every org's Skills tab, each deciding), a
+ * published STANDARD (running for the whole fleet, on nobody's tab) and a draft
+ * (invisible until the switch is flipped).
  *
  * The shim is installed at MODULE scope, not in an effect: a child's effect
  * fires first and would race a parent's fetch patch.
@@ -23,8 +24,23 @@ const SKILLS = [
     body: 'Act as a fire-safety reviewer.\n\n1. Identify every fire-safety relevant building part.\n2. Verify each against OIB-Richtlinie 2.\n3. List deviations with the exact clause number.',
     metadata: { 'grid-agents': 'deep_researcher' },
     published: true,
+    delivery: 'offer' as const,
     createdAt: '2026-08-01T09:00:00Z',
     updatedAt: '2026-08-10T09:00:00Z',
+  },
+  {
+    id: 'ps-3',
+    name: 'oib-paragraph-citations',
+    description:
+      'Every normative claim carries the OIB clause it rests on — the house rule for the whole fleet.',
+    body: 'When you state that something is required, permitted or forbidden, name the OIB-Richtlinie and the exact clause number it comes from.',
+    metadata: {},
+    published: true,
+    // The state the tier exists for: live for every organization, on nobody's
+    // Skills tab, and nothing a tenant can switch off.
+    delivery: 'standard' as const,
+    createdAt: '2026-08-12T09:00:00Z',
+    updatedAt: '2026-08-12T09:00:00Z',
   },
   {
     id: 'ps-2',
@@ -33,6 +49,7 @@ const SKILLS = [
     body: 'Compare the project’s energy certificate against OIB-Richtlinie 6 and list every value that misses its limit.',
     metadata: {},
     published: false,
+    delivery: 'offer' as const,
     createdAt: '2026-08-11T09:00:00Z',
     updatedAt: '2026-08-11T09:00:00Z',
   },

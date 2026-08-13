@@ -8,6 +8,7 @@ import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
+import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
@@ -57,8 +58,29 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
-  const loadDocuments = useCallback(() => {
-    setIsLoading(true)
+  /**
+   * Only the LATEST request may commit its answer.
+   *
+   * `useSettlingRefresh` serialises its OWN polls, but nothing coordinated a
+   * poll already in flight with a FOREGROUND load (mount, upload settled,
+   * `onComplete`, retry). A slow poll response carrying `processing` could
+   * therefore land after a newer foreground response carrying `ready` and
+   * overwrite it — regressing the badge the user was just told had flipped,
+   * and, because the row went back to unsettled, restarting the poll. A
+   * monotonic generation stamped when the request goes out and re-checked
+   * before every state write makes the newest request the only one that can
+   * win, whatever order the responses come back in.
+   */
+  const loadGeneration = useRef(0)
+
+  /**
+   * @param quiet Refresh without the skeleton — used by the settling poll
+   *   below, which would otherwise flash the whole grid every few seconds.
+   */
+  const loadDocuments = useCallback((quiet = false) => {
+    const generation = ++loadGeneration.current
+    const isStale = () => generation !== loadGeneration.current
+    if (!quiet) setIsLoading(true)
     setLoadError(false)
     return fetch('/api/archiv/documents')
       .then((r) => {
@@ -66,6 +88,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
         return r.json() as Promise<ArchivListResponse>
       })
       .then((data) => {
+        if (isStale()) return
         setCollectionName(data.collectionName)
         const docs: FileItem[] = (data.documents ?? []).map((d) => ({
           id: d.id as string,
@@ -86,10 +109,19 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
         setFiles(docs)
       })
       .catch(() => {
+        // A failed POLL must not empty a list the user is looking at; only a
+        // foreground load owns the error state — and only while it is still the
+        // latest one, so a late failure cannot blank a newer successful list.
+        if (quiet || isStale()) return
         setFiles([])
         setLoadError(true)
       })
-      .finally(() => setIsLoading(false))
+      .finally(() => {
+        // Deliberately NOT generation-guarded: the spinner belongs to the
+        // foreground loads alone, and a quiet poll starting mid-load would
+        // otherwise leave it spinning forever with nobody left to clear it.
+        if (!quiet) setIsLoading(false)
+      })
   }, [])
 
   useEffect(() => {
@@ -111,7 +143,10 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     dismissFiles,
   } = useArchivDocuments({
     collectionName: canManage ? collectionName : undefined,
-    onComplete: loadDocuments,
+    // Wrapped rather than passed directly: `loadDocuments` takes a `quiet`
+    // flag now, and whatever the orchestrator hands its callback must not
+    // decide how this renders.
+    onComplete: () => void loadDocuments(),
   })
 
   // Surface hook errors as a transient toast (plus the persistent inline Alert).
@@ -138,6 +173,18 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       [t]
     )
   )
+
+  /*
+    Re-ask while anything is still being read.
+
+    `onComplete` fires when the BYTES land, which for an `.ifc` is the moment
+    extraction STARTS: `beginModelExtraction` returns no job id, so the upload
+    orchestrator never watches a model and nothing else here would ever ask
+    again. Without this poll every model uploaded through Archiv sat at "Wird
+    gelesen…" until the page was reloaded, and the completion toast below never
+    fired at all. Same hook, same guarantees, as the project Files workspace.
+  */
+  useSettlingRefresh(files, loadDocuments)
 
   // Refetch the durable list when an upload batch settles.
   const wasUploading = useRef(false)
@@ -278,7 +325,10 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
-                onClick={loadDocuments}
+                // Not `onClick={loadDocuments}`: the click event would arrive as
+                // the `quiet` flag, so a retry would hide its own skeleton and
+                // swallow a second failure.
+                onClick={() => void loadDocuments()}
               >
                 <RotateCcw className="size-3.5" aria-hidden />
                 {t('workspace.tryAgain')}

@@ -7,7 +7,7 @@
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
-import type { SourceKind } from './lib/source-kinds'
+import type { Shelf, SourceKind } from './lib/source-kinds'
 
 /** Message role types */
 export type MessageRole = 'user' | 'assistant' | 'system'
@@ -499,6 +499,14 @@ export interface CitationSource {
    */
   kind?: SourceKind
   /**
+   * The SHELF the retrieved chunk came from (`archiv | project | session |
+   * base`, ADR-0047) — a separate axis from `kind` above, carried explicitly so
+   * no consumer has to prefix-match the collection id or parse a German label.
+   * Absent on messages persisted before the wire carried it (and during the
+   * BFF/agent rollout), where it reads as unknown — never as a default shelf.
+   */
+  shelf?: Shelf
+  /**
    * Identity of the DOCUMENT this source is a passage of, as the backend
    * registry groups it (`citation_verification.document_key`). Absent on
    * messages persisted before the wire carried it, where the client derives an
@@ -534,6 +542,8 @@ export interface WireCitationSource {
   file_name?: string | null
   page?: number | null
   kind?: string | null
+  /** Shelf the chunk came from: `archiv | project | session | base` (ADR-0047). */
+  shelf?: string | null
   lane?: string | null
   lane_label?: string | null
   binding_note?: string | null
