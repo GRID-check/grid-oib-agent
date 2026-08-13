@@ -223,3 +223,60 @@ def test_the_second_question_about_one_building_does_not_queue_behind_another_pa
     finally:
         release.set()
         blocker.join(60)
+
+
+class TestTheDownloaderCannotSpeakAnythingButHttp:
+    """`file:///etc/passwd` must not be a URL this process can fetch.
+
+    `_download` string-tests the scheme, and that guard is real but weak in one
+    specific way: it protects the single call site it sits in front of, and a
+    reader has to re-derive it at every later call. The opener removes the
+    CAPABILITY instead — `urllib`'s default carries a `FileHandler`, and one
+    built without it raises „unknown url type" whatever anyone passes, on the
+    first request and on every redirect hop, since the hops go through the same
+    opener.
+
+    Pinned because the first attempt at this used `urllib.request.build_opener`,
+    which starts from the DEFAULT handler set and merely adds to it — so
+    `build_opener(HTTPHandler, HTTPSHandler)` still read the file and returned
+    its bytes. A bare `OpenerDirector` is what makes the difference, and nothing
+    about the two spellings looks different at a glance.
+    """
+
+    @staticmethod
+    def _client():
+        pytest.importorskip("ifc_spatial.tools", reason="the spatial engine is not installed")
+        from aiq_agent.knowledge import ifc_spatial_client
+
+        return ifc_spatial_client
+
+    @pytest.mark.parametrize("scheme", ["file", "ftp", "data"])
+    def test_the_opener_refuses_every_scheme_but_http(self, scheme, tmp_path) -> None:
+        import urllib.error
+
+        secret = tmp_path / "secret.txt"
+        secret.write_text("SECRET-INTERNAL-CONTENT", encoding="utf-8")
+        url = f"file://{secret}" if scheme == "file" else f"{scheme}://example.invalid/x"
+
+        with pytest.raises(urllib.error.URLError) as raised:
+            self._client()._HTTP_ONLY_OPENER.open(url, timeout=5)
+        assert "unknown url type" in str(raised.value)
+
+    def test_the_default_opener_would_have_read_it(self, tmp_path) -> None:
+        """The control. Without this the test above could pass because the file
+        was missing rather than because the handler was."""
+        import urllib.request
+
+        secret = tmp_path / "secret.txt"
+        secret.write_text("SECRET-INTERNAL-CONTENT", encoding="utf-8")
+        assert urllib.request.urlopen(f"file://{secret}").read() == b"SECRET-INTERNAL-CONTENT"  # noqa: S310
+
+    def test_the_string_guard_still_answers_first(self, tmp_path) -> None:
+        """Belt and braces: the caller-facing refusal is the German one about an
+        unusable source, not a `URLError` leaking out of the transport."""
+        from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
+
+        secret = tmp_path / "secret.txt"
+        secret.write_text("x", encoding="utf-8")
+        with pytest.raises(BimQueryUnavailableError):
+            self._client()._download(f"file://{secret}")

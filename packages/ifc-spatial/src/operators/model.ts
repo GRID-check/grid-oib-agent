@@ -1113,13 +1113,22 @@ const QUALITY_TEXT: Record<MatchQuality, string> = {
 
 function matchQuality(normalised: string, term: string): MatchQuality | null {
   if (normalised === term) return 'exakt'
-  if (new RegExp(`(^| )${escapeRegExp(term)}( |$)`).test(normalised)) return 'wort'
+  // Whole-word match by padding rather than by `new RegExp('(^| )' + term + '( |$)')`.
+  //
+  // Padding both sides with a space makes „starts-or-space" and „space-or-ends"
+  // into one plain substring test, and it is EXACTLY equivalent — including for
+  // a multi-word term, which a split-and-compare would have broken.
+  //
+  // The regex it replaces was already safe: `term` went through an escape, so
+  // no caller could inject a quantifier and no catastrophic backtracking was
+  // reachable. It was flagged as a ReDoS risk anyway, and the flag is fair as a
+  // rule about the SHAPE of the code — a constructed regex is one careless edit
+  // away from being unsafe, and the escape that protects it sits ten lines
+  // below where anyone editing this line would look. A comparison that cannot
+  // backtrack at all needs no such argument.
+  if (` ${normalised} `.includes(` ${term} `)) return 'wort'
   if (term.length >= MIN_SUBSTRING_TERM && normalised.includes(term)) return 'teil'
   return null
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**

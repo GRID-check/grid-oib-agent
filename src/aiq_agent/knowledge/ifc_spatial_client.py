@@ -299,6 +299,47 @@ def source_identity(result: dict[str, Any]) -> str:
     return f"model:{model.get('modelId')}:{model.get('updatedAt')}"
 
 
+#: An opener that can only speak HTTP(S) — no `file:`, no `ftp:`, no `data:`.
+#:
+#: `urllib.request.urlopen` uses a default opener carrying a `FileHandler`, so
+#: `file:///etc/passwd` is a URL it will happily fetch. The scheme test in
+#: `_download` already refuses that, and a string test is the weaker of the two
+#: available guards: it protects the one call site it sits in front of, and it
+#: has to be re-derived by anyone who reads the call.
+#:
+#: Building the opener WITHOUT the file handler removes the capability instead
+#: of filtering for it — a `file:` URL raises `URLError: unknown url type`
+#: whatever any caller passes, and the same holds for each redirect hop, since
+#: the hops go through this opener too. The string test stays as the first and
+#: clearest line of defence; this is what makes it belt AND braces.
+#:
+#: Not closed here, and worth naming: this opener does not validate the
+#: DESTINATION. It does not need to — the URL comes from the BFF, not from an
+#: agent or a chat message, which is what separates it from
+#: `ifc_spatial.tools._read_source`, where the URL IS agent-reachable and a full
+#: unroutable-address guard is applied.
+#: Built from a bare `OpenerDirector`, NOT with `build_opener`. That distinction
+#: is the whole fix and it is easy to get wrong: `build_opener` starts from the
+#: default handler set and merely adds to it, so
+#: `build_opener(HTTPHandler, HTTPSHandler)` still carries the `FileHandler` and
+#: still reads `file:///…`. Verified rather than assumed — the first version of
+#: this used `build_opener` and returned the file's bytes.
+def _http_only_opener() -> urllib.request.OpenerDirector:
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.HTTPHandler,
+        urllib.request.HTTPSHandler,
+        urllib.request.HTTPRedirectHandler,
+        urllib.request.HTTPErrorProcessor,
+        urllib.request.UnknownHandler,
+    ):
+        opener.add_handler(handler())
+    return opener
+
+
+_HTTP_ONLY_OPENER = _http_only_opener()
+
+
 def _download(url: str, expected_bytes: Any = None) -> bytes:
     """The model's bytes, or a refusal that says which limit was hit."""
     if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
@@ -307,7 +348,7 @@ def _download(url: str, expected_bytes: Any = None) -> bytes:
         # Refused on the HEAD's byte count, before a single byte is transferred.
         raise ModelTooLargeError(int(expected_bytes), MAX_MODEL_BYTES)
     try:
-        with urllib.request.urlopen(url, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:  # noqa: S310
+        with _HTTP_ONLY_OPENER.open(url, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:
             # One byte past the ceiling, so "exactly at the limit" and "over it"
             # are distinguishable without reading the whole thing first.
             data = response.read(MAX_MODEL_BYTES + 1)
