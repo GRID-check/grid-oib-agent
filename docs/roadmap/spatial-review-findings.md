@@ -176,34 +176,44 @@ this whole package was justified by.
 
 ## 4. (A) A glazed curtain-wall panel is classified „Innentür" the moment `IsExternal` is absent
 
-**Disposition: OPEN**, and recorded as fixed by mistake. `ac979650`'s message
-says „Non-doors now come back UNDETERMINED: neither counted nor discarded";
-`_faces_outside` appears in no hunk of that commit, nor of `248b9811`. The
-two-space fallback still runs on every element class. Reproduced again on
-2026-08-13: with `IsExternal` absent and `opens_to` reporting two rooms, an
-`IfcPlate` comes back `(False, "öffnet in 2 Räume (Innentür)")`.
+**Disposition: fixed** (`306b422b`) — after being recorded as fixed once when
+it was not, which is the more useful half of this entry.
 
-The regression written for it,
-`TestTheDoorHeuristicOnlyJudgesDoors::test_glazing_without_is_external_is_undetermined_not_internal`,
-passes for the wrong reason: its stub model declares no boundaries, so
-`opens_to` is undecidable, the plate never reaches the two-space branch, and it
-lands on the final `return None` that every unjudgeable element lands on. A
-green test over a path the defect does not run through is what let a commit
-message close a finding the code did not.
+`ac979650`'s message said „Non-doors now come back UNDETERMINED: neither
+counted nor discarded". `_faces_outside` appeared in no hunk of that commit,
+nor of `248b9811`; the two-space fallback still ran on every element class, and
+with `IsExternal` absent and `opens_to` reporting two rooms an `IfcPlate` came
+back `(False, "öffnet in 2 Räume (Innentür)")`.
 
-Closing it takes two things: the fallback gated on `IfcDoor` (its docstring
-already calls it a door heuristic), and the stub taught to report two rooms so
-the branch is entered.
+The regression written for it passed for the wrong reason. Its stub model
+declared no boundaries, so `opens_to` was undecidable, the plate never reached
+the two-space branch, and it landed on the same final `return None` that every
+unjudgeable element lands on. It passed against the broken code and the fixed
+code alike — a green test over a path the defect does not run through, which is
+what let a commit message close a finding the code had not.
 
-`_faces_outside` prefers the element's own `IsExternal` and otherwise falls back
-to a **door** heuristic (`count >= 2 → False`, „öffnet in 2 Räume (Innentür)").
-Its own docstring records that this fallback broke the sample house's glazed
-facade; the fix was to consult `IsExternal` first, and the fallback itself is
-unchanged. Where `IsExternal` is not authored — which the docstring for
-`declared_property` itself calls the common case — the wrong answer is back, at
-full confidence, with no `unbestimmt` hedge.
+Both halves are now done. `operators.py:2229` gates the fallback on
+`element.is_a("IfcDoor")`, and
+`TestTheDoorHeuristicOnlyJudgesDoors` patches `opens_to` to report two spaces
+so the branch is actually entered. Verified by reverting the guard to
+`if True:` — `test_a_pane_touching_two_rooms_is_undetermined_not_interior`
+fails with `assert False is None` — and restoring. Two companion tests keep
+the fix from being an over-correction: a DOOR touching two rooms must still
+come back „Innentür", and a declared `IsExternal` must still outrank both.
 
-Reproduce (rename the two `IsExternal` properties the file carries):
+### The reproduction, kept because it is what the fix is measured against
+
+`_faces_outside` prefers the element's own `IsExternal` and otherwise fell back
+to a **door** heuristic (`count >= 2 → False`, „öffnet in 2 Räume (Innentür)")
+for every element class. Its own docstring already recorded that this fallback
+broke the sample house's glazed facade; the earlier fix was to consult
+`IsExternal` first, and the fallback itself was left unchanged. So wherever
+`IsExternal` was not authored — which the docstring for `declared_property`
+itself calls the common case — the wrong answer came back at full confidence
+with no `unbestimmt` hedge.
+
+Reproduce on the code as it stood (rename the two `IsExternal` properties the
+file carries):
 
 ```python
 f = ifcopenshell.open(F+'Ifc4_SampleHouse.ifc')
@@ -218,10 +228,12 @@ Living: Lichteintrittsfläche 6.570 m² auf 51.99 m² = **12.64 %**   (was 72.42
   … six panes, 31.09 m² of glass wall, all labelled Innentür
 ```
 
-The rendered German calls a 6.27 m² glazing panel an *Innentür*. It is not a
+The rendered German called a 6.27 m² glazing panel an *Innentür*. It is not a
 door and it does not open into two rooms — it bounds one double-height space that
 the export split into two `IfcSpace`. The three-state discipline exists exactly
-for this: these panes should land under `unbestimmt`, not under `innenliegend`.
+for this, and the panes now land under `unbestimmt` rather than under
+`innenliegend`: neither counted toward the daylight area nor written off as
+interior, which is the only honest answer when nothing in the file decides it.
 
 ## 5. (B, very high frequency) Every wrong-argument and no-geometry answer is published as a finding about the export — with a double negation
 
