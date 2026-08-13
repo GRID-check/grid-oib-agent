@@ -543,7 +543,7 @@
       "type": "object"
     },
     "DimensionCheck": {
-      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.",
+      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nThis block used to be `label / value / required / unit / comparator /\nstatus` and nothing else, and that made the card the least honest surface in\nthe product. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so the surface that dropped the\nqualifier was the surface most likely to be forwarded without it.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \u201enot stated\", never \u201edeclared\".",
       "properties": {
         "comparator": {
           "anyOf": [
@@ -568,6 +568,37 @@
           "title": "Label",
           "type": "string"
         },
+        "missing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With status 'needs_input': what the export does not provide and WHAT TO CHANGE IN THE CAD to make it answerable \u2014 copied verbatim from the ifc_measure answer's missing.remedy. This is the sentence the architect acts on, and a card that shows an empty slot instead of it turns a finding about the export into a blank the reader reads as a fact about the building.",
+          "title": "Missing"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "enum": [
+                "declared",
+                "computed",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where `value` came from, copied from the ifc_measure answer's own provenance: 'declared' (the IFC file states it), 'computed' (we measured it off the geometry), 'inferred' (a heuristic, offered for confirmation). Leave null when the number did not come from the model at all \u2014 a figure the user typed, or one taken from the Bestimmung. NEVER guess it: labelling our own measurement 'declared' turns our tolerance into the architect's claim.",
+          "title": "Provenance"
+        },
         "required": {
           "anyOf": [
             {
@@ -591,6 +622,20 @@
           ],
           "title": "Status",
           "type": "string"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The \u00b1 band on `value`, in the SAME unit \u2014 copied from the ifc_measure answer. Only meaningful with provenance 'computed': a declared figure is the file's statement and has no band of ours. A measured dimension without its band reads as exact, and the band is what decides whether 2.49 m clears a 2.50 m minimum.",
+          "title": "Tolerance"
         },
         "unit": {
           "default": "cm",

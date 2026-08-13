@@ -145,8 +145,31 @@ const RAW_FIXTURES: CardInput[] = [
     type: 'stair_diagram',
     title: 'Treppenlauf – Steigungsverhältnis',
     riser_count: 17,
-    riser_height: { label: 'Steigung', value: 17.6, required: 18, unit: 'cm', comparator: '<=', status: 'pass' },
-    tread_depth: { label: 'Auftritt', value: 28, required: 28, unit: 'cm', comparator: '>=', status: 'pass' },
+    // Measured off the model rather than typed by the user, so the gallery
+    // shows the state that actually reaches a reviewer: our number, our band,
+    // and „gemessen" beside it — never mistakable for the architect's own.
+    riser_height: {
+      label: 'Steigung',
+      value: 17.6,
+      required: 18,
+      unit: 'cm',
+      comparator: '<=',
+      status: 'pass',
+      provenance: 'computed',
+      tolerance: 0.5,
+    },
+    tread_depth: {
+      label: 'Auftritt',
+      value: 28,
+      required: 28,
+      unit: 'cm',
+      comparator: '>=',
+      status: 'warning',
+      provenance: 'computed',
+      tolerance: 0.5,
+      // Exactly on the limit with a 5 mm band: the honest state, and the one
+      // the old card drew as a clean pass.
+    },
     width: { label: 'Nutzbare Laufbreite', value: 110, required: 120, unit: 'cm', comparator: '>=', status: 'fail' },
     comfort_note: 'Schrittmaß 2×17,6 + 28 = 63,2 cm — innerhalb der Komfortregel (59–65 cm).',
     reference: OIB4,
@@ -156,8 +179,18 @@ const RAW_FIXTURES: CardInput[] = [
     title: 'Rampe – Neigung & Breite',
     shape: 'ramp',
     dimensions: [
-      { label: 'Neigung', value: 7.2, required: 6, unit: '%', comparator: '<=', status: 'fail' },
-      { label: 'nutzbare Breite', value: 120, required: 120, unit: 'cm', comparator: '>=', status: 'pass' },
+      { label: 'Neigung', value: 7.2, required: 6, unit: '%', comparator: '<=', status: 'fail', provenance: 'computed', tolerance: 0.1 },
+      { label: 'nutzbare Breite', value: 120, required: 120, unit: 'cm', comparator: '>=', status: 'pass', provenance: 'declared' },
+      // The third state, which the gallery had no example of at all: the export
+      // cannot answer, and the card says what to change rather than showing a
+      // blank the reader takes for a fact about the building.
+      {
+        label: 'Handlauf beidseitig',
+        value: null,
+        unit: 'cm',
+        status: 'needs_input',
+        missing: 'Dieser Export enthält kein IfcRailing — Handläufe im CAD als IfcRailing modellieren.',
+      },
     ],
     reference: { document: 'ÖNORM B 1600', section: 'Pkt. 5.2' },
   },

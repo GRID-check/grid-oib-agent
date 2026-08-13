@@ -532,8 +532,28 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
         else ""
     )
 
+    # A number on a card outlives the sentence next to it. The card is what gets
+    # screenshotted into a submission, so it is the surface most likely to be
+    # forwarded without the qualifier that made it true — which is why the rule
+    # is stated here rather than left to the field descriptions alone.
+    measured_note = (
+        "\n\nNumbers that came from a MEASUREMENT (`ifc_measure`):\n"
+        "  Every ifc_measure answer says HOW it was obtained. When you put one of its numbers on a\n"
+        "  card, carry that with it — on DimensionCheck, set `provenance` to the answer's own\n"
+        "  provenance, and for a 'computed' one set `tolerance` to the ± band in the SAME unit.\n"
+        "  Copy them; never infer them. Marking our own measurement 'declared' turns our tolerance\n"
+        "  into the architect's claim, and a measured dimension shown without its band reads as\n"
+        "  exact — which is what decides whether 2,47 m clears a 2,50 m minimum.\n"
+        "  Leave both null for a number that did not come from the model: a figure the user typed,\n"
+        "  or a limit read out of the Bestimmung. Null means 'not stated', never 'declared'.\n"
+        "  When the answer came back `decidable: false`, the dimension is status 'needs_input' with\n"
+        "  `value` null and `missing` set to that answer's missing.remedy, VERBATIM — that sentence\n"
+        "  is what the architect changes in their CAD. A blank slot instead of it reads as a fact\n"
+        "  about the building, when it is a finding about the export."
+    )
+
     return (
         "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
-        "Card types:\n" + "\n".join(card_lines) + interactive_note + "\n\n"
+        "Card types:\n" + "\n".join(card_lines) + interactive_note + measured_note + "\n\n"
         "Worked examples (copy the nesting exactly):\n" + examples
     )

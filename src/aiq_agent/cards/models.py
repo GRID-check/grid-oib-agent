@@ -135,6 +135,22 @@ class MemoryProposalCard(BaseModel):
 
 DimStatus = Literal["pass", "fail", "warning", "needs_input"]
 
+#: Where a number on a card came from — the three the spatial engine draws.
+#:
+#: These are `ifc_spatial.envelope.Answer.provenance` exactly, and the point of
+#: keeping the same three words is that the card and the sentence beside it can
+#: never disagree about who is making the claim. The German the renderer prints
+#: for each is not decoration either:
+#:
+#:   declared → „laut Modell"   — the architect's own statement, quoted back
+#:   computed → „gemessen"      — OUR measurement, and it carries a tolerance
+#:   inferred → „vermutlich"    — a heuristic, offered for confirmation
+#:
+#: The difference between the first two is the difference between reporting the
+#: file and reporting ourselves, and a reader has to be able to tell which one
+#: they are being handed before they sign it.
+Provenance = Literal["declared", "computed", "inferred"]
+
 
 class NormReference(BaseModel):
     """A verifiable pointer into a regulation (the atom of grounding).
@@ -155,6 +171,21 @@ class DimensionCheck(BaseModel):
     `value` is the project's actual measurement (drawn to scale); `required` is
     the OIB limit. If `value` is unknown, leave it null and set status
     'needs_input'.
+
+    ## Why a number here carries where it came from
+
+    This block used to be `label / value / required / unit / comparator /
+    status` and nothing else, and that made the card the least honest surface in
+    the product. `ifc_measure` answers „gemessen: 2.47 m (±5 mm) — aus der
+    Geometrie berechnet, nicht deklariert", the assistant repeats that in the
+    prose, and the card beside it drew **2.47 m ✓** — indistinguishable from a
+    figure the architect had stated in their own file. The card is the part a
+    reviewer screenshots into a submission, so the surface that dropped the
+    qualifier was the surface most likely to be forwarded without it.
+
+    Three fields close that, and all three are OPTIONAL: a card built from the
+    Bestimmung alone (a limit with no model behind it) has nothing to put in
+    them, and a null here means „not stated", never „declared".
     """
 
     label: str = Field(min_length=1, description="What is measured, e.g. 'lichte Durchgangsbreite'")
@@ -163,6 +194,35 @@ class DimensionCheck(BaseModel):
     unit: str = Field(default="cm", description="Unit for both value and required, e.g. 'cm', 'm', '%'")
     comparator: Literal["<=", ">="] | None = Field(default=None, description="How actual must relate to required")
     status: DimStatus = Field(description="Verdict for this dimension")
+    provenance: Provenance | None = Field(
+        default=None,
+        description=(
+            "Where `value` came from, copied from the ifc_measure answer's own provenance: 'declared' "
+            "(the IFC file states it), 'computed' (we measured it off the geometry), 'inferred' (a "
+            "heuristic, offered for confirmation). Leave null when the number did not come from the "
+            "model at all — a figure the user typed, or one taken from the Bestimmung. NEVER guess it: "
+            "labelling our own measurement 'declared' turns our tolerance into the architect's claim."
+        ),
+    )
+    tolerance: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "The ± band on `value`, in the SAME unit — copied from the ifc_measure answer. Only "
+            "meaningful with provenance 'computed': a declared figure is the file's statement and has "
+            "no band of ours. A measured dimension without its band reads as exact, and the band is "
+            "what decides whether 2.49 m clears a 2.50 m minimum."
+        ),
+    )
+    missing: str | None = Field(
+        default=None,
+        description=(
+            "With status 'needs_input': what the export does not provide and WHAT TO CHANGE IN THE CAD "
+            "to make it answerable — copied verbatim from the ifc_measure answer's missing.remedy. This "
+            "is the sentence the architect acts on, and a card that shows an empty slot instead of it "
+            "turns a finding about the export into a blank the reader reads as a fact about the building."
+        ),
+    )
 
 
 class SectionStorey(BaseModel):

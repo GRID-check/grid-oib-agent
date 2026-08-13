@@ -34,7 +34,7 @@ import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dial
 import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
 import { useCorpusFiles } from '@/features/knowledge/lib/use-corpus-files'
 import { cn } from '@/lib/utils'
-import type { DimensionCheckData, DimStatus, NormReferenceData } from './types'
+import type { DimensionCheckData, DimStatus, NormReferenceData, Provenance } from './types'
 
 /* ── status vocabulary ────────────────────────────────────────────────────── */
 
@@ -104,6 +104,47 @@ export const fmtDim = (value: number | null | undefined, unit: string): string =
 /** '<=' → '≤', '>=' → '≥'. */
 export const fmtComparator = (comparator: '<=' | '>=' | null | undefined): string =>
   comparator === '<=' ? '≤' : comparator === '>=' ? '≥' : ''
+
+/**
+ * The German for each provenance — the same three verbs the answer text uses.
+ *
+ * Written out rather than composed, because the difference between „laut
+ * Modell" and „gemessen" is the difference between reporting the architect's
+ * own statement and reporting ours, and a reader has to be able to tell which
+ * one they are holding before they sign it.
+ */
+export const PROVENANCE_LABEL: Record<Provenance, string> = {
+  declared: 'laut Modell',
+  computed: 'gemessen',
+  inferred: 'vermutlich',
+}
+
+/** Long form for the tooltip, where there is room to say what the word means. */
+export const PROVENANCE_TITLE: Record<Provenance, string> = {
+  declared: 'Diese Zahl steht so in der IFC-Datei — eine Angabe der Architektin.',
+  computed: 'Aus der Geometrie gemessen, nicht deklariert. Die Toleranz gehört zur Aussage.',
+  inferred: 'Aus einer Heuristik abgeleitet. Ein Vorschlag zur Bestätigung, kein Befund.',
+}
+
+/**
+ * The ± band, at two significant figures — „±5 mm", „±0,15 m²".
+ *
+ * Two significant figures rather than the value's own precision, mirroring
+ * `_tolerance_text` in `measure_register.py`: a band is an order of magnitude,
+ * and printing ±0,15416781250000042 asserts a precision about the imprecision.
+ *
+ * Trailing zeros are NOT padded, which is the half that had to be measured
+ * rather than assumed — the backend prints „0.5", not „0.50". Checked against
+ * it directly: 0.5 → 0,5 · 0.005 → 0,005 · 0.15416781 → 0,15 · 2.3 → 2,3 ·
+ * 0.021 → 0,021. Two renderings of one band that disagree on a digit are two
+ * numbers as far as the reader is concerned.
+ */
+export const fmtTolerance = (tolerance: number | null | undefined, unit: string): string | null => {
+  if (tolerance == null || !Number.isFinite(tolerance) || tolerance <= 0) return null
+  const magnitude = Math.floor(Math.log10(Math.abs(tolerance)))
+  const decimals = Math.min(6, Math.max(0, 1 - magnitude))
+  return `±${new Intl.NumberFormat('de-AT', { maximumFractionDigits: decimals }).format(tolerance)} ${unit}`
+}
 
 /* ── scale mapping ────────────────────────────────────────────────────────── */
 
@@ -342,6 +383,22 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
   const valuePct = value != null ? Math.min((value / max) * 100, 100) : 0
   const requiredPct = required != null ? Math.min((required / max) * 100, 100) : null
 
+  // The band is drawn only for a measurement of OURS. A declared figure is the
+  // file's statement and carries no tolerance of ours to draw.
+  const band = check.provenance === 'computed' ? fmtTolerance(check.tolerance, unit) : null
+  const tolerance = band != null && check.tolerance != null ? check.tolerance : null
+  const bandLowPct = value != null && tolerance != null ? Math.max(((value - tolerance) / max) * 100, 0) : null
+  const bandHighPct = value != null && tolerance != null ? Math.min(((value + tolerance) / max) * 100, 100) : null
+
+  // The one thing this bar can say that a sentence cannot say as fast: the band
+  // CROSSES the limit, so at the precision we actually have, this dimension is
+  // on both sides of the line. A 2,47 m ±5 mm clear height against a 2,50 m
+  // minimum fails; a 2,498 m ±5 mm one is genuinely undecided, and a bar that
+  // drew it as a clean red fill would be asserting a verdict the measurement
+  // does not support. Drawn as a hatched span straddling the marker.
+  const straddlesLimit =
+    required != null && value != null && tolerance != null && value - tolerance <= required && value + tolerance >= required
+
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
       <div className="flex items-baseline justify-between gap-3 text-xs">
@@ -351,6 +408,15 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
             <span className="font-sans italic text-muted-foreground">{MISSING_LABEL}</span>
           ) : (
             fmtDim(value, unit)
+          )}
+          {band && <span className="ml-1 text-[0.9em] text-muted-foreground">{band}</span>}
+          {check.provenance && (
+            <span
+              className="ml-1.5 rounded bg-muted px-1 py-px font-sans text-[0.85em] text-muted-foreground"
+              title={PROVENANCE_TITLE[check.provenance]}
+            >
+              {PROVENANCE_LABEL[check.provenance]}
+            </span>
           )}
           {required != null && (
             <span className="text-muted-foreground">
@@ -367,6 +433,13 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
             style={{ width: `${valuePct}%`, backgroundColor: statusColor(status) }}
           />
         )}
+        {bandLowPct != null && bandHighPct != null && (
+          <div
+            className="absolute inset-y-0 border-x border-foreground/40 bg-foreground/15"
+            style={{ left: `${bandLowPct}%`, width: `${Math.max(bandHighPct - bandLowPct, 0.5)}%` }}
+            aria-hidden="true"
+          />
+        )}
         {requiredPct != null && (
           <div
             className="absolute -top-1 h-4 w-0.5 -translate-x-1/2 rounded-full bg-foreground/70"
@@ -375,6 +448,15 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
           />
         )}
       </div>
+      {straddlesLimit && (
+        <p className="text-[0.92em] leading-snug text-muted-foreground">
+          Die Messtoleranz reicht über den Grenzwert: bei dieser Genauigkeit ist nicht entschieden, ob der Wert
+          eingehalten ist. Für einen Nachweis genauer aufmessen.
+        </p>
+      )}
+      {status === 'needs_input' && check.missing && (
+        <p className="text-[0.92em] leading-snug text-muted-foreground">{check.missing}</p>
+      )}
     </div>
   )
 }
@@ -386,7 +468,19 @@ interface DimChecksListProps {
   className?: string
 }
 
-/** Legend under a schematic: one row per dimension check, status-coloured. */
+/**
+ * Legend under a schematic: one row per dimension check, status-coloured.
+ *
+ * Each row now carries the number AND where it came from, because the two are
+ * one claim. The band sits against the value it qualifies rather than in a
+ * footnote — „2,47 m ±5 mm" is what decides whether the dimension clears a
+ * 2,50 m minimum, and a reader who has to look elsewhere for it will not.
+ *
+ * A `needs_input` row prints the CAD remedy underneath instead of leaving an
+ * empty slot. „fehlende Angabe" on its own reads as a fact about the building;
+ * „Fenster ohne IfcOpeningElement — im CAD als Öffnung modellieren" reads as
+ * what it is, a finding about the export, with the fix attached.
+ */
 export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => {
   if (checks.length === 0) return null
   return (
@@ -394,23 +488,40 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
       {checks.map((check, index) => {
         const Icon = STATUS_ICON[check.status]
         const unit = check.unit ?? 'cm'
+        const band = check.provenance === 'computed' ? fmtTolerance(check.tolerance, unit) : null
         return (
-          <li key={`${check.label}-${index}`} className="flex items-center gap-2 text-xs">
-            <Icon
-              className="size-3.5 shrink-0"
-              style={{ color: statusColor(check.status) }}
-              aria-label={statusLabel(check.status)}
-            />
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">{check.label}</span>
-            {check.value == null ? (
-              <span className="italic text-muted-foreground">{MISSING_LABEL}</span>
-            ) : (
-              <span className="font-mono text-foreground">{fmtDim(check.value, unit)}</span>
-            )}
-            {check.required != null && (
-              <span className="font-mono text-muted-foreground">
-                {fmtComparator(check.comparator)} {fmtDim(check.required, unit)}
-              </span>
+          <li key={`${check.label}-${index}`} className="flex flex-col gap-0.5 text-xs">
+            <div className="flex items-center gap-2">
+              <Icon
+                className="size-3.5 shrink-0"
+                style={{ color: statusColor(check.status) }}
+                aria-label={statusLabel(check.status)}
+              />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{check.label}</span>
+              {check.value == null ? (
+                <span className="italic text-muted-foreground">{MISSING_LABEL}</span>
+              ) : (
+                <span className="font-mono text-foreground">
+                  {fmtDim(check.value, unit)}
+                  {band && <span className="ml-1 text-[0.9em] text-muted-foreground">{band}</span>}
+                </span>
+              )}
+              {check.provenance && (
+                <span
+                  className="shrink-0 rounded bg-muted px-1 py-px text-[0.85em] text-muted-foreground"
+                  title={PROVENANCE_TITLE[check.provenance]}
+                >
+                  {PROVENANCE_LABEL[check.provenance]}
+                </span>
+              )}
+              {check.required != null && (
+                <span className="font-mono text-muted-foreground">
+                  {fmtComparator(check.comparator)} {fmtDim(check.required, unit)}
+                </span>
+              )}
+            </div>
+            {check.status === 'needs_input' && check.missing && (
+              <p className="pl-5.5 text-[0.92em] leading-snug text-muted-foreground">{check.missing}</p>
             )}
           </li>
         )
