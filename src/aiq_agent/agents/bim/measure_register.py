@@ -57,6 +57,7 @@ from pydantic import Field
 # other. The dependency runs measure -> register and never back, so `register`
 # stays loadable on a deployment without the spatial engine — which is the
 # independence the two entry points in pyproject.toml exist to preserve.
+from aiq_agent.agents.bim.capability_gaps import record_gap
 from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
@@ -460,6 +461,7 @@ def _build_call(
     """
     op = (operation or "").strip().lower()
     if op not in VALID_OPERATIONS:
+        record_gap(surface="ifc_measure", field="operation", asked_for=operation, known=VALID_OPERATIONS)
         return f"Error: unknown operation '{operation}'. Use one of: {', '.join(sorted(VALID_OPERATIONS))}."
 
     subject = _clean(global_id)
@@ -551,6 +553,7 @@ def _build_call(
     if op == "room_inventory":
         wanted = _clean(room_kind).lower()
         if wanted not in ROOM_KINDS:
+            record_gap(surface="ifc_measure", field="room_kind", asked_for=room_kind, known=ROOM_KINDS)
             return f"Error: room_kind '{room_kind}' does not exist. Use one of: {', '.join(ROOM_KINDS)}."
         return "room_inventory", {"kind": wanted}
 
@@ -558,6 +561,7 @@ def _build_call(
         wanted = _clean(kind) or "fluchtniveau"
         aspect = next((k for k in FIRE_ASPECTS if k.lower() == wanted.lower()), None)
         if aspect is None:
+            record_gap(surface="ifc_measure", field="fire.kind", asked_for=kind, known=FIRE_ASPECTS)
             return f"Error: for operation 'fire', kind must be one of: {', '.join(FIRE_ASPECTS)}. Got '{kind}'."
         args = {"what": aspect}
         if _clean(global_id):
@@ -572,6 +576,7 @@ def _build_call(
         wanted = _clean(kind) or "thermalEnvelope"
         aspect = next((k for k in ENVELOPE_ASPECTS if k.lower() == wanted.lower()), None)
         if aspect is None:
+            record_gap(surface="ifc_measure", field="envelope.kind", asked_for=kind, known=ENVELOPE_ASPECTS)
             return f"Error: for operation 'envelope', kind must be one of: {', '.join(ENVELOPE_ASPECTS)}. Got '{kind}'."
         return "envelope", {"what": aspect}
 
@@ -620,12 +625,14 @@ def _build_call(
     if op == "relations":
         wanted = _clean(relation)
         if wanted not in RELATIONS:
+            record_gap(surface="ifc_measure", field="relation", asked_for=relation, known=RELATIONS)
             return f"Error: relation '{relation}' does not exist. Use one of: {', '.join(RELATIONS)}."
         return "relations", {"globalId": subject, "relation": wanted}
 
     if op == "measure":
         wanted = _clean(measure)
         if wanted not in MEASURES:
+            record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
             return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
         return "measure", {"globalId": subject, "measure": wanted}
 
