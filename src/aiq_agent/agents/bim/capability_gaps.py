@@ -16,7 +16,19 @@ the ordinary sense — it is telling us, in one word, that somebody wanted a wal
 thickness and this surface has no operator for it. `unknown` records that a
 miss happened. It cannot tell us what to build.
 
-So the vocabulary is kept HERE instead: locally, in a file, never sent anywhere.
+So the vocabulary is kept HERE instead: in full, locally, in a file.
+
+## And a miss is an ERROR, because an error becomes an issue
+
+Runtime logs ship to the OTLP collector, and an ERROR there is what turns into
+a tracked issue. A missing tool should be one: nobody reads a local JSONL file
+on a schedule, and a backlog nobody reads is not a backlog.
+
+What leaves the process is narrower than what is written. Only a NAME-shaped
+value is exported — anything else becomes a placeholder and the real text stays
+in the ledger — and each distinct miss is escalated ONCE per process, under a
+ceiling. Without those three the feature is a spam generator: the error is the
+issue, so the hundredth retry of one bad name would be the hundredth issue.
 
 ## The distinction this module exists to draw
 
@@ -54,6 +66,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
@@ -103,7 +116,38 @@ MAX_VALUE_CHARS = 120
 #: advisory; the cap protects the thing that is not.
 MAX_BYTES = 8 * 1024 * 1024
 
+#: A value shaped like a NAME, which is the only shape that leaves this process.
+#:
+#: The ledger keeps whatever the model wrote; the OTLP record does not. A miss
+#: is nearly always one identifier — „wandstaerke", „uWert", „schallschutz" —
+#: and anything that is not is likelier to be a paste than a feature request.
+#: German letters are in the class because the vocabulary this surface refuses
+#: is German.
+_NAME_SHAPED = re.compile(r"^[\w .\-]{1,60}$", re.UNICODE)
+
+#: What is exported instead when the value is not name-shaped. The full text
+#: stays in the local ledger, which is where somebody triaging can read it.
+UNEXPORTABLE = "<nicht exportierbar>"
+
 _LOCK = threading.Lock()
+
+#: (surface, field, value) already reported as an error in THIS process.
+#:
+#: The error is the issue, so this set is the difference between a backlog and
+#: an inbox nobody can use. An agent retrying a name that does not exist calls
+#: `record_gap` on every attempt, and without dedup each one is another
+#: identical issue. The ledger still counts every occurrence — that count is
+#: what ranks the backlog — and only the FIRST of each distinct miss is
+#: escalated.
+_ESCALATED: set[tuple[str, str, str]] = set()
+
+#: Beyond this the process stops escalating anything new.
+#:
+#: A model that invents a fresh word every turn would defeat the dedup above by
+#: never repeating itself. This is the backstop: past it the ledger keeps
+#: recording and the alerting goes quiet, which is the right way round — a
+#: capability backlog is worth having, and a pager that fires all night is not.
+MAX_ESCALATIONS = 50
 
 
 def ledger_path() -> Path:
@@ -162,6 +206,64 @@ def record_gap(*, surface: str, field: str, asked_for: Any, known: Any = ()) -> 
                 os.close(handle)
     except Exception:  # noqa: BLE001 — see the module docstring
         logger.debug("the capability-gap ledger could not be written", exc_info=True)
+
+    _escalate(surface=surface, field=field, value=value, known=row["known"])
+
+
+def _escalate(*, surface: str, field: str, value: str, known: list[str]) -> None:
+    """Report the miss as an ERROR, so it becomes an issue.
+
+    Runtime logs ship to the OTLP collector (`observability/otlp_logging_method`),
+    and an ERROR there is what turns into a tracked issue. A missing tool is
+    exactly the thing that should: nobody is going to read a local JSONL file on
+    a schedule, and the whole point of the ledger is that somebody acts on it.
+
+    Three things keep it from becoming noise, and they are the design:
+
+    1. **Once per distinct miss per process.** The error IS the issue, so the
+       hundredth retry of one bad name must not be the hundredth issue. The
+       ledger still counts every occurrence; only the first is escalated.
+    2. **A ceiling.** A model inventing a new word every turn would slip past
+       the dedup by never repeating itself. Past `MAX_ESCALATIONS` the ledger
+       keeps recording and this goes quiet — a backlog that grows is fine, a
+       pager that fires all night is not.
+    3. **Only a name-shaped value leaves the process.** ADR-0045 keeps
+       model-authored text out of external observability, and `_trace` honours
+       that by recording an invented operation as `unknown`. The compromise here
+       is narrower than either: a value that looks like an identifier is what an
+       issue needs to be actionable and is not building data, and anything else
+       is replaced by a placeholder with the real text left in the local ledger.
+
+    Failures are swallowed for the same reason the ledger's are: this must never
+    turn a working measurement into an error the architect sees.
+    """
+    key = (surface, field, value)
+    try:
+        with _LOCK:
+            if key in _ESCALATED or len(_ESCALATED) >= MAX_ESCALATIONS:
+                return
+            _ESCALATED.add(key)
+        exportable = value if _NAME_SHAPED.match(value) else UNEXPORTABLE
+        logger.error(
+            "ifc spatial surface: no %s named %r — a caller wanted a capability this surface does not have",
+            field,
+            exportable,
+            extra={
+                "ifc_capability_gap": True,
+                "ifc_gap_surface": surface,
+                "ifc_gap_field": field,
+                "ifc_gap_asked_for": exportable,
+                # The closed set, so whoever picks up the issue can see what was
+                # offered instead without opening the repository.
+                "ifc_gap_known": ", ".join(known),
+            },
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("the capability gap could not be escalated", exc_info=True)
+
+
+def reset_escalations_for_tests() -> None:
+    _ESCALATED.clear()
 
 
 def read_gaps(path: Path | None = None) -> list[dict[str, Any]]:

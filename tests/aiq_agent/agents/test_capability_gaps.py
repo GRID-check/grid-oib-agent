@@ -193,3 +193,98 @@ class TestTheLedgerIsNotSomewhereAnyoneElseCanReachIt:
         assert target.exists()
         assert target.stat().st_mode & 0o077 == 0, "group/other can read the model-authored values"
         assert target.parent.stat().st_mode & 0o077 == 0, "the directory is browsable by others"
+
+
+class TestAMissIsAnErrorSoItBecomesAnIssue:
+    """Runtime logs ship to the OTLP collector and an ERROR there becomes an
+    issue. A missing tool should be one — nobody reads a JSONL file on a
+    schedule.
+
+    Everything here is about the three things that stop it being a spam
+    generator. The error IS the issue, so „logged once more" means „one more
+    issue".
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self):
+        cg.reset_escalations_for_tests()
+        yield
+        cg.reset_escalations_for_tests()
+
+    def test_a_miss_is_logged_at_error_with_the_fields_an_issue_needs(self, caplog, _ledger):
+        with caplog.at_level("ERROR", logger=cg.logger.name):
+            _build_call(operation="measure", global_id="g1", measure="wandstaerke")
+
+        record = next(r for r in caplog.records if getattr(r, "ifc_capability_gap", False))
+        assert record.levelname == "ERROR"
+        assert record.ifc_gap_field == "measure"
+        assert record.ifc_gap_asked_for == "wandstaerke"
+        assert record.ifc_gap_surface == "ifc_measure"
+        # The closed set travels, so whoever picks the issue up can see what was
+        # offered instead without opening the repository.
+        assert "clearHeight" in record.ifc_gap_known
+
+    def test_the_same_miss_is_escalated_once_however_often_it_repeats(self, caplog, _ledger):
+        """The retry loop. An agent that keeps calling a name that does not
+        exist must produce ONE issue, not one per attempt."""
+        with caplog.at_level("ERROR", logger=cg.logger.name):
+            for _ in range(25):
+                _build_call(operation="measure", global_id="g1", measure="wandstaerke")
+
+        escalated = [r for r in caplog.records if getattr(r, "ifc_capability_gap", False)]
+        assert len(escalated) == 1
+        # …while the ledger still counts every one of them, because that count
+        # is what ranks the backlog.
+        assert cg.summarise(_ledger)[0]["count"] == 25
+
+    def test_a_different_miss_is_still_escalated(self, caplog, _ledger):
+        with caplog.at_level("ERROR", logger=cg.logger.name):
+            _build_call(operation="measure", global_id="g1", measure="wandstaerke")
+            _build_call(operation="measure", global_id="g1", measure="uWert")
+        assert len([r for r in caplog.records if getattr(r, "ifc_capability_gap", False)]) == 2
+
+    def test_a_model_inventing_a_new_word_every_turn_cannot_page_all_night(self, caplog, _ledger):
+        """The dedup above keys on the value, so a model that never repeats
+        itself slips straight past it. Past the ceiling the ledger keeps
+        recording and the alerting goes quiet — that way round on purpose."""
+        with caplog.at_level("ERROR", logger=cg.logger.name):
+            for index in range(cg.MAX_ESCALATIONS + 20):
+                _build_call(operation="measure", global_id="g1", measure=f"erfundenes_mass_{index}")
+
+        escalated = [r for r in caplog.records if getattr(r, "ifc_capability_gap", False)]
+        assert len(escalated) == cg.MAX_ESCALATIONS
+        assert len(cg.read_gaps(_ledger)) == cg.MAX_ESCALATIONS + 20
+
+    def test_only_a_name_shaped_value_leaves_the_process(self, caplog, _ledger):
+        """ADR-0045 keeps model-authored text out of external observability, and
+        `_trace` honours it by recording an invented operation as `unknown`.
+        This is the narrower compromise: an identifier is what makes the issue
+        actionable and is not building data; anything else is a paste, and the
+        real text stays in the local ledger."""
+        pasted = "hier ist der ganze Raum: 3cUkl32yn9qRSPvBJVyWcE, 15.42 m², Bedroom @ 2.47 m"
+        with caplog.at_level("ERROR", logger=cg.logger.name):
+            cg.record_gap(surface="ifc_measure", field="measure", asked_for=pasted)
+
+        record = next(r for r in caplog.records if getattr(r, "ifc_capability_gap", False))
+        assert record.ifc_gap_asked_for == cg.UNEXPORTABLE
+        assert "3cUkl32yn9qRSPvBJVyWcE" not in json.dumps(record.__dict__, default=str)
+        # …and the full text is still on disk, where triage can read it.
+        assert cg.read_gaps(_ledger)[0]["askedFor"].startswith("hier ist der ganze Raum")
+
+    def test_a_german_measure_name_is_exported_as_written(self, caplog, _ledger):
+        with caplog.at_level("ERROR", logger=cg.logger.name):
+            cg.record_gap(surface="ifc_measure", field="measure", asked_for="lichte Raumhöhe-2")
+        record = next(r for r in caplog.records if getattr(r, "ifc_capability_gap", False))
+        assert record.ifc_gap_asked_for == "lichte Raumhöhe-2"
+
+    def test_a_broken_logger_does_not_break_the_answer(self, monkeypatch, _ledger):
+        """Same rule as the ledger's: escalation is for us, the architect's
+        answer is the product."""
+
+        def _explode(*_args, **_kwargs):
+            raise RuntimeError("the collector is on fire")
+
+        monkeypatch.setattr(cg.logger, "error", _explode)
+        answer = _build_call(operation="measure", global_id="g1", measure="wandstaerke")
+        assert isinstance(answer, str) and "does not exist" in answer
+        assert cg.read_gaps(_ledger)[0]["askedFor"] == "wandstaerke"
