@@ -157,9 +157,9 @@ describe('IFC4X3 facilities are spatial structure, not components', () => {
   })
 
   it('classifies IfcRoad as a container and IfcRoadPart as a storey-level part', () => {
-    expect(graph.nodes.get('5Strasse000Road000001')?.kind).toBe('building')
-    expect(graph.nodes.get('5Strasse000RoadPart01')?.kind).toBe('storey')
-    expect(graph.nodes.get('5Strasse000RoadPart02')?.kind).toBe('storey')
+    expect(graph.nodes.get('3Strasse0000Road000001')?.kind).toBe('building')
+    expect(graph.nodes.get('3Strasse0000RoadPart01')?.kind).toBe('storey')
+    expect(graph.nodes.get('3Strasse0000RoadPart02')?.kind).toBe('storey')
   })
 
   it('leaves only the real components as elements', () => {
@@ -174,10 +174,10 @@ describe('IFC4X3 facilities are spatial structure, not components', () => {
    * structure of every infrastructure model.
    */
   it('keeps the containment structure the aggregation states', () => {
-    expect(out(graph, 'hasSubElement', '5Strasse000Road000001')).toEqual(
-      expect.arrayContaining(['5Strasse000RoadPart01', '5Strasse000RoadPart02'])
+    expect(out(graph, 'hasSubElement', '3Strasse0000Road000001')).toEqual(
+      expect.arrayContaining(['3Strasse0000RoadPart01', '3Strasse0000RoadPart02'])
     )
-    expect(out(graph, 'containsElement', '5Strasse000RoadPart01')).toContain('5Strasse000Pavement01')
+    expect(out(graph, 'containsElement', '3Strasse0000RoadPart01')).toContain('3Strasse0000Pavement01')
   })
 })
 

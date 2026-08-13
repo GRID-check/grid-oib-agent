@@ -154,11 +154,27 @@ what this file cannot answer, computed at build time, so an agent does not spend
 six tool calls discovering it — and does not report "the building has no rooms"
 when the truth is "this export omitted a relation".
 
-## Phase 0: what is actually in here
+## What is actually in here
 
-This package implements phase 0 of the design: **the relation graph, and pure
-topology over it.** No geometry is read. Nothing here tessellates, measures, or
-projects.
+Three layers, each usable without the one above it:
+
+1. **The relation graph** — `buildGraph(bytes)`, pure topology, no geometry
+   read. This is the layer that answers arrangement questions, and it is the
+   only one that works on a file the geometry kernel cannot open.
+2. **The geometry pass** — `runGeometryPass` tessellates the model through
+   `@ifc-lite/geometry` and indexes every element's box, centroid, surface
+   areas and retained triangles. On top of it sit the metric operators, the
+   constructive ones, and the renderer.
+3. **`openModel(bytes)`**, which composes both and folds the geometry-derived
+   space boundaries back into the graph. This is the entry point to use unless
+   you specifically want topology alone.
+
+Layer 2 degrades rather than fails. The kernel is WASM and can refuse to
+initialise on an old runtime or a locked-down container; when it does,
+`openModel` returns `geometry: null` with a stated reason, every topological
+answer stays correct, and the metric operators return `decidable: false`
+instead of throwing. A library that refuses to open a building because it could
+not tessellate it has turned a partial answer into no answer.
 
 ### The graph
 
@@ -185,7 +201,7 @@ zero rows reads as "the building has none". That is the most common way a model
 question gets a confidently wrong answer, and publishing the vocabulary is the
 cure.
 
-### The operators
+### The topological operators
 
 Every one takes a GlobalId and returns `Answer<ElementRef[]>`, and every
 `ElementRef` is a valid subject for the next call — that closure is what lets an
@@ -208,26 +224,67 @@ agent chain calls without a lookup table in between.
 Alongside them: what the file declares (names, types, predefined types), the
 property dialect it was exported with, and its blind spots.
 
-### What phase 0 does not answer, and will not approximate
+### The metric operators
 
-**No geometry is loaded, so nothing here can measure anything.** These are not
-missing features to be worked around; an operator that would need them returns
-`decidable: false`.
+Numbers off the geometry, each with a tolerance attached, because the consumer
+is a model that will print the value to two decimals in a document a human
+signs. One coordinate is good to about 5 mm; a dimension is the difference of
+two of them and is reported at 10 mm, areas at 1 %.
 
-| not available | needs | phase |
-|---|---|---|
-| distances, clearances, clear widths, clear heights | placements, extents, surfaces | 1–2 |
-| positions, orientation, azimuth, above/below | placements, AABB/OBB | 1 |
-| room areas computed from shape (declared quantities only) | space polygons | 2 |
-| overhangs, projections, real opening areas | surfaces + projection | 1–3 |
-| the 45° Lichteinfall prism, obstruction tests, ray casts | constructive operators | 3 |
-| escape-route lengths through the building | path operators | 3 |
-| sun position, Besonnung | georeferencing **and** geometry | 3+ |
+| operator | question |
+|---|---|
+| `extent(id)` | width, depth, height and centre |
+| `floorArea(id)` | floor area from the shape — available where the export declares no quantity |
+| `elevation(id)` | underside and top, absolute and above the element's own storey |
+| `sillAndHead(window)` | Brüstungs- and Sturzhöhe over that window's storey |
+| `clearHeight(space)` | height of the room solid |
+| `azimuth(id)` | compass direction of the facade plane |
+| `distance(a, b, mode)` | `min`, `centroid`, `horizontal` or `vertical` |
 
-Two of these stay out of reach even with geometry, and are worth saying plainly:
-sun position needs `RefLatitude`/`RefLongitude` and a true-north angle that many
-exports simply do not carry, and room USE is a legal classification rather than a
-geometric one — it will stay `inferred` and want confirming.
+### The constructive operators
+
+These build geometry rather than only reading it, which is what the Lichteinfall
+family of questions needs.
+
+| operator | question |
+|---|---|
+| `facadePlaneOf(id)` | the outward-oriented facade plane of an element |
+| `overhang(id, plane)` | how far something projects past a plane |
+| `ray(from, direction)` | what a ray hits, against real triangles |
+| `prism(window, angleDeg, swivelDeg)` | the light-incidence volume in front of an opening |
+| `obstructions(volume)` | which elements intrude into a volume, and how deep |
+| `freeLightIncidence(window, …)` | whether the 45° prism is free, and what blocks it |
+
+The angles are parameters. `prism` knows how to build a volume at `angleDeg`
+with `swivelDeg` of flare; it does not know that OIB 3 says 45 and 30, and must
+not — the next clause with different numbers would otherwise need a different
+geometry engine.
+
+### Drawing
+
+`project(graph, geometry, { view })` returns a plan, section or elevation as
+SVG, from exactly the triangles the measurements come from. One rule travels
+with it: **numbers never come from the picture.** A value read off a drawing is
+guessed even when it happens to be right, so the drawing shows arrangement and
+`measure`/`distance` supply the figures.
+
+### What is still out of reach, and will not be approximated
+
+Shorter than it was, and none of it is a matter of loading geometry — an
+operator that would need what is missing returns `decidable: false` rather than
+an estimate.
+
+| not available | why |
+|---|---|
+| sun position, Besonnung | needs `RefLatitude`/`RefLongitude` and a true-north angle that many exports simply do not carry |
+| escape-route lengths through the building | needs path operators over the graph; not written |
+| clear height under downstands and beams | `clearHeight` measures the room solid, which is the storey-to-storey figure, not the lichte Höhe under a Unterzug |
+| room USE (Aufenthaltsraum or not) | a legal classification, not a geometric one — stays `inferred` and wants confirming |
+| which clause applies, and whether the building complies | this package supplies the numbers a check is written against; the judgment is the host's |
+
+The first is worth restating because it is the one people expect to work: a
+`decidable: false` on azimuth or Besonnung is a finding about the **export**,
+not about the building, and `missing` names the setting that would fix it.
 
 ## Caching: the same bytes are never parsed twice
 
@@ -250,6 +307,59 @@ do not put it in front of a user as a memory figure.
 
 The cache is process-local, holds no lock, and has **no tenancy**. A hash is not
 a permission: decide who may see a building before its bytes reach `load()`.
+
+`SpatialCache` is the same idea one layer up, holding whole `openModel` results
+— graph plus geometry — and bounded by an entry count rather than a byte
+estimate, because the dominant term is the retained triangle array.
+
+## The MCP server
+
+The package ships an MCP surface over the same operators: a `./mcp` export and
+an `ifc-spatial-mcp` binary.
+
+```bash
+npx ifc-spatial-mcp          # stdio MCP server
+```
+
+```ts
+import { createSpatialServer } from '@grid/ifc-spatial/mcp'
+```
+
+The tool definitions live in `src/mcp/tools.ts` and carry no MCP import at all.
+That is deliberate: MCP is how these tools are *delivered*, not what they are,
+so the same handlers serve an MCP server, an HTTP route inside a host, or a
+direct in-process call from a test, and none of the three reimplements the
+argument checking.
+
+| tool | what it does |
+|---|---|
+| `open_model` | reads an IFC from `path`, `url` or `base64`; returns a handle and the briefing. Always first |
+| `briefing` | the briefing again, for a model already open |
+| `find_elements` | GlobalIds by type, name, storey or kind — the input to everything else |
+| `element` | one element, plus which relations are worth asking about it |
+| `relations` | the eleven topological operators, under one enum |
+| `measure` | the metric operators, under one enum |
+| `distance` | distance between two elements, in a named mode |
+| `draw` | a plan, section or elevation, written to a file rather than into the reply |
+| `storey_heights` | storey elevations and their differences |
+| `room_inventory` | rooms by inferred use, explicitly as a proposal |
+
+One tool per *shape* rather than per operator: eleven relations share one
+signature, so eleven tools would be eleven copies of one schema and a model
+choosing between them would be choosing a name. What is not collapsed is the
+meaning — the enum documents each relation, and the answer says which one ran.
+
+Two things a host must decide before exposing this:
+
+- **`open_model`'s `path` source is for trusted local callers only.** There is
+  no root to resolve against. A host mounting these handlers on an HTTP route
+  must drop that source or resolve the path against a directory it owns.
+- **`url` is fetched by the server, to an address the agent chose.** Only
+  http/https are allowed, literal loopback, private, link-local and metadata
+  addresses are refused on every redirect hop, and the read is bounded by a
+  timeout and a size limit. That check reads the literal in the URL: a hostname
+  that *resolves* to an internal address still passes, so run this where it
+  cannot reach anything worth reaching.
 
 ## It runs on `@ifc-lite/parser`
 

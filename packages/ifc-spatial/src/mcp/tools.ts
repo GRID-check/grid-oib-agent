@@ -112,8 +112,39 @@ export function createTools(cache: SpatialCache): ToolDef[] {
    * git object is. A handle that IS the content means two uploads of the same
    * file are one model without anybody comparing filenames, and it means a
    * stale handle cannot silently resolve to a different building.
+   *
+   * ## Why this table is bounded, and bounded to the cache's own number
+   *
+   * These are strong references, and they are a SECOND set: evicting a model
+   * from `cache` does not release it while this map still names it. Unbounded,
+   * the map therefore quietly cancels the cache's lid — a `SpatialModel` holds
+   * its `GeometryIndex`, whose retained triangles run to
+   * `GeometryOptions.maxRetainedTriangles`, 2 000 000 by default and roughly
+   * 150 MB of float64 apiece. A server that opens twenty large models over a
+   * day would hold all twenty, and the cache's `maxEntries` would be a comment.
+   *
+   * So the bound is `cache.maxEntries` rather than a number chosen here. A
+   * separate constant would be a second opinion about the same models, and the
+   * bigger of the two opinions is the one that actually decides memory.
    */
+  const maxOpen = cache.maxEntries
   const models = new Map<string, SpatialModel>()
+
+  /**
+   * Insertion order IS the LRU order — `Map` iterates oldest-first — so a hit
+   * re-inserts to move the key to the end. Without that touch the eviction is
+   * insertion-ordered rather than use-ordered, and the model an agent has been
+   * asking about for twenty turns is the first one dropped.
+   */
+  function retain(model: SpatialModel): void {
+    models.delete(model.contentHash)
+    models.set(model.contentHash, model)
+    while (models.size > maxOpen) {
+      const oldest = models.keys().next().value
+      if (oldest === undefined || oldest === model.contentHash) break
+      models.delete(oldest)
+    }
+  }
 
   function resolve(raw: unknown): BuildingGraph {
     return resolveModel(raw).graph
@@ -142,13 +173,29 @@ export function createTools(cache: SpatialCache): ToolDef[] {
     const id = String(raw ?? '').trim().toLowerCase()
     if (!id) throw new Error('model fehlt — zuerst open_model aufrufen')
     const exact = models.get(id)
-    if (exact) return exact
+    if (exact) {
+      retain(exact)
+      return exact
+    }
     if (id.length >= 8) {
       const matches = [...models.keys()].filter((hash) => hash.startsWith(id))
-      if (matches.length === 1) return models.get(matches[0]!)!
+      if (matches.length === 1) {
+        const model = models.get(matches[0]!)!
+        retain(model)
+        return model
+      }
       if (matches.length > 1) throw new Error(`model "${id}" ist mehrdeutig (${matches.length} Treffer) — mehr Stellen angeben`)
     }
-    throw new Error(`model "${id}" ist nicht geöffnet — open_model aufrufen. Offen: ${[...models.keys()].map(short).join(', ') || 'keines'}`)
+    // Says "erneut öffnen" and not merely "öffnen", because past `maxOpen` this
+    // is also what an EVICTED handle hits. An agent told only "not open" about a
+    // model it demonstrably opened ten turns ago concludes it hallucinated the
+    // handle; told to re-open, it does, and the open is a cache hit if the model
+    // is still resident.
+    throw new Error(
+      `model "${id}" ist nicht geöffnet — mit open_model (erneut) öffnen. ` +
+        `Es bleiben höchstens ${maxOpen} Modelle gleichzeitig offen. ` +
+        `Offen: ${[...models.keys()].map(short).join(', ') || 'keines'}`
+    )
   }
 
   /**
@@ -189,7 +236,7 @@ export function createTools(cache: SpatialCache): ToolDef[] {
       handler: async (args) => {
         const bytes = await readSource(args)
         const model = await cache.load(bytes)
-        models.set(model.contentHash, model)
+        retain(model)
         return {
           model: short(model.contentHash),
           contentHash: model.contentHash,
@@ -508,19 +555,170 @@ export function createTools(cache: SpatialCache): ToolDef[] {
   ]
 }
 
+/**
+ * How long a model download may take, in ms.
+ *
+ * 120 s, the same figure as `_DOWNLOAD_TIMEOUT_SECONDS` in the Python client —
+ * a presigned URL for a 200 MB export is a slow read, not a hung one. What this
+ * replaces is not a longer timeout but NO timeout: `fetch` without a signal
+ * waits on an unreachable host until the socket layer gives up, and a tool call
+ * that never returns is indistinguishable to an agent from one that failed.
+ */
+const FETCH_TIMEOUT_MS = 120_000
+
+/**
+ * The largest model accepted from a URL, in bytes.
+ *
+ * 512 MB is the Python client's `_MAX_MODEL_BYTES_CAP`. That client derives its
+ * actual limit from the container's memory, because a parse costs roughly 20x
+ * the file (`PARSE_FOOTPRINT_RATIO`) and a fixed ceiling guarantees the OOM it
+ * was meant to prevent. There is no equivalent derivation here — this package
+ * is a reference implementation with no deployment to size against — so it
+ * takes the cap and refuses above it, which is at least a stated refusal rather
+ * than an allocation that fails somewhere else.
+ */
+const MAX_MODEL_BYTES = 512 * 1024 * 1024
+
+/** How many redirects a download may follow before it is refused. */
+const MAX_REDIRECTS = 5
+
+/**
+ * The URL an agent asked us to fetch, or a refusal saying which rule it broke.
+ *
+ * `args.url` is written by a model, so this is a server-side request whose
+ * destination is chosen by untrusted input. Two rules, both narrow on purpose:
+ *
+ *  - **http and https only.** The same refusal `_download` makes in the Python
+ *    client. Node's `fetch` already rejects `file:`, but `data:` would let a
+ *    model smuggle bytes past the `base64` argument's own handling, and a
+ *    future runtime adding a scheme should not silently widen this.
+ *  - **no literal internal address.** A tool that fetches `169.254.169.254`
+ *    on an agent's say-so is a cloud-credential read; loopback reaches whatever
+ *    else this process is running.
+ *
+ * ## What this does NOT stop, and must be read as
+ *
+ * The check is on the literal in the URL. A hostname that RESOLVES to an
+ * internal address passes it, because Node's `fetch` offers no hook to pin the
+ * address it dials, and re-resolving here would only add a DNS-rebinding window
+ * between our lookup and its. Nothing below is a substitute for running this
+ * server where it cannot reach anything worth reaching — a deployment that
+ * needs internal hosts should pass an explicit allowlist rather than delete the
+ * check, and one that does not should be on an egress-restricted network.
+ */
+export function assertFetchable(raw: string): URL {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error(`url ist keine gültige URL: ${raw}`)
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`url-Schema "${url.protocol}" ist nicht erlaubt — nur http und https`)
+  }
+  // Strip the brackets an IPv6 authority carries; `hostname` keeps them.
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (isInternalHost(host)) {
+    throw new Error(`url zeigt auf eine interne Adresse (${host}) — nicht erlaubt`)
+  }
+  return url
+}
+
+/**
+ * The IPv4 address inside an IPv4-mapped IPv6 host, or `null`.
+ *
+ * `::ffff:127.0.0.1` is 127.0.0.1 wearing a hat, and a check that reads only
+ * the dotted form misses it — because `new URL()` does not preserve that form.
+ * WHATWG parsing normalises the authority to hex, so by the time `hostname` is
+ * read the literal is `::ffff:7f00:1` and a `/^::ffff:(\d+\.\d+\.\d+\.\d+)$/`
+ * never matches. Both spellings are decoded here for that reason.
+ */
+function mappedIPv4(host: string): string | null {
+  const rest = /^::ffff:(.+)$/.exec(host)?.[1]
+  if (rest === undefined) return null
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(rest)) return rest
+  const groups = rest.split(':')
+  if (groups.length > 2 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null
+  const high = groups.length === 2 ? Number.parseInt(groups[0]!, 16) : 0
+  const low = Number.parseInt(groups[groups.length - 1]!, 16)
+  return `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`
+}
+
+function isInternalHost(host: string): boolean {
+  if (host === 'localhost' || host.endsWith('.localhost')) return true
+  // Resolves to the metadata service on GCE regardless of what DNS says today.
+  if (host === 'metadata' || host === 'metadata.google.internal') return true
+  const candidate = mappedIPv4(host) ?? host
+  if (
+    /^127\./.test(candidate) || // loopback
+    /^10\./.test(candidate) || // RFC 1918
+    /^192\.168\./.test(candidate) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(candidate) ||
+    /^169\.254\./.test(candidate) || // link-local; the cloud metadata address lives here
+    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(candidate) || // RFC 6598 CGNAT
+    /^0\./.test(candidate)
+  ) {
+    return true
+  }
+  return host === '::1' || host === '::' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host)
+}
+
 async function readSource(args: Record<string, unknown>): Promise<Uint8Array> {
   if (typeof args.path === 'string' && args.path) {
+    // TRUSTED LOCAL CALLERS ONLY. There is no root to resolve against and no
+    // traversal check, because the intended caller is an MCP server on the same
+    // machine as the file and a host that pointed this at its own filesystem
+    // would be the one choosing the path. A host mounting these handlers on an
+    // HTTP route — which the file header contemplates — must drop this source
+    // or resolve `path` against a directory it owns; an agent-supplied `path`
+    // over HTTP reads any file this process can read.
     return new Uint8Array(await readFile(args.path))
   }
   if (typeof args.url === 'string' && args.url) {
-    const response = await fetch(args.url)
-    if (!response.ok) throw new Error(`Modell konnte nicht geladen werden: HTTP ${response.status}`)
-    return new Uint8Array(await response.arrayBuffer())
+    return await fetchModel(args.url)
   }
   if (typeof args.base64 === 'string' && args.base64) {
     return new Uint8Array(Buffer.from(args.base64, 'base64'))
   }
   throw new Error('Eine Quelle angeben: path, url oder base64')
+}
+
+async function fetchModel(raw: string): Promise<Uint8Array> {
+  // Redirects are followed by hand rather than by `fetch`, because the
+  // allowlist has to apply to every hop. `redirect: 'follow'` would check only
+  // the URL the agent wrote and then go wherever that host pointed, which is
+  // the whole trick: a public URL answering `302 → http://169.254.169.254/`
+  // defeats a check made once at the start. Refusing redirects outright would
+  // also work and would break the presigned URLs that legitimately use them, so
+  // each hop is re-validated instead.
+  let url = assertFetchable(raw)
+  for (let hop = 0; ; hop++) {
+    const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location')
+      if (!location) throw new Error(`Modell konnte nicht geladen werden: HTTP ${response.status} ohne Location`)
+      if (hop >= MAX_REDIRECTS) throw new Error(`Modell konnte nicht geladen werden: mehr als ${MAX_REDIRECTS} Weiterleitungen`)
+      // Resolved against the current URL, so a relative Location works and
+      // cannot escape the scheme check below.
+      url = assertFetchable(new URL(location, url).href)
+      continue
+    }
+    if (!response.ok) throw new Error(`Modell konnte nicht geladen werden: HTTP ${response.status}`)
+
+    // Refused on the declared length first, before a byte is transferred — the
+    // same order as the Python client's HEAD-then-GET.
+    const declared = Number(response.headers.get('content-length') ?? Number.NaN)
+    if (Number.isFinite(declared) && declared > MAX_MODEL_BYTES) {
+      throw new Error(`Modell ist zu groß (${declared} Bytes, erlaubt ${MAX_MODEL_BYTES})`)
+    }
+    const buffer = await response.arrayBuffer()
+    // Checked again after the read: a store that sent no Content-Length, or
+    // lied about it, is otherwise unbounded.
+    if (buffer.byteLength > MAX_MODEL_BYTES) {
+      throw new Error(`Modell ist zu groß (${buffer.byteLength} Bytes, erlaubt ${MAX_MODEL_BYTES})`)
+    }
+    return new Uint8Array(buffer)
+  }
 }
 
 function short(hash: string): string {

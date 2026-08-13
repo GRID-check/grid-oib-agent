@@ -261,8 +261,8 @@ describe('freeLightIncidence', () => {
       exclude: [SOUTH_WALL],
     })
     expect(answer.value!.free).toBe(false)
-    expect(answer.value!.blockedBy[0].globalId).toBe(ROOF)
-    expect(answer.value!.blockedBy[0].intrusionDepth).toBeCloseTo(1.347, 2)
+    expect(answer.value!.blockedBy[0]!.globalId).toBe(ROOF)
+    expect(answer.value!.blockedBy[0]!.intrusionDepth).toBeCloseTo(1.347, 2)
   })
 
   it('reports a number, not null, once the obstruction is out of the way', () => {

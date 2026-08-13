@@ -30,18 +30,33 @@ DATA;
 #10=IFCCARTESIANPOINT((0.,0.,0.));
 #11=IFCAXIS2PLACEMENT3D(#10,$,$);
 #12=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#11,$);
-#13=IFCPROJECT('5Strasse000Project001',#5,'Landesstrasse L52',$,$,$,$,(#12),#9);
-#14=IFCSITE('5Strasse000Site000001',#5,'Trasse km 0+000',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);
-#15=IFCROAD('5Strasse000Road000001',#5,'L52 Abschnitt Nord',$,$,$,$,$,.USERDEFINED.,$);
-#16=IFCROADPART('5Strasse000RoadPart01',#5,'Fahrbahn km 0+000-0+500',$,$,$,$,$,.USERDEFINED.,.ROADSEGMENT.);
-#17=IFCROADPART('5Strasse000RoadPart02',#5,'Fahrbahn km 0+500-1+000',$,$,$,$,$,.USERDEFINED.,.ROADSEGMENT.);
-#18=IFCRELAGGREGATES('5Strasse000Aggr000001',#5,'Projekt-Trasse',$,#13,(#14));
-#19=IFCRELAGGREGATES('5Strasse000Aggr000002',#5,'Trasse-Strasse',$,#14,(#15));
-#20=IFCRELAGGREGATES('5Strasse000Aggr000003',#5,'Strasse-Abschnitte',$,#15,(#16,#17));
+#13=IFCPROJECT('3Strasse0000Project001',#5,'Landesstrasse L52',$,$,$,$,(#12),#9);
+#14=IFCSITE('3Strasse0000Site000001',#5,'Trasse km 0+000',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);
+/* ── Attribute order, because it is easy to get wrong and fails silently ────
+   IfcRoad     … ObjectType, ObjectPlacement, Representation, LongName,
+                 CompositionType, PredefinedType                        (10)
+   IfcRoadPart … the same, plus UsageType BEFORE PredefinedType         (11)
+
+   CompositionType is IfcElementCompositionEnum — COMPLEX, ELEMENT, PARTIAL —
+   and nothing else. Written as `.USERDEFINED.`, and with IfcRoadPart's
+   UsageType slot missing so `.ROADSEGMENT.` landed in it, IfcOpenShell dropped
+   both values and reported the entities with every enum unset. No error, no
+   warning: the fixture simply stopped carrying the classification the tests
+   below are about.
+
+   PredefinedType `.USERDEFINED.` additionally REQUIRES ObjectType, since
+   IfcRoadTypeEnum and IfcKerbTypeEnum offer nothing else to say.
+   ───────────────────────────────────────────────────────────────────────── */
+#15=IFCROAD('3Strasse0000Road000001',#5,'L52 Abschnitt Nord',$,'Landesstrasse',$,$,$,.ELEMENT.,.USERDEFINED.);
+#16=IFCROADPART('3Strasse0000RoadPart01',#5,'Fahrbahn km 0+000-0+500',$,$,$,$,$,.PARTIAL.,.LONGITUDINAL.,.ROADSEGMENT.);
+#17=IFCROADPART('3Strasse0000RoadPart02',#5,'Fahrbahn km 0+500-1+000',$,$,$,$,$,.PARTIAL.,.LONGITUDINAL.,.ROADSEGMENT.);
+#18=IFCRELAGGREGATES('3Strasse0000Aggr000001',#5,'Projekt-Trasse',$,#13,(#14));
+#19=IFCRELAGGREGATES('3Strasse0000Aggr000002',#5,'Trasse-Strasse',$,#14,(#15));
+#20=IFCRELAGGREGATES('3Strasse0000Aggr000003',#5,'Strasse-Abschnitte',$,#15,(#16,#17));
 /* ── The only physical components in the file ────────────────────────────── */
-#21=IFCPAVEMENT('5Strasse000Pavement01',#5,'Deckschicht AC 11',$,$,$,$,'B-01',.FLEXIBLE.);
-#22=IFCKERB('5Strasse000Kerb000001',#5,'Randstein rechts',$,$,$,$,'R-01',.USERDEFINED.);
-#23=IFCRELCONTAINEDINSPATIALSTRUCTURE('5Strasse000Cont000001',#5,'Bauteile Abschnitt 1',$,(#21),#16);
-#24=IFCRELCONTAINEDINSPATIALSTRUCTURE('5Strasse000Cont000002',#5,'Bauteile Abschnitt 2',$,(#22),#17);
+#21=IFCPAVEMENT('3Strasse0000Pavement01',#5,'Deckschicht AC 11',$,$,$,$,'B-01',.FLEXIBLE.);
+#22=IFCKERB('3Strasse0000Kerb000001',#5,'Randstein rechts',$,'Randstein',$,$,'R-01',.USERDEFINED.);
+#23=IFCRELCONTAINEDINSPATIALSTRUCTURE('3Strasse0000Cont000001',#5,'Bauteile Abschnitt 1',$,(#21),#16);
+#24=IFCRELCONTAINEDINSPATIALSTRUCTURE('3Strasse0000Cont000002',#5,'Bauteile Abschnitt 2',$,(#22),#17);
 ENDSEC;
 END-ISO-10303-21;

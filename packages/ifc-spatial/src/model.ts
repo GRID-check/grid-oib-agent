@@ -149,6 +149,19 @@ export class SpatialCache {
     return { hits: this.#hits, misses: this.#misses, entries: this.#models.size }
   }
 
+  /**
+   * How many models this cache will hold at once.
+   *
+   * Exposed so a caller that keeps its OWN references to loaded models can size
+   * that table from this number instead of picking a second, unrelated limit.
+   * Two lids on the same models, chosen independently, means the larger one is
+   * the real lid and the smaller one is decoration — and the larger one is
+   * whichever was written by whoever last thought about it.
+   */
+  get maxEntries(): number {
+    return this.#maxEntries
+  }
+
   get(hash: string): SpatialModel | null {
     const model = this.#models.get(hash)
     if (!model) return null

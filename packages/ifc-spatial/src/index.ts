@@ -9,15 +9,23 @@
  * file; every pipeline that flattens IFC into element rows throws them away, and
  * that is the gap this package closes.
  *
+ * Geometry is part of that: {@link runGeometryPass} tessellates the model, the
+ * metric operators measure off it with a tolerance attached, the constructive
+ * ones build the 45° light-incidence prism and test what intrudes into it, and
+ * {@link project} draws a plan or section from the same triangles. What has not
+ * changed is the refusal — an operator that cannot honestly answer returns
+ * `decidable: false`, because a guess with a unit attached is the one output
+ * this library will not produce.
+ *
  * ## What it deliberately is not
  *
- * - **Not a renderer.** No tessellation, no meshes, no viewer. It reads a file
- *   and answers questions about it.
- * - **Not geometry — yet.** Phase 0 is pure topology: no distances, no clear
- *   widths, no overhangs, no 45° light prism, no areas computed from shape.
- *   Every one of those needs a geometry pass that is not here, and an operator
- *   that would need it returns `decidable: false` rather than an approximation.
- *   A guess with a unit attached is the one output this library will not produce.
+ * - **Not a viewer.** It tessellates and it draws — a plan, a section, an
+ *   elevation, as SVG, to argue about arrangement. There is no scene graph, no
+ *   camera and no interaction, and nothing here is meant to put a building on
+ *   screen for a person to fly around.
+ * - **Not a measurement read off a picture.** The drawings and the numbers come
+ *   from the same triangles, and the numbers come from the operators. A value
+ *   taken off a rendering is guessed even when it is right.
  * - **Not multi-tenant.** There is no auth, no user, no organisation and no
  *   audit trail. A hash is not a permission: the host decides who may see which
  *   building, before the bytes reach {@link GraphCache}. Building that here

@@ -174,8 +174,27 @@ export interface OrientedPlane {
   normal: Vec3
   /** A point ON a real face of the element, not on an averaged one. */
   point: Vec3
-  /** Area of the face the plane was seated on, m². */
-  area: number
+  /**
+   * The summed area of the co-planar triangle bin that SEATED the plane, m² —
+   * an internal ranking key, not the area of a face.
+   *
+   * Named `seatedArea` rather than `area` because the shorter name was read as
+   * the face's area and it is not one. `outermostParallelFace` bins triangles
+   * by offset along the normal and sums BOTH facings (the winding is
+   * unreliable), so the total covers every co-planar sliver within `FACE_MERGE`
+   * — the wall's outer leaf plus whatever else happens to lie in that plane —
+   * and it never subtracts the openings cut out of it. Measured on the sample
+   * house's south wall: 23.527 m² binned against a true face of 17.776 m²,
+   * +32 %. Reporting that as a Fassadenfläche would put a third of a wall that
+   * is not there into an OIB 6 window-to-wall ratio.
+   *
+   * The Python engine withdrew the equivalent field from `facade_plane_of`
+   * for this reason — it publishes `{normal, point, outward}` only. This one
+   * survives because `outermostParallelFace` needs it to choose a winning bin;
+   * it is deliberately not re-exported from `index.ts`, and the only sound use
+   * is comparing two bins of the SAME element to each other.
+   */
+  seatedArea: number
   /** Whether the outward orientation could be established at all. */
   outward: boolean
 }
@@ -369,7 +388,7 @@ export function facadePlaneOf(graph: BuildingGraph, geometry: GeometryIndex, glo
     }
     const outward = spanLength >= OUTWARD_MIN_SPAN && Math.abs(dot2(seated.normal, span) / spanLength) >= OUTWARD_MIN_DOT
     return computed<OrientedPlane>(
-      { normal: seated.normal, point: seated.point, area: seated.area, outward },
+      { normal: seated.normal, point: seated.point, seatedArea: seated.area, outward },
       {
         unit: 'm',
         tolerance: BOX_TOLERANCE,
@@ -450,7 +469,7 @@ export function facadePlaneOf(graph: BuildingGraph, geometry: GeometryIndex, glo
   }
 
   return computed<OrientedPlane>(
-    { normal, point: seated.point, area: seated.area, outward },
+    { normal, point: seated.point, seatedArea: seated.area, outward },
     {
       unit: 'm',
       tolerance: TESSELLATION_TOLERANCE,
@@ -518,7 +537,11 @@ export function overhang(
   const geo = geometry.elements.get(projectingId)
   if (!geo) return noGeometry<number>(projectingId, method)
 
-  const reference = { normal: plane.normal, point: plane.point, area: plane.area }
+  // `area: 0` rather than `plane.seatedArea`: `signedDistance` requires the
+  // field to satisfy `Plane` and never reads it (line ~1256 already passes 0).
+  // Handing it the seated bin's area would move no number and would plant the
+  // misreading the rename above exists to remove.
+  const reference = { normal: plane.normal, point: plane.point, area: 0 }
   let max = -Infinity
   if (geo.triangles) {
     const t = geo.triangles

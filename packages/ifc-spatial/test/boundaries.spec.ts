@@ -307,6 +307,11 @@ function synthetic(): GeometryIndex {
       facade: null,
       dominant: null,
       triangleCount: 0,
+      // `true`: these boxes ARE the whole truth about these elements, so
+      // nothing was withheld by a retention cap. `deriveBoundaries` reads only
+      // `box` today, but the flag is what tells a future reader that a
+      // zero `surfaceArea` here means "a box has none" and not "we dropped it".
+      complete: true,
       triangles: null,
     })
   }
@@ -315,6 +320,8 @@ function synthetic(): GeometryIndex {
     elements,
     bounds: box([-0.5, -0.5, -0.2], [8.5, 4.5, 2.5]),
     planCentre: [4, 2],
+    // Nothing was re-based: the boxes above are already the file's own frame.
+    frameOffset: null,
     stats: {
       elementsWithGeometry: elements.size,
       unmatched: 0,

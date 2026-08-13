@@ -342,17 +342,41 @@ describe('project() on Ifc4_SampleHouse.ifc', () => {
       // Chaining did something: far fewer polylines than segments, or the
       // endpoint matching silently failed and every segment stands alone.
       //
-      // Counted over the CUT paths only. A section now also draws everything
-      // beyond the plane as a faint filled background — which is what makes it
-      // read as a building rather than as fragments floating in white — and
-      // those fills are one subpath per triangle by construction. Including
-      // them measured the tessellator instead of the chaining, and would go on
-      // "failing" however well the chaining worked.
-      const cutPaths = paths(view.svg).filter((p) => p.raw.includes('fill="none"'))
+      // `M` counts polylines and `L` counts segments, so the ratio between them
+      // over the SAME set of paths is the whole measurement. Getting that set
+      // right is the difficult part, and two selections that look right are not:
+      //
+      //   - `fill="none"` looks like "the cut", and is not. A closed ring is
+      //     emitted FILLED (`ringPath(ring, true)`), so the profiles chaining
+      //     managed to close are exactly the ones this filter throws away,
+      //     while the scale bar, the north arrow and the tick marks — which
+      //     chaining never touched — are exactly the ones it keeps. On this
+      //     view it selects 14 paths carrying 168 subpaths over 211 segments:
+      //     a ratio of 1.3 that would fail the bound below however well the
+      //     chaining worked.
+      //   - `segments(view.svg)` counts every path in the drawing, including
+      //     the faint `data-layer="beyond"` background that makes a section
+      //     read as a building rather than as fragments floating in white.
+      //     That layer is one subpath per triangle by construction — measured
+      //     here at 1605 subpaths for 3210 segments, exactly two apiece — and
+      //     it outweighs the cut eightfold, so `polylines < segments/3` reduces
+      //     to 168 < 1263 and passes on any input whatsoever.
+      //
+      // The honest set is the paths that carry a `data-id` and are not the
+      // beyond layer: the cut itself, filled rings and open profiles alike.
+      // Measured on this file that is 16 paths, 26 polylines, 403 segments —
+      // 15.5 segments per polyline. Had the endpoint matching failed, every
+      // segment would stand alone and the two counts would be equal.
+      const cutPaths = paths(view.svg).filter(
+        (p) => p.raw.includes('data-id=') && !p.raw.includes('data-layer="beyond"')
+      )
       const polylines = cutPaths.reduce((sum, p) => sum + subpaths(p.d), 0)
-      const cutSegments = cutPaths.reduce((sum, p) => sum + subpaths(p.d), 0)
-      expect(cutSegments).toBeGreaterThan(0)
-      expect(polylines).toBeLessThan(segments(view.svg) / 3)
+      const cutSegments = cutPaths.reduce((sum, p) => sum + (p.d.match(/L/g) ?? []).length, 0)
+      // The cut has to exist before its shape means anything: 50 is the same
+      // floor the whole-drawing assertion above uses, and the cut alone clears
+      // it by 8x.
+      expect(cutSegments).toBeGreaterThan(50)
+      expect(polylines).toBeLessThan(cutSegments / 3)
 
       // Cut material is filled; profiles the mesh left open are not.
       //

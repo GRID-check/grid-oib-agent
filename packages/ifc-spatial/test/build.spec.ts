@@ -8,10 +8,14 @@
  * wall-to-wall connection, and two fittings that live in a SPACE rather than on
  * a storey.
  *
- * Three suites are `.skip`ped. Each one asserts the behaviour `build.ts`
- * documents and does not currently produce; the comment above it names the line
- * that is wrong. They are not weakened — they are left failing-if-run so the fix
- * has a test waiting for it.
+ * Three of the suites below — `adjacentZone`, `hasSubElement direction` and
+ * `longName` — are regression suites for defects this fixture found and
+ * `build.ts` has since fixed. Each carries a docblock naming the invariant it
+ * guards and the wrong answer that appeared when the invariant did not hold,
+ * because in all three cases the wrong answer was a plausible one: a room
+ * adjacent to itself, a storey reported as part of a room, a room called
+ * „R.01". None of them looked like a crash, and none would have been noticed
+ * without an assertion aimed at it.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest'
@@ -256,31 +260,34 @@ describe('interfaceOf', () => {
 
 describe('adjacentZone', () => {
   it('links Wohnzimmer and Kueche through the party wall', () => {
-    // Necessary condition only — the exact contract is the skipped suite below.
+    // Necessary condition only — the exact contract is the suite below.
     expect(around(graph, 'adjacentZone', ID.wohnzimmer)).toContain(ID.kueche)
     expect(into(graph, 'interfaceOf', ID.trennwand).sort()).toEqual([ID.wohnzimmer, ID.kueche].sort())
   })
 
   /**
-   * BUG in src/graph/build.ts.
+   * Invariant: one `adjacentZone` edge per adjacent pair, and no room adjacent
+   * to itself.
    *
-   * `const index = buildIndex(edges)` (line 254) indexes the edge array BEFORE
-   * `dedupe(edges)` runs (line 312). `related()` deliberately reads both
-   * `forward` and `inverse`, so every declared IfcRelSpaceBoundary is pushed
-   * twice — once while iterating the space, once while iterating the wall. The
-   * pre-dedupe index therefore reads
+   * Guarded because the derivations are indexed off the edge ARRAY, and that
+   * array holds every declared relation twice by design — `related()` reads
+   * both `forward` and `inverse`, so each IfcRelSpaceBoundary is pushed once
+   * while visiting the space and once while visiting the wall. `dedupe` cleans
+   * that up, and for as long as `buildIndex` ran before it the derivations saw
+   * the duplicates:
    *
    *     in['interfaceOf'][Aussenwand Sued]  = [Wohnzimmer, Wohnzimmer]
    *     in['interfaceOf'][Trennwand]        = [Wohnzimmer, Kueche, Wohnzimmer, Kueche]
    *
-   * and the `spaces.length < 2` guard passes for walls that bound ONE room.
-   * Actual output is four adjacentZone edges: Wohnzimmer→Wohnzimmer,
-   * Kueche→Kueche, Wohnzimmer→Kueche and Kueche→Wohnzimmer — i.e. two rooms
-   * reported as adjacent to themselves, and the real pair stored twice with the
-   * ends swapped, which is exactly what the comment at line 224 says must not
-   * happen.
+   * A wall bounding ONE room then cleared the `spaces.length < 2` guard, and
+   * this fixture produced four edges instead of one — Wohnzimmer→Wohnzimmer,
+   * Kueche→Kueche, and the real pair stored twice with its ends swapped. Two
+   * rooms adjacent to themselves, from a perfectly correct file.
    *
-   * Fix: move `dedupe(edges)` above the `buildIndex` on line 254.
+   * `build.ts` now dedupes before indexing, and says so at that line. What
+   * makes this worth a standing test rather than a comment is that the failure
+   * is invisible from the edge list: `dedupe` still ran, so the FINAL graph was
+   * duplicate-free and only the derived edges were wrong.
    */
   it('stores the pair exactly once and never a room next to itself', () => {
     const adjacent = edgesOf('adjacentZone')
@@ -488,26 +495,28 @@ describe('progress and stats', () => {
 })
 
 /**
- * BUG in src/graph/build.ts, the IfcRelAggregates block (lines 241-249).
+ * Invariant: `hasSubElement` points whole → part, always, and never back.
  *
- * The guard `if (!nodes.get(otherId) || CONTAINER_KIND[nodes.get(globalId)!.ifcType]) continue`
- * tests only whether the SOURCE node is a spatial container. But `related()`
- * merges `forward` and `inverse`, so a non-container that is aggregated BY
- * something sees its parent on the inverse side and emits an edge pointing the
- * wrong way. Actual output contains
+ * Guarded because IfcRelAggregates is the one relation whose endpoints do not
+ * say which side is the whole. Everywhere else the node kinds settle it — a
+ * storey contains an element, never the reverse — but an aggregation can hold a
+ * container on either side, so orientation has to come from the relation's own
+ * direction rather than from the things it joins.
+ *
+ * While this block read `related()`, which merges `forward` and `inverse`, a
+ * space saw its storey on the inverse side and emitted
  *
  *     hasSubElement  Wohnzimmer (IfcSpace) → Erdgeschoss (IfcBuildingStorey)
- *     hasSubElement  Kueche     (IfcSpace) → Erdgeschoss (IfcBuildingStorey)
  *
- * alongside the correct storey → space edges from `walkSpatial`. `hasSubElement`
- * is documented as whole → part, so a part → whole edge of the same kind makes
- * `out(graph, 'hasSubElement', space)` answer "the storey is part of the room".
- * The same doubling would hit every element assembly.
+ * alongside the correct storey → space edge from `walkSpatial`. Both directions
+ * of the same kind, so `out(graph, 'hasSubElement', space)` answered that the
+ * storey is part of the room, and every element assembly would have doubled the
+ * same way.
  *
- * Fix: orient this block by the endpoints the way the neighbouring blocks do —
- * only push when the OTHER node is the one being aggregated, e.g. by reading
- * `forward` alone here, or by skipping when `CONTAINER_KIND[other.ifcType]` is
- * set and the source is not a container.
+ * `build.ts` now trusts `forward` in this one block, which the parser orients
+ * RelatingObject → RelatedObjects. The second assertion pins the count as well
+ * as the direction: a reversed edge survives a direction check alone if the
+ * forward one is missing, and six is what this file declares.
  */
 describe('hasSubElement direction', () => {
   it('never points from a part back to its whole', () => {
@@ -524,15 +533,20 @@ describe('hasSubElement direction', () => {
 })
 
 /**
- * BUG in src/graph/build.ts, node construction (line 120).
+ * Invariant: `LongName` is read, and `label()` prefers it over a coded `Name`.
  *
- * `longName` is hard-coded to `null` for every node, so `IfcSpace.LongName` is
- * never read. The fixture deliberately puts the code in Name ('R.01') and the
- * human label in LongName ('Wohnzimmer') — the case `GraphNode.longName` is
- * documented for ("the human label when `name` is a code") and the case
- * `label()` prefers. Today `label()` of the living room prints
- * "R.01 (IfcSpace)". The parser does expose it: `SpatialNode.longName` is
- * populated for spatial nodes and `pickLongName()` is exported for the rest.
+ * The fixture puts the ISO 19650 code in `Name` ('R.01') and the human label in
+ * `LongName` ('Wohnzimmer'), because that is what real spatial elements do and
+ * it is the case `GraphNode.longName` exists for. While node construction
+ * hard-coded `longName: null`, `label()` of the living room printed
+ * "R.01 (IfcSpace)" — sourced from the file, correct in every mechanical sense,
+ * and useless to the architect reading the answer.
+ *
+ * That is the failure mode worth a standing test: nothing errors, nothing is
+ * empty, and the sentence the agent writes is simply about a room the reader
+ * cannot identify. The zone assertion is here because `longName` is read
+ * per-type through the schema registry, so a group and a space are separate
+ * paths and one can regress without the other.
  */
 describe('longName', () => {
   it('resolves the human label of a room whose Name is a code', () => {
