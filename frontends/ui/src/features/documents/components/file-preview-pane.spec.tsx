@@ -440,10 +440,19 @@ describe('FilePreviewPane', () => {
       expect(await screen.findByTestId('ifc-file-preview')).toBeDefined()
     })
 
-    it('keeps the ordinary preview in the org Archiv, which has no project to resolve a model in', () => {
+    it('previews the building in the org Archiv too, which has no project', async () => {
+      // This used to assert the opposite, and the opposite was the bug: an
+      // `.ifc` uploaded into the Archiv was parsed, indexed and listed as
+      // ready, and then previewed as the grey placeholder every unreadable
+      // format gets. The viewport resolves the model by DOCUMENT when no
+      // project is in hand, so the shelf no longer decides whether a building
+      // can be looked at.
       render(<FilePreviewPane file={modelFile} />)
-      expect(screen.queryByTestId('ifc-file-preview')).toBeNull()
-      expect(screen.getByText(/no inline preview/i)).toBeDefined()
+
+      const preview = await screen.findByTestId('ifc-file-preview')
+      expect(preview.dataset.document).toBe('doc-ifc')
+      expect(preview.dataset.project).toBeUndefined()
+      expect(screen.queryByText(/no inline preview/i)).toBeNull()
     })
 
     it('never routes an ordinary document to the viewport', () => {

@@ -131,6 +131,22 @@ export async function findBimModelByDocument(
  * Models in a project, newest first, plus the org-wide Archiv models when
  * `includeArchiv` is set — the same scope rule document retrieval uses, so a
  * chat that can cite an Archiv document can also query its model.
+ *
+ * ## The Archiv is `scope = 'archiv'`, never "no project"
+ *
+ * This used to read `project_id IS NULL` for both of those cases, which was an
+ * exact description of the Archiv right up until there was a second
+ * project-less shelf. ADR-0047 Phase 2 added one: a file dropped into a chat is
+ * `scope = 'session'` with a NULL project, and it goes through the same
+ * extraction dispatcher — so every private chat attachment that happened to be
+ * an IFC appeared in EVERY project's model list in the organization, and in the
+ * agent's model resolution for every conversation. Filename, storey counts,
+ * floor area, and a model id that the query and source routes would then serve.
+ *
+ * The join to `documents` was already here for the file name. Reading the shelf
+ * off the same row is what makes the predicate mean what its name says, and it
+ * is the phrasing `documents_session_requires_conversation` (migration 0049)
+ * was written to make available.
  */
 export async function listBimModels(
   organizationId: string,
@@ -138,13 +154,14 @@ export async function listBimModels(
 ): Promise<BimModelHeader[]> {
   const db = getDb()
   const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? 50)), 200)
+  const archivScope = eq(documents.scope, 'archiv')
   const scope =
     options.projectId === undefined
       ? undefined
       : options.includeArchiv
-        ? sql`(${bimModels.projectId} = ${options.projectId} OR ${bimModels.projectId} IS NULL)`
+        ? sql`(${bimModels.projectId} = ${options.projectId} OR ${archivScope})`
         : options.projectId === null
-          ? sql`${bimModels.projectId} IS NULL`
+          ? archivScope
           : eq(bimModels.projectId, options.projectId)
 
   return withTenant({ organizationId }, () =>

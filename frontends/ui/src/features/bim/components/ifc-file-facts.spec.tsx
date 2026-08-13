@@ -12,10 +12,21 @@ import { IfcFileFacts } from './ifc-file-facts'
 import type { BimModelHeaderView } from '../hooks/use-bim-model'
 import type { BimModelSummary } from '@/lib/bim/types'
 
-const state: { models: BimModelHeaderView[] | null } = { models: null }
+const state: {
+  models: BimModelHeaderView[] | null
+  /** The document-scoped lookup the Archiv resolves through. */
+  documentModel: BimModelHeaderView | null
+} = { models: null, documentModel: null }
+
+const IDLE = { data: null, isLoading: false, error: null, reload: () => {} }
 
 vi.mock('../hooks/use-bim-model', () => ({
-  useProjectBimModels: () => ({ data: state.models, isLoading: false, error: null, reload: () => {} }),
+  useProjectBimModels: (projectId: string | null) =>
+    projectId ? { data: state.models, isLoading: false, error: null, reload: () => {} } : IDLE,
+  useDocumentBimModel: (documentId: string | null) =>
+    documentId
+      ? { data: state.documentModel, isLoading: false, error: null, reload: () => {} }
+      : IDLE,
 }))
 
 /** A summary with only the fields this rail reads; the rest is real shape. */
@@ -78,6 +89,7 @@ function renderFacts(): void {
 
 beforeEach(() => {
   state.models = null
+  state.documentModel = null
 })
 
 describe('IfcFileFacts', () => {
@@ -132,5 +144,16 @@ describe('IfcFileFacts', () => {
     const { container } = render(<IfcFileFacts documentId="doc-1" projectId="proj-1" />)
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('states the same facts in the org Archiv, where there is no project to list', () => {
+    // The project list stays empty on purpose: reading it here would mean this
+    // rail asked a question the Archiv cannot answer.
+    state.documentModel = model({ projectId: null })
+    render(<IfcFileFacts documentId="doc-1" />)
+
+    expect(screen.getByText('Storeys')).toBeInTheDocument()
+    expect(screen.getByText('1,842')).toBeInTheDocument()
+    expect(screen.getByText('1,240.5 m²')).toBeInTheDocument()
   })
 })

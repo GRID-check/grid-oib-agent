@@ -27,9 +27,14 @@ vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn().mockResolvedValue({ id: 'proj-1', name: 'Wohnhaus Grüngasse' }),
 }))
 
-vi.mock('@/lib/documents/repository', () => ({
-  findDocumentInOrg: vi.fn().mockResolvedValue({ id: 'doc-1', projectId: 'proj-1', storageKey: 'k' }),
-}))
+vi.mock('@/lib/documents/repository', async () => {
+  const { makeDocument } = await import('@/test-utils/db-fixtures')
+  return {
+    findDocumentInOrg: vi
+      .fn()
+      .mockResolvedValue(makeDocument({ id: 'doc-1', projectId: 'proj-1', storageKey: 'k' })),
+  }
+})
 
 vi.mock('./repository', () => ({
   listBimModels: vi.fn(),

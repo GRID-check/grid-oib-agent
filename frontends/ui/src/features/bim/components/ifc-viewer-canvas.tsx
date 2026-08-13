@@ -100,6 +100,7 @@ import {
   type BimCameraView,
   type BimSection,
 } from '../lib/viewer-camera'
+import { unwrapModelSource } from '../lib/model-source'
 import { captureFrameOptions, interactiveFrameOptions } from '../lib/viewer-performance'
 import {
   observeViewerTheme,
@@ -675,9 +676,14 @@ export function IfcViewerCanvas({
         // Same bytes and the same total time, but the progress the user sees is
         // now the download's real position instead of an indeterminate spinner
         // that sits still for a minute on a 149 MB file and reads as a hang.
-        const buffer = await downloadWithProgress(response, (percent) => {
+        const downloaded = await downloadWithProgress(response, (percent) => {
           if (!cancelled) report({ phase: 'downloading', percent, meshCount: 0 })
         })
+        if (cancelled) return
+        // A `.ifczip` that reached the browser as a container renders as
+        // nothing — the kernel takes STEP and reports no error for anything
+        // else. Four bytes for every ordinary model; see `unwrapModelSource`.
+        const buffer = await unwrapModelSource(downloaded)
         if (cancelled) return
 
         report({ phase: 'parsing', percent: null, meshCount: 0 })

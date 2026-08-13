@@ -35,15 +35,20 @@ vi.mock('@/lib/authz/projects', () => ({
   }),
 }))
 
-vi.mock('@/lib/documents/repository', () => ({
-  findDocumentInOrg: vi.fn(async (documentId: string) => ({
-    id: documentId,
-    // `doc-a` belongs to the granted project; `doc-b` to a project the caller
-    // has no grant on. Both are in the same organization.
-    projectId: documentId === 'doc-a' ? 'project-a' : 'project-b',
-    storageKey: 'k',
-  })),
-}))
+vi.mock('@/lib/documents/repository', async () => {
+  const { makeDocument } = await import('@/test-utils/db-fixtures')
+  return {
+    findDocumentInOrg: vi.fn(async (documentId: string) =>
+      makeDocument({
+        id: documentId,
+        // `doc-a` belongs to the granted project; `doc-b` to a project the
+        // caller has no grant on. Both are in the same organization.
+        projectId: documentId === 'doc-a' ? 'project-a' : 'project-b',
+        storageKey: 'k',
+      })
+    ),
+  }
+})
 
 vi.mock('./repository', () => ({
   findBimModelById: vi.fn(async (modelId: string) => ({

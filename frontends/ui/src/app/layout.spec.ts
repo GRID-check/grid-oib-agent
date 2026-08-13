@@ -260,6 +260,9 @@ describe('File Upload Configuration', () => {
         'application/step',
         'application/x-ifc',
         'application/x-step',
+        // What Windows calls a zip. Without it the drop overlay told a user
+        // dragging a perfectly valid `.ifczip` that the type was unsupported.
+        'application/x-zip-compressed',
         'application/zip',
         'model/ifc',
         'text/plain',

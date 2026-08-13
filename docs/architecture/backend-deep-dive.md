@@ -938,7 +938,16 @@ Upload .ifc → SeaweedFS  →  extractIfcModel()  ─┬─→ bim_models + bim
 The digest object keeps the ORIGINAL filename as its last path segment and
 carries `Content-Type: text/markdown`, so the backend reads it as text while
 `file_name` still resolves to the real `documents` row — citations open the
-model and deleting the document removes its chunks. Extraction is detached from
+model and deleting the document removes its chunks.
+
+A fourth derived object, `_bim/source.ifc.gz`, is the VIEWER's input: the same
+model, gzipped, because the browser triangulates it and a presigned URL is
+never cached. It holds the **unwrapped** model — a `.ifczip` is opened once, on
+the way in (`lib/bim/ifc-archive.ts`), and everything downstream sees STEP.
+That module also enforces the extraction ceiling on the archive's DECLARED
+uncompressed size, read from the zip directory before a byte is inflated: the
+limit exists to keep a 1 GiB pod alive, and measuring it on the compressed
+object let a 40 MB upload become a 300 MB allocation. Extraction is detached from
 the request (a 60 MB model takes tens of seconds) and every terminal outcome
 writes the document row: success → the digest dispatch sets `pending` + a job
 id, failure → `failed` with the reason, plus a `bim_models` row recording the

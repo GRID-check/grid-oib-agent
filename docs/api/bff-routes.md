@@ -347,13 +347,24 @@ Source: `docs/technical-reference/websocket-gateway.md`
 ## BIM / IFC models (ADR-0045)
 
 Every route is gated by the `ifc-models` WorkOS flag AND the document's own
-access rule: a project model goes through `requireProjectAccess(project:view)`,
-an Archiv model (no project) is readable by any member of the owning
-organization. Cross-tenant and no-access both surface as 404.
+access rule, resolved from the document's **shelf** (`documents.scope`,
+ADR-0047) rather than from whether it has a project:
+
+| Shelf | Who may read the model |
+|---|---|
+| `project` | `requireProjectAccess(project:view)` on the document's project. |
+| `archiv` | Any member of the owning organization (ADR-0024 — the Archiv is shared knowledge). |
+| `session` | Only inside the conversation the file was attached to (`requireResourceAccess(conversation, viewer)`). |
+
+Cross-tenant and no-access both surface as 404. The shelf is what decides
+because two of the three have no project: reading "no project" as "the Archiv"
+served a private chat attachment's building — and a presigned URL for its
+bytes — to every member of the organization.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/projects/{id}/bim/models` | Models in scope for a project — its own plus the org Archiv's. |
+| `GET` | `/api/projects/{id}/bim/models` | Models in scope for a project — its own plus the org Archiv's. "The Archiv's" is `documents.scope = 'archiv'`, not "no project": a chat attachment (`scope = 'session'`) is also project-less and must never appear here. |
+| `GET` | `/api/documents/{id}/model` | The model read from ONE document, on any shelf — the question a file preview actually has the answer to, and the only way a model in the org-wide Archiv (which has no project) can be resolved at all. `{ model: null }` when the file has no model yet (still extracting) or is not a model; authorization is the document's own shelf rule. |
 | `GET` | `/api/bim/models/{modelId}` | Model header + summary (spatial tree, storeys, type counts, totals, validation findings). |
 | `POST` | `/api/bim/models/{modelId}/query` | Run one structured query (below). A read, POSTed because the request is a nested filter object. |
 | `GET` | `/api/bim/models/{modelId}/source` | Short-lived presigned URL for the raw `.ifc` — the 3D viewport's input, signed against the browser-reachable endpoint. |

@@ -48,7 +48,14 @@ const EXTENSION_TO_MIME: Record<string, string[]> = {
   // BFF allow-list — and a type-less file is already accepted by
   // `isValidMimeType`, so no empty-string entry is needed.
   '.ifc': [...IFC_MIME_TYPES, 'application/octet-stream'],
-  '.ifczip': ['application/zip', 'application/octet-stream'],
+  // `application/x-zip-compressed` is what Windows reports for a zip through
+  // the file picker and — the part that showed — through a DRAG. The drop
+  // overlay reads the dragged item's type (`checkDraggedFilesSupported`), which
+  // is all a browser exposes before the drop, so a perfectly valid model was
+  // greeted with "Dateityp nicht unterstützt" while hovering. The drop itself
+  // always went through (validation is by extension), which made it worse: the
+  // upload worked and the app said it would not.
+  '.ifczip': ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'],
 }
 
 /**
