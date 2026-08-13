@@ -423,8 +423,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         return
       }
       const file = files.find((candidate) => candidate.id === id)
-      setSelectedFileId(id)
       if (!file) return
+      const isModel =
+        inferDocumentKind({
+          filename: file.filename,
+          contentType: file.contentType,
+          tags: file.tags,
+        }) === 'model'
+      if (showModels && isModel) {
+        openModel(file.filename)
+        return
+      }
+      setSelectedFileId(id)
       useFilePreviewStore.getState().open(file, 'modal', {
         projectId,
         projectName,
@@ -439,6 +449,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     },
     [
       files,
+      showModels,
+      openModel,
       projectId,
       projectName,
       canCollaborate,

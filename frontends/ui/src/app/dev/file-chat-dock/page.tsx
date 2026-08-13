@@ -29,7 +29,7 @@ const FILE: FileItem = {
 
 export default function FileChatDockPreviewPage(): JSX.Element {
   return (
-    <I18nProvider locale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
       <div className="bg-background relative flex h-[100dvh]" data-testid="file-chat-dock">
         <section className="flex min-w-0 flex-1 flex-col">
           <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur">

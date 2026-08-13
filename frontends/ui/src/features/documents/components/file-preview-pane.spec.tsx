@@ -3,6 +3,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FilePreviewPane } from './file-preview-pane'
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => '/app/projects/proj-1/files',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 /**
  * The model viewport, stood in for. Mounting the real one here would test the
  * BIM subsystem (which has its own specs); what this file must prove is that

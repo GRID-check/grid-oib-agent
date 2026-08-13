@@ -184,7 +184,10 @@ def _extract_query_from_text(text: str) -> tuple[str, list[str] | None, list[str
                 pass
             if isinstance(query_text, str) and query_text.strip():
                 return (query_text.strip(), data_sources, skills)
-            return (text, data_sources, skills)
+            # No query/text field — treat the whole blob as the user's
+            # message, not as a structured payload. data_sources in that
+            # JSON would silently re-aim the turn.
+            return (text, None, None)
     try:
         from aiq_agent.common.focus_file import set_focused_file_name
 

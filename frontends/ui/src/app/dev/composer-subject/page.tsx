@@ -11,7 +11,7 @@ import { ComposerSubjectBar } from '@/features/documents/components/composer-sub
 
 export default function ComposerSubjectPreviewPage(): JSX.Element {
   return (
-    <I18nProvider locale="de">
+    <I18nProvider initialLocale="de" fixedLocale>
       <div className="mx-auto w-full max-w-[680px] space-y-8 p-6">
         <div className="rounded-xl border bg-card p-3 shadow-xs">
           <ComposerSubjectBar
