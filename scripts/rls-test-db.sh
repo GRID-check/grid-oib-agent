@@ -94,4 +94,5 @@ echo "==> running the isolation and BIM query suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
-    src/lib/bim/query.integration.spec.ts
+    src/lib/bim/query.integration.spec.ts \
+    src/lib/bim/model-shelf.integration.spec.ts

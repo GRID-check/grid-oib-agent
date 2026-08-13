@@ -15,9 +15,11 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3Client, signingS3Client } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import { isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import type { Document } from '@/lib/db/schema'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildComplianceBcf, type BcfExport } from './bcf'
@@ -52,12 +54,65 @@ export function assertIfcModelsEnabled(session: AuthorizedSession): void {
 }
 
 /**
- * Load a model and enforce the access its document's scope demands.
+ * Enforce, on the document a model was read from, the access ITS SHELF demands.
  *
  * The check is on the DOCUMENT, not on the model row: the model is derived data
  * and the document is the thing the sharing rules are written about, so
  * deriving access from anywhere else would eventually let the two disagree.
+ *
+ * ## Why this switches on `scope` and not on `projectId`
+ *
+ * It used to be `if (document.projectId !== null) requireProjectAccess(...)`,
+ * i.e. "a model with no project is an Archiv model, and any member of the
+ * organization may read it". That was true while the Archiv was the only
+ * project-less shelf. ADR-0047 Phase 2 added a second one: a file dropped into
+ * a chat is `scope = 'session'` with a NULL project, and it goes through the
+ * same dispatcher, so an IFC attached to a private conversation becomes a
+ * `bim_models` row with `project_id IS NULL` — indistinguishable, under the old
+ * test, from a document deliberately shared with the whole office.
+ *
+ * The consequence was not theoretical. Every surface that authorizes through
+ * here — the model header, the element query, the compliance run, and the
+ * presigned URL that streams the raw file — would have served a private chat
+ * attachment to any member of the organization holding its model id. The
+ * documents domain closed this exact hole in `getAccessibleDocument` (and the
+ * `documents` table states it as a CHECK constraint); the BIM surface still
+ * carried the old disjunction.
+ *
+ * An exhaustive `switch` is what keeps it closed: a fourth shelf fails to
+ * compile here rather than silently inheriting the Archiv's rule.
  */
+async function assertDocumentReadable(
+  session: AuthorizedSession,
+  document: Document,
+  notFoundMessage: string
+): Promise<void> {
+  switch (document.scope) {
+    case 'archiv':
+      // Org-wide by design, and `findDocumentInOrg` has already established that
+      // the row belongs to the caller's organization.
+      return
+    case 'session':
+      // As private as the chat it hangs off — the same grant the document's own
+      // download route requires (ADR-0032/0047).
+      if (!document.conversationId) throw new NotFoundError(notFoundMessage)
+      await requireResourceAccess(session, 'conversation', document.conversationId, 'viewer')
+      return
+    case 'project': {
+      // A `project` row with no project is a corrupt row, not an org-wide one:
+      // there is nothing to authorize against, so it is not found.
+      if (document.projectId === null) throw new NotFoundError(notFoundMessage)
+      await requireProjectAccess(session, document.projectId, 'project:view')
+      return
+    }
+    default: {
+      const unreachable: never = document.scope
+      throw new NotFoundError(`Unknown document scope: ${String(unreachable)}`)
+    }
+  }
+}
+
+/** Load a model and enforce the access its document's shelf demands. */
 export async function getAccessibleModel(
   session: AuthorizedSession,
   modelId: string
@@ -69,11 +124,7 @@ export async function getAccessibleModel(
   const document = await findDocumentInOrg(model.documentId, session.organizationId)
   if (!document) throw new NotFoundError('Model not found')
 
-  // An Archiv document (no project) is readable by any member of the org, which
-  // `findDocumentInOrg` has already established.
-  if (document.projectId !== null) {
-    await requireProjectAccess(session, document.projectId, 'project:view')
-  }
+  await assertDocumentReadable(session, document, 'Model not found')
   return model
 }
 
@@ -85,9 +136,7 @@ export async function getModelForDocument(
   assertIfcModelsEnabled(session)
   const document = await findDocumentInOrg(documentId, session.organizationId)
   if (!document) throw new NotFoundError('Document not found')
-  if (document.projectId !== null) {
-    await requireProjectAccess(session, document.projectId, 'project:view')
-  }
+  await assertDocumentReadable(session, document, 'Document not found')
   return findBimModelByDocument(documentId, session.organizationId)
 }
 
