@@ -15,7 +15,7 @@
  */
 
 import 'server-only'
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   platformSkills,
@@ -39,7 +39,15 @@ export async function listPlatformSkillRows(
   return db.select().from(platformSkills).orderBy(asc(platformSkills.name)).limit(limit)
 }
 
-/** Only what organizations may see: the published rows. */
+/**
+ * Every LIVE row, whichever way it is delivered — the published ones.
+ *
+ * Deliberately one query rather than one per `delivery`. Both kinds are needed
+ * together on the hot path (`resolveSkillsForAgent` wants the offers this org
+ * took up AND the fleet's standard set in the same resolution), and the
+ * catalogue is capped at 200 rows, so splitting it would buy a second round trip
+ * and nothing else. The service partitions what comes back.
+ */
 export async function listPublishedPlatformSkillRows(
   limit = PLATFORM_SKILLS_LIST_LIMIT,
 ): Promise<PlatformSkillRow[]> {
@@ -50,6 +58,35 @@ export async function listPublishedPlatformSkillRows(
     .where(eq(platformSkills.published, true))
     .orderBy(asc(platformSkills.name))
     .limit(limit)
+}
+
+/**
+ * The names the platform has reserved fleet-wide: published `standard` rows.
+ *
+ * Its own query, and a narrow one, because it serves the ORG write path — a
+ * tenant naming a skill the platform already standardised. That row would never
+ * resolve (standard wins the merge, by design), so authoring it has to be
+ * refused at the boundary rather than accepted and quietly ignored. Reading the
+ * whole catalogue to answer "is this one name taken" would put a 200-row read on
+ * every skill save in the fleet; the partial index `idx_platform_skills_standard`
+ * makes this a point lookup instead.
+ */
+export async function findStandardPlatformSkillRowByName(
+  name: string,
+): Promise<PlatformSkillRow | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(platformSkills)
+    .where(
+      and(
+        eq(platformSkills.name, name),
+        eq(platformSkills.delivery, 'standard'),
+        eq(platformSkills.published, true),
+      ),
+    )
+    .limit(1)
+  return row ?? null
 }
 
 export async function findPlatformSkillRow(skillId: string): Promise<PlatformSkillRow | null> {
@@ -75,7 +112,10 @@ export async function insertPlatformSkillRow(
 
 /** The columns a service may update on a curated skill. */
 export type PlatformSkillUpdate = Partial<
-  Pick<PlatformSkillRow, 'name' | 'description' | 'body' | 'metadata' | 'published' | 'updatedAt'>
+  Pick<
+    PlatformSkillRow,
+    'name' | 'description' | 'body' | 'metadata' | 'published' | 'delivery' | 'updatedAt'
+  >
 >
 
 export async function updatePlatformSkillRow(

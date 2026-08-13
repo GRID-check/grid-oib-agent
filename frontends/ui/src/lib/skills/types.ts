@@ -27,7 +27,7 @@ import {
   isSelectableCardType,
   parsePreferredCardTypes,
 } from '@/features/skills/lib/card-catalog'
-import type { SkillOrigin } from '@/lib/db/schema'
+import { PLATFORM_SKILL_DELIVERIES, type SkillOrigin } from '@/lib/db/schema'
 
 export const MAX_SKILL_NAME_LENGTH = 64
 export const MAX_SKILL_DESCRIPTION_LENGTH = 1024
@@ -249,12 +249,29 @@ export const curatedSkillActivationSchema = z.object({
 export type CuratedSkillActivationInput = z.infer<typeof curatedSkillActivationSchema>
 
 /**
- * Platform → Skills write boundary: the fleet-wide curated catalogue.
+ * `delivery` — how a curated skill reaches organizations.
+ *
+ * The DB constraint (`platform_skills_delivery_check`, 0049) says the same
+ * thing; this is the boundary that turns a bad value into a 400 with a message
+ * rather than a 500 from Postgres. Both are needed: the schema catches the
+ * caller, the constraint catches everything that is not a caller.
+ */
+export const platformSkillDeliverySchema = z.enum(PLATFORM_SKILL_DELIVERIES)
+
+/**
+ * Platform → Skills write boundary: the fleet-wide catalogue.
  *
  * The same SKILL.md rules as an org skill, because it is the same document —
  * a curated skill is not a privileged shape, it is the same thing written one
- * tier up. `published` is the extra field, and it defaults to false: the
- * dashboard is a writing surface, and a draft must not reach every tenant.
+ * tier up. Two extra fields, and both default closed:
+ *
+ *   `published`  false. The dashboard is a writing surface, and a draft must
+ *                not reach every tenant.
+ *   `delivery`   `offer`. A skill that says nothing about its audience is one
+ *                organizations may take or leave, never one imposed on them.
+ *
+ * Imposing on the fleet therefore takes two deliberate words, which is the
+ * right price for the only combination a tenant cannot undo.
  */
 export const createPlatformSkillSchema = z.object({
   name: skillNameSchema,
@@ -262,6 +279,7 @@ export const createPlatformSkillSchema = z.object({
   body: bodySchema,
   metadata: metadataSchema.optional(),
   published: z.boolean().optional(),
+  delivery: platformSkillDeliverySchema.optional(),
 })
 
 export type CreatePlatformSkillInput = z.infer<typeof createPlatformSkillSchema>

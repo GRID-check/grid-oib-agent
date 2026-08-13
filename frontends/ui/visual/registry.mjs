@@ -287,7 +287,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'platform-skills',
     path: '/dev/platform-skills',
     description:
-      'Platform \u2192 Skills \u2014 the catalogue Piloti curates for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Two row states, because they are the whole model: a PUBLISHED skill (offered to every org, each deciding whether to switch it on) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch here means published, not enabled \u2014 publishing offers, it does not impose.',
+      'Platform \u2192 Skills \u2014 the catalogue Piloti writes for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Three row states, because they are the whole model: a published OFFER (on every org\'s Skills tab, each deciding whether to switch it on), a published STANDARD (running for the whole fleet, on nobody\'s tab, and not something a tenant can switch off or shadow) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch means published, not enabled; the select beside it is the one control that decides whether an organization gets a choice at all.',
     waitFor: '[data-testid="platform-skills-preview"] [role="switch"]',
   },
   {

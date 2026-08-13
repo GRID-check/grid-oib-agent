@@ -481,6 +481,64 @@ in or out of the boundary.
 
 ---
 
+## platform_skills / curated_skill_activations (migrations 0046, 0047, 0049)
+
+The other two tiers of the skills substrate (`docs/architecture/agent-skills.md`).
+`skills` above is what an ORGANIZATION writes; these are what the PLATFORM writes
+and what each organization decided about it. Schema:
+`frontends/ui/src/lib/db/schema/platform-skills.ts`,
+`.../curated-skill-activations.ts`.
+
+- `platform_skills` (0047): the fleet-wide catalogue written in
+  **Platform → Skills** — `name` (UNIQUE, `idx_platform_skills_name`),
+  `description`, `body`, `metadata`, author columns. **No `organization_id`**:
+  one row reaches every tenant at once, so it joins the boundary as a PLATFORM
+  table via `grid_secure_platform_table` — every tenant reads it, only the
+  platform role writes it.
+  Two orthogonal state columns, both defaulting closed but closing different
+  doors:
+  - `published` boolean NOT NULL default **false** — whether the skill is live
+    at all. A draft is invisible fleet-wide, which is what makes the dashboard a
+    writing surface rather than a publish-on-save wire.
+  - `delivery` text NOT NULL default **`'offer'`** (0049), constrained by
+    `platform_skills_delivery_check` to `offer | standard` — whether
+    organizations CHOOSE the skill or simply run it. `offer` puts it on every
+    org's Skills tab behind a switch; `standard` is fleet standard equipment:
+    resolved for every organization with no activation row, never listed, not
+    switchable, and not shadowable by an org row of the same name. A published
+    `standard` row is the only combination that imposes anything on a tenant.
+
+  The CHECK lives in the database and not only in the BFF's zod schema because
+  the resolver asks `delivery = 'standard'`: an unrecognised value would fail
+  toward "offer" and silently demote a fleet instruction rather than erroring.
+  That a tenant cannot WRITE this column is what makes `standard` an enforced
+  boundary rather than a convention — the RLS grant is SELECT and nothing else.
+  Partial index `idx_platform_skills_standard` on `(name)` WHERE
+  `delivery = 'standard' AND published` serves the point lookup the org write
+  boundary and the job-snapshot path make; drafts and offers are the bulk of a
+  mature catalogue and none can satisfy the predicate.
+
+- `curated_skill_activations` (0046): one organization's decision about one
+  OFFER — PK `(organization_id, skill_name)`, `enabled` boolean NOT NULL default
+  false, updater columns. No row = no decision = **off**, because an offer is an
+  offer and not an installation. `skill_name` is plain text and not an FK: its
+  referent may be a builtin file rather than a row, so a decision naming a skill
+  that no longer ships is inert and survives if the skill returns. A `standard`
+  skill consults none of this — a leftover row from when it was an offer is kept
+  but not read, so promoting and then demoting returns the fleet to where it
+  started rather than to a blank slate.
+
+**Migration 0049** is `ADD COLUMN ... DEFAULT`, catalog-only in Postgres 11+, so
+NOT NULL with a default needs no rewrite and no scan. It makes no
+`grid_secure_*` call and is deliberately absent from `rls-coverage.spec.ts`'s
+`BOUNDARY_MIGRATIONS`: 0047 secured the table, and adding a column does not move
+one in or out of the boundary. Its `.down.sql` is safe but LOSSY in a way worth
+reading before a rollback — published standard rows become ordinary offers, which
+means they run for nobody until each organization switches them on, and nothing
+records which rows were standard.
+
+---
+
 ## answer_feedback (migration 0020)
 
 Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
