@@ -31,7 +31,7 @@ import { index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/
  * the sharing registry (`@/lib/sharing/registry`), which is exhaustive over this
  * union — adding a type here without registering it is a type error.
  */
-export const SHAREABLE_RESOURCE_TYPES = ['conversation'] as const
+export const SHAREABLE_RESOURCE_TYPES = ['conversation', 'document'] as const
 export type ShareableResourceType = (typeof SHAREABLE_RESOURCE_TYPES)[number]
 
 /**

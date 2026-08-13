@@ -1,18 +1,19 @@
-"""Tests for the ``surface_documents`` tool helpers and the ``document_grid`` card.
-
-The tool runs a real vector search and emits a system card of REAL files; these
-guard the pure logic — which collections it searches, how it labels their corpus,
-and how it aggregates chunks to one best entry per file — plus the card schema.
-"""
+"""Tests for the ``surface_documents`` tool helpers and the document cards."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from aiq_agent.cards.models import grid_card_adapter
+from aiq_agent.cards.surface_documents import _BRIEF_SNIPPET_MAX
 from aiq_agent.cards.surface_documents import _CHUNK_TOP_K
+from aiq_agent.cards.surface_documents import _TOOL_DESCRIPTION
 from aiq_agent.cards.surface_documents import MAX_SURFACED_FILES
+from aiq_agent.cards.surface_documents import MIN_SURFACE_SCORE
 from aiq_agent.cards.surface_documents import SurfaceDocumentsConfig
 from aiq_agent.cards.surface_documents import _aggregate_surfaced
+from aiq_agent.cards.surface_documents import _briefing_for_agent
+from aiq_agent.cards.surface_documents import _filename_mentioned_in_query
+from aiq_agent.cards.surface_documents import _match_known_filename
 from aiq_agent.cards.surface_documents import _source_for_collection
 from aiq_agent.cards.surface_documents import _target_collections
 from aiq_agent.cards.surface_documents import surface_documents
@@ -26,7 +27,6 @@ class TestSourceForCollection:
     def test_project_and_archiv_and_base(self):
         assert _source_for_collection("proj_abc") == "projekt"
         assert _source_for_collection("archiv_org1") == "buero"
-        # The base OIB corpus is law, not a user document store — not surfaced.
         assert _source_for_collection("oib_knowledge") is None
         assert _source_for_collection("s_conversation") is None
 
@@ -43,57 +43,69 @@ class TestTargetCollections:
         assert _target_collections(["oib_knowledge"]) == []
 
 
-class TestAggregateSurfaced:
-    def test_one_best_entry_per_file_sorted_by_score(self):
-        hits = [
-            (_chunk("a.pdf", 0.4, "low a"), "projekt"),
-            (_chunk("a.pdf", 0.9, "best a", page=3), "projekt"),
-            (_chunk("b.pdf", 0.7, "b only"), "buero"),
-        ]
-        out = _aggregate_surfaced(hits, MAX_SURFACED_FILES)
-        assert [d["file_name"] for d in out] == ["a.pdf", "b.pdf"]
-        assert out[0]["snippet"] == "best a"
-        assert out[0]["page"] == 3
-        assert out[0]["score"] == 0.9
-        assert out[0]["source"] == "projekt"
-        assert out[1]["source"] == "buero"
+class TestNameResolution:
+    def test_exact_and_casefold(self):
+        known = ["Brandschutzplan_EG.pdf", "Schnitt.pdf"]
+        assert _match_known_filename("Brandschutzplan_EG.pdf", known) == "Brandschutzplan_EG.pdf"
+        assert _match_known_filename("brandschutzplan_eg.pdf", known) == "Brandschutzplan_EG.pdf"
 
-    def test_caps_to_max_files(self):
-        # All comfortably above the quality floor so the cap (not the floor) applies.
-        hits = [(_chunk(f"f{i}.pdf", 0.5 + i / 100), "projekt") for i in range(30)]
-        out = _aggregate_surfaced(hits, MAX_SURFACED_FILES)
-        assert len(out) == MAX_SURFACED_FILES
-        # Highest scores survive the cap.
-        assert out[0]["file_name"] == "f29.pdf"
+    def test_query_that_names_a_file_is_that_file(self):
+        known = ["Brandschutzplan_EG.pdf", "Schnitt.pdf"]
+        assert _filename_mentioned_in_query("Was steht in Brandschutzplan_EG.pdf", known) == "Brandschutzplan_EG.pdf"
+        assert _filename_mentioned_in_query("Fluchtwege allgemein", known) is None
+
+
+class TestAggregateSurfaced:
+    def test_mode_one_is_the_winner_only(self):
+        hits = [
+            (_chunk("a.pdf", 0.9, "best a", page=3), "projekt"),
+            (_chunk("b.pdf", 0.88, "almost"), "projekt"),
+            (_chunk("c.pdf", 0.5, "weak"), "buero"),
+        ]
+        out = _aggregate_surfaced(hits, MAX_SURFACED_FILES, mode="one")
+        assert [d["file_name"] for d in out] == ["a.pdf"]
+        assert out[0]["snippet"] == "best a"
+
+    def test_mode_many_keeps_close_matches_drops_the_tail(self):
+        hits = [
+            (_chunk("a.pdf", 0.90), "projekt"),
+            (_chunk("b.pdf", 0.86), "projekt"),
+            (_chunk("c.pdf", 0.50), "projekt"),
+        ]
+        out = _aggregate_surfaced(hits, 12, mode="many")
+        assert [d["file_name"] for d in out] == ["a.pdf", "b.pdf"]
+
+    def test_mode_many_caps(self):
+        hits = [(_chunk(f"f{i}.pdf", 0.90 - i * 0.005), "projekt") for i in range(20)]
+        out = _aggregate_surfaced(hits, 12, mode="many")
+        assert 1 <= len(out) <= MAX_SURFACED_FILES
 
     def test_drops_weak_matches_below_quality_floor(self):
-        from aiq_agent.cards.surface_documents import MIN_SURFACE_SCORE
-
         hits = [
             (_chunk("strong.pdf", MIN_SURFACE_SCORE + 0.1), "projekt"),
             (_chunk("weak.pdf", MIN_SURFACE_SCORE - 0.1), "projekt"),
         ]
-        out = _aggregate_surfaced(hits, MAX_SURFACED_FILES)
+        out = _aggregate_surfaced(hits, MAX_SURFACED_FILES, mode="many")
         assert [d["file_name"] for d in out] == ["strong.pdf"]
 
     def test_long_snippet_truncated(self):
-        hits = [(_chunk("a.pdf", 0.5, "x" * 500), "projekt")]
-        [doc] = _aggregate_surfaced(hits, MAX_SURFACED_FILES)
+        hits = [(_chunk("a.pdf", 0.8, "x" * 500), "projekt")]
+        [doc] = _aggregate_surfaced(hits, MAX_SURFACED_FILES, mode="one")
         assert doc["snippet"].endswith("…")
         assert len(doc["snippet"]) <= 302
 
     def test_skips_chunks_without_file_name(self):
-        hits = [(_chunk("", 0.5), "projekt"), (_chunk("a.pdf", 0.6), "projekt")]
-        out = _aggregate_surfaced(hits, MAX_SURFACED_FILES)
+        hits = [(_chunk("", 0.8), "projekt"), (_chunk("a.pdf", 0.8), "projekt")]
+        out = _aggregate_surfaced(hits, MAX_SURFACED_FILES, mode="one")
         assert [d["file_name"] for d in out] == ["a.pdf"]
 
 
 class TestDocumentGridCardSchema:
-    def test_validates_full_card(self):
-        card = {
+    def test_validates_one_or_many_the_same_type(self):
+        one = {
             "type": "document_grid",
-            "title": "Relevante Dokumente – Fluchtwege",
-            "query": "Fluchtwege",
+            "title": "Brandschutz.pdf",
+            "query": "Brandschutzplan",
             "documents": [
                 {
                     "file_name": "Brandschutz.pdf",
@@ -104,9 +116,20 @@ class TestDocumentGridCardSchema:
                 },
             ],
         }
-        validated = grid_card_adapter.validate_python(card).model_dump(exclude_none=True)
-        assert validated["type"] == "document_grid"
-        assert validated["documents"][0]["file_name"] == "Brandschutz.pdf"
+        many = {
+            "type": "document_grid",
+            "title": "Relevante Dokumente – Fluchtwege",
+            "query": "Fluchtwege",
+            "documents": [
+                {"file_name": "Brandschutz.pdf", "source": "projekt"},
+                {"file_name": "Schnitt.pdf", "source": "projekt"},
+            ],
+        }
+        one_out = grid_card_adapter.validate_python(one).model_dump(exclude_none=True)
+        many_out = grid_card_adapter.validate_python(many).model_dump(exclude_none=True)
+        assert one_out["type"] == many_out["type"] == "document_grid"
+        assert len(one_out["documents"]) == 1
+        assert len(many_out["documents"]) == 2
 
     def test_requires_at_least_one_document(self):
         import pytest
@@ -116,8 +139,6 @@ class TestDocumentGridCardSchema:
             grid_card_adapter.validate_python(card)
 
     def test_validate_cards_drops_model_fabricated_system_cards(self):
-        # The batch/post-hoc path is fed by MODEL output; a system card there is a
-        # fabrication and must be dropped (only its owning tool may emit it).
         from aiq_agent.cards.models import validate_cards
 
         raw = [
@@ -130,17 +151,10 @@ class TestDocumentGridCardSchema:
 
 
 class TestPlatformCounts:
-    """The surfaced chunk/file counts come from Platform → Retrieval when pinned
-    there, and fall back to the module constants otherwise."""
-
-    def _make_env(self, monkeypatch):
+    def _make_env(self, monkeypatch, names=("plan.pdf", "schnitt.pdf", "ansicht.pdf")):
         import aiq_agent.cards.surface_documents as surface_module
 
-        chunks = [
-            _chunk("plan.pdf", 0.9, content="Lageplan"),
-            _chunk("schnitt.pdf", 0.85, content="Schnitt A-A"),
-            _chunk("ansicht.pdf", 0.8, content="Ansicht Süd"),
-        ]
+        chunks = [_chunk(name, 0.9 - i * 0.02, content=name) for i, name in enumerate(names)]
         retriever = SimpleNamespace(calls=[], chunks=chunks)
 
         async def retrieve(query, collection_name, top_k, filters):
@@ -150,31 +164,65 @@ class TestPlatformCounts:
         retriever.retrieve = retrieve
         registry = SimpleNamespace(add=MagicMock())
 
+        async def fake_meta(_collections):
+            return {name: {"summary": name, "tags": []} for name in names}
+
         monkeypatch.setattr("aiq_agent.knowledge.scoping.get_collection_scope_from_context", lambda: ["proj_test"])
         monkeypatch.setattr("aiq_agent.knowledge.factory.get_active_retriever", lambda: retriever)
         monkeypatch.setattr("aiq_agent.cards.registry.get_card_registry", lambda: registry)
-        monkeypatch.setattr(surface_module, "_fetch_document_metadata", _async_noop_metadata)
+        monkeypatch.setattr(surface_module, "_fetch_document_metadata", fake_meta)
         return retriever, registry
 
-    async def test_platform_override_reaches_retriever_and_caps_grid(self, monkeypatch):
-        def fake_get(key, fallback):
-            return {"surface.chunk_top_k": 6, "surface.max_files": 1}[key]
-
-        monkeypatch.setattr("aiq_agent.common.retrieval_settings.get_retrieval_setting", fake_get)
-
+    async def test_default_mode_opens_one_file(self, monkeypatch):
         retriever, registry = self._make_env(monkeypatch)
 
         async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
             output = await info.single_fn(info.input_schema(query="Lageplan"))
 
+        card = registry.add.call_args.args[0]
+        assert card["type"] == "document_grid"
+        assert [doc["file_name"] for doc in card["documents"]] == ["plan.pdf"]
+        assert 'Opened "plan.pdf"' in output
+
+    async def test_filename_skips_ambiguity(self, monkeypatch):
+        _retriever, registry = self._make_env(monkeypatch)
+
+        async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
+            await info.single_fn(info.input_schema(filename="schnitt.pdf"))
+
+        card = registry.add.call_args.args[0]
+        assert card["type"] == "document_grid"
+        assert [doc["file_name"] for doc in card["documents"]] == ["schnitt.pdf"]
+
+    async def test_mode_many_returns_close_set(self, monkeypatch):
+        _retriever, registry = self._make_env(monkeypatch)
+
+        async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
+            output = await info.single_fn(info.input_schema(query="Pläne", mode="many"))
+
+        card = registry.add.call_args.args[0]
+        assert card["type"] == "document_grid"
+        names = [doc["file_name"] for doc in card["documents"]]
+        assert names[0] == "plan.pdf"
+        assert 1 <= len(names) <= MAX_SURFACED_FILES
+        assert "close matches" in output or 'Opened "' in output
+
+    async def test_platform_override_reaches_retriever(self, monkeypatch):
+        def fake_get(key, fallback):
+            return {"surface.chunk_top_k": 6, "surface.max_files": 1}[key]
+
+        monkeypatch.setattr("aiq_agent.common.retrieval_settings.get_retrieval_setting", fake_get)
+        retriever, registry = self._make_env(monkeypatch)
+
+        async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
+            await info.single_fn(info.input_schema(query="Lageplan", mode="many"))
+
         assert retriever.calls == [{"collection": "proj_test", "top_k": 6}]
         card = registry.add.call_args.args[0]
-        assert [doc["file_name"] for doc in card["documents"]] == ["plan.pdf"]
-        assert "plan.pdf" in output
+        assert card["type"] == "document_grid"
+        assert len(card["documents"]) == 1
 
     async def test_bff_outage_falls_back_to_constants(self, monkeypatch):
-        # The real failure mode is an unreachable BFF: the resolver swallows it
-        # (it is contractually never-raising), so the constants stay in force.
         from aiq_agent.common import retrieval_settings
 
         def boom():
@@ -182,18 +230,97 @@ class TestPlatformCounts:
 
         monkeypatch.setattr(retrieval_settings, "_fetch_settings", boom)
         retrieval_settings.reset_retrieval_settings_cache()
-
-        retriever, registry = self._make_env(monkeypatch)
+        retriever, _registry = self._make_env(monkeypatch)
 
         async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
             await info.single_fn(info.input_schema(query="Lageplan"))
 
         assert retriever.calls == [{"collection": "proj_test", "top_k": _CHUNK_TOP_K}]
-        card = registry.add.call_args.args[0]
-        assert len(card["documents"]) == 3
-        # The resolver's cache is process-global; do not leave this outage in it.
         retrieval_settings.reset_retrieval_settings_cache()
 
+    async def test_unknown_filename_steers_to_inventory(self, monkeypatch):
+        _retriever, registry = self._make_env(monkeypatch)
 
-async def _async_noop_metadata(collections):
-    return {}
+        async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
+            output = await info.single_fn(info.input_schema(filename="nicht-da.pdf"))
+
+        registry.add.assert_not_called()
+        assert "inventory" in output.lower()
+        assert "nicht-da.pdf" in output
+
+    async def test_empty_search_steers_to_narrower_query(self, monkeypatch):
+        retriever, registry = self._make_env(monkeypatch)
+
+        async def retrieve(query, collection_name, top_k, filters):
+            retriever.calls.append({"collection": collection_name, "top_k": top_k})
+            return SimpleNamespace(chunks=[])
+
+        retriever.retrieve = retrieve
+
+        async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
+            output = await info.single_fn(info.input_schema(query="xyz-no-match"))
+
+        registry.add.assert_not_called()
+        assert "narrower" in output
+        assert "inventory" in output.lower()
+
+
+class TestBriefing:
+    def test_one_file_is_four_to_six_lines_and_clips_snippet(self):
+        text = _briefing_for_agent(
+            "Fluchtwege",
+            [
+                {
+                    "file_name": "Brandschutzplan_EG.pdf",
+                    "source": "projekt",
+                    "summary": "Brandschutzplan Erdgeschoss",
+                    "snippet": "x" * 400,
+                    "page": 3,
+                    "_tags": ["brand", "flucht"],
+                }
+            ],
+            "one",
+        )
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        assert 4 <= len(lines) <= 6
+        assert 'Opened "Brandschutzplan_EG.pdf" (Projekt)' in text
+        assert "Brandschutzplan Erdgeschoss" in text
+        assert "x" * 200 not in text
+        assert len(next(ln for ln in lines if ln.startswith("S."))) <= _BRIEF_SNIPPET_MAX + 20
+
+    def test_many_is_one_line_per_file_without_snippets(self):
+        text = _briefing_for_agent(
+            "Pläne",
+            [
+                {
+                    "file_name": "a.pdf",
+                    "source": "projekt",
+                    "summary": "Lageplan EG",
+                    "snippet": "long " * 80,
+                },
+                {
+                    "file_name": "b.pdf",
+                    "source": "buero",
+                    "summary": "Schnitt AA",
+                    "snippet": "long " * 80,
+                },
+            ],
+            "many",
+        )
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        assert lines[0].startswith("Offered 2 close matches")
+        file_lines = [ln for ln in lines if ".pdf" in ln]
+        assert len(file_lines) == 2
+        assert all(ln.startswith("- ") for ln in file_lines)
+        assert "long long" not in text
+
+
+class TestToolContract:
+    def test_description_splits_cite_from_show_and_blocks_double_call(self):
+        desc = _TOOL_DESCRIPTION
+        assert "knowledge_search" in desc
+        assert "peeks the cited file" in desc
+        assert "do not also call this tool after citing" in desc
+        assert "filename=" in desc
+        assert "mode=many" in desc
+        assert "best matching file" in desc

@@ -227,13 +227,19 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
 
 // Helper functions
 
-const createNewConversation = (userId: string, projectId: string | null): Conversation => ({
+const createNewConversation = (
+  userId: string,
+  projectId: string | null,
+  subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null,
+): Conversation => ({
   id: `s_${uuidv4().replace(/-/g, '_')}`,
   userId,
   // Stamp the active project so the session stays scoped to it (UX-8);
   // null = created outside a project context (visible everywhere).
   projectId,
-  title: '',
+  title: subject?.title ?? '',
+  subjectResourceType: subject?.resourceType ?? null,
+  subjectResourceId: subject?.resourceId ?? null,
   messages: [],
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -313,6 +319,9 @@ const ensureServerConversation = (conversation: Conversation, fallbackProjectId:
       conversation.id,
       conversation.title || undefined,
       conversation.projectId ?? fallbackProjectId,
+      conversation.subjectResourceId
+        ? { resourceType: 'document', resourceId: conversation.subjectResourceId }
+        : null,
     )
   })()
 
@@ -421,6 +430,14 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           // which quietly re-fills the owner's chat history with 52 job
           // threads a year while every test still passes.
           jobId: serverConv.jobId ?? null,
+          subjectResourceType:
+            serverConv.subjectResourceType === 'document'
+              ? 'document'
+              : (idx >= 0 ? merged[idx].subjectResourceType : null) ?? null,
+          subjectResourceId:
+            serverConv.subjectResourceId ??
+            (idx >= 0 ? merged[idx].subjectResourceId : null) ??
+            null,
         }
         if (idx >= 0) {
           merged[idx] = local
@@ -577,7 +594,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
     layoutState.setEnabledDataSources(defaultEnabledDataSourceIds)
     const newConversation: Conversation = {
-      ...createNewConversation(currentUserId, projectId ?? null),
+      ...createNewConversation(currentUserId, projectId ?? null, get().composerSubject),
       enabledDataSourceIds: defaultEnabledDataSourceIds,
     }
     set(
@@ -626,6 +643,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     set(
       {
         currentConversation: null,
+        composerSubject: null,
         isStreaming: false,
         isLoading: false,
         currentUserMessageId: null,
@@ -681,7 +699,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
     layoutState.setEnabledDataSources(defaultEnabledDataSourceIds)
     const newConversation: Conversation = {
-      ...createNewConversation(currentUserId, projectId ?? null),
+      ...createNewConversation(currentUserId, projectId ?? null, get().composerSubject),
       enabledDataSourceIds: defaultEnabledDataSourceIds,
     }
     set(
@@ -781,6 +799,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       set(
         {
           currentConversation: conversation,
+          composerSubject: conversation.subjectResourceId
+            ? {
+                resourceType: 'document' as const,
+                resourceId: conversation.subjectResourceId,
+                title: conversation.title || null,
+              }
+            : null,
           deepResearchJobId: null,
           deepResearchLastEventId: null,
           isDeepResearchStreaming: false,

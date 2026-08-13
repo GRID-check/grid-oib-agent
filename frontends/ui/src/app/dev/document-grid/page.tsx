@@ -99,11 +99,28 @@ export default function DocumentGridDevPage(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">document_grid — chat surfacing card</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Real project &amp; Büroarchiv files surfaced by the assistant as clickable preview cards.
+          Files the assistant asked you to look at. One file peeks. Several is a short choice.
         </p>
       </div>
 
-      {/* Primary example: a rich mix of project + Archiv results with match evidence. */}
+      {/* One file — same card, receipt + peek. */}
+      <DocumentGridCard
+        title="Brandschutzkonzept_Wohnbau-Nord.pdf"
+        query="Brandschutzkonzept"
+        projectId="proj-demo"
+        documents={[
+          {
+            file_name: 'Brandschutzkonzept_Wohnbau-Nord.pdf',
+            snippet:
+              'Der zweite Fluchtweg ist über das nördliche Treppenhaus sichergestellt; die Gehweglänge beträgt 34 m.',
+            page: 12,
+            score: 0.91,
+            source: 'projekt',
+          },
+        ]}
+      />
+
+      {/* Several close project + Archiv matches. */}
       <DocumentGridCard
         title="Relevante Dokumente – Fluchtwege &amp; Brandschutz"
         query="Fluchtwege Brandschutz GK4"

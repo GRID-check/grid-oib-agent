@@ -1,18 +1,20 @@
 # Collaboration BFF routes
 
-Routes for sharing, `@`-mentions with the agent hand-off, and the inbox.
+Routes for sharing, `@`-mentions with the agent hand-off, the inbox, and
+assignment (who is professionally on the hook — ADR-0047).
 
 - **Requirements:** [`../design/collaboration-sharing-and-inbox-spec.md`](../design/collaboration-sharing-and-inbox-spec.md)
 - **Decisions:** [ADR-0032](../adr/0032-shareable-resource-model.md) (sharing model),
   [ADR-0033](../adr/0033-server-authoritative-shared-conversations.md) (shared threads),
   [ADR-0034](../adr/0034-mention-handoff-persisted-state.md) (hand-off),
-  [ADR-0035](../adr/0035-notification-model-and-inbox.md) (inbox + live delivery)
+  [ADR-0035](../adr/0035-notification-model-and-inbox.md) (inbox + live delivery),
+  [ADR-0047](../adr/0047-assignment-is-not-access.md) (assignment is not access)
 - **Sibling reference:** [`bff-routes.md`](bff-routes.md)
 
 ## Rules that apply to every route here
 
 - **All are gated**, in one of two ways. The collaboration-only routes (sharing,
-  mentions, inbox, `/api/stream`, `/api/conversations/{id}/{awaiting,
+  mentions, inbox, assignments, `/api/stream`, `/api/conversations/{id}/{awaiting,
   mention-candidates,live}`) call `requireCollaborationEnabled(session)` as their
   first statement and return
   `403 { error: 'feature-disabled', feature: 'collaboration' }` when off. The
@@ -45,7 +47,7 @@ Routes for sharing, `@`-mentions with the agent hand-off, and the inbox.
 ## Sharing
 
 `resourceType` is validated against `SHAREABLE_RESOURCE_TYPES` (today:
-`conversation`); anything else is `400`. The registry
+`conversation`, `document`); anything else is `400`. The registry
 (`lib/sharing/registry.ts`) is what makes these routes generic — a new shareable
 type needs no new route.
 
@@ -112,13 +114,54 @@ was quoted from (spec IB-14, MN-9.4). Publishes
 
 ### `GET /api/sharing/{resourceType}/{resourceId}/candidates`
 
-People who may be invited. Returns `ShareCandidate[]`:
+People who may be invited. **Requires `owner`** — this list exists to change the
+access roster. Returns `ShareCandidate[]`:
 `{ person, alreadyHasAccess, needsProjectAccess }`.
 
 Organization members who **cannot** reach the container project are returned with
 `needsProjectAccess: true` so the UI can show them disabled *with the reason*
 rather than silently hiding them (spec SH-19) — an invite picker that omits a
 colleague with no explanation reads as a bug.
+
+Assignment (who is on the hook) does **not** use this endpoint. A project
+member who can assign is a `collaborator` on a project-visible document, not
+an owner, so they would 404 here. See
+[`GET /api/assignments/{resourceType}/{resourceId}/candidates`](#get-apiassignmentsresourcetyperesourceidcandidates).
+
+---
+
+## Assignment (ADR-0047)
+
+Assignment names professional responsibility. It never grants access and access
+never implies assignment. Empty is valid. The same `resourceType` union as
+sharing applies. Every route here is collaboration-gated and requires
+`collaborator` on the resource (the same floor as assign/release) — not
+`owner`, and not org-admin.
+
+### `GET /api/assignments/{resourceType}/{resourceId}`
+
+Current assignees. Returns `{ assignees: AssignedPerson[] }`.
+
+### `POST /api/assignments/{resourceType}/{resourceId}`
+
+Put someone on the hook. Body `{ userId }`. The subject must already reach the
+container project (`details.reason = container-access-required` otherwise).
+Does not change who can open the file.
+
+### `DELETE /api/assignments/{resourceType}/{resourceId}?userId=`
+
+Release someone.
+
+### `GET /api/assignments/{resourceType}/{resourceId}/candidates`
+
+People a collaborator may assign. Returns `{ candidates: DirectoryPerson[] }` —
+org members who already reach the container (or the whole org when there is no
+project). The caller is omitted (`Assign to me` is a separate control). People
+who still need project access are absent: assigning them would be refused, and
+a collaborator cannot add them to the project.
+
+This is **not** the share-invite list. `/api/organization/members` is also
+wrong here — that route is org-admin only.
 
 ---
 

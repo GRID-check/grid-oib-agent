@@ -56,6 +56,10 @@ export const chat = {
     loadError: 'Documents couldn’t be loaded.',
     retry: 'Try again',
     openAria: 'Open document: {label}',
+    thisFile: 'This file',
+    choose: 'Which file?',
+    // Quiet receipt when the card opened exactly one file beside the chat.
+    showing: 'Showing {label}',
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {

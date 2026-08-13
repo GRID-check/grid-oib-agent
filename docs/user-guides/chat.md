@@ -203,6 +203,13 @@ Note the name collision: "RIS" is both the Austrian Rechtsinformationssystem (a 
 
 ### Source preview (clicking a chip)
 
+When a finished answer cites **exactly one** project or Büroarchiv file, that
+file opens beside the chat on its own (the same peek used by "Ask about this
+file"). Law, RIS and web citations never auto-open, and neither do answers
+that cite two or more project files — picking would be a guess. Dismissing
+the peek drops the retrieval focus; it does not come back on the next render
+of the same answer.
+
 Clicking a source chip opens a preview of the source instead of doing nothing:
 
 - **Web / RIS chips** keep linking out to the real source (RIS citations always hit the official Rechtsinformationssystem).

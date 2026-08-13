@@ -31,7 +31,13 @@
 
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { INBOX_TARGET_TYPES, type InboxItemType, type InboxTargetType } from '@/lib/db/schema'
+import {
+  INBOX_TARGET_TYPES,
+  SHAREABLE_RESOURCE_TYPES,
+  type InboxItemType,
+  type InboxTargetType,
+  type ShareableResourceType,
+} from '@/lib/db/schema'
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { describeResource } from '@/lib/sharing/registry'
 
@@ -80,20 +86,21 @@ const ORGANIZATION_DESTINATIONS: Partial<Record<InboxItemType, string>> = {
   'storage.quota_warning': '/app/organization/storage',
 }
 
-const conversationTarget: InboxTargetDescriptor = {
-  type: 'conversation',
-  resolve: async (session, resourceId) => {
-    const access = await resolveResourceAccess(session, 'conversation', resourceId)
-    // `role: null` is "exists, but you have no access" — as unreachable as a 404.
-    if (!access.role) return null
-    return {
-      deepLink: (context) =>
-        describeResource('conversation').deepLink(resourceId, {
-          anchorId: context.anchorId ?? undefined,
-          projectId: access.container.projectId,
-        }),
-    }
-  },
+function shareableTarget(type: ShareableResourceType): InboxTargetDescriptor {
+  return {
+    type,
+    resolve: async (session, resourceId) => {
+      const access = await resolveResourceAccess(session, type, resourceId)
+      if (!access.role) return null
+      return {
+        deepLink: (context) =>
+          describeResource(type).deepLink(resourceId, {
+            anchorId: context.anchorId ?? undefined,
+            projectId: access.container.projectId,
+          }),
+      }
+    },
+  }
 }
 
 /**
@@ -128,8 +135,12 @@ const organizationTarget: InboxTargetDescriptor = {
  * Exhaustive over `InboxTargetType` by construction — `tsc` fails if a member of
  * the union has no descriptor.
  */
+const shareableTargets = Object.fromEntries(
+  SHAREABLE_RESOURCE_TYPES.map((type) => [type, shareableTarget(type)]),
+) as Record<ShareableResourceType, InboxTargetDescriptor>
+
 export const INBOX_TARGET_REGISTRY: Record<InboxTargetType, InboxTargetDescriptor> = {
-  conversation: conversationTarget,
+  ...shareableTargets,
   organization: organizationTarget,
 }
 

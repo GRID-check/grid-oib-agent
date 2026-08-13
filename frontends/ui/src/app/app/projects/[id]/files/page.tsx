@@ -2,7 +2,7 @@ import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { FEATURE_FLAGS, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getTranslations } from '@/i18n/server'
 import { ProjectFileWorkspace } from '@/features/documents/components/project-file-workspace'
@@ -45,6 +45,8 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
         collectionName={project.collectionName}
         showMetadataPanel={showMetadataPanel}
         showModels={showModels}
+        canCollaborate={isCollaborationEnabled(session)}
+        currentUserId={session.userId}
       />
     )
   })

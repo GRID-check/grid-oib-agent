@@ -1,7 +1,7 @@
 import { index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { jobs } from './jobs'
 import { projects } from './projects'
-import { type ResourceVisibility } from './resource-shares'
+import { type ResourceVisibility, type ShareableResourceType } from './resource-shares'
 
 /**
  * Engagement modes (ADR-0036). Deliberately two values, both meaning something a
@@ -80,6 +80,13 @@ export const conversations = pgTable('conversations', {
    * only in migration 0044 — the same arrangement as `idx_jobs_due`.
    */
   jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+  /**
+   * The resource this conversation is ABOUT (file-native ask, ADR-0047).
+   * Polymorphic so a later type (a compliance lane) does not need a column.
+   * NULL = an ordinary chat, which is almost every row.
+   */
+  subjectResourceType: text('subject_resource_type').$type<ShareableResourceType>(),
+  subjectResourceId: text('subject_resource_id'),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -79,6 +79,7 @@ describe('useChatStore', () => {
       currentStatus: null,
       pendingInteraction: null,
       composerPrefill: null,
+      composerSubject: null,
       composerDrafts: {},
     })
   })
@@ -431,6 +432,21 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().currentStatus).toBeNull()
     })
 
+    test('startNewSessionDraft clears leftover composerSubject', () => {
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        composerSubject: {
+          resourceType: 'document',
+          resourceId: 'doc-1',
+          filename: 'plan.pdf',
+        },
+      })
+
+      useChatStore.getState().startNewSessionDraft()
+
+      expect(useChatStore.getState().composerSubject).toBeNull()
+    })
+
     test('selectConversation removes prior upload-only session when switching away', () => {
       const uploadOnly = uploadOnlyConv('u-only')
       const other: Conversation = {
@@ -574,6 +590,30 @@ describe('useChatStore', () => {
 
       expect(useChatStore.getState().thinkingSteps).toEqual([])
       expect(useChatStore.getState().reportContent).toBe('')
+    })
+
+    test('selectConversation without a subject file clears leftover composerSubject', () => {
+      const conv: Conversation = {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'Conv',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        conversations: [conv],
+        composerSubject: {
+          resourceType: 'document',
+          resourceId: 'doc-leftover',
+          filename: 'plan.pdf',
+        },
+      })
+
+      useChatStore.getState().selectConversation('conv-1')
+
+      expect(useChatStore.getState().composerSubject).toBeNull()
     })
   })
 

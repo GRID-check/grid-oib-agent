@@ -12,7 +12,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, exists, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   conversationReads,
@@ -23,6 +23,7 @@ import {
   type ConversationRead,
   type Message,
   type NewMessage,
+  type ShareableResourceType,
   type ResourceVisibility,
 } from '@/lib/db/schema'
 
@@ -183,6 +184,16 @@ export async function listConversationIdsForProject(
  * 404. Mirrors `findProjectTenancy`; the sharing registry's `resolveContainer`
  * and `readVisibility` both go through here.
  */
+export async function conversationIdsExisting(ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const db = getDb()
+  const rows = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(inArray(conversations.id, [...ids]))
+  return new Set(rows.map((row) => row.id))
+}
+
 export async function findConversationTenancy(
   conversationId: string,
 ): Promise<Pick<Conversation, 'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt'> | null> {
@@ -240,6 +251,8 @@ export async function insertConversation(values: {
   projectId: string | null
   visibility?: ResourceVisibility
   jobId?: string | null
+  subjectResourceType?: ShareableResourceType | null
+  subjectResourceId?: string | null
 }): Promise<Conversation | null> {
   const db = getDb()
   const [row] = await db.insert(conversations).values(values).onConflictDoNothing().returning()

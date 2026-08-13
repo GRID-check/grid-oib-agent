@@ -18,6 +18,12 @@ vi.mock('sonner', () => ({
   },
 }))
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => '/app/archiv',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 const mockUploadFiles = vi.fn()
 
 vi.mock('../hooks/use-archiv-documents', () => ({

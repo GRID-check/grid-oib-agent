@@ -80,24 +80,31 @@ export async function neutralizeConversationCollaboration(
  * uncleaned, because a half-cascade is harder to reason about than a failed one —
  * so failures are logged and reported, never thrown.
  */
-export async function purgeConversationCollaboration(
-  conversationId: string,
+export async function purgeResourceCollaboration(
+  resourceType: import('@/lib/db/schema').ShareableResourceType,
+  resourceId: string,
 ): Promise<CollaborationCleanupResult> {
   const [grants, requests, inboxItems] = await Promise.all([
-    deleteAllGrantsForResource('conversation', conversationId).catch((error) => {
-      console.warn(`[collaboration-cleanup] grants purge failed for ${conversationId}:`, error)
+    deleteAllGrantsForResource(resourceType, resourceId).catch((error) => {
+      console.warn(`[collaboration-cleanup] grants purge failed for ${resourceType}:${resourceId}:`, error)
       return 0
     }),
-    deleteRequestsForResource('conversation', conversationId).catch((error) => {
-      console.warn(`[collaboration-cleanup] requests purge failed for ${conversationId}:`, error)
+    deleteRequestsForResource(resourceType, resourceId).catch((error) => {
+      console.warn(`[collaboration-cleanup] requests purge failed for ${resourceType}:${resourceId}:`, error)
       return 0
     }),
-    deleteItemsForResource('conversation', conversationId).catch((error) => {
-      console.warn(`[collaboration-cleanup] inbox purge failed for ${conversationId}:`, error)
+    deleteItemsForResource(resourceType, resourceId).catch((error) => {
+      console.warn(`[collaboration-cleanup] inbox purge failed for ${resourceType}:${resourceId}:`, error)
       return 0
     }),
   ])
   return { grants, requests, inboxItems }
+}
+
+export async function purgeConversationCollaboration(
+  conversationId: string,
+): Promise<CollaborationCleanupResult> {
+  return purgeResourceCollaboration('conversation', conversationId)
 }
 
 /**
@@ -147,7 +154,7 @@ export async function revokeCollaborationForProjectMember(
                 recipientUserId: request.requestedOf,
                 groupKey: inboxGroupKey(
                   'mention.requested',
-                  'conversation',
+                  request.resourceType,
                   request.resourceId,
                   request.anchorId,
                 ),

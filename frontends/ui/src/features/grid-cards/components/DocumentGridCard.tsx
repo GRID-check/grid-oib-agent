@@ -1,18 +1,14 @@
 'use client'
 
-import { useMemo, useState, type FC } from 'react'
-import { ArrowUpRight, CloudAlert, FileSearch, FolderSearch, RotateCcw } from 'lucide-react'
-import { useLocale, useTranslations } from '@/i18n'
-import { FileCard } from '@/features/documents/components/file-card'
-import { FileGrid, FileCardSkeleton } from '@/features/documents/components/file-grid'
-import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
-import { CountPill } from '@/components/ui/count-pill'
-import type { FileItem } from '@/features/documents/components/project-file-workspace'
+import { useEffect, useMemo, useRef, type FC } from 'react'
+import { useTranslations } from '@/i18n'
+import { documentDisplayName } from '@/lib/documents/display-name'
+import { extChipTint, fileExtensionLabel } from '@/features/documents/document-kind'
 import {
   useSurfacedDocuments,
-  type ResolvedSurfacedDocument,
   type SurfacedDocument,
 } from '@/features/documents/hooks/use-surfaced-documents'
+import { peekFile, ResolveErrorState, UnresolvedCard } from './document-surface'
 
 interface DocumentGridCardProps {
   title: string
@@ -22,88 +18,15 @@ interface DocumentGridCardProps {
 }
 
 /**
- * A surfaced file whose row no longer resolves to a live document (removed, or
- * beyond the bounded list window — see the `TODO(backend)` in the hook). Not a
- * dead grey tile: an honest, actionable card that says the assistant referenced
- * the file and links to where it can be found (the org Archiv for a Büro file,
- * the project's files otherwise).
+ * Files the assistant asked the user to look at. One file peeks beside
+ * chat (the card is a receipt). Several files are a short choice. Same
+ * card, same payload — the list length is the only difference.
  */
-const UnresolvedCard: FC<{ entry: ResolvedSurfacedDocument; projectId?: string | null }> = ({
-  entry,
-  projectId,
-}) => {
+export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query: _query, documents, projectId }) => {
   const t = useTranslations('chat')
-  const isBuero = entry.surfaced.source === 'buero'
-  const href = isBuero ? '/app/archiv' : projectId ? `/app/projects/${projectId}/files` : '/app/archiv'
-  const actionLabel = isBuero || !projectId ? t('documentGrid.openInArchive') : t('documentGrid.openInFiles')
-
-  return (
-    <a
-      href={href}
-      data-testid="document-grid-unresolved"
-      className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-dashed bg-muted/40 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-    >
-      {/* `flex-1` for the same reason as the resolved FileCard next to it: the
-          grid stretches every cell to the row height, and without it this card's
-          surface stops short and leaves a band of dead space at the bottom. */}
-      <div className="w-full flex-1 overflow-hidden rounded-b-[10px] bg-card/60 shadow-2xs">
-        <div className="flex h-[124px] w-full items-center justify-center border-b bg-card/40 text-muted-foreground/45">
-          <FileSearch className="size-7" aria-hidden />
-        </div>
-        <div className="px-3.5 pb-3 pt-[11px]">
-          <p className="truncate text-[12.5px] font-medium text-foreground/80" title={entry.surfaced.file_name}>
-            {entry.surfaced.file_name}
-          </p>
-          <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
-            {t('documentGrid.unresolvedHint')}
-          </p>
-          <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary group-hover:underline">
-            {actionLabel}
-            <ArrowUpRight className="size-3.5" aria-hidden />
-          </span>
-        </div>
-      </div>
-    </a>
-  )
-}
-
-/** Resolve failed (network / 5xx) — a retry affordance, never a wall of dead tiles. */
-const ResolveErrorState: FC<{ onRetry: () => void }> = ({ onRetry }) => {
-  const t = useTranslations('chat')
-  return (
-    <div
-      data-testid="document-grid-error"
-      className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-muted/30 px-4 py-8 text-center"
-    >
-      <CloudAlert className="size-7 text-muted-foreground/50" aria-hidden />
-      <p className="text-[12.5px] text-muted-foreground">{t('documentGrid.loadError')}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        <RotateCcw className="size-3.5" aria-hidden />
-        {t('documentGrid.retry')}
-      </button>
-    </div>
-  )
-}
-
-/**
- * Renders a grid of REAL documents the assistant surfaced from the project and
- * Büroarchiv corpus (the `document_grid` card). Each entry resolves to its live
- * document row and renders in the raised "project selector" card anatomy — a
- * thumbnail, provenance chip, name and one-line description — that opens the
- * document on click. Search internals (relevance scores) are deliberately not
- * shown: the user cares about the documents, not the ranking.
- */
-export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query, documents, projectId }) => {
-  const t = useTranslations('chat')
-  const { locale } = useLocale()
   const { resolved, isLoading, error, retry } = useSurfacedDocuments(documents, projectId ?? null)
+  const peekedOnce = useRef<string | null>(null)
 
-  // Stabilize the per-card display file (the summary remap) so its identity only
-  // changes when the resolution does — no thumbnail-fetch thrash on every render.
   const cells = useMemo(
     () =>
       resolved.map((entry) => ({
@@ -111,89 +34,94 @@ export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query, docu
         file: entry.file
           ? {
               ...entry.file,
-              // Prefer the live row's AI summary; fall back to the tool's summary,
-              // then a plain matched passage — never a relevance score.
               summary: entry.file.summary ?? entry.surfaced.summary ?? entry.surfaced.snippet ?? null,
             }
           : null,
       })),
-    [resolved]
+    [resolved],
   )
-  // Clicking a surfaced document opens the SAME preview dialog the Files and
-  // Archiv workspaces use — read-only here (no delete / re-ingest), and the
-  // pane handles preview vs download for every file type itself.
-  const [openFile, setOpenFile] = useState<{ file: FileItem; source: 'projekt' | 'buero' | null } | null>(null)
+
+  const ready = cells.filter((cell) => cell.file)
+  const single = !isLoading && !error && ready.length === 1 && cells.length === 1 ? ready[0] : null
+
+  useEffect(() => {
+    if (!single?.file) return
+    if (peekedOnce.current === single.file.id) return
+    peekedOnce.current = single.file.id
+    peekFile(single.file, single.entry.docSource, projectId)
+  }, [single, projectId])
 
   if (documents.length === 0) return null
-
-  const countLabel =
-    documents.length === 1 ? t('documentGrid.countOne') : t('documentGrid.countOther', { count: documents.length })
 
   return (
     <section
       data-testid="document-grid-card"
-      className="w-full overflow-hidden rounded-2xl border bg-gradient-to-b from-primary/[0.04] to-transparent"
+      data-layout={single ? 'receipt' : 'choice'}
+      className="w-full"
     >
-      {/* Header — accent icon, title + query, and a count pill. */}
-      <header className="flex items-center gap-3 border-b bg-background/50 px-4 py-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
-          <FolderSearch className="size-[18px]" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[13.5px] font-semibold leading-tight text-foreground" title={title}>
-            {title}
-          </h3>
-          {query && (
-            <p className="mt-0.5 truncate text-[11.5px] text-muted-foreground" title={query}>
-              {t('documentGrid.forQuery', { query })}
+      {isLoading ? (
+        <div className="bg-muted/40 h-14 animate-pulse rounded-xl border" />
+      ) : error ? (
+        <ResolveErrorState onRetry={retry} />
+      ) : single?.file ? (
+        <button
+          type="button"
+          onClick={() => peekFile(single.file!, single.entry.docSource, projectId)}
+          aria-label={t('documentGrid.openAria', { label: documentDisplayName(single.file) })}
+          className="text-muted-foreground hover:text-foreground inline-flex max-w-full items-center gap-1.5 px-0.5 py-0.5 text-left text-[12px]"
+        >
+          <span
+            className="flex size-5 shrink-0 items-center justify-center rounded text-[8px] font-bold uppercase"
+            style={extChipTint(fileExtensionLabel(single.file.filename))}
+          >
+            {fileExtensionLabel(single.file.filename)}
+          </span>
+          <span className="truncate">{t('documentGrid.showing', { label: documentDisplayName(single.file) })}</span>
+        </button>
+      ) : (
+        <div className="space-y-1.5">
+          {cells.length > 1 && (
+            <p className="text-muted-foreground px-0.5 text-[11px] font-medium tracking-[-0.01em]">
+              {title || t('documentGrid.choose')}
             </p>
           )}
+          {cells.map(({ entry, file }) =>
+            file ? (
+              <button
+                key={entry.key}
+                type="button"
+                onClick={() => peekFile(file, entry.docSource, projectId)}
+                aria-label={t('documentGrid.openAria', { label: documentDisplayName(file) })}
+                className="border-base bg-card/80 hover:bg-accent/60 flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left shadow-xs"
+              >
+                <span
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md text-[9px] font-bold uppercase"
+                  style={extChipTint(fileExtensionLabel(file.filename))}
+                >
+                  {fileExtensionLabel(file.filename)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium tracking-[-0.01em]">
+                    {documentDisplayName(file)}
+                  </span>
+                  {(file.summary || entry.surfaced.snippet) && (
+                    <span className="text-muted-foreground mt-0.5 line-clamp-1 block text-[11.5px]">
+                      {file.summary || entry.surfaced.snippet}
+                    </span>
+                  )}
+                </span>
+                {entry.docSource && (
+                  <span className="text-muted-foreground shrink-0 text-[11px]">
+                    {t(`documentGrid.source.${entry.docSource}`)}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <UnresolvedCard key={entry.key} entry={entry} projectId={projectId} />
+            ),
+          )}
         </div>
-        <CountPill>{countLabel}</CountPill>
-      </header>
-
-      {/* Grid — raised document cards; min-w-0 cells so long names truncate cleanly.
-          Loading shows a skeleton (never the dead-tile state); a genuine resolve
-          failure shows a retry affordance instead of a wall of unresolved cards. */}
-      <div className="p-4">
-        {isLoading ? (
-          <FileGrid>
-            {Array.from({ length: Math.min(documents.length, 4) }).map((_, i) => (
-              <FileCardSkeleton key={i} />
-            ))}
-          </FileGrid>
-        ) : error ? (
-          <ResolveErrorState onRetry={retry} />
-        ) : (
-          <FileGrid>
-            {cells.map(({ entry, file }) =>
-              file ? (
-                <FileCard
-                  key={entry.key}
-                  file={file}
-                  isSelected={false}
-                  locale={locale}
-                  onSelect={() => setOpenFile({ file, source: entry.docSource })}
-                  source={entry.docSource}
-                  sourceLabel={entry.docSource ? t(`documentGrid.source.${entry.docSource}`) : undefined}
-                  hideStatusWhenReady
-                  ariaLabel={t('documentGrid.openAria', { label: file.filename })}
-                />
-              ) : (
-                <UnresolvedCard key={entry.key} entry={entry} projectId={projectId} />
-              )
-            )}
-          </FileGrid>
-        )}
-      </div>
-      <FilePreviewDialog
-        file={openFile?.file ?? null}
-        // Only a project-sourced file gets the project context row; an Archiv
-        // file is org-scoped, so leave projectId unset.
-        projectId={openFile?.source === 'projekt' ? (projectId ?? undefined) : undefined}
-        canManage={false}
-        onClose={() => setOpenFile(null)}
-      />
+      )}
     </section>
   )
 }

@@ -89,6 +89,15 @@ function indexByFilename(rows: unknown): Map<string, FileItem> {
   return map
 }
 
+export async function resolveStoredDocument(
+  projectId: string | null,
+  fileName: string,
+  source: 'projekt' | 'buero',
+): Promise<FileItem | null> {
+  const index = await loadSurfacedIndex(projectId)
+  return (source === 'buero' ? index.buero : index.projekt).get(fileName) ?? null
+}
+
 function loadSurfacedIndex(projectId: string | null): Promise<SurfacedIndex> {
   const key = cacheKey(projectId)
   const existing = indexCache.get(key)

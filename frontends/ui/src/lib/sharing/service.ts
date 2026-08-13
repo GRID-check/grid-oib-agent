@@ -120,7 +120,8 @@ export async function setResourceVisibility(
   // people who are about to lose it.
   const previousAudience = await resolveParticipants(session.organizationId, resourceType, resourceId)
 
-  await applyVisibility(resourceType, resourceId, session.organizationId, visibility)
+  const written = await descriptor.setVisibility(resourceId, session.organizationId, visibility)
+  if (!written) throw new NotFoundError()
 
   await recordAuditEvent({
     organizationId: session.organizationId,
@@ -141,23 +142,6 @@ export async function setResourceVisibility(
   })
 
   return getSharingState(session, resourceType, resourceId)
-}
-
-/** Apply a visibility change through the owning domain's repository. */
-async function applyVisibility(
-  resourceType: ShareableResourceType,
-  resourceId: string,
-  organizationId: string,
-  visibility: ResourceVisibility,
-): Promise<void> {
-  switch (resourceType) {
-    case 'conversation': {
-      const { updateConversationVisibilityInOrg } = await import('@/lib/conversations/repository')
-      const row = await updateConversationVisibilityInOrg(resourceId, organizationId, visibility)
-      if (!row) throw new NotFoundError()
-      return
-    }
-  }
 }
 
 export interface GrantAccessInput {

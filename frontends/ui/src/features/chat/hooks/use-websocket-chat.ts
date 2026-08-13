@@ -37,6 +37,10 @@ import { checkBackendHealthCached, invalidateHealthCache } from '@/shared/hooks/
 import { useThreadSharing } from '@/shared/collaboration/thread-sharing'
 import type { AddresseeSet } from '@/lib/mentions/types'
 import { useChatStore } from '../store'
+import {
+  isFilePeekVisible,
+  useFilePreviewStore,
+} from '@/features/documents/stores/file-preview-store'
 import { registerStopStreamingHandler } from '../stores/messages-store'
 import { useConnectionRecovery } from './use-connection-recovery'
 import { useLayoutStore } from '@/features/layout/store'
@@ -215,6 +219,7 @@ type PendingOutgoing =
       /** Skills invoked with `/name`; travels WITH the payload so a frame that
        *  is queued through a reconnect is replayed with its invocation intact. */
       skills?: string[]
+      focusFileName?: string
       deliveryRetryCount?: number
     }
   | { kind: 'interaction'; interactionId: string; parentId: string; response: string; deliveryRetryCount?: number }
@@ -1029,13 +1034,16 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       // message must stay the exact call it has always been (three specs assert
       // on arity), so a message with no invoked skill never grows a third
       // `undefined` argument.
-      const sendChatMessage = (): string | null =>
-        payload.kind === 'message' && payload.skills && payload.skills.length > 0
-          ? client.sendMessage(payload.content, payload.dataSources, { skills: payload.skills })
-          : client.sendMessage(
-              (payload as Extract<PendingOutgoing, { kind: 'message' }>).content,
-              (payload as Extract<PendingOutgoing, { kind: 'message' }>).dataSources,
-            )
+      const sendChatMessage = (): string | null => {
+        if (payload.kind !== 'message') return null
+        const extras = {
+          ...(payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : {}),
+          ...(payload.focusFileName ? { focusFileName: payload.focusFileName } : {}),
+        }
+        return Object.keys(extras).length > 0
+          ? client.sendMessage(payload.content, payload.dataSources, extras)
+          : client.sendMessage(payload.content, payload.dataSources)
+      }
 
       const outboundId = payload.kind === 'message'
         ? sendChatMessage()
@@ -1985,11 +1993,20 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       setStreaming(true)
       setLoading(true)
 
+      // Retrieval follows the file the user can SEE. A hidden peek or a
+      // leftover composerSubject must not silently re-aim the next turn.
+      const preview = useFilePreviewStore.getState()
+      const focusFileName = isFilePeekVisible(preview)
+        ? preview.file?.filename.trim() ||
+          useChatStore.getState().composerSubject?.filename?.trim() ||
+          undefined
+        : undefined
       const outgoingPayload: PendingOutgoing = {
         kind: 'message',
         content,
         dataSources: dataSourcesForMessage,
         ...(skills && skills.length > 0 ? { skills } : {}),
+        ...(focusFileName ? { focusFileName } : {}),
       }
 
       // Helper to actually send the message

@@ -33,6 +33,13 @@ than leaving the next person to trip over them.
 - Cut feature branches from `develop` (the integration branch). `develop` and
   `release/**` are the protected branches CI runs against.
 - One logical change per branch.
+- One logical change per commit. When a feature trips over **correlated
+  substrate debt** (an extension point that is not actually generic), lift
+  that defect in its own commit *in the same change* — do not bolt the
+  feature onto the broken substrate and do not file the lift as later.
+  YAGNI does not cover known defects on your path. The rule:
+  [AGENTS.md](AGENTS.md) (“Correlated substrate debt…”) and
+  [adding a shareable resource type](docs/architecture/adding-a-shareable-resource-type.md) §5.
 
 ## Local validation
 

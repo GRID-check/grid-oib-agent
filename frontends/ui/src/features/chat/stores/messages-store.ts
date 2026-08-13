@@ -4,6 +4,7 @@ import type {
   ChatStore,
   ChatMessage,
   ComposerPrefill,
+  ComposerSubject,
   ThinkingStep,
   StatusType,
   PromptType,
@@ -43,6 +44,14 @@ export type MessagesSlice = {
    * component-local state with no cross-component setter.
    */
   composerPrefill: ComposerPrefill | null
+  /**
+   * What this draft is asking about. A peek-bound subject (citation auto-peek,
+   * document_grid) lives only while that peek is visible: hide/close of the
+   * peek MUST clear this (`openFilePeek`). A user-intent subject (Ask Piloti
+   * `?doc=`) is not peek-bound and survives hide so the bar can restore the
+   * file. Retrieval already ignores a hidden peek (`use-websocket-chat`).
+   */
+  composerSubject: ComposerSubject | null
   /**
    * Per-session composer drafts keyed by conversation id: the user's own
    * in-progress, unsent text. Unlike `composerPrefill` (one-shot, external),
@@ -158,7 +167,8 @@ export type MessagesSlice = {
   ) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
-  setComposerPrefill: (text: string, mentions?: DraftMention[]) => void
+  setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
+  setComposerSubject: (subject: ComposerSubject | null) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
   consumeComposerPrefill: () => ComposerPrefill | null
   /** Register the live chat send callback (called by InputArea on mount). */
@@ -439,6 +449,7 @@ export const initialMessagesState = {
   currentStatus: null as StatusType | null,
   projectId: null as string | null,
   composerPrefill: null as ComposerPrefill | null,
+  composerSubject: null,
   composerDrafts: {} as Record<string, string>,
   chatSendFn: null as ((content: string) => void) | null,
 }
@@ -1827,8 +1838,25 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     set({ projectId }, false, 'setProjectId')
   },
 
-  setComposerPrefill: (text: string, mentions?: DraftMention[]) => {
-    set({ composerPrefill: mentions && mentions.length > 0 ? { text, mentions } : { text } }, false, 'setComposerPrefill')
+  setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => {
+    const prefill: ComposerPrefill =
+      mentions && mentions.length > 0 ? { text, mentions, subject } : { text, subject }
+    set(
+      {
+        composerPrefill: prefill,
+        ...(subject !== undefined ? { composerSubject: subject ?? null } : {}),
+      },
+      false,
+      'setComposerPrefill',
+    )
+  },
+
+  setComposerSubject: (subject: ComposerSubject | null) => {
+    // Peek-bound callers (openFilePeek) pair this with hide/close of the
+    // preview: if you set a subject because a peek is showing, hide/close
+    // of that peek must pass null. Ask-Piloti subjects are user intent and
+    // are cleared only by the subject bar or a new session.
+    set({ composerSubject: subject }, false, 'setComposerSubject')
   },
 
   consumeComposerPrefill: () => {

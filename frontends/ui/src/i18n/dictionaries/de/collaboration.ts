@@ -88,6 +88,7 @@ export const collaboration: typeof en.collaboration = {
     },
     resourceTypes: {
       conversation: 'Chat',
+      document: 'Datei',
     },
     overview: {
       title: 'Wer Zugriff hat',
@@ -236,6 +237,10 @@ export const collaboration: typeof en.collaboration = {
       storageQuotaWarning: {
         title: 'Der Speicherplatz Ihrer Organisation wird knapp',
         body: '{subject} des Speicherkontingents sind belegt. Sobald es voll ist, schlagen Uploads fehl – löschen Sie nicht mehr benötigte Dokumente oder bitten Sie den Betreiber Ihrer Piloti-Installation, das Kontingent zu erhöhen.',
+      },
+      documentAssigned: {
+        title: '{actor} hat Ihnen {subject} zugewiesen',
+        body: 'Sie sind für diese Datei verantwortlich.',
       },
       unknown: {
         title: 'Es gab Aktivität',

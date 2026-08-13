@@ -33,9 +33,40 @@ _CHUNK_TRUNCATE_CHARS = 2500
 _MAX_CHUNKS_PER_DOC = 2
 
 # Retrieval over-fetch factor applied when the caller narrows results with the
-# agentic filters (doc_class / title_contains): post-merge filtering drops
-# candidates, so each layer fetches 3x top_k to leave enough survivors.
+# agentic filters (doc_class / title_contains / file_name): post-merge
+# filtering drops candidates, so each layer fetches 3x top_k to leave enough
+# survivors.
 _AGENT_FILTER_OVERFETCH = 3
+
+# Agent-facing contract. Distinct from ``surface_documents`` (show a file).
+# Anthropic: descriptions are the prompt — say when to call, when not to,
+# how to name parameters, and what a miss means. Do not chain this tool
+# with surface_documents; citations already peek the cited project file.
+_KNOWLEDGE_SEARCH_DESCRIPTION = (
+    "Read and cite passages from the ingested knowledge base (OIB corpus, "
+    "this project's files, the Büroarchiv). This is the evidence tool — it "
+    "returns quotable excerpts with a Citation key. It does not open a file "
+    "in the UI.\n"
+    "WHEN TO CALL — any question that needs a passage from a stored document. "
+    "If the user named a file and asked what it says, pass `file_name=` that "
+    "exact indexed name (from the inventory or the user). Narrow with "
+    "`doc_class=` (Dokumentart key, e.g. oib_richtlinie) or `title_contains=` "
+    "when you already know the class or a title fragment.\n"
+    "WHEN NOT TO CALL — to put a file on screen (the user asked to SEE or "
+    "BROWSE files, no legal question): that is `surface_documents`. After "
+    "you cite a project or Büroarchiv file, do not also call "
+    "`surface_documents`; the UI peeks the cited file. Live Austrian law "
+    "(statutes, Bauordnungen) is the RIS tools, not this index.\n"
+    "HOW TO QUERY — rewrite the user question into a search query (topic + "
+    "jurisdiction + implied year). Prefer one precise call over a broad dump. "
+    "At most 2 calls; change the query on the second. Never invent a "
+    "`file_name`; take it from the inventory or the user. Do not pass a raw "
+    "`filters` object unless you need `content_type`.\n"
+    "RETURNS — numbered passages with Source, Citation (copy this key "
+    "verbatim), Dokumentart, page, and the passage. Cite only those keys. "
+    "An empty result tells you how to retry (narrower query, `file_name`, "
+    "`title_contains`); it is not permission to invent a citation."
+)
 
 # Type-safe backend selection - Pydantic validates at config load time
 BackendType = Literal["llamaindex", "foundational_rag"]
@@ -469,6 +500,17 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
 
     merged_chunks.sort(key=lambda chunk: chunk.score, reverse=True)
 
+    try:
+        from aiq_agent.common.focus_file import get_focused_file_name
+
+        focused = get_focused_file_name()
+    except Exception:
+        focused = None
+    if focused:
+        matching = [chunk for chunk in merged_chunks if (chunk.file_name or "") == focused]
+        others = [chunk for chunk in merged_chunks if (chunk.file_name or "") != focused]
+        merged_chunks = matching + others
+
     if max_per_document > 0:
         selected = []
         leftovers = []
@@ -612,21 +654,44 @@ def _hit_display_title(chunk, resolved: dict[tuple[str, str], str]) -> str | Non
     return None
 
 
-def _apply_agent_filters(chunks, doc_class: str | None, title_contains: str | None) -> list:
+def _file_name_matches(chunk_name: str | None, requested: str) -> bool:
+    """True when a hit is the file the agent named.
+
+    Exact (case-insensitive) first; then either name contains the other so
+    ``Brandschutzplan.pdf`` matches ``Brandschutzplan_EG.pdf``. Display titles
+    are ``title_contains``'s job — this is the indexed name.
+    """
+    have = (chunk_name or "").strip().casefold()
+    want = (requested or "").strip().casefold()
+    if not have or not want:
+        return False
+    return have == want or want in have or have in want
+
+
+def _apply_agent_filters(
+    chunks,
+    doc_class: str | None,
+    title_contains: str | None,
+    file_name: str | None = None,
+) -> list:
     """Narrow a merged candidate list by the agent-supplied filters.
 
-    Both filters run post-merge so they apply uniformly across every collection
+    Filters run post-merge so they apply uniformly across every collection
     layer (base, session, project). ``doc_class`` uses the same store-authoritative
     resolution as the Dokumentart line (:func:`_hit_doc_class`), so a platform-owner
     reclassification takes effect without re-ingest. ``title_contains`` matches the
-    raw file name OR the resolved display title, case-insensitively.
+    raw file name OR the resolved display title, case-insensitively. ``file_name``
+    matches the indexed name only — the agent already has a name.
     """
     resolved_classes = _resolve_doc_classes(chunks) if doc_class else {}
     resolved_titles = _resolve_display_titles(chunks) if title_contains else {}
     needle = title_contains.casefold() if title_contains else None
+    requested_name = (file_name or "").strip() or None
     kept = []
     for chunk in chunks:
         if doc_class and _hit_doc_class(chunk, resolved_classes) != doc_class:
+            continue
+        if requested_name and not _file_name_matches(chunk.file_name, requested_name):
             continue
         if needle:
             haystacks = [chunk.file_name or ""]
@@ -637,6 +702,30 @@ def _apply_agent_filters(chunks, doc_class: str | None, title_contains: str | No
                 continue
         kept.append(chunk)
     return kept
+
+
+def _empty_search_message(
+    query: str,
+    *,
+    file_name: str | None = None,
+    doc_class: str | None = None,
+    title_contains: str | None = None,
+) -> str:
+    """Steer a miss toward a more specific next call, not a invented citation."""
+    bits = [f"query={query!r}"]
+    if file_name:
+        bits.append(f"file_name={file_name!r}")
+    if doc_class:
+        bits.append(f"doc_class={doc_class!r}")
+    if title_contains:
+        bits.append(f"title_contains={title_contains!r}")
+    return (
+        "No passage matched " + ", ".join(bits) + ". "
+        "Retry once with a shorter topic query"
+        + (", a different `file_name` from the inventory" if file_name else ", or `file_name=` an exact inventory name")
+        + ", or `title_contains=` a fragment. "
+        "Do not invent a citation. This tool does not open files — that is `surface_documents`."
+    )
 
 
 def _trace_lanes_json(
@@ -915,32 +1004,48 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         filters: dict | None = None,
         doc_class: str | None = None,
         title_contains: str | None = None,
+        file_name: str | None = None,
     ) -> str:
-        """Search for documents relevant to the query.
+        """Read and cite passages from the ingested knowledge base.
 
         Args:
-            query (str): Natural language query describing what information you need.
-            filters (dict | None): Optional metadata filter applied to the base
-                collection (e.g. {"content_type": "text"} or nested
-                {"$and": [...]}/{"$or": [...]}). AND-ed with the configured
-                exclude_file_names. Session/project collections are never filtered.
-            doc_class (str | None): Optional document-class filter (the "Dokumentart"
-                key, e.g. "oib_richtlinie", "gesetz"). Keeps only documents of exactly
-                that class, resolved store-authoritatively (reclassifications apply
-                without re-ingest).
-            title_contains (str | None): Optional case-insensitive substring matched
-                against the document's file name OR its display title.
+            query (str): The fact or passage you need, rewritten as a search
+                query (topic + jurisdiction + implied year). Not the raw user
+                message.
+            file_name (str | None): Indexed file name to read (from the
+                inventory or the user). Never invent a name.
+            doc_class (str | None): Dokumentart key (e.g. "oib_richtlinie",
+                "gesetz"). Store-authoritative; reclassifications apply
+                without re-ingest.
+            title_contains (str | None): Case-insensitive substring of the
+                file name OR display title.
+            filters (dict | None): Rare. Metadata filter on the base
+                collection only (e.g. {"content_type": "text"}). Session and
+                project collections are never filtered.
 
         Returns:
-            str: Formatted string containing relevant document excerpts with citations.
+            str: Numbered excerpts with a Citation key to copy verbatim.
         """
+        query = (query or "").strip()
+        file_name = (file_name or "").strip() or None
+        title_contains = (title_contains or "").strip() or None
+        if not query:
+            return (
+                "Provide a `query` that names the fact or passage you need "
+                "(e.g. 'OIB-RL 2 Fluchtweglänge GK 4'). "
+                "If you already have an indexed file name from the inventory, "
+                "also pass `file_name=`."
+            )
         if doc_class is not None:
             from aiq_agent.knowledge.document_classification import DOCUMENT_CLASSES
             from aiq_agent.knowledge.document_classification import is_valid_doc_class
 
             if not is_valid_doc_class(doc_class):
                 valid = ", ".join(DOCUMENT_CLASSES)
-                return f"Invalid doc_class '{doc_class}'. Valid values: {valid}."
+                return (
+                    f"Invalid doc_class {doc_class!r}. Valid values: {valid}. "
+                    "Omit `doc_class` to search every Dokumentart."
+                )
 
         # Platform-tunable counts (Platform → Retrieval), resolved per call so
         # an admin save takes effect without a redeploy; fail-open to the YAML
@@ -951,7 +1056,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         effective_max_per_document = get_retrieval_setting("knowledge.max_chunks_per_document", max_per_document)
 
         # Over-fetch when agentic filters will drop candidates post-merge.
-        candidate_k = effective_top_k * _AGENT_FILTER_OVERFETCH if (doc_class or title_contains) else effective_top_k
+        narrowed = bool(doc_class or title_contains or file_name)
+        candidate_k = effective_top_k * _AGENT_FILTER_OVERFETCH if narrowed else effective_top_k
         if rerank_llm_obj is not None:
             candidate_k = max(candidate_k, config.rerank_candidates)
 
@@ -993,6 +1099,35 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 chunk.metadata.setdefault("collection", coll)
                 if entry.shelf is not None:
                     chunk.metadata.setdefault("shelf", str(entry.shelf))
+
+            # Named retrieve: the agent's `file_name=` (explicit) or the
+            # visible peek (`focus_file_name`) so similarity is not the only
+            # path to that file. Explicit name wins when both are set.
+            if coll != base_collection:
+                try:
+                    from aiq_agent.common.focus_file import get_focused_file_name
+
+                    focused = file_name or get_focused_file_name()
+                except Exception:
+                    focused = file_name
+                if focused:
+                    try:
+                        named = await retriever.retrieve(
+                            query=query,
+                            collection_name=coll,
+                            top_k=candidate_k,
+                            filters={"file_name": {"$eq": focused}},
+                        )
+                        for chunk in getattr(named, "chunks", []) or []:
+                            chunk.metadata.setdefault("collection", coll)
+                            if entry.shelf is not None:
+                                chunk.metadata.setdefault("shelf", str(entry.shelf))
+                        if getattr(named, "success", False) and named.chunks:
+                            result = result.model_copy(
+                                update={"chunks": list(named.chunks) + list(getattr(result, "chunks", []) or [])}
+                            )
+                    except Exception:
+                        logger.debug("Named-file retrieve skipped for %s", coll, exc_info=True)
             return result
 
         try:
@@ -1006,10 +1141,16 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # diversity cap so cross-cutting questions span multiple documents.
             merged = _merge_results(results, query, candidate_k, retriever.backend_name, effective_max_per_document)
 
-            # Agentic narrowing (doc_class / title_contains), then trim to the
-            # effective top_k.
-            if doc_class or title_contains:
-                kept = _apply_agent_filters(merged.chunks, doc_class=doc_class, title_contains=title_contains)
+            # Agentic narrowing, then trim to the effective top_k.
+            # `file_name=` is a FILTER, not a preference: the agent named a
+            # file, so other hits would be a silent bait-and-switch.
+            if doc_class or title_contains or file_name:
+                kept = _apply_agent_filters(
+                    merged.chunks,
+                    doc_class=doc_class,
+                    title_contains=title_contains,
+                    file_name=file_name,
+                )
                 merged = merged.model_copy(update={"chunks": kept})
 
             # LLM-judge reranking (fail-open: any error keeps the fused order).
@@ -1021,19 +1162,31 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
             merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})
 
+            if not merged.chunks:
+                return _empty_search_message(
+                    query,
+                    file_name=file_name,
+                    doc_class=doc_class,
+                    title_contains=title_contains,
+                )
+
             # Format for LLM. _format_results does the (now batched, 1-3 query)
             # doc_class resolution plus pure-CPU string building; run it off the
             # event loop so the synchronous DB round-trips never block the loop
             # (and stall other concurrent turns).
             formatted = await asyncio.to_thread(_format_results, merged, query)
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
-            # Debug: Log what we're returning to the LLM
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")
             return formatted
 
         except Exception as e:
             logger.error(f"Knowledge search failed: {e}")
-            return f"Error searching knowledge base: {str(e)}"
+            return (
+                f"Knowledge search failed for query={query!r}. "
+                "Retry once with the same query; if it fails again, say you "
+                "could not search the knowledge base and do not invent a citation. "
+                f"Technical detail: {e}"
+            )
 
     # Yield the function info for NAT registration
     if max_per_document > 0:
@@ -1046,8 +1199,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     yield FunctionInfo.from_fn(
         search,
         description=(
-            "Search the knowledge base for relevant documents. "
-            "Use this to find information from ingested PDFs, documents, and other files. "
-            f"Returns up to {top_k} relevant excerpts with citations (platform-configurable), {diversity_clause}"
+            f"{_KNOWLEDGE_SEARCH_DESCRIPTION} "
+            f"Returns up to {top_k} excerpts (platform-configurable), {diversity_clause}"
         ),
     )

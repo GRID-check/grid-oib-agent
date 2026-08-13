@@ -98,6 +98,12 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     retentionDays: 30,
     gate: 'operational',
   },
+  'document.assigned_to_you': {
+    actionable: false,
+    grouping: 'collapse',
+    retentionDays: 60,
+    gate: 'collaboration',
+  },
 }
 
 /** Whether a type is actionable (denormalized onto the row for a cheap count). */

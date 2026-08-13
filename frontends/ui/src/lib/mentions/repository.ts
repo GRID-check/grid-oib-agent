@@ -10,10 +10,11 @@
  */
 
 import 'server-only'
-import { and, asc, eq, inArray, notExists, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, notExists, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   conversations,
+  documents,
   mentionRequests,
   type MentionRequest,
   type MentionRequestStatus,
@@ -247,12 +248,25 @@ export async function deleteOrphanedMentionRequests(limit = 500): Promise<number
     .from(mentionRequests)
     .where(
       and(
-        eq(mentionRequests.resourceType, 'conversation'),
-        notExists(
-          db
-            .select({ one: sql`1` })
-            .from(conversations)
-            .where(eq(conversations.id, mentionRequests.resourceId)),
+        or(
+          and(
+            eq(mentionRequests.resourceType, 'conversation'),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(conversations)
+                .where(eq(conversations.id, mentionRequests.resourceId)),
+            ),
+          ),
+          and(
+            eq(mentionRequests.resourceType, 'document'),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(documents)
+                .where(sql`${documents.id}::text = ${mentionRequests.resourceId}`),
+            ),
+          ),
         ),
       ),
     )

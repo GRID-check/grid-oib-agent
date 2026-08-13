@@ -219,9 +219,28 @@ If adding your type makes you edit a file under `lib/sharing`, `lib/inbox`,
 adding a registry entry**, you have found a substrate defect. Fix it there rather
 than at your call site, and add it to §1 here when it is gone.
 
+**Do not bolt a new consumer onto a non-working substrate.** YAGNI does not
+make §3 acceptable. Those rows are defects in a promise ADR-0032 already made,
+not unused features you can defer because the first vertical is small. If your
+change is the second (or third) consumer, every §3 item you would have to
+work around, switch on, or leave unread is **in this change** — as its own
+atomic commits, *before* the new descriptor does anything a user can click.
+Filing them as a follow-up is how the third consumer pays the same tax.
+
+What YAGNI still correctly excludes: product scope you do not need yet (PDF
+pin-comments, a RACI matrix, Archiv assignment UI). What it does not exclude:
+a visibility write that no-ops, a cleanup that only deletes conversations, an
+inbox row that calls a document “Chat ohne Titel.”
+
+The files work is the second consumer this document was waiting for
+([spec](../superpowers/specs/2026-08-13-file-native-ownership-design.md),
+[ADR-0047](../adr/0047-assignment-is-not-access.md)). That change is not
+allowed to leave this §3 standing.
+
 One place the rule cannot reach, and you have to check by hand: the substrate has
 a second implementation outside the BFF. `frontends/ui/purger/purge-project.js`
 carries its own copy of the delete cascade, in CommonJS, outside `tsc --noEmit`
 and outside `eslint src` (§3.5). Widening the union will not make it fail to
 compile, and no test in this tier covers it. Grep the purger for your type's name
-before you call a cascade done.
+before you call a cascade done. A lift of §3.5 that does not give the purger a
+shared source of the three delete statements is not a lift.
