@@ -181,3 +181,32 @@ def test_north_is_declared_or_absent_never_invented(house: SpatialModel) -> None
     never made one, on a picture that reads as authoritative."""
     assert render._true_north_degrees(house) is not None
     assert render._true_north_degrees(SpatialModel(str(FIXTURES / "haus-mit-raeumen.ifc"))) is None
+
+
+def test_only_may_not_pull_an_element_out_of_another_storey(house: SpatialModel) -> None:
+    """A plan is ONE storey at ONE cut height, and `only` selects within it.
+
+    `only` used to skip the storey filter entirely, so
+    `plan(storey="Ground Floor", only=[<id on the Roof storey>])` drew that
+    element at its own world coordinates on a page reporting „Ground Floor" and
+    a cut at 1.20 m. The sample house shows it with the loft: `IfcSpace`
+    „Roof" sits at z = 2.5…3.5, and its outline came back as `rooms=['Roof']`
+    on the Ground Floor plan — a room 2.5 m above the cut, drawn as though it
+    were on it. Rooms are the visible case because a room outline is a
+    projected footprint that no cut height can reject; a wall from the wrong
+    storey is silently drawn the same way whenever its solid happens to cross
+    the other storey's plane.
+    """
+    loft = "09J5N7xMHBfQZeQGAEMota"
+    assert house.storey_of(house.file.by_guid(loft)).Name == "Roof"
+
+    assert render.plan(house, storey="Ground Floor", only=[loft]) is None
+    # And the other way round: a Ground Floor room does not appear on the Roof.
+    assert render.plan(house, storey="Roof", only=["3w0zWKm7n8SB1qbfwUzt0J"]) is None
+
+    # On its OWN storey it still draws — the filter scopes `only`, it does not
+    # disable it.
+    own = render.plan(house, storey="Roof", only=[loft])
+    assert own is not None
+    assert own.rooms == ["Roof"]
+    assert own.cut_z == pytest.approx(2.5 + render.CUT_ABOVE_STOREY)

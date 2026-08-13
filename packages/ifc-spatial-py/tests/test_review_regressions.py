@@ -18,6 +18,9 @@ import ifcopenshell.util.shape as us
 import numpy as np
 import pytest
 from ifc_spatial import briefing as br
+from ifc_spatial import daylight as dl
+from ifc_spatial import envelope_geometry as eg
+from ifc_spatial import fire
 from ifc_spatial import operators as op
 from ifc_spatial.envelope import computed
 from ifc_spatial.envelope import declared
@@ -40,9 +43,13 @@ FEET = FIXTURES / "einheiten-fuss.ifc"
 
 LIVING = "3w0zWKm7n8SB1qbfwUzt0U"
 BEDROOM = "3w0zWKm7n8SB1qbfwUzt0J"
+HALL = "3w0zWKm7n8SB1qbfwUzt0G"
 LOFT = "09J5N7xMHBfQZeQGAEMota"
 
 NORTH_WALL = "3cUkl32yn9qRSPvBJVyWw5"
+#: The living room's interior partition — an external wall with no window in
+#: `TestOnlyFacadesWithAnOpeningAreCountedAsSuch`.
+PARTITION = "3cUkl32yn9qRSPvBJVyWXt"
 SOUTH_WALL = "3cUkl32yn9qRSPvBJVyWy4"
 GROUND_SLAB = "3cUkl32yn9qRSPvBJVyWgQ"
 SIMPLE_FLOOR = "3ntFzSulnDNeQ4nJrMgcOt"
@@ -136,34 +143,77 @@ class TestLightEntryAreaCountsEachOpeningOnce:
 
 
 class TestTheDoorHeuristicOnlyJudgesDoors:
-    def test_glazing_without_is_external_is_undetermined_not_internal(self, tmp_path) -> None:
-        """`_faces_outside`'s fallback is "touches two rooms, therefore
-        interior" — a DOOR heuristic. A curtain-wall pane runs past a floor and
-        touches two rooms, so on an export without `IsExternal` six panes of a
-        glass facade were labelled „Innentür" and the living room fell from
-        72.42 % to 12.64 %.
+    """`_faces_outside`'s fallback is „touches two rooms, therefore interior".
 
-        Undetermined is the honest answer: neither counted nor discarded.
-        """
+    That is a DOOR rule. A curtain-wall pane runs past a floor and touches two
+    rooms, so on an export without `IsExternal` six panes of a glass facade were
+    labelled „Innentür" and the living room fell from 72.42 % to 12.64 %.
+
+    ## Why this class is written the hard way
+
+    Its first version stubbed `opens_to` out of existence: the stub model
+    declared no boundaries, so the plate never entered the two-space branch and
+    landed on the same `return None` that every unjudgeable element lands on.
+    It passed against the BROKEN code and against the fixed code alike, which is
+    worse than no test — a commit message cited it as proof of a fix that was
+    never in the tree.
+
+    So `opens_to` is patched to report two spaces, which is the condition the
+    defect actually needs. Verify by reverting the `is_a("IfcDoor")` guard: the
+    plate assertion must go red.
+    """
+
+    class _Stub(SpatialModel):
+        """A model with no file to open and no declared properties."""
+
+        def __init__(self, file) -> None:
+            self.file = file
+
+        def declared_property(self, element, names):
+            return None
+
+    @staticmethod
+    def _two_spaces(monkeypatch) -> None:
+        """`opens_to` reports two rooms — the branch the defect lives in."""
+        monkeypatch.setattr(
+            op,
+            "opens_to",
+            lambda model, gid: computed([object(), object()], from_=[gid], method="stub"),
+        )
+
+    def test_a_pane_touching_two_rooms_is_undetermined_not_interior(self, monkeypatch) -> None:
         model = ifcopenshell.file(schema="IFC4")
         plate = model.create_entity("IfcPlate", GlobalId=ifcopenshell.guid.new())
-        door = model.create_entity("IfcDoor", GlobalId=ifcopenshell.guid.new())
+        self._two_spaces(monkeypatch)
 
-        class _Stub(SpatialModel):
-            def __init__(self) -> None:  # no file to open
-                self.file = model
-
-            def declared_property(self, element, names):
-                return None
-
-        stub = _Stub()
-        # The plate cannot be judged by a door rule, so it must come back None.
-        external, why = op._faces_outside(stub, plate)
-        assert external is None
+        external, why = op._faces_outside(self._Stub(model), plate)
+        assert external is None, "a glass pane was judged by a door rule"
+        assert "Innentür" not in why
         assert "weder IsExternal" in why
-        # A door still reaches the fallback (it has no boundaries here, so it
-        # also ends undetermined — what matters is that the branch is entered).
-        assert op._faces_outside(stub, door)[0] is None
+
+    def test_a_door_touching_two_rooms_still_is_interior(self, monkeypatch) -> None:
+        """The heuristic is not deleted — for a DOOR it is exactly right, and an
+        interior door counted as daylight is the bug the split came from."""
+        model = ifcopenshell.file(schema="IFC4")
+        door = model.create_entity("IfcDoor", GlobalId=ifcopenshell.guid.new())
+        self._two_spaces(monkeypatch)
+
+        external, why = op._faces_outside(self._Stub(model), door)
+        assert external is False
+        assert "Innentür" in why
+
+    def test_a_declared_is_external_still_outranks_everything(self, monkeypatch) -> None:
+        model = ifcopenshell.file(schema="IFC4")
+        plate = model.create_entity("IfcPlate", GlobalId=ifcopenshell.guid.new())
+        self._two_spaces(monkeypatch)
+
+        class _Declares(self._Stub):
+            def declared_property(self, element, names):
+                return True
+
+        external, why = op._faces_outside(_Declares(model), plate)
+        assert external is True
+        assert "deklariert" in why
 
 
 class TestAnSiPrefixOnAnAreaIsSquared:
@@ -585,3 +635,285 @@ class TestACaptionMayNotDescribeADrawingThatIsNotThere:
         assert out["elementsDrawn"] == 26
         assert "Lücken in der Wand" in out["note"]
         assert "KEIN Bauteil" not in out["note"]
+
+
+def _second_level_export(path: Path) -> SpatialModel:
+    """The sample house with the bedroom's boundaries written 2nd-level.
+
+    A 2nd-level exporter publishes one ``IfcRelSpaceBoundary`` row per boundary
+    SURFACE, so a wall or a window that bounds the room across two faces arrives
+    twice. Here every element `bounds` derives for the bedroom is written as a
+    declared row, and the walls and the window are written twice — which is what
+    the real export does and what makes `bounds` prefer the declared route.
+    """
+    file = ifcopenshell.open(str(HOUSE))
+    space = file.by_guid(BEDROOM)
+    derived = op.bounds(SpatialModel(str(HOUSE)), BEDROOM)
+    for ref in derived.value or []:
+        element = file.by_guid(ref.global_id)
+        rows = 2 if element.is_a() in ("IfcWindow", "IfcWall", "IfcWallStandardCase") else 1
+        for part in range(rows):
+            file.create_entity(
+                "IfcRelSpaceBoundary",
+                GlobalId=ifcopenshell.guid.new(),
+                Name=f"{ref.global_id}-Flaeche{part}",
+                RelatingSpace=space,
+                RelatedBuildingElement=element,
+                PhysicalOrVirtualBoundary="PHYSICAL",
+                InternalOrExternalBoundary="EXTERNAL",
+            )
+    file.write(str(path))
+    return SpatialModel(str(path))
+
+
+class TestBoundsReturnsEachElementOnce:
+    """One element, one entry — deduplicated in `bounds` and not in the callers.
+
+    `light_entry_area` had already been patched against this (28.41 % against a
+    true 14.21 % on the bedroom), and the same duplicate row was still reaching
+    `daylight.room_depth` and `fire.separating_elements`, which were written
+    afterwards. Six operators call `bounds`; the seventh would have inherited it.
+    """
+
+    def test_a_boundary_written_per_face_yields_one_reference(self, tmp_path: Path) -> None:
+        model = _second_level_export(tmp_path / "zweite-ebene.ifc")
+        answer = op.bounds(model, BEDROOM)
+        assert answer.provenance == "declared", "the declared route is the one that carries the duplicates"
+        ids = [ref.global_id for ref in (answer.value or [])]
+        assert len(ids) == len(set(ids)), "one element came back once per boundary surface"
+        assert BEDROOM_WINDOW in ids
+        # `from_` is the provenance trail and must not repeat either.
+        assert len(answer.from_) == len(set(answer.from_))
+
+    def test_the_facade_ranking_does_not_double_its_aperture(self, tmp_path: Path) -> None:
+        """The bedroom's north wall carries ONE 2.1901 m² window.
+
+        Summed per boundary row it came back as 4.3802 m² „aus 2 Öffnung(en)" —
+        enough to outrank a genuinely larger facade and measure the depth
+        perpendicular to the wrong wall, which on a rectangular room is its
+        width.
+        """
+        model = _second_level_export(tmp_path / "zweite-ebene.ifc")
+        bounding = [model.file.by_guid(ref.global_id) for ref in op.bounds(model, BEDROOM).value]
+        candidates = {c["globalId"]: c for c in dl._facade_candidates(model, BEDROOM, bounding)}
+        north = candidates[NORTH_WALL]
+        assert north["apertureArea"] == pytest.approx(2.1901, abs=5e-4)
+        assert north["apertures"] == [BEDROOM_WINDOW]
+        assert dl.room_depth(model, BEDROOM).value["facade"]["why"].count("1 Öffnung(en)") == 1
+
+    def test_a_separating_wall_is_listed_once_and_both_ways_round(self, tmp_path: Path) -> None:
+        """`separatingElements(a, b)` and `(b, a)` are the same question.
+
+        `shared` was built by walking `bounds(b)` against a dict of `bounds(a)`,
+        so the duplicates on whichever side was passed second survived: the
+        entrance hall against the bedroom answered „6 Bauteile" with one wall
+        twice under `trennend` and twice under `ohneFeuerwiderstand`, and the
+        bedroom against the entrance hall answered „4 Bauteile".
+        """
+        model = _second_level_export(tmp_path / "zweite-ebene.ifc")
+        forward = fire.separating_elements(model, HALL, BEDROOM).value
+        backward = fire.separating_elements(model, BEDROOM, HALL).value
+        for value in (forward, backward):
+            for key in ("trennend", "gemeinsam"):
+                ids = [entry["globalId"] for entry in value[key]]
+                assert len(ids) == len(set(ids)), f"{key} listed one element twice"
+            assert len(value["ohneFeuerwiderstand"]) == len(set(value["ohneFeuerwiderstand"]))
+        assert [e["globalId"] for e in forward["trennend"]] == [e["globalId"] for e in backward["trennend"]]
+        assert [e["globalId"] for e in forward["gemeinsam"]] == [e["globalId"] for e in backward["gemeinsam"]]
+
+
+class TestOnlyFacadesWithAnOpeningAreCountedAsSuch:
+    """„Dieser Raum hat N Außenwände mit Öffnungen" counted the blank ones too.
+
+    `_facade_candidates` enters every external wall bounding the room, giving
+    the ones that carry nothing `apertureArea = 0.0` so a caller may still name
+    them. The caveat then reported `len(candidates)` under the words „mit
+    Öffnungen", and the ranking printed in the same sentence contradicts it.
+    """
+
+    @staticmethod
+    def _blank_external_wall(path: Path) -> SpatialModel:
+        """The living room's partition, re-declared as a blank external wall.
+
+        It hosts two interior doors, which `_faces_outside` rejects, so it lands
+        in `candidates` with `apertureArea = 0.0` — a gable wall beside the two
+        walls that do carry glass. A fresh `IfcPropertySingleValue` rather than
+        an edit in place: the file shares one `IsExternal` property entity
+        across many products, and writing through it flips the doors too.
+        """
+        file = ifcopenshell.open(str(HOUSE))
+        wall = file.by_guid(PARTITION)
+        for relation in wall.IsDefinedBy or []:
+            pset = getattr(relation, "RelatingPropertyDefinition", None)
+            if pset is None or not pset.is_a("IfcPropertySet") or pset.Name != "Pset_WallCommon":
+                continue
+            pset.HasProperties = [p for p in pset.HasProperties if p.Name != "IsExternal"] + [
+                file.create_entity(
+                    "IfcPropertySingleValue",
+                    Name="IsExternal",
+                    NominalValue=file.create_entity("IfcBoolean", True),
+                )
+            ]
+        file.write(str(path))
+        return SpatialModel(str(path))
+
+    def test_a_blank_external_wall_is_not_a_facade_with_an_opening(self, tmp_path: Path) -> None:
+        model = self._blank_external_wall(tmp_path / "fensterlose-giebelwand.ifc")
+        bounding = [model.file.by_guid(ref.global_id) for ref in op.bounds(model, LIVING).value]
+        candidates = dl._facade_candidates(model, LIVING, bounding)
+        assert len(candidates) == 3
+        assert sum(1 for c in candidates if c["apertureArea"] > 0) == 2
+
+        caveat = dl.room_depth(model, LIVING).caveat
+        assert "2 Außenwand/Außenwände mit Öffnungen" in caveat
+        # The total is kept, because a blank wall is still a wall a depth could
+        # be measured to — it is just not a daylight facade.
+        assert "von 3 begrenzenden Außenwänden insgesamt" in caveat
+        assert "3 Außenwände mit Öffnungen" not in caveat
+
+    def test_the_sample_house_still_counts_its_two_glazed_facades(self, house: SpatialModel) -> None:
+        caveat = dl.room_depth(house, LIVING).caveat
+        assert "2 Außenwand/Außenwände mit Öffnungen" in caveat
+        assert "von 2 begrenzenden Außenwänden insgesamt" in caveat
+
+
+class TestTheDeclaredVolumeSumCoversTheMeasuredSpaces:
+    """A space with no body must leave BOTH sums, or the file is called a liar.
+
+    `declared_total` accumulated before the `continue` that skips an unmeasurable
+    space, so Σ(declared over N) was reconciled against Σ(measured over N−1).
+    """
+
+    @staticmethod
+    def _hall_without_a_body(path: Path) -> SpatialModel:
+        file = ifcopenshell.open(str(HOUSE))
+        file.by_guid(HALL).Representation = None
+        file.write(str(path))
+        return SpatialModel(str(path))
+
+    def test_a_bodyless_space_does_not_fabricate_a_contradiction(self, tmp_path: Path) -> None:
+        """All four of the sample house's spaces declare a volume, and all four
+        declarations match their bodies to 1e-6 m³. Drop the entrance hall's
+        representation and the answer read „die Datei widerspricht sich":
+        244.995 m³ (computed) against 266.728 m³ (declared), 8.1 % apart, from
+        nothing but the 21.734 m³ of a space that was counted on one side only.
+        """
+        model = self._hall_without_a_body(tmp_path / "raum-ohne-koerper.ifc")
+        answer = eg.compactness(model)
+        assert answer.decidable
+        assert [v["globalId"] for v in answer.value["spaces"]] == [LIVING, BEDROOM, LOFT]
+        assert answer.value["volume"] == pytest.approx(244.994532, abs=1e-4)
+        assert answer.value["volumeAgreement"] == "agree"
+        assert "widerspricht sich" not in answer.caveat
+
+    def test_the_space_that_left_the_sum_is_named(self, tmp_path: Path) -> None:
+        """V is a subtotal now, and a subtotal published as a total is the
+        defect this package exists to prevent.
+        """
+        model = self._hall_without_a_body(tmp_path / "raum-ohne-koerper.ifc")
+        caveat = eg.compactness(model).caveat
+        assert "1 von 4 IfcSpace tragen keinen auswertbaren Körper" in caveat
+        assert "Entrance hall" in caveat
+        assert "V ist insofern eine Untergrenze" in caveat
+
+    def test_the_intact_file_still_reconciles_both_routes(self, house: SpatialModel) -> None:
+        answer = eg.compactness(house)
+        assert answer.value["volumeAgreement"] == "agree"
+        assert answer.value["volume"] == pytest.approx(266.728298, abs=1e-4)
+        assert "keinen auswertbaren Körper" not in answer.caveat
+
+
+class TestATriangleWithNoDirectionDoesNotVoteOnThePlane:
+    """`triangle_normals_areas` zeroes a normal at |cross| ≤ 1e-12 and still
+    reports `area = |cross| / 2`, so `dominant_plane`'s `areas > 0` filter let
+    triangles through that carry no direction at all. They fold to the sign
+    fallback 1.0, land in the (0, 0, 0) bin and vote with a zero vector.
+
+    For a mesh whose triangles are ALL in that band the function returned
+    `array([0., 0., 0.])` instead of `None`, and that is not a harmless zero:
+    `azimuth` gates on `|face[2]| >= VERTICAL_TOLERANCE`, reads 0.0 as vertical
+    and reports a compass bearing for a body with no measurable face — the exact
+    failure `dominant_plane` was added to prevent for the ground slab.
+    """
+
+    #: One triangle 1 µm on a side: |cross| = 1e-12, area = 5e-13 > 0.
+    BAND = np.array([[[0.0, 0.0, 0.0], [1e-6, 0.0, 0.0], [0.0, 1e-6, 0.0]]])
+
+    def test_the_band_really_does_pass_an_area_filter_with_a_zero_normal(self) -> None:
+        """Without this the test below would pass for the wrong reason."""
+        normals, areas = op.triangle_normals_areas(self.BAND)
+        assert (areas > 0).all(), "the old gate would have dropped these anyway"
+        assert areas[0] == pytest.approx(5e-13, rel=1e-9)
+        assert not normals.any(), "a triangle that still has a direction is not the case at issue"
+
+    def test_a_mesh_of_them_has_no_dominant_plane(self) -> None:
+        assert dominant_plane(self.BAND) is None
+
+    def test_azimuth_refuses_instead_of_reporting_north(self, house: SpatialModel, monkeypatch) -> None:
+        """The consequence, on the operator that reads the gate.
+
+        Handed through a stub rather than a file: IfcOpenShell REFUSES to build
+        such a body — a tessellation this small comes back as
+        „shape-failed: Failed to process shape" and never reaches an operator —
+        so the band is only reachable from a mesh that arrives some other way.
+        The refusal must not depend on the kernel's willingness to reject it.
+        """
+        from ifc_spatial.model import ElementGeometry
+
+        degenerate = ElementGeometry(
+            global_id=NORTH_WALL,
+            verts=np.array([[0.0, 0.0, 0.0], [1e-6, 0.0, 0.0], [0.0, 1e-6, 0.0]]),
+            faces=np.array([[0, 1, 2]]),
+            box=(np.zeros(3), np.full(3, 1e-6)),
+            centroid=np.zeros(3),
+        )
+        monkeypatch.setattr(house, "geometry", lambda gid: degenerate)
+
+        answer = op.azimuth(house, NORTH_WALL)
+        assert not answer.decidable
+        assert answer.value is None
+        assert "senkrechte Hauptfläche" in answer.missing.what
+
+    def test_the_house_is_nowhere_near_the_band(self, house: SpatialModel) -> None:
+        """The measurement behind the claim that this fix moves no number.
+
+        All 25 312 triangles of the sample house, and the smallest doubled area
+        among them is 2.63e-07 — five orders of magnitude above the 1e-12 the
+        gate rejects, so not one triangle changes side.
+        """
+        smallest = None
+        total = 0
+        for element in house.file.by_type("IfcProduct"):
+            geo = house.geometry(element.GlobalId)
+            if geo is None or len(geo.triangles) == 0:
+                continue
+            _, areas = op.triangle_normals_areas(geo.triangles)
+            total += len(areas)
+            doubled = float((areas * 2).min())
+            smallest = doubled if smallest is None else min(smallest, doubled)
+        assert total == 25_312
+        assert smallest == pytest.approx(2.6267e-07, rel=1e-3)
+        assert smallest > 1e-12 * 100_000
+
+
+class TestAnUnwrappedHandlerStillCannotLeakATraceback:
+    """`overhang` and `light_incidence` call operators that raise
+    `UnknownElementError`, and neither handler wraps its call in `run`.
+
+    That is safe only because `call` converts the same two exceptions itself —
+    documented there as the net for „a handler which forgot to wrap its
+    operator". This pins the net rather than the handlers: `mcp_server` hands
+    arguments straight to `call` and has no second one.
+    """
+
+    def test_overhang_answers_a_typo_with_a_correction(self, tools: list, handle: str) -> None:
+        with pytest.raises(ToolError) as raised:
+            call(tools, "overhang", {"model": handle, "projecting": "0" * 22, "facade": NORTH_WALL})
+        assert "Unbekannte GlobalId" in str(raised.value)
+        assert "find_elements" in str(raised.value)
+
+    def test_light_incidence_answers_a_typo_with_a_correction(self, tools: list, handle: str) -> None:
+        with pytest.raises(ToolError) as raised:
+            call(tools, "light_incidence", {"model": handle, "globalId": "0" * 22, "angle": 45})
+        assert "Unbekannte GlobalId" in str(raised.value)
+        assert "find_elements" in str(raised.value)

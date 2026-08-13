@@ -528,9 +528,24 @@ def _depth_caveat(
         second = runners[0]
         share = float(second["apertureArea"]) / best if best > 0 else 0.0
         listed = ", ".join(f"{c['name'] or c['globalId']} ({float(c['apertureArea']):.3f} m²)" for c in runners[:3])
+        # `candidates` is every external wall bounding the room — the first loop
+        # of `_facade_candidates` enters a blank gable with apertureArea 0.0 so
+        # that a caller may still name it. Counting those under the words
+        # „Außenwände mit Öffnungen" told the reader a room with one window and
+        # three blank external walls had four daylight facades, and the ranking
+        # printed right beside the sentence shows only one. The total is kept in
+        # the parenthesis: a wall that carries no opening is still a wall the
+        # depth could be measured to.
+        with_openings = [c for c in candidates if float(c["apertureArea"]) > 0]
+        # Only the three largest runners-up are named, so the sentence must not
+        # read as the whole list — see `Answer.caveat`: a caller that drops the
+        # qualifier is reporting a subset as a total.
+        more = "" if len(runners) <= 3 else f" (die 3 größten von {len(runners)})"
         parts.append(
-            f"Dieser Raum hat {len(candidates)} Außenwände mit Öffnungen; gewählt ist eine davon. "
-            f"Weitere: {listed}. Zu jeder gehört eine andere Raumtiefe."
+            f"Dieser Raum hat {len(with_openings)} Außenwand/Außenwände mit Öffnungen (von "
+            f"{len(candidates)} begrenzenden Außenwänden insgesamt); "
+            + ("gewählt ist eine davon. " if float(chosen["apertureArea"]) > 0 else "die gewählte trägt keine. ")
+            + f"Weitere{more}: {listed}. Zu jeder gehört eine andere Raumtiefe."
         )
         if share >= CORNER_ROOM_SHARE:
             parts.append(

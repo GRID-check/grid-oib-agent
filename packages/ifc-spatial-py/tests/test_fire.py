@@ -47,6 +47,7 @@ from typing import Any
 import ifcopenshell
 import pytest
 from ifc_spatial import fire
+from ifc_spatial.briefing import classify_rooms
 from ifc_spatial.model import SpatialModel
 from ifc_spatial.model import UnknownElementError
 from ifc_spatial.model import WrongKindError
@@ -606,6 +607,68 @@ def test_fluchtniveau_never_names_a_gebaeudeklasse(office: SpatialModel, house: 
         assert "nennt deshalb keine Gebäudeklasse" in answer.caveat
 
 
+def test_a_room_name_containing_dach_does_not_veto_the_lexicon(tmp_path: Path) -> None:
+    """A „Dachzimmer" on a storey called „1. Obergeschoss" is an Aufenthaltsraum.
+
+    `NOT_OCCUPIED_TERMS` is STOREY vocabulary and matches on substrings, and it
+    was applied to ROOM names as well: „dach" struck the Dachzimmer out of
+    `habitable`, the storey then read as all-Nebenflächen, and the Fluchtniveau
+    came back **0.000 m** for a house whose upper floor sits at 3.500 m. The
+    module's own rule is that a storey goes only on POSITIVE evidence and that
+    too LOW is the dangerous direction; the lexicon's `aufenthaltsraum` is that
+    evidence and a substring on a room name is not.
+    """
+    w = _Writer("Dachzimmer")
+    building = w.product("IfcBuilding", "Building", "Haus", CompositionType="ELEMENT")
+    eg = w.product("IfcBuildingStorey", "StoreyEG", "Erdgeschoss", CompositionType="ELEMENT", Elevation=0.0)
+    og = w.product("IfcBuildingStorey", "StoreyOG", "1. Obergeschoss", CompositionType="ELEMENT", Elevation=3.5)
+    unten = w.product("IfcSpace", "Space01", "R.01", (0.0, 4.0, 0.0, 5.0, 0.0, 2.8), LongName="Wohnzimmer")
+    oben = w.product("IfcSpace", "Space02", "R.02", (0.0, 4.0, 0.0, 5.0, 3.5, 6.3), LongName="Dachzimmer")
+    w.rel("IfcRelAggregates", "Aggr1", RelatingObject=w.project, RelatedObjects=[building])
+    w.rel("IfcRelAggregates", "Aggr2", RelatingObject=building, RelatedObjects=[eg, og])
+    w.rel("IfcRelAggregates", "Aggr3", RelatingObject=eg, RelatedObjects=[unten])
+    w.rel("IfcRelAggregates", "Aggr4", RelatingObject=og, RelatedObjects=[oben])
+    model = w.write(tmp_path / "dachzimmer.ifc")
+
+    # The lexicon places it, which is the premise the veto contradicted.
+    assert {room.name: room.kind for room in classify_rooms(model)}["Dachzimmer"] == "aufenthaltsraum"
+
+    answer = fire.fluchtniveau(model)
+    assert answer.value["fluchtniveau"] == pytest.approx(3.5, abs=1e-9)
+    top = {entry["globalId"]: entry for entry in answer.value["storeys"]}[og.GlobalId]
+    assert top["gezaehlt"] is True
+    # And the reason is the true one. „Alle Räume … Neben- oder
+    # Erschließungsflächen" was published over a room the lexicon had just
+    # called an Aufenthaltsraum.
+    assert "Aufenthaltsräume" in top["warum"]
+    assert "Dachzimmer" in top["warum"]
+
+
+def test_the_storeys_own_name_still_removes_it(tmp_path: Path) -> None:
+    """The storey-name signal is untouched: only the ROOM-level veto goes.
+
+    Same building, same Dachzimmer, storey renamed „Dachgeschoss" — that IS the
+    documented signal and the level must drop back out.
+    """
+    w = _Writer("Dachgeschoss")
+    building = w.product("IfcBuilding", "Building", "Haus", CompositionType="ELEMENT")
+    eg = w.product("IfcBuildingStorey", "StoreyEG", "Erdgeschoss", CompositionType="ELEMENT", Elevation=0.0)
+    og = w.product("IfcBuildingStorey", "StoreyDG", "Dachgeschoss", CompositionType="ELEMENT", Elevation=3.5)
+    unten = w.product("IfcSpace", "Space01", "R.01", (0.0, 4.0, 0.0, 5.0, 0.0, 2.8), LongName="Wohnzimmer")
+    oben = w.product("IfcSpace", "Space02", "R.02", (0.0, 4.0, 0.0, 5.0, 3.5, 6.3), LongName="Dachzimmer")
+    w.rel("IfcRelAggregates", "Aggr1", RelatingObject=w.project, RelatedObjects=[building])
+    w.rel("IfcRelAggregates", "Aggr2", RelatingObject=building, RelatedObjects=[eg, og])
+    w.rel("IfcRelAggregates", "Aggr3", RelatingObject=eg, RelatedObjects=[unten])
+    w.rel("IfcRelAggregates", "Aggr4", RelatingObject=og, RelatedObjects=[oben])
+    model = w.write(tmp_path / "dachgeschoss.ifc")
+
+    answer = fire.fluchtniveau(model)
+    assert answer.value["fluchtniveau"] == pytest.approx(0.0, abs=1e-9)
+    dropped = {entry["globalId"]: entry for entry in answer.value["storeys"]}[og.GlobalId]
+    assert dropped["gezaehlt"] is False
+    assert "Geschoßname" in dropped["warum"]
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # compartment_area
 # ════════════════════════════════════════════════════════════════════════════
@@ -1053,6 +1116,55 @@ def test_an_annotation_is_the_second_route_to_a_boundary(tmp_path: Path) -> None
     # Not `False`: inside/outside cannot be decided against an open line, and a
     # confident `False` would be an answer about a shape nobody drew.
     assert answer.value["ausserhalb"] is None
+
+
+def test_a_truncated_element_list_is_never_called_complete(tmp_path: Path) -> None:
+    """`elemente` holds the ten nearest; the caveat claimed the whole list.
+
+    Twelve retaining walls, ten in the payload, and the sentence „Die
+    vollständige, nach Abstand sortierte Liste steht unter „elemente““ over it.
+    A reader who counts twelve checked elements and finds ten listed concludes
+    the two missing ones do not exist — which is the reading `Answer.caveat`
+    calls "reporting a subset as a total".
+    """
+    w = _Writer("Zwoelf Bauteile")
+    site = w.file.create_entity(
+        "IfcSite",
+        GlobalId=BAUPLATZ,
+        Name="Bauplatz",
+        ObjectPlacement=w.placement,
+        Representation=w.curve([(-3.0, -5.0), (25.0, -5.0), (25.0, 20.0), (-3.0, 20.0), (-3.0, -5.0)], "FootPrint"),
+        CompositionType="ELEMENT",
+    )
+    building = w.product("IfcBuilding", "Building", "Haus", CompositionType="ELEMENT")
+    storey = w.product("IfcBuildingStorey", "StoreyEG", "Erdgeschoss", CompositionType="ELEMENT", Elevation=0.0)
+    w.rel("IfcRelAggregates", "Aggr1", RelatingObject=w.project, RelatedObjects=[site])
+    w.rel("IfcRelAggregates", "Aggr2", RelatingObject=site, RelatedObjects=[building])
+    w.rel("IfcRelAggregates", "Aggr3", RelatingObject=building, RelatedObjects=[storey])
+    walls = [
+        w.product("IfcWall", f"Wall{i:02d}", f"Stuetzmauer {i:02d}", (float(i), float(i) + 0.2, 0.0, 1.0, 0.0, 3.0))
+        for i in range(12)
+    ]
+    w.rel("IfcRelContainedInSpatialStructure", "Cont1", RelatingStructure=storey, RelatedElements=walls)
+    model = w.write(tmp_path / "zwoelf-bauteile.ifc")
+
+    answer = fire.distance_to_site_boundary(model)
+    assert len(answer.value["elemente"]) == 10
+    assert "Geprüft wurden 12 Bauteile" in answer.caveat
+    assert "die 10 nächstgelegenen der 12 geprüften Bauteile" in answer.caveat
+    assert "die 2 entfernteren sind NICHT enthalten" in answer.caveat
+    assert "vollständige" not in answer.caveat
+
+
+def test_a_list_that_is_complete_says_that_too(office: SpatialModel) -> None:
+    """Nine physical elements, nine listed — the qualifier must not turn into a
+    blanket hedge that makes a complete list unreadable as one.
+    """
+    answer = fire.distance_to_site_boundary(office)
+    listed = answer.value["elemente"]
+    assert len(listed) < 10
+    assert f"die {len(listed)} nächstgelegenen der {len(listed)} geprüften Bauteile" in answer.caveat
+    assert "das sind alle." in answer.caveat
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -1312,11 +1312,18 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
             ),
         )
 
-    # The flight itself must not stop its own ray, and neither may a duplicate
-    # body on the assembly it belongs to. Everything else does count — including
-    # the NEXT flight of the same stair, which on a switchback IS the ceiling
-    # over this one and is exactly the obstruction being looked for.
-    excluded_self = {global_id, *[element.GlobalId for element, _ in rakes]}
+    # The subject only. The flight being measured excludes ITSELF below, because
+    # a body cannot stop a ray leaving its own surface; its SIBLINGS must stay
+    # candidates, because the other flight of the same stair is the commonest
+    # ceiling a staircase has. This set used to hold every body in `rakes`, which
+    # made the exclusion identical for all flights and blinded each one to the
+    # rest of its own assembly — on the two-flight „Treppe Turm" of
+    # tests/test_stairs.py, whose Lauf OG stands 1.280 m over the top nosing of
+    # Lauf UG, `headroom` on the assembly reported „kein Bauteil … begrenzt
+    # nichts die Durchgangshöhe" while the same question asked about Lauf UG
+    # alone answered 1.280 m. „Nichts darüber" is read as a gap in the export;
+    # here it was a stair, and the direction of the error is the dangerous one.
+    excluded_self = {global_id}
 
     per_flight: list[dict[str, Any]] = []
     for element, rake in usable:

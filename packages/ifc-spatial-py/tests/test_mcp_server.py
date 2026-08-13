@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -35,7 +38,33 @@ def test_create_server_exposes_the_tool_list() -> None:
 
 
 class _Session:
-    """A JSON-RPC client speaking to `ifc-spatial-mcp` over a pipe."""
+    """A JSON-RPC client speaking to `ifc-spatial-mcp` over a pipe.
+
+    Both of the child's output pipes are DRAINED by their own thread, and every
+    read is BOUNDED. Neither is tidiness:
+
+    - An unread ``stderr=PIPE`` stops the child dead once the OS pipe buffer
+      fills (64 KiB on Linux). IfcOpenShell's geometry iterator writes progress
+      from C++, which is the one thing in this process that could produce that
+      much, and a child blocked writing to stderr never answers on stdout
+      again. Measured on ``Ifc4_SampleHouse.ifc`` the whole session writes 38
+      bytes there, so it is a long way from the buffer today — but "today" is a
+      fixture, and the failure it buys is not a red test.
+    - ``readline()`` has no timeout and this package configures none
+      (``addopts = "-ra"``, no ``pytest-timeout``), so a server that stops
+      answering hangs the job instead of failing it. A hung CI job has to be
+      noticed by a human before it says anything at all.
+
+    stderr is kept rather than sent to ``DEVNULL`` precisely because it now
+    costs nothing to keep: it is what says WHY, in the two assertions below
+    that fire when the server has stopped talking.
+    """
+
+    #: A ceiling on ONE answer, not a performance assertion. The slowest call
+    #: here is `open_model` on the sample house with its geometry pass, well
+    #: under a second, so this only ever fires when the server has stopped
+    #: answering altogether.
+    READ_TIMEOUT_SECONDS = 60.0
 
     def __init__(self) -> None:
         env = dict(os.environ, PYTHONPATH=str(ROOT / "src"))
@@ -48,16 +77,43 @@ class _Session:
             env=env,
             bufsize=1,
         )
+        self.frames: queue.Queue[str] = queue.Queue()
+        self.errors: list[str] = []
+        for pump in (self._pump_stdout, self._pump_stderr):
+            threading.Thread(target=pump, daemon=True).start()
+
+    def _pump_stdout(self) -> None:
+        assert self.process.stdout is not None
+        for line in self.process.stdout:
+            self.frames.put(line)
+        # An empty frame is END OF STREAM, so a server that died is reported at
+        # once instead of after the full timeout.
+        self.frames.put("")
+
+    def _pump_stderr(self) -> None:
+        assert self.process.stderr is not None
+        for line in self.process.stderr:
+            self.errors.append(line)
+
+    def _diagnosis(self) -> str:
+        tail = "".join(self.errors[-10:]).strip()
+        return f"\nstderr:\n{tail}" if tail else ""
 
     def send(self, message: dict) -> None:
         assert self.process.stdin is not None
         self.process.stdin.write(json.dumps(message) + "\n")
         self.process.stdin.flush()
 
-    def read(self) -> dict:
-        assert self.process.stdout is not None
-        line = self.process.stdout.readline()
-        assert line, "der Server hat die Verbindung geschlossen"
+    def read(self, timeout: float | None = None) -> dict:
+        try:
+            line = self.frames.get(timeout=timeout or self.READ_TIMEOUT_SECONDS)
+        except queue.Empty:
+            self.process.kill()
+            raise AssertionError(
+                f"der Server hat innerhalb von {timeout or self.READ_TIMEOUT_SECONDS:.1f} s "
+                f"nicht geantwortet{self._diagnosis()}"
+            ) from None
+        assert line, f"der Server hat die Verbindung geschlossen{self._diagnosis()}"
         # Every line on stdout must be a frame. Anything else means something
         # printed into the protocol.
         return json.loads(line)
@@ -87,6 +143,33 @@ def session() -> _Session:
     client.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
     yield client
     client.close()
+
+
+def test_the_client_drains_stderr_and_bounds_its_reads(session: _Session) -> None:
+    """The two ways this harness could hang CI rather than fail it.
+
+    The server's readiness line arrives on stderr, so finding it there is proof
+    that the pipe is being emptied and not silently filling toward the 64 KiB
+    that would stop the child mid-answer. The second half is the read itself: a
+    server that says nothing has to end as an assertion, not as a job that
+    never returns.
+    """
+    # The line is written before the server reads its first frame, so it has
+    # long since arrived — but it arrives on ANOTHER thread, and a test that
+    # races its own harness is the kind of flake this whole change is about.
+    deadline = time.monotonic() + 5.0
+    while not any("bereit" in line for line in session.errors) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert any("bereit" in line for line in session.errors)
+
+    silent = _Session()
+    try:
+        # Nothing was sent, so nothing can come back. 0.5 s is enough to tell
+        # "not answering" from "still starting"; the point is that it RETURNS.
+        with pytest.raises(AssertionError, match="nicht geantwortet"):
+            silent.read(timeout=0.5)
+    finally:
+        silent.close()
 
 
 def test_lists_the_tools_with_their_german_descriptions(session: _Session) -> None:

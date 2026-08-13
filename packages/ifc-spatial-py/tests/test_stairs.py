@@ -37,7 +37,11 @@ inside the flight. A vertical measurement over the same flight bottoms out at
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +66,9 @@ STAIR_NORTH = _gid("SA")
 FLIGHT_ONE = _gid("F1")
 LANDING = _gid("P1")
 FLIGHT_TWO = _gid("F2")
+STAIR_TOWER = _gid("TU")
+FLIGHT_LOWER = _gid("T1")
+FLIGHT_UPPER = _gid("T3")
 STAIR_SOUTH = _gid("SB")
 STAIR_SURVEYED = _gid("SC")
 STAIR_MUTE = _gid("SD")
@@ -202,18 +209,30 @@ def _build(path: Path) -> None:
             Representations=(f.create_entity("IfcShapeRepresentation", ctx, "Body", "SweptSolid", (solid,)),),
         )
 
+    # A COUNTER, never `hash()`. `hash` on a `str` is salted per process by
+    # PYTHONHASHSEED, so the relation's GlobalId used to be a different
+    # 22-character string on every run — the written `treppenhaus.ifc` was not
+    # byte-reproducible, and a failure that names an id could not be reproduced
+    # from a rerun of the same commit. The set id was deterministic and merely
+    # collision-prone: `name[:6]` reads "Pset_S" for both `Pset_StairCommon`
+    # and `Pset_StairFlightCommon`, so two property sets on ONE element would
+    # have shared a GlobalId. Counting sidesteps both.
+    pset_index = 0
+
     def pset(element: Any, name: str, values: dict[str, tuple[str, float]]) -> None:
+        nonlocal pset_index
+        pset_index += 1
         properties = [
             f.create_entity("IfcPropertySingleValue", key, None, f.create_entity(measure, value), None)
             for key, (measure, value) in values.items()
         ]
         f.create_entity(
             "IfcRelDefinesByProperties",
-            _gid(f"X{abs(hash(name + element.GlobalId)) % 10**9}"),
+            _gid(f"X{pset_index:03d}"),
             history,
             RelatedObjects=(element,),
             RelatingPropertyDefinition=f.create_entity(
-                "IfcPropertySet", _gid(f"S{name[:6]}{element.GlobalId[-2:]}"), history, name, None, properties
+                "IfcPropertySet", _gid(f"S{pset_index:03d}"), history, name, None, properties
             ),
         )
 
@@ -362,6 +381,25 @@ def _build(path: Path) -> None:
         PredefinedType="FLOOR",
     )
 
+    # ── Treppe Turm: one assembly whose SECOND flight is the ceiling over the
+    #    first. A stair that serves two storeys is one IfcStair with the flights
+    #    of both in it, and the flight of the upper storey stands in the same
+    #    plan band as the lower one, a storey higher. That soffit is what a head
+    #    meets walking up the lower flight — it is the ONLY thing over it — so a
+    #    Durchgangshöhe that excludes the siblings of the assembly reports „kein
+    #    Bauteil" for a flight with a stair 1.28 m over its top nosing.
+    #
+    #    Lauf UG: nosings from (70.000, 0.180) to (72.160, 1.620).
+    #    Lauf OG: the same body raised to z = 2.900, so its soffit is a flat
+    #    plane at 2.900 over x ∈ [70.000, 72.430].
+    #    Tightest point: straight above the top nosing, 2.900 − 1.620 = 1.280 m.
+    lower = flight(FLIGHT_LOWER, "Lauf UG", [RISER] * 9, GOING, 1.2, (70.0, 0.0, 0.0))
+    upper = flight(FLIGHT_UPPER, "Lauf OG", [RISER] * 9, GOING, 1.2, (70.0, 0.0, 2.9))
+    tower = f.create_entity(
+        "IfcStair", STAIR_TOWER, history, "Treppe Turm", ObjectPlacement=placement, PredefinedType="STRAIGHT_RUN_STAIR"
+    )
+    f.create_entity("IfcRelAggregates", _gid("AG4"), history, RelatingObject=tower, RelatedObjects=(lower, upper))
+
     f.create_entity(
         "IfcWall",
         WALL,
@@ -371,6 +409,51 @@ def _build(path: Path) -> None:
         Representation=box("Wand", 50.0, 54.0, 0.0, 0.3, 0.0, 2.5),
     )
     f.write(str(path))
+
+
+def test_the_fixtures_global_ids_are_the_same_on_every_run(tmp_path: Path) -> None:
+    """Reproducible, not merely valid — checked across PROCESSES.
+
+    The property-set relations used to take their GlobalId from the builtin
+    ``hash``, which Python salts per process for ``str`` (``PYTHONHASHSEED``).
+    Two runs of the same commit then wrote two different staircases, so an id
+    quoted in a failure message meant nothing on a rerun and a bisect could not
+    hold the fixture still. One interpreter cannot see this — inside a single
+    process ``hash`` is perfectly stable — so the file is built twice in child
+    processes seeded differently, which is exactly the difference between two
+    CI runs.
+
+    The GlobalIds are compared rather than the bytes: the STEP header carries a
+    creation timestamp, which is a second and unrelated reason two files differ.
+    """
+    script = (
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "import ifcopenshell\n"
+        "from test_stairs import _build\n"
+        "_build(Path(sys.argv[2]))\n"
+        "f = ifcopenshell.open(sys.argv[2])\n"
+        "print(json.dumps(sorted(e.GlobalId for e in f.by_type('IfcRoot'))))\n"
+    )
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"))
+    runs = []
+    for seed in ("0", "12345"):
+        out = tmp_path / f"seed-{seed}.ifc"
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(Path(__file__).parent), str(out)],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={**env, "PYTHONHASHSEED": seed},
+        )
+        runs.append(json.loads(result.stdout))
+
+    assert runs[0] == runs[1]
+    # And every one of them is a syntactically valid GlobalId, so "identical"
+    # cannot be satisfied by two identically broken files.
+    assert all(len(gid) == 22 for gid in runs[0])
+    assert len(set(runs[0])) == len(runs[0]), "two entities share a GlobalId"
 
 
 @pytest.fixture(scope="module")
@@ -727,6 +810,44 @@ def test_an_assembly_reports_the_tightest_of_its_flights(stairs: SpatialModel) -
     answer = st.headroom(stairs, STAIR_NORTH)
     assert answer.value["headroom"] == pytest.approx(st.headroom(stairs, FLIGHT_ONE).value["headroom"], abs=1e-9)
     assert len(answer.value["flights"]) == 2
+
+
+def test_the_flight_above_belongs_to_the_same_stair_and_still_counts(stairs: SpatialModel) -> None:
+    """Treppe Turm: the ceiling over Lauf UG is Lauf OG, of the same assembly.
+
+    The exclusion set used to hold every flight of the assembly, identically for
+    all of them, so no flight could ever see another. The two routes to the same
+    physical question then disagreed: asked about Lauf UG the operator answered
+    **1.280 m**, and asked about the stair that Lauf UG is part of it answered
+    „kein Bauteil … begrenzt die Durchgangshöhe" — read as a gap in the export,
+    over a flight with a staircase 1.28 m above its top nosing.
+
+    The number is arithmetic: Lauf OG is the same body raised to z = 2.900, so
+    its soffit is flat at 2.900 over the whole of Lauf UG, and the tightest point
+    is straight above the top nosing at 1.620 — 2.900 − 1.620 = 1.280 m. The
+    sampled perpendicular is 1.538 m, because the critical point is an EDGE and
+    no ray hits one; the reported figure is the exact surface distance.
+    """
+    alone = st.headroom(stairs, FLIGHT_LOWER)
+    assembly = st.headroom(stairs, STAIR_TOWER)
+
+    assert alone.value["headroom"] == pytest.approx(2.9 - 9 * RISER, abs=1e-6)
+    assert alone.value["headroom"] == pytest.approx(1.28, abs=1e-6)
+    assert alone.value["obstructedBy"] == FLIGHT_UPPER
+
+    assert assembly.value["obstructed"] is True
+    assert assembly.value["headroom"] == pytest.approx(alone.value["headroom"], abs=1e-9)
+    assert assembly.value["obstructedBy"] == FLIGHT_UPPER
+    assert "kein Bauteil" not in (assembly.caveat or "")
+
+    lower = next(f for f in assembly.value["flights"] if f["globalId"] == FLIGHT_LOWER)
+    assert lower["sampledPerpendicular"] == pytest.approx(1.5384, abs=1e-3)
+    assert lower["sampledPerpendicular"] > lower["headroom"]
+
+    # Lauf OG has nothing over it, and a flight is still not its own ceiling:
+    # excluding the assembly's siblings was wrong, excluding SELF is not.
+    upper = next(f for f in assembly.value["flights"] if f["globalId"] == FLIGHT_UPPER)
+    assert upper["headroom"] is None
 
 
 def test_headroom_refuses_a_wall(stairs: SpatialModel) -> None:

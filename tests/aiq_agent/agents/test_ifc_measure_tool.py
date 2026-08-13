@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import io
 import json
+import pathlib
 import urllib.error
 
 import pytest
@@ -202,9 +203,15 @@ class TestBuildCall:
             },
         )
 
-    @pytest.mark.parametrize("limit,expected", [(0, 50), (5, 5), (10_000, 500)])
+    # `limit` is passed THROUGH, not pre-defaulted by the caller. Writing
+    # `limit or 50` here meant `_build_call` never saw a 0 and the row asserted
+    # the test's own arithmetic; the floor was never reached at all. The
+    # ceiling is the engine's page size, and the floor is what keeps a model
+    # that computed a limit from a subtraction from asking for 0 or -3 rows and
+    # reading the empty answer as "the building has none".
+    @pytest.mark.parametrize("limit,expected", [(0, 50), (-3, 1), (1, 1), (5, 5), (10_000, 500)])
     def test_the_element_limit_is_clamped(self, limit, expected):
-        name, args = build(operation="find_elements", limit=limit or 50)
+        name, args = build(operation="find_elements", limit=limit)
         assert name == "find_elements"
         assert args["limit"] == expected
 
@@ -996,7 +1003,12 @@ class TestTheSameModelIsParsedOncePerProcess:
     shape `ifc_measure` refuses in words rather than pretending to answer.
     """
 
-    FIXTURE = "packages/ifc-spatial/test/fixtures/Ifc4_SampleHouse.ifc"
+    #: Anchored to THIS FILE, not to the working directory. The fixture is
+    #: committed, so the `pytest.skip` below is meant for a checkout without
+    #: the engine — resolving it relatively made it fire on a `pytest` run
+    #: started from anywhere but the repository root instead, and a suite that
+    #: skips silently proves nothing about the cache it is here to prove.
+    FIXTURE = pathlib.Path(__file__).resolve().parents[3] / "packages/ifc-spatial/test/fixtures/Ifc4_SampleHouse.ifc"
 
     @pytest.fixture()
     def engine(self):
@@ -1017,10 +1029,9 @@ class TestTheSameModelIsParsedOncePerProcess:
         """
         import functools
         import http.server
-        import pathlib
         import threading
 
-        fixture = pathlib.Path(self.FIXTURE).resolve()
+        fixture = self.FIXTURE
         if not fixture.is_file():
             pytest.skip("the sample house fixture is not in this checkout")
 

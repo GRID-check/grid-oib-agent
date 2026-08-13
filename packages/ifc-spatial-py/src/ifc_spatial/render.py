@@ -60,6 +60,34 @@ from .model import SpatialModel
 #: feature an agent looking at a plan is most likely to be asking about.
 CUT_ABOVE_STOREY = 1.2
 
+#: The most pixels this module will allocate for one plan.
+#:
+#: The height of a plan is not a parameter — it falls out of the model's own
+#: aspect ratio, and an IFC file is untrusted input. Measured on this image with
+#: ``Image.new("RGB", …)``: the sample house's default plan is 1400 × 702 px and
+#: costs 4 MB; a 400 m × 2 m gallery (a real shape — a noise barrier, a covered
+#: walkway, a tunnel section) derives a height of 260 942 px at the same width,
+#: which is 365 megapixels and **1.41 GB** of RGB before a single line is drawn.
+#: Pillow's own ``MAX_IMAGE_PIXELS`` (89 MP) does not help: it guards decoding,
+#: not ``Image.new``, and the 365 MP allocation above went through it silently.
+#:
+#: 40 MP costs 171 MB resident, measured the same way. That is affordable in a
+#: worker that also holds a parsed model, and it is 40× the largest plan anything
+#: in this package actually asks for.
+MAX_RASTER_PIXELS = 40_000_000
+
+#: The widest canvas a caller may ask for. ``tools.view`` never passes
+#: ``width_px`` at all, so anything above this is a library caller with a typo or
+#: an argument that came from somewhere it should not have.
+MAX_RASTER_WIDTH = 8_000
+
+#: Below this the scale bar, the caption and the room labels stop being legible,
+#: so a plan smaller than this is not a cheaper plan — it is a useless one.
+_MIN_RASTER_EDGE = 320
+
+#: Pixels reserved under the drawing for the caption and the scale bar.
+_CAPTION_STRIP = 46
+
 #: Anything whose triangles are drawn as background rather than as structure.
 _FURNITURE = {"IfcFurniture", "IfcFurnishingElement", "IfcSystemFurnitureElement"}
 
@@ -114,6 +142,50 @@ def _shorten(label: str, limit: int = 34) -> str:
     """
     label = (label or "").strip()
     return label if len(label) <= limit else "…" + label[-(limit - 1) :]
+
+
+def _fit_raster(
+    width_px: int,
+    margin_px: int,
+    span_x: float,
+    span_y: float,
+) -> tuple[int, int, int, float]:
+    """Canvas size and scale, bounded before anything is allocated.
+
+    Returns ``(width, height, margin, scale)``.
+
+    The height of a plan is derived, never given: ``height = span_y * scale``,
+    and ``scale`` comes from the requested width divided by the model's own
+    x-span. So a model that is long and thin sets the height, and an IFC file is
+    untrusted input — a 400 m × 2 m gallery derives 260 942 px of height at the
+    default 1400 px width, which is 1.41 GB of RGB and an OOM-killed worker
+    rather than a refused request (see :data:`MAX_RASTER_PIXELS` for the
+    measurements).
+
+    What gives way is the SCALE, not the drawing. Cropping would produce a
+    picture that is confidently wrong about where the building ends, which is
+    the one failure this module's whole discipline is against; a plan drawn
+    smaller is still a true plan, and the scale bar says by how much.
+    """
+    width = max(_MIN_RASTER_EDGE, min(int(width_px), MAX_RASTER_WIDTH))
+    # A margin at or past half the width drives the scale to zero or negative,
+    # which is a divide-by-nothing rather than a small plan.
+    margin = max(0, min(int(margin_px), width // 4))
+
+    scale = (width - 2 * margin) / span_x
+    height = int(span_y * scale) + 2 * margin + _CAPTION_STRIP
+
+    ceiling = max(_MIN_RASTER_EDGE, MAX_RASTER_PIXELS // width)
+    if height > ceiling:
+        scale = max(ceiling - 2 * margin - _CAPTION_STRIP, 1) / span_y
+        height = int(span_y * scale) + 2 * margin + _CAPTION_STRIP
+        # The width follows the shrunken drawing rather than staying where the
+        # caller put it: a 2 m-wide building centred in a 1400 px page is a
+        # thread of ink in an empty sheet, which reads as a broken render.
+        # `width` only ever decreases here, so `width * height` stays under the
+        # ceiling that was computed from the larger width.
+        width = max(_MIN_RASTER_EDGE, min(width, int(span_x * scale) + 2 * margin))
+    return width, height, margin, scale
 
 
 _INK = (24, 24, 27)
@@ -291,7 +363,16 @@ def plan(
             continue
         ifc_type = element.is_a()
         own_storey = model.storey_of(element)
-        if not restricted and own_storey is not None and own_storey.GlobalId != target.GlobalId:
+        # The storey filter holds in restricted mode too. `only` used to skip it,
+        # so `plan(storey="Ground Floor", only=[<id on Roof>])` drew that element
+        # at its own world coordinates onto a page captioned „Ground Floor,
+        # Schnitt 1.20 m" — on the sample house the Roof storey's room outline
+        # 09J5N7xMHBfQZeQGAEMota came back as rooms=['Roof'] on the Ground Floor
+        # plan, a room that is 2.5 m above the cut. A drawing is ONE storey at ONE
+        # cut height; an element from another storey drawn on it is a false
+        # statement about where that element is, and `only` selects within the
+        # drawing rather than overriding what the drawing is of.
+        if own_storey is not None and own_storey.GlobalId != target.GlobalId:
             continue
 
         if ifc_type in ("IfcSpace", "IfcSpatialZone"):
@@ -341,8 +422,7 @@ def plan(
     min_y, max_y = min(ys), max(ys)
     span_x = max(max_x - min_x, 1e-6)
     span_y = max(max_y - min_y, 1e-6)
-    scale = (width_px - 2 * margin_px) / span_x
-    height_px = int(span_y * scale) + 2 * margin_px + 46  # 46 for the caption strip
+    width_px, height_px, margin_px, scale = _fit_raster(width_px, margin_px, span_x, span_y)
 
     def to_px(x: float, y: float) -> tuple[float, float]:
         # Y is flipped: IFC +Y runs north and image +Y runs down, so a plan

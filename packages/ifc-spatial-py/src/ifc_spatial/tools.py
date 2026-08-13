@@ -43,10 +43,14 @@ from __future__ import annotations
 import base64
 import binascii
 import dataclasses
+import ipaddress
 import math
 import os
+import socket
 import tempfile
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -290,6 +294,28 @@ KINDS = ["project", "site", "building", "storey", "space", "element", "opening",
 #: Downloads are capped. A tool that will read whatever a URL hands it is a way
 #: to fill a disk from a chat message.
 MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
+
+#: Set to ``1`` when the host KNOWS its own network and wants ``open_model(url=…)``
+#: to reach it anyway — a presigned URL served by a MinIO on the same compose
+#: network is the case this exists for.
+#:
+#: It is opt-in and not opt-out because the two failure modes are not
+#: symmetric. A deployment that needed it and did not set it gets a refusal it
+#: can read and fix in one environment variable; a deployment that did not need
+#: it and was never asked gets an agent-controlled URL fetched from inside its
+#: own perimeter, and nobody finds out.
+ALLOW_PRIVATE_URLS_ENV = "IFC_SPATIAL_ALLOW_PRIVATE_URLS"
+
+#: Every network failure that is not an HTTP status answers with THIS sentence
+#: and no detail.
+#:
+#: „Connection refused" and „timed out" are different words for two ports on the
+#: same host, which is a port scanner: the agent picks the URL, so the difference
+#: between the two is a readout on a network the agent cannot otherwise see.
+_UNREACHABLE_TEXT = (
+    "Modell konnte nicht geladen werden: die URL war nicht abrufbar. "
+    "Datei lokal ablegen und path verwenden, oder base64 übergeben."
+)
 
 
 def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
@@ -751,7 +777,13 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Lokaler Dateipfad zur .ifc-Datei"},
-                    "url": {"type": "string", "description": "HTTP(S)-URL, z. B. eine presigned URL"},
+                    "url": {
+                        "type": "string",
+                        "description": (
+                            "HTTP(S)-URL, z. B. eine presigned URL. Nur öffentlich erreichbare Adressen — "
+                            "loopback, private und link-local Adressen werden nicht abgerufen."
+                        ),
+                    },
                     "base64": {
                         "type": "string",
                         "description": "Dateiinhalt base64-kodiert (nur für kleine Modelle sinnvoll)",
@@ -1150,16 +1182,97 @@ def _nodes(model: SpatialModel) -> list[Any]:
     ]
 
 
+def _refuse_unroutable_destination(url: str) -> None:
+    """Refuse a URL that resolves anywhere but the public internet.
+
+    The scheme check this replaces stopped ``file://`` and stopped nothing else.
+    ``http://169.254.169.254/latest/meta-data/`` passed it, and so did
+    ``http://127.0.0.1:9200/``, ``http://10.0.0.5/`` and every other address
+    reachable from wherever this process happens to sit. That is the whole of
+    SSRF: the URL comes from an agent, the connection comes from the server, and
+    the server's network position is the thing being borrowed.
+
+    ``mcp_server``'s docstring gives the host authentication and tenancy. This
+    is neither, and the host cannot add it: by the time a request leaves this
+    process the destination is already decided.
+
+    **What this does not close.** The name is resolved here and resolved again
+    by the socket, so a DNS entry that answers with a public address once and a
+    private one a moment later gets through (rebinding). Closing it means
+    pinning the resolved IP through the connection, which for TLS means owning
+    SNI and certificate verification by hand — a larger and more fragile piece
+    of code than the hole it shuts, in a tool whose supported path is ``path``.
+    Stated rather than hidden.
+    """
+    if os.environ.get(ALLOW_PRIVATE_URLS_ENV, "").strip().lower() in ("1", "true", "yes"):
+        return
+
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ToolError("url muss mit http:// oder https:// beginnen")
+    host = parsed.hostname
+    if not host:
+        raise ToolError("url nennt keinen Host")
+    try:
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except ValueError:
+        raise ToolError("url nennt keinen gültigen Port") from None
+
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        raise ToolError(_UNREACHABLE_TEXT) from None
+    if not infos:
+        raise ToolError(_UNREACHABLE_TEXT)
+
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        # ``::ffff:127.0.0.1`` is loopback wearing an IPv6 hat, and a check that
+        # only reads the outer form lets it through.
+        address = getattr(address, "ipv4_mapped", None) or address
+        if not address.is_global or address.is_multicast:
+            raise ToolError(
+                "url zeigt auf eine Adresse außerhalb des öffentlichen Netzes (loopback, privat, "
+                "link-local oder multicast). Diese Quelle wird nicht abgerufen — Datei lokal ablegen "
+                "und path verwenden."
+            )
+
+
+class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Every hop is a new destination, and every hop is checked like the first.
+
+    A public URL that answers ``302 Location: http://169.254.169.254/…`` is the
+    standard way past a guard that only reads what the caller typed, and urllib
+    follows redirects by default.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, D102
+        _refuse_unroutable_destination(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = urllib.request.build_opener(_GuardedRedirectHandler)
+
+
 def _read_source(args: dict[str, Any]) -> bytes:
     url = str(args.get("url") or "").strip()
     if url:
-        if not url.lower().startswith(("http://", "https://")):
-            raise ToolError("url muss mit http:// oder https:// beginnen")
+        _refuse_unroutable_destination(url)
         try:
-            with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310 — scheme checked above
+            with _opener.open(url, timeout=60) as response:  # noqa: S310 — destination checked above
                 data = response.read(MAX_DOWNLOAD_BYTES + 1)
-        except Exception as error:  # noqa: BLE001
-            raise ToolError(f"Modell konnte nicht geladen werden: {error}") from None
+        except ToolError:
+            # A refused redirect hop. It is already the sentence the agent needs.
+            raise
+        except urllib.error.HTTPError as error:
+            # The status IS safe to name: the guard has already established that
+            # this host is on the public internet, so its status code says
+            # nothing about our network position that the host does not tell
+            # anyone who asks. It is also the one detail that makes an expired
+            # presigned URL (403) diagnosable instead of mysterious.
+            raise ToolError(f"Modell konnte nicht geladen werden: HTTP {error.code}") from None
+        except Exception:  # noqa: BLE001
+            raise ToolError(_UNREACHABLE_TEXT) from None
         if len(data) > MAX_DOWNLOAD_BYTES:
             raise ToolError(
                 f"Modell ist größer als {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB — lokal ablegen und path verwenden"

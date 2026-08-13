@@ -90,6 +90,13 @@ from .briefing import content_hash
 from .envelope import Answer
 from .model import SpatialModel
 
+# The one import that runs against the grain of this package's layering, and it
+# is deliberate: `tools` imports `ids_export` LAZILY inside the handler (its own
+# comment says why), so this edge closes no cycle, and a refusal that a caller
+# can correct must be the same class here as everywhere else. Splitting it into
+# a second error type would let a host catch one and miss the other.
+from .tools import ToolError
+
 # ── the constants a reviewer will want to argue with ────────────────────────
 
 #: Schema versions every specification declares.
@@ -506,6 +513,36 @@ def to_xml(document: IdsShoppingList | Any) -> str:
     return xml
 
 
+def _checked_name(name: str) -> str:
+    """``name`` as ONE file name inside the target directory, or a refusal.
+
+    ``os.path.join(directory, name)`` is not a containment operation and does
+    not pretend to be one: joined with ``"/etc/cron.d/x"`` it returns
+    ``/etc/cron.d/x`` and drops the directory entirely, and joined with
+    ``"../../x.ids"`` it walks out of it. ``write_ids`` is exported, so ``name``
+    is whatever a host passed down — today no tool exposes it, and a guard that
+    waits for the tool that does is a guard that arrives after the incident.
+
+    ``os.path.basename`` is deliberately NOT used to sanitise this. It turns
+    ``"befunde/haus.ids"`` into ``"haus.ids"`` and returns a path the caller did
+    not ask for, which is a silently different file rather than a refused one —
+    and the whole point of this module is that a checker's input is exactly the
+    document that was described.
+    """
+    if not name or name in (".", ".."):
+        raise ToolError('name muss ein Dateiname sein — "", "." und ".." sind keine gültigen Dateinamen.')
+    if "\x00" in name:
+        raise ToolError("name enthält ein Nullbyte und ist kein gültiger Dateiname.")
+    if os.path.isabs(name) or os.path.splitdrive(name)[0]:
+        raise ToolError(f'name muss ein Dateiname ohne Pfad sein, nicht "{name}" — Ordner über directory angeben.')
+    # Both separators on every platform: a "\" is a plain character in a POSIX
+    # file name, but the same string handed to a Windows host is a directory
+    # walk, and this file must not be safe only on the machine it was tested on.
+    if "/" in name or "\\" in name:
+        raise ToolError(f'name darf keine Pfadtrennzeichen enthalten, "{name}" tut es — Ordner über directory angeben.')
+    return name
+
+
 def write_ids(
     document: IdsShoppingList,
     *,
@@ -525,6 +562,11 @@ def write_ids(
     good outcome, and raising on it would push callers into treating a clean
     model as a failure.
     """
+    # Checked BEFORE the empty-list return, so a traversing `name` is refused
+    # whether or not this model happened to produce a specification. A guard
+    # that only fires on some inputs is one an attacker chooses their way past.
+    checked = _checked_name(name) if name is not None else None
+
     if not document.ids.specifications:
         return {
             "path": None,
@@ -545,7 +587,7 @@ def write_ids(
     # runs over an unchanged model produce the same name, so a file already on
     # disk is visibly the same shopping list rather than a second copy of it.
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
-    path = os.path.join(target_directory, name or f"fehlt-{digest}.ids")
+    path = os.path.join(target_directory, checked or f"fehlt-{digest}.ids")
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(payload)
 

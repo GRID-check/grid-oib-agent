@@ -42,7 +42,7 @@ richtig gemessene Zahl unter einem falschen Namen.
 | Was grenzt woran, was sitzt worin | `ifc_measure`: `relations` |
 | Freier Lichteinfall, Tageslicht | `ifc_measure`: `light_incidence`, `measure: "lightEntryArea"`, `measure: "roomDepth"` |
 | Fluchtweg, welche Räume hängen zusammen | `ifc_measure`: `measure: "egressPath"`, `measure: "reachableFrom"` |
-| Lichte Durchgangsbreite einer Öffnung | `ifc_measure`: `measure: "clearWidth"` |
+| Rohbaulichte einer Öffnung (Ausgangswert jeder Durchgangsbreite) | `ifc_measure`: `measure: "clearWidth"` |
 | Was liegt über oder unter etwas | `ifc_measure`: `relations` mit `above` / `below` |
 | Bauteilmaße bei schräger Lage | `ifc_measure`: `measure: "orientedExtent"` |
 | Welches Bauteil ist gemeint (hinsehen) | `ifc_measure`: `view` |
@@ -117,7 +117,8 @@ darin?" (OIB 2)
 1. `operation: "find_elements"` mit `kind: "space"` → der Raum
 2. `operation: "measure"` mit `measure: "egressPath"` → Räume, Türen, Länge
 3. für jede Tür aus dem Weg: `operation: "measure"` mit `measure: "clearWidth"`
-   → die lichte Durchgangsbreite, an der Öffnung selbst gemessen
+   → die **Rohbaulichte**, an der Öffnung selbst gemessen — nicht die fertige
+   Durchgangsbreite (siehe §4)
 4. `operation: "measure"` mit `measure: "reachableFrom"`, wenn zu klären ist,
    welche Räume überhaupt hinter einer Tür liegen
 
@@ -172,9 +173,21 @@ Raumkörpers benennen, nie als lichte Höhe.
 Vernetzung um Zentimeter wandernd). `min` ist der Spalt zwischen den
 **achsparallelen Hüllboxen**; 0 m heißt nur, dass sich die Boxen überschneiden,
 nicht dass sich die Körper berühren, und bei schrägen Bauteilen ist der wahre
-Abstand größer als der gemeldete. Für eine lichte Durchgangsbreite
+Abstand größer als der gemeldete. Für eine Durchgangsbreite
 `measure: "clearWidth"`, das an der Öffnung selbst misst — `extent` liefert an
 einer Tür die Bauteildicke als `width`, nicht die Durchgangsbreite.
+
+**`clearWidth` liefert die Rohbaulichte, nicht die fertige Durchgangsbreite.**
+Gemessen wird die lichte Öffnung im Rohbau, auf die Öffnungsebene projiziert.
+Die lichte Durchgangsbreite einer Tür wird zwischen den fertigen Zargenfalzen
+gemessen und ist 15–25 % kleiner — die Richtung, in der eine zu schmale
+Fluchttür breit genug aussieht. Der `caveat` des Operators sagt das; er gehört
+in die Antwort, und die Zahl wird dort nie „lichte Durchgangsbreite" genannt.
+Welches der beiden Maße gefordert ist, entscheidet die Bestimmung. Zwei weitere
+Hinweise desselben Operators zählen genauso: liegt keine Öffnung mit Geometrie
+vor, ist der gemessene Bauteilkörper eine **Obergrenze** und als Nachweis einer
+Mindestbreite unbrauchbar; ist die Öffnung nicht rechteckig, ist die gemeldete
+Breite das größte und nicht das durchgehend lichte Maß.
 
 **`extent` ist eine Hüllbox, achsparallel zum Modell.** Bei einem schräg
 stehenden Bauteil sind `width` und `depth` systematisch zu groß und sind nicht

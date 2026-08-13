@@ -9,17 +9,20 @@ This package is the measurement that decision needs: the whole operator surface,
 re-implemented on IfcOpenShell, asserted against the TypeScript package's own
 ground truth on the same file.
 
-**The result in one line.** 40 numeric and structural rows in parity, 3 rows with
-no TS counterpart (capabilities the port adds), **1 genuine disagreement** — and
-on that one the Python answer is the correct one and the TypeScript one is on the
-unsafe side.
+**The result in one line.** 41 numeric and structural rows in parity, 3 rows with
+no TS counterpart (capabilities the port adds), **0 open disagreements** — there
+was one, `clearHeight`, the Python answer was the correct one and the TypeScript
+one was on the unsafe side, and the TypeScript operator has since been corrected
+to measure the same way (§4).
 
 ```
 cd packages/ifc-spatial-py && PYTHONPATH=src python3 -m pytest tests/test_parity.py -s
-# 30 passed · 44 rows · 1 finding
+# 30 passed · 44 rows · 0 findings
 ```
 
-Nothing under `packages/ifc-spatial/` was touched.
+The spike itself changed nothing under `packages/ifc-spatial/`. One thing it
+found did: `clearHeight` was corrected there afterwards, which is §4 and the
+only edit to the TypeScript package this measurement caused.
 
 **This document measures one file.** [CORPUS.md](CORPUS.md) is the run over
 eleven third-party exports that followed it, and it found eleven defects this
@@ -63,7 +66,7 @@ implementation, and the port uses it (and says so in the docstring).
 | `sillAndHead(window)` | `get_bbox` − storey datum | **direct** | the datum-drift guard stays ours (it is an epistemic rule, not a geometry one) |
 | `azimuth(element)` | triangles from `create_shape` + `TrueNorth` | **derived** | IfcOpenShell has no "which way does this face" primitive; the largest-vertical-cluster logic is ported |
 | `distance(a, b, mode)` | box gap over `get_bbox`; centroid from triangle areas | **derived** | §7 maps `min` onto `clash_clearance_many`, which would give the true solid-to-solid distance — see §3 |
-| `clearHeight(space)` | `geom.tree.select_ray` grid from the floor | **better than ours** | TS returns the space solid's height and says in its own caveat that the intersection test is missing. It is not missing here — and the two answers differ by 30 cm on this file |
+| `clearHeight(space)` | `geom.tree.select_ray` grid from the floor | **was better than ours** | TS returned the space solid's height and said in its own caveat that the intersection test was missing. It is not missing here — the two answers differed by 30 cm on this file, and TS has since been corrected to cast the same rays (§4) |
 
 ### Constructive
 
@@ -105,7 +108,8 @@ implementation, and the port uses it (and says so in the docstring).
    float32 tessellation output. Both are far inside any useful tolerance; the
    point is that the union-based projection has no accumulation error to argue
    about.
-2. **The clear height is measurable.** See §4 — the one genuine disagreement.
+2. **The clear height is measurable.** See §4 — the one genuine disagreement,
+   since fixed on the TypeScript side.
 3. **Exact ray casting.** `select_ray` hits the real surface and reports the
    normal and the dot product. Hit y = 4.612582 against the TS 4.613 (asserted at
    two decimals in the TS spec).
@@ -173,24 +177,31 @@ georeferencing this port deliberately does not turn into a solar operator.
 
 ---
 
-## 4. The one disagreement, and who is right
+## 4. The one disagreement, who was right, and what it changed
 
-| | TS `clearHeight(Living room)` | Py `clear_height(Living room)` |
+**Historical.** This was the single genuine disagreement, and it is no longer
+one: the TypeScript operator was corrected in the same change and now measures
+2.199999999254942 m. The parity row is back in parity, asserted at ±0.01 m, and
+the table reports **0 findings**. What follows is the state that produced the
+correction, kept because the argument is the point.
+
+| | TS `clearHeight(Living room)`, before | Py `clear_height(Living room)` |
 |---|---|---|
 | value | **2.500 m** | **2.200 m** |
 | method | Z extent of the `IfcSpace` solid | 25 upward rays from the floor, `geom.tree.select_ray` |
 | what it saw | the modelled room volume | `IfcCovering` "Compound Ceiling:Plain", z 2.200–2.257 |
 
-Both engines agree on the space solid (0.000–2.500 m). The TS operator's own
-caveat states the limitation exactly — *"Unterzüge, Lüftungsleitungen und
+Both engines agreed on the space solid (0.000–2.500 m). The TS operator's own
+caveat stated the limitation exactly — *"Unterzüge, Lüftungsleitungen und
 abgehängte Decken ragen in den Raum, ohne den Raumkörper zu verkürzen … dafür
 fehlt dieser Bibliothek noch der Verschneidungstest"* — and IfcOpenShell has that
 test. The suspended ceiling is real, it is in the file, and it is 30 cm.
 
-**The Python value is the right one, and the direction matters:** an OIB minimum
-room height is a clear dimension under the lowest obstruction, so the TS number
-would pass a room that fails. The parity test records this as a FINDING and
-asserts 2.20 m; no tolerance was widened.
+**The Python value was the right one, and the direction mattered:** an OIB
+minimum room height is a clear dimension under the lowest obstruction, so the TS
+number would pass a room that fails. That is why it was recorded as a FINDING
+against 2.20 m instead of widening a tolerance — and why the TS operator now
+casts the same rays. `test/metric.spec.ts` asserts 2.2 m and carries the reason.
 
 Two caveats on the new operator, both stated in its own `caveat`: it samples a
 grid (a narrow downstand between two sample points can be missed — refine
@@ -321,7 +332,7 @@ failure mode, and it would arrive wearing the authority of an official tool.
 | `overhang` | **1.31 ms** | **0.84 ms** warm |
 | `ray` | — | **9.7 ms** |
 | `obstructions` (45° prism) | — | **241 ms** |
-| `clearHeight` (25 rays) | n/a — TS cannot | **438 ms** |
+| `clearHeight` (25 rays) | not measured — TS could not cast rays when these timings were taken | **438 ms** |
 | peak RSS | — | **351 MB** |
 
 The shape of it: **IfcOpenShell is slower to load and faster to be right.**

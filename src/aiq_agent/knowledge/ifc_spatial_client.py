@@ -342,7 +342,31 @@ def _download(url: str, expected_bytes: Any = None) -> bytes:
 #: heap of a process that is also running an agent.
 MAX_RESIDENT_MODELS = 2
 
+#: Guards the four tables below. Held for dictionary work only, never across a
+#: download or a parse.
 _LOCK = threading.Lock()
+
+#: Serialises the whole open flow: the rebuild decision, the parse, and the
+#: registration of the handle it produced.
+#:
+#: `_LOCK` cannot do this job. It is held for microseconds by
+#: :func:`call_spatial_tool` on every operator call, and the thing that has to be
+#: atomic here takes SECONDS — `create_tools` replaces the table and clears
+#: `_OPEN_HANDLES`, and a handle opened against the old table is absent from the
+#: new one. Reproduced: with `MAX_RESIDENT_MODELS` at 2, one slow parse and three
+#: other turns landing during it, the slow turn's handle registers into a table
+#: that never saw its model, and the next operator on it fails with
+#: „model … ist nicht geöffnet — open_model aufrufen" — an argument mistake, for
+#: a GlobalId and a handle that were both correct.
+#:
+#: The cost is stated rather than hidden: two DIFFERENT models can no longer be
+#: parsed at the same time. That is the trade the rebuild rule already implies —
+#: the table is sized by `MAX_RESIDENT_MODELS` (2), so a third concurrent parse
+#: was going to evict one of the two anyway. The download is deliberately
+#: OUTSIDE this lock, because that is the part that takes two minutes and the
+#: part that has its own per-identity key.
+_OPEN_LOCK = threading.Lock()
+
 #: source identity → the local file the bytes were spilled to.
 _PATH_BY_SOURCE: dict[str, str] = {}
 #: source identity → content hash, once this process has read those bytes.
@@ -371,17 +395,25 @@ def _engine() -> tuple[Any, Any]:
     IfcOpenShell, numpy and shapely, which is a second of import time and a few
     hundred megabytes of address space that a deployment answering no model
     questions should never pay.
+
+    The lock is the whole build, not just the ``None`` test, and the docstring
+    used to claim that while the code did not. Measured with four
+    ``asyncio.to_thread`` workers arriving together on a cold process: FOUR tool
+    tables were built, three callers walked away holding a table that was not
+    the module's, and every model they opened against it was invisible to the
+    next operator call.
     """
     global _CACHE, _TOOLS
-    if _TOOLS is None:
-        try:
-            from ifc_spatial.cache import SpatialCache
-            from ifc_spatial.tools import create_tools
-        except ImportError as exc:  # pragma: no cover — deployment shape
-            raise SpatialEngineUnavailableError(str(exc)) from exc
-        _CACHE = SpatialCache(max_entries=MAX_RESIDENT_MODELS)
-        _TOOLS = create_tools(_CACHE)
-    return _CACHE, _TOOLS
+    with _LOCK:
+        if _TOOLS is None:
+            try:
+                from ifc_spatial.cache import SpatialCache
+                from ifc_spatial.tools import create_tools
+            except ImportError as exc:  # pragma: no cover — deployment shape
+                raise SpatialEngineUnavailableError(str(exc)) from exc
+            _CACHE = SpatialCache(max_entries=MAX_RESIDENT_MODELS)
+            _TOOLS = create_tools(_CACHE)
+        return _CACHE, _TOOLS
 
 
 def _spill(identity: str, data: bytes) -> str:
@@ -433,47 +465,60 @@ def open_model(result: dict[str, Any]) -> str:
     interpreter that table is unbounded retention of tenant model data — so the
     table is dropped and rebuilt around the cache's own lid, which is the only
     number here that has a memory meaning.
+
+    Which makes the rebuild the one step that MUST NOT interleave with another
+    open, and :data:`_OPEN_LOCK` is what says so — see its own comment for the
+    failure that was reproduced without it.
     """
+    global _TOOLS
+
     cache, _ = _engine()
     identity = source_identity(result)
 
+    # Read outside `_OPEN_LOCK` on purpose: the ordinary case is the second,
+    # third and tenth question about one building, and making those queue behind
+    # a different model's parse would spend seconds to answer from a dictionary.
     with _LOCK:
         known = _HANDLE_BY_SOURCE.get(identity)
         if known and known in _OPEN_HANDLES:
             return known
+        path = _PATH_BY_SOURCE.get(identity)
 
     source = result.get("source") or {}
-    path = _PATH_BY_SOURCE.get(identity)
     if not path or not os.path.isfile(path):
         path = _spill(identity, _download(source.get("url"), source.get("bytes")))
 
-    global _TOOLS
-    with _LOCK:
-        if len(_OPEN_HANDLES) >= MAX_RESIDENT_MODELS:
-            from ifc_spatial.tools import create_tools
-
-            _TOOLS = create_tools(cache)
-            _OPEN_HANDLES.clear()
-        tools = _TOOLS
-
     from ifc_spatial.tools import ToolError
     from ifc_spatial.tools import call
+    from ifc_spatial.tools import create_tools
 
-    try:
-        opened = call(tools, "open_model", {"path": path})
-    except ToolError as exc:
-        # `SpatialModel` refuses an unreadable file with a German reason an
-        # architect can act on — truncated upload, wrong format, too large.
-        # That sentence is the answer; burying it under a traceback would
-        # leave the agent with "es hat nicht funktioniert".
-        raise BimQueryUnavailableError(str(exc)) from None
+    with _OPEN_LOCK:
+        with _LOCK:
+            # Checked again under the open lock: another turn may have opened
+            # exactly this model while this one was downloading it.
+            known = _HANDLE_BY_SOURCE.get(identity)
+            if known and known in _OPEN_HANDLES:
+                return known
+            if len(_OPEN_HANDLES) >= MAX_RESIDENT_MODELS:
+                _TOOLS = create_tools(cache)
+                _OPEN_HANDLES.clear()
+            tools = _TOOLS
 
-    handle = str(opened.get("contentHash") or "")
-    with _LOCK:
-        _HANDLE_BY_SOURCE[identity] = handle
-        if handle not in _OPEN_HANDLES:
-            _OPEN_HANDLES.append(handle)
-    return handle
+        try:
+            opened = call(tools, "open_model", {"path": path})
+        except ToolError as exc:
+            # `SpatialModel` refuses an unreadable file with a German reason an
+            # architect can act on — truncated upload, wrong format, too large.
+            # That sentence is the answer; burying it under a traceback would
+            # leave the agent with "es hat nicht funktioniert".
+            raise BimQueryUnavailableError(str(exc)) from None
+
+        handle = str(opened.get("contentHash") or "")
+        with _LOCK:
+            _HANDLE_BY_SOURCE[identity] = handle
+            if handle not in _OPEN_HANDLES:
+                _OPEN_HANDLES.append(handle)
+        return handle
 
 
 def call_spatial_tool(handle: str, name: str, args: dict[str, Any]) -> Any:

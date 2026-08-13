@@ -14,9 +14,12 @@ of the spec file — so a disagreement of a micrometre is visible instead of bei
 hidden by rounding.
 
 **A disagreement is a finding, not a tolerance to widen.** Every row states the
-tolerance it was asserted at. One row genuinely disagrees — ``clear_height``,
-by 30 cm — and it is asserted as a finding against the value the investigation
-showed to be right, with the reason written out, rather than quietly loosened.
+tolerance it was asserted at. One row did genuinely disagree — ``clear_height``,
+by 30 cm — and it was asserted against the value the investigation showed to be
+right rather than quietly loosened. The TypeScript operator has since been
+corrected to measure the same way, so that row is back in parity and the table
+reports no current finding; the story is kept in the test that owns it, because
+a table that still said FINDING would be describing a fixed defect.
 
 Run with ``-s`` to see the parity table.
 """
@@ -376,18 +379,24 @@ def test_the_four_senses_of_distance(model: SpatialModel) -> None:
     assert "NICHT" in overlapping.caveat
 
 
-def test_clear_height_is_where_the_two_engines_disagree(model: SpatialModel) -> None:
-    """FINDING, not a tolerance to widen — and IfcOpenShell is the right one.
+def test_clear_height_is_where_the_two_engines_used_to_disagree(model: SpatialModel) -> None:
+    """The row that WAS the finding, and is now the proof it was acted on.
 
-    TS `clearHeight(LIVING)` returns 2.50 m, the Z extent of the IfcSpace solid,
-    and its own caveat says that is NOT the lichte Höhe because it cannot see
-    what hangs in the room ("dafür fehlt dieser Bibliothek noch der
-    Verschneidungstest"). The living room has a suspended ceiling
-    (`IfcCovering` "Compound Ceiling:Plain", z 2.200–2.257), so the true clear
-    height is 2.20 m. The Python operator casts rays and finds it.
+    TS `clearHeight(LIVING)` used to return 2.50 m, the Z extent of the
+    IfcSpace solid, while its own caveat said that is NOT the lichte Höhe
+    because it could not see what hangs in the room ("dafür fehlt dieser
+    Bibliothek noch der Verschneidungstest"). The living room has a suspended
+    ceiling (`IfcCovering` "Compound Ceiling:Plain", z 2.200–2.257), so the true
+    clear height is 2.20 m — 30 cm, on exactly the number an OIB minimum room
+    height is checked against, and on the side that passes a room that fails.
+    Porting the operators onto IfcOpenShell is what found it.
 
-    30 cm, on exactly the number an OIB minimum room height is checked against,
-    and the TS value is on the unsafe side: it would pass a room that fails.
+    The TypeScript operator now casts the same rays: `metric.spec.ts` asserts
+    2.2 m and `clearHeight` returns 2.199999999254942 (measured by running it
+    directly, like every other reference value here). So this is no longer a
+    disagreement and must not be reported as one — a parity table that still
+    said FINDING would be describing a defect that was fixed in this same
+    change, and the reader has no way to tell a live finding from a souvenir.
     """
     answer = op.clear_height(model, LIVING)
     assert answer.decidable
@@ -396,11 +405,11 @@ def test_clear_height_is_where_the_two_engines_disagree(model: SpatialModel) -> 
     record(
         "clearHeight",
         "living room",
-        2.5,
+        2.199999999254942,
         answer.value,
+        tolerance=0.01,
         unit="m",
-        finding=True,
-        note="TS = space solid (2.50); Py = ray-measured lichte Höhe under the suspended ceiling",
+        note="was the one finding: TS read the space solid (2.50) until it, too, measured to the ceiling",
     )
 
 

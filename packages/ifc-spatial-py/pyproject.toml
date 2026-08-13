@@ -11,7 +11,17 @@ requires-python = ">=3.11"
 dependencies = [
   "ifcopenshell>=0.8.5",
   "numpy>=1.26",
-  "shapely>=2.0",
+  # 2.1 rather than 2.0 for the SUITE, not for the operators: nothing under
+  # `src/` calls anything newer than 2.0 (`Polygon`, `MultiPoint`, `box`,
+  # `ops.unary_union`, `convex_hull`). What needs 2.1 are the two GEOS
+  # functions this package checks its own hand-rolled geometry against —
+  # `shapely.minimum_rotated_rectangle` for the rotating calipers in
+  # `clearance.py` and `shapely.maximum_inscribed_circle` for the inscribed
+  # circle in `accessibility.py`, both added in 2.1.0. On 2.0 those two rows
+  # fail instead of comparing — one on its own `hasattr` guard, one with
+  # `AttributeError` — and this package IS its evidence: a cross-check against
+  # an independent implementation that cannot run is not a cross-check.
+  "shapely>=2.1.0",
   # `render.plan` rasterises a storey so a language model can LOOK at it — a
   # multimodal content block needs a raster behind its data URL. Pillow rather
   # than cairosvg deliberately: cairosvg would let us reuse `ifcopenshell.draw`'s

@@ -97,10 +97,16 @@ from .model import SpatialModel
 # umlauts transliterated — because a storey called `Dachgeschoß` and one called
 # `Dachgeschoss` are the same storey and an exporter picks the spelling.
 
-#: Storey and space names that are positive evidence AGAINST occupancy. Only
-#: these remove a level from :func:`fluchtniveau`; everything else is counted,
-#: including a level the export says nothing about. Each entry is a substring
-#: match on the normalised name.
+#: STOREY names that are positive evidence AGAINST occupancy. Only these remove
+#: a level from :func:`fluchtniveau`; everything else is counted, including a
+#: level the export says nothing about. Each entry is a substring match on the
+#: normalised name.
+#:
+#: Storey names only. Run over ROOM names these terms struck „Dachzimmer" and
+#: „Attikazimmer" out of the habitable list and dropped the storey holding them,
+#: reporting a Fluchtniveau of 0.000 m for a house whose upper floor sits at
+#: 3.500 m. What a room is used for is the room lexicon's question, and
+#: :func:`~ifc_spatial.briefing.classify_rooms` answers it.
 #:
 #: ``dach`` is in the list and ``dachgeschoss`` is not a separate entry: the
 #: substring covers both, and a *Dachgeschoss* that is genuinely occupied is
@@ -415,11 +421,19 @@ def _judge_storeys(model: SpatialModel, storeys: Sequence[Any]) -> list[StoreyJu
                 "Im Zweifel MITGEZÄHLT: ein zu niedrig gemeldetes Fluchtniveau ist die gefährliche Richtung",
             )
         else:
-            habitable = [
-                entry
-                for entry in described
-                if entry["nutzung"] == "aufenthaltsraum" and not _matching_term(entry["name"])
-            ]
+            # The lexicon's classification is the whole of the room signal. The
+            # veto that used to sit here ran `NOT_OCCUPIED_TERMS` — a STOREY
+            # vocabulary, matched on substrings — over ROOM names, so a
+            # „Dachzimmer" or „Attikazimmer" that `classify_rooms` had placed as
+            # `aufenthaltsraum` was struck out. With no habitable room left, the
+            # branch below then read „Alle Räume … sind Neben- oder
+            # Erschließungsflächen" and dropped the storey: on a two-storey
+            # house whose upper storey is cleanly named „1. Obergeschoss" and
+            # holds one Dachzimmer, the Fluchtniveau came back 0.000 m instead
+            # of 3.500 m. That is the direction the module docstring names as
+            # the dangerous one, the reason given was untrue, and a substring on
+            # a room name is not the positive evidence the rule demands.
+            habitable = [entry for entry in described if entry["nutzung"] == "aufenthaltsraum"]
             placed = [entry for entry in described if entry["nutzung"] is not None]
             if habitable:
                 counted, warum = (
@@ -1541,11 +1555,24 @@ def distance_to_site_boundary(model: SpatialModel, global_id: str | None = None)
             "und erst danach eine Aussage über das Bauwerk. Der gemeldete Abstand ist in diesem Fall der "
             "Abstand nach außen."
         )
+    # `elemente` carries the ten nearest, never all of them, and the caveat has
+    # to say which of the two it is. On a model with 12 candidate elements the
+    # sentence „Die vollständige … Liste steht unter „elemente““ stood over a
+    # payload of 10: a truncation that reads as „das ist alles" is exactly what
+    # `Answer.caveat` means by "a caller that drops this is reporting a subset
+    # as a total".
+    listed = measured[:10]
     if global_id is None:
         caveat.append(
             f"Geprüft wurden {len(measured)} Bauteile; genannt ist das nächstgelegene "
             f"(„{nearest['name'] or nearest['globalId']}“). Räume und Öffnungen sind ausgenommen, sie sind "
-            "Luft. Die vollständige, nach Abstand sortierte Liste steht unter „elemente“."
+            f"Luft. Unter „elemente“ stehen die {len(listed)} nächstgelegenen der {len(measured)} geprüften "
+            "Bauteile, nach Abstand sortiert"
+            + (
+                "; das sind alle."
+                if len(listed) == len(measured)
+                else f" — die {len(measured) - len(listed)} entfernteren sind NICHT enthalten."
+            )
         )
 
     return computed(
@@ -1559,7 +1586,7 @@ def distance_to_site_boundary(model: SpatialModel, global_id: str | None = None)
                 "geschlossen": boundary["closed"],
             },
             "ausserhalb": outside,
-            "elemente": measured[:10],
+            "elemente": listed,
         },
         unit="m",
         tolerance=op.DIMENSION_TOLERANCE,

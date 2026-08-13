@@ -516,7 +516,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=10.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "shapely", specifier = ">=2.0" },
+    { name = "shapely", specifier = ">=2.1.0" },
 ]
 provides-extras = ["mcp", "ids", "dev"]
 

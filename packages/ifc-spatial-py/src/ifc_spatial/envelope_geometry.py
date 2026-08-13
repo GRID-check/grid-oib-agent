@@ -800,16 +800,26 @@ def compactness(model: SpatialModel) -> Answer[dict[str, Any]]:
 
     spaces = model.file.by_type("IfcSpace")
     volumes: list[dict[str, Any]] = []
+    without_body: list[Any] = []
     declared_total = 0.0
     declared_count = 0
     for space in spaces:
         volume = _space_volume(model, space)
         found = model.declared_quantity(space, ("NetVolume", "GrossVolume"))
+        if volume is None:
+            # The declared value is NOT accumulated for a space we could not
+            # measure. Σ(declared over N spaces) against Σ(measured over N−1) is
+            # not two routes to one number, it is two different questions, and
+            # `triangulate` publishes the shortfall as „die Datei widerspricht
+            # sich". Stripping the entrance hall's body out of the sample house
+            # produced exactly that: 244.995 m³ (computed) against 266.728 m³
+            # (declared), 8.1 % apart, on a file whose four declared volumes all
+            # match their bodies to 1e-6 m³.
+            without_body.append(space)
+            continue
         if found is not None:
             declared_total += found.value
             declared_count += 1
-        if volume is None:
-            continue
         volumes.append(
             {
                 "globalId": space.GlobalId,
@@ -847,17 +857,18 @@ def compactness(model: SpatialModel) -> Answer[dict[str, Any]]:
         method=f"Σ Raumkörper ({len(volumes)} IfcSpace)",
     )
     volume_answer = measured_volume
-    if declared_count == len(spaces) and declared_count > 0:
-        # Only when EVERY space declares one. A partial declared sum against a
-        # complete measured sum is not two routes to the same number, it is two
-        # different questions, and `triangulate` would report the shortfall as
-        # "die Datei widerspricht sich".
+    if declared_count == len(volumes) and declared_count > 0:
+        # Only when EVERY MEASURED space declares one. A partial declared sum
+        # against a complete measured sum is not two routes to the same number,
+        # it is two different questions, and `triangulate` would report the
+        # shortfall as "die Datei widerspricht sich". `len(volumes)`, not
+        # `len(spaces)`: both sums have to run over the SAME set of spaces.
         volume_answer = triangulate(
             measured_volume,
             declared(
                 round(declared_total, 6),
                 unit="m³",
-                from_=[s.GlobalId for s in spaces],
+                from_=[v["globalId"] for v in volumes],
                 method=f"Σ deklarierte Raumvolumina ({declared_count} IfcSpace)",
             ),
             method=f"Σ Raumkörper ({len(volumes)} IfcSpace)",
@@ -897,6 +908,20 @@ def compactness(model: SpatialModel) -> Answer[dict[str, Any]]:
             f" {len(without_area)} außenliegende(s) Bauteil(e) ohne messbare Fläche sind in A nicht enthalten — "
             "A ist insofern eine Untergrenze und A/V zu klein."
         )
+    if without_body:
+        # V is silently a subtotal without this sentence: the reader is told V
+        # comes from N IfcSpace and has no way to learn that the file holds
+        # N+1. Naming them is also what makes the number repairable — the same
+        # spaces are the ones held out of the declared sum above, so a reader
+        # who fixes their bodies gets both routes back.
+        named = ", ".join(f"„{model.label(s) or s.GlobalId}“" for s in without_body[:5])
+        rest = "" if len(without_body) <= 5 else f" und {len(without_body) - 5} weitere"
+        caveat += (
+            f" {len(without_body)} von {len(spaces)} IfcSpace tragen keinen auswertbaren Körper ({named}{rest}) "
+            "und sind in V NICHT enthalten — V ist insofern eine Untergrenze und A/V zu groß. Aus demselben "
+            "Grund ist auch ihr deklariertes Volumen nicht mitsummiert: beide Summen laufen über dieselben "
+            "Räume, sonst wäre die Differenz als Widerspruch der Datei gemeldet, den es nicht gibt."
+        )
     sloped = [
         e for e in measured if e["projectedArea"] and e["area"] > e["projectedArea"] * (1 + SLOPE_REPORT_FRACTION)
     ]
@@ -908,7 +933,7 @@ def compactness(model: SpatialModel) -> Answer[dict[str, Any]]:
         )
     counted = [v for v in volumes if v["volume"] > 0]
     caveat += (
-        f" Als beheizt gelten alle {len(counted)} Raumkörper der Datei: eine Unterscheidung beheizt/unbeheizt "
+        f" Als beheizt gelten alle {len(counted)} ausgewerteten Raumkörper: eine Unterscheidung beheizt/unbeheizt "
         "steht in diesem Export nicht (weder IfcZone noch Pset_SpaceThermalRequirements). Ein unbeheizter "
         "Keller oder Dachraum ist damit mitgezählt und macht V zu groß und A/V zu klein."
     )

@@ -446,6 +446,24 @@ def bounds(model: SpatialModel, space_global_id: str) -> Answer[list[ElementRef]
     the elements that actually BOUND rather than sit inside: an element bounds the
     space when it reaches outside the space's own extent. That is what keeps the
     dining chairs out of the list and the roof in it.
+
+    ## One element, one entry
+
+    A 2nd-level export publishes one ``IfcRelSpaceBoundary`` row PER BOUNDARY
+    SURFACE, so one window bounding one room arrives two, three or six times.
+    The list this returns is a list of ELEMENTS, and every consumer aggregates
+    it: `light_entry_area` summed the same 2.190 m² window twice and reported
+    the bedroom at 28.41 % against a true 14.21 %; `daylight._facade_candidates`
+    credited the north wall 4.3802 m² of aperture „aus 2 Öffnung(en)" for a
+    single window — enough to outrank a genuinely larger facade and measure the
+    depth in the wrong direction; `fire.separating_elements` listed one wall
+    twice under `trennend` and `ohneFeuerwiderstand` and answered „6 Bauteile"
+    one way round and „4 Bauteile" the other. The duplicate is an artefact of
+    how the export writes geometry, never a second element, so it is removed
+    here rather than in each of the six call sites — the next consumer would
+    otherwise inherit the same defect on the day it is written.
+
+    The FIRST occurrence is kept, so the file's own order survives.
     """
     method = f"bounds({space_global_id})"
     subject = _require(model, space_global_id, method)
@@ -458,11 +476,14 @@ def bounds(model: SpatialModel, space_global_id: str) -> Answer[list[ElementRef]
             "für ein Bauteil: enclosedBy() liefert die Räume, die es begrenzt",
         )
 
-    declared_boundaries = [
-        rel.RelatedBuildingElement
-        for rel in (getattr(subject, "BoundedBy", []) or [])
-        if rel.RelatedBuildingElement is not None
-    ]
+    seen: set[str] = set()
+    declared_boundaries = []
+    for rel in getattr(subject, "BoundedBy", []) or []:
+        element = rel.RelatedBuildingElement
+        if element is None or element.GlobalId in seen:
+            continue
+        seen.add(element.GlobalId)
+        declared_boundaries.append(element)
     if declared_boundaries:
         return declared(
             model.refs(declared_boundaries),
@@ -473,9 +494,18 @@ def bounds(model: SpatialModel, space_global_id: str) -> Answer[list[ElementRef]
     found, answer = _derived_bounds(model, subject, method)
     if answer is not None:
         return answer
+    # The derived route selects against a spatial tree and has never been seen
+    # to repeat an element, but the same one-element-one-entry guarantee has to
+    # hold on both routes: a consumer cannot ask which one answered it.
+    unique = []
+    for element in found:
+        if element.GlobalId in seen:
+            continue
+        seen.add(element.GlobalId)
+        unique.append(element)
     return computed(
-        model.refs(found, via="geom.tree.select"),
-        from_=[space_global_id, *[e.GlobalId for e in found]],
+        model.refs(unique, via="geom.tree.select"),
+        from_=[space_global_id, *[e.GlobalId for e in unique]],
         method=method,
         caveat=_DERIVED_BOUNDARY_CAVEAT.format(contact=CONTACT),
     )
@@ -2188,13 +2218,22 @@ def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]
             if isinstance(found, bool):
                 return found, "Pset_*Common.IsExternal der Wand (deklariert)"
 
-    touching = opens_to(model, element.GlobalId)
-    if touching.decidable and touching.value is not None:
-        count = len(touching.value)
-        if count >= 2:
-            return False, f"öffnet in {count} Räume (Innentür)"
-        if count == 1:
-            return True, "berührt nur einen Raum — außen liegt kein IfcSpace"
+    # The space-count fallback is a DOOR heuristic and is applied ONLY to doors.
+    # A curtain-wall pane runs past a floor, so it touches the room and the one
+    # above it — and the heuristic then calls a glass facade an „Innentür".
+    # Measured: strip `IsExternal` from the sample house and six panes were
+    # classified interior, taking the living room from 72.42 % to 12.64 %.
+    #
+    # For anything that is not a door the honest answer is UNDETERMINED, which
+    # `light_entry_area` reports separately and neither counts nor discards.
+    if element.is_a("IfcDoor"):
+        touching = opens_to(model, element.GlobalId)
+        if touching.decidable and touching.value is not None:
+            count = len(touching.value)
+            if count >= 2:
+                return False, f"öffnet in {count} Räume (Innentür)"
+            if count == 1:
+                return True, "berührt nur einen Raum — außen liegt kein IfcSpace"
     return None, "weder IsExternal deklariert noch aus den Raumberührungen ableitbar"
 
 

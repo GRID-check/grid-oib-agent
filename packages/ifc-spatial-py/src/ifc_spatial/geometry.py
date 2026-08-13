@@ -96,7 +96,18 @@ def dominant_plane(triangles: np.ndarray) -> np.ndarray | None:
     ``None`` for a mesh with no non-degenerate triangle.
     """
     normals, areas = triangle_normals_areas(triangles)
-    usable = areas > 0
+    # Gated on the NORMAL, not on `areas > 0`. `triangle_normals_areas` zeroes a
+    # normal at |cross| <= 1e-12 and still reports area = |cross| / 2, so a
+    # triangle in the band 0 < |cross| <= 1e-12 passes an area filter carrying no
+    # direction at all: it folds to the sign fallback 1.0, lands in the (0, 0, 0)
+    # bin and votes with a zero vector. For a mesh whose triangles are ALL in that
+    # band this returned array([0., 0., 0.]) instead of None, and `azimuth` reads
+    # |n_z| = 0.0 as vertical — a compass bearing off a body with no measurable
+    # face, which is the exact failure this function was added to prevent.
+    # No triangle in any fixture is anywhere near the band (the sample house's
+    # smallest of 25 312 has |cross| = 2.6e-07, five orders above it), so this
+    # moves no measured number; it closes the door.
+    usable = np.linalg.norm(normals, axis=1) > 0
     if not usable.any():
         return None
     normals = normals[usable]
