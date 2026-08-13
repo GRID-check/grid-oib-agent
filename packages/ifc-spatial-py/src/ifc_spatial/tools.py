@@ -54,11 +54,14 @@ from typing import Any
 
 import numpy as np
 
+from . import accessibility as acc
 from . import circulation as circ
 from . import clearance as clr
 from . import daylight as dl
+from . import fire as fi
 from . import operators as op
 from . import relations as extra
+from . import stairs as st
 from .briefing import briefing as build_briefing
 from .briefing import content_hash
 from .briefing import inventory
@@ -198,6 +201,46 @@ MEASURES: dict[str, str] = {
         "Verhältnis zur lichten Raumhöhe — für Tageslichtfragen, bei denen die Tiefe zählt. Die "
         "gewählte Fassade wird genannt; bei einem Eckraum steht die zweitbeste dabei."
     ),
+    "stairGeometry": (
+        "Steigungshöhe, Auftrittsbreite, Anzahl der Steigungen und die NUTZBREITE eines Treppenlaufs "
+        "— und die STREUUNG der Steigungen über den Lauf. Ungleiche Steigungen sind selbst der Befund: "
+        "eine Treppe kann im Mittel stimmen und trotzdem unbegehbar sein. Deklarierte Werte werden "
+        "gegen die Geometrie geprüft und ein Widerspruch gemeldet."
+    ),
+    "rampSlope": (
+        "Neigung einer Rampe als Prozent UND als Verhältnis, dazu Lauflänge, Höhenunterschied und "
+        "lichte Breite. Beide Formen, weil eine Bestimmung mal die eine und mal die andere nennt."
+    ),
+    "headroom": (
+        "Durchgangshöhe über einem Treppenlauf oder einer Rampe, SENKRECHT ZUR LAUFEBENE gemessen — "
+        "nicht lotrecht. Die Engstelle liegt dort, wo der Lauf unter die Decke darüber läuft, und ein "
+        "lotrechter Strahl vom Auftritt geht daran vorbei (1,35 m gegen 1,65 m im Testfall)."
+    ),
+    "stepsOf": (
+        "Die Läufe und Podeste, aus denen eine Treppe zusammengesetzt ist — um einen einzelnen Lauf zu "
+        "befragen statt der Baugruppe. Podeste zählen, weil Bestimmungen die Zahl der Steigungen je "
+        "Lauf ohne Podest begrenzen."
+    ),
+    "turningCircle": (
+        "Der größte Kreis, der auf der freien Bodenfläche eines RAUMS Platz hat — die Zahl, auf die ein "
+        "Wendekreis hinausläuft. Gezählt werden nur feste Einbauten; die Möblierung steht separat unter "
+        "mitMoeblierung, weil eine Baubewilligung für das Gebäude gilt und nicht für die Stühle. Kein "
+        "Grenzwert angewandt."
+    ),
+    "thresholdHeight": (
+        "Die Stufe an einer Tür: der Höhenunterschied der Böden beiderseits. Enthält der Export keinen "
+        "Fußbodenaufbau, ist es ein ROHBAUMASS — dann sagt die Antwort das, denn Estrich, Belag und "
+        "Dichtung machen die Stufe erst aus, und 0 mm am Rohbau heißt nichts über die fertige Schwelle."
+    ),
+    "balustrade": (
+        "Wo es an einer Öffnung hinuntergeht: die Absturzhöhe und was dort steht, samt seiner Höhe. "
+        "Fehlen IfcRailing im Export ganz, ist die Antwort nicht entscheidbar — kein Geländer im Modell "
+        "heißt nicht kein Geländer am Bau."
+    ),
+    "clearApproach": (
+        "Die freie Bodenfläche vor einer Tür, beidseitig, und was sie begrenzt — was jemand braucht, um "
+        "die Tür überhaupt öffnen zu können."
+    ),
 }
 
 MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
@@ -213,6 +256,31 @@ MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
     "clearWidth": clr.clear_opening_width,
     "orientedExtent": clr.oriented_extent,
     "roomDepth": dl.room_depth,
+    "stairGeometry": st.stair_geometry,
+    "rampSlope": st.ramp_slope,
+    "headroom": st.headroom,
+    "stepsOf": st.steps_of,
+    "turningCircle": acc.turning_circle,
+    "thresholdHeight": acc.threshold_height,
+    "balustrade": acc.balustrade_check,
+    "clearApproach": acc.clear_approach,
+}
+
+#: The `what` values `fire` accepts.
+FIRE_ASPECTS: dict[str, str] = {
+    "fluchtniveau": (
+        "Höhe des obersten Aufenthaltsgeschoßes über dem tiefsten anschließenden Gelände — die Zahl, "
+        "an der die Gebäudeklasse hängt. Welche Geschoße gezählt wurden, steht in der Antwort"
+    ),
+    "compartmentArea": "Bodenfläche eines Brandabschnitts über mehrere Räume, mit jedem Raum einzeln",
+    "separatingElements": (
+        "Was zwischen zwei Räumen liegt — Wand, Decke, und die Türen darin — je mit seinem "
+        "DEKLARIERTEN FireRating, und ausdrücklich mit dessen Fehlen"
+    ),
+    "siteBoundary": (
+        "Abstand zur Grundgrenze (Brandübertragung). Auf den meisten Exporten nicht entscheidbar: "
+        "eine Grundgrenze wird selten mitexportiert, und geraten wird sie hier nicht"
+    ),
 }
 
 KINDS = ["project", "site", "building", "storey", "space", "element", "opening", "group"]
@@ -424,6 +492,42 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         model = resolve(args.get("model"))
         mode = str(args.get("mode") or "min")
         return run(lambda: op.distance(model, str(args.get("a") or ""), str(args.get("b") or ""), mode))
+
+    # ── fire (OIB 2) ────────────────────────────────────────────────────────
+
+    def fire_op(args: dict[str, Any]) -> Any:
+        """The four OIB-2 operators behind one name.
+
+        Grouped rather than given a tool each because they share a subject —
+        the building as a fire problem — and four tools whose only difference
+        is a name make a model choose a word instead of a question.
+        """
+        model = resolve(args.get("model"))
+        # Matched case-insensitively against the real keys rather than
+        # lowercased into them: `_lower` turned "compartmentArea" into
+        # "compartmentarea", which matched nothing and refused a correct call.
+        wanted = str(args.get("what") or "fluchtniveau").strip().lower()
+        what = next((k for k in FIRE_ASPECTS if k.lower() == wanted), wanted)
+        ids = [part.strip() for part in str(args.get("globalId") or "").split(",") if part.strip()]
+        if what == "fluchtniveau":
+            return run(lambda: fi.fluchtniveau(model))
+        if what == "compartmentArea":
+            if not ids:
+                raise ToolError(
+                    "compartmentArea braucht globalId: ein Geschoß oder die Räume des Abschnitts, "
+                    "mehrere durch Komma getrennt. GlobalIds liefert find_elements."
+                )
+            return run(lambda: fi.compartment_area(model, ids))
+        if what == "separatingElements":
+            if len(ids) != 2:
+                raise ToolError(
+                    "separatingElements braucht ZWEI Räume in globalId, durch Komma getrennt — "
+                    "gefragt ist, was zwischen ihnen liegt."
+                )
+            return run(lambda: fi.separating_elements(model, ids[0], ids[1]))
+        if what == "siteBoundary":
+            return run(lambda: fi.distance_to_site_boundary(model, ids[0] if ids else None))
+        raise ToolError(f'what "{what}" gibt es nicht. Erlaubt: {", ".join(FIRE_ASPECTS)}')
 
     # ── ids ─────────────────────────────────────────────────────────────────
 
@@ -721,6 +825,30 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 "required": ["model", "a", "b"],
             },
             handler=distance,
+        ),
+        ToolDef(
+            name="fire",
+            title="Brandschutz-Geometrie (OIB 2)",
+            description=(
+                "Die geometrischen Größen, auf die OIB 2 hinausläuft:\n"
+                + "\n".join(f"  {k} — {v}" for k, v in FIRE_ASPECTS.items())
+                + "\n\nKEINE Gebäudeklasse. fluchtniveau liefert eine HÖHE; welche Klasse daraus folgt, "
+                "ist eine rechtliche Einstufung nach OIB 2 samt Landesrecht. Ein Werkzeug, das GK5 "
+                "zurückgibt, hat eine Regel angewandt, die es nie gelesen hat."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "what": {"type": "string", "enum": list(FIRE_ASPECTS)},
+                    "globalId": {
+                        "type": "string",
+                        "description": "Je nach what: Geschoß/Räume (Komma-getrennt), zwei Räume, oder leer",
+                    },
+                },
+                "required": ["model", "what"],
+            },
+            handler=fire_op,
         ),
         ToolDef(
             name="shopping_list",

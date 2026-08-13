@@ -76,6 +76,7 @@ VALID_OPERATIONS = {
     "draw",
     "view",
     "shopping_list",
+    "fire",
     "overhang",
     "light_incidence",
 }
@@ -158,6 +159,32 @@ MEASURES: dict[str, str] = {
         "how deep a room runs back from its daylight facade, the width along that facade, and the ratio "
         "to the clear height. Names which facade it chose and, for a corner room, the runner-up"
     ),
+    "stairGeometry": (
+        "riser height, tread depth, riser count and the NUTZBREITE of a stair flight — plus the SPREAD "
+        "of the risers, because a stair can be right on average and still unwalkable. Declared values "
+        "are checked against the geometry and a contradiction is reported"
+    ),
+    "rampSlope": "a ramp's slope as a percentage AND as a ratio, with run, rise and clear width",
+    "headroom": (
+        "clear height over a stair flight or ramp, measured PERPENDICULAR to the pitch rather than "
+        "vertically — a vertical ray from the tread misses the tight point (1.35 m vs 1.65 m measured)"
+    ),
+    "stepsOf": "the flights and landings a stair is made of, so one flight can be asked about",
+    "turningCircle": (
+        "the largest circle that fits on a ROOM's free floor — what a Wendekreis check comes down to. "
+        "Counts fixed built-ins only; furniture is reported beside it, because a permit is granted on "
+        "the building and not on the chairs. Applies no threshold"
+    ),
+    "thresholdHeight": (
+        "the step at a door. Where the export models no floor build-up this is a STRUCTURAL number and "
+        "the answer says so — screed, covering and seal are what make the step, so 0 mm on raw slabs "
+        "says nothing about the finished threshold"
+    ),
+    "balustrade": (
+        "where there is a fall at an opening, how far, and what stands there. Undecidable when the "
+        "export contains no IfcRailing at all — no railing in the model is not no railing on site"
+    ),
+    "clearApproach": "the free floor in front of a door on each side, and what ends it",
 }
 
 # NONE of these is a clear dimension, and saying otherwise was a defect. The
@@ -179,6 +206,23 @@ DISTANCE_MODES = {
     "vertical": (
         "difference in centre HEIGHT — what a section scales off. NOT a lichte Höhe: for that use "
         "measure/clearHeight on the room"
+    ),
+}
+
+#: `what` on the `fire` operation — the OIB 2 geometry, in one place.
+FIRE_ASPECTS = {
+    "fluchtniveau": (
+        "height of the topmost occupied floor above the lowest adjoining ground — the number the "
+        "Gebäudeklasse hangs on. Returns a HEIGHT and never a class"
+    ),
+    "compartmentArea": "floor area of a fire compartment across several rooms, each room listed",
+    "separatingElements": (
+        "what lies BETWEEN two rooms — wall, slab, and the doors in them — each with its DECLARED "
+        "FireRating, and explicitly with its absence"
+    ),
+    "siteBoundary": (
+        "distance to the site boundary (Brandübertragung). Undecidable on most exports, because a "
+        "parcel boundary is rarely exported — and it is not guessed here"
     ),
 }
 
@@ -429,6 +473,16 @@ def _build_call(
         if wanted not in ROOM_KINDS:
             return f"Error: room_kind '{room_kind}' does not exist. Use one of: {', '.join(ROOM_KINDS)}."
         return "room_inventory", {"kind": wanted}
+
+    if op == "fire":
+        wanted = _clean(kind) or "fluchtniveau"
+        aspect = next((k for k in FIRE_ASPECTS if k.lower() == wanted.lower()), None)
+        if aspect is None:
+            return f"Error: for operation 'fire', kind must be one of: {', '.join(FIRE_ASPECTS)}. Got '{kind}'."
+        args = {"what": aspect}
+        if _clean(global_id):
+            args["globalId"] = _clean(global_id)
+        return "fire", args
 
     if op == "shopping_list":
         return "shopping_list", {}

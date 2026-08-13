@@ -157,7 +157,7 @@ def test_open_and_briefing_do_not_run_geometry() -> None:
 
 
 def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: list) -> None:
-    """Ten tools ported from `tools.ts`, and three the port added.
+    """Ten tools ported from `tools.ts`, and four the port added.
 
     `view` sits BEFORE `draw` deliberately. They look like duplicates and are
     not: `draw` writes an SVG file for a human, `view` returns a raster the
@@ -180,6 +180,7 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
         "relations",
         "measure",
         "distance",
+        "fire",
         "shopping_list",
         "view",
         "draw",

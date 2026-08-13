@@ -95,6 +95,14 @@ def _bounds_of(model: SpatialModel, space: str) -> list[Any]:
     return op.bounds(model, space).value or []
 
 
+def _adjacent_of(model: SpatialModel, space: str) -> list[Any]:
+    """What ``adjacent_spaces`` calls a neighbour — a different question from
+    „was liegt dazwischen", and this module must not be read as answering it."""
+    from ifc_spatial import operators as op
+
+    return op.adjacent_spaces(model, space).value or []
+
+
 def _gid(tag: str) -> str:
     """A readable 22-character GlobalId.
 
@@ -854,6 +862,36 @@ def test_without_bodies_the_betweenness_test_is_skipped_and_says_so(bodyless: Sp
     assert answer.value["gemeinsam"] == []
     assert "nicht geprüft" in answer.value["trennend"][0]["warum"]
     assert "NICHT geprüft" in answer.caveat
+
+
+def test_a_shared_slab_is_never_reported_as_proof_the_rooms_are_neighbours() -> None:
+    """``geschossdecke-und-fenster.ifc`` — one slab under all three rooms.
+
+    That fixture's header states its own invariant: ``Wohnen`` and ``Bad`` share
+    ONLY the floor slab, so they are stacked or side by side and NOT neighbours.
+    The same unrestricted intersection made 4 278 false pairs out of one slab in
+    a real export, which is why ``adjacent_spaces`` now filters purely
+    horizontal separators.
+
+    This operator asks a narrower question — *what lies between these two* — and
+    so may legitimately report the slab: if the rooms are stacked, the slab is
+    exactly the separating element. What it may not do is imply adjacency or
+    claim the position was verified. This file has no bodies at all, so the
+    entry says betweenness was not checked, and the caveat says the list can
+    contain elements that bound both rooms without separating them.
+    """
+    model = SpatialModel(str(BOUNDARIES_ONLY))
+    wohnen, bad = "4Decke00000Space00001", "4Decke00000Space00003"
+    answer = fire.separating_elements(model, wohnen, bad)
+
+    slab = answer.value["trennend"]
+    assert [entry["ifcType"] for entry in slab] == ["IfcSlab"]
+    assert "nicht geprüft" in slab[0]["warum"]
+    assert "ohne sie zu trennen" in answer.caveat
+    # No claim of adjacency anywhere: that is a different question, and the
+    # operator that answers it excludes this pair.
+    assert "benachbart" not in _text(answer)
+    assert bad not in {ref.global_id for ref in _adjacent_of(model, wohnen)}
 
 
 def test_the_opening_chain_is_walked_even_without_second_level_boundaries(bodyless: SpatialModel) -> None:
