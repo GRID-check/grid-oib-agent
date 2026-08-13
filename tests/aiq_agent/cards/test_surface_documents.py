@@ -75,6 +75,33 @@ class TestAggregateSurfaced:
         out = _aggregate_surfaced(hits, 12, mode="many")
         assert [d["file_name"] for d in out] == ["a.pdf", "b.pdf"]
 
+    def test_mode_many_collapses_when_the_winner_is_clear(self):
+        hits = [
+            (_chunk("citationhealth.light.png", 0.88), "projekt"),
+            (_chunk("image.png", 0.61), "projekt"),
+            (_chunk("Haus.ifc", 0.60), "projekt"),
+        ]
+        out = _aggregate_surfaced(hits, 12, mode="many")
+        assert [d["file_name"] for d in out] == ["citationhealth.light.png"]
+
+    def test_mode_many_does_not_mix_images_with_ifc(self):
+        hits = [
+            (_chunk("citationhealth.light.png", 0.80), "projekt"),
+            (_chunk("Haus.ifc", 0.79), "projekt"),
+            (_chunk("Duplex.ifc", 0.78), "projekt"),
+        ]
+        out = _aggregate_surfaced(hits, 12, mode="many")
+        assert [d["file_name"] for d in out] == ["citationhealth.light.png"]
+
+    def test_query_hint_keeps_only_that_kind(self):
+        hits = [
+            (_chunk("citationhealth.light.png", 0.70), "projekt"),
+            (_chunk("Brandschutz.pdf", 0.85), "projekt"),
+            (_chunk("Haus.ifc", 0.84), "projekt"),
+        ]
+        out = _aggregate_surfaced(hits, 12, mode="many", query="citation health screenshot")
+        assert [d["file_name"] for d in out] == ["citationhealth.light.png"]
+
     def test_mode_many_caps(self):
         hits = [(_chunk(f"f{i}.pdf", 0.90 - i * 0.005), "projekt") for i in range(20)]
         out = _aggregate_surfaced(hits, 12, mode="many")

@@ -98,13 +98,15 @@ sanctioned path, carrying **real** data:
   write needs human confirmation.
 - `document_grid` — emitted by the **`surface_documents`** tool
   (`cards/surface_documents.py`). Discovery, not evidence: files the user
-  asked to *see* or *browse*. One payload (`documents[]`). One file peeks
-  beside chat; several is a short choice. There is no second card type
-  for the one-file case — that was a schema split of a list length.
-  Citations of exactly one project/Büro file already peek
-  (`useCitationPeek`) without this card. **`filename=`** opens a named
-  file; **`mode=one` + `query`** opens the best match; **`mode=many`**
-  offers a short choice. Never invent names. See [ADR-0026](../adr/) for
+  asked to *see* or *browse*. One payload (`documents[]`). The card is
+  the same raised `FileCard` (thumbnail well) the Files grid uses — not
+  a filename list. One file peeks beside chat; several close same-kind
+  matches are a short grid (hard cap 3). There is no second card type
+  for the one-file case. Citations of exactly one project/Büro file
+  already peek (`useCitationPeek`) without this card. **`filename=`**
+  opens a named file; **`mode=one` + `query`** opens the best match;
+  **`mode=many`** only when two or three files of the same kind are
+  nearly tied. Never invent names. See [ADR-0026](../adr/) for
   source-kind doctrine.
 
 **Model-backed cards** (`MODEL_BACKED_CARD_TYPES` in `cards/catalog.py`) —
@@ -279,7 +281,7 @@ values render "fehlende Angabe", never a guess. See
 | `energy_performance` | Heizwärmebedarf on the A++–G energy-class ladder + HWB/fGEE bars | Energieausweis (OIB 6) |
 | `elevator_requirement` | served-storey stack + lift shaft, requirement verdict + cabin/door checks | barrier-free lift (OIB 4) |
 | `parking_requirement` | slot grid (required vs provided) + count bars for cars/bikes | Stellplatznachweis (Bauordnung) |
-| `document_grid` *(system)* | files the user asked to see — one peeks, several is a short choice | document discovery |
+| `document_grid` *(system)* | files the user asked to see — FileCard preview, one peeks, several is a short grid | document discovery |
 | `memory_proposal` *(system)* **(interactive)** | a finding the `remember` tool wants written to org- or project-scoped memory — the user completes the write through their own session | memory |
 
 **(interactive)** marks a card whose answer is a commitment and is therefore

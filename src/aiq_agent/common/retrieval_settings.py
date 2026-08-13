@@ -41,7 +41,7 @@ _BOUNDS: dict[str, tuple[int, int]] = {
     "knowledge.top_k": (1, 50),
     "knowledge.max_chunks_per_document": (0, 10),
     "surface.chunk_top_k": (1, 100),
-    "surface.max_files": (1, 8),
+    "surface.max_files": (1, 4),
     "web.max_results": (1, 10),
     "web.advanced_max_results": (1, 10),
     "ris.max_results": (1, 50),

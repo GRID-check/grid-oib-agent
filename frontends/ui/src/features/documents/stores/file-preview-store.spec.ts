@@ -53,26 +53,18 @@ describe('file-preview-store', () => {
     expect(useFilePreviewStore.getState().mode).toBe('peek')
   })
 
-  it('hide and close clear composerSubject when it is this file', () => {
+  it('hide keeps an Ask subject so the pill can dismiss it; close still clears', () => {
     useFilePreviewStore.getState().open(FILE, 'peek')
-    useChatStore.setState({
-      composerSubject: {
-        resourceType: 'document',
-        resourceId: 'doc-1',
-        filename: 'plan.pdf',
-      },
-    })
+    const subject = {
+      resourceType: 'document' as const,
+      resourceId: 'doc-1',
+      filename: 'plan.pdf',
+    }
+    useChatStore.setState({ composerSubject: subject })
     useFilePreviewStore.getState().hide()
-    expect(useChatStore.getState().composerSubject).toBeNull()
+    expect(useChatStore.getState().composerSubject).toEqual(subject)
 
     useFilePreviewStore.getState().peek()
-    useChatStore.setState({
-      composerSubject: {
-        resourceType: 'document',
-        resourceId: 'doc-1',
-        filename: 'plan.pdf',
-      },
-    })
     useFilePreviewStore.getState().close()
     expect(useChatStore.getState().composerSubject).toBeNull()
     expect(useFilePreviewStore.getState().file).toBeNull()

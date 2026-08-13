@@ -567,4 +567,15 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByTestId('document-actions-trigger')).toBeNull()
     })
   })
+
+  it('enables Ask when ingest reconciled to completed, not only the literal ready', () => {
+    render(<FilePreviewPane file={{ ...mockFile, status: 'completed' }} projectId="proj-1" />)
+    const ask = screen.getByRole('button', { name: /ask piloti/i })
+    expect(ask).toBeEnabled()
+  })
+
+  it('keeps Ask disabled while the file is still being read', () => {
+    render(<FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />)
+    expect(screen.getByRole('button', { name: /ask piloti/i })).toBeDisabled()
+  })
 })

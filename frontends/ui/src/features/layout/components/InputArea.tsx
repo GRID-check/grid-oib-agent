@@ -560,7 +560,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const previewBesideChat = useFilePreviewStore(
     (state) => (state.mode === 'peek' || state.mode === 'expanded') && !state.hidden,
   )
-  const previewHidden = useFilePreviewStore((state) => state.hidden)
   const fileDockVisible =
     previewBesideChat && previewFileId !== null && previewFileId === composerSubject?.resourceId
 
@@ -1448,14 +1447,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </div>
         )}
         <ComposerSubjectBar
-          subject={fileDockVisible ? null : composerSubject}
+          subject={composerSubject}
           projectId={projectId}
           onClear={() => {
             setComposerSubject(null)
             useFilePreviewStore.getState().close()
           }}
           onShowFile={
-            previewHidden && composerSubject
+            !fileDockVisible && composerSubject
               ? () => useFilePreviewStore.getState().peek()
               : undefined
           }

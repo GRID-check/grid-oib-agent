@@ -63,11 +63,11 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   },
   {
     key: 'surface.max_files',
-    defaultValue: 5,
+    defaultValue: 3,
     min: 1,
-    max: 8,
+    max: 4,
     label: 'Dokumente-Card: Dateien maximal',
-    description: 'Obergrenze wenn mehrere Unterlagen zur Wahl stehen — nie ein Katalog.',
+    description: 'Obergrenze wenn mehrere Unterlagen zur Wahl stehen — eine Datei ist der Normalfall.',
   },
   {
     key: 'web.max_results',

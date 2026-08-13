@@ -34,7 +34,7 @@ import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
-import { DocumentStatusBadge, fileTypeIcon } from './document-status'
+import { DocumentStatusBadge, fileTypeIcon, isCitableStatus, isFailedStatus } from './document-status'
 import { AssignmentFaces } from './assignment-faces'
 import { AssignPopover } from './assign-popover'
 import { useRouter } from 'next/navigation'
@@ -328,7 +328,7 @@ export function FilePreviewPane({
             </div>
           )}
         </div>
-        {projectId && file.status === 'ready' && !inChat && (
+        {projectId && isCitableStatus(file.status) && !inChat && (
           <Button
             type="button"
             size="sm"
@@ -344,14 +344,14 @@ export function FilePreviewPane({
             {t('assignment.ask')}
           </Button>
         )}
-        {projectId && canCollaborate && file.status === 'ready' && (
+        {projectId && canCollaborate && isCitableStatus(file.status) && (
           <AskColleagueButton
             projectId={projectId}
             file={file}
             documentId={file.id}
           />
         )}
-        {projectId && file.status !== 'ready' && file.status !== 'failed' && (
+        {projectId && !isCitableStatus(file.status) && !isFailedStatus(file.status) && (
           <Button size="sm" className="h-8 shrink-0" disabled title={t('assignment.askDisabled')}>
             {t('assignment.ask')}
           </Button>

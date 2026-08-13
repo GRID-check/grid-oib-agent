@@ -99,7 +99,8 @@ export default function DocumentGridDevPage(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">document_grid — chat surfacing card</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Files the assistant asked you to look at. One file peeks. Several is a short choice.
+          Files the assistant asked you to look at — FileCard thumbnails, not a
+          filename list. One file peeks. Several close matches are a short grid.
         </p>
       </div>
 
