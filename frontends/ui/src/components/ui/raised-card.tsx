@@ -13,6 +13,12 @@
  * ProjectCard / the Archiv library card", which is a comment doing the job a
  * component should.
  *
+ * `projects/project-card.tsx` has since been migrated onto this primitive (the
+ * projects-home rework, `docs/design/project-surfaces.md`), so three of the
+ * four remain. It was moved when it had to change anyway — which is the cheap
+ * moment, and the reason to take it: the alternative on the table was a FIFTH
+ * copy, hand-rolled inside a new "project atoms" module.
+ *
  * The two-surface trick is the whole point and the easiest thing to get subtly
  * wrong: the inner block is rounded only at the BOTTOM (`rounded-b-[10px]`)
  * and the outer container clips it, so the block reads as a sheet laid into a

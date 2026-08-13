@@ -177,6 +177,74 @@ export async function listConversationIdsForProject(
 }
 
 /**
+ * When each project was last worked in BY ONE PERSON — the ordering behind the
+ * projects-home resume rail.
+ *
+ * "Worked in" is deliberately the narrow reading: a message this user wrote,
+ * in a conversation belonging to the project. Not the project's profile write
+ * (that is a fact about the project, not about the viewer, and the card footer
+ * already shows it), and not another member's messages (a colleague's busy week
+ * must not push the rail around).
+ *
+ * The `author_user_id IS NULL` arm is the attribution rule the column's own
+ * docstring states: messages written before authorship existed carry no author,
+ * and are credited to the conversation's creator at read time rather than
+ * backfilled. Restricting it to `role = 'user'` keeps assistant and tool rows —
+ * which are also NULL-authored, forever — out of it.
+ *
+ * One grouped query for the whole page, not one per project. Returns ISO
+ * strings keyed by project id; projects with no activity are simply absent.
+ */
+export async function lastProjectActivityByUser(
+  organizationId: string,
+  userId: string,
+  projectIds: readonly string[],
+): Promise<Record<string, string>> {
+  if (projectIds.length === 0) return {}
+  const db = getDb()
+  const rows = await db
+    .select({
+      projectId: conversations.projectId,
+      // Raw aggregate: coerced below, per the repository boundary rule — the
+      // driver may hand back a Date or a string depending on the column type.
+      lastActivityAt: sql<string | Date>`max(${messages.createdAt})`,
+    })
+    .from(messages)
+    .innerJoin(
+      conversations,
+      and(
+        eq(conversations.id, messages.conversationId),
+        eq(conversations.organizationId, messages.organizationId),
+      ),
+    )
+    .where(
+      and(
+        eq(conversations.organizationId, organizationId),
+        inArray(conversations.projectId, [...projectIds]),
+        isNull(conversations.deletedAt),
+        or(
+          eq(messages.authorUserId, userId),
+          and(
+            isNull(messages.authorUserId),
+            eq(messages.role, 'user'),
+            eq(conversations.createdBy, userId),
+          ),
+        ),
+      ),
+    )
+    .groupBy(conversations.projectId)
+
+  const activity: Record<string, string> = {}
+  for (const row of rows) {
+    if (!row.projectId) continue
+    const at = row.lastActivityAt instanceof Date ? row.lastActivityAt : new Date(row.lastActivityAt)
+    if (Number.isNaN(at.getTime())) continue
+    activity[row.projectId] = at.toISOString()
+  }
+  return activity
+}
+
+/**
  * Tenancy probe for authorization: the fields `@/lib/sharing` needs to decide
  * access, and nothing else.
  *

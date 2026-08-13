@@ -7,6 +7,19 @@ export const projects = {
     loading: 'Loading projects…',
     searchPlaceholder: 'Search projects…',
     searchAria: 'Search projects by name',
+    resume: {
+      // Shown when the rail is filled by the viewer's own activity…
+      heading: 'Pick up where you left off',
+      // …and when they have not worked in any project yet, so the rail is
+      // filled by project recency instead. Never claim a "continue" that isn't.
+      fallbackHeading: 'Your projects',
+    },
+    all: {
+      heading: 'All projects',
+    },
+    results: {
+      heading: 'Matches',
+    },
     noMatch: {
       title: 'No matching projects',
       description: 'No project name matches your search.',
@@ -29,6 +42,8 @@ export const projects = {
       active: 'Active',
     },
     lastActivity: 'Last activity',
+    /** The viewer's OWN last message in the project — not the project's. */
+    yourActivity: 'You were last here',
     document: 'document',
     documents: 'documents',
     docLabel: '{count} {unit}',

@@ -110,6 +110,15 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 
 ## Component patterns
 
+**Project card** — "a project, listed" has ONE component: `ProjectCard`
+(`components/projects/project-card.tsx`). Rails, grids, pickers and any future
+project surface render that card; a surface that genuinely needs another
+arrangement (the dense projects-home row) is composed from
+`components/projects/project-atoms.tsx`, the same material the card is made of.
+Never hand-roll a lookalike — two of them drift on the first token retune. The
+inventory, the honesty constraints on status and timestamps, and the decision
+procedure are in **`docs/design/project-surfaces.md`**.
+
 **Page header** — every content page opens with:
 ```tsx
 <header className="flex items-end justify-between gap-4">
