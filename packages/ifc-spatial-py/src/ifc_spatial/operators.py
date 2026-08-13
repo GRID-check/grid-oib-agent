@@ -2226,15 +2226,31 @@ def _rooms_on_one_side(model: SpatialModel, element: Any, rooms: Sequence[Any]) 
     origin = np.asarray(geo.centroid, dtype=float)
 
     sides: set[bool] = set()
+    unplaceable = False
     for ref in rooms:
         room = model.geometry(getattr(ref, "global_id", ref))
         if room is None:
+            # A room we cannot place is not a room on the other side — it is a
+            # room we know nothing about, and skipping it silently is how
+            # „rooms on one side" gets returned from partial evidence.
+            #
+            # It matters because of WHICH way the error runs. A wall between
+            # two rooms, one of them without a body, would come back with a
+            # single side and be called external: `_external_route` puts it in
+            # the thermal envelope, `_faces_outside` calls its windows daylight,
+            # and `_facade_candidates` will rank it as a facade. Every one of
+            # those adds something that is not there. Undecided is the honest
+            # answer, and the callers all handle it.
+            unplaceable = True
             continue
         offset = float(np.dot(np.asarray(room.centroid, dtype=float) - origin, normal))
         if abs(offset) < SIDE_TOLERANCE:
+            # ON the plane, which says nothing about a side. Distinct from the
+            # case above: this room WAS placed, and the placement is what is
+            # uninformative, so it does not poison the rest of the evidence.
             continue
         sides.add(offset > 0)
-    if not sides:
+    if unplaceable or not sides:
         return None
     return len(sides) == 1
 

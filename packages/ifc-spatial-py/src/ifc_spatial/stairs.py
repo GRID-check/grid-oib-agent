@@ -1959,10 +1959,23 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     if culprit_name:
         caveats.append(f"Die engste Stelle liegt unter: {culprit_name}.")
     if len(per_flight) > 1:
+        # The second sentence describes a limitation of reading SEVERAL flights
+        # out of ONE body: the ray tree keys on elements, so a flight cannot
+        # stop a ray cast from its neighbour when both came from the same solid.
+        # It is false for an export that writes an `IfcStairFlight` per flight —
+        # there the exclusion is per element and a sibling flight DOES limit the
+        # one beneath it, which `test_the_flight_above_belongs_to_the_same_stair
+        # _and_still_counts` pins at 1.280 m. Printing it anyway would tell a
+        # reader their file lacks something it has.
+        split_body = any(count > 1 for count in per_body.values())
         caveats.append(
-            f"Gemessen über {len(per_flight)} Läufen; ausgewiesen ist der engste. Läuft ein Lauf über einen "
-            "anderen desselben Körpers hinweg, kann er ihn hier nicht begrenzen — die Datei müsste dafür je "
-            "Lauf ein eigenes IfcStairFlight führen."
+            f"Gemessen über {len(per_flight)} Läufen; ausgewiesen ist der engste."
+            + (
+                " Läuft ein Lauf über einen anderen desselben Körpers hinweg, kann er ihn hier nicht "
+                "begrenzen — die Datei müsste dafür je Lauf ein eigenes IfcStairFlight führen."
+                if split_body
+                else ""
+            )
         )
     if refusals:
         caveats.append("Ein Teil dieses Körpers ist nicht mitgemessen: " + " ".join(refusals))

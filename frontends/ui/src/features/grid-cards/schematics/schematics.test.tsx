@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { BuildingSectionCard } from './BuildingSectionCard'
 import { StairDiagramCard } from './StairDiagramCard'
+import { LimitBar } from './kit'
 import { DimensionDiagramCard } from './DimensionDiagramCard'
 import { SetbackPlanCard } from './SetbackPlanCard'
 import { EgressDiagramCard } from './EgressDiagramCard'
@@ -770,6 +771,72 @@ describe('the tolerance band against the limit', () => {
 
     expect(screen.getByText(/Messtoleranz reicht über den Grenzwert/)).toBeInTheDocument()
     expect(screen.getByText(/genauer aufmessen/)).toBeInTheDocument()
+  })
+
+  it('stays quiet when the whole band satisfies an inclusive limit', () => {
+    /**
+     * 54 ±3 against „≤ 55" warns, because 57 fails it. 50 ±5 against the same
+     * limit must NOT: every value in [45, 55] meets a „≤ 55", and the endpoint
+     * is inside the limit, not across it. The first version tested `hi >=
+     * required` and warned here.
+     */
+    render(
+      <EnergyPerformanceCard
+        title="Energieausweis"
+        hwb={{
+          label: 'Heizwärmebedarf',
+          value: 50,
+          required: 55,
+          unit: 'kWh/(m²a)',
+          comparator: '<=',
+          status: 'pass',
+          provenance: 'computed',
+          tolerance: 5,
+        }}
+        reference={{ document: 'OIB-Richtlinie 6' }}
+      />
+    )
+    expect(screen.queryByText(/Messtoleranz reicht über den Grenzwert/)).not.toBeInTheDocument()
+  })
+
+  it('still warns at the same endpoint when the limit points the other way', () => {
+    /**
+     * The half a symmetric strict test gets wrong. 50 ±5 against „≥ 55" reaches
+     * the limit at its top end and fails everywhere below it, so it IS
+     * undecided — and a rule written as `lo < required && hi > required`, which
+     * fixes the case above, silently stops warning here.
+     */
+    render(
+      <EnergyPerformanceCard
+        title="Nutzbreite"
+        hwb={{
+          label: 'Breite',
+          value: 50,
+          required: 55,
+          unit: 'cm',
+          comparator: '>=',
+          status: 'warning',
+          provenance: 'computed',
+          tolerance: 5,
+        }}
+        reference={{ document: 'OIB-Richtlinie 4' }}
+      />
+    )
+    expect(screen.getByText(/Messtoleranz reicht über den Grenzwert/)).toBeInTheDocument()
+  })
+
+  it('says nothing about crossing when no comparator gives the limit a direction', () => {
+    /**
+     * Rendered through `LimitBar` directly rather than through a card, because
+     * every card that uses it defaults the comparator (`comparator ?? '<='`),
+     * so a null one is unreachable from that direction. The branch is
+     * defensive, and this is the level at which it is real.
+     */
+    render(<LimitBar check={{ label: 'Breite', value: 54, required: 55, unit: 'cm', status: 'warning',
+                              provenance: 'computed', tolerance: 3 }} />)
+    expect(screen.queryByText(/Messtoleranz reicht über den Grenzwert/)).not.toBeInTheDocument()
+    // The band itself is still shown: it qualifies the number either way.
+    expect(screen.getByText('±3 cm')).toBeInTheDocument()
   })
 
   it('stays quiet when the band clears the limit outright', () => {

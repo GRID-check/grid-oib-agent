@@ -955,8 +955,15 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
         nodes = value.get("nodes") or []
         rooms = [node for node in nodes if isinstance(node, dict) and node.get("globalId") != "AUSSEN"]
         outside = sum(1 for edge in edges if isinstance(edge, dict) and edge.get("external"))
+        # German agrees in number, and this file already treats that as a
+        # correctness rule rather than polish — `light_incidence` does it below,
+        # and `_value_text` writes „1 Eintrag" against „2 Einträge". „1 Räume"
+        # in a headline reads as a rendering bug and invites the reader to
+        # distrust the number beside it.
+        room_text = "1 Raum" if len(rooms) == 1 else f"{len(rooms)} Räume"
+        door_text = "1 Türverbindung" if len(edges) == 1 else f"{len(edges)} Türverbindungen"
         lines[0] = (
-            f"gemessen: {len(rooms)} Räume, {len(edges)} Türverbindungen, davon {outside} ins Freie "
+            f"gemessen: {room_text}, {door_text}, davon {outside} ins Freie "
             "— aus der Geometrie abgeleitet, nicht deklariert."
         )
         reached = {node for edge in edges if isinstance(edge, dict) for node in (edge.get("verbindet") or [])}
@@ -966,21 +973,34 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
                 f"- KEINE Türkante: {node.get('ifcType')} „{node.get('name')}“ · "
                 f"GlobalId {node.get('globalId')} — dieser Raum hat in dieser Datei keinen Ausgang"
             )
+        # Each of these three lists is cut to `list_limit`, and a cut nobody
+        # names reads as a complete list. That is the same defect `fire`'s
+        # caveat carried — „die vollständige Liste" beside ten of twelve — and
+        # it lands hardest here: a building with more than forty rooms without
+        # an exit is precisely the building this branch exists to surface.
+        if len(stranded) > list_limit:
+            lines.append(f"… {len(stranded) - list_limit} weitere Räume ohne Türkante nicht gezeigt.")
         # These two are the reason the graph is worth a call of its own. A door
         # whose rooms could not be resolved is a hole in EVERY route through the
         # building, and a reader who sees only the edge count cannot tell a
         # building with three doors from one with five of which two were
         # unreadable.
-        for entry in (value.get("unbestimmt") or [])[:list_limit]:
+        undetermined = value.get("unbestimmt") or []
+        for entry in undetermined[:list_limit]:
             lines.append(
                 f"- UNBESTIMMT: {entry.get('ifcType')} „{entry.get('name')}“ · "
                 f"GlobalId {entry.get('globalId')} — {entry.get('warum')}"
             )
-        for entry in (value.get("ausgeschlossen") or [])[:list_limit]:
+        if len(undetermined) > list_limit:
+            lines.append(f"… {len(undetermined) - list_limit} weitere unbestimmte Türen nicht gezeigt.")
+        excluded = value.get("ausgeschlossen") or []
+        for entry in excluded[:list_limit]:
             lines.append(
                 f"- NICHT als Kante gewertet: {entry.get('ifcType')} „{entry.get('name')}“ · "
                 f"GlobalId {entry.get('globalId')} — {entry.get('warum')}"
             )
+        if len(excluded) > list_limit:
+            lines.append(f"… {len(excluded) - list_limit} weitere ausgeschlossene Türen nicht gezeigt.")
         if answer.get("caveat"):
             lines.append(f"Hinweis: {answer['caveat']}")
         if answer.get("method"):

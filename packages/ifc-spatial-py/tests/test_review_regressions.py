@@ -1502,3 +1502,69 @@ def _walls_connected_by_type(path: Path) -> SpatialModel:
     )
     f.write(str(path))
     return SpatialModel(str(path))
+
+
+class TestASideIsNotDecidedByTheRoomsWeCouldPlace:
+    """A room without a body is not a room on the other side.
+
+    `_rooms_on_one_side` skipped a room whose geometry was unavailable, so a
+    wall between two rooms — one of them bodiless — came back with a single
+    side and was called EXTERNAL. Every consumer then adds something that is
+    not there: `_external_route` puts it in the thermal envelope,
+    `_faces_outside` calls its windows daylight, `_facade_candidates` ranks it
+    as the room's facade.
+
+    This is not hypothetical for these exports. `haus-mit-raeumen.ifc` carries
+    two `IfcSpace` with `Representation = NULL`, which is exactly the shape.
+    """
+
+    @staticmethod
+    def _wall_between(model: SpatialModel):
+        for wall in list(model.file.by_type("IfcWall")) + list(model.file.by_type("IfcWallStandardCase")):
+            rooms = op.enclosed_by(model, wall.GlobalId)
+            if rooms.decidable and len(rooms.value or []) >= 2:
+                return wall, rooms.value
+        return None, None
+
+    def test_one_bodiless_room_makes_the_side_undecided(self, monkeypatch) -> None:
+        model = SpatialModel(str(FIXTURES / "aussenwand-ohne-isexternal.ifc"))
+        wall, rooms = self._wall_between(model)
+        assert wall is not None, "the fixture has a wall bounding several rooms"
+        # Sanity: with every room placed, the wall is decided.
+        assert op._rooms_on_one_side(model, wall, rooms) is True
+
+        blind = {getattr(rooms[0], "global_id", rooms[0])}
+        real = model.geometry
+
+        def _one_room_has_no_body(global_id: str):
+            return None if global_id in blind else real(global_id)
+
+        monkeypatch.setattr(model, "geometry", _one_room_has_no_body)
+        assert op._rooms_on_one_side(model, wall, rooms) is None, (
+            "a side decided from the rooms that happened to have bodies"
+        )
+
+    def test_a_room_sitting_on_the_plane_does_not_poison_the_rest(self) -> None:
+        """The other skip, which is NOT the same thing.
+
+        A centroid within `SIDE_TOLERANCE` of the plane says nothing about a
+        side — the commonest cause is a space modelled to the wall's centre
+        line. But that room WAS placed, so the remaining evidence still counts.
+        Collapsing the two skips into one refusal would make every such export
+        undecidable.
+        """
+        model = SpatialModel(str(FIXTURES / "aussenwand-ohne-isexternal.ifc"))
+        wall, rooms = self._wall_between(model)
+        real = model.geometry
+        centre = np.asarray(real(wall.GlobalId).centroid, dtype=float)
+
+        class _OnThePlane:
+            centroid = centre
+
+        first = getattr(rooms[0], "global_id", rooms[0])
+
+        def _one_room_on_the_plane(global_id: str):
+            return _OnThePlane if global_id == first else real(global_id)
+
+        model.geometry = _one_room_on_the_plane  # type: ignore[method-assign]
+        assert op._rooms_on_one_side(model, wall, rooms) is True

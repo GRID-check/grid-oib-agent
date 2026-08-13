@@ -54,6 +54,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import threading
 import time
 from collections import Counter
@@ -62,10 +63,32 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-#: Where the ledger lives. A path rather than a database because the thing that
-#: reads it is a person, once a sprint, and `sort | uniq -c` is a fine query
-#: language for a list of missing features.
-DEFAULT_PATH = "/tmp/aiq-capability-gaps.jsonl"
+
+def default_path() -> Path:
+    """Where the ledger lives when nothing overrides it.
+
+    A path rather than a database because the thing that reads it is a person,
+    once a sprint, and `sort | uniq -c` is a fine query language for a list of
+    missing features.
+
+    NOT a predictable name in shared `/tmp`, which is where this started. That
+    directory is world-writable, so any local user can pre-create the exact name
+    — as a file, to read the model-authored requests that land in it, or as a
+    symlink, to make this process append JSON to something else it can write.
+    An application-owned state directory has neither property.
+
+    `/tmp` remains the fallback for a container with no writable home, and there
+    the directory is ours and created `0o700` rather than the file being dropped
+    beside everyone else's.
+    """
+    state = os.environ.get("XDG_STATE_HOME")
+    if state:
+        return Path(state) / "aiq" / "capability-gaps.jsonl"
+    home = Path.home()
+    if str(home) not in ("", "/") and os.access(home.parent if not home.exists() else home, os.W_OK):
+        return home / ".local" / "state" / "aiq" / "capability-gaps.jsonl"
+    return Path(tempfile.gettempdir()) / f"aiq-{os.getuid()}" / "capability-gaps.jsonl"
+
 
 #: How much of a model-authored value is kept. Long enough to name a
 #: measurement, short enough that a model which pastes a paragraph into the
@@ -84,7 +107,10 @@ _LOCK = threading.Lock()
 
 
 def ledger_path() -> Path:
-    return Path(os.environ.get("AIQ_CAPABILITY_GAP_LOG") or DEFAULT_PATH)
+    """The ledger in use. The env var is a TRUSTED deployment override —
+    a path an operator chose, not one a request can influence."""
+    override = os.environ.get("AIQ_CAPABILITY_GAP_LOG")
+    return Path(override) if override else default_path()
 
 
 def _clean(value: Any) -> str:
@@ -123,9 +149,17 @@ def record_gap(*, surface: str, field: str, asked_for: Any, known: Any = ()) -> 
         with _LOCK:
             if path.exists() and path.stat().st_size >= MAX_BYTES:
                 return
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            # `O_NOFOLLOW` so a symlink sitting on the final component is an
+            # error rather than a redirect, and `0o600` so the file is not
+            # readable by other local users — the values in it are whatever a
+            # language model wrote. `Path.open("a")` gives neither: it follows
+            # the link and takes its mode from the umask.
+            handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+            try:
+                os.write(handle, (json.dumps(row, ensure_ascii=False) + "\n").encode("utf-8"))
+            finally:
+                os.close(handle)
     except Exception:  # noqa: BLE001 — see the module docstring
         logger.debug("the capability-gap ledger could not be written", exc_info=True)
 

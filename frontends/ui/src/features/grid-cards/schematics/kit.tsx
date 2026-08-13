@@ -396,8 +396,31 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
   // minimum fails; a 2,498 m ±5 mm one is genuinely undecided, and a bar that
   // drew it as a clean red fill would be asserting a verdict the measurement
   // does not support. Drawn as a hatched span straddling the marker.
+  //
+  // „Straddles" means some points in the band satisfy the limit and some do
+  // not, which makes it comparator-dependent — the first version tested
+  // `lo <= required && hi >= required` in both directions and was wrong at
+  // each end. 50 ±5 against `<= 55` warns under that rule, and it should not:
+  // every value in [45, 55] meets a „≤ 55". Symmetric STRICT bounds are wrong
+  // the other way — 50 ±5 against `>= 55` would stop warning, and 45 fails
+  // that limit outright.
+  //
+  // So each comparator gets the pair that actually describes it:
+  //   ≤ limit — some pass when lo ≤ limit, some fail when hi >  limit
+  //   ≥ limit — some pass when hi ≥ limit, some fail when lo <  limit
+  //
+  // With no comparator there is no direction and therefore no crossing to
+  // report; the band is still drawn, and only the sentence is withheld.
+  const low = value != null && tolerance != null ? value - tolerance : null
+  const high = value != null && tolerance != null ? value + tolerance : null
   const straddlesLimit =
-    required != null && value != null && tolerance != null && value - tolerance <= required && value + tolerance >= required
+    required != null && low != null && high != null
+      ? comparator === '<='
+        ? low <= required && high > required
+        : comparator === '>='
+          ? high >= required && low < required
+          : false
+      : false
 
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>

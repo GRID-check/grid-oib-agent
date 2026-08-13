@@ -1575,7 +1575,9 @@ class TestTheDoorGraphRendersAsDoorsAndNotAsCounts:
     def test_the_headline_counts_rooms_doors_and_exits(self):
         # The OUTSIDE node is not a room and must not be counted as one — a
         # building with two rooms and an outside would otherwise report three.
-        assert "2 Räume, 1 Türverbindungen, davon 1 ins Freie" in self._text()
+        # Singular where the count is one — German agrees in number, and this
+        # assertion pinned „1 Türverbindungen" until it was fixed.
+        assert "2 Räume, 1 Türverbindung, davon 1 ins Freie" in self._text()
 
     def test_a_room_with_no_door_edge_is_named(self):
         """The finding `egressPath` cannot produce, because it is asked about one

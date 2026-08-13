@@ -149,3 +149,47 @@ class TestWritingIsNeverAllowedToBreakAnAnswer:
     def test_a_corrupt_line_is_skipped_rather_than_raised(self, _ledger):
         _ledger.write_text('{"askedFor": "gut"}\nnot json at all\n', encoding="utf-8")
         assert [r["askedFor"] for r in cg.read_gaps(_ledger)] == ["gut"]
+
+
+class TestTheLedgerIsNotSomewhereAnyoneElseCanReachIt:
+    """It started as a predictable name in world-writable `/tmp`.
+
+    Two things follow from that, and neither needs a clever attacker: any local
+    user can pre-create the exact path as a FILE and read the model-authored
+    requests that land in it, or as a SYMLINK and have this process append JSON
+    to something else the service account can write.
+    """
+
+    def test_the_default_is_not_a_shared_directory(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("AIQ_CAPABILITY_GAP_LOG", raising=False)
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        assert cg.default_path() == tmp_path / "state" / "aiq" / "capability-gaps.jsonl"
+
+    def test_the_env_override_still_wins_because_an_operator_chose_it(self, monkeypatch, tmp_path):
+        """The variable is a deployment decision, not something a request can
+        influence — no value in a row ever reaches it."""
+        monkeypatch.setenv("AIQ_CAPABILITY_GAP_LOG", str(tmp_path / "chosen.jsonl"))
+        assert cg.ledger_path() == tmp_path / "chosen.jsonl"
+
+    def test_a_symlink_on_the_path_is_refused_rather_than_followed(self, monkeypatch, tmp_path):
+        victim = tmp_path / "someone-elses-file"
+        victim.write_text("important\n", encoding="utf-8")
+        link = tmp_path / "gaps.jsonl"
+        link.symlink_to(victim)
+        monkeypatch.setenv("AIQ_CAPABILITY_GAP_LOG", str(link))
+
+        cg.record_gap(surface="ifc_measure", field="measure", asked_for="wandstaerke")
+
+        # The write went nowhere, and it did not raise either: a ledger that
+        # cannot be written must never turn a working measurement into an error.
+        assert victim.read_text(encoding="utf-8") == "important\n"
+
+    def test_the_file_is_not_readable_by_other_users(self, monkeypatch, tmp_path):
+        target = tmp_path / "nested" / "gaps.jsonl"
+        monkeypatch.setenv("AIQ_CAPABILITY_GAP_LOG", str(target))
+
+        cg.record_gap(surface="ifc_measure", field="measure", asked_for="wandstaerke")
+
+        assert target.exists()
+        assert target.stat().st_mode & 0o077 == 0, "group/other can read the model-authored values"
+        assert target.parent.stat().st_mode & 0o077 == 0, "the directory is browsable by others"
