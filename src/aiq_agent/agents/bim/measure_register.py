@@ -559,9 +559,20 @@ def _build_call(
 def _decimals(tolerance: Any) -> int | None:
     """How many decimals a value carrying this tolerance may be shown to.
 
-    One digit finer than the band, so nothing the operator actually resolved is
-    thrown away and nothing it did not is invented: ±0.01 m earns three decimals
-    (0.179 m), ±3° earns none (0°), ±0.15 m² earns two (15.42 m²).
+    One decade finer than the band and no more, so nothing the operator resolved
+    is thrown away and nothing it did not is invented.
+
+    This used to `ceil` the logarithm, which rounds a tolerance UP to the next
+    decade before counting: ±0.005 m earned four decimals (0.1 mm — fifty times
+    finer than the band) and ±3° earned one (0.1° — thirty times). Only exact
+    powers of ten came out right, which is why it looked correct on ±0.01.
+
+    `floor` makes the tolerance's own leading digit set the scale, so the shown
+    resolution is always between one and ten times finer than the band: ±0.005 m
+    earns three decimals (0.647 m), ±3° earns none (0°), ±0.15 m² earns one
+    (15.4 m²). That last one is the change most likely to look like a
+    regression and is the clearest case of the fix — a 15-centimetre band does
+    not support a centimetre digit, and printing 15.42 claimed it did.
     """
     if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)):
         return None
@@ -569,7 +580,7 @@ def _decimals(tolerance: Any) -> int | None:
     # would raise on one and overflow the decimal count on the other.
     if not math.isfinite(tolerance) or tolerance <= 0:
         return None
-    return min(6, max(0, math.ceil(-math.log10(tolerance)) + 1))
+    return min(6, max(0, math.floor(-math.log10(tolerance)) + 1))
 
 
 def _num(value: Any, decimals: int | None = None) -> str:
@@ -603,14 +614,21 @@ def _num(value: Any, decimals: int | None = None) -> str:
 def _tolerance_text(tolerance: Any) -> str:
     """The band itself, at two significant figures.
 
-    A tolerance is an estimate of error; printing it to the same width as the
-    value suggests the estimate is exact. Trailing zeros are stripped so ±0.005
-    stays ±0.005 rather than becoming ±0.0050.
+    Its OWN rule, not the value's. Sharing `_decimals` meant the band was
+    rounded to the precision it had just authorised for the value, so a
+    tolerance of 0.154 m² printed as „±0.2 m²" — rounded UP by a third, and in
+    the direction that overstates our own uncertainty. Two significant figures
+    is what an error estimate can carry, and trailing zeros are stripped so
+    ±0.005 stays ±0.005 rather than becoming ±0.0050.
     """
-    decimals = _decimals(tolerance)
-    if decimals is None:
+    if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)):
         return _num(tolerance)
-    text = f"{float(tolerance):.{decimals}f}"
+    value = float(tolerance)
+    if not math.isfinite(value) or value <= 0:
+        return _num(tolerance)
+    # Two significant figures: one decade past the leading digit.
+    decimals = min(6, max(0, math.floor(-math.log10(value)) + 2))
+    text = f"{value:.{decimals}f}"
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
@@ -725,9 +743,14 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
     if isinstance(value, dict) and "lightEntryArea" in value:
         entry_area = value.get("lightEntryArea")
         floor = value.get("floorArea")
+        # The band travels with the number here as it does everywhere else. This
+        # line replaced the provenance line wholesale and dropped the ± with it,
+        # so the one measurement most likely to be quoted into a daylight
+        # verdict was the only one arriving without its tolerance.
+        band = f" (±{_tolerance_text(answer.get('tolerance'))} m²)" if answer.get("tolerance") is not None else ""
         lines[0] = (
-            f"gemessen: Lichteintrittsfläche {_num(entry_area, 3)} m² auf "
-            f"{_num(floor, 2)} m² Bodenfläche = **{_num(value.get('percent'), 2)} %** "
+            f"gemessen{band}: Lichteintrittsfläche {_num(entry_area, decimals)} m² auf "
+            f"{_num(floor, decimals)} m² Bodenfläche = **{_num(value.get('percent'), 2)} %** "
             "— aus der Geometrie berechnet, nicht deklariert."
         )
         for entry in value.get("openings") or []:

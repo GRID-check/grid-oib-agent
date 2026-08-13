@@ -340,19 +340,25 @@ class TestProvenanceIsThreeDifferentSentences:
                 "decidable": True,
             }
         )
-        assert "gemessen (±0.15 m²): 15.42 m²" in line
+        assert "gemessen (±0.15 m²): 15.4 m²" in line
         assert "15.41678125" not in line
         assert "0.15416781" not in line
+        # And not 15.42 either: a 15-centimetre band does not support a
+        # centimetre digit. `ceil` used to round the tolerance up to the next
+        # decade before counting, which authorised one digit too many on every
+        # band that was not an exact power of ten.
+        assert "15.42" not in line
 
     @pytest.mark.parametrize(
         ("value", "tolerance", "shown"),
         [
             # One digit finer than the band, so nothing resolved is discarded.
             (0.17913908774709064, 0.01, "0.179"),
-            (0.6466378093377606, 0.005, "0.6466"),
+            (0.6466378093377606, 0.005, "0.647"),
             (2.1099999999999999, 0.01, "2.110"),
-            # A whole-number band still leaves a decimal to move in.
-            (0.0, 3, "0.0"),
+            # A whole-number band leaves no decimal at all: ±3° cannot carry a
+            # tenth of a degree, and printing one claimed it could.
+            (0.0, 3, "0"),
         ],
     )
     def test_the_precision_follows_the_band(self, value, tolerance, shown):
@@ -578,7 +584,7 @@ class TestRendering:
         """
         rendered = "\n".join(_render_answer(dict(self.BLOCKED)))
         assert "{" not in rendered and "'globalId'" not in rendered
-        assert "Basic Roof:Roof_Flat · GlobalId 3cUkl32yn9qRSPvBJVyWh4 · ragt 1.0563 m in das Prisma" in rendered
+        assert "Basic Roof:Roof_Flat · GlobalId 3cUkl32yn9qRSPvBJVyWh4 · ragt 1.056 m in das Prisma" in rendered
 
     def test_the_verdict_line_says_which_way_it_went(self):
         """`free` was in the payload and in no sentence.
@@ -588,7 +594,7 @@ class TestRendering:
         """
         blocked = "\n".join(_render_answer(dict(self.BLOCKED)))
         assert "NICHT FREI (Prisma 45°, seitlich 30°)" in blocked
-        assert "1 Bauteil ragt in das Prisma, tiefster Eingriff 1.0563 m" in blocked
+        assert "1 Bauteil ragt in das Prisma, tiefster Eingriff 1.056 m" in blocked
 
     def test_an_empty_list_is_the_answer_and_must_not_render_as_nothing(self):
         # `free: true` carries no entries at all, so without its own line the

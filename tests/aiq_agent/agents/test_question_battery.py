@@ -144,7 +144,7 @@ class TestTheOriginalQuestion:
 
     def test_step_4_the_floor_area_the_file_never_declares(self, ask):
         rendered = ask(operation="measure", global_id=BEDROOM, measure="floorArea")
-        assert "15.42 m²" in rendered
+        assert "15.4 m²" in rendered
         assert "gemessen" in rendered
         # And to the band, not to seventeen digits.
         assert "15.41678" not in rendered
@@ -169,7 +169,7 @@ class TestTheOriginalQuestion:
 
     def test_step_7_the_overhang_the_agent_called_unmeasurable(self, ask):
         rendered = ask(operation="overhang", global_id=ROOF, other_global_id=NORTH_WALL)
-        assert "0.6466 m" in rendered
+        assert "0.647 m" in rendered
         assert "gemessen (±0.005 m)" in rendered
 
     def test_step_8_the_prism_is_reported_and_never_judged(self, ask):
@@ -282,7 +282,7 @@ class TestAnswerable:
         # 1.810 x 1.210 m of clear opening on 15.42 m² of floor. The measured
         # aperture agreeing with the type name `1810x1210mm` to the millimetre
         # is an independent check on the projection.
-        assert "Lichteintrittsfläche 2.190 m²" in rendered
+        assert "Lichteintrittsfläche 2.19 m²" in rendered
         assert "15.42 m² Bodenfläche" in rendered
         assert "14.21 %" in rendered
         # No threshold applied — the percentage is in the clause, not the model.
@@ -316,7 +316,7 @@ class TestAnswerable:
         """
         rendered = ask(operation="measure", global_id="3w0zWKm7n8SB1qbfwUzt0G", measure="lightEntryArea")
         assert "Doors_ExtDbl_Flush" in rendered
-        assert "3.819 m²" in rendered
+        assert "3.82 m²" in rendered
         assert "43.93 %" in rendered
 
     def test_a_free_prism_renders_as_free(self, ask):
