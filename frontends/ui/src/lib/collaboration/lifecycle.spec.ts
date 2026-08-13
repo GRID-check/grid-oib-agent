@@ -79,6 +79,10 @@ vi.mock('@/lib/conversations/repository', () => ({
   listConversationIdsForProject: vi.fn(),
   listMessagesForConversation: vi.fn(),
   listVisibleConversations: vi.fn(),
+  // The discard stamps the conversation as deleting BEFORE it erases the files
+  // attached to it, so an upload racing the discard has something to refuse on
+  // (ADR-0047 Phase 2).
+  markConversationDeleting: vi.fn().mockResolvedValue({ id: 'conv_1' }),
   mergeMessageMetadata: vi.fn(),
   updateConversationMetaInOrg: vi.fn(),
   updateConversationTitleInOrg: vi.fn(),

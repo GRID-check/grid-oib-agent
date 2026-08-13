@@ -170,7 +170,7 @@ async function getAccessibleDocument(
     }
     case 'session': {
       // A row that contradicts `documents_session_requires_conversation`
-      // (migration 0046) is not something to guess about — it is unattributable,
+      // (migration 0049) is not something to guess about — it is unattributable,
       // so it is not found.
       if (!doc.conversationId) throw new NotFoundError()
       await requireResourceAccess(

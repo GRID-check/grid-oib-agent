@@ -27,10 +27,10 @@ import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client, bucketAdminS3Client, buildSessionStorageKey } from '@/lib/s3'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { NotFoundError } from '@/lib/api/errors'
+import { NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { sessionCollectionName } from '@/lib/collection-scope'
 import { requireResourceAccess } from '@/lib/sharing/access'
-import { createConversation } from '@/lib/conversations/service'
+import { assertConversationAcceptsUploads, createConversation } from '@/lib/conversations/service'
 import {
   assertFileSizeAllowed,
   assertUploadTypeAllowed,
@@ -142,6 +142,25 @@ export async function uploadSessionDocument(
   const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
+
+  // The LAST thing before a single byte is written, and the reason it is here
+  // rather than folded into the authorization above.
+  //
+  // Discarding a chat erases its attachments' objects and chunks first and
+  // deletes the conversation row second (`conversations/service`), and the
+  // document rows cascade off that row. An upload that got past
+  // `createConversation` while the discard was still purging would land its
+  // object and its chunks AFTER the sweep had walked past them, and then have
+  // its row taken by the cascade — bytes and chunks in the tenant's stores with
+  // nothing naming them, which is precisely the state no retry can reach.
+  //
+  // The discard marks the conversation as deleting BEFORE it starts purging, so
+  // re-reading that mark at the last possible moment narrows the race to the
+  // gap between this check and the write. `admitOrDiscard` below is the second
+  // guard: its insert names the conversation through a foreign key, so a row
+  // whose conversation went in that gap cannot be created at all.
+  await assertConversationAcceptsUploads(conversationId, session.organizationId)
+
   await s3Client.send(
     new PutObjectCommand({
       Bucket: storageBucket,
@@ -201,14 +220,20 @@ export async function uploadSessionDocument(
 }
 
 /**
- * Delete one session document: purge its RAG chunks (best-effort), remove the
- * SeaweedFS objects, delete the row, and audit.
+ * Delete one session document: purge its RAG chunks, remove the SeaweedFS
+ * objects, delete the row, and audit — **in that order, and only that far**.
  *
  * `collaborator` on the owning conversation — the same access appending a
  * message needs, and the same access the upload needed. A row whose scope is
  * not `session` is not visible from here at all (the repository's predicate),
  * so a project or Archiv id surfaces as a 404 rather than being force-fit
  * through conversation access.
+ *
+ * A failure to erase either store keeps the row and answers 502. The row is
+ * what names the object and the chunks, so deleting it on a failed purge is how
+ * a transient backend blip becomes a private file nobody can ever remove; the
+ * user is told the delete did not happen, which is the truth, and a retry
+ * reaches exactly the same document.
  */
 export async function deleteSessionDocument(
   session: AuthorizedSession,
@@ -225,8 +250,19 @@ export async function deleteSessionDocument(
 
   await requireResourceAccess(session, 'conversation', doc.conversationId, 'collaborator')
 
-  await purgeCollectionChunks(doc.collectionName, [doc.filename])
-  await deleteDocumentObjects(doc)
+  const chunks = await purgeCollectionChunks(doc.collectionName, [doc.filename])
+  const objects = await deleteDocumentObjects(doc)
+  if (!chunks.ok || !objects.ok) {
+    // Reasons carry bucket names and upstream error text, so they go to the log
+    // and NOT into the error payload the client sees.
+    console.error(
+      '[session-documents] delete aborted, row retained for retry:',
+      documentId,
+      [chunks.reason, objects.reason].filter(Boolean).join('; '),
+    )
+    throw new UpstreamError('Deleting the attachment failed; nothing was removed. Please try again.')
+  }
+
   await deleteSessionDocumentRow(documentId, session.organizationId, doc.conversationId)
 
   await recordAuditEvent({

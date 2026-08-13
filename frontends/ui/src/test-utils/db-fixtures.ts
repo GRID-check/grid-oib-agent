@@ -75,7 +75,7 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   organizationId: 'org-1',
   projectId: 'proj-1',
   scope: 'project',
-  // Only a `scope: 'session'` row names a conversation (migration 0046's CHECK
+  // Only a `scope: 'session'` row names a conversation (migration 0049's CHECK
   // constraint says so in both directions), and the default fixture is an
   // ordinary project document.
   conversationId: null,
