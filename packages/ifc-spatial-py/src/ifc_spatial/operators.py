@@ -714,6 +714,27 @@ def container_of(model: SpatialModel, global_id: str) -> Answer[ElementRef | Non
     )
 
 
+#: Element classes that can only ever separate two spaces horizontally.
+#:
+#: A shared one of these means the rooms are STACKED, not adjacent. Kept as a
+#: type list rather than a geometric test because the geometric test costs a
+#: triangulation per candidate and this runs inside a loop over every space.
+_HORIZONTAL_SEPARATORS = ("IfcSlab", "IfcRoof", "IfcCovering")
+
+
+def _separates_horizontally_only(model: SpatialModel, global_id: str) -> bool:
+    """Whether this bounding element can only be a floor or ceiling between rooms.
+
+    ``False`` means it can separate them side by side — a wall, a curtain wall,
+    a virtual boundary — and therefore counts for adjacency.
+    """
+    try:
+        element = model.file.by_guid(global_id)
+    except (RuntimeError, KeyError):
+        return False
+    return any(element.is_a(name) for name in _HORIZONTAL_SEPARATORS)
+
+
 def adjacent_spaces(model: SpatialModel, space_global_id: str) -> Answer[list[ElementRef]]:
     """The rooms next door — spaces sharing a bounding element with this one.
 
@@ -747,25 +768,55 @@ def adjacent_spaces(model: SpatialModel, space_global_id: str) -> Answer[list[El
     own_ids = {ref.global_id for ref in own.value}
 
     neighbours: list[Any] = []
+    stacked: list[Any] = []
     for other in model.file.by_type("IfcSpace"):
         if other.GlobalId == space_global_id:
             continue
         other_bounds = bounds(model, other.GlobalId)
         if not other_bounds.decidable or other_bounds.value is None:
             continue
-        if own_ids & {ref.global_id for ref in other_bounds.value}:
-            neighbours.append(other)
+        shared = own_ids & {ref.global_id for ref in other_bounds.value}
+        if not shared:
+            continue
+        # A shared FLOOR is not adjacency. Two rooms stacked on either side of
+        # the same slab share a bounding element and are not neighbours in any
+        # sense a person means — `geschossdecke-und-fenster.ifc` exists to pin
+        # exactly this, and its header records a real export where one slab
+        # produced 4 278 false pairs. Being above or below something is a
+        # different question, and `above`/`below` answer it.
+        if not any(_separates_horizontally_only(model, gid) is False for gid in shared):
+            stacked.append(other)
+            continue
+        neighbours.append(other)
 
-    provenance_declared = own.provenance == "declared"
-    refs = model.refs(neighbours, via="shared bounding element")
-    if provenance_declared:
-        return declared(refs, from_=[space_global_id, *[s.GlobalId for s in neighbours]], method=method)
+    # NEVER `declared`, whatever the boundaries were. Even where both spaces
+    # publish IfcRelSpaceBoundary, the file states which elements bound each
+    # room — it nowhere states that the two rooms are neighbours. That
+    # conclusion is our set-intersection over two declared lists, and stamping
+    # it „so steht es in der Datei" hands the reader our inference as the
+    # architect's own statement. It also dropped the caveat that adjacency is
+    # not a walkable connection, because only the computed branch carried it.
+    declared_inputs = own.provenance == "declared"
+    refs = model.refs(neighbours, via="shared separating element")
+    caveat = (
+        "Nachbarschaft heißt gemeinsames TRENNENDES Bauteil, NICHT begehbare Verbindung — dafür "
+        "egressPath. Rein waagrecht getrennte Räume (gemeinsame Geschoßdecke) sind ausgenommen; "
+        "übereinanderliegende Räume liefert above/below."
+    )
+    if declared_inputs:
+        caveat = (
+            "Die Raumbegrenzungen sind deklariert (IfcRelSpaceBoundary); die Nachbarschaft daraus ist "
+            "gefolgert, nicht deklariert. " + caveat
+        )
+    else:
+        caveat = _DERIVED_BOUNDARY_CAVEAT.format(contact=CONTACT) + " " + caveat
+    if stacked:
+        caveat += f" {len(stacked)} Raum/Räume berühren diesen nur über eine waagrechte Trennung."
     return computed(
         refs,
         from_=[space_global_id, *[s.GlobalId for s in neighbours]],
         method=method,
-        caveat=_DERIVED_BOUNDARY_CAVEAT.format(contact=CONTACT)
-        + " Nachbarschaft heißt gemeinsames begrenzendes Bauteil, NICHT begehbare Verbindung.",
+        caveat=caveat,
     )
 
 
@@ -1950,7 +2001,7 @@ def obstructions(
     )
 
 
-def _clear_opening_area(model: SpatialModel, opening: Any) -> float | None:
+def _clear_opening_area(model: SpatialModel, opening: Any, z_band: tuple[float, float] | None = None) -> float | None:
     """The area of an opening's clear aperture — the Rohbaulichte.
 
     An ``IfcOpeningElement`` is a prism driven through the wall. Projected along
@@ -2007,9 +2058,31 @@ def _clear_opening_area(model: SpatialModel, opening: Any) -> float | None:
     if not polygons:
         return None
     try:
-        return float(shapely.ops.unary_union(polygons).area)
+        merged = shapely.ops.unary_union(polygons)
     except Exception:
         return None
+
+    if z_band is not None:
+        # Only the part of the aperture that lies inside the ROOM. A curtain
+        # wall runs past a floor: the sample house's 31.09 m² facade spans
+        # z 0–3.36 and was credited in full to the living room (z 0–2.5) AND in
+        # full to the 1.00 m loft above it, which came out at 40.65 %. Two rooms
+        # cannot each own all of the same glass.
+        #
+        # `up` is world Z projected into the aperture plane, so for a vertical
+        # opening the in-plane vertical coordinate is world Z divided by that
+        # projection; the band is mapped through the same factor. Exact for a
+        # vertical facade, slightly generous for a raked one.
+        low, high = z_band
+        minx, _, maxx, _ = merged.bounds
+        span = float(up[2]) or 1.0
+        band = sorted((low / span, high / span))
+        try:
+            merged = merged.intersection(shapely.box(minx - 1.0, band[0], maxx + 1.0, band[1]))
+        except Exception:
+            return None
+    area = float(merged.area)
+    return area if area > 0 else None
 
 
 def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]:
@@ -2140,22 +2213,38 @@ def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[s
     # Plates carry no IfcOpeningElement (they fill no void; they ARE the wall),
     # so they land on the element-body route below and are labelled as such.
     GLAZING = ("IfcWindow", "IfcDoor", "IfcPlate")
+
+    # The room's own height band, so an opening that runs past a floor is
+    # credited only for the part inside THIS room.
+    space_geo = model.geometry(space_global_id)
+    z_band = None
+    if space_geo is not None and space_geo.triangles is not None and len(space_geo.triangles):
+        zs = space_geo.triangles.reshape(-1, 3)[:, 2]
+        z_band = (float(zs.min()), float(zs.max()))
+
+    # Deduplicated by GlobalId. A 2nd-level export publishes one
+    # IfcRelSpaceBoundary row PER FACE, so a window bounding a room twice
+    # appeared twice in `bounds` and was summed twice — the bedroom reported
+    # 28.41 % instead of 14.21 %, listing the same GlobalId in both lines. The
+    # better the export, the more reliably it happened.
+    seen: set[str] = set()
     for ref in bounding.value or []:
-        if ref.ifc_type not in GLAZING:
+        if ref.ifc_type not in GLAZING or ref.global_id in seen:
             continue
+        seen.add(ref.global_id)
         element = model.file.by_guid(ref.global_id)
         voids = [rel.RelatingOpeningElement for rel in (getattr(element, "FillsVoids", []) or [])]
         area = None
         via = "IfcOpeningElement"
         for void in voids:
-            area = _clear_opening_area(model, void)
+            area = _clear_opening_area(model, void, z_band)
             if area:
                 break
         if not area:
             # No opening bookkeeping, or an opening without a body. The element's
             # own aperture is the next best thing and is NOT the same number —
             # it includes the frame — so it is labelled, not silently mixed in.
-            area = _clear_opening_area(model, element)
+            area = _clear_opening_area(model, element, z_band)
             via = (
                 "Verglasungsfeld (Vorhangfassade, Rahmen enthalten)"
                 if ref.ifc_type == "IfcPlate"

@@ -114,8 +114,10 @@ class TestBuildCall:
             assert "what a lichte Breite check needs" not in text, name
         assert "NOT a lichte Breite" in DISTANCE_MODES["horizontal"]
         assert "NOT a lichte Höhe" in DISTANCE_MODES["vertical"]
-        # And each one points at the operator that DOES answer it.
-        assert "extent" in DISTANCE_MODES["horizontal"]
+        # And each one points at the operator that DOES answer it. This said
+        # `extent` until `clearWidth` existed — pointing at the least wrong
+        # operator available, which measured a door's THICKNESS as its width.
+        assert "clearWidth" in DISTANCE_MODES["horizontal"]
         assert "clearHeight" in DISTANCE_MODES["vertical"]
         # `min` is a box gap, and 0 does not mean the solids touch.
         assert "BOUNDING BOXES" in DISTANCE_MODES["min"]

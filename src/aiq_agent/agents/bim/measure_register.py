@@ -165,7 +165,7 @@ MEASURES: dict[str, str] = {
 # measures CENTROID to CENTROID in plan, which is an Achsabstand. On a 1.00 m
 # opening between two 30 cm walls that is 1.30 m — too large by half of each
 # element, in the direction that turns a failed escape-route width into a passing
-# one. A clear width is `measure` + `extent` on the opening itself.
+# one. A clear width is `measure` + `clearWidth`, measured on the aperture.
 DISTANCE_MODES = {
     "min": (
         "gap between the two axis-aligned BOUNDING BOXES. 0 means the boxes overlap — it does NOT "
@@ -174,7 +174,7 @@ DISTANCE_MODES = {
     "centroid": "centre to centre in 3D (Achsabstand). NOT a clear dimension",
     "horizontal": (
         "centre to centre in plan, Z ignored (Achsabstand) — what a plan drawing scales off. NOT a "
-        "lichte Breite: for a clear width use measure/extent on the opening"
+        "lichte Breite: for a clear width use measure/clearWidth on the opening"
     ),
     "vertical": (
         "difference in centre HEIGHT — what a section scales off. NOT a lichte Höhe: for that use "
@@ -493,7 +493,7 @@ def _build_call(
         return (
             f"Error: mode '{mode}' does not exist. Use one of: {', '.join(DISTANCE_MODES)}. "
             "All four are AXIS distances between centroids or boxes — none is a clear dimension. "
-            "For a lichte Breite use operation='measure' with measure='extent' on the opening, and "
+            "For a lichte Breite use operation='measure' with measure='clearWidth' on the opening, and "
             "for a lichte Höhe measure='clearHeight' on the room."
         )
     return "distance", {"a": subject, "b": other, "mode": wanted_mode}

@@ -42,7 +42,7 @@ richtig gemessene Zahl unter einem falschen Namen.
 | Was grenzt woran, was sitzt worin | `ifc_measure`: `relations` |
 | Freier Lichteinfall, Tageslicht | `ifc_measure`: `light_incidence`, `measure: "lightEntryArea"`, `measure: "roomDepth"` |
 | Fluchtweg, welche Räume hängen zusammen | `ifc_measure`: `measure: "egressPath"`, `measure: "reachableFrom"` |
-| Lichte Durchgangsbreite, Treppe, Rampe | `ifc_measure`: `measure: "clearWidth"` |
+| Lichte Durchgangsbreite einer Öffnung | `ifc_measure`: `measure: "clearWidth"` |
 | Was liegt über oder unter etwas | `ifc_measure`: `relations` mit `above` / `below` |
 | Bauteilmaße bei schräger Lage | `ifc_measure`: `measure: "orientedExtent"` |
 | Welches Bauteil ist gemeint (hinsehen) | `ifc_measure`: `view` |
@@ -173,7 +173,8 @@ Vernetzung um Zentimeter wandernd). `min` ist der Spalt zwischen den
 **achsparallelen Hüllboxen**; 0 m heißt nur, dass sich die Boxen überschneiden,
 nicht dass sich die Körper berühren, und bei schrägen Bauteilen ist der wahre
 Abstand größer als der gemeldete. Für eine lichte Durchgangsbreite
-`measure: "extent"` am Bauteil selbst.
+`measure: "clearWidth"`, das an der Öffnung selbst misst — `extent` liefert an
+einer Tür die Bauteildicke als `width`, nicht die Durchgangsbreite.
 
 **`extent` ist eine Hüllbox, achsparallel zum Modell.** Bei einem schräg
 stehenden Bauteil sind `width` und `depth` systematisch zu groß und sind nicht

@@ -300,8 +300,21 @@ def _unit_scale_to_si(unit: Any) -> float:
             return scale
         unit = factor.UnitComponent
     if unit is not None and unit.is_a("IfcSIUnit"):
-        scale *= uu.get_prefix_multiplier(unit.Prefix)
+        # An SI prefix on an AREA or VOLUME unit is raised to the dimension of
+        # that unit. `CENTI` on `SQUARE_METRE` is 1e-4, not 1e-2 — a centimetre
+        # is a hundredth of a metre, so a square centimetre is a ten-thousandth
+        # of a square metre. Applied linearly it made a correct declared area
+        # come out 100x wrong, which `triangulate` then published as a 99 %
+        # „WIDERSPRUCH zwischen zwei Wegen zu dieser Zahl" — a fabricated
+        # finding against a file that was right.
+        dimension = _UNIT_DIMENSION.get(getattr(unit, "UnitType", None), 1)
+        scale *= uu.get_prefix_multiplier(unit.Prefix) ** dimension
     return scale
+
+
+#: How many times a length appears in each unit type, which is the power its
+#: SI prefix has to be raised to.
+_UNIT_DIMENSION = {"AREAUNIT": 2, "VOLUMEUNIT": 3}
 
 
 def _unit_label(unit: Any) -> str | None:
