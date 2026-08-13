@@ -385,7 +385,7 @@ const FileChip: FC<{
   return (
     <span
       className={cn(
-        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-xl border px-2 text-[12px]',
         // A finger has to be able to hit the remove-x, and that button can only
         // grow inside a taller chip — the strip scrolls horizontally, so the
         // extra height costs nothing but a slightly shorter filename.
@@ -560,7 +560,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const previewBesideChat = useFilePreviewStore(
     (state) => (state.mode === 'peek' || state.mode === 'expanded') && !state.hidden,
   )
-  const previewHidden = useFilePreviewStore((state) => state.hidden)
   const fileDockVisible =
     previewBesideChat && previewFileId !== null && previewFileId === composerSubject?.resourceId
 
@@ -1448,14 +1447,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </div>
         )}
         <ComposerSubjectBar
-          subject={fileDockVisible ? null : composerSubject}
+          subject={composerSubject}
           projectId={projectId}
           onClear={() => {
             setComposerSubject(null)
             useFilePreviewStore.getState().close()
           }}
           onShowFile={
-            previewHidden && composerSubject
+            !fileDockVisible && composerSubject
               ? () => useFilePreviewStore.getState().peek()
               : undefined
           }

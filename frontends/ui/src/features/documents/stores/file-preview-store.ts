@@ -93,9 +93,10 @@ export const useFilePreviewStore = create<FilePreviewState>((set, get) => ({
   },
 
   hide: () => {
-    const file = get().file
     set({ hidden: true, mode: get().mode === 'modal' ? 'modal' : 'peek' })
-    clearMatchingComposerSubject(file)
+    // Do not clear composerSubject here. Peek-bound subjects are dropped by
+    // `openFilePeek`'s subscriber. Ask-Piloti subjects are user intent: hiding
+    // the preview must leave the pill so the user can restore or dismiss it.
   },
 
   close: () => {

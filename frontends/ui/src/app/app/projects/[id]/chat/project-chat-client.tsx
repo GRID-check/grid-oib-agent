@@ -136,9 +136,7 @@ const ProjectChatContent = ({
   }, [askPrefill, docPrefill, filePrefill, searchParams, pathname, router, setComposerPrefill])
 
   const composerSubject = useChatStore((s) => s.composerSubject)
-  const currentConversation = useChatStore((s) => s.currentConversation)
-  const subjectId =
-    currentConversation?.subjectResourceId ?? composerSubject?.resourceId ?? docPrefill
+  const subjectId = composerSubject?.resourceId ?? docPrefill
 
   // Citations are the signal to show a project/Büro file — do not wait for
   // the agent to call surface_documents. Mounted once on the chat client.

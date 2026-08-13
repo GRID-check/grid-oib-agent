@@ -24,7 +24,7 @@ export default function ComposerSubjectPreviewPage(): JSX.Element {
             onClear={() => undefined}
             onTitle={() => undefined}
           />
-          <div className="text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-[13px]">
+          <div className="text-muted-foreground rounded-xl border border-dashed px-3 py-6 text-[13px]">
             Frage zu Brandschutzplan_EG.pdf…
           </div>
         </div>
