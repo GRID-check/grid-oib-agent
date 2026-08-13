@@ -17,11 +17,13 @@ import ifcopenshell
 import ifcopenshell.util.shape as us
 import numpy as np
 import pytest
+from ifc_spatial import accessibility as ac
 from ifc_spatial import briefing as br
 from ifc_spatial import daylight as dl
 from ifc_spatial import envelope_geometry as eg
 from ifc_spatial import fire
 from ifc_spatial import operators as op
+from ifc_spatial import relations as rel
 from ifc_spatial.envelope import computed
 from ifc_spatial.envelope import declared
 from ifc_spatial.envelope import triangulate
@@ -1193,3 +1195,310 @@ class TestAnExternalWallBoundsMoreThanOneRoom:
         first rung is what answers here."""
         external, _route, _why = eg._external_route(house, house.file.by_guid("3cUkl32yn9qRSPvBJVyWY1"))
         assert external is False
+
+
+class TestAGalleryVoidIsMeasuredDownwardAndNotSideways:
+    """`balustradeCheck` measured a hole in a FLOOR as if it were a hole in a wall.
+
+    `AC20-FZK-Haus.ifc`, „Galerie" (`IfcSpace 2dQFggKBb1fOc1CqZDIDlx`, floor at
+    z = 2.700) over „Wohnen" (floor at z = 0.000). Between them one slab,
+    `Slab-033`, with one `IfcOpeningElement` in it — „Slab Opening",
+    7.44…11.70 × 0.30…4.01 × 2.50…2.70 — and both of the model's railings
+    standing at its rim.
+
+    The measured answer was:
+
+        openings: [('OG-Fenster-2', 'IfcWindow',          2.7, 0.8, 0 railings),
+                   ('OG-Fenster-1', 'IfcWindow',          2.7, 0.8, 0 railings),
+                   ('Slab Opening', 'IfcOpeningElement',  0.0, 2.5, 0 railings)]
+        kanten:   [('OG-Fenster-2', 2.7), ('OG-Fenster-1', 2.7)]
+
+    The two windows are right — a first-floor window with a 0.800 m parapet over
+    a 2.700 m drop is a fall, and it is measured as one. The void is wrong in
+    both halves: **fall 0.000 m** at the one edge in the house that has railings,
+    and **parapet 2.500 m**, which is not a physical quantity. A hole in a floor
+    has no Brüstung; 2.500 m is the distance from the room below's floor up to
+    the underside of its own ceiling.
+
+    The cause is `dominant_vertical_plane` answering at all. The void is a
+    4.26 × 3.71 × 0.20 m prism, so its four SIDES are vertical faces and one of
+    them was returned as the „opening plane". `_levels_both_sides` then probed
+    0.30 m to either side IN PLAN — both probes landed on ground-floor level,
+    one on the room below and one on the terrain, both at z = 0.000 — and the
+    difference of two equal numbers is a zero that looks like a measurement.
+
+    The fixture is those elements out of that file: the two rooms, one further
+    room under the same slab and well away from the void, the slab, its void,
+    the ground slab the fall lands on, the two railings, and one window with its
+    opening and host wall — the last three only so that the file carries an
+    `IfcRelFillsElement`, without which `hostedIn` refuses model-wide and the
+    host of the void could not be read at all.
+
+    Their bodies are replaced by a box of their own measured extent (the two
+    balustrades alone are 5 062 entities EACH, balusters and handrail), because
+    nothing here reads a railing, a wall or a window except through `geo.box`.
+    The slabs, the void and the two room bodies keep their real ArchiCAD
+    geometry, because those ARE measured — and every number below is what the
+    full 2.5 MB export gives.
+
+    The site's TERRAIN is in the extract for one reason: it is what the broken
+    measurement found 0.30 m beyond the void's supposed „opening plane", at
+    x = 12.000. Without it the defect would show up here as an unmeasurable
+    opening rather than as a wrong number. Reverted, this fixture answers
+    „lage senkrecht, fall 2.700 m, parapet −0.200 m, 0 Geländer" for BOTH
+    rooms — a negative Brüstung, and an Absturzkante in the ceiling of the room
+    below.
+    """
+
+    FIXTURE = FIXTURES / "galerie-deckendurchbruch.ifc"
+    GALERIE = "2dQFggKBb1fOc1CqZDIDlx"
+    WOHNEN = "0Lt8gR_E9ESeGH5uY_g9e9"
+    #: Under the same slab, 4.144 m from the void in plan — the locality case.
+    FERNER_RAUM = "2RSCzLOBz4FAK$_wE8VckM"
+    VOID = "16PF6khT5_p$Z03P73inyv"
+    RAILINGS = {"0o5vgCKyTBzO5$QJcI2YDP", "09axaKU7X1_O8n6dmmiZ1E"}
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def model(cls) -> SpatialModel:
+        return SpatialModel(str(cls.FIXTURE))
+
+    def test_the_fixture_carries_the_geometry_the_defect_was_about(self, model: SpatialModel) -> None:
+        """The anti-vacuity guard, and the trap named: the void HAS vertical
+        faces, which is exactly why the old code was confident."""
+        void = model.geometry(self.VOID)
+        assert [round(float(v), 3) for v in void.box[0]] == [7.44, 0.30, 2.50]
+        assert [round(float(v), 3) for v in void.box[1]] == [11.70, 4.01, 2.70]
+        assert dominant_vertical_plane(void.triangles) is not None
+        host = op.hosted_in(model, self.VOID)
+        assert host.decidable and host.value[0].ifc_type == "IfcSlab"
+        assert round(float(model.geometry(self.GALERIE).box[0][2]), 3) == 2.700
+        assert round(float(model.geometry(self.WOHNEN).box[0][2]), 3) == 0.000
+
+    def test_it_is_a_hole_in_a_floor_and_gets_no_wall_frame(self, model: SpatialModel) -> None:
+        """15.805 m² of plan against 1.704 m² of face. Every operator that needs
+        a vertical opening plane now refuses instead of building one out of the
+        prism's side — a threshold height and a clear approach at a gallery void
+        are not defined either."""
+        void = model.file.by_guid(self.VOID)
+        assert ac._is_floor_void(model, void, model.geometry(self.VOID)) is True
+        assert ac._frame_of(model, void) is None
+        assert ac.clear_approach(model, self.VOID).decidable is False
+
+    def test_the_fall_is_the_storey_height_and_the_parapet_is_not_a_number(self, model: SpatialModel) -> None:
+        """2.700 − 0.000 = 2.700 m, straight down, and `parapet` is null rather
+        than the 2.500 m the sideways measurement invented."""
+        answer = ac.balustrade_check(model, self.GALERIE, 1.0)
+        assert answer.decidable
+        entry = next(o for o in answer.value["openings"] if o["globalId"] == self.VOID)
+        assert entry["lage"] == "waagrecht"
+        assert entry["fall"] == pytest.approx(2.700, abs=0.002)
+        assert entry["parapet"] is None
+        assert entry["inside"]["level"] == pytest.approx(2.700, abs=0.002)
+        assert entry["inside"]["space"] == self.GALERIE
+        assert entry["outside"]["level"] == pytest.approx(0.000, abs=0.002)
+        assert [e["globalId"] for e in answer.value["kanten"]] == [self.VOID]
+
+    def test_both_railings_at_the_void_are_credited_over_the_gallery_floor(self, model: SpatialModel) -> None:
+        """0.030 m and 0.000 m from the void's rim in plan, rising from 2.700 m
+        to 3.700 m: 1.000 m of protection each, over the floor somebody stands
+        on and not over the project zero."""
+        answer = ac.balustrade_check(model, self.GALERIE, 1.0)
+        railings = next(o for o in answer.value["openings"] if o["globalId"] == self.VOID)["railings"]
+        assert {r["globalId"] for r in railings} == self.RAILINGS
+        assert [r["height"] for r in railings] == [pytest.approx(1.000, abs=0.002)] * 2
+        assert [r["top"] for r in railings] == [pytest.approx(3.700, abs=0.002)] * 2
+        assert answer.value["railingsInModel"] == 2
+
+    def test_the_room_underneath_is_not_given_an_absturzkante_in_its_ceiling(self, model: SpatialModel) -> None:
+        """The same void reaches „Wohnen" through the same slab, and 2.700 m
+        means the opposite thing there: nobody falls up through their own
+        ceiling. Listed with `fall = null` and the reason, rather than dropped —
+        and NOT an edge."""
+        answer = ac.balustrade_check(model, self.WOHNEN, 1.0)
+        assert answer.decidable
+        entry = next(o for o in answer.value["openings"] if o["globalId"] == self.VOID)
+        assert entry["fall"] is None
+        assert entry["lage"] == "waagrecht"
+        assert answer.value["kanten"] == []
+        assert "DECKE" in entry["outside"]["via"]
+        assert "darüberliegenden Raum" in entry["outside"]["via"]
+        assert "fall = null" in answer.caveat
+
+    def test_a_room_the_void_is_nowhere_near_is_not_given_it_either(self, model: SpatialModel) -> None:
+        """A slab bounds EVERY room on its storey, so `hosts()` hands this void
+        to rooms across the building — on `AC20-Institute-Var-2` that is all 82
+        spaces, „Buero" `3zaEFaiGrF1ftyFPQrOe_i` included, 13.370 m away, and 65
+        rooms would have been handed a 2.591 m Absturzkante with it.
+
+        Here it is `IfcSpace 2RSCzLOBz4FAK$_wE8VckM`, under the same slab and
+        4.144 m from the void in plan. Listed with the distance and `fall =
+        null`, because the reason it appears at all is worth saying."""
+        answer = ac.balustrade_check(model, self.FERNER_RAUM, 1.0)
+        assert answer.decidable
+        entry = next(o for o in answer.value["openings"] if o["globalId"] == self.VOID)
+        assert entry["fall"] is None
+        assert answer.value["kanten"] == []
+        assert "4.144 m" in entry["outside"]["via"]
+
+    def test_a_hole_in_a_wall_is_still_measured_sideways(self, house: SpatialModel) -> None:
+        """The fix must not turn every opening into a floor void. The sample
+        house's bedroom window keeps its 0.900 m parapet and its `senkrecht`."""
+        answer = ac.balustrade_check(house, BEDROOM)
+        window = next(o for o in answer.value["openings"] if o["globalId"] == BEDROOM_WINDOW)
+        assert window["lage"] == "senkrecht"
+        assert window["parapet"] == pytest.approx(0.900, abs=0.01)
+        assert window["fall"] == pytest.approx(0.0, abs=0.01)
+
+    def test_no_verdict_reaches_the_reader(self, model: SpatialModel) -> None:
+        """OIB 4 names the height a balustrade must reach. This layer measures
+        the one that is there."""
+        answer = ac.balustrade_check(model, self.GALERIE, 1.0)
+        text = f"{answer.caveat} {answer.method}"
+        for word in ("erfüllt", "zulässig", "Gebäudeklasse", "OIB", "1,00 m", "1.00 m"):
+            assert word not in text
+
+
+class TestConnectsRefusesForATypeTheExportNeverConnects:
+    """`connects()` answered „joined to nothing" for every element that is not a wall.
+
+    The guard was MODEL-WIDE: one `IfcRelConnectsElements` anywhere in the file
+    and every element in it was answered from the traversal. Both ArchiCAD files
+    in the corpus write those relations for walls and for nothing else —
+    `AC20-Institute-Var-2.ifc` has 216 `IfcRelConnectsPathElements`, all
+    `IfcWallStandardCase`-to-`IfcWallStandardCase`; `AC20-FZK-Haus.ifc` 16 of
+    the same — so the guard passed and
+
+        connects(3qloCPnZDEQBom1ZjBlwJP, IfcDoor) -> []   decidable: True
+
+    came back for all 77 doors, all 206 windows, all 26 slabs, all 12 railings,
+    both columns and all 4 stairs of that file: 867 of its 988 elements. This
+    module's own docstring calls that sentence „a claim about a building that
+    would be false for every building ever built".
+
+    The fixture is one connected pair of walls, a door, a window and a slab out
+    of `AC20-FZK-Haus.ifc`, with the file's own `IfcRelConnectsPathElements`
+    between the two walls.
+    """
+
+    FIXTURE = FIXTURES / "verbindungen-nur-wand-an-wand.ifc"
+    WALLS = ("3PfS__Y_DBAfq5naM6zD2Z", "2XPyKWY018sA1ygZKgQPtU")
+    DOOR = "1Oms875aH3Wg$9l65H2ZGw"
+    WINDOW = "1srAI$R4T8ihLXSNHmUSET"
+    SLAB = "1pPHnf7cXCpPsNEnQf8_6B"
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def model(cls) -> SpatialModel:
+        return SpatialModel(str(cls.FIXTURE))
+
+    def test_the_file_really_connects_and_really_only_walls(self, model: SpatialModel) -> None:
+        """Anti-vacuity: the model-wide guard PASSES here. If this file ever
+        loses its connections the refusal below would be the old one and nothing
+        new would be under test."""
+        assert model.file.by_type("IfcRelConnectsElements")
+        assert rel._connected_types(model) == frozenset({"IfcWallStandardCase"})
+
+    def test_the_two_walls_still_answer_with_each_other(self, model: SpatialModel) -> None:
+        """The fix may not cost a single measurement that was right."""
+        for subject, partner in (self.WALLS, self.WALLS[::-1]):
+            answer = rel.connects(model, subject)
+            assert answer.decidable
+            assert [r.global_id for r in answer.value] == [partner]
+
+    @pytest.mark.parametrize("attribute", ["DOOR", "WINDOW", "SLAB"])
+    def test_an_unconnected_type_is_a_refusal_that_names_itself(self, model: SpatialModel, attribute: str) -> None:
+        global_id = getattr(self, attribute)
+        subject = model.file.by_guid(global_id)
+        answer = rel.connects(model, global_id)
+        assert not answer.decidable
+        assert answer.value is None
+        assert subject.is_a() in answer.missing.what
+        assert "IfcWallStandardCase" in answer.missing.what
+        assert "NICHT" in answer.missing.remedy and "Export" in answer.missing.remedy
+        assert answer.missing.elements == [global_id]
+
+    def test_the_sample_house_says_the_same_thing(self, house: SpatialModel) -> None:
+        """A second export, a different vendor, the same shape: `Ifc4_SampleHouse`
+        connects `IfcWall`, `IfcWallStandardCase` and `IfcCurtainWall` and
+        nothing else, so its 3 doors and 4 windows were „joined to nothing" too.
+        The three wall types keep answering, including the subtype that is only
+        covered because `IfcWall` is in the set."""
+        assert rel._connected_types(house) == frozenset({"IfcWall", "IfcWallStandardCase", "IfcCurtainWall"})
+        for wall in house.file.by_type("IfcWall") + house.file.by_type("IfcCurtainWall"):
+            assert rel.connects(house, wall.GlobalId).decidable, wall.GlobalId
+        for opening in house.file.by_type("IfcDoor") + house.file.by_type("IfcWindow"):
+            assert not rel.connects(house, opening.GlobalId).decidable, opening.GlobalId
+
+    def test_a_subtype_is_covered_by_the_supertype_the_file_connects(self, tmp_path: Path) -> None:
+        """A file that connects `IfcWall` has said something about walls, so an
+        `IfcWallStandardCase` with no connection of its own is a measured empty
+        list — while the door in the same file is not. Written out rather than
+        found, because no fixture in the repo has an unconnected wall."""
+        model = _walls_connected_by_type(tmp_path / "wandarten.ifc")
+        assert rel._connected_types(model) == frozenset({"IfcWall"})
+        lonely = rel.connects(model, "0aaaaaaaaaaaaaaaaWand3")
+        assert lonely.decidable and lonely.value == []
+        assert not rel.connects(model, "0aaaaaaaaaaaaaaaaaTuer").decidable
+
+    def test_the_type_set_is_built_once(self, model: SpatialModel) -> None:
+        """This runs per element — 988 of them in the Institute — so the walk
+        over the relations happens once and is cached on the model."""
+        first = rel._connected_types(model)
+        assert rel._connected_types(model) is first
+        assert model._connected_types is first
+
+
+def _walls_connected_by_type(path: Path) -> SpatialModel:
+    """Two `IfcWall` joined, one `IfcWallStandardCase` and one `IfcDoor` alone.
+
+    No bodies: `connects` reads relations, and giving it geometry would only
+    invite the reader to look for a geometric cause that is not there.
+    """
+    f = ifcopenshell.file(schema="IFC4")
+    units = f.create_entity(
+        "IfcUnitAssignment", Units=[f.create_entity("IfcSIUnit", UnitType="LENGTHUNIT", Name="METRE")]
+    )
+    context = f.create_entity(
+        "IfcGeometricRepresentationContext",
+        ContextType="Model",
+        CoordinateSpaceDimension=3,
+        Precision=1e-5,
+        WorldCoordinateSystem=f.create_entity(
+            "IfcAxis2Placement3D", Location=f.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0))
+        ),
+    )
+    project = f.create_entity(
+        "IfcProject",
+        GlobalId="0aaaaaaaaaaaaaaaaaProj",
+        Name="Verbindungsarten",
+        RepresentationContexts=[context],
+        UnitsInContext=units,
+    )
+    site = f.create_entity("IfcSite", GlobalId="0aaaaaaaaaaaaaaaaaSite", Name="Gelaende")
+    building = f.create_entity("IfcBuilding", GlobalId="0aaaaaaaaaaaaaaaaaBldg", Name="Haus")
+    storey = f.create_entity("IfcBuildingStorey", GlobalId="0aaaaaaaaaaaaaaaaaStry", Name="Erdgeschoss", Elevation=0.0)
+    first = f.create_entity("IfcWall", GlobalId="0aaaaaaaaaaaaaaaaWand1", Name="Wand 1")
+    second = f.create_entity("IfcWall", GlobalId="0aaaaaaaaaaaaaaaaWand2", Name="Wand 2")
+    third = f.create_entity("IfcWallStandardCase", GlobalId="0aaaaaaaaaaaaaaaaWand3", Name="Wand 3 ohne Anschluss")
+    door = f.create_entity("IfcDoor", GlobalId="0aaaaaaaaaaaaaaaaaTuer", Name="Tuer ohne Anschluss")
+    f.create_entity(
+        "IfcRelAggregates", GlobalId="0aaaaaaaaaaaaaaaaaAg01", RelatingObject=project, RelatedObjects=[site]
+    )
+    f.create_entity(
+        "IfcRelAggregates", GlobalId="0aaaaaaaaaaaaaaaaaAg02", RelatingObject=site, RelatedObjects=[building]
+    )
+    f.create_entity(
+        "IfcRelAggregates", GlobalId="0aaaaaaaaaaaaaaaaaAg03", RelatingObject=building, RelatedObjects=[storey]
+    )
+    f.create_entity(
+        "IfcRelContainedInSpatialStructure",
+        GlobalId="0aaaaaaaaaaaaaaaaaCt01",
+        RelatingStructure=storey,
+        RelatedElements=[first, second, third, door],
+    )
+    f.create_entity(
+        "IfcRelConnectsElements", GlobalId="0aaaaaaaaaaaaaaaaaCn01", RelatingElement=first, RelatedElement=second
+    )
+    f.write(str(path))
+    return SpatialModel(str(path))

@@ -70,10 +70,13 @@ from .envelope import Answer
 from .envelope import MissingFact
 from .envelope import computed
 from .envelope import undecidable
+from .geometry import PARALLEL_DOT
+from .geometry import VERTICAL_TOLERANCE
 from .geometry import dominant_vertical_plane
 from .geometry import triangle_normals_areas
 from .model import AIR_TYPES
 from .model import SpatialModel
+from .operators import CONTACT
 from .operators import COORDINATE_TOLERANCE
 from .operators import DIMENSION_TOLERANCE
 from .operators import FENESTRATION
@@ -147,6 +150,32 @@ PROBE_LIFT = 0.10
 #: on the edge it protects; a metre of slack covers a railing set back behind a
 #: planter and stops one on the far side of a terrace from being credited here.
 RAILING_REACH = 1.0
+
+#: How far above the walking level a railing's own FOOT may sit and still be
+#: that level's balustrade, in metres.
+#:
+#: Not a tolerance — a modelling allowance. A balustrade is regularly set on an
+#: upstand, a kerb or a plinth, and its body then starts 50 to 300 mm above the
+#: floor; a millimetre-tight test would drop it and report an unprotected edge
+#: at a protected one, which is the dangerous direction. Half a metre is five
+#: times any such detail and a fifth of the smallest storey pitch, so the
+#: balustrade of the floor ABOVE — the thing this test exists to exclude, since
+#: every storey of a building has the same plan — is never inside it.
+RAILING_FOOT = 0.5
+
+#: Host types at which an aperture is a hole in a WALL whatever its proportions,
+#: and is never measured as a floor void. Subtypes are covered — the test is
+#: ``entity.is_a(name)`` — so ``IfcWallStandardCase`` needs no entry of its own.
+_VERTICAL_HOSTS = ("IfcWall", "IfcCurtainWall", "IfcColumn", "IfcBeam", "IfcMember")
+
+#: Probe points across a floor void's plan rectangle, as fractions of its extent.
+#:
+#: Five and not one. The rectangle is a BOUNDING box: an L-shaped or a
+#: stair-shaped void has solid slab inside it, and a probe that lands there
+#: reads the slab's own top and reports a fall of zero. The deepest of the five
+#: is taken, which is also the answer at a stairwell void whose centre happens to
+#: sit over a tread — the drop past the tread is the one somebody falls.
+_VOID_PROBES = ((0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75))
 
 #: Triangles the free-floor construction may union before it refuses.
 #:
@@ -488,12 +517,86 @@ class _Frame:
         return max(own, host) if sign > 0 else min(own, host)
 
 
+def _facing_area(triangles: np.ndarray, normal: np.ndarray) -> float:
+    """Area of the vertical faces that look along ``normal`` — the frame's own face.
+
+    The same selection :func:`geometry.dominant_vertical_plane` makes when it
+    picks the winning bin, re-summed here because that function returns a
+    direction and not the area that won it, and the area is what
+    :func:`_is_floor_void` weighs.
+    """
+    normals, areas = triangle_normals_areas(triangles)
+    facing = (np.abs(normals[:, 2]) < VERTICAL_TOLERANCE) & (np.abs(normals[:, :2] @ normal) >= PARALLEL_DOT)
+    return float(areas[facing].sum())
+
+
+def _is_floor_void(model: SpatialModel, element: Any, geo: Any) -> bool:
+    """Is this aperture a hole in a FLOOR rather than a hole in a wall?
+
+    The failure this decides: ``AC20-FZK-Haus``'s gallery void
+    ``16PF6khT5_p$Z03P73inyv`` („Slab Opening", 4.26 × 3.71 m in plan, 0.20 m
+    thick, hosted in the ``IfcSlab`` „Slab-033"). It has vertical faces — the
+    four sides of the prism — so ``dominant_vertical_plane`` happily returns one
+    of them and the wall measurement then probes 0.30 m to either side IN PLAN,
+    lands on the room below on one side and the terrain on the other, both at
+    z = 0.0, and reports „fall 0.000 m, parapet 2.500 m" at the one edge in the
+    house that carries both of the model's railings. A parapet of 2.5 m at a
+    floor void is not a physical quantity.
+
+    Two independent signals, and the geometric one decides:
+
+    - **plan against face.** The frame would be built from the largest vertical
+      face; the aperture's plan rectangle is the hole itself. When the hole seen
+      from above is LARGER than the face the frame would stand on, the body is a
+      slab void and not a wall reveal. Measured: the gallery void is 15.805 m²
+      of plan against 1.484 m² of face, a factor of ten. Every opening in
+      ``Ifc4_SampleHouse`` runs the other way by as much — its window reveals
+      0.525 m² of plan against 4.380 m² of face, its internal doors 0.077 m²
+      against 3.418 m². The ratio rather than any absolute thickness is what
+      keeps a wide, low strip window on the wall side where it belongs: at
+      3.00 × 0.50 × 0.40 m that is 1.50 m² of plan against 2.40 m² of face.
+    - **the host.** An aperture hosted in an ``IfcWall`` is a wall opening
+      whatever its proportions, and is refused here rather than measured
+      downward. ``hosted_in`` is consulted only to VETO, so a file with no
+      ``IfcRelVoidsElement`` still gets the geometric answer.
+    """
+    from .operators import hosted_in
+
+    normal3 = dominant_vertical_plane(geo.triangles)
+    if normal3 is not None:
+        normal = np.array([float(normal3[0]), float(normal3[1])])
+        length = float(np.linalg.norm(normal))
+        if length >= 1e-9:
+            normal = normal / length
+            lateral = np.array([-normal[1], normal[0]])
+            points = geo.verts[:, :2]
+            across = points @ lateral
+            through = points @ normal
+            plan = float(across.max() - across.min()) * float(through.max() - through.min())
+            if plan <= _facing_area(geo.triangles, normal):
+                return False
+
+    host = hosted_in(model, element.GlobalId)
+    if host.decidable and host.value:
+        hosting = model.file.by_guid(host.value[0].global_id)
+        if any(hosting.is_a(name) for name in _VERTICAL_HOSTS):
+            return False
+    return True
+
+
 def _frame_of(model: SpatialModel, element: Any) -> _Frame | None:
     """The opening's plan frame, or ``None`` when it has no vertical plane.
 
     ``None`` is a real case and not a failure: a roof light in a flat roof has no
     vertical plane, so "in front of it" and "on the far side of it" are not
     defined in plan. Every caller turns this into an undecidable that says so.
+
+    A body that HAS vertical faces can still be a hole in a floor — the sides of
+    the prism are vertical — and for those this returns ``None`` as well. See
+    :func:`_is_floor_void` for the measured numbers; ``balustrade_check`` then
+    measures the fall downward through it instead, and the other two callers
+    refuse, which is right: a threshold height and a clear approach at a gallery
+    void are not defined either.
     """
     from .operators import hosted_in
 
@@ -506,6 +609,8 @@ def _frame_of(model: SpatialModel, element: Any) -> _Frame | None:
     normal = np.array([float(normal3[0]), float(normal3[1])])
     length = float(np.linalg.norm(normal))
     if length < 1e-9:
+        return None
+    if _is_floor_void(model, element, geo):
         return None
     normal = normal / length
     frame = _Frame(normal, np.array([-normal[1], normal[0]]))
@@ -1147,14 +1252,39 @@ def balustrade_check(
     on the inside. The parapet — the sill height over the inside floor — is
     measured either way, because a wall under a window is protection too.
 
+    ## Two kinds of opening, two measurements — ``lage``
+
+    A hole in a WALL and a hole in a FLOOR are both Absturzkanten and they are
+    not the same geometry, so every entry says which it is:
+
+    - ``lage`` „senkrecht" — the fall runs sideways past the opening, from the
+      floor inside to the ground :data:`OUTSIDE_PROBE` in front of it, and
+      ``parapet`` is the sill height over the inside floor.
+    - ``lage`` „waagrecht" — a gallery void, a stairwell, any slab opening. The
+      fall runs straight DOWN through it (:func:`_fall_through`) and ``parapet``
+      is ``null``, because a hole in a floor has no Brüstung.
+
+    Measuring the second as if it were the first is what this operator used to
+    do, and on ``AC20-FZK-Haus``'s gallery void it produced „fall 0.000 m,
+    parapet 2.500 m" at the one edge in the house where both of the model's
+    railings stand — while the real drop from „Galerie" (floor z = 2.700) to
+    „Wohnen" (floor z = 0.000) is 2.700 m. It now reads 2.700 m with both
+    railings at 1.000 m over the gallery floor.
+
+    A „waagrecht" entry with ``fall = null`` is not a failed measurement: it is
+    a floor void that reaches this room's list without being an edge OF this
+    room — because it sits in its ceiling, or because it is somewhere else in
+    the same slab. ``outside.via`` says which, in numbers.
+
     ## What is scanned, and what is not
 
-    Openings: windows, doors, and openings with no filler (which is how a
-    balcony door hole or a gallery void reaches an export). A free floor EDGE
-    with no opening in it — the unwalled side of a loggia, the open side of a
-    ramp — is **not** found by this and no answer here should be read as
-    covering it. That gap is named in the caveat rather than left for the reader
-    to discover.
+    Openings: windows, doors, and openings with no filler — which is how a
+    balcony door hole reaches an export, and how a gallery void does, and the
+    second is measured as the floor void it is. A free floor EDGE with no
+    opening in it — the unwalled side of a loggia, the open side of a ramp, a
+    gallery whose void was modelled by simply not drawing slab there — is
+    **not** found by this and no answer here should be read as covering it. That
+    gap is named in the caveat rather than left for the reader to discover.
     """
     method = (
         f"balustradeCheck({space_or_element_global_id})"
@@ -1206,7 +1336,7 @@ def balustrade_check(
     results: list[dict[str, Any]] = []
     unmeasurable: list[str] = []
     for opening in openings:
-        entry = _fall_at(model, opening, railings)
+        entry = _fall_at(model, opening, railings, subject if kind == "space" else None)
         if entry is None:
             unmeasurable.append(opening.GlobalId)
             continue
@@ -1250,10 +1380,13 @@ def balustrade_check(
     }
 
     caveat = (
-        f"{_NOT_A_VERDICT} „fall“ ist der gemessene Höhenunterschied zwischen dem Fußboden innen und der "
-        f"Fläche {OUTSIDE_PROBE:.2f} m vor der Öffnung, „parapet“ die Höhe der Öffnungsunterkante über dem "
-        "Fußboden innen. Welche Fallhöhe eine Absturzsicherung verlangt und wie hoch sie sein muss, steht in "
-        "der Bestimmung."
+        f"{_NOT_A_VERDICT} An einer SENKRECHTEN Öffnung (lage „senkrecht“: Fenster, Tür, Wandöffnung) ist "
+        f"„fall“ der gemessene Höhenunterschied zwischen dem Fußboden innen und der Fläche "
+        f"{OUTSIDE_PROBE:.2f} m vor der Öffnung, „parapet“ die Höhe der Öffnungsunterkante über dem Fußboden "
+        "innen. An einer WAAGRECHTEN Öffnung (lage „waagrecht“: Deckendurchbruch, Galerieöffnung) ist „fall“ "
+        "der Abstand vom Fußboden am Rand der Öffnung senkrecht hinab zur tiefsten von fünf Sondierungen "
+        "durch die Öffnung, und „parapet“ ist null, weil eine Bodenöffnung keine Brüstung hat. Welche "
+        "Fallhöhe eine Absturzsicherung verlangt und wie hoch sie sein muss, steht in der Bestimmung."
     )
     if fall_height is None:
         caveat += (
@@ -1275,6 +1408,14 @@ def balustrade_check(
             f" {len(unmeasurable)} Öffnung(en) ohne senkrechte Ebene oder ohne bestimmbares Niveau auf einer "
             "Seite sind nicht enthalten — die Liste ist insofern unvollständig."
         )
+    without_fall = [e for e in results if e["fall"] is None]
+    if without_fall:
+        caveat += (
+            f" {len(without_fall)} waagrechte Öffnung(en) sind mit fall = null aufgeführt: sie liegen in der "
+            "DECKE dieses Raums oder überhaupt nicht an ihm — von hier aus führt durch sie kein Absturz. Der "
+            "Grund steht je Öffnung unter outside.via; gemessen wird die Fallhöhe an dem Raum, dessen "
+            "Fußboden an der Öffnung endet."
+        )
 
     return computed(
         payload,
@@ -1294,7 +1435,12 @@ def _edge_text(edge: dict[str, Any]) -> str:
     WERE measured are written into the German sentence the architect reads.
     Dropping them would turn a partial answer into no answer.
     """
-    parapet = "Brüstungshöhe nicht messbar" if edge["parapet"] is None else f"Brüstungshöhe {edge['parapet']:.3f} m"
+    if edge["parapet"] is not None:
+        parapet = f"Brüstungshöhe {edge['parapet']:.3f} m"
+    elif edge.get("lage") == "waagrecht":
+        parapet = "keine Brüstung (waagrechte Öffnung im Boden)"
+    else:
+        parapet = "Brüstungshöhe nicht messbar"
     return (
         f"{edge['ifcType']} „{edge['name'] or edge['globalId']}“ ({edge['globalId']}): "
         f"Fallhöhe {edge['fall']:.3f} m, {parapet}"
@@ -1340,11 +1486,17 @@ def _railings(model: SpatialModel) -> list[Any]:
         return []
 
 
-def _fall_at(model: SpatialModel, opening: Any, railings: list[Any]) -> dict[str, Any] | None:
-    """One opening: the levels on both sides, the parapet, and what stands outside."""
+def _fall_at(model: SpatialModel, opening: Any, railings: list[Any], space: Any | None = None) -> dict[str, Any] | None:
+    """One opening: the levels on both sides, the parapet, and what stands outside.
+
+    ``space`` is the room the caller asked about, when it asked about a room. It
+    is not used for a wall opening — the two sides speak for themselves — and it
+    decides everything for a hole in a floor, which is a fall for the room ABOVE
+    it and a hole in the ceiling for the room below. See :func:`_fall_through`.
+    """
     frame = _frame_of(model, opening)
     if frame is None:
-        return None
+        return _fall_through(model, opening, railings, space)
     sides = _levels_both_sides(model, opening, frame)
     known = [s for s in sides if s["level"] is not None]
     if len(known) < 2:
@@ -1372,10 +1524,269 @@ def _fall_at(model: SpatialModel, opening: Any, railings: list[Any]) -> dict[str
         "ifcType": opening.is_a(),
         "fall": round(fall, 4),
         "parapet": parapet,
+        "lage": "senkrecht",
         "inside": inside,
         "outside": outside,
         "railings": _railings_at(model, frame, sign, float(inside["level"]), railings),
     }
+
+
+def _fall_through(model: SpatialModel, opening: Any, railings: list[Any], space: Any | None) -> dict[str, Any] | None:
+    """A hole in a FLOOR: the fall goes down through it, not sideways past it.
+
+    Reached when :func:`_frame_of` refused, and it measures only what
+    :func:`_is_floor_void` recognises; anything else stays ``None`` and is
+    reported as unmeasurable, which is what the caveat already says honestly.
+
+    ## Which room the fall belongs to
+
+    One void, two rooms, and the same 2.700 m means opposite things to them.
+    ``AC20-FZK-Haus``'s gallery void reaches BOTH „Galerie" (floor at z = 2.700,
+    the room you can fall out of) and „Wohnen" (floor at z = 0.000, the room you
+    would land in) through ``bounds()`` → ``hosts()``, because one slab is both
+    rooms' slab. So the fall is measured only for the room whose floor is AT the
+    void, and the room below gets the same entry with ``fall = null`` and a
+    ``via`` that says why. Reporting 2.700 m to „Wohnen" would invent an
+    Absturzkante in a ceiling — a defect an applicant would be asked to redesign
+    that is not there.
+
+    With no room in the question (``balustradeCheck`` aimed straight at the
+    opening) the walking level is the void's own top face, which is the same
+    number wherever the slab was modelled from.
+
+    ## …and whether it belongs to that room at all
+
+    A slab bounds EVERY room on its storey, and ``hosts()`` hands back every
+    void that slab carries, so `_openings_at` lists a stairwell void at rooms
+    on the far side of the building. Measured on ``AC20-Institute-Var-2``: its
+    two „Slab Opening" voids (18.30…23.70 × 11.70…15.70) are listed at all 82
+    spaces, „Buero" ``3zaEFaiGrF1ftyFPQrOe_i`` among them — **13.370 m** away in
+    plan. Left alone, this function would have handed that office a 2.591 m
+    Absturzkante and 64 other rooms one with it.
+
+    So the void's plan rectangle has to come within ``CONTACT`` of the room's
+    own plan extent, which is the same tolerance that decided the slab bounds
+    the room in the first place. On that file it keeps the two stairwell
+    corridors („Flur 2.OG Treppe", „Flur 3.OG Treppe", gap 0.000 m) and drops
+    the rooms across the wall („Dachboden-1" and „Dachboden-2", gap 0.300 m —
+    the corridor wall). The test is against the room's bounding box, so a room
+    bent round a corner can still claim a void sitting in the notch of its
+    L; that is the same over-inclusion ``bounds()`` itself carries and it is
+    bounded by the room's own extent rather than by the storey's.
+
+    ## The two levels
+
+    Top: the floor of the room at the void — measured, not the void's nominal
+    top. Bottom: the deepest of :data:`_VOID_PROBES` rays cast down through the
+    void, air and furniture excluded by :func:`_surface_below`, exactly as the
+    wall case probes the ground outside. ``parapet`` is ``None`` and not zero: a
+    hole in a floor has no Brüstung, and zero is a number an agent puts in a
+    sentence.
+    """
+    geo = model.geometry(opening.GlobalId)
+    if geo is None or len(geo.triangles) == 0:
+        return None
+    if not _is_floor_void(model, opening, geo):
+        return None
+
+    x_min, y_min, z_min = (float(v) for v in geo.box[0])
+    x_max, y_max, z_max = (float(v) for v in geo.box[1])
+    rect = (x_min, y_min, x_max, y_max)
+    top, inside_space = z_max, None
+    if space is not None:
+        space_geo = model.geometry(space.GlobalId)
+        if space_geo is None:
+            return None
+        floor = float(space_geo.box[0][2])
+        reach = _plan_gap(rect, space_geo.box)
+        if reach > CONTACT:
+            return _void_away_from(model, opening, space, floor, reach)
+        if floor < z_min - DIMENSION_TOLERANCE:
+            return _void_overhead(model, opening, space, floor, (z_min, z_max))
+        if floor > z_max + DIMENSION_TOLERANCE:
+            return None
+        top, inside_space = floor, space
+
+    # Cast from the middle of the void's own thickness: below the floor it is cut
+    # into, above whatever is beneath it, and inside the hole for every void
+    # thicker than nothing.
+    probe_z = (z_min + z_max) / 2.0
+    deepest: tuple[float, Any] | None = None
+    for fx, fy in _VOID_PROBES:
+        found = _surface_below(model, x_min + fx * (x_max - x_min), y_min + fy * (y_max - y_min), probe_z)
+        if found is not None and (deepest is None or found[0] < deepest[0]):
+            deepest = found
+    if deepest is None:
+        return None
+    level, hit = deepest
+
+    return {
+        "globalId": opening.GlobalId,
+        "name": model.label(opening),
+        "ifcType": opening.is_a(),
+        "fall": round(top - level, 4),
+        "parapet": None,
+        "lage": "waagrecht",
+        "inside": {
+            "direction": [0.0, 0.0],
+            "space": None if inside_space is None else inside_space.GlobalId,
+            "spaceName": None if inside_space is None else model.label(inside_space),
+            "level": round(top, 4),
+            "via": (
+                "Fußboden am Rand der waagrechten Öffnung (Unterkante des Raumkörpers)"
+                if inside_space is not None
+                else "Oberkante der waagrechten Öffnung (kein Raum in der Anfrage)"
+            ),
+            "surface": None,
+        },
+        "outside": {
+            "direction": [0.0, 0.0],
+            "space": None,
+            "spaceName": None,
+            "level": round(level, 4),
+            "via": f"Strahl senkrecht nach unten durch die Öffnung, tiefster von {len(_VOID_PROBES)} Punkten",
+            "surface": {
+                "globalId": hit.GlobalId,
+                "name": model.label(hit),
+                "ifcType": hit.is_a(),
+                "top": round(level, 4),
+                "gap": None,
+            },
+        },
+        "railings": _railings_at_void(model, (x_min, y_min, x_max, y_max), top, railings),
+    }
+
+
+def _plan_gap(rect: tuple[float, float, float, float], box: Any) -> float:
+    """Shortest distance in plan between a rectangle and a body's bounding box.
+
+    Zero when they overlap or touch, which is the case that matters: a gallery
+    void lies AT the floor it interrupts, and „at" includes sharing an edge with
+    it. One function so that the reach of a railing and the reach of a room are
+    the same arithmetic.
+    """
+    gap_x = max(rect[0] - float(box[1][0]), float(box[0][0]) - rect[2], 0.0)
+    gap_y = max(rect[1] - float(box[1][1]), float(box[0][1]) - rect[3], 0.0)
+    return math.hypot(gap_x, gap_y)
+
+
+def _void_away_from(model: SpatialModel, opening: Any, space: Any, floor: float, reach: float) -> dict[str, Any]:
+    """A void in the same slab, but not at this room — the 13.370 m case.
+
+    Listed with the distance rather than dropped, because it explains why an
+    opening nobody at this room can reach is in this room's list at all: the
+    slab it is cut into bounds the room, so ``hosts()`` hands it over.
+    """
+    return {
+        "globalId": opening.GlobalId,
+        "name": model.label(opening),
+        "ifcType": opening.is_a(),
+        "fall": None,
+        "parapet": None,
+        "lage": "waagrecht",
+        "inside": {
+            "direction": [0.0, 0.0],
+            "space": space.GlobalId,
+            "spaceName": model.label(space),
+            "level": round(floor, 4),
+            "via": "Unterkante des Raumkörpers (IfcSpace)",
+            "surface": None,
+        },
+        "outside": {
+            "direction": [0.0, 0.0],
+            "space": None,
+            "spaceName": None,
+            "level": None,
+            "via": (
+                f"waagrechte Öffnung derselben Decke, aber {reach:.3f} m von diesem Raum entfernt (im "
+                "Grundriss) — sie liegt nicht an seinem Fußboden und ist hier keine Fallhöhe; sie steht in "
+                "dieser Liste, weil die Decke, in der sie sitzt, den Raum begrenzt"
+            ),
+            "surface": None,
+        },
+        "railings": [],
+    }
+
+
+def _void_overhead(
+    model: SpatialModel, opening: Any, space: Any, floor: float, span: tuple[float, float]
+) -> dict[str, Any]:
+    """The same floor void, seen from the room UNDERNEATH it.
+
+    Listed rather than dropped, and with ``fall = null`` rather than a number:
+    the opening genuinely bounds this room, and saying so with the reason beats
+    letting it vanish into a count of unmeasurable openings — but nobody falls
+    upward through their own ceiling.
+    """
+    return {
+        "globalId": opening.GlobalId,
+        "name": model.label(opening),
+        "ifcType": opening.is_a(),
+        "fall": None,
+        "parapet": None,
+        "lage": "waagrecht",
+        "inside": {
+            "direction": [0.0, 0.0],
+            "space": space.GlobalId,
+            "spaceName": model.label(space),
+            "level": round(floor, 4),
+            "via": "Unterkante des Raumkörpers (IfcSpace)",
+            "surface": None,
+        },
+        "outside": {
+            "direction": [0.0, 0.0],
+            "space": None,
+            "spaceName": None,
+            "level": None,
+            "via": (
+                f"waagrechte Öffnung in der DECKE dieses Raums (Öffnung von {span[0]:.3f} m bis "
+                f"{span[1]:.3f} m, Fußboden dieses Raums bei {floor:.3f} m) — von hier aus führt sie nicht "
+                "abwärts; die Fallhöhe ist am darüberliegenden Raum zu messen"
+            ),
+            "surface": None,
+        },
+        "railings": [],
+    }
+
+
+def _railings_at_void(
+    model: SpatialModel, rect: tuple[float, float, float, float], top: float, railings: list[Any]
+) -> list[dict[str, Any]]:
+    """Railings standing at a floor void's perimeter, with their height over it.
+
+    The plan test is the gap between two rectangles rather than a signed
+    distance through a wall face: a floor void has no inside and outside, it has
+    a perimeter, and a balustrade stands on it. Both of ``AC20-FZK-Haus``'s
+    railings sit 0.030 m and 0.000 m from the gallery void's rectangle, well
+    inside :data:`RAILING_REACH`.
+
+    Two height tests keep the railing on the right storey, which is the whole
+    risk of a purely-plan test in a building where every floor has the same
+    plan: it must rise above the walking level, or it protects nothing here, and
+    its foot must not stand more than :data:`RAILING_FOOT` above that level, or
+    it is the balustrade of the storey above.
+    """
+    found = []
+    for railing in railings:
+        geo = model.geometry(railing.GlobalId)
+        if geo is None:
+            continue
+        base, crest = float(geo.box[0][2]), float(geo.box[1][2])
+        if crest <= top + COORDINATE_TOLERANCE or base > top + RAILING_FOOT:
+            continue
+        if _plan_gap(rect, geo.box) > RAILING_REACH:
+            continue
+        found.append(
+            {
+                "globalId": railing.GlobalId,
+                "name": model.label(railing),
+                "ifcType": railing.is_a(),
+                "height": round(crest - top, 4),
+                "top": round(crest, 4),
+            }
+        )
+    found.sort(key=lambda r: (-r["height"], r["globalId"]))
+    return found
 
 
 def _railings_at(
