@@ -12,7 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./platform-repository', () => ({
   listPlatformSkillRows: vi.fn(),
-  listPublishedPlatformSkillRows: vi.fn(),
+  listPublishedOfferRows: vi.fn(),
+  listPublishedStandardRows: vi.fn(),
   findPlatformSkillRow: vi.fn(),
   findPlatformSkillRowByName: vi.fn(),
   insertPlatformSkillRow: vi.fn(),
@@ -45,6 +46,7 @@ function makeRow(overrides: Partial<PlatformSkillRow> = {}): PlatformSkillRow {
     body: 'Act as a fire-safety reviewer.',
     metadata: {},
     published: false,
+    delivery: 'offer',
     createdBy: 'user_1',
     createdByEmail: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -89,6 +91,31 @@ describe('createPlatformSkill', () => {
     expect(skill.published).toBe(false)
     expect(repository.insertPlatformSkillRow).toHaveBeenCalledWith(
       expect.objectContaining({ published: false, createdBy: 'user_1' })
+    )
+  })
+
+  /**
+   * The second closed default, and the one that decides whether an organization
+   * gets a choice. A skill that says nothing about its audience is an OFFER —
+   * imposing on the fleet has to be a word somebody wrote.
+   */
+  it('creates an OFFER unless standard delivery was asked for', async () => {
+    vi.mocked(repository.insertPlatformSkillRow).mockImplementation(async (values) =>
+      makeRow(values as Partial<PlatformSkillRow>)
+    )
+    const { skill } = await createPlatformSkill(
+      { name: 'oib-fire-check', description: 'd', body: 'b' },
+      author
+    )
+    expect(skill.delivery).toBe('offer')
+
+    const { skill: standard } = await createPlatformSkill(
+      { name: 'house-style', description: 'd', body: 'b', delivery: 'standard' },
+      author
+    )
+    expect(standard.delivery).toBe('standard')
+    expect(repository.insertPlatformSkillRow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ delivery: 'standard' })
     )
   })
 
@@ -172,6 +199,29 @@ describe('updatePlatformSkill', () => {
       description: 'new',
     })
     expect(skill.description).toBe('new')
+  })
+
+  /**
+   * Promotion and demotion are the same call, and neither touches the document.
+   * A standard skill is the same SKILL.md as the offer it was a moment ago — the
+   * only thing that changed is who is running it.
+   */
+  it('moves a skill between the two deliveries', async () => {
+    vi.mocked(repository.findPlatformSkillRow).mockResolvedValue(makeRow({ published: true }))
+    vi.mocked(repository.updatePlatformSkillRow).mockResolvedValue(
+      makeRow({ published: true, delivery: 'standard' })
+    )
+    const { skill } = await updatePlatformSkill('ps-1', { delivery: 'standard' })
+    expect(skill.delivery).toBe('standard')
+    expect(repository.updatePlatformSkillRow).toHaveBeenCalledWith(
+      'ps-1',
+      expect.objectContaining({ delivery: 'standard' })
+    )
+    // The body, description and metadata are not in the patch: nothing about the
+    // instruction itself changes when its audience does.
+    const [, patch] = vi.mocked(repository.updatePlatformSkillRow).mock.calls[0]
+    expect(patch).not.toHaveProperty('body')
+    expect(patch).not.toHaveProperty('published')
   })
 
   it('404s an unknown id', async () => {

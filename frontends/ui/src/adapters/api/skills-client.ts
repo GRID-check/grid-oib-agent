@@ -255,6 +255,21 @@ export const setCuratedSkillEnabled = async (
  * because the id addresses the fleet's copy and only the platform tier may
  * write it.
  */
+/**
+ * How a curated skill reaches organizations.
+ *
+ * Declared here rather than imported from `@/lib/db/schema` on purpose — this
+ * module mirrors the JSON contract so the UI stays decoupled from the server's
+ * internals, exactly as the toolbox types above do.
+ *
+ *   offer     Listed on every org's Skills tab, off until that org switches it
+ *             on. The default, and what publishing meant before this existed.
+ *   standard  Live for the whole fleet the moment it is published. Not listed,
+ *             not switchable, not shadowable — ours to write and ours to
+ *             withdraw.
+ */
+export type PlatformSkillDelivery = 'offer' | 'standard'
+
 export interface PlatformSkillItem {
   id: string
   name: string
@@ -262,6 +277,7 @@ export interface PlatformSkillItem {
   body: string
   metadata: Record<string, string>
   published: boolean
+  delivery: PlatformSkillDelivery
   createdAt: string
   updatedAt: string
 }
@@ -272,6 +288,7 @@ export interface PlatformSkillInput {
   body: string
   metadata?: Record<string, string>
   published?: boolean
+  delivery?: PlatformSkillDelivery
 }
 
 const platformSkillsBase = '/api/platform/skills'

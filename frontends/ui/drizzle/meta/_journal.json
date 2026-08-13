@@ -351,6 +351,13 @@
       "when": 1786752000005,
       "tag": "0049_session_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786838400005,
+      "tag": "0050_platform_skill_delivery",
+      "breakpoints": true
     }
   ]
 }

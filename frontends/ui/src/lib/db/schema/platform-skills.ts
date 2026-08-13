@@ -1,14 +1,36 @@
 import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 
 /**
- * The skills the PLATFORM curates for every organization (Platform → Skills).
+ * How a curated skill reaches organizations.
  *
- * Global by design — no `organization_id`. One row here is offered to every
- * tenant at once, which is the whole point: we write a skill in the platform
- * dashboard and it reaches every org and project without anyone copying
- * anything. Whether a given org actually runs it is that org's decision, stored
- * separately in `curated_skill_activations`; deleting THAT row switches the
- * skill off, deleting THIS one withdraws it from the fleet.
+ * `offer` is the default and what 0047 shipped: publishing puts the skill on
+ * every org's Skills tab, and each one decides. `standard` is the tier that has
+ * no tenant decision in it at all — the platform's own house instruction, live
+ * for the whole fleet the moment it is published.
+ *
+ * Mirrored by the `platform_skills_delivery_check` constraint (0050), which is
+ * the one that survives a psql session: the resolver asks `delivery ===
+ * 'standard'`, so an unrecognised value fails toward "offer" and would silently
+ * demote a fleet instruction to something nobody was told to switch on.
+ */
+export const PLATFORM_SKILL_DELIVERIES = ['offer', 'standard'] as const
+export type PlatformSkillDelivery = (typeof PLATFORM_SKILL_DELIVERIES)[number]
+
+/**
+ * The skills the PLATFORM writes for every organization (Platform → Skills).
+ *
+ * Global by design — no `organization_id`. One row here reaches every tenant at
+ * once, which is the whole point: we write a skill in the platform dashboard and
+ * it reaches every org and project without anyone copying anything.
+ *
+ * HOW it reaches them is `delivery`, and there are two answers:
+ *
+ *   'offer'     Listed on every organization's Skills tab, off until that org
+ *               switches it on. The decision is theirs and lives in
+ *               `curated_skill_activations`.
+ *   'standard'  Fleet standard equipment. Resolved for every organization with
+ *               no decision to make, never listed, not switchable, and not
+ *               shadowable by an org row of the same name.
  *
  * Distinct from the two skill sources that already existed:
  *
@@ -49,6 +71,23 @@ export const platformSkills = pgTable(
      * restores the fleet exactly as it was.
      */
     published: boolean('published').notNull().default(false),
+    /**
+     * Whether organizations CHOOSE this skill or simply run it.
+     *
+     * Orthogonal to `published`, and the two closed defaults mean different
+     * things: an unpublished row is invisible, an `offer` row requires consent.
+     * A published `standard` row is the only combination that imposes anything
+     * on a tenant, which is why it takes two deliberate acts to reach.
+     *
+     * A tenant can never write this column — `platform_skills` is secured with
+     * `grid_secure_platform_table`, so SELECT is all the tenant role has. That
+     * is what makes `standard` an enforced boundary rather than a convention an
+     * org could route around by crafting a request.
+     */
+    delivery: text('delivery')
+      .$type<PlatformSkillDelivery>()
+      .notNull()
+      .default('offer'),
     createdBy: text('created_by').notNull(),
     createdByEmail: text('created_by_email'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
