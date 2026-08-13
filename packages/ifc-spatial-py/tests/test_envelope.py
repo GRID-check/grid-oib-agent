@@ -68,7 +68,11 @@ def test_triangulate_agreeing_keeps_the_measured_route_and_says_nothing() -> Non
     answer = triangulate(measured, schedule, method="floorArea(space)")
     assert answer.agreement == "agree"
     assert answer.value == 51.9948
-    assert answer.caveat is None
+    # Agreement is SAID. A bare `computed` renders as „aus der Geometrie
+    # berechnet, nicht deklariert" — which is false about a file that declares
+    # the value, and throws away the stronger of the two claims.
+    assert "bestätigen diese Zahl" in answer.caveat
+    assert "DEKLARIERT" in answer.caveat
 
 
 def test_triangulate_disagreeing_reports_the_geometry_and_calls_it_a_finding() -> None:

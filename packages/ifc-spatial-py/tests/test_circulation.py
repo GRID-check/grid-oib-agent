@@ -43,6 +43,7 @@ from ifc_spatial import circulation as ci
 from ifc_spatial import operators as op
 from ifc_spatial.model import SpatialModel
 from ifc_spatial.model import UnknownElementError
+from ifc_spatial.model import WrongKindError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -315,7 +316,11 @@ def test_a_door_whose_rooms_cannot_be_resolved_is_reported_not_dropped() -> None
     assert answer.decidable
     assert answer.value.edges == ()
     assert [entry["globalId"] for entry in answer.value.unresolved] == ["2Haus0Raeume00Door0001"]
-    assert "keine geometrische Repräsentation" in answer.value.unresolved[0]["warum"]
+    assert "Körpergeometrie für" in answer.value.unresolved[0]["warum"]
+    # And it does NOT start with „keine": the renderer wraps `what` in
+    # „dieser Export liefert … nicht", so a negated noun phrase produced
+    # „liefert keine … nicht" — a double negation asserting the opposite.
+    assert not answer.value.unresolved[0]["warum"].startswith("kein")
     assert "unbestimmt" in answer.caveat
     # The consequence, stated rather than hidden: no route out of either room.
     egress = ci.egress_path(model, "2Haus0Raeume00Space001")
@@ -365,10 +370,10 @@ def test_a_hallucinated_global_id_raises_rather_than_answering(house: SpatialMod
 
 
 def test_asking_a_wall_for_its_escape_route_names_the_operator_that_would_answer(house: SpatialModel) -> None:
-    answer = ci.egress_path(house, NORTH_WALL)
-    assert not answer.decidable
-    assert "erwartet einen Raum (IfcSpace)" in answer.missing.what
-    assert "opensTo()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        ci.egress_path(house, NORTH_WALL)
+    assert "erwartet einen Raum (IfcSpace)" in str(raised.value)
+    assert "opensTo()" in str(raised.value)
 
 
 # ── the line this layer may not cross ───────────────────────────────────────

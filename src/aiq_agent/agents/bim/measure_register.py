@@ -47,6 +47,7 @@ call costs can decide it is worth it; one that finds out afterwards cannot.
 import asyncio
 import logging
 import math
+import re
 from typing import Any
 
 from pydantic import Field
@@ -691,9 +692,19 @@ def _provenance_line(answer: dict[str, Any]) -> str:
         missing = answer.get("missing") or {}
         what = missing.get("what") or "die nötige Angabe"
         remedy = missing.get("remedy") or ""
-        return (
-            f"NICHT ENTSCHEIDBAR: dieser Export liefert {what} nicht. "
-            f"Das ist ein Befund über den EXPORT, nicht über das Gebäude." + (f" Abhilfe: {remedy}" if remedy else "")
+        # Two sentence forms, because `missing.what` comes in two grammatical
+        # shapes and one template cannot carry both. Around thirty of them
+        # across the package are already negated („keine IfcSpace-Elemente"),
+        # and „liefert keine IfcSpace-Elemente nicht" is not German — read
+        # literally it says the opposite of the finding.
+        #
+        # Fixed here rather than by rewriting thirty German strings: the
+        # renderer owns the sentence, so the renderer is where the agreement
+        # belongs, and a string added tomorrow gets it for free.
+        negated = re.match(r"kein(e|en|er|es)?\b", what.strip(), re.IGNORECASE)
+        opening = f"dieser Export enthält {what}" if negated else f"dieser Export liefert {what} nicht"
+        return f"NICHT ENTSCHEIDBAR: {opening}. Das ist ein Befund über den EXPORT, nicht über das Gebäude." + (
+            f" Abhilfe: {remedy}" if remedy else ""
         )
 
     unit = answer.get("unit")
@@ -1065,11 +1076,24 @@ def _rejected_text(reason: str) -> str:
 
 
 def _unrunnable_text(reason: str) -> str:
-    """The call could not be MADE — an id that is not in this model.
+    """The call could not be MADE. Two kinds, and they need opposite advice.
 
     Distinct from `decidable: false`, which is a successful answer about the
     export and renders as a finding, not as an error.
+
+    An unknown GlobalId means look it up again. A WRONG KIND — asking a wall for
+    its clear opening width — means the id is CORRECT and the operator is not,
+    and telling the agent to re-check the id sends it to `find_elements` for
+    something it already has, then back with the same wrong call. The engine's
+    own message already names the operator that would answer, so the advice here
+    is to take it.
     """
+    wrong_kind = "Fehler im Aufruf" in reason
+    if wrong_kind:
+        return (
+            f"Error: {reason}. The GlobalId is fine — the OPERATOR is wrong for this kind of "
+            "element. Do not look the id up again; use the operator named above."
+        )
     return (
         f"Error: {reason}. This is a problem with the arguments, not with the building — "
         "check the GlobalId with operation='find_elements' and call again."

@@ -249,6 +249,23 @@ def triangulate(
 
     The returned answer carries ``agreement`` ∈ {``agree``, ``disagree``,
     ``single``} in addition to the envelope's own fields.
+
+    ## Why ``agree`` now writes a caveat too
+
+    It only wrote one on ``disagree``. An agreeing pair came back as a bare
+    ``computed``, which the renderer prints as „aus der Geometrie berechnet,
+    **nicht deklariert**" — and the sample house's Bedroom
+    (``3w0zWKm7n8SB1qbfwUzt0J``) declares ``BaseQuantities.NetFloorArea =
+    15.41678125`` against a measured 15.4168 m². The file DOES declare it, the
+    two routes agree to seven digits, and the answer said it was not declared at
+    all: „declared and confirmed" and „no schedule entry exists" rendered
+    identically, with the stronger of the two claims wearing the weaker one's
+    sentence.
+
+    Two independent routes agreeing is a stronger statement than either alone —
+    it is the one thing that rules out both an authoring slip in the schedule and
+    a tessellation problem in the body, and it is what makes a declared quantity
+    quotable. So it is said, in the same place a contradiction would be said.
     """
     both = a.decidable and b.decidable and isinstance(a.value, (int, float)) and isinstance(b.value, (int, float))
 
@@ -284,11 +301,30 @@ def triangulate(
     out.from_ = list(dict.fromkeys([*a.from_, *b.from_]))
     out.agreement = "agree" if delta <= relative_tolerance else "disagree"
     if delta > relative_tolerance:
-        out.caveat = (
+        verdict = (
             f"Zwei Wege zu dieser Zahl widersprechen sich: {_fmt(av)} ({a.provenance}) gegen "
             f"{_fmt(bv)} ({b.provenance}), Abweichung {delta * 100:.1f} %. "
             "Das ist ein Befund über den Export, nicht über das Gebäude."
         )
+    else:
+        # Named only when one side really is `declared` — `triangulate` takes any
+        # two routes, and claiming a schedule entry that neither side came from
+        # would be the same false-provenance error in the other direction.
+        declared_side = "declared" in (a.provenance, b.provenance)
+        verdict = (
+            f"Zwei unabhängige Wege bestätigen diese Zahl: {_fmt(av)} ({a.provenance}) und "
+            f"{_fmt(bv)} ({b.provenance}), Abweichung {delta * 100:.1f} %. "
+            + (
+                "Die Datei DEKLARIERT diesen Wert und die Geometrie bestätigt ihn — das ist belastbarer "
+                "als jeder der beiden Wege allein."
+                if declared_side
+                else "Beide Wege führen zum selben Ergebnis."
+            )
+        )
+    # Appended, never substituted: the winning answer's own caveat („Gemessene
+    # Grundfläche 0 m²…", a unit conversion note) is a qualification the value is
+    # not valid without, and overwriting it would drop it.
+    out.caveat = f"{out.caveat} {verdict}" if out.caveat else verdict
     return out
 
 

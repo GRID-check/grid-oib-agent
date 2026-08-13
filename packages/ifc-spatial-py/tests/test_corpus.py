@@ -506,7 +506,11 @@ def test_a_body_the_kernel_rejects_is_not_reported_as_a_missing_body(tmp_path: P
 
     answer = op.extent(model, wall)
     assert answer.decidable is False
-    assert "nicht auswertbar" in answer.missing.what
+    assert "auswertbare Körpergeometrie" in answer.missing.what
+    # The renderer builds „dieser Export liefert {what} nicht", so `what` has to
+    # be a bare noun phrase — „Körpergeometrie … ist nicht auswertbar" produced
+    # a sentence with two negations and one verb too many.
+    assert not answer.missing.what.startswith("kein")
     assert "Geometriekern" in answer.missing.remedy
     assert "ändert daran nichts" in answer.missing.remedy
 
@@ -523,7 +527,8 @@ def test_an_element_with_no_representation_at_all_says_that_instead(model: Spati
     assert orphan is not None, "the sample house has products without a body"
     answer = op.extent(model, orphan.GlobalId)
     assert answer.decidable is False
-    assert "keine geometrische Repräsentation" in answer.missing.what
+    assert "Körpergeometrie für" in answer.missing.what
+    assert not answer.missing.what.startswith("kein")
     assert model.geometry_failure(orphan.GlobalId) == "no-representation"
 
 

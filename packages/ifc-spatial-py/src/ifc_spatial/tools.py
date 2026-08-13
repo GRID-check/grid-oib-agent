@@ -62,6 +62,7 @@ from . import fire as fi
 from . import operators as op
 from . import relations as extra
 from . import stairs as st
+from .briefing import GERMAN_KIND
 from .briefing import briefing as build_briefing
 from .briefing import content_hash
 from .briefing import inventory
@@ -71,6 +72,7 @@ from .cache import SpatialCache
 from .envelope import Answer
 from .model import SpatialModel
 from .model import UnknownElementError
+from .model import WrongKindError
 
 
 @dataclass(frozen=True)
@@ -334,11 +336,19 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         nothing — so it becomes a tool error, while every "the file cannot say"
         stays a successful result carrying ``decidable: false``. Collapsing the
         two would let a typo in a GlobalId read as a finding about the building.
+
+        :class:`WrongKindError` is the same class of mistake one step further in:
+        the id is real and the question does not apply to it. It is a caller
+        error too — an architect cannot re-export their way out of a wall being
+        asked for its clear opening width — so it also becomes a ``ToolError``
+        and never a finding about the export.
         """
         try:
             return fn()
         except UnknownElementError as error:
             raise ToolError(f"{error} — GlobalId mit find_elements prüfen") from None
+        except WrongKindError as error:
+            raise ToolError(str(error)) from None
 
     # ── open_model ──────────────────────────────────────────────────────────
 
@@ -445,7 +455,16 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         for name, fn in RELATION_FN.items():
             if name in GEOMETRIC_RELATIONS:
                 continue
-            answer = run(lambda fn=fn: fn(model, global_id))
+            try:
+                answer = fn(model, global_id)
+            except WrongKindError:
+                # The ONE place a wrong kind is a question rather than a
+                # mistake: this loop asks every relation whether it applies to
+                # this element, and `hosts` on an IfcSpace answering "no" is the
+                # menu working. Everywhere else the same refusal is the caller's
+                # error and must reach them — so it is caught here by hand and
+                # nowhere else, rather than softened at the source.
+                continue
             if not answer.decidable:
                 continue
             value = answer.value
@@ -563,6 +582,62 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         written = ids.write_ids(document)
         return {**written, "summary": document.summary()}
 
+    # ── the caption ─────────────────────────────────────────────────────────
+
+    def _plan_note(drawn: Any) -> str:
+        """What the picture actually shows — which is not always a floor plan.
+
+        ``render.plan`` returns ``None`` only when there is neither structure NOR
+        a room. A storey that has a room outline and no structural element
+        crossing the 1.2 m cut therefore comes back as a page holding one filled
+        rectangle, with ``elementsDrawn: 0``. On the sample house that is
+        ``view(storey='Roof')``: rooms ``['Roof']``, 0 elements, and a caption
+        reading „auf dieser Höhe erscheinen Tür- und Fensteröffnungen als Lücken
+        in der Wand" — a sentence about walls, in front of a picture with no
+        walls in it. An agent that looks at that concludes the loft is open on
+        every side.
+
+        The page is not refused, because a room outline IS information and a
+        blank page must stay distinguishable from a broken renderer (the module
+        docstring's rule). What changes is that the caption stops describing a
+        drawing that is not there.
+        """
+        head = f"Grundriss „{drawn.storey}“, waagrechter Schnitt {drawn.cut_z:.2f} m über Null"
+        tail = "Maße NICHT aus dem Bild ablesen; dafür measure/distance."
+        if drawn.drawn == 0:
+            return (
+                f"{head}. ACHTUNG: auf dieser Schnitthöhe wurde KEIN Bauteil gezeichnet "
+                "(elementsDrawn = 0) — kein Bauteil dieses Geschoßes schneidet die Ebene. Im Bild "
+                "stehen nur die Raumumrisse; das Fehlen von Wänden, Türen und Fenstern im Bild ist "
+                f"keine Aussage über das Gebäude. {tail}"
+            )
+        return f"{head} — auf dieser Höhe erscheinen Tür- und Fensteröffnungen als Lücken in der Wand. {tail}"
+
+    # ── room_inventory ──────────────────────────────────────────────────────
+
+    def room_inventory(args: dict[str, Any]) -> Any:
+        """``kind`` is validated here, exactly like ``relation`` and ``measure``.
+
+        It used to go straight through as ``str(args.get("kind") or "")``, and
+        ``briefing.inventory`` indexed ``GERMAN_KIND`` with it — so an omitted or
+        misspelt kind came back as ``KeyError: ''`` from ``briefing.py:799``. A
+        Python traceback is not a refusal: the caller cannot read it, cannot act
+        on it, and an MCP client sees a crash where every other enum in this file
+        produces a German sentence naming the allowed values. The NAT tool layer
+        happened to validate ``kind`` before this was reached, but this module is
+        documented as transport-free and ``mcp_server`` hands arguments here
+        unfiltered.
+        """
+        model = resolve(args.get("model"))
+        kind = str(args.get("kind") or "").strip()
+        if kind not in GERMAN_KIND:
+            raise ToolError(
+                f'kind "{kind}" gibt es nicht. Erlaubt: {", ".join(GERMAN_KIND)}'
+                if kind
+                else f"kind fehlt. Erlaubt: {', '.join(GERMAN_KIND)}"
+            )
+        return inventory(model, kind)  # type: ignore[arg-type]
+
     # ── view ────────────────────────────────────────────────────────────────
 
     def view(args: dict[str, Any]) -> Any:
@@ -610,11 +685,7 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
             "elementsDrawn": drawn.drawn,
             "northDeclared": drawn.north_deg is not None,
             "seconds": round(seconds, 2),
-            "note": (
-                f"Grundriss „{drawn.storey}“, waagrechter Schnitt {drawn.cut_z:.2f} m über Null — auf "
-                "dieser Höhe erscheinen Tür- und Fensteröffnungen als Lücken in der Wand. Maße NICHT "
-                "aus dem Bild ablesen; dafür measure/distance."
-            ),
+            "note": _plan_note(drawn),
         }
 
     # ── draw ────────────────────────────────────────────────────────────────
@@ -1041,7 +1112,7 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 },
                 "required": ["model", "kind"],
             },
-            handler=lambda args: inventory(resolve(args.get("model")), str(args.get("kind") or "")),  # type: ignore[arg-type]
+            handler=room_inventory,
         ),
     ]
 
@@ -1051,10 +1122,20 @@ def call(tools: list[ToolDef], name: str, args: dict[str, Any]) -> Any:
 
     The single entry point every transport uses, so an HTTP route and the MCP
     server cannot disagree about what a tool returns.
+
+    The two caller mistakes are converted here as well as inside ``run``, so that
+    a handler which forgot to wrap its operator cannot leak a Python traceback to
+    an MCP client. ``mcp_server`` hands raw arguments straight to this function
+    and has no second net.
     """
     for tool in tools:
         if tool.name == name:
-            return _jsonable(tool.handler(args))
+            try:
+                return _jsonable(tool.handler(args))
+            except UnknownElementError as error:
+                raise ToolError(f"{error} — GlobalId mit find_elements prüfen") from None
+            except WrongKindError as error:
+                raise ToolError(str(error)) from None
     raise ToolError(f'Unbekanntes Werkzeug "{name}". Verfügbar: {", ".join(t.name for t in tools)}')
 
 

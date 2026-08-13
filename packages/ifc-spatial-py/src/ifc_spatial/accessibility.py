@@ -747,14 +747,12 @@ def turning_circle(model: SpatialModel, space_global_id: str, diameter: float | 
     )
     subject = _require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "turningCircle",
             "einen Raum (IfcSpace)",
             "für die freie Fläche vor einer Tür: clearApproach(); für ein lichtes Maß: clearOpeningWidth()",
-            "computed",
         )
 
     if diameter is not None:
@@ -932,8 +930,7 @@ def threshold_height(model: SpatialModel, door_global_id: str) -> Answer[dict[st
     method = f"thresholdHeight({door_global_id})"
     subject = _require(model, door_global_id, method)
     if subject.is_a() not in DOORWAY:
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "thresholdHeight",
@@ -942,7 +939,6 @@ def threshold_height(model: SpatialModel, door_global_id: str) -> Answer[dict[st
                 "ein Fenster hat keine Schwelle — für seine Brüstung: sillAndHead(), für eine Absturzkante: "
                 "balustradeCheck(); für die Höhenlage eines beliebigen Bauteils: elevation()"
             ),
-            "computed",
         )
 
     geo, missing = _geometry_or_answer(model, subject, method)
@@ -1198,14 +1194,12 @@ def balustrade_check(
     elif subject.is_a() in FENESTRATION:
         openings = [subject]
     else:
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "balustradeCheck",
             "einen Raum (IfcSpace), ein Fenster, eine Tür oder eine Öffnung",
             "für eine Wand: hosts() liefert ihre Öffnungen, danach balustradeCheck() je Öffnung",
-            "computed",
         )
 
     railings = _railings(model)
@@ -1462,14 +1456,12 @@ def clear_approach(model: SpatialModel, door_global_id: str) -> Answer[dict[str,
     method = f"clearApproach({door_global_id})"
     subject = _require(model, door_global_id, method)
     if subject.is_a() not in FENESTRATION:
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "clearApproach",
             "eine Tür, ein Fenster oder eine Öffnung",
             "für die Bewegungsfläche eines ganzen Raums: turningCircle(); für das lichte Maß: clearOpeningWidth()",
-            "computed",
         )
 
     geo, missing = _geometry_or_answer(model, subject, method)

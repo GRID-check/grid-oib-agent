@@ -346,14 +346,12 @@ def room_depth(
     method = f"roomDepth({space_global_id})"
     subject = op._require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
-        return op._wrong_kind(
-            model,
+        op._wrong_kind(
             subject,
             method,
             "roomDepth",
             "einen Raum (IfcSpace)",
             "für die Ausdehnung eines Bauteils: extent() liefert sie",
-            "computed",
         )
 
     geo, missing = op._geometry_or_answer(model, subject, method)

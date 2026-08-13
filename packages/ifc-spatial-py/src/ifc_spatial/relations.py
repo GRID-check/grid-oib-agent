@@ -87,8 +87,7 @@ def elements_of_storey(model: SpatialModel, storey_global_id: str) -> Answer[lis
     subject = model.by_id(storey_global_id, method)
 
     if model.kind_of(subject) != "storey":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "elementsOfStorey",

@@ -30,6 +30,7 @@ from ifc_spatial import clearance as cl
 from ifc_spatial import operators as op
 from ifc_spatial.model import SpatialModel
 from ifc_spatial.model import UnknownElementError
+from ifc_spatial.model import WrongKindError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -244,7 +245,8 @@ def test_an_element_without_a_body_is_a_finding_and_not_an_exception() -> None:
     answer = cl.clear_width(model, BODYLESS_WALL, "2Haus0Raeume00Wall0002")
     assert answer.decidable is False
     assert answer.provenance == "computed"
-    assert "keine geometrische Repräsentation" in answer.missing.what
+    assert "Körpergeometrie für" in answer.missing.what
+    assert not answer.missing.what.startswith("kein")
 
 
 def test_an_unknown_global_id_raises_rather_than_answering(house: SpatialModel) -> None:
@@ -478,10 +480,10 @@ def test_the_caveat_says_rohbaulichte_and_never_says_erfuellt(house: SpatialMode
 
 
 def test_clear_opening_width_aimed_at_a_wall_says_which_operator_wanted(house: SpatialModel) -> None:
-    answer = cl.clear_opening_width(house, NORTH_WALL)
-    assert answer.decidable is False
-    assert "IfcWall" in answer.missing.what
-    assert "hosts()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        cl.clear_opening_width(house, NORTH_WALL)
+    assert "IfcWall" in str(raised.value)
+    assert "hosts()" in str(raised.value)
 
 
 # ════════════════════════════════════════════════════════════════════════════

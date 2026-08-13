@@ -228,6 +228,57 @@ class UnknownElementError(KeyError):
         return self.args[0]
 
 
+class WrongKindError(TypeError):
+    """The operator was aimed at an element it does not apply to — a CALLER mistake.
+
+    The sibling of :class:`UnknownElementError`, and it exists for the same
+    reason. ``envelope.py`` gives ``decidable=False`` one meaning: the question
+    is well-formed and THIS EXPORT cannot answer it. Such an answer carries
+    ``missing.remedy``, and the remedy is an instruction to an architect — set
+    the property, switch on the export option, re-export with geometry.
+
+    Asking ``floorArea`` of a wall or ``clearOpeningWidth`` of a curtain-wall
+    pane is not that. Nothing is absent from the file, the architect has nothing
+    to change, and there is no CAD setting that would make a plate answer a
+    question about a door. The adversarial review measured what publishing it as
+    a finding costs: a sweep of 1 850 ``measure``/``relations`` calls over the
+    five fixtures produced **316** answers rendered as „NICHT ENTSCHEIDBAR:
+    dieser Export liefert … nicht. Das ist ein Befund über den EXPORT" — the most
+    common non-answer in the system, and every one of them an accusation against
+    an export that was fine.
+
+    So a wrong kind raises, exactly as an unknown GlobalId does. The tool layer
+    turns it into a ``ToolError``, which the agent reads as "a problem with the
+    arguments, not with the building" — which is the truth. ``suggestion`` names
+    the operator that WOULD answer the question, so the refusal is still a route
+    forward rather than a dead end.
+    """
+
+    def __init__(
+        self,
+        global_id: str,
+        ifc_type: str,
+        method: str,
+        operator: str,
+        expected: str,
+        suggestion: str,
+    ) -> None:
+        self.global_id = global_id
+        self.ifc_type = ifc_type
+        self.method = method
+        self.operator = operator
+        self.expected = expected
+        self.suggestion = suggestion
+        super().__init__(
+            f"{operator}() erwartet {expected} — {ifc_type} (GlobalId {global_id}) ist das nicht. "
+            f"Das ist ein Fehler im Aufruf, kein Befund über den Export: an dieser Datei ist nichts zu "
+            f"ändern. {suggestion}"
+        )
+
+    def __str__(self) -> str:
+        return self.args[0]
+
+
 @dataclass
 class ElementGeometry:
     """One element's triangulated body, in world coordinates and metres."""
@@ -558,12 +609,24 @@ class SpatialModel:
         if not getattr(element, "Representation", None) and not element.is_a("IfcSpace"):
             self._geometry_failure[global_id] = "no-representation"
             return None
-        try:
-            shape = ifcopenshell.geom.create_shape(self._settings, element)
-        except Exception as error:
-            self._geometry_failure[global_id] = f"shape-failed: {error}"
-            return None
-        self._shapes[global_id] = shape
+        # The shape this object already owns is REUSED, never rebuilt. Shaping
+        # again and overwriting `self._shapes[gid]` dropped the last reference to
+        # the previous shape, and `util.shape`'s readers hand back NumPy views
+        # over that shape's C++ buffer — so a triangulation already given to a
+        # caller died under them. Measured on the sample house's bedroom
+        # (3w0zWKm7n8SB1qbfwUzt0J): `get_volume(model.triangulation(gid))`
+        # returned 38.5420 m³, and after a following `model.geometry(gid)` the
+        # same object raised `IndexError: list index out of range`. That is the
+        # exact failure the "kept alive on purpose" note in `__init__` is about,
+        # and keeping the dict entry alive is not enough when we replace it.
+        shape = self._shapes.get(global_id)
+        if shape is None:
+            try:
+                shape = ifcopenshell.geom.create_shape(self._settings, element)
+            except Exception as error:
+                self._geometry_failure[global_id] = f"shape-failed: {error}"
+                return None
+            self._shapes[global_id] = shape
         geometry = self._from_shape(global_id, shape.geometry)
         if geometry is None:
             self._geometry_failure[global_id] = "empty-mesh"

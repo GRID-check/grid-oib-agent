@@ -31,6 +31,7 @@ import pytest
 from ifc_spatial import operators as op
 from ifc_spatial.model import SpatialModel
 from ifc_spatial.model import UnknownElementError
+from ifc_spatial.model import WrongKindError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -583,15 +584,16 @@ def test_a_node_without_a_body_is_undecidable_not_an_exception(model: SpatialMod
     answer = op.extent(model, LINING)
     assert not answer.decidable
     assert answer.provenance == "computed"
-    assert "keine geometrische Repräsentation" in answer.missing.what
+    assert "Körpergeometrie für" in answer.missing.what
+    assert not answer.missing.what.startswith("kein")
     assert answer.missing.elements == [LINING]
 
 
 def test_the_wrong_kind_gets_a_pointer_at_the_right_operator(model: SpatialModel) -> None:
-    answer = op.clear_height(model, WINDOW)
-    assert not answer.decidable
-    assert "erwartet einen Raum" in answer.missing.what
-    assert "extent()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        op.clear_height(model, WINDOW)
+    assert "erwartet einen Raum" in str(raised.value)
+    assert "extent()" in str(raised.value)
 
 
 def test_a_file_without_true_north_gets_no_compass_bearing() -> None:

@@ -36,6 +36,7 @@ from ifc_spatial import daylight as dl
 from ifc_spatial import operators as op
 from ifc_spatial.model import SpatialModel
 from ifc_spatial.model import UnknownElementError
+from ifc_spatial.model import WrongKindError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -284,10 +285,11 @@ def test_a_room_whose_external_walls_carry_no_aperture_is_undecidable(model: Spa
 
 
 def test_room_depth_aimed_at_a_wall_says_which_operator_would_answer(model: SpatialModel) -> None:
-    answer = dl.room_depth(model, NORTH_WALL)
-    assert not answer.decidable
-    assert answer.missing.what == "roomDepth() erwartet einen Raum (IfcSpace), bekam IfcWall"
-    assert "extent()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        dl.room_depth(model, NORTH_WALL)
+    assert "roomDepth() erwartet einen Raum (IfcSpace)" in str(raised.value)
+    assert "IfcWall" in str(raised.value)
+    assert "extent()" in str(raised.value)
 
 
 def test_a_hallucinated_id_raises_rather_than_answering(model: SpatialModel) -> None:
@@ -311,7 +313,8 @@ def test_a_space_the_kernel_cannot_build_is_reported_as_such(no_north: SpatialMo
     space = no_north.file.by_type("IfcSpace")[0]
     answer = dl.room_depth(no_north, space.GlobalId)
     assert not answer.decidable
-    assert "Körpergeometrie" in answer.missing.what
+    assert "auswertbare Körpergeometrie" in answer.missing.what
+    assert "Geometriekern" in answer.missing.what
 
 
 # ════════════════════════════════════════════════════════════════════════════

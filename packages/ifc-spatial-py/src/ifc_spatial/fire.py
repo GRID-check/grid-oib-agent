@@ -629,14 +629,12 @@ def compartment_area(model: SpatialModel, storey_or_space_ids: str | Sequence[st
         subject = op._require(model, global_id, method)
         resolved, via, is_declared = _resolve_group(model, subject)
         if resolved is None:
-            return op._wrong_kind(
-                model,
+            op._wrong_kind(
                 subject,
                 method,
                 "compartmentArea",
                 "eine Zone (IfcZone/IfcGroup), ein Geschoß (IfcBuildingStorey) oder einen Raum (IfcSpace)",
                 "für ein Bauteil: floorArea() misst seine Grundfläche einzeln",
-                "computed",
             )
         grouping.append(
             {
@@ -1023,14 +1021,12 @@ def separating_elements(model: SpatialModel, space_a: str, space_b: str) -> Answ
 
     for subject in (first, second):
         if model.kind_of(subject) != "space":
-            return op._wrong_kind(
-                model,
+            op._wrong_kind(
                 subject,
                 method,
                 "separatingElements",
                 "zwei Räume (IfcSpace)",
                 "für ein Bauteil: enclosedBy() liefert die Räume, die es begrenzt",
-                "computed",
             )
     if space_a == space_b:
         return undecidable(

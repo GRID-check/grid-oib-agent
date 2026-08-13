@@ -745,14 +745,12 @@ def egress_path(model: SpatialModel, space_global_id: str) -> Answer[dict[str, A
     method = f"egressPath({space_global_id})"
     subject = op._require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
-        return op._wrong_kind(
-            model,
+        op._wrong_kind(
             subject,
             method,
             "egressPath",
             "einen Raum (IfcSpace)",
             "für eine Tür: opensTo() liefert die Räume, die sie verbindet",
-            "computed",
         )
 
     build = _cached_build(model)
@@ -854,14 +852,12 @@ def reachable_from(model: SpatialModel, space_global_id: str) -> Answer[dict[str
     method = f"reachableFrom({space_global_id})"
     subject = op._require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
-        return op._wrong_kind(
-            model,
+        op._wrong_kind(
             subject,
             method,
             "reachableFrom",
             "einen Raum (IfcSpace)",
             "für eine Tür: opensTo() liefert die Räume, die sie verbindet",
-            "computed",
         )
 
     build = _cached_build(model)

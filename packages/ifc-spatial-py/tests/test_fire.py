@@ -49,6 +49,7 @@ import pytest
 from ifc_spatial import fire
 from ifc_spatial.model import SpatialModel
 from ifc_spatial.model import UnknownElementError
+from ifc_spatial.model import WrongKindError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -718,10 +719,10 @@ def test_rooms_without_a_body_refuse_rather_than_report_zero(bodyless: SpatialMo
 
 
 def test_a_wall_is_not_a_compartment(office: SpatialModel) -> None:
-    answer = fire.compartment_area(office, BRANDWAND)
-    assert answer.decidable is False
-    assert "compartmentArea() erwartet" in answer.missing.what
-    assert "floorArea()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        fire.compartment_area(office, BRANDWAND)
+    assert "compartmentArea() erwartet" in str(raised.value)
+    assert "floorArea()" in str(raised.value)
 
 
 def test_a_whole_building_is_refused_rather_than_silently_summed(office: SpatialModel) -> None:
@@ -730,9 +731,9 @@ def test_a_whole_building_is_refused_rather_than_silently_summed(office: Spatial
     The number would be the building's floor area wearing the name of a fire
     compartment, and nothing in the answer would show the substitution.
     """
-    answer = fire.compartment_area(office, _gid("Building"))
-    assert answer.decidable is False
-    assert "IfcBuilding" in answer.missing.what
+    with pytest.raises(WrongKindError) as raised:
+        fire.compartment_area(office, _gid("Building"))
+    assert "IfcBuilding" in str(raised.value)
 
 
 def test_an_unknown_id_raises_rather_than_returning_undecidable(office: SpatialModel) -> None:
@@ -926,10 +927,10 @@ def test_the_same_room_twice_is_refused(house: SpatialModel) -> None:
 
 
 def test_a_wall_is_not_a_room(house: SpatialModel) -> None:
-    answer = fire.separating_elements(house, NORTH_WALL, LIVING)
-    assert answer.decidable is False
-    assert "separatingElements() erwartet" in answer.missing.what
-    assert "enclosedBy()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        fire.separating_elements(house, NORTH_WALL, LIVING)
+    assert "separatingElements() erwartet" in str(raised.value)
+    assert "enclosedBy()" in str(raised.value)
 
 
 # ════════════════════════════════════════════════════════════════════════════

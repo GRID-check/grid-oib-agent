@@ -574,14 +574,12 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
     method = f"stairGeometry({global_id})"
     subject = _require(model, global_id, method)
     if not any(subject.is_a(name) for name in STAIR_TYPES):
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "stairGeometry",
             "eine Treppe oder einen Treppenlauf (IfcStair, IfcStairFlight)",
             "für eine Rampe: rampSlope(); für die lichte Höhe über einem Lauf: headroom()",
-            "computed",
         )
 
     flights, landings, _ = _flight_parts(subject)
@@ -919,14 +917,12 @@ def ramp_slope(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     method = f"rampSlope({global_id})"
     subject = _require(model, global_id, method)
     if not any(subject.is_a(name) for name in RAMP_TYPES):
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "rampSlope",
             "eine Rampe oder einen Rampenlauf (IfcRamp, IfcRampFlight)",
             "für eine Treppe: stairGeometry(); für die lichte Höhe über einem Lauf: headroom()",
-            "computed",
         )
 
     flights, _, _ = _flight_parts(subject)
@@ -1285,14 +1281,12 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     method = f"headroom({global_id})"
     subject = _require(model, global_id, method)
     if not any(subject.is_a(name) for name in (*STAIR_TYPES, *RAMP_TYPES)):
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "headroom",
             "einen Treppen- oder Rampenlauf (IfcStair, IfcStairFlight, IfcRamp, IfcRampFlight)",
             "für die lichte Höhe eines Raums: clearHeight(); für einen Durchgang: clearOpeningWidth()",
-            "computed",
         )
 
     flights, _, _ = _flight_parts(subject)
@@ -1455,8 +1449,7 @@ def steps_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
             if parent is not None and getattr(parent, "GlobalId", None)
             else "für einen einzelnen Lauf: stairGeometry() bzw. rampSlope() misst ihn direkt"
         )
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "stepsOf",

@@ -1253,3 +1253,91 @@ class TestTheDescriptionDescribesTheRealTool:
 
         assert "NOT a replacement for ifc_query" in description
         assert "Reach for it first" in description
+
+
+class TestTheRefusalSentenceAgreesWithItsOwnNoun:
+    """„liefert keine IfcSpace-Elemente nicht" is not German.
+
+    Roughly thirty `missing.what` strings across the engine are already negated
+    („keine Nordrichtung", „kein auswertbares Prisma"), and the renderer wrapped
+    every one of them in a second negation. Read literally the sentence says the
+    opposite of the finding — and it is the sentence an architect reads when the
+    tool is telling them what to fix in their export.
+
+    Fixed in the renderer rather than by rewriting thirty German strings,
+    because the renderer owns the sentence.
+    """
+
+    @staticmethod
+    def _line(what: str) -> str:
+        return _provenance_line({"decidable": False, "missing": {"what": what, "remedy": "R"}})
+
+    @pytest.mark.parametrize(
+        "what",
+        [
+            "keine IfcSpace-Elemente",
+            "keine Nordrichtung",
+            "kein auswertbares Prisma: halfSpaces fehlt",
+            "keiner der Rasterpunkte liegt im Raumkörper",
+            "Keine Georeferenzierung",
+        ],
+    )
+    def test_an_already_negated_noun_is_not_negated_twice(self, what: str) -> None:
+        line = self._line(what)
+        assert f"enthält {what}" in line
+        assert "nicht." not in line.split("Das ist")[0]
+
+    @pytest.mark.parametrize(
+        "what",
+        [
+            "IfcGeometricRepresentationContext.TrueNorth",
+            "Pset_WindowCommon.SillHeight",
+            "Körpergeometrie für IfcWall „Aussenwand“",
+            "die Bodenfläche des Raums",
+        ],
+    )
+    def test_a_plain_noun_still_takes_the_negation(self, what: str) -> None:
+        assert f"liefert {what} nicht" in self._line(what)
+
+    def test_a_word_merely_starting_with_kein_is_not_mistaken_for_a_negation(self) -> None:
+        # `\b` matters: a noun beginning with those letters is not „kein".
+        assert "liefert Keinsche Fläche nicht" in self._line("Keinsche Fläche")
+
+    def test_the_finding_is_still_about_the_export_either_way(self) -> None:
+        for what in ("keine Nordrichtung", "Pset_WindowCommon.SillHeight"):
+            line = self._line(what)
+            assert "Befund über den EXPORT" in line
+            assert "Abhilfe: R" in line
+
+
+class TestAWrongOperatorIsNotAWrongId:
+    """The engine now RAISES for a wrong kind instead of returning undecidable.
+
+    Both arrive at `_unrunnable_text`, and they need opposite advice. Telling
+    the agent to re-check the GlobalId when the id is correct sends it to
+    `find_elements` for something it already has, and back with the same wrong
+    call — a loop that costs the turn and never terminates in an answer.
+    """
+
+    WRONG_KIND = (
+        "clearOpeningWidth() erwartet eine Öffnung, ein Fenster oder eine Tür — IfcPlate "
+        "(GlobalId 3cUkl32) ist das nicht. Das ist ein Fehler im Aufruf, kein Befund über den "
+        "Export: an dieser Datei ist nichts zu ändern. für eine Wand: hosts()"
+    )
+
+    def test_a_wrong_kind_does_not_send_the_agent_back_to_find_elements(self) -> None:
+        text = _unrunnable_text(self.WRONG_KIND)
+        assert "The GlobalId is fine" in text
+        assert "Do not look the id up again" in text
+        assert "find_elements" not in text
+
+    def test_an_unknown_id_still_does(self) -> None:
+        text = _unrunnable_text("Unbekannte GlobalId 0abcdefg in diesem Modell")
+        assert "check the GlobalId with operation='find_elements'" in text
+
+    def test_both_say_it_is_the_arguments_and_not_the_building(self) -> None:
+        for reason in (self.WRONG_KIND, "Unbekannte GlobalId 0abcdefg"):
+            text = _unrunnable_text(reason)
+            assert text.startswith("Error:")
+            # Never a finding about the export: nothing here is the file's fault.
+            assert "Befund über den EXPORT" not in text

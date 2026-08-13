@@ -68,7 +68,7 @@ import ifcopenshell.util.element as ue
 
 from .envelope import Answer
 from .envelope import MissingFact
-from .envelope import computed
+from .envelope import declared
 from .envelope import inferred
 from .envelope import undecidable
 from .model import SpatialModel
@@ -638,6 +638,23 @@ def storey_heights(model: SpatialModel) -> Answer[list[dict[str, Any]]]:
     Storeys with no declared elevation are excluded rather than interpolated,
     and the caveat says how many, because a silently shortened list is a subset
     reported as a total.
+
+    ## Why this is ``declared`` and not ``computed``
+
+    It returned ``computed``, and the renderer prints that as „aus der Geometrie
+    berechnet, nicht deklariert" — directly contradicting this function's own
+    caveat two lines below it („gebildet aus den deklarierten Höhenlagen"), in
+    the same answer. Nothing here touches geometry: ``elevation`` is
+    ``IfcBuildingStorey.Elevation`` read verbatim, and ``height`` is one declared
+    number minus the next. The reviewer verified it — ``model.geometry_seconds``
+    stays 0.000 across the call.
+
+    A subtraction of two numbers the file states does not change where they came
+    from. If the elevations are wrong, this answer is wrong, and that is exactly
+    what ``declared`` means: „wrong only if the export is wrong". Calling it
+    ``computed`` claims a measurement error band this value does not have and
+    hides the one error source it does have — the architect's own elevations. The
+    subtraction is named in the caveat, where a reviewer can check it.
     """
     method = "storeyHeights(model)"
     ordered = _sorted_storeys(model)
@@ -647,8 +664,11 @@ def storey_heights(model: SpatialModel) -> Answer[list[dict[str, Any]]]:
     if len(with_elevation) < 2:
         return undecidable(
             from_=[s.global_id for s in ordered],
+            # `provenance` on an undecidable records which ROUTE was attempted,
+            # and the route here is the declared elevation — no geometry is read
+            # on the way to this refusal either.
+            provenance="declared",
             method=method,
-            provenance="computed",
             missing=MissingFact(
                 what="IfcBuildingStorey.Elevation",
                 remedy=(
@@ -700,7 +720,7 @@ def storey_heights(model: SpatialModel) -> Answer[list[dict[str, Any]]]:
             "fallender Höhenlage. Das ist ein Befund über den Export, nicht über das Gebäude."
         )
 
-    return computed(
+    return declared(
         value,
         unit="m",
         from_=[s.global_id for s in with_elevation],
@@ -1448,6 +1468,23 @@ def find_blind_spots(model: SpatialModel, dialect_sample: int | None = None) -> 
     return spots
 
 
+def _products_with_representation(model: SpatialModel) -> int:
+    """How many products carry a shape — an attribute read, never the kernel.
+
+    Deliberately counts ``Representation`` rather than asking
+    :meth:`SpatialModel.geometry`, because the point of this check is to keep the
+    briefing free of geometry work: shaping a model to find out whether it has
+    shapes is the cost the blind spot exists to save the caller. A product whose
+    ``Representation`` the kernel later rejects is a different finding, and
+    :func:`ifc_spatial.operators._no_geometry` reports that one per element.
+    """
+    try:
+        products = model.file.by_type("IfcProduct")
+    except RuntimeError:
+        return 0
+    return sum(1 for product in products if getattr(product, "Representation", None))
+
+
 def _geometry_blind_spots(model: SpatialModel) -> list[BlindSpot]:
     """The geometry-related blind spots, which depend on whether geometry ran.
 
@@ -1472,14 +1509,47 @@ def _geometry_blind_spots(model: SpatialModel) -> list[BlindSpot]:
     of whether it has. When it has not, the blind spot says exactly that and
     names the remedy as a call rather than as a re-export — because nothing is
     missing from the file.
+
+    ## And the mirror-image bug, which it then had
+
+    „sie sind aber berechenbar, dieser Export trägt Geometrie" was emitted
+    unconditionally, on files that contain no body at all. Four of the five
+    fixtures — ``haus-mit-raeumen.ifc``, ``einheiten-fuss.ifc``,
+    ``geschossdecke-und-fenster.ifc`` and ``strasse-ifc4x3.ifc`` — carry a
+    ``Representation`` on **0** of their ``IfcProduct`` entities, and every one
+    of them was told the geometric answers were only a call away. A false
+    capability claim in the block whose whole job is to say what the file cannot
+    answer is the same failure as the false „undecidable", pointing the other
+    way: it costs the agent a geometry pass and a turn, and it propagates into
+    the IDS summary.
+
+    The honest test is one attribute read per product and no kernel work: does
+    any ``IfcProduct`` carry a ``Representation`` at all.
     """
     if model.geometry_seconds <= 0:
+        with_body = _products_with_representation(model)
+        if with_body == 0:
+            return [
+                BlindSpot(
+                    what="keine Körpergeometrie in dieser Datei (kein IfcProduct trägt eine Representation)",
+                    consequence=(
+                        "Abstände, lichte Maße, Auskragungen, Flächen aus Geometrie und der freie "
+                        "Lichteinfall sind aus dieser Datei NICHT berechenbar — auch nicht nach einem "
+                        "Geometrie-Pass. Der Export enthält nur Topologie und Eigenschaften"
+                    ),
+                    remedy=(
+                        "Das Modell mit Körpergeometrie neu exportieren (Body-Repräsentation, kein reiner "
+                        "Struktur- bzw. Eigenschaftsexport)"
+                    ),
+                )
+            ]
         return [
             BlindSpot(
                 what="Geometrie-Pass noch nicht gelaufen (nur Topologie gelesen)",
                 consequence=(
                     "Abstände, lichte Maße, Auskragungen, Flächen aus Geometrie und der freie Lichteinfall "
-                    "sind noch nicht berechnet — sie sind aber berechenbar, dieser Export trägt Geometrie"
+                    f"sind noch nicht berechnet — sie sind aber berechenbar, {with_body} Bauteil(e) in "
+                    "diesem Export tragen Geometrie"
                 ),
                 remedy=(
                     "measure/distance aufrufen — der Geometrie-Pass läuft dann automatisch "

@@ -40,9 +40,31 @@ VERTICAL_TOLERANCE = 0.05
 
 @dataclass(frozen=True)
 class Plane:
+    """A seated reference plane: where it sits, which way it looks, how strongly.
+
+    ``support`` is **not a face area** and is deliberately not called one. It is
+    the summed area of every triangle that voted this bin into the seating, and
+    the sum double-counts: coincident and overlapping triangles are added
+    together, and both facings of a surface land in the same bin because the
+    winding is unreliable. On the sample house's south wall
+    ``3cUkl32yn9qRSPvBJVyWy4`` it comes to **23.527 m²** over 30 triangles, while
+    the union of those same triangles projected onto the plane — the real outer
+    face — is **17.776 m²**. Published as an area, that is a 32 % overstatement
+    of a facade, in a package whose whole point is that a number an architect
+    signs must be right.
+
+    It is kept because the seating needs it: the winner is chosen by offset among
+    the bins that clear a fraction of the largest bin's vote, and that comparison
+    is between like and like. It is a **selection weight**, and the name now says
+    so, so that no caller can read it as a surface. ``facade_plane_of`` used to
+    publish it as ``"area"`` under „(m)"; it does not any more.
+    """
+
     normal: np.ndarray
     point: np.ndarray
-    area: float
+    #: Summed triangle area of the winning bin, in m² — a vote weight for
+    #: choosing the plane, never the area of the face. See the class docstring.
+    support: float
 
 
 def triangle_normals_areas(triangles: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -53,6 +75,58 @@ def triangle_normals_areas(triangles: np.ndarray) -> tuple[np.ndarray, np.ndarra
     normals = np.zeros_like(cross)
     normals[ok] = cross[ok] / doubled[ok, None]
     return normals, doubled / 2.0
+
+
+def dominant_plane(triangles: np.ndarray) -> np.ndarray | None:
+    """The unit normal of the element's largest planar cluster, any orientation.
+
+    :func:`dominant_vertical_plane` throws the horizontal faces away BEFORE it
+    looks for the winner, so it answers "which vertical face is biggest" even on
+    a body that is overwhelmingly flat. This answers the prior question — what
+    plane is this element mostly made of — and it is what tells a wall from a
+    slab.
+
+    The failure it exists to catch: ``azimuth`` on the sample house's ground slab
+    ``3cUkl32yn9qRSPvBJVyWgQ``. The slab's 7.9 m² of vertical EDGE faces were the
+    only ones the vertical filter kept, so a floor plate reported a compass
+    bearing of 0.0° / „N" off its own rim. Its dominant plane is horizontal
+    (``|n_z| = 1``) by two orders of magnitude of area, and a floor plate has no
+    facade bearing to report.
+
+    ``None`` for a mesh with no non-degenerate triangle.
+    """
+    normals, areas = triangle_normals_areas(triangles)
+    usable = areas > 0
+    if not usable.any():
+        return None
+    normals = normals[usable]
+    areas = areas[usable]
+
+    # ±n folded together and binned at ~3°, as in `dominant_vertical_plane` — a
+    # mesh's winding is not a statement about which side is outside, so the top
+    # and bottom faces of a slab have to land in ONE bin or neither wins.
+    # The sign is taken from the first component that is not numerically zero,
+    # in the order z, x, y. A fixed reference direction would be unstable for
+    # normals nearly orthogonal to it, and this rule is exact for every normal.
+    sign = np.zeros(len(normals))
+    for axis in (2, 0, 1):
+        undecided = sign == 0
+        sign = np.where(undecided & (np.abs(normals[:, axis]) > 1e-9), np.sign(normals[:, axis]), sign)
+    sign[sign == 0] = 1.0
+    folded = normals * sign[:, None]
+    keys = np.round(folded / 0.05).astype(np.int64)
+
+    best_area = -1.0
+    best: np.ndarray | None = None
+    for key in np.unique(keys, axis=0):
+        member = (keys == key).all(axis=1)
+        area = float(areas[member].sum())
+        if area > best_area:
+            best_area = area
+            mean = (folded[member] * areas[member, None]).sum(axis=0)
+            norm = np.linalg.norm(mean)
+            best = mean / norm if norm > 1e-12 else folded[member][0]
+    return best
 
 
 def dominant_vertical_plane(triangles: np.ndarray) -> np.ndarray | None:
@@ -106,6 +180,11 @@ def outermost_parallel_face(triangles: np.ndarray, normal: np.ndarray) -> Plane 
     Slivers cannot win the seating: a face carries the plane only if it holds at
     least :data:`FACE_AREA_FRACTION` of the largest parallel face's area, so a
     3 cm chamfer or a reveal return does not move the facade 3 cm outward.
+
+    The returned :class:`Plane` carries ``support``, not an area. What this
+    function measures per bin is a sum of triangle areas, and a sum is the wrong
+    operation for an area whenever two triangles overlap — read its docstring
+    before publishing that number anywhere.
     """
     normals, areas = triangle_normals_areas(triangles)
     parallel = np.abs(normals @ normal) >= PARALLEL_DOT
@@ -141,7 +220,7 @@ def outermost_parallel_face(triangles: np.ndarray, normal: np.ndarray) -> Plane 
     return Plane(
         normal=normal,
         point=np.asarray(winner["sum"]) / float(winner["area"]),
-        area=float(winner["area"]),
+        support=float(winner["area"]),
     )
 
 
@@ -208,6 +287,7 @@ __all__ = [
     "box_gap",
     "boxes_overlap",
     "clip_polygon",
+    "dominant_plane",
     "dominant_vertical_plane",
     "outermost_parallel_face",
     "signed_distance",

@@ -55,6 +55,7 @@ import math
 from collections.abc import Iterable
 from collections.abc import Sequence
 from typing import Any
+from typing import NoReturn
 
 import ifcopenshell.util.shape as us
 import numpy as np
@@ -66,9 +67,11 @@ from .envelope import computed
 from .envelope import declared
 from .envelope import triangulate
 from .envelope import undecidable
+from .geometry import VERTICAL_TOLERANCE
 from .geometry import box_gap
 from .geometry import boxes_overlap
 from .geometry import clip_polygon
+from .geometry import dominant_plane
 from .geometry import dominant_vertical_plane
 from .geometry import outermost_parallel_face
 from .geometry import signed_distance
@@ -78,6 +81,7 @@ from .model import CONTACT_BUDGET_SECONDS
 from .model import DERIVED_BOUNDARY_MAX_PRODUCTS
 from .model import ElementGeometry
 from .model import SpatialModel
+from .model import WrongKindError
 
 # ── the error model, ported verbatim from metric.ts ─────────────────────────
 
@@ -161,31 +165,49 @@ def _require(model: SpatialModel, global_id: str, method: str) -> Any:
 
 
 def _wrong_kind(
-    model: SpatialModel,
     subject: Any,
     method: str,
     operator: str,
     expected: str,
     suggestion: str,
-    provenance: str = "declared",
-) -> Answer[Any]:
-    """The operator was aimed at the wrong kind of element.
+) -> NoReturn:
+    """The operator was aimed at the wrong kind of element — raise, never answer.
 
-    ``missing.what`` is German here, unlike everywhere else, because nothing is
-    in fact missing from the file. What is missing is a match between the
-    question and the subject, and naming an IFC relation would send the architect
-    off to re-export something that is already there. ``remedy`` names the
-    operator that WOULD answer it.
+    ## Why this is an exception and not an undecidable
+
+    It used to return ``undecidable``, and its own docstring said „nothing is in
+    fact missing from the file" while the answer it produced said the opposite.
+    ``decidable: false`` has exactly one meaning in this package — the question
+    is well-formed and THIS EXPORT cannot answer it — and it travels with a
+    ``missing.remedy`` addressed to an architect: set the property, switch the
+    export option on, re-export with geometry. The skill then instructs the agent
+    that ``what`` and ``remedy`` „gehören beide in die Antwort".
+
+    Asking ``floorArea`` of a wall is not a fact about the file. Nobody can
+    re-export their way out of it, and sending them to their CAD because WE
+    pointed an operator at the wrong element inverts the whole contract. The
+    review's sweep measured the cost: 316 of 1 850 ``measure``/``relations``
+    calls came back as an export defect that did not exist.
+
+    An unknown GlobalId already raises (:class:`UnknownElementError`) for the
+    same reason — the caller could not look, so there is nothing to report about
+    the building. A wrong kind is the same class of mistake one step further in:
+    the caller looked at something real and asked it the wrong question. So it
+    raises :class:`WrongKindError`, ``tools.call`` turns that into a
+    ``ToolError`` („a problem with the arguments"), and ``suggestion`` names the
+    operator that WOULD answer it so the refusal still points somewhere.
+
+    Callers that legitimately PROBE — ``tools.element`` builds its relation menu
+    by asking every relation whether it applies — catch it and move on. That is
+    the one place the distinction is a question rather than a mistake.
     """
-    return undecidable(
-        from_=[subject.GlobalId],
-        method=method,
-        provenance=provenance,  # type: ignore[arg-type]
-        missing=MissingFact(
-            what=f"{operator}() erwartet {expected}, bekam {subject.is_a()}",
-            remedy=suggestion,
-            elements=[subject.GlobalId],
-        ),
+    raise WrongKindError(
+        subject.GlobalId,
+        subject.is_a(),
+        method,
+        operator,
+        expected,
+        suggestion,
     )
 
 
@@ -201,13 +223,30 @@ def _no_geometry(model: SpatialModel, subject: Any, method: str, from_: list[str
       OCCT rejects it. 94 of the 100 rooms in the corpus's ArchiCAD 18 export are
       in exactly this state. Re-exporting "with geometry" changes nothing there;
       the room boundary itself is what the kernel will not accept.
+
+    ## Why ``what`` is a bare noun phrase and never starts with „keine"
+
+    The renderer builds the sentence „dieser Export liefert {what} **nicht**".
+    ``what`` used to read „keine geometrische Repräsentation für IfcWall
+    „Aussenwand“ in dieser Datei", which produced
+
+        NICHT ENTSCHEIDBAR: dieser Export liefert keine geometrische
+        Repräsentation für IfcWall „Aussenwand“ in dieser Datei nicht.
+
+    — a double negation that asserts the file DOES carry the body, in the one
+    line whose entire job is to say it does not. So ``what`` names the thing that
+    is absent, positively and without an article, and lets the template supply
+    the only „nicht" in the sentence:
+
+        NICHT ENTSCHEIDBAR: dieser Export liefert Körpergeometrie für IfcWall
+        „Aussenwand“ nicht.
     """
     name = model.label(subject) or subject.GlobalId
     reason = model.geometry_failure(subject.GlobalId) or ""
 
     if reason.startswith("shape-failed") or reason == "empty-mesh":
         detail = reason.split(": ", 1)[1] if ": " in reason else reason
-        what = f"Körpergeometrie von {subject.is_a()} „{name}“ ist nicht auswertbar"
+        what = f"auswertbare Körpergeometrie für {subject.is_a()} „{name}“ (der Geometriekern lehnt die Form ab)"
         remedy = (
             "Dieses Bauteil trägt eine Body-Repräsentation, aber der Geometriekern kann daraus keinen "
             f"Körper bauen ({detail[:160]}). Ein erneuter Export „mit Geometrie“ ändert daran nichts — die "
@@ -216,7 +255,7 @@ def _no_geometry(model: SpatialModel, subject: Any, method: str, from_: list[str
             "aufziehen und den Export prüfen."
         )
     else:
-        what = f"keine geometrische Repräsentation für {subject.is_a()} „{name}“ in dieser Datei"
+        what = f"Körpergeometrie für {subject.is_a()} „{name}“"
         remedy = (
             "Dieses Bauteil trägt in dieser Datei keinen Körper (kein auswertbares IfcProductDefinitionShape). "
             "Manche Einträge haben von Haus aus keinen — IfcDoorLiningProperties, IfcWindowLiningProperties, "
@@ -272,8 +311,7 @@ def hosts(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
     kind = model.kind_of(subject)
 
     if kind == "opening":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "hosts",
@@ -281,8 +319,7 @@ def hosts(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
             "für eine Öffnung: fillerOf() liefert ihre Füllung",
         )
     if kind != "element":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "hosts",
@@ -306,8 +343,7 @@ def filler_of(model: SpatialModel, opening_global_id: str) -> Answer[list[Elemen
     method = f"fillerOf({opening_global_id})"
     subject = _require(model, opening_global_id, method)
     if model.kind_of(subject) != "opening":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "fillerOf",
@@ -345,14 +381,12 @@ def hosted_in(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
     kind = model.kind_of(subject)
 
     if kind not in ("element", "opening"):
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "hostedIn",
             "ein Fenster oder eine Tür",
             "für Räume: bounds(), für Bauteile einer Ebene: elementsOfStorey()",
-            "computed",
         )
 
     absent = [k for k in ("voids", "fills") if not _has(model, _RELATIONS[k][0])]
@@ -416,8 +450,7 @@ def bounds(model: SpatialModel, space_global_id: str) -> Answer[list[ElementRef]
     method = f"bounds({space_global_id})"
     subject = _require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "bounds",
@@ -511,8 +544,7 @@ def enclosed_by(model: SpatialModel, element_global_id: str) -> Answer[list[Elem
     method = f"enclosedBy({element_global_id})"
     subject = _require(model, element_global_id, method)
     if model.kind_of(subject) == "space":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "enclosedBy",
@@ -596,14 +628,12 @@ def opens_to(model: SpatialModel, global_id: str) -> Answer[list[ElementRef]]:
     method = f"opensTo({global_id})"
     subject = _require(model, global_id, method)
     if model.kind_of(subject) not in ("element", "opening"):
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "opensTo",
             "ein Fenster oder eine Tür",
             "für einen Raum: adjacentSpaces() liefert die Nachbarräume",
-            "computed",
         )
 
     provides = [
@@ -649,8 +679,7 @@ def contains(model: SpatialModel, container_global_id: str) -> Answer[list[Eleme
     method = f"contains({container_global_id})"
     subject = _require(model, container_global_id, method)
     if model.kind_of(subject) not in ("project", "site", "building", "storey", "space"):
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "contains",
@@ -752,14 +781,12 @@ def adjacent_spaces(model: SpatialModel, space_global_id: str) -> Answer[list[El
     method = f"adjacentSpaces({space_global_id})"
     subject = _require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "adjacentSpaces",
             "einen Raum (IfcSpace)",
             "für ein Bauteil: enclosedBy() liefert die Räume, die es begrenzt",
-            "computed",
         )
 
     own = bounds(model, space_global_id)
@@ -1094,14 +1121,12 @@ def sill_and_head(model: SpatialModel, global_id: str) -> Answer[dict[str, float
     method = f"sillAndHead({global_id})"
     subject = _require(model, global_id, method)
     if subject.is_a() not in FENESTRATION:
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "sillAndHead",
             "ein Fenster, eine Tür oder eine Öffnung",
             "für die absolute Höhe eines beliebigen Bauteils: elevation(); für seine Abmessungen: extent()",
-            "computed",
         )
     geo, missing = _geometry_or_answer(model, subject, method)
     if geo is None:
@@ -1173,6 +1198,23 @@ def azimuth(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     the one pointing AWAY from the model's plan centre. Right for every facade of
     a convex-ish building and wrong for the inner face of a courtyard wing, which
     is stated in the caveat rather than hidden.
+
+    ## Why a flat element refuses even though it has vertical faces
+
+    A slab is not blind — it has a rim, and the rim is vertical. The sample
+    house's ground slab ``3cUkl32yn9qRSPvBJVyWgQ`` carries 7.9 m² of vertical
+    edge faces, ``dominant_vertical_plane`` found the biggest of them, and the
+    operator confidently reported **0.0° / „N"** for a floor plate. A bearing off
+    the edge of a floor is not the orientation of anything: a slab has no facade
+    bearing, and the answer went straight into an orientation table as though it
+    had.
+
+    So the element's DOMINANT plane — over all its faces, not only the vertical
+    ones — has to be vertical before a bearing is reported. That is what
+    separates a wall (dominant plane vertical, ``|n_z| ≈ 0``) from a slab or a
+    flat roof (``|n_z| = 1``), and it is measured rather than read off the IFC
+    type, because an ``IfcSlab`` is also how many exports write a vertical
+    sandwich panel.
     """
     method = f"azimuth({global_id})"
     subject = _require(model, global_id, method)
@@ -1199,18 +1241,26 @@ def azimuth(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     if geo is None:
         return missing  # type: ignore[return-value]
 
-    normal = dominant_vertical_plane(geo.triangles)
-    if normal is None:
+    face = dominant_plane(geo.triangles)
+    normal = dominant_vertical_plane(geo.triangles) if face is not None else None
+    if normal is None or abs(float(face[2])) >= VERTICAL_TOLERANCE:  # type: ignore[index]
         name = model.label(subject) or global_id
+        tilt = None if face is None else math.degrees(math.asin(min(1.0, abs(float(face[2])))))
         return undecidable(
             from_=[global_id],
             method=method,
             provenance="computed",
             missing=MissingFact(
-                what=f"keine senkrechte Fläche an {subject.is_a()} „{name}“",
+                what=f"eine senkrechte Hauptfläche an {subject.is_a()} „{name}“",
                 remedy=(
-                    "Die Himmelsrichtung wird aus der größten senkrechten Fläche eines Bauteils bestimmt. "
-                    "Dieses Bauteil hat keine (z. B. eine Decke oder ein Flachdach). Für die Ausrichtung eines "
+                    "Die Himmelsrichtung wird aus der Hauptfläche eines Bauteils bestimmt, und die ist hier "
+                    + (
+                        "nicht senkrecht"
+                        if tilt is None
+                        else f"um {tilt:.0f}° gegen die Senkrechte geneigt (waagrecht wären 90°)"
+                    )
+                    + " — eine Decke, ein Bodenaufbau, ein Flachdach. Ein waagrechtes Bauteil hat keine "
+                    "Fassadenrichtung; die Schmalseiten seines Randes sind keine. Für die Ausrichtung eines "
                     "Raumes die begrenzende Außenwand abfragen: bounds() liefert sie."
                 ),
                 elements=[global_id],
@@ -1370,14 +1420,12 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
     method = f"clearHeight({space_global_id}, samples={samples})"
     subject = _require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "clearHeight",
             "einen Raum (IfcSpace)",
             "für die Höhe eines Bauteils: extent() liefert sie als height",
-            "computed",
         )
     geo, missing = _geometry_or_answer(model, subject, method)
     if geo is None:
@@ -1536,7 +1584,10 @@ def facade_plane_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any
             method=method,
             provenance="computed",
             missing=MissingFact(
-                what=f"keine Körpergeometrie für {subject.is_a()} in dieser Datei",
+                # Same rule as `_no_geometry`: the renderer supplies the „nicht",
+                # so this may not start with „keine" or the sentence negates
+                # itself.
+                what=f"Körpergeometrie für {subject.is_a()} in dieser Datei",
                 remedy=(
                     "Dieses Bauteil trägt keinen eigenen Körper — eine Vorhangfassade exportiert ihre "
                     "Geometrie über Paneele und Pfosten. Die Unterbauteile abfragen, oder das Modell mit "
@@ -1588,11 +1639,19 @@ def facade_plane_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any
             ),
         )
 
+    # No `area` in this payload. It used to carry `seated.area`, which is the
+    # summed triangle area of the seating bin and double-counts overlapping and
+    # opposite-facing triangles: the south wall 3cUkl32yn9qRSPvBJVyWy4 published
+    # 23.527 m² for an outer face that is 17.776 m². Nothing read the field, and
+    # `_provenance_line` stamped it „(m)" alongside a point and a normal, so the
+    # one honest option was to stop publishing it — the operator's job is to
+    # SEAT A PLANE, and a plane has a position and a direction, not an area. A
+    # facade area is `measure/extent` or the thermal-envelope operators, both of
+    # which union their faces instead of summing them.
     return computed(
         {
             "normal": n.tolist(),
             "point": seated.point.tolist(),
-            "area": seated.area,
             "outward": outward,
         },
         unit="m",
@@ -2171,14 +2230,12 @@ def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[s
     method = f"lightEntryArea({space_global_id})"
     subject = _require(model, space_global_id, method)
     if model.kind_of(subject) != "space":
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "lightEntryArea",
             "ein Raum (IfcSpace)",
             "für ein einzelnes Fenster: measure/extent",
-            "computed",
         )
 
     floor = floor_area(model, space_global_id)

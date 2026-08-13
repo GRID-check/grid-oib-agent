@@ -47,6 +47,7 @@ import pytest
 from ifc_spatial import stairs as st
 from ifc_spatial.model import SpatialModel
 from ifc_spatial.model import UnknownElementError
+from ifc_spatial.model import WrongKindError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -552,11 +553,11 @@ def test_a_stair_with_neither_body_nor_schedule_is_undecidable_with_a_remedy(sta
 
 
 def test_the_operator_refuses_a_wall_and_names_the_one_that_would_answer(stairs: SpatialModel) -> None:
-    answer = st.stair_geometry(stairs, WALL)
-    assert answer.decidable is False
-    assert "stairGeometry() erwartet" in answer.missing.what
-    assert "IfcWall" in answer.missing.what
-    assert "rampSlope()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        st.stair_geometry(stairs, WALL)
+    assert "stairGeometry() erwartet" in str(raised.value)
+    assert "IfcWall" in str(raised.value)
+    assert "rampSlope()" in str(raised.value)
 
 
 def test_an_unknown_global_id_raises_and_is_never_an_undecidable(stairs: SpatialModel) -> None:
@@ -627,9 +628,9 @@ def test_one_ramp_flight_can_be_asked_about_on_its_own(stairs: SpatialModel) -> 
 
 
 def test_ramp_slope_refuses_a_stair(stairs: SpatialModel) -> None:
-    answer = st.ramp_slope(stairs, FLIGHT_ONE)
-    assert answer.decidable is False
-    assert "stairGeometry()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        st.ramp_slope(stairs, FLIGHT_ONE)
+    assert "stairGeometry()" in str(raised.value)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -729,9 +730,9 @@ def test_an_assembly_reports_the_tightest_of_its_flights(stairs: SpatialModel) -
 
 
 def test_headroom_refuses_a_wall(stairs: SpatialModel) -> None:
-    answer = st.headroom(stairs, WALL)
-    assert answer.decidable is False
-    assert "clearHeight()" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        st.headroom(stairs, WALL)
+    assert "clearHeight()" in str(raised.value)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -786,9 +787,9 @@ def test_a_stair_without_parts_reports_the_export_and_not_the_building(stairs: S
 
 
 def test_steps_of_on_a_flight_points_at_the_assembly_it_belongs_to(stairs: SpatialModel) -> None:
-    answer = st.steps_of(stairs, FLIGHT_ONE)
-    assert answer.decidable is False
-    assert STAIR_NORTH in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        st.steps_of(stairs, FLIGHT_ONE)
+    assert STAIR_NORTH in str(raised.value)
 
 
 def test_a_ramp_decomposes_the_same_way_a_stair_does(stairs: SpatialModel) -> None:

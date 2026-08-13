@@ -278,7 +278,9 @@ def test_absent_decisive_properties_are_named_rather_than_left_invisible(house: 
 
 def test_storey_heights_carry_the_caveat_that_makes_them_safe(house: SpatialModel) -> None:
     answer = storey_heights(house)
-    assert answer.decidable and answer.provenance == "computed"
+    # `declared`, not `computed`: every number in this answer is
+    # IfcBuildingStorey.Elevation, read verbatim or subtracted from the next.
+    assert answer.decidable and answer.provenance == "declared"
     assert [entry["height"] for entry in answer.value] == [2.5, None]
     # The top storey has no next elevation and is left open rather than guessed.
     assert answer.value[-1]["height"] is None

@@ -700,8 +700,7 @@ def clear_opening_width(model: SpatialModel, opening_or_filler_global_id: str) -
     kind = model.kind_of(subject)
 
     if kind != "opening" and subject.is_a() not in FENESTRATION:
-        return _wrong_kind(
-            model,
+        _wrong_kind(
             subject,
             method,
             "clearOpeningWidth",
@@ -710,7 +709,6 @@ def clear_opening_width(model: SpatialModel, opening_or_filler_global_id: str) -
                 "für eine Wand: hosts() liefert ihre Öffnungen, danach clearOpeningWidth() je Öffnung; "
                 "für den lichten Abstand zwischen zwei Bauteilen: clearWidth()"
             ),
-            "computed",
         )
 
     if kind == "opening":

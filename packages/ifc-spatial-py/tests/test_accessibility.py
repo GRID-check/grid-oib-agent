@@ -46,6 +46,7 @@ from ifc_spatial import operators as op
 from ifc_spatial.envelope import Answer
 from ifc_spatial.model import SpatialModel
 from ifc_spatial.model import UnknownElementError
+from ifc_spatial.model import WrongKindError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
@@ -502,10 +503,17 @@ def test_the_two_caller_bound_parameters_are_never_defaulted_to_an_oib_number() 
 
 
 def test_turning_circle_is_aimed_at_a_room(house: SpatialModel) -> None:
-    answer = ac.turning_circle(house, INTERNAL_DOOR)
-    assert not answer.decidable
-    assert "IfcSpace" in answer.missing.what
-    assert "clearApproach" in answer.missing.remedy
+    """A door is not a room, and that is the CALLER's mistake, not the export's.
+
+    It used to come back ``decidable: false`` with a ``missing.remedy``, which
+    the renderer publishes as „ein Befund über den EXPORT" — an accusation about
+    a file with nothing wrong with it. It raises now; the suggestion travels in
+    the message so the refusal still points at the operator that would answer.
+    """
+    with pytest.raises(WrongKindError) as raised:
+        ac.turning_circle(house, INTERNAL_DOOR)
+    assert "IfcSpace" in str(raised.value)
+    assert "clearApproach" in str(raised.value)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -582,10 +590,10 @@ def test_the_declared_lining_threshold_is_not_folded_into_the_measurement(house:
 
 
 def test_a_window_has_no_threshold(house: SpatialModel) -> None:
-    answer = ac.threshold_height(house, BEDROOM_WINDOW)
-    assert not answer.decidable
-    assert "IfcDoor" in answer.missing.what
-    assert "sillAndHead" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        ac.threshold_height(house, BEDROOM_WINDOW)
+    assert "IfcDoor" in str(raised.value)
+    assert "sillAndHead" in str(raised.value)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -687,9 +695,9 @@ def test_a_fall_height_that_is_not_a_height_is_refused(house: SpatialModel, bad:
 
 
 def test_balustrade_check_is_aimed_at_a_room_or_an_opening(house: SpatialModel) -> None:
-    answer = ac.balustrade_check(house, GROUND_SLAB)
-    assert not answer.decidable
-    assert "IfcSpace" in answer.missing.what
+    with pytest.raises(WrongKindError) as raised:
+        ac.balustrade_check(house, GROUND_SLAB)
+    assert "IfcSpace" in str(raised.value)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -770,9 +778,9 @@ def test_a_door_to_the_outside_reports_null_and_not_zero_on_the_far_side(house: 
 
 
 def test_clear_approach_is_aimed_at_an_opening(house: SpatialModel) -> None:
-    answer = ac.clear_approach(house, BEDROOM)
-    assert not answer.decidable
-    assert "turningCircle" in answer.missing.remedy
+    with pytest.raises(WrongKindError) as raised:
+        ac.clear_approach(house, BEDROOM)
+    assert "turningCircle" in str(raised.value)
 
 
 # ════════════════════════════════════════════════════════════════════════════
