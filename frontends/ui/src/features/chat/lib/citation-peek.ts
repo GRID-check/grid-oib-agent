@@ -42,6 +42,7 @@ export const peekableCitedFile = (docs: CitedDocument[]): PeekableCitedFile | nu
   const doc = files[0]!
   const fileName = doc.fileName?.trim()
   if (!fileName) return null
+  if (doc.kind !== 'projekt' && doc.kind !== 'buero') return null
   return { fileName, source: doc.kind, title: doc.title }
 }
 

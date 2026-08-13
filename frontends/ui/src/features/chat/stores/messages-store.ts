@@ -167,7 +167,8 @@ export type MessagesSlice = {
   ) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
-  setComposerPrefill: (text: string, mentions?: DraftMention[]) => void
+  setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
+  setComposerSubject: (subject: ComposerSubject | null) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
   consumeComposerPrefill: () => ComposerPrefill | null
   /** Register the live chat send callback (called by InputArea on mount). */
@@ -1850,7 +1851,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
   },
 
-  setComposerSubject: (subject) => {
+  setComposerSubject: (subject: ComposerSubject | null) => {
     // Peek-bound callers (openFilePeek) pair this with hide/close of the
     // preview: if you set a subject because a peek is showing, hide/close
     // of that peek must pass null. Ask-Piloti subjects are user intent and

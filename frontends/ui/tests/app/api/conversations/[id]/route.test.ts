@@ -87,6 +87,8 @@ const conversation = {
   projectId: PROJECT_ID,
   deletedAt: null,
   jobId: null,
+  subjectResourceType: null,
+  subjectResourceId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }

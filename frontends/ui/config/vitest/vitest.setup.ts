@@ -33,6 +33,28 @@ vi.mock('@workos-inc/authkit-nextjs/components', () => ({
 // can be rendered directly in unit tests. With no cookie/header present the i18n
 // layer falls back to the default locale (English), which is what string
 // assertions in these tests expect.
+// FilePreviewPane (and Ask-colleague) call useRouter. Specs that care about
+// the router still mock this module themselves; this is the default so a
+// mount does not throw "invariant expected app router to be mounted".
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`)
+  },
+  notFound: () => {
+    throw new Error('NEXT_NOT_FOUND')
+  },
+}))
+
 vi.mock('next/headers', () => ({
   cookies: async () => ({
     get: () => undefined,

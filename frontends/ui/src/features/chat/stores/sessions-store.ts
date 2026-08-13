@@ -431,9 +431,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           // threads a year while every test still passes.
           jobId: serverConv.jobId ?? null,
           subjectResourceType:
-            serverConv.subjectResourceType ??
-            (idx >= 0 ? merged[idx].subjectResourceType : null) ??
-            null,
+            serverConv.subjectResourceType === 'document'
+              ? 'document'
+              : (idx >= 0 ? merged[idx].subjectResourceType : null) ?? null,
           subjectResourceId:
             serverConv.subjectResourceId ??
             (idx >= 0 ? merged[idx].subjectResourceId : null) ??
