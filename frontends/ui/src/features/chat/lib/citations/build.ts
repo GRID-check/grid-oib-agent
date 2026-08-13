@@ -114,9 +114,14 @@ const addWireCitations = (
       title: citation.title,
       fileName,
       collection: citation.collection,
-      // Explicit shelf first (ADR-0047); a legacy key's German qualifier is the
-      // fallback for messages persisted before the wire carried the field.
-      shelf: citation.shelf ?? parsed?.shelf,
+      // The payload's own field is the EXPLICIT shelf (ADR-0047); a legacy key's
+      // German qualifier is a separate, weaker channel — for messages persisted
+      // before the wire carried the field. They are handed over as two fields,
+      // never collapsed with `??`: one document is assembled from many wire
+      // sources, and collapsing here made whichever arrived first the winner, so
+      // a qualifier on source #1 could beat the real shelf on source #2.
+      shelf: citation.shelf,
+      shelfFallback: parsed?.shelf,
       url: isHttpUrl(citation.url) ? citation.url : undefined,
       kind: citation.kind,
       lane: citation.lane,
@@ -187,9 +192,11 @@ const addWrittenEntries = (
       // raw filename, which is the exact regression this list used to cause.
       title: locator ? undefined : title || undefined,
       fileName: locator?.filename,
-      // A written entry is prose the model wrote: the only shelf it can name is
-      // a legacy qualifier inside the locator it quotes.
-      shelf: locator?.shelf,
+      // A written entry is prose the model wrote, so it can never STATE a shelf:
+      // the only one it carries is a legacy qualifier inside the locator it
+      // quotes, which is an inference and travels as the fallback. Passing it as
+      // explicit would let a sentence overrule the wire.
+      shelfFallback: locator?.shelf,
       url: isHttpUrl(url) ? url : undefined,
       origin,
       locus: {

@@ -19,13 +19,14 @@ import { parseKbLocator, type KbCitationLocator } from './locator'
 
 /**
  * The minimal shape of a STORED document a citation can resolve against — a
- * project upload (`GET /api/documents?projectId=…`) or an org Archiv document
- * (`GET /api/archiv/documents`). Both are DB-backed rows opened through the
+ * project upload (`GET /api/documents?projectId=…`), a private chat attachment
+ * (`GET /api/session/documents?conversationId=…`) or an org Archiv document
+ * (`GET /api/archiv/documents`). All three are DB-backed rows opened through the
  * same scope-aware `/api/documents/{id}/preview`, so they share one list.
  *
- * `shelf` says which of the two a row came from, so a citation that knows its
- * own shelf resolves to the right copy of a name held on both. Ordering is only
- * the tie-break when it does not.
+ * `shelf` says which of the three a row came from, so a citation that knows its
+ * own shelf resolves to the right copy of a name held on several. Ordering is
+ * only the tie-break when it does not.
  */
 export interface StoredDocumentRef {
   id: string
@@ -34,6 +35,18 @@ export interface StoredDocumentRef {
   /** The shelf this row was listed from (ADR-0047), when the caller tagged it. */
   shelf?: Shelf
 }
+
+/**
+ * The shelves a {@link StoredDocumentRef} can ever stand for — the DB-backed
+ * lists the caller assembles.
+ *
+ * `base` is deliberately absent: the base corpus has no `documents` row and is
+ * reached through `baseCorpusFiles` instead. Any shelf outside this set is
+ * therefore not REPRESENTABLE in `storedDocuments`, and a citation naming one
+ * must be resolved against the corpus alone rather than quietly matching a
+ * same-named upload (ADR-0047: the shelf is part of a document's identity).
+ */
+const STORED_SHELVES: ReadonlySet<Shelf> = new Set<Shelf>(['project', 'archiv', 'session'])
 
 /**
  * Where a clicked citation can take the user:
@@ -103,9 +116,10 @@ const openAt = (doc: CitedDocument, locus?: CitationLocus): CitationLocus | unde
  *  1. A real http(s) URL always links out (Web stays web, RIS keeps hitting the
  *     real RIS).
  *  2. Otherwise the filename is matched case-insensitively against the stored
- *     documents — project uploads AND the org Archiv — then the base corpus.
- *     Stored matches must be inline-previewable (PDF/image); anything else
- *     degrades to `info`.
+ *     documents — project uploads, private chat attachments AND the org Archiv —
+ *     then the base corpus, NARROWED to the shelf the citation names. Stored
+ *     matches must be inline-previewable (PDF/image); anything else degrades to
+ *     `info`.
  *  3. Anything unresolvable becomes an `info` target.
  */
 export const resolveCitationTarget = (
@@ -129,16 +143,29 @@ export const resolveCitationTarget = (
     const named =
       options?.storedDocuments?.filter((row) => row.filename.toLowerCase() === wanted) ?? []
     const baseFile = options?.baseCorpusFiles?.find((name) => name.toLowerCase() === wanted)
-    // Narrow to the shelf the citation names — the same document identity the
-    // backend registry keys on. FAIL-OPEN: a shelf that matches nothing falls
-    // back to the plain filename match, so nothing that opens today stops
-    // opening because a shelf was missing, stale, or wrong.
-    const shelved = locator.shelf ? named.filter((row) => row.shelf === locator.shelf) : []
-    // The `base` shelf is the base corpus, which `storedDocuments` cannot hold
-    // (it is project + Archiv rows only). Without this it would be the one shelf
-    // that resolves to the WRONG document whenever a project upload shares the
-    // filename.
-    const storedDoc = locator.shelf === 'base' && baseFile ? undefined : (shelved[0] ?? named[0])
+    const shelf = locator.shelf
+    // A shelf `storedDocuments` cannot represent — today only `base`, the corpus
+    // — is resolved against `baseCorpusFiles` and nothing else.
+    const isStoredShelf = shelf !== undefined && STORED_SHELVES.has(shelf)
+
+    // Narrow to the shelf the citation names. The shelf is PART OF THE DOCUMENT'S
+    // IDENTITY (ADR-0047), the same identity the backend registry keys on, so it
+    // is never traded away: a `session` or `base` citation whose shelf holds no
+    // such document is UNAVAILABLE, not an excuse to open an unrelated project
+    // file that merely shares the name. The plain filename match survives only
+    // for a citation whose shelf is UNKNOWN, where there is no identity to
+    // contradict — that is the one case ordering is allowed to decide.
+    //
+    // A row the caller left untagged states no shelf of its own, so it
+    // contradicts none and stays eligible; it is not evidence of a DIFFERENT
+    // shelf, which is what this narrowing exists to reject.
+    const candidates =
+      shelf === undefined
+        ? named
+        : isStoredShelf
+          ? named.filter((row) => row.shelf === undefined || row.shelf === shelf)
+          : []
+    const storedDoc = candidates[0]
 
     if (storedDoc && isPreviewableContentType(storedDoc.contentType)) {
       return {
@@ -155,7 +182,10 @@ export const resolveCitationTarget = (
         },
       }
     }
-    if (baseFile) {
+    // The corpus is only the right answer for a citation that names the `base`
+    // shelf or names none at all — a `project`/`session`/`archiv` citation must
+    // not slide onto a corpus file of the same name either.
+    if (baseFile && !isStoredShelf) {
       return {
         kind: 'document',
         title: doc.title,

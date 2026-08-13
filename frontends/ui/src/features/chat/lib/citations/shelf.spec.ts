@@ -177,6 +177,83 @@ describe('legacy citation keys still parse', () => {
     expect(doc?.shelf).toBe('session')
   })
 
+  /**
+   * An EXPLICIT shelf and a GUESSED one are two different claims, and they must
+   * not be settled by whichever observation happened to arrive first.
+   *
+   * One document is folded together from many wire sources — the registry keys
+   * on `(collection, filename, page)`, so a file read at three pages arrives as
+   * three sources. If the first of them carries only a legacy key qualifier and
+   * the second carries the real shelf, "first non-empty wins" hands the document
+   * to the GUESS: a private attachment cited at p.3 and p.4 could be filed under
+   * "Projektwissen" purely because of the order the pages came in.
+   */
+  describe('explicit and guessed shelves do not compete on arrival order', () => {
+    /** A legacy source: a qualified key, no shelf field. Same document as below. */
+    const guessed: CitationSource = {
+      id: 'c-guess',
+      content: '[KB] Plan.pdf (Projektwissen), p.3',
+      citationKey: 'Plan.pdf (Projektwissen), p.3',
+      fileName: 'Plan.pdf',
+      page: 3,
+      timestamp: NOW,
+      isCited: true,
+    }
+
+    /** The same document, one page on, with the shelf stated as data. */
+    const stated: CitationSource = {
+      id: 'c-wire',
+      content: '[KB] Plan.pdf, p.4',
+      citationKey: 'Plan.pdf, p.4',
+      fileName: 'Plan.pdf',
+      page: 4,
+      shelf: 'session',
+      timestamp: NOW,
+      isCited: true,
+    }
+
+    test('the explicit shelf wins even when the qualifier arrives FIRST', () => {
+      const [doc] = buildCitationModel({ citations: [guessed, stated] })
+
+      expect(doc?.shelf).toBe('session')
+      // Both pages still belong to the one document — the merge is what makes
+      // the ordering matter at all.
+      expect(doc?.loci.map((locus) => locus.page)).toEqual([3, 4])
+    })
+
+    test('and still wins when it arrives first — order changes nothing', () => {
+      const [doc] = buildCitationModel({ citations: [stated, guessed] })
+
+      expect(doc?.shelf).toBe('session')
+    })
+
+    test('a second explicit shelf does not unseat the first', () => {
+      const [doc] = buildCitationModel({
+        citations: [stated, { ...guessed, id: 'c-later', shelf: 'archiv' }],
+      })
+
+      expect(doc?.shelf).toBe('session')
+    })
+
+    test('the qualifier is still used when nothing states a shelf', () => {
+      const [doc] = buildCitationModel({ citations: [guessed] })
+
+      expect(doc?.shelf).toBe('project')
+    })
+
+    test('prose the model wrote cannot overrule a shelf a wire source guessed', () => {
+      // A written source entry is a sentence, so the only shelf it can carry is
+      // a qualifier it quoted: an inference, never a statement. Treating it as
+      // explicit would let the answer's prose displace the wire's own reading.
+      const [doc] = buildCitationModel({
+        citations: [{ ...guessed, content: '[KB] Plan.pdf (Büroarchiv), p.3', citationKey: 'Plan.pdf (Büroarchiv), p.3' }],
+        entries: [{ number: 1, markdown: 'Plan.pdf (Projektwissen), p.4' }],
+      })
+
+      expect(doc?.shelf).toBe('archiv')
+    })
+  })
+
   test('an unknown qualifier leaves the document unattributed', () => {
     // Only the three qualifiers the legacy writer could emit are read; anything
     // else is left alone (it may well be part of the filename) and names no

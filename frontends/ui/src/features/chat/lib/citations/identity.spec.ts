@@ -262,15 +262,54 @@ describe('resolveCitationTarget', () => {
       expect(target).toMatchObject({ document: { id: 'doc-1' } })
     })
 
-    test('a shelf holding no such document falls back rather than failing', () => {
-      // Fail-open, matching the backend: a shelf that matches nothing must never
-      // turn a document that opens today into a dead info popover.
+    test('a shelf holding no such document is UNAVAILABLE, never another shelf’s copy', () => {
+      // The shelf is part of the document's identity (ADR-0047), so it is not
+      // negotiable: a `base` citation whose shelf holds no `Plan.pdf` must say
+      // so, not open the project's unrelated file of the same name. Failing
+      // OPEN here meant a citation could be honestly labelled "Basiswissen" and
+      // then show a project upload.
       const target = targetFor(
         { url: '', content: '[KB] Plan.pdf, p.2', collection: 'oib_knowledge', shelf: 'base' },
         shelvedDocuments
       )
 
-      expect(target).toMatchObject({ kind: 'document', document: { id: 'doc-1' } })
+      expect(target).toMatchObject({ kind: 'info' })
+    })
+
+    test('a session citation does not open the project copy of the same name', () => {
+      // The `session` shelf is the case that made this concrete: before the
+      // session list existed, `storedDocuments` held no session row at all, so
+      // every private attachment fell through to the project document beside it.
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 's_conv1', shelf: 'session' },
+        shelvedDocuments
+      )
+
+      expect(target).toMatchObject({ kind: 'info' })
+    })
+
+    test('a session citation opens the session copy once that shelf is listed', () => {
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf, p.2', collection: 's_conv1', shelf: 'session' },
+        [
+          ...shelvedDocuments,
+          { id: 'sess-3', filename: 'Plan.pdf', contentType: 'application/pdf', shelf: 'session' },
+        ]
+      )
+
+      expect(target).toMatchObject({ kind: 'document', document: { id: 'sess-3' } })
+    })
+
+    test('a stored-shelf citation does not slide onto a base-corpus file either', () => {
+      // The corpus is the `base` shelf. An `archiv` citation naming a filename
+      // the corpus also carries must not be answered with the corpus copy.
+      const target = targetFor(
+        { url: '', content: '[KB] Handbuch.pdf, p.2', shelf: 'archiv' },
+        shelvedDocuments,
+        ['Handbuch.pdf']
+      )
+
+      expect(target).toMatchObject({ kind: 'info' })
     })
 
     test('a collection id no longer decides the shelf on its own', () => {
@@ -304,15 +343,21 @@ describe('resolveCitationTarget', () => {
       expect(target).toMatchObject({ document: { type: 'base', fileName: 'Plan.pdf' } })
     })
 
-    test('a base-shelf citation with no base-corpus copy still falls back', () => {
+    test('a base-shelf citation with no base-corpus copy is UNAVAILABLE', () => {
+      // `base` is the one shelf `storedDocuments` can never represent, so there
+      // is no second place to look — and a same-named project upload is not it.
       const target = targetFor({ url: '', content: '[KB] Plan.pdf, p.2', shelf: 'base' }, shelvedDocuments,
         ['oib-rl_2.pdf']
       )
 
-      expect(target).toMatchObject({ document: { type: 'stored', id: 'doc-1' } })
+      expect(target).toMatchObject({ kind: 'info' })
     })
 
     test('untagged rows still resolve for callers that supply no shelf', () => {
+      // A row the caller never tagged states no shelf, so it CONTRADICTS none:
+      // it is not evidence of a different shelf, which is the only thing the
+      // narrowing above rejects. Refusing these would break every caller that
+      // passes a plain list.
       const target = targetFor({ url: '', content: '[KB] Brandschutzkonzept.pdf', shelf: 'project' }, storedDocuments
       )
 

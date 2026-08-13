@@ -459,6 +459,15 @@ export const compareDocuments = (a: CitedDocument, b: CitedDocument): number => 
  */
 export class CitationAccumulator {
   private readonly docs = new Map<string, CitedDocument>()
+  /**
+   * Which documents have been told their shelf EXPLICITLY.
+   *
+   * `doc.shelf` alone cannot answer that — a shelf a citation key's German
+   * qualifier merely implied looks identical once it is stored. Without the
+   * distinction the two competed on ARRIVAL ORDER, so a guess that landed first
+   * permanently outranked the wire's own statement.
+   */
+  private readonly explicitShelves = new WeakMap<CitedDocument, Shelf>()
 
   /**
    * Fold one observation into the model.
@@ -474,10 +483,17 @@ export class CitationAccumulator {
     fileName?: string | null
     collection?: string | null
     /**
-     * The shelf, explicit from the wire — or, for legacy messages only, the one
-     * a citation key's German qualifier names.
+     * The shelf as DATA — stated by the producer itself (the citation payload's
+     * own field). An explicit shelf always wins, whenever it arrives.
      */
     shelf?: Shelf
+    /**
+     * The shelf as INFERENCE — derived from a legacy citation key's German
+     * qualifier, or quoted inside prose the model wrote. It fills a gap only:
+     * it can never displace, or be displaced by arriving before, an explicit
+     * one.
+     */
+    shelfFallback?: Shelf
     url?: string | null
     kind?: string | null
     lane?: string | null
@@ -535,11 +551,21 @@ export class CitationAccumulator {
     // it, permanently.
     doc.fileName = doc.fileName || observation.fileName?.trim() || undefined
     doc.collection = doc.collection || observation.collection?.trim() || undefined
-    // The shelf is taken, never guessed: whichever observation CARRIED one wins,
-    // first non-empty. The collection id is deliberately not consulted — that
+    // The shelf is taken, never guessed, and the two ways of taking it are kept
+    // APART. An explicit shelf (the payload's own field) always wins, no matter
+    // which observation carried it or when it arrived; a shelf inferred from a
+    // legacy key's German qualifier only ever fills a gap, first non-empty.
+    // Collapsing the two made the winner a function of arrival order, so a guess
+    // could outrank the wire. The collection id is still never consulted — that
     // prefix match is what filed a private session attachment under
     // "Projektwissen" and an unknown collection under base law (ADR-0047).
-    doc.shelf = doc.shelf ?? observation.shelf
+    const explicitShelf = this.explicitShelves.get(doc) ?? observation.shelf
+    if (explicitShelf) {
+      this.explicitShelves.set(doc, explicitShelf)
+      doc.shelf = explicitShelf
+    } else {
+      doc.shelf = doc.shelf ?? observation.shelfFallback
+    }
     doc.url = doc.url ?? (observation.url?.trim() || undefined)
     doc.tool = doc.tool ?? (observation.tool?.trim() || undefined)
     doc.bindingNote = doc.bindingNote ?? (observation.bindingNote?.trim() || undefined)

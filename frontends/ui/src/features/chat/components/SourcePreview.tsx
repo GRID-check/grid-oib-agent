@@ -13,10 +13,11 @@
  *                 snippet) — never a broken viewer. Chips with nothing beyond
  *                 their label stay plain, non-interactive chips.
  *
- * Resolution data (project document list + base-corpus file list) is fetched
+ * Resolution data (one list per SHELF + the base-corpus file list) is fetched
  * lazily through existing read APIs (`/api/documents?projectId=…`,
- * `/api/knowledge-base`) and cached module-wide per project for the lifetime
- * of the page — source lists change rarely within one chat visit.
+ * `/api/session/documents?conversationId=…`, `/api/archiv/documents`,
+ * `/api/knowledge-base`) and cached module-wide per project+conversation for
+ * the lifetime of the page — source lists change rarely within one chat visit.
  */
 
 'use client'
@@ -62,15 +63,16 @@ import { AuthorityTag } from './AuthorityTag'
 export interface SourcePreviewIndex {
   /**
    * Every DB-backed document the user can open: this project's uploads FIRST,
-   * then the organization's Archiv. Each row carries the shelf it came from, so
-   * a citation that names its own shelf resolves to the right copy of a filename
-   * held on both; order is only the tie-break for one that does not.
+   * then this conversation's private attachments, then the organization's
+   * Archiv. Each row carries the shelf it came from, so a citation that names
+   * its own shelf resolves to the right copy of a filename held on several;
+   * order is only the tie-break for one that names no shelf at all.
    */
   storedDocuments: StoredDocumentRef[]
   baseCorpusFiles: string[]
 }
 
-/** Module-wide cache: one fetch pair per project per page lifetime. */
+/** Module-wide cache: one fetch set per project+conversation per page lifetime. */
 const indexCache = new Map<string, Promise<SourcePreviewIndex>>()
 
 /** Test hook — clears the module cache between specs. */
@@ -78,17 +80,32 @@ export const resetSourcePreviewIndexCache = (): void => {
   indexCache.clear()
 }
 
-const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreviewIndex> => {
-  const key = projectId ?? '__no-project__'
+const loadSourcePreviewIndex = (
+  projectId: string | null,
+  conversationId: string | null
+): Promise<SourcePreviewIndex> => {
+  // The conversation is part of the key, not just of the fetch: two chats in one
+  // project have different private attachments, and a single cached list would
+  // hand one thread the other's files.
+  const key = `${projectId ?? '__no-project__'}|${conversationId ?? '__no-conversation__'}`
   const existing = indexCache.get(key)
   if (existing) return existing
 
   const promise = (async (): Promise<SourcePreviewIndex> => {
-    const [docsResult, archivResult, corpusResult] = await Promise.allSettled([
+    const [docsResult, sessionResult, archivResult, corpusResult] = await Promise.allSettled([
       projectId
         ? fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`).then((r) =>
             r.ok ? r.json() : null
           )
+        : Promise.resolve(null),
+      // This conversation's private attachments (ADR-0047 Phase 2). Without
+      // them the `session` shelf had NO rows at all, so a session citation
+      // matched nothing — and, before the shelf became part of a document's
+      // identity, quietly opened the project's unrelated file of the same name.
+      conversationId
+        ? fetch(
+            `/api/session/documents?conversationId=${encodeURIComponent(conversationId)}`
+          ).then((r) => (r.ok ? r.json() : null))
         : Promise.resolve(null),
       // The org Archiv (ADR-0024). Feature-gated, so a 403 here is normal and
       // simply yields no Archiv entries — never a failed index. Without this
@@ -99,6 +116,7 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
       fetch('/api/knowledge-base').then((r) => (r.ok ? r.json() : null)),
     ])
     const docs = docsResult.status === 'fulfilled' ? docsResult.value?.documents : null
+    const sessionDocs = sessionResult.status === 'fulfilled' ? sessionResult.value?.documents : null
     const archivDocs = archivResult.status === 'fulfilled' ? archivResult.value?.documents : null
     const files = corpusResult.status === 'fulfilled' ? corpusResult.value?.files : null
 
@@ -120,10 +138,13 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
         : []
 
     // Tagged with the shelf each row came from, so a citation that names its own
-    // shelf resolves to the right copy of a filename held on both. Project
+    // shelf resolves to the right copy of a filename held on several. Project
     // uploads still come first, as the tie-break for a citation that does not.
+    // All three shelves that CAN be `documents` rows are represented here; the
+    // fourth (`base`) is the corpus below and has no row to list.
     const storedDocuments: StoredDocumentRef[] = [
       ...toRefs(docs, 'project'),
+      ...toRefs(sessionDocs, 'session'),
       ...toRefs(archivDocs, 'archiv'),
     ]
 
@@ -147,12 +168,13 @@ const loadSourcePreviewIndex = (projectId: string | null): Promise<SourcePreview
 }
 
 /**
- * Resolution index for the current project. Returns null until loaded (or
- * while disabled); on any fetch failure the lists degrade to empty, which
- * downgrades chips to info/plain — never a broken viewer.
+ * Resolution index for the current project AND conversation. Returns null until
+ * loaded (or while disabled); on any fetch failure the lists degrade to empty,
+ * which downgrades chips to info/plain — never a broken viewer.
  */
 export const useSourcePreviewIndex = (
   projectId: string | null,
+  conversationId: string | null,
   enabled: boolean
 ): SourcePreviewIndex | null => {
   const [index, setIndex] = useState<SourcePreviewIndex | null>(null)
@@ -160,7 +182,7 @@ export const useSourcePreviewIndex = (
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
-    loadSourcePreviewIndex(projectId)
+    loadSourcePreviewIndex(projectId, conversationId)
       .then((loaded) => {
         if (!cancelled) setIndex(loaded)
       })
@@ -170,10 +192,18 @@ export const useSourcePreviewIndex = (
     return () => {
       cancelled = true
     }
-  }, [projectId, enabled])
+  }, [projectId, conversationId, enabled])
 
   return enabled ? index : null
 }
+
+/**
+ * The conversation whose private attachments a citation may resolve against —
+ * the thread the reader is in. A surface with no conversation (a standalone
+ * report view) simply lists no `session` shelf.
+ */
+const useConversationId = (): string | null =>
+  useChatStore((s) => s.currentConversation?.id ?? null)
 
 // ---------------------------------------------------------------------------
 // Shared chip styling (mirrors SourceSignalChip's chip vocabulary)
@@ -978,12 +1008,13 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   detail = 'full',
 }) => {
   const projectId = useChatStore((s) => s.projectId)
+  const conversationId = useConversationId()
   const { document: doc, locus } = citation
   // Only a document with a filename and no outbound link can resolve to a
   // stored file, so the index fetch is skipped entirely for link sources AND
   // for card-derived documents, which name a law but no document at all.
   const needsIndex = !doc.url && !!doc.fileName
-  const previewIndex = useSourcePreviewIndex(projectId, needsIndex)
+  const previewIndex = useSourcePreviewIndex(projectId, conversationId, needsIndex)
 
   const target = resolveCitationTarget(doc, {
     locus,
@@ -1128,10 +1159,11 @@ export interface ReportSourcePreviewChipProps {
  */
 export const ReportSourcePreviewChip: FC<ReportSourcePreviewChipProps> = ({ locatorText }) => {
   const projectId = useChatStore((s) => s.projectId)
+  const conversationId = useConversationId()
   const [doc] = buildCitationModel({
     entries: [{ number: 0, markdown: locatorText }],
   })
-  const index = useSourcePreviewIndex(projectId, !!doc?.fileName)
+  const index = useSourcePreviewIndex(projectId, conversationId, !!doc?.fileName)
 
   if (!doc || !index) return null
   const target = resolveCitationTarget(doc, {
@@ -1192,7 +1224,8 @@ export const SourceDocumentDialog: FC<{
   onClose: () => void
 }> = ({ citation, onClose }) => {
   const projectId = useChatStore((s) => s.projectId)
-  const previewIndex = useSourcePreviewIndex(projectId, !citation.document.url)
+  const conversationId = useConversationId()
+  const previewIndex = useSourcePreviewIndex(projectId, conversationId, !citation.document.url)
   const target = resolveCitationTarget(citation.document, {
     locus: citation.locus,
     storedDocuments: previewIndex?.storedDocuments,
