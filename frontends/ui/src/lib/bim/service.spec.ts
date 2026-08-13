@@ -14,6 +14,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createZip } from './zip'
 
 vi.mock('server-only', () => ({}))
 
@@ -26,11 +27,15 @@ interface StoredObject {
   metadata: Record<string, string> | undefined
   /** Bytes actually written, so a "compressed" object can be shown to be smaller. */
   byteLength: number | undefined
+  /** The body as written, when it is binary — `String(body)` loses gzip. */
+  raw: Uint8Array | undefined
 }
 
 const stored: StoredObject[] = []
 const deleted: string[] = []
 let sourceBytes = ''
+/** Set when the stored object is not text — a `.ifczip` upload. */
+let sourceBinary: Uint8Array | null = null
 /** Key suffix whose next PUT should fail, for the best-effort write paths. */
 let putFailureSuffix: string | null = null
 function failNextPutFor(suffix: string): void {
@@ -50,7 +55,8 @@ vi.mock('@/lib/s3', () => ({
       if (name === 'GetObjectCommand') {
         return {
           Body: {
-            transformToByteArray: async () => new TextEncoder().encode(sourceBytes),
+            transformToByteArray: async () =>
+              sourceBinary ?? new TextEncoder().encode(sourceBytes),
           },
         }
       }
@@ -66,6 +72,7 @@ vi.mock('@/lib/s3', () => ({
           contentEncoding: input.ContentEncoding as string | undefined,
           metadata: input.Metadata as Record<string, string> | undefined,
           byteLength: (input.Body as Uint8Array | undefined)?.byteLength,
+          raw: input.Body instanceof Uint8Array ? input.Body : undefined,
         })
         return {}
       }
@@ -141,6 +148,7 @@ beforeEach(() => {
   completed.length = 0
   failed.length = 0
   sourceBytes = VALID_IFC
+  sourceBinary = null
   putFailureSuffix = null
 })
 
@@ -271,5 +279,48 @@ describe('the viewer’s compressed source', () => {
     const outcome = await runBimExtraction(baseInput())
 
     expect(outcome.status).toBe('ready')
+  })
+
+  it('holds the MODEL for a `.ifczip`, not the container', async () => {
+    /*
+      The viewer parses in the browser and `@ifc-lite/geometry` does not unwrap
+      zip — it finds no entities and reports no error, so a zipped upload
+      rendered as an empty viewport under a model the server had already read.
+      The source object is what the browser is handed, so it has to be STEP for
+      every model, whatever the upload was wrapped in.
+    */
+    const archive = createZip([{ path: 'haus-a.ifc', content: VALID_IFC }])
+    sourceBinary = archive
+
+    const outcome = await runBimExtraction({ ...baseInput(), filename: 'haus-a.ifczip' })
+    expect(outcome.status).toBe('ready')
+
+    const gzip = stored.find((object) => object.key.endsWith('/source.ifc.gz'))
+    const { gunzipSync } = await import('node:zlib')
+    expect(gzip?.raw).toBeDefined()
+    const written = gunzipSync(gzip?.raw as Uint8Array)
+    expect(new TextDecoder().decode(written)).toBe(VALID_IFC)
+    // And it is the model's size the progress bar divides by, not the zip's.
+    expect(Number(gzip?.metadata?.['uncompressed-length'])).toBe(
+      new TextEncoder().encode(VALID_IFC).byteLength
+    )
+  })
+
+  it('reports an archive refusal in its own words, not as "not a valid IFC file"', async () => {
+    // "The archive holds two models" is something the uploader can act on, and
+    // it is not true of the file they see in the list. The ceiling refusal —
+    // read from the zip directory before anything is inflated — takes the same
+    // branch; `ifc-archive.spec.ts` covers the sizes themselves.
+    sourceBinary = createZip([
+      { path: 'haus-a.ifc', content: VALID_IFC },
+      { path: 'haus-b.ifc', content: VALID_IFC },
+    ])
+
+    const outcome = await runBimExtraction({ ...baseInput(), filename: 'beide.ifczip' })
+
+    expect(outcome.status).toBe('failed')
+    expect(failed[0].reason).toContain('IFC-Archiv')
+    expect(failed[0].reason).toContain('exactly one')
+    expect(completed).toHaveLength(0)
   })
 })

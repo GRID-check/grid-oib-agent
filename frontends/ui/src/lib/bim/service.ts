@@ -30,6 +30,11 @@ import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand, ListObjectsV2C
 import { s3Client } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { completeBimModel, failBimModel, startBimModel } from './repository'
+// Statically importable despite what it wraps: the module reads the zip
+// directory with a DataView and nothing else, and reaches for the parser (and
+// therefore jszip) behind a dynamic import inside the one function that needs
+// it. So the cost of naming it here is the cost of the DataView reader.
+import { IfcArchiveError, unwrapIfcArchive } from './ifc-archive'
 import { isIfcFilename, maxIfcBytesFrom } from './types'
 
 /**
@@ -241,7 +246,27 @@ export async function runBimExtraction(input: BimExtractionInput): Promise<BimEx
       throw error
     }
 
-    const index = await extractIfcModel(buffer, input.filename, { elementLimit: BIM_ELEMENT_LIMIT })
+    /*
+      Open the container HERE, once, and let everything downstream see STEP.
+
+      `extractIfcModel` unwraps for itself, so the parse was already correct —
+      but it unwraps privately, and the two things that happen with these bytes
+      besides parsing were both wrong for a `.ifczip`:
+
+        - the ceiling was applied to the COMPRESSED object, so a 40 MB archive
+          holding a 300 MB model passed a limit that exists to keep this
+          process alive (`unwrapIfcArchive` reads the declared size out of the
+          zip directory, before anything is inflated);
+        - the viewer's source object was written from the archive, and the
+          browser's geometry kernel does not unwrap zip — every zipped model
+          therefore opened as an empty viewport.
+
+      Non-archive input comes back unchanged and costs a four-byte magic check,
+      so nothing about the ordinary `.ifc` path changes.
+    */
+    const { bytes: source } = await unwrapIfcArchive(buffer, MAX_IFC_BYTES)
+
+    const index = await extractIfcModel(source, input.filename, { elementLimit: BIM_ELEMENT_LIMIT })
     const { elements, ...summary } = index
     const keys = buildBimDerivedKeys(input.storageKey)
 
@@ -267,7 +292,10 @@ export async function runBimExtraction(input: BimExtractionInput): Promise<BimEx
           ContentType: 'text/markdown; charset=utf-8',
         })
       )
-      await writeCompressedSource(bucket, keys.sourceKey, new Uint8Array(buffer))
+      // `source`, never `buffer`: the viewer's copy has to be the MODEL. For a
+      // `.ifczip` those differ, and handing the browser the container is the
+      // difference between a building and an empty scene.
+      await writeCompressedSource(bucket, keys.sourceKey, new Uint8Array(source))
       indexKey = keys.indexKey
       digestKey = keys.digestKey
     }
@@ -293,12 +321,19 @@ export async function runBimExtraction(input: BimExtractionInput): Promise<BimEx
     // `instanceof` against the dynamically-imported class is still sound: the
     // module registry caches it, so the constructor the throw site used is the
     // one bound above.
+    //
+    // An archive refusal keeps its own sentence rather than collapsing into
+    // "not a valid IFC file": "the archive holds two models" and "the unpacked
+    // model is 900 MB" are both things the person who uploaded it can act on,
+    // and neither is true of the file they see in the list.
     const reason =
-      error instanceof IfcExtractionError
-        ? error.code === 'not-ifc'
-          ? 'Die Datei ist keine gültige IFC-Datei (STEP/ISO-10303-21).'
-          : `Das IFC-Modell konnte nicht gelesen werden: ${error.message}`
-        : 'Das IFC-Modell konnte nicht verarbeitet werden.'
+      error instanceof IfcArchiveError
+        ? `Das IFC-Archiv konnte nicht verarbeitet werden: ${error.message}`
+        : error instanceof IfcExtractionError
+          ? error.code === 'not-ifc'
+            ? 'Die Datei ist keine gültige IFC-Datei (STEP/ISO-10303-21).'
+            : `Das IFC-Modell konnte nicht gelesen werden: ${error.message}`
+          : 'Das IFC-Modell konnte nicht verarbeitet werden.'
     await failBimModel(modelId, input.organizationId, reason).catch(() => undefined)
     return { modelId, status: 'failed', elementCount: 0, error: reason }
   }
