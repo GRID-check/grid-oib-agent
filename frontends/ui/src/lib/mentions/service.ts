@@ -37,7 +37,7 @@ import {
 } from '@/lib/inbox/service'
 import { requireResourceAccess, type ResourceAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory, unknownPerson } from '@/lib/sharing/directory'
-import { roleSatisfies } from '@/lib/sharing/registry'
+import { describeResource, roleSatisfies } from '@/lib/sharing/registry'
 import { consumeLimit, MAX_MENTIONS_PER_MESSAGE, memberSubject, MENTION_LIMIT } from '@/lib/limits'
 import { grantResourceAccess, resolveParticipants } from '@/lib/sharing/service'
 import type { DirectoryPerson, ShareCandidate } from '@/lib/sharing/types'
@@ -60,14 +60,6 @@ import {
   type MentionInput,
   type PendingMentionView,
 } from './types'
-
-/**
- * The resource types mentions are written on today. Deliberately narrower than
- * `ShareableResourceType`: the repository, the anchor column and every helper
- * below are already generic (spec MN-19), but until a second surface exists the
- * public signatures stay honest about what has actually been exercised.
- */
-type MentionResourceType = 'conversation'
 
 /**
  * Cap on the free text copied into an inbox payload. The note is user-controlled
@@ -147,7 +139,7 @@ export async function voidRequestsForResource(
 
 export interface ApplyMessageMentionsInput {
   session: AuthorizedSession
-  resourceType: MentionResourceType
+  resourceType: ShareableResourceType
   resourceId: string
   /** The anchor carrying the mentions — the message id, for a chat. */
   anchorId: string
@@ -208,6 +200,10 @@ export async function applyMessageMentions(
   // no query, no rate-limit write — the hot path must stay free.
   if (targets.length === 0) {
     return { addressees: { agent: true, users: [] }, createdRequests: 0, awaitingUserIds: [] }
+  }
+
+  if (!describeResource(resourceType).supportsMentions) {
+    throw new BadRequestError('Mentions are not available on this resource')
   }
 
   await enforceMentionBounds(session, targets.length)
@@ -383,7 +379,7 @@ function containerAccessRefusal(targetId: string): BadRequestError {
  */
 async function inviteMentionTarget(
   session: AuthorizedSession,
-  resourceType: MentionResourceType,
+  resourceType: ShareableResourceType,
   resourceId: string,
   targetId: string,
 ): Promise<void> {
@@ -419,7 +415,7 @@ function errorReason(error: unknown): string | null {
  */
 async function notifyMentionRecipients(
   session: AuthorizedSession,
-  resourceType: MentionResourceType,
+  resourceType: ShareableResourceType,
   resourceId: string,
   anchorId: string,
   created: MentionRequest[],
@@ -451,7 +447,7 @@ async function notifyMentionRecipients(
 
 export interface ResolveRequestsOnReplyInput {
   organizationId: string
-  resourceType: MentionResourceType
+  resourceType: ShareableResourceType
   resourceId: string
   /** Whoever just contributed. */
   authorUserId: string
@@ -571,7 +567,7 @@ export async function releaseRequest(
   // organization must be indistinguishable from one that does not exist.
   if (!request || request.organizationId !== session.organizationId) throw new NotFoundError()
 
-  const resourceType = request.resourceType as MentionResourceType
+  const resourceType = request.resourceType
   await requireResourceAccess(session, resourceType, request.resourceId, 'collaborator')
 
   // A no-op when the request already settled: `resolveRequests` only touches
@@ -624,7 +620,7 @@ export async function getAwaitingState(
  */
 async function buildAwaitingState(
   session: AuthorizedSession,
-  resourceType: MentionResourceType,
+  resourceType: ShareableResourceType,
   resourceId: string,
 ): Promise<AwaitingStateResponse> {
   const open = await listOpenRequestsForResource(resourceType, resourceId)
@@ -707,7 +703,10 @@ export async function listMentionCandidates(
  * `needsProjectAccess`, because SH-19 requires the block to be explicable and an
  * owner may be entitled to fix it by adding them to the project first.
  *
- * Requires `owner`: the list exists in order to invite.
+ * Requires `owner`: the list exists in order to invite. Assignment is a
+ * different question (who is on the hook, not who can change the roster)
+ * and lives on `GET /api/assignments/{type}/{id}/candidates` with a
+ * `collaborator` floor — do not reuse this endpoint for that.
  *
  * Lives in this module rather than `@/lib/sharing/service` because it is the same
  * computation as {@link listMentionCandidates}; if a third consumer appears it
@@ -806,7 +805,7 @@ async function loadCandidateRoster(
  */
 async function publishAwaiting(
   organizationId: string,
-  resourceType: MentionResourceType,
+  resourceType: ShareableResourceType,
   resourceId: string,
 ): Promise<string[]> {
   const open = await listOpenRequestsForResource(resourceType, resourceId)
@@ -872,17 +871,12 @@ function answeredGroupKey(request: MentionRequest): string {
  * shareable domain at once.
  */
 async function resolveSubjectLine(
-  resourceType: MentionResourceType,
+  resourceType: ShareableResourceType,
   resourceId: string,
   organizationId: string,
 ): Promise<string | null> {
-  switch (resourceType) {
-    case 'conversation': {
-      const { findConversationInOrg } = await import('@/lib/conversations/repository')
-      const row = await findConversationInOrg(resourceId, organizationId)
-      return row?.title ?? null
-    }
-  }
+  const ref = await describeResource(resourceType).describeRef(resourceId, organizationId)
+  return ref?.title ?? null
 }
 
 /** Bound user-controlled text before it is stored or copied into a payload. */
@@ -906,7 +900,7 @@ function truncate(text: string | null | undefined): string | null {
  * state a second way.
  */
 export async function threadIsAwaitingHuman(
-  resourceType: MentionResourceType,
+  resourceType: ShareableResourceType,
   resourceId: string,
 ): Promise<boolean> {
   const open = await listOpenRequestsForResource(resourceType, resourceId)

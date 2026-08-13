@@ -29,10 +29,24 @@ export type DeepResearchBannerType = 'starting' | 'success' | 'failure' | 'cance
 /** File upload status types for banner messages */
 export type FileUploadStatusType = 'uploaded' | 'pending_warning'
 
+/** What this Ask Piloti turn is about — the same composer, not a second chat. */
+export interface ComposerSubject {
+  resourceType: 'document'
+  resourceId: string
+  title?: string | null
+  /** Stored file name — retrieval identity, not the label. */
+  filename?: string | null
+}
+
 /** A queued composer prefill: the text plus any structured mentions it renders. */
 export interface ComposerPrefill {
   text: string
   mentions?: DraftMention[]
+  /**
+   * Optional subject of this ask (a project file). IFC walls, applicable
+   * standards and Files all land here — one pipe.
+   */
+  subject?: ComposerSubject
 }
 
 /** Status types for status card messages */
@@ -415,6 +429,12 @@ export interface Conversation {
    */
   jobId?: string | null
   title: string
+  /**
+   * What this thread is asking about, when it started from a file (same Ask
+   * Piloti as `?ask=`). Null for an ordinary chat.
+   */
+  subjectResourceType?: 'document' | null
+  subjectResourceId?: string | null
   messages: ChatMessage[]
   createdAt: Date
   updatedAt: Date
@@ -683,6 +703,16 @@ export interface ChatState {
    * never re-derived from text).
    */
   composerPrefill: ComposerPrefill | null
+  /**
+   * What this draft/session is asking about. Survives the one-shot prefill
+   * consume so the composer chip stays up. Same Ask Piloti as `?ask=`.
+   *
+   * A peek-bound subject (citation auto-peek / document_grid via
+   * `openFilePeek`) lives only while that peek is visible: hide/close MUST
+   * clear this. A user-intent subject (`?doc=`) is not peek-bound and
+   * survives hide so the bar can restore the file.
+   */
+  composerSubject: ComposerSubject | null
   /**
    * Per-session composer drafts: the user's own in-progress, unsent text keyed
    * by conversation id. Distinct from `composerPrefill` (one-shot, external):
@@ -1140,7 +1170,8 @@ export interface ChatActions {
   setProjectId: (projectId: string | null) => void
 
   /** Queue text for the composer to pick up (does NOT auto-send). */
-  setComposerPrefill: (text: string, mentions?: DraftMention[]) => void
+  setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
+  setComposerSubject: (subject: ComposerSubject | null) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
   consumeComposerPrefill: () => ComposerPrefill | null
   /** Register the live chat send callback (called by InputArea on mount). */

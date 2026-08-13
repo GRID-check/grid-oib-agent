@@ -376,9 +376,17 @@ export const platform: typeof en.platform = {
     failedHint: 'Die Anfrage wurde nicht abgeschlossen, es wurde daher nichts gelöscht. Bitte erneut versuchen.',
   },
   skills: {
-    hint: 'Ein hier geschriebener Skill wird jeder Organisation angeboten. Jede entscheidet selbst, ob sie ihn einschaltet. Entwürfe bleiben unsichtbar, bis Sie sie veröffentlichen.',
+    hint: 'Ein hier geschriebener Skill erreicht jede Organisation. Als Angebot entscheidet jede selbst, ob sie ihn einschaltet; als Standard führen ihn alle aus, ohne ihn auf ihrem Skills-Tab zu sehen oder abschalten zu können. Entwürfe bleiben unsichtbar, bis Sie sie veröffentlichen.',
     new: 'Neuer kuratierter Skill',
     draft: 'Entwurf',
+    standardBadge: 'Standard',
+    deliveryOffer: 'Angebot',
+    deliveryStandard: 'Standard für alle',
+    deliveryAria: 'Auslieferung des Skills „{name}“ ändern',
+    deliveryNowStandard:
+      '„{name}“ ist jetzt Standard: Jede Organisation führt ihn aus, niemand kann ihn abschalten.',
+    deliveryNowOffer:
+      '„{name}“ ist jetzt ein Angebot: Er läuft erst wieder, wenn eine Organisation ihn einschaltet.',
     edit: 'Bearbeiten',
     delete: 'Löschen',
     deleted: '„{name}“ wurde gelöscht.',
@@ -389,7 +397,7 @@ export const platform: typeof en.platform = {
     cancel: 'Abbrechen',
     publishLabel: 'Veröffentlicht',
     publishHint:
-      'An: Jede Organisation sieht diesen Skill auf ihrem Skills-Tab und kann ihn einschalten. Aus: Er ist ein Entwurf, den niemand außerhalb dieses Dashboards sieht, und Organisationen, die ihn eingeschaltet hatten, führen ihn nicht mehr aus.',
+      'An: Der Skill ist live — ein Angebot erscheint auf dem Skills-Tab jeder Organisation zum Einschalten, ein Standard läuft einfach bei allen. Aus: Er ist ein Entwurf, den niemand außerhalb dieses Dashboards sieht, und jede Organisation, die ihn ausgeführt hat, hört damit auf.',
     publishAria: 'Kuratierten Skill „{name}“ für alle Organisationen veröffentlichen',
     createTitle: 'Neuer kuratierter Skill',
     editTitle: 'Kuratierten Skill bearbeiten',
@@ -509,7 +517,7 @@ export const platform: typeof en.platform = {
     skills: {
       title: 'Skills',
       subtitle:
-        'Die Skills, die Piloti für alle Organisationen kuratiert. Veröffentlicht wird ein Skill allen angeboten; jede Organisation entscheidet selbst, ob sie ihn einschaltet.',
+        'Die Skills, die Piloti für alle Organisationen schreibt. Als Angebot veröffentlicht entscheidet jede Organisation selbst, ob sie ihn einschaltet; als Standard veröffentlicht führen ihn schlicht alle aus.',
     },
     models: {
       title: 'Modelle',

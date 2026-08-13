@@ -33,7 +33,7 @@ describe('retrieval settings catalog', () => {
       'knowledge.top_k': 16,
       'knowledge.max_chunks_per_document': 5,
       'surface.chunk_top_k': 40,
-      'surface.max_files': 12,
+      'surface.max_files': 3,
       'web.max_results': 8,
       'web.advanced_max_results': 4,
       'ris.max_results': 20,

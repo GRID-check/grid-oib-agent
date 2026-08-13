@@ -158,6 +158,24 @@ substrate on the way through.
 That document is the checklist and the debt register. Update it when you add a
 type, and when you pay a piece of the debt down.
 
+## Addendum, 2026-08-13: the second consumer, and how the debt is paid
+
+Documents are the second consumer (Files as a shareable resource + a
+conversation subject). The design is
+[`../superpowers/specs/2026-08-13-file-native-ownership-design.md`](../superpowers/specs/2026-08-13-file-native-ownership-design.md).
+Assignment — who is professionally on the hook — is **not** this ADR's
+`owner` role; that split is [ADR-0047](0047-assignment-is-not-access.md).
+
+The 2026-07-31 addendum's number still holds: a second type today would pay
+roughly twice its legitimate cost. That cost is paid **in the files change**,
+as atomic substrate commits, before the document descriptor is user-visible.
+Leaving the leaks for a follow-up would make the second consumer the thing
+that *cements* a conversation-shaped platform, which is the opposite of the
+test this ADR set.
+
+YAGNI still applies to product scope around files (no PDF comments, no
+compliance board). It does not apply to §3 of the shareable-type doc.
+
 ## References
 
 - ../design/collaboration-sharing-and-inbox-spec.md — §5 (requirements SH-1…SH-20),

@@ -38,7 +38,7 @@ import {
 import { isOrgFeatureEnabled, SKILLS_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Job, JobOutput, JobRun, JobRunStatus, JobRunTrigger } from '@/lib/db/schema'
-import { resolveSkillSnapshot, resolveSkillsForAgent } from '@/lib/skills/service'
+import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
 import { snapshotOf, type SkillSnapshot } from '@/lib/skills/types'
 import { nextOccurrence, validateCron, minIntervalMinutesFromEnv } from './schedule'
 import {
@@ -271,13 +271,20 @@ export type AttachableSkill = {
  * availability is resolved from `grid-agents` — the ONE gate. The picker must
  * not offer a skill the chosen output cannot run, which is exactly why the
  * availability rules were consolidated onto that single key.
+ *
+ * `resolveSelectableSkills`, not `resolveSkillsForAgent`: the platform's
+ * standard skills resolve for this organization on every run, but they are not
+ * the org's to attach. Offering one here would build a job around an instruction
+ * whose body this tenant cannot read in the preview pane, cannot edit, and
+ * cannot keep — `resolveSkillSnapshot` refuses the name, so the save would 404
+ * on something the picker had just shown as available.
  */
 export async function listAttachableSkills(
   session: AuthorizedSession,
   output: JobOutput,
 ): Promise<{ skills: AttachableSkill[] }> {
   assertJobsFeatureOn(session)
-  const { skills } = await resolveSkillsForAgent(session.organizationId, AGENT_FOR_OUTPUT[output])
+  const { skills } = await resolveSelectableSkills(session.organizationId, AGENT_FOR_OUTPUT[output])
   return {
     skills: [...skills].sort((left, right) => left.name.localeCompare(right.name)),
   }

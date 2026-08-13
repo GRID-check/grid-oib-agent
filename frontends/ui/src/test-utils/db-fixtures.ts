@@ -99,4 +99,5 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   metadata: null,
   folderId: null,
   ...overrides,
+  visibility: overrides.visibility ?? 'project',
 })

@@ -1,20 +1,19 @@
-"""``surface_documents`` tool — present REAL project/Büroarchiv files to the user.
+"""``surface_documents`` — put REAL project/Büroarchiv files in front of the user.
 
-The chat has always *cited* documents; it never *surfaced* them for browsing. This
-tool closes that gap: the answering agent calls it when the user is looking for
-work they did ("finde das Projekt, an dem ich gearbeitet habe", "zeig mir Unterlagen
-zu Fluchtwegen") or is developing an idea and would benefit from seeing the relevant
-files. The tool runs a DETERMINISTIC vector search over the in-scope project and
-Büroarchiv corpora — never the LLM inventing filenames — aggregates one hit per file,
-and emits a :class:`~aiq_agent.cards.models.DocumentGridCard` into the
-conversation-scoped :class:`~aiq_agent.cards.registry.CardRegistry`. The frontend
-resolves each real file name to its live document row and renders clickable
-file-explorer preview cards.
+Discovery, not evidence. ``knowledge_search`` reads and cites passages; this
+tool opens a file in the UI. Citations already peek the cited file — the
+agent must not call this after citing.
 
-``document_grid`` is a SYSTEM card (see ``SYSTEM_CARD_TYPES``): the model cannot
-fabricate one via ``emit_card`` — it can only ask this tool to run a real search.
-The tool mirrors the ``emit_card`` / ``remember`` registry pattern exactly.
+- ``filename=``: the user asked to *see* a named file (no legal question).
+- ``mode=one`` + ``query=``: they asked to see the best matching file and
+  you do not have the name.
+- ``mode=many`` + ``query=``: they are browsing; a short choice, not a catalogue.
+
+The model cannot invent filenames. The tool looks up or searches the in-scope
+project + Büroarchiv corpora and emits a ``document_grid`` system card.
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -27,29 +26,31 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
-# Chunks retrieved per in-scope collection before per-file aggregation. Comfortably
-# exceeds MAX_SURFACED_FILES so a file's best chunk is never starved by the cap.
-# Both are build-time defaults: the platform owner can tune them live in
-# Platform → Retrieval (surface.chunk_top_k / surface.max_files).
 _CHUNK_TOP_K = 40
-# Files shown in the grid. A scannable set — the grid is a "here are the
-# relevant documents" affordance, not an exhaustive search results page.
-MAX_SURFACED_FILES = 12
-# Minimum best-chunk relevance (0..1) for a file to be worth surfacing. A cheap,
-# deterministic quality gate so weak vector hits never fill the grid with
-# irrelevant files — the user should only see documents that are actually a good
-# match. (A fast LLM re-ranker over the surviving candidates is a possible future
-# refinement; kept out for now to keep this tool latency-free.)
-MIN_SURFACE_SCORE = 0.35
+# A short choice, never a catalogue. Platform → Retrieval can lower this.
+MAX_SURFACED_FILES = 3
+# Weak hits are how a citation-health screenshot pulls in every IFC in the
+# project. Floor is high on purpose.
+MIN_SURFACE_SCORE = 0.58
+# In browse, drop files that are not almost as good as the winner.
+MANY_RELATIVE_FLOOR = 0.88
+# If the winner is this far ahead of #2, there is no real choice.
+CLEAR_WINNER_GAP = 0.12
+
+_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff")
+_MODEL_EXT = (".ifc", ".ifczip")
+# Only kinds that must not leak into a different medium. A query like
+# "Lageplan" is a topic, not a file-kind filter — that would drop plan.pdf.
+_QUERY_KIND_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("image", ("screenshot", "bildschirm", "png", "jpg", "jpeg", "foto", "photo", "zitation", "citation", "zitier")),
+    ("model", ("ifc", "bim", "modell")),
+)
+
+SurfaceMode = Literal["one", "many"]
 
 
 def _source_for_collection(collection: str) -> Literal["projekt", "buero"] | None:
-    """Map a RAG collection name to its coarse corpus label, or ``None``.
-
-    ``proj_<uuid>`` → the user's project documents; ``archiv_<orgId>`` → the org's
-    shared Büroarchiv. Anything else (the base OIB corpus, session scratch) is not
-    a user-owned document store and is not surfaced by this tool.
-    """
+    """Map a RAG collection name to its coarse corpus label, or ``None``."""
     if collection.startswith("proj_"):
         return "projekt"
     if collection.startswith("archiv_"):
@@ -58,11 +59,7 @@ def _source_for_collection(collection: str) -> Literal["projekt", "buero"] | Non
 
 
 def _target_collections(scope: list[str] | None) -> list[str]:
-    """The in-scope collections this tool searches: project + Büroarchiv only.
-
-    Deliberately excludes the base OIB corpus (law/Richtlinien) — that is surfaced
-    as citations, not as "files you worked on". Order-preserving and deduplicated.
-    """
+    """Project + Büroarchiv only. Never the OIB corpus (that is citations)."""
     seen: set[str] = set()
     targets: list[str] = []
     for collection in scope or []:
@@ -72,21 +69,64 @@ def _target_collections(scope: list[str] | None) -> list[str]:
     return targets
 
 
-def _aggregate_surfaced(hits: list[tuple[object, str]], max_files: int) -> list[dict]:
-    """Reduce (chunk, source) pairs to one best entry per file, score-sorted.
+def _match_known_filename(requested: str, known: list[str]) -> str | None:
+    """Resolve a user/agent-supplied name onto an indexed file name."""
+    needle = (requested or "").strip()
+    if not needle or not known:
+        return None
+    if needle in known:
+        return needle
+    lowered = {name.lower(): name for name in known}
+    if needle.lower() in lowered:
+        return lowered[needle.lower()]
+    # Longest contained name first so "Plan EG.pdf" wins over "Plan.pdf".
+    for name in sorted(known, key=len, reverse=True):
+        if name.lower() in needle.lower() or needle.lower() in name.lower():
+            return name
+    return None
 
-    Keeps each file's highest-scoring chunk (its snippet/page/score), sorts files
-    by that best score descending, and caps at ``max_files``. Mirrors the document
-    search endpoint's ``_aggregate_hits`` so surfaced files match the file browser's
-    semantic search exactly.
-    """
+
+def _filename_mentioned_in_query(query: str, known: list[str]) -> str | None:
+    """If the query already names a file, that file is the subject."""
+    text = (query or "").strip().lower()
+    if not text or not known:
+        return None
+    for name in sorted(known, key=len, reverse=True):
+        if name.lower() in text:
+            return name
+    return None
+
+
+def _file_kind(file_name: str) -> str:
+    """Coarse kind so a screenshot query does not also surface IFC models."""
+    lower = (file_name or "").lower()
+    if lower.endswith(_MODEL_EXT):
+        return "model"
+    if lower.endswith(_IMAGE_EXT):
+        return "image"
+    if any(token in lower for token in ("grundriss", "schnitt", "ansicht", "lageplan")):
+        return "drawing"
+    return "document"
+
+
+def _query_kind(query: str) -> str | None:
+    text = (query or "").strip().lower()
+    if not text:
+        return None
+    for kind, tokens in _QUERY_KIND_HINTS:
+        if any(token in text for token in tokens):
+            return kind
+    return None
+
+
+def _aggregate_hits(hits: list[tuple[object, str]]) -> list[dict]:
+    """One best chunk per file, score-sorted, quality-gated."""
     best: dict[str, dict] = {}
     for chunk, source in hits:
         file_name = getattr(chunk, "file_name", None)
         if not file_name:
             continue
         score = float(getattr(chunk, "score", 0.0) or 0.0)
-        # Quality gate: a weak best-chunk match is not worth surfacing.
         if score < MIN_SURFACE_SCORE:
             continue
         existing = best.get(file_name)
@@ -102,8 +142,54 @@ def _aggregate_surfaced(hits: list[tuple[object, str]], max_files: int) -> list[
             "score": round(score, 4),
             "source": source,
         }
-    ordered = sorted(best.values(), key=lambda d: d["score"], reverse=True)
-    return ordered[:max_files]
+    return sorted(best.values(), key=lambda row: row["score"], reverse=True)
+
+
+def _pick_one(ordered: list[dict]) -> list[dict]:
+    return ordered[:1]
+
+
+def _pick_many(ordered: list[dict], max_files: int) -> list[dict]:
+    """Keep the winner, plus only same-kind files that are almost as good."""
+    if not ordered:
+        return []
+    winner = ordered[0]
+    if len(ordered) == 1:
+        return [winner]
+    best = float(winner["score"] or 0.0)
+    second = float(ordered[1]["score"] or 0.0)
+    if best - second >= CLEAR_WINNER_GAP:
+        return [winner]
+    winner_kind = _file_kind(str(winner["file_name"]))
+    cap = max(1, min(max_files, MAX_SURFACED_FILES))
+    floor = max(MIN_SURFACE_SCORE, best * MANY_RELATIVE_FLOOR)
+    kept = [winner]
+    for row in ordered[1:]:
+        if len(kept) >= cap:
+            break
+        if _file_kind(str(row["file_name"])) != winner_kind:
+            continue
+        if float(row["score"] or 0.0) < floor:
+            continue
+        kept.append(row)
+    return kept
+
+
+def _aggregate_surfaced(
+    hits: list[tuple[object, str]],
+    max_files: int,
+    mode: SurfaceMode = "one",
+    query: str = "",
+) -> list[dict]:
+    ordered = _aggregate_hits(hits)
+    hint = _query_kind(query)
+    if hint:
+        hinted = [row for row in ordered if _file_kind(str(row["file_name"])) == hint]
+        if hinted:
+            ordered = hinted
+    if mode == "many":
+        return _pick_many(ordered, max_files)
+    return _pick_one(ordered)
 
 
 class SurfaceDocumentsConfig(FunctionBaseConfig, name="surface_documents"):
@@ -111,35 +197,55 @@ class SurfaceDocumentsConfig(FunctionBaseConfig, name="surface_documents"):
 
 
 _TOOL_DESCRIPTION = (
-    "Surface REAL project and Büroarchiv documents to the user as a grid of clickable "
-    "preview cards. Call this when the user is looking for their own material — a project "
-    "or documents they worked on, files about a topic, or reference material for an idea "
-    "they are developing ('finde das Projekt zu…', 'welche Unterlagen habe ich zu…', 'zeig "
-    "mir ähnliche Fälle'). This runs a real semantic search over the uploaded documents and "
-    "shows the actual matching files; it does NOT answer legal questions (use the knowledge "
-    "search for that) and never invents documents. Pass `query`: the topic to search for "
-    "(a phrase, not a full sentence). Optionally pass `title`: a short heading for the grid. "
-    "The tool returns each found document's summary and tags (metadata only, not the full "
-    "text); use them to introduce the grid CONVERSATIONALLY in your written answer — say what "
-    "you found, why one or two stand out, and invite the user's thoughts (e.g. 'Ich habe "
-    "einige passende Unterlagen gefunden … besonders X dürfte dich interessieren. Was denkst "
-    "du?'). The grid already shows the files, so do not just list their names."
+    "Show the user a REAL project or Büroarchiv FILE in the UI (preview card). "
+    "This is not a citation tool — it does not return quotable passages.\n"
+    "WHEN TO CALL — the user asked to SEE or BROWSE their own files, with no "
+    "legal question to answer. Examples: 'zeig mir den Brandschutzplan', "
+    "'öffne Schnitt.pdf', 'welche Unterlagen habe ich zu Fluchtwegen'.\n"
+    "- `filename=` the exact indexed name (inventory or the user) when they "
+    "named a file. Opens that one file.\n"
+    "- `mode=one` (default) + `query=` when they asked to see the best matching "
+    "file and you do not have the name. Opens one file. Not a follow-up to a "
+    "citation.\n"
+    "- `mode=many` + `query=` only when they are choosing among two or three "
+    "NEARLY EQUALLY relevant files of the same kind. Never a catalogue, never "
+    "the inventory.\n"
+    "WHEN NOT TO CALL — to read, quote, or cite a passage, use `knowledge_search`. "
+    "The UI already peeks the cited file; do not also call this tool after citing. "
+    "Do not use this for OIB / RIS / web questions.\n"
+    "Never invent filenames. After a successful call, talk about the file in "
+    "prose; do not dump a filename list."
 )
 
 
 @register_function(config_type=SurfaceDocumentsConfig)
 async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builder):
-    async def _surface(query: str, title: str | None = None) -> str:
-        """Run a real corpus search and emit a document_grid card of the results."""
+    async def _surface(
+        query: str = "",
+        filename: str | None = None,
+        title: str | None = None,
+        mode: str | None = None,
+    ) -> str:
+        """Show project or Büroarchiv files in the UI. Not a citation tool.
+
+        Args:
+            query: Topic to search when the user did not name a file (e.g. "Fluchtwege EG").
+            filename: Exact indexed file name to open (e.g. "Brandschutzplan_EG.pdf").
+            title: Optional card heading. Leave empty to use the file name or query.
+            mode: `one` (default) opens a single file; `many` offers a short browse choice.
+        """
         query = (query or "").strip()
-        if not query:
-            return "Provide a non-empty `query` describing the documents to surface."
+        filename = (filename or "").strip() or None
+        if mode is not None and mode not in ("one", "many"):
+            return "Error: `mode` must be `one` (open the best file) or `many` (short browse choice)."
+        if not query and not filename:
+            return "Provide `filename=` (open this named file) or `query=` (search). Use `mode=many` only to browse."
 
         from aiq_agent.knowledge.scoping import get_collection_scope_from_context
 
         try:
             scope = get_collection_scope_from_context()
-        except Exception:  # pragma: no cover - defensive; scoping never raises normally
+        except Exception:
             logger.debug("surface_documents: could not read collection scope", exc_info=True)
             scope = None
 
@@ -150,44 +256,42 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
                 "nothing to surface. Answer from the other available sources instead."
             )
 
-        from aiq_agent.knowledge.factory import get_active_retriever
+        meta = await _fetch_document_metadata(targets)
+        known_names = list(meta.keys())
 
-        retriever = get_active_retriever()
+        named = filename
+        if named:
+            named = _match_known_filename(named, known_names)
+        if filename and not named and not query:
+            return (
+                f"No indexed file matches filename={filename!r}. "
+                "Check the spelling against the knowledge-base inventory, "
+                "or pass a short topic `query` with `mode=many` to browse."
+            )
+        if not named and query:
+            named = _filename_mentioned_in_query(query, known_names)
 
-        # Platform-tunable counts (Platform → Retrieval), resolved per call;
-        # fail-open to the module constants.
+        effective: SurfaceMode = "many" if mode == "many" and not named else "one"
+
         from aiq_agent.common.retrieval_settings import get_retrieval_setting
 
         chunk_top_k = get_retrieval_setting("surface.chunk_top_k", _CHUNK_TOP_K)
         max_files = get_retrieval_setting("surface.max_files", MAX_SURFACED_FILES)
 
-        async def _retrieve(collection: str) -> list[tuple[object, str]]:
-            source = _source_for_collection(collection)
-            try:
-                result = await retriever.retrieve(
-                    query=query, collection_name=collection, top_k=chunk_top_k, filters=None
-                )
-            except Exception:
-                # Fail-open per collection: one unreachable store never sinks the rest.
-                logger.warning("surface_documents: retrieval failed for %s", collection, exc_info=True)
-                return []
-            chunks = getattr(result, "chunks", None) or []
-            return [(chunk, source) for chunk in chunks if source is not None]
+        documents: list[dict]
+        if named:
+            documents = await _surface_named(named, targets, meta, query or named, chunk_top_k)
+        else:
+            documents = await _surface_search(query, targets, effective, chunk_top_k, max_files)
 
-        gathered = await asyncio.gather(*(_retrieve(collection) for collection in targets))
-        hits: list[tuple[object, str]] = [hit for group in gathered for hit in group]
-
-        documents = _aggregate_surfaced(hits, max_files)
         if not documents:
+            subject = filename or query
             return (
-                f"I searched the project and Büroarchiv documents for '{query}' but found no "
-                "matching files to surface. Tell the user nothing relevant was found."
+                f"No project or Büroarchiv file matched {subject!r}. "
+                "Try a narrower `query` (a filename fragment, a plan type, a project name) "
+                "or check the knowledge-base inventory for the exact `filename` spelling."
             )
 
-        # Enrich each surfaced file with its document-level summary + tags (metadata
-        # only — never the full document) so the answering agent can introduce them
-        # conversationally ("here is what I found, I think you will like X because …").
-        meta = await _fetch_document_metadata(targets)
         for doc in documents:
             info = meta.get(doc["file_name"])
             if info:
@@ -198,42 +302,118 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
         from aiq_agent.cards.models import grid_card_adapter
         from aiq_agent.cards.registry import get_card_registry
 
+        heading = (title or "").strip()
+        if not heading:
+            heading = documents[0]["file_name"] if effective == "one" else f"Passende Unterlagen – {query}"
+
         card = {
             "type": "document_grid",
-            "title": (title or "").strip() or f"Relevante Dokumente – {query}",
-            "query": query,
-            # Strip the agent-only `_tags` helper before validating the card.
+            "title": heading,
+            "query": query or filename,
             "documents": [{k: v for k, v in doc.items() if not k.startswith("_")} for doc in documents],
         }
         try:
             validated = grid_card_adapter.validate_python(card).model_dump(exclude_none=True)
         except Exception as exc:
             logger.exception("surface_documents: failed to build document_grid card")
-            return f"Error: could not build the document grid ({exc})."
+            return f"Error: could not build the document card ({exc})."
 
         registry = get_card_registry()
         if registry is None:
-            logger.info("surface_documents: no card registry bound; grid of %d file(s) dropped", len(documents))
+            logger.info("surface_documents: no card registry; %d file(s) dropped", len(documents))
             return "Noted, but no card channel is available in this context; continue with your written answer."
 
         registry.add(validated)
-        logger.info("surface_documents: surfaced %d file(s) for query %r", len(documents), query)
-        return _briefing_for_agent(query, documents)
+        logger.info(
+            "surface_documents: mode=%s surfaced %d file(s) query=%r filename=%r",
+            effective,
+            len(documents),
+            query,
+            filename,
+        )
+        return _briefing_for_agent(query or filename or "", documents, effective)
 
     yield FunctionInfo.from_fn(_surface, description=_TOOL_DESCRIPTION)
 
 
+async def _surface_named(
+    file_name: str,
+    targets: list[str],
+    meta: dict[str, dict],
+    retrieve_query: str,
+    chunk_top_k: int,
+) -> list[dict]:
+    """Open one known file. Search only to fetch a matching passage."""
+    info = meta.get(file_name) or {}
+    source = "projekt"
+    hits = await _retrieve_all(targets, retrieve_query, chunk_top_k)
+    for chunk, src in hits:
+        if getattr(chunk, "file_name", None) == file_name:
+            source = src
+            break
+    snippet = None
+    page = None
+    score = 1.0
+    for chunk, src in hits:
+        if getattr(chunk, "file_name", None) != file_name:
+            continue
+        snippet = (getattr(chunk, "content", "") or "").strip() or None
+        if snippet and len(snippet) > 300:
+            snippet = snippet[:300].rstrip() + "…"
+        page = getattr(chunk, "page_number", None)
+        score = round(float(getattr(chunk, "score", 0.0) or 0.0), 4)
+        source = src
+        break
+    return [
+        {
+            "file_name": file_name,
+            "snippet": snippet,
+            "page": page,
+            "score": score if score else 1.0,
+            "source": source,
+            "summary": info.get("summary"),
+        }
+    ]
+
+
+async def _surface_search(
+    query: str,
+    targets: list[str],
+    mode: SurfaceMode,
+    chunk_top_k: int,
+    max_files: int,
+) -> list[dict]:
+    hits = await _retrieve_all(targets, query, chunk_top_k)
+    return _aggregate_surfaced(hits, max_files, mode, query)
+
+
+async def _retrieve_all(
+    targets: list[str],
+    query: str,
+    chunk_top_k: int,
+) -> list[tuple[object, str]]:
+    from aiq_agent.knowledge.factory import get_active_retriever
+
+    retriever = get_active_retriever()
+
+    async def _retrieve(collection: str) -> list[tuple[object, str]]:
+        source = _source_for_collection(collection)
+        if source is None:
+            return []
+        try:
+            result = await retriever.retrieve(query=query, collection_name=collection, top_k=chunk_top_k, filters=None)
+        except Exception:
+            logger.warning("surface_documents: retrieval failed for %s", collection, exc_info=True)
+            return []
+        chunks = getattr(result, "chunks", None) or []
+        return [(chunk, source) for chunk in chunks]
+
+    gathered = await asyncio.gather(*(_retrieve(collection) for collection in targets))
+    return [hit for group in gathered for hit in group]
+
+
 async def _fetch_document_metadata(collections: list[str]) -> dict[str, dict]:
-    """Map file_name → {summary, tags} across the given collections (metadata only).
-
-    Reads the per-document summary/tag store the ingest pipeline populates — never
-    the full document text. Fail-open: any lookup error yields no metadata for that
-    collection, so the grid still surfaces (just without the enriched briefing).
-
-    Note (scale): this loads each collection's full summary list to enrich ≤8
-    files. Fine at current corpus sizes; if collections grow large, add a
-    by-filename lookup to the summary store and use it here.
-    """
+    """Map file_name → {summary, tags} across the given collections."""
     from aiq_agent.knowledge.factory import get_available_documents_async
 
     async def _for(collection: str) -> list:
@@ -253,31 +433,56 @@ async def _fetch_document_metadata(collections: list[str]) -> dict[str, dict]:
 
 
 _SOURCE_LABEL = {"projekt": "Projekt", "buero": "Büroarchiv"}
+_BRIEF_SNIPPET_MAX = 120
+_BRIEF_SUMMARY_MAX = 160
 
 
-def _briefing_for_agent(query: str, documents: list[dict]) -> str:
-    """A metadata-only briefing so the agent can introduce the grid conversationally.
+def _clip(text: str | None, limit: int) -> str | None:
+    value = (text or "").strip()
+    if not value:
+        return None
+    if len(value) <= limit:
+        return value
+    return value[:limit].rstrip() + "…"
 
-    Lists each surfaced file with its corpus, one-line summary, tags, and best
-    matched passage — enough for the agent to say what it found and why each is
-    relevant, then invite the user's thoughts. Never contains full document text.
-    """
-    lines: list[str] = [
-        f"Surfaced {len(documents)} document(s) to the user as a clickable preview grid for '{query}'.",
-        "Introduce them CONVERSATIONALLY in your written answer: say what you found, note briefly why one or "
-        "two stand out (use the summaries below), and invite the user's thoughts — e.g. 'Ich habe einige "
-        "passende Unterlagen gefunden … besonders X dürfte relevant sein. Was denkst du?'. Do NOT just list "
-        "file names or paste the snippets verbatim; the grid already shows them.",
-        "",
+
+def _file_label(doc: dict) -> str:
+    return _SOURCE_LABEL.get(doc.get("source") or "", "Dokument")
+
+
+def _briefing_for_agent(query: str, documents: list[dict], mode: SurfaceMode) -> str:
+    """Concise agent briefing. One file: 4–6 lines. Many: one line per file."""
+    if mode == "one" or len(documents) == 1:
+        return _brief_one(documents[0])
+    return _brief_many(query, documents)
+
+
+def _brief_one(doc: dict) -> str:
+    name = doc["file_name"]
+    label = _file_label(doc)
+    lines = [f'Opened "{name}" ({label}) beside the chat.']
+    summary = _clip(doc.get("summary"), _BRIEF_SUMMARY_MAX)
+    if summary:
+        lines.append(f"Worum es geht: {summary}")
+    snippet = _clip(doc.get("snippet"), _BRIEF_SNIPPET_MAX)
+    if snippet:
+        page = doc.get("page")
+        where = f"S. {page}: " if page else ""
+        lines.append(f'{where}"{snippet}"')
+    lines.append("The UI shows the file. Talk about it; do not re-open it or dump filenames.")
+    return "\n".join(lines)
+
+
+def _brief_many(query: str, documents: list[dict]) -> str:
+    lines = [
+        f"Offered {len(documents)} close matches for {query!r}. "
+        "Short choice — the user picks. Do not enumerate the filenames."
     ]
-    for i, doc in enumerate(documents, 1):
-        label = _SOURCE_LABEL.get(doc.get("source") or "", "Dokument")
-        lines.append(f'{i}. "{doc["file_name"]}" [{label}]')
-        if doc.get("summary"):
-            lines.append(f"   Worum es geht: {doc['summary']}")
-        tags = doc.get("_tags") or []
-        if tags:
-            lines.append(f"   Schlagworte: {', '.join(str(t) for t in tags[:6])}")
-        if doc.get("snippet"):
-            lines.append(f'   Passende Stelle: "{doc["snippet"]}"')
+    for doc in documents:
+        label = _file_label(doc)
+        summary = _clip(doc.get("summary"), _BRIEF_SUMMARY_MAX)
+        row = f'- "{doc["file_name"]}" ({label})'
+        if summary:
+            row = f"{row} — {summary}"
+        lines.append(row)
     return "\n".join(lines)

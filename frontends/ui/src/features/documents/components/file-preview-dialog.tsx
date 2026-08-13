@@ -24,6 +24,7 @@ interface FilePreviewDialogProps {
   /** The document was deleted in the pane's header menu. */
   onDeleted?: (fileId: string) => void
   showMetadataPanel?: boolean
+  canCollaborate?: boolean
 }
 
 /**
@@ -63,6 +64,7 @@ export function FilePreviewDialog({
   onRenamed,
   onDeleted,
   showMetadataPanel,
+  canCollaborate,
 }: FilePreviewDialogProps) {
   const t = useTranslations('files')
 
@@ -151,6 +153,7 @@ export function FilePreviewDialog({
             onRenamed={onRenamed}
             onDeleted={onDeleted}
             showMetadataPanel={showMetadataPanel}
+            canCollaborate={canCollaborate}
           />
         </DialogContent>
       )}

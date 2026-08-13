@@ -106,8 +106,8 @@ export async function resolveResourceAccess(
   // who cannot reach the project, whatever grants exist. Denial from
   // requireProjectAccess is already a NotFoundError, which is what we want.
   let projectRole: ProjectRole | null = null
-  if (container.projectId) {
-    const { role } = await requireProjectAccess(session, container.projectId, 'project:view')
+  if (probe.container.kind === 'project' && probe.container.id) {
+    const { role } = await requireProjectAccess(session, probe.container.id, 'project:view')
     projectRole = role
   }
 

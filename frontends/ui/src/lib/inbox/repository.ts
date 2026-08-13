@@ -16,6 +16,7 @@ import { and, desc, eq, inArray, isNull, lt, ne, notExists, or, sql } from 'driz
 import { getDb } from '@/lib/db'
 import {
   conversations,
+  documents,
   inboxItems,
   type InboxItem,
   type InboxItemType,
@@ -481,9 +482,19 @@ export async function deleteOrphanedInboxItems(limit = 500): Promise<number> {
     .from(inboxItems)
     .where(
       and(
-        eq(inboxItems.resourceType, 'conversation'),
-        notExists(
-          db.select({ one: sql`1` }).from(conversations).where(eq(conversations.id, inboxItems.resourceId)),
+        or(
+          and(
+            eq(inboxItems.resourceType, 'conversation'),
+            notExists(
+              db.select({ one: sql`1` }).from(conversations).where(eq(conversations.id, inboxItems.resourceId)),
+            ),
+          ),
+          and(
+            eq(inboxItems.resourceType, 'document'),
+            notExists(
+              db.select({ one: sql`1` }).from(documents).where(sql`${documents.id}::text = ${inboxItems.resourceId}`),
+            ),
+          ),
         ),
       ),
     )

@@ -254,6 +254,7 @@ vi.mock('@/adapters/api/websocket-client', () => ({
 }))
 
 import { useChatStore } from '../store'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 // NOT mocked: the real registry is the point. `useSharedThread` publishes into it
 // after its access read, and the socket layer reads it to decide whether opening a
 // connection on mount could collide with another participant's.
@@ -291,6 +292,13 @@ describe('useWebSocketChat', () => {
     }
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     mockWsClient.isConnected.mockReturnValue(false)
+    useFilePreviewStore.setState({
+      file: null,
+      mode: 'modal',
+      hidden: false,
+      peekWidth: 320,
+      context: {},
+    })
   })
 
   test('returns initial state from store', () => {
@@ -368,6 +376,52 @@ describe('useWebSocketChat', () => {
     // sendMessage is called with content and enabled data sources
     expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', expect.any(Array))
     expect(mockSetLoading).toHaveBeenCalledWith(false)
+  })
+
+  test('sendMessage includes focusFileName only while the peek is visible', () => {
+    mockWsClient.isConnected.mockReturnValue(true)
+    const peekFile = {
+      id: 'doc-1',
+      filename: 'plan.pdf',
+      displayName: null,
+      fileSize: 12,
+      contentType: 'application/pdf',
+      status: 'ready' as const,
+      folderId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      errorMessage: null,
+      summary: null,
+      pageCount: null,
+      chunkCount: null,
+      contentTypes: null,
+      tags: null,
+    }
+    mockStoreState = {
+      ...mockStoreState,
+      composerSubject: {
+        resourceType: 'document',
+        resourceId: 'doc-1',
+        filename: 'plan.pdf',
+      },
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    useFilePreviewStore.getState().open(peekFile, 'peek')
+
+    const { result } = renderWebSocketHook()
+    act(() => {
+      result.current.sendMessage('About this plan')
+    })
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('About this plan', expect.any(Array), {
+      focusFileName: 'plan.pdf',
+    })
+
+    mockWsClient.sendMessage.mockClear()
+    useFilePreviewStore.setState({ hidden: true })
+    act(() => {
+      result.current.sendMessage('Now a general question')
+    })
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Now a general question', expect.any(Array))
+    expect(mockWsClient.sendMessage.mock.calls[0]?.[2]).toBeUndefined()
   })
 
   test('sendMessage while the existing socket is connecting buffers instead of creating a parallel client', () => {

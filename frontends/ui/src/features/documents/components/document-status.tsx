@@ -79,8 +79,22 @@ export function documentStatusVariant(status: string | null | undefined): Status
  */
 const SETTLING_STATUSES = new Set(['uploading', 'ingesting', 'pending', 'processing'])
 
+/** Ingestion wrote `completed`; the badge already treats that as citable. */
+const CITABLE_STATUSES = new Set(['ready', 'uploaded', 'ingested', 'success', 'completed'])
+
+const FAILED_STATUSES = new Set(['failed', 'error'])
+
 export function isSettlingStatus(status: string | null | undefined): boolean {
   return SETTLING_STATUSES.has((status ?? '').toLowerCase())
+}
+
+/** The document is indexed and Ask may open it — not only the literal `ready`. */
+export function isCitableStatus(status: string | null | undefined): boolean {
+  return CITABLE_STATUSES.has((status ?? '').toLowerCase())
+}
+
+export function isFailedStatus(status: string | null | undefined): boolean {
+  return FAILED_STATUSES.has((status ?? '').toLowerCase())
 }
 
 export function documentStatusLabel(status: string | null | undefined, t: Translator): string {

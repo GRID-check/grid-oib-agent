@@ -175,8 +175,25 @@ def _extract_query_from_text(text: str) -> tuple[str, list[str] | None, list[str
             data_sources = parse_data_sources(payload.get("data_sources"))
             skills = parse_skills(payload.get("skills"))
             query_text = payload.get("query") or payload.get("text")
+            focus = payload.get("focus_file_name")
+            try:
+                from aiq_agent.common.focus_file import set_focused_file_name
+
+                set_focused_file_name(focus if isinstance(focus, str) else None)
+            except Exception:
+                pass
             if isinstance(query_text, str) and query_text.strip():
                 return (query_text.strip(), data_sources, skills)
+            # No query/text field — treat the whole blob as the user's
+            # message, not as a structured payload. data_sources in that
+            # JSON would silently re-aim the turn.
+            return (text, None, None)
+    try:
+        from aiq_agent.common.focus_file import set_focused_file_name
+
+        set_focused_file_name(None)
+    except Exception:
+        pass
     return (text, None, None)
 
 

@@ -1,0 +1,94 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView_V2.0]'),'2;1');
+FILE_NAME('haus-mit-raeumen.ifc','2026-08-12T09:00:00',('A. Muster'),('Musterbuero ZT GmbH'),'GRID Fixture Writer','GRID','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+/* ── Owner history and units ─────────────────────────────────────────────── */
+#1=IFCPERSON($,'Muster','Anna',$,$,$,$,$);
+#2=IFCORGANIZATION($,'Musterbuero ZT GmbH',$,$,$);
+#3=IFCPERSONANDORGANIZATION(#1,#2,$);
+#4=IFCAPPLICATION(#2,'1.0','GRID Fixture Writer','GFW');
+#5=IFCOWNERHISTORY(#3,#4,$,.ADDED.,$,$,$,0);
+#6=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#7=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#8=IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.);
+#9=IFCUNITASSIGNMENT((#6,#7,#8));
+#10=IFCCARTESIANPOINT((0.,0.,0.));
+#11=IFCAXIS2PLACEMENT3D(#10,$,$);
+#12=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#11,$);
+/* ── Spatial structure ───────────────────────────────────────────────────── */
+#13=IFCPROJECT('2Haus0Raeume00Project0',#5,'Haus mit Raeumen','Fixture fuer @grid/ifc-spatial',$,$,$,(#12),#9);
+#14=IFCSITE('2Haus0Raeume00Site0001',#5,'Grundstueck Beispielgasse 12',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);
+#15=IFCBUILDING('2Haus0Raeume00Building',#5,'Haus A',$,$,$,$,$,.ELEMENT.,$,$,$);
+#16=IFCBUILDINGSTOREY('2Haus0Raeume00StoreyEG',#5,'Erdgeschoss',$,$,$,$,'EG',.ELEMENT.,0.);
+#17=IFCBUILDINGSTOREY('2Haus0Raeume00StoreyOG',#5,'Obergeschoss',$,$,$,$,'OG',.ELEMENT.,3000.);
+#18=IFCRELAGGREGATES('2Haus0Raeume00Aggr0001',#5,'Projekt-Grundstueck',$,#13,(#14));
+#19=IFCRELAGGREGATES('2Haus0Raeume00Aggr0002',#5,'Grundstueck-Gebaeude',$,#14,(#15));
+#20=IFCRELAGGREGATES('2Haus0Raeume00Aggr0003',#5,'Gebaeude-Geschosse',$,#15,(#16,#17));
+/* ── Building elements ───────────────────────────────────────────────────── */
+/* #21 carries the window opening, #23 is the party wall between the two rooms. */
+#21=IFCWALL('2Haus0Raeume00Wall0001',#5,'Aussenwand Sued',$,$,$,$,'W-01',.SOLIDWALL.);
+#22=IFCWALL('2Haus0Raeume00Wall0002',#5,'Aussenwand Nord',$,$,$,$,'W-02',.SOLIDWALL.);
+#23=IFCWALL('2Haus0Raeume00Wall0003',#5,'Trennwand Wohnen-Kueche',$,$,$,$,'W-03',.SOLIDWALL.);
+#24=IFCWALL('2Haus0Raeume00Wall0004',#5,'Aussenwand West',$,$,$,$,'W-04',.SOLIDWALL.);
+#25=IFCSLAB('2Haus0Raeume00Slab0001',#5,'Bodenplatte',$,$,$,$,'D-01',.BASESLAB.);
+#26=IFCWINDOW('2Haus0Raeume00Window01',#5,'Fenster Sued',$,$,$,$,'F-01',1400.,1200.,.WINDOW.,.SINGLE_PANEL.,$);
+#27=IFCDOOR('2Haus0Raeume00Door0001',#5,'Zimmertuer Wohnen-Kueche',$,$,$,$,'T-01',2000.,900.,.DOOR.,.SINGLE_SWING_LEFT.,$);
+/* ── Rooms: code in Name, human label in LongName ────────────────────────── */
+#28=IFCSPACE('2Haus0Raeume00Space001',#5,'R.01',$,$,$,$,'Wohnzimmer',.ELEMENT.,.INTERNAL.,$);
+#29=IFCSPACE('2Haus0Raeume00Space002',#5,'R.02',$,$,$,$,'Kueche',.ELEMENT.,.INTERNAL.,$);
+#30=IFCRELAGGREGATES('2Haus0Raeume00Aggr0004',#5,'Geschoss-Raeume',$,#16,(#28,#29));
+/* ── Elements that live in a SPACE, not in a storey ──────────────────────── */
+#31=IFCFURNITURE('2Haus0Raeume00Furnit01',#5,'Kuechenzeile',$,$,$,$,'M-01',.TABLE.);
+#32=IFCSANITARYTERMINAL('2Haus0Raeume00Sanit001',#5,'Spuele',$,$,$,$,'S-01',.SINK.);
+/* ── Openings and their fillings — the voids+fills chain ─────────────────── */
+#33=IFCOPENINGELEMENT('2Haus0Raeume00Openin01',#5,'Fensteroeffnung Sued',$,$,$,$,'O-01',.OPENING.);
+#34=IFCOPENINGELEMENT('2Haus0Raeume00Openin02',#5,'Tueroeffnung Trennwand',$,$,$,$,'O-02',.OPENING.);
+#35=IFCRELVOIDSELEMENT('2Haus0Raeume00Void0001',#5,'Fenster in Aussenwand Sued',$,#21,#33);
+#36=IFCRELVOIDSELEMENT('2Haus0Raeume00Void0002',#5,'Tuer in Trennwand',$,#23,#34);
+#37=IFCRELFILLSELEMENT('2Haus0Raeume00Fill0001',#5,'Fensterfuellung',$,#33,#26);
+#38=IFCRELFILLSELEMENT('2Haus0Raeume00Fill0002',#5,'Tuerfuellung',$,#34,#27);
+/* ── Space boundaries ────────────────────────────────────────────────────── */
+/* #23 bounds BOTH rooms — the single source of the adjacentZone edge. */
+#39=IFCRELSPACEBOUNDARY('2Haus0Raeume00Bnd00001',#5,'Wohnzimmer-Sued',$,#28,#21,$,.PHYSICAL.,.EXTERNAL.);
+#40=IFCRELSPACEBOUNDARY('2Haus0Raeume00Bnd00002',#5,'Wohnzimmer-Nord',$,#28,#22,$,.PHYSICAL.,.EXTERNAL.);
+#41=IFCRELSPACEBOUNDARY('2Haus0Raeume00Bnd00003',#5,'Wohnzimmer-Trennwand',$,#28,#23,$,.PHYSICAL.,.INTERNAL.);
+#42=IFCRELSPACEBOUNDARY('2Haus0Raeume00Bnd00004',#5,'Kueche-Trennwand',$,#29,#23,$,.PHYSICAL.,.INTERNAL.);
+#43=IFCRELSPACEBOUNDARY('2Haus0Raeume00Bnd00005',#5,'Kueche-West',$,#29,#24,$,.PHYSICAL.,.EXTERNAL.);
+#44=IFCRELSPACEBOUNDARY('2Haus0Raeume00Bnd00006',#5,'Wohnzimmer-Fenster',$,#28,#26,$,.PHYSICAL.,.EXTERNAL.);
+/* ── Wall-to-wall connection ─────────────────────────────────────────────── */
+#45=IFCRELCONNECTSPATHELEMENTS('2Haus0Raeume00Conn0001',#5,'Ecke Sued-Nord',$,$,#21,#22,(),(),.ATEND.,.ATSTART.);
+/* ── Zone over both rooms ────────────────────────────────────────────────── */
+#46=IFCZONE('2Haus0Raeume00Zone0001',#5,'Z-01',$,$,'Wohnbereich');
+#47=IFCRELASSIGNSTOGROUP('2Haus0Raeume00Grp00001',#5,'Zonenzuordnung',$,(#28,#29),$,#46);
+/* ── Containment ─────────────────────────────────────────────────────────── */
+#48=IFCRELCONTAINEDINSPATIALSTRUCTURE('2Haus0Raeume00Cont0001',#5,'Bauteile EG',$,(#21,#22,#23,#24,#25,#26,#27),#16);
+#49=IFCRELCONTAINEDINSPATIALSTRUCTURE('2Haus0Raeume00Cont0002',#5,'Einrichtung Kueche',$,(#31,#32),#29);
+/* ── Property sets ───────────────────────────────────────────────────────── */
+#50=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);
+#51=IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.T.),$);
+#52=IFCPROPERTYSINGLEVALUE('ThermalTransmittance',$,IFCTHERMALTRANSMITTANCEMEASURE(0.19),$);
+#53=IFCPROPERTYSINGLEVALUE('FireRating',$,IFCLABEL('REI 90'),$);
+#54=IFCPROPERTYSET('2Haus0Raeume00Pset0001',#5,'Pset_WallCommon',$,(#50,#51,#52,#53));
+#55=IFCRELDEFINESBYPROPERTIES('2Haus0Raeume00Def00001',#5,'Aussenwaende',$,(#21,#22,#24),#54);
+#56=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.F.),$);
+#57=IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.F.),$);
+#58=IFCPROPERTYSINGLEVALUE('ThermalTransmittance',$,IFCTHERMALTRANSMITTANCEMEASURE(1.35),$);
+#59=IFCPROPERTYSET('2Haus0Raeume00Pset0002',#5,'Pset_WallCommon',$,(#56,#57,#58));
+#60=IFCRELDEFINESBYPROPERTIES('2Haus0Raeume00Def00002',#5,'Trennwand',$,(#23),#59);
+#61=IFCPROPERTYSINGLEVALUE('PubliclyAccessible',$,IFCBOOLEAN(.F.),$);
+#62=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.F.),$);
+#63=IFCPROPERTYSINGLEVALUE('Category',$,IFCLABEL('Aufenthaltsraum'),$);
+#64=IFCPROPERTYSET('2Haus0Raeume00Pset0003',#5,'Pset_SpaceCommon',$,(#61,#62,#63));
+#65=IFCRELDEFINESBYPROPERTIES('2Haus0Raeume00Def00003',#5,'Raeume EG',$,(#28,#29),#64);
+#66=IFCPROPERTYSINGLEVALUE('ThermalTransmittance',$,IFCTHERMALTRANSMITTANCEMEASURE(1.1),$);
+#67=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);
+#68=IFCPROPERTYSET('2Haus0Raeume00Pset0004',#5,'Pset_WindowCommon',$,(#66,#67));
+#69=IFCRELDEFINESBYPROPERTIES('2Haus0Raeume00Def00004',#5,'Fenster',$,(#26),#68);
+/* ── A type definition: carries a GlobalId but is NOT a node ─────────────── */
+#70=IFCWALLTYPE('2Haus0Raeume00WallTyp1',#5,'AW 38 Stahlbeton',$,$,$,$,$,'AW38',.SOLIDWALL.);
+#71=IFCRELDEFINESBYTYPE('2Haus0Raeume00Typ00001',#5,'Aussenwandtyp',$,(#21,#22,#24),#70);
+ENDSEC;
+END-ISO-10303-21;

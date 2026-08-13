@@ -97,19 +97,17 @@ sanctioned path, carrying **real** data:
 - `memory_proposal` — emitted by the `remember` tool when an org-scoped memory
   write needs human confirmation.
 - `document_grid` — emitted by the **`surface_documents`** tool
-  (`cards/surface_documents.py`). When the user wants to *find or browse* their
-  own material (a project they worked on, files on a topic, references for an
-  idea), the answering agent calls the tool with a topic `query`; the tool runs
-  a **deterministic vector search** over the in-scope project + Büroarchiv
-  collections (never the base OIB corpus), aggregates one hit per file above a
-  relevance floor, enriches each with its document-level summary + tags
-  (metadata only — never full text) so the agent can introduce the results
-  conversationally, and pushes a `document_grid` card of the **real** files.
-  The frontend resolves each file name to its live document row and renders the
-  raised "project-selector" preview cards (`DocumentPreviewCard`), which open
-  the document via the shared `PdfViewerDialog`. This is the difference between
-  *citing* a document and *surfacing* it for the user to open. See
-  [ADR-0026](../adr/) for the source-kind doctrine the provenance chips follow.
+  (`cards/surface_documents.py`). Discovery, not evidence: files the user
+  asked to *see* or *browse*. One payload (`documents[]`). The card is
+  the same raised `FileCard` (thumbnail well) the Files grid uses — not
+  a filename list. One file peeks beside chat; several close same-kind
+  matches are a short grid (hard cap 3). There is no second card type
+  for the one-file case. Citations of exactly one project/Büro file
+  already peek (`useCitationPeek`) without this card. **`filename=`**
+  opens a named file; **`mode=one` + `query`** opens the best match;
+  **`mode=many`** only when two or three files of the same kind are
+  nearly tied. Never invent names. See [ADR-0026](../adr/) for
+  source-kind doctrine.
 
 **Model-backed cards** (`MODEL_BACKED_CARD_TYPES` in `cards/catalog.py`) —
 `ifc_viewer`, `ifc_element`, `ifc_compliance`, `ifc_schedule`, `ifc_diff` — are
@@ -283,7 +281,7 @@ values render "fehlende Angabe", never a guess. See
 | `energy_performance` | Heizwärmebedarf on the A++–G energy-class ladder + HWB/fGEE bars | Energieausweis (OIB 6) |
 | `elevator_requirement` | served-storey stack + lift shaft, requirement verdict + cabin/door checks | barrier-free lift (OIB 4) |
 | `parking_requirement` | slot grid (required vs provided) + count bars for cars/bikes | Stellplatznachweis (Bauordnung) |
-| `document_grid` *(system)* | a grid of REAL project/Büroarchiv files surfaced for browsing (thumbnail, provenance chip, summary), each opening the document | document discovery |
+| `document_grid` *(system)* | files the user asked to see — FileCard preview, one peeks, several is a short grid | document discovery |
 | `memory_proposal` *(system)* **(interactive)** | a finding the `remember` tool wants written to org- or project-scoped memory — the user completes the write through their own session | memory |
 
 **(interactive)** marks a card whose answer is a commitment and is therefore

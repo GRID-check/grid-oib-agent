@@ -136,7 +136,7 @@ component without that evidence — opt out non-visual components with a
 (dark-mode `.dark` class, module-scope fetch shims, pre-installed Chromium):
 **`docs/ux/visual-screenshots.md`**.
 
-**Security & static analysis (free, runs entirely in CI).** `.github/workflows/security.yml` runs on push/PR + weekly: **Semgrep** (SAST for Python/TS/JS/Actions — replaces CodeQL and Sonar's security rules), **OSV-Scanner** (dependency CVEs from lockfiles — replaces Sonar SCA), **pip-audit + npm audit**, **gitleaks** (secret scan, full history), and **trivy** (`image-scan` job: blocks on **fixable** HIGH/CRITICAL findings — it runs with `--ignore-unfixed` — in the digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` — five of them as of ADR-0044, and the job asserts that exact count so a new pin fails CI until it is added to the scan list rather than going unscanned forever; findings inside those upstream images that no digest bump can clear go in `.trivyignore.yaml` as time-boxed exceptions with a justification and an `expired_at`, never by loosening the gate). No GitHub Advanced Security licence or SonarQube Cloud subscription needed. Semgrep and OSV-Scanner are currently non-blocking (Phase 1: findings in the job log while noise is tuned via `.semgrepignore` / `.gitleaks.toml`); drop their `continue-on-error` to make them required checks. **Dependabot** (`.github/dependabot.yml`) opens the dependency fix PRs. Code smells / maintainability are covered by the native linters and the coverage gate in `ci.yml` (ruff, eslint, `--cov-fail-under`); note this drops Sonar's **clean-as-you-code** gate, so the `PLR09xx` refactor rules ruff ignores (too-many-arguments/branches/statements) are no longer reported on new code.
+**Security & static analysis (free, runs entirely in CI).** `.github/workflows/security.yml` runs on push/PR + weekly: **Semgrep** (SAST for Python/TS/JS/Actions — replaces CodeQL and Sonar's security rules), **OSV-Scanner** (dependency CVEs from lockfiles — replaces Sonar SCA), **pip-audit + npm audit**, **gitleaks** (secret scan, full history), and **trivy** (`image-scan` job: blocks on **fixable** HIGH/CRITICAL findings — it runs with `--ignore-unfixed` — in the digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` — five of them as of ADR-0044, and the job asserts that exact count so a new pin fails CI until it is added to the scan list rather than going unscanned forever; the vulnerability DB is downloaded **once** into a shared cache and the five scans reuse it with `--skip-db-update`, because five fresh `docker run --rm` pulls of `trivy-db` from GCR 429 and fail the job with `failed=0`; findings inside those upstream images that no digest bump can clear go in `.trivyignore.yaml` as time-boxed exceptions with a justification and an `expired_at`, never by loosening the gate). No GitHub Advanced Security licence or SonarQube Cloud subscription needed. Semgrep and OSV-Scanner are currently non-blocking (Phase 1: findings in the job log while noise is tuned via `.semgrepignore` / `.gitleaks.toml`); drop their `continue-on-error` to make them required checks. **Dependabot** (`.github/dependabot.yml`) opens the dependency fix PRs. Code smells / maintainability are covered by the native linters and the coverage gate in `ci.yml` (ruff, eslint, `--cov-fail-under`); note this drops Sonar's **clean-as-you-code** gate, so the `PLR09xx` refactor rules ruff ignores (too-many-arguments/branches/statements) are no longer reported on new code.
 
 ## Authorization (RBAC)
 
@@ -352,6 +352,7 @@ Updating documentation is **not optional and not a follow-up** — it is part of
 | A DB schema / migration | `docs/database/*` |
 | User-facing behavior | the relevant `docs/user-guides/*` |
 | Setup, containers, or the run/verify flow | `README.md` + the Quick-start / Verification sections here |
+| A shareable-resource / inbox / mentions substrate leak you lifted or found | `docs/architecture/adding-a-shareable-resource-type.md` §1 (move paid debt here) and §3 (new leaks) |
 
 Rules of thumb: prefer updating an existing doc over adding a new one; delete docs that a change makes wrong rather than leaving them stale; keep the `docs/architecture/` deep-dives and the ADR log as the source of truth. If a change is significant enough to explain in a PR, it is significant enough to document in the repo.
 
@@ -368,7 +369,11 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   from `develop` whenever the work is independent.
 - **Conventional Commits** (`type(scope): summary`), imperative, small and
   independently revertible — one logical change per commit. Reference the ADR/issue
-  when relevant.
+  when relevant. Substrate lifts that a feature depends on belong **in the
+  same branch**, each as their own commit, *before* the feature starts
+  depending on the repaired primitive. Do not fold a registry entry and a
+  substrate refactor into one commit, and do not leave the lift for a
+  follow-up (see Conventions: correlated substrate debt).
 - Never commit secrets. Branch before committing if you're on `develop`/`main`.
 
 ## Conventions
@@ -429,6 +434,23 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   one that pre-dates your change — fix it. "It was already broken" is not a
   reason to leave it broken. If a fix is genuinely out of scope, flag it loudly
   and explicitly (in the PR/log), never silently wave it away.
+- **Correlated substrate debt is in the change that tripped over it
+  (obligation).** YAGNI forbids unused *features*, not known defects on the
+  path you are walking. If implementing B requires A to be generic and A's own
+  audit says it is not — a visibility write that silently no-ops, mentions
+  typed to one consumer, a cleanup that only knows one type — you lift A in
+  this change, as its own atomic commits, rather than special-casing B or
+  filing the lift as "later." Strategic debt is *unrelated* work, or
+  *expansion* of a working primitive. It is not shipping a second consumer
+  onto a substrate that will silently mislabel, never clean up, or lie in the
+  audit trail. The test: would you have to work around it, switch on your
+  type, or leave a descriptor field unread? Then it is correlated. The
+  register and the rule:
+  [`docs/architecture/adding-a-shareable-resource-type.md`](docs/architecture/adding-a-shareable-resource-type.md).
+  The case that produced this wording: files becoming the second shareable
+  resource (ADR-0032 Phase 3) while ten documented leaks were still
+  conversation-shaped — see
+  [`docs/superpowers/specs/2026-08-13-file-native-ownership-design.md`](docs/superpowers/specs/2026-08-13-file-native-ownership-design.md).
 - **Question necessity, then simplify — "the best part is no part."** START every
   task by asking why the thing must exist at all and whether existing machinery
   already covers it — the cheapest code is the code you don't write. FINISH every

@@ -90,12 +90,13 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0045](0045-ifc-models-as-a-queryable-building-not-a-document.md) | IFC models are a queryable building, not another document | Proposed |
 | [0046](0046-agent-skills.md) | Agent skills — user-selected, progressive-disclosure instruction packages | Proposed |
 | [0047](0047-document-shelf-travels-as-data.md) | A document's shelf travels as data, not as a name or a label | Proposed |
+| [0047](0047-assignment-is-not-access.md) | Assignment is not access (and not provenance) | Proposed |
 
-> Note: two ADRs were independently numbered 0027, and two more were
-> independently numbered 0039. Each collision is recorded rather than
-> renumbered so existing links keep resolving (the status column is
-> authoritative — `0027-platform-workflow-templates` is superseded, the other
-> three are in effect). Number the next new ADR from the highest in this table.
+> Note: two ADRs were independently numbered 0027, two more 0039, and two more
+> 0047. Each collision is recorded rather than renumbered so existing links
+> keep resolving (the status column is authoritative —
+> `0027-platform-workflow-templates` is superseded, the others are in effect).
+> Number the next new ADR from the highest in this table.
 
 ## Related documents
 

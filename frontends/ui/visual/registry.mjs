@@ -172,7 +172,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/document-grid',
     description:
-      'Chat document_grid surfacing card — real project + Büroarchiv files as preview cards.',
+      'Chat document_grid surfacing card — FileCard previews; one file peeks, several is a short grid.',
     // Wait for the real card to mount and its resolution fetch to settle.
     waitFor: '[data-testid="document-grid-card"]',
   },
@@ -295,7 +295,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'platform-skills',
     path: '/dev/platform-skills',
     description:
-      'Platform \u2192 Skills \u2014 the catalogue Piloti curates for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Two row states, because they are the whole model: a PUBLISHED skill (offered to every org, each deciding whether to switch it on) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch here means published, not enabled \u2014 publishing offers, it does not impose.',
+      'Platform \u2192 Skills \u2014 the catalogue Piloti writes for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Three row states, because they are the whole model: a published OFFER (on every org\'s Skills tab, each deciding whether to switch it on), a published STANDARD (running for the whole fleet, on nobody\'s tab, and not something a tenant can switch off or shadow) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch means published, not enabled; the select beside it is the one control that decides whether an organization gets a choice at all.',
     waitFor: '[data-testid="platform-skills-preview"] [role="switch"]',
   },
   {
@@ -722,5 +722,21 @@ export const SCREENSHOT_TARGETS = [
     description:
       'The model viewer\'s chrome, over the muted panel the stage itself uses. The canvas needs WebGPU and headless Chromium has none — /dev/bim-model pins the fallback for that reason — but every control is now an atom that owns no canvas, so the whole of what an architect touches is capturable. Four states: the stage (rail of models and levels on the left, a floating dock at the bottom, nothing at all in the middle — the building is the surface), the selection card that does not exist until something is selected and leads with "Wall" rather than with IfcWallStandardCase, that card again with Isolieren pressed — the one control on it that survives its own press, so the only one that has two states to draw; it read as a one-way door for exactly as long as it drew them the same — and the two loading states, which differ on purpose: a download reports its real percentage, and geometry-building reports none, because it has no honest one and the mesh count it used to show measured the exporter\'s tessellation settings rather than the wait. The three ways back are drawn together on purpose, because their names are the whole distinction between them: Undo takes back the last thing the reader did (a level, a cut, a hide, an isolate — one press, one act), the camera button re-frames the building without changing anything, and the reset drops every hide and isolation at once. All three used to be reachable and two of them were called some version of "show everything".',
     waitFor: '[data-testid="bim-viewport-preview"]',
+  },
+  {
+    id: 'composer-subject',
+    mobile: true,
+    path: '/dev/composer-subject',
+    description:
+      'Native chat when Ask Piloti is about a project file: the subject bar (project-green) sits in the composer, same pipe as ?ask= / IFC / standards. Not a second chat.',
+    waitFor: '[data-testid="composer-subject-bar"]',
+  },
+  {
+    id: 'file-chat-dock',
+    mobile: true,
+    path: '/dev/file-chat-dock',
+    description:
+      'Ask Piloti from a file: chat is home, the file sits as a right-hand peek of what you are talking about — not a 50/50 split.',
+    waitFor: '[data-testid="file-chat-dock"]',
   },
 ]

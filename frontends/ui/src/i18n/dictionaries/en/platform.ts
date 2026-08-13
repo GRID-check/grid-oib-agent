@@ -368,9 +368,17 @@ export const platform = {
   },
   /** Platform → Skills: the catalogue curated for every organization. */
   skills: {
-    hint: 'A skill written here is offered to every organization. Each one decides whether to switch it on. Drafts stay invisible until you publish them.',
+    hint: 'A skill written here reaches every organization. As an offer, each one decides whether to switch it on; as a standard, all of them run it without seeing it on their Skills tab or being able to switch it off. Drafts stay invisible until you publish them.',
     new: 'New curated skill',
     draft: 'Draft',
+    standardBadge: 'Standard',
+    deliveryOffer: 'Offered',
+    deliveryStandard: 'Standard for all',
+    deliveryAria: 'Change how the skill “{name}” is delivered',
+    deliveryNowStandard:
+      '“{name}” is now standard: every organization runs it and none can switch it off.',
+    deliveryNowOffer:
+      '“{name}” is now an offer: it runs again only where an organization switches it on.',
     edit: 'Edit',
     delete: 'Delete',
     deleted: '“{name}” deleted.',
@@ -381,7 +389,7 @@ export const platform = {
     cancel: 'Cancel',
     publishLabel: 'Published',
     publishHint:
-      'On: every organization sees this skill on its Skills tab and can switch it on. Off: it is a draft nobody outside this dashboard can see, and organizations that had it switched on stop running it.',
+      'On: the skill is live — an offer appears on every organization’s Skills tab for them to switch on, a standard simply runs for all of them. Off: it is a draft nobody outside this dashboard can see, and every organization that was running it stops.',
     publishAria: 'Publish the curated skill “{name}” to every organization',
     createTitle: 'New curated skill',
     editTitle: 'Edit curated skill',
@@ -501,7 +509,7 @@ export const platform = {
     skills: {
       title: 'Skills',
       subtitle:
-        'The skills Piloti curates for every organization. Publish one and it is offered to all of them; each decides whether to switch it on.',
+        'The skills Piloti writes for every organization. Publish one as an offer and each decides whether to switch it on; publish it as a standard and they all simply run it.',
     },
     models: {
       title: 'Models',

@@ -96,6 +96,7 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   'conversation.shared_with_you': { icon: 'user-plus', i18nKey: 'conversationShared', tone: 'info' },
   'conversation.activity': { icon: 'message-square', i18nKey: 'conversationActivity', tone: 'info' },
   'storage.quota_warning': { icon: 'hard-drive', i18nKey: 'storageQuotaWarning', tone: 'warning' },
+  'document.assigned_to_you': { icon: 'user-plus', i18nKey: 'documentAssigned', tone: 'info' },
 }
 
 /**

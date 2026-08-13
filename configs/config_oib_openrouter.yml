@@ -453,10 +453,9 @@ functions:
   emit_card:
     _type: emit_card
 
-  # Document surfacing: the agent calls surface_documents to run a real vector
-  # search over the project + Büroarchiv corpus and present the matching files
-  # as a clickable preview grid (a `document_grid` system card). Distinct from
-  # knowledge_search, which grounds legal answers as citations.
+  # Document surfacing: show a file (filename= / mode=one) or a short browse
+  # choice (mode=many). Distinct from knowledge_search, which cites passages;
+  # the UI peeks cited files, so the agent must not also surface after citing.
   surface_documents:
     _type: surface_documents
 
@@ -468,6 +467,19 @@ functions:
   ifc_query:
     _type: ifc_query
     default_limit: 25
+
+  # BIM/IFC, the geometric half: measurements, topology and spatial relations
+  # read from the model's own bytes by the IfcOpenShell engine (roadmap §13b).
+  # It answers what the EXPORT DID NOT WRITE DOWN — a room's floor area with no
+  # published quantity, a window's Brüstungshöhe, the lichte Raumhöhe under a
+  # suspended ceiling — and every answer carries its provenance (deklariert /
+  # gemessen ±Toleranz / vermutlich) so a measurement can never be reported as
+  # something the model states. Gated by the same `ifc-models` flag as
+  # ifc_query: both go through lib/bim/internal-access in the BFF, so a model
+  # this tool can reach is one ifc_query could already answer questions about.
+  ifc_measure:
+    _type: ifc_measure
+    default_limit: 50
 
   # Purpose-built OIB Soll-Ist-Abgleich (backlog T4-3): staged pipeline
   # (requirement profile per Richtlinie -> batched evidence judgment ->
@@ -497,6 +509,7 @@ functions:
       - ris_catalog_lookup_tool
       - remember
       - ifc_query
+      - ifc_measure
     verbose: true
 
   clarifier_agent:
@@ -523,6 +536,7 @@ functions:
       - emit_card
       - surface_documents
       - ifc_query
+      - ifc_measure
     verbose: true
     max_llm_turns: 10
     max_tool_iterations: 5
@@ -553,6 +567,7 @@ functions:
       - remember
       - emit_card
       - ifc_query
+      - ifc_measure
     verbose: true
     # Durable checkpointing for async deep-research jobs (T3-8), mirroring
     # workflow.checkpoint_db below: re-invoking the same job_id resumes from

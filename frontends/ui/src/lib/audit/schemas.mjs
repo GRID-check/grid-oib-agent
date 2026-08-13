@@ -276,6 +276,15 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'conversation' }],
     metadata: { previousRole: 'string', via: 'string' },
   },
+  // Assignment is not access (ADR-0047). Who is on the hook for a file.
+  'resource.assigned': {
+    targets: [{ type: 'document' }],
+    metadata: { subjectUserId: 'string' },
+  },
+  'resource.unassigned': {
+    targets: [{ type: 'document' }],
+    metadata: { subjectUserId: 'string' },
+  },
 })
 
 /** @typedef {keyof typeof AUDIT_SCHEMAS} AuditAction */

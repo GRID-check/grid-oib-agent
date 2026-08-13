@@ -1,10 +1,32 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
+import { type ReactElement } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
+import { FilePreviewHost } from './file-preview-host'
+import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
+
+function renderWorkspace(ui: ReactElement) {
+  return render(
+    <>
+      {ui}
+      <FilePreviewHost />
+    </>,
+  )
+}
+
+function resetPreviewStore() {
+  useFilePreviewStore.setState({
+    file: null,
+    mode: 'modal',
+    hidden: false,
+    peekWidth: 320,
+    context: {},
+  })
+}
 
 const mockUploadFiles = vi.fn()
 
@@ -47,6 +69,14 @@ vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: () => true,
 }))
 
+vi.mock('@/features/bim/components/ifc-file-preview', () => ({
+  IfcFilePreview: () => <div data-testid="ifc-file-preview" />,
+}))
+
+vi.mock('@/features/knowledge/components/pdf-viewer-dialog', () => ({
+  PdfViewerDialog: () => null,
+}))
+
 vi.mock('../hooks/use-project-documents', () => ({
   useProjectDocuments: vi.fn().mockImplementation(() => ({
     uploadFiles: mockUploadFiles,
@@ -86,16 +116,17 @@ describe('ProjectFileWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
+    resetPreviewStore()
   })
 
   it('renders the file workspace with its project name and corpus context', () => {
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     expect(screen.getByText('Test')).toBeDefined()
     expect(screen.getByText(/ground Piloti’s answers/i)).toBeDefined()
   })
 
   it('shows the drop overlay on dragover of a supported file', () => {
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const dataTransfer = makeDataTransfer([
       new File(['x'], 'plan.pdf', { type: 'application/pdf' }),
@@ -108,7 +139,7 @@ describe('ProjectFileWorkspace', () => {
   })
 
   it('routes a dropped file into the existing upload path (uploadFiles)', () => {
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
     const dataTransfer = makeDataTransfer([file])
@@ -123,7 +154,7 @@ describe('ProjectFileWorkspace', () => {
   })
 
   it('flags an unsupported drag but still defers rejection to uploadFiles, like the button', () => {
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const badFile = new File(['x'], 'photo.png', { type: 'image/png' })
     const dataTransfer = makeDataTransfer([badFile])
@@ -159,12 +190,13 @@ describe('ProjectFileWorkspace — mobile preview overlay', () => {
             },
           ],
         })
-      )
+      ),
+      http.get('/api/documents/:id/preview', () => HttpResponse.json({ url: null })),
     )
   })
 
   it('renders the preview as a labelled modal dialog and closes on Escape', async () => {
-    render(
+    renderWorkspace(
       <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
     )
 
@@ -180,8 +212,8 @@ describe('ProjectFileWorkspace — mobile preview overlay', () => {
     const dialog = await screen.findByRole('dialog', { name: /File preview: notes\.txt/i })
     expect(dialog).toBeInTheDocument()
 
-    // Escape closes it. Radix listens on the content, not on document.
-    fireEvent.keyDown(dialog, { key: 'Escape' })
+    // Escape closes it. The host listens on document (not Radix content).
+    fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
@@ -190,6 +222,7 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
+    resetPreviewStore()
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () =>
@@ -220,13 +253,14 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
           ],
         })
       ),
-      http.patch('/api/documents/:id/tags', () => HttpResponse.json({}))
+      http.patch('/api/documents/:id/tags', () => HttpResponse.json({})),
+      http.get('/api/documents/:id/preview', () => HttpResponse.json({ url: null })),
     )
   })
 
   it('shows the newly saved tag after switching away and back to the file', async () => {
     const user = userEvent.setup()
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
 
     // Open doc-a and add a discipline tag via the inline add-tag input.
     fireEvent.click(await screen.findByRole('button', { name: /alpha\.txt/i }))
@@ -271,9 +305,11 @@ describe('ProjectFileWorkspace — renaming and deleting a document', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
+    resetPreviewStore()
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
-      http.get('/api/documents', () => HttpResponse.json({ documents: [document] }))
+      http.get('/api/documents', () => HttpResponse.json({ documents: [document] })),
+      http.get('/api/documents/:id/preview', () => HttpResponse.json({ url: null })),
     )
   })
 
@@ -285,7 +321,7 @@ describe('ProjectFileWorkspace — renaming and deleting a document', () => {
       })
     )
     const user = userEvent.setup()
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
 
     fireEvent.click(await screen.findByRole('button', { name: /alpha\.pdf/i }))
     await user.click(await screen.findByTestId('document-actions-trigger'))
@@ -311,7 +347,7 @@ describe('ProjectFileWorkspace — renaming and deleting a document', () => {
       })
     )
     const user = userEvent.setup()
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
 
     fireEvent.click(await screen.findByRole('button', { name: /alpha\.pdf/i }))
     await user.click(await screen.findByTestId('document-actions-trigger'))
@@ -356,6 +392,7 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
     documentCalls = 0
+    resetPreviewStore()
   })
 
   afterEach(() => {
@@ -373,7 +410,7 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await waitFor(() => expect(documentCalls).toBe(1))
 
     await vi.advanceTimersByTimeAsync(4_100)
@@ -409,7 +446,7 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await waitFor(() => expect(documentCalls).toBe(1))
 
     // Three poll windows pass while the second request is still hanging.
@@ -430,7 +467,7 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await waitFor(() => expect(documentCalls).toBe(1))
     await vi.advanceTimersByTimeAsync(4_100)
 
@@ -452,7 +489,7 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await waitFor(() => expect(documentCalls).toBe(1))
     await vi.advanceTimersByTimeAsync(4_100)
 
@@ -481,6 +518,7 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
+    resetPreviewStore()
   })
 
   afterEach(() => {
@@ -534,7 +572,7 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     expect(await screen.findByText('Processing')).toBeInTheDocument()
 
     // The settling poll goes out and hangs.
@@ -575,6 +613,7 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
+    resetPreviewStore()
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () =>
@@ -602,12 +641,13 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
             },
           ],
         })
-      )
+      ),
+      http.get('/api/documents/:id/preview', () => HttpResponse.json({ url: null })),
     )
   })
 
   it('puts the model in the URL rather than opening the file preview', async () => {
-    render(
+    renderWorkspace(
       <ProjectFileWorkspace
         projectId="proj-1"
         projectName="Test"
@@ -630,7 +670,7 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
   })
 
   it('leaves every other file opening the preview dialog', async () => {
-    render(
+    renderWorkspace(
       <ProjectFileWorkspace
         projectId="proj-1"
         projectName="Test"
@@ -648,7 +688,7 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
     // A viewer whose endpoints would answer 403 is worse than no viewer: the
     // reader gets a full-screen surface that cannot load, instead of the file
     // dialog that works.
-    render(
+    renderWorkspace(
       <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
     )
     fireEvent.click(await screen.findByRole('button', { name: /Haus-A\.ifc/i }))

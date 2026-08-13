@@ -98,6 +98,7 @@ export const collaboration = {
     },
     resourceTypes: {
       conversation: 'Conversation',
+      document: 'File',
     },
     /**
      * The "who can reach this chat" overview — the answer to the question the
@@ -387,6 +388,10 @@ export const collaboration = {
        * read across a rollback. Deliberately vague: claiming more than "something
        * happened" would be inventing a meaning nobody here has.
        */
+      documentAssigned: {
+        title: '{actor} assigned {subject} to you',
+        body: 'You are responsible for this file.',
+      },
       unknown: {
         title: 'Something happened',
         body: 'in {subject}',

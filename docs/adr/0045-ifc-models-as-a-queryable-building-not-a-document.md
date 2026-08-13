@@ -217,6 +217,48 @@ chooses between them from measured counts, because jsonb containment has no
 statistics and Postgres cannot. `docs/architecture/backend-deep-dive.md`
 carries the measurements.
 
+### The agent gets the bytes too (`ifc_measure`)
+
+The decision above says geometry is never processed server-side, and that the
+agent's only way in is the extracted index. Both were right about the *viewer*
+and half-right about the agent. Everything the index holds is what the EXPORT
+WROTE DOWN, and most Austrian exports write down neither `Qto_*` quantities nor
+`Pset_WindowCommon.SillHeight` nor anything at all about `IfcRelSpaceBoundary` —
+so a whole class of question ("wie groß ist der Raum wirklich", "wie hoch ist er
+unter der abgehängten Decke", "in welchen Raum öffnet dieses Fenster") came back
+as *nicht entscheidbar* about a building whose geometry answers it exactly.
+
+The roadmap's §13b amendment adopts IfcOpenShell for those, in the agent's
+Python process. That makes the agent a second reader of the file, which is the
+thing this ADR's *Alternatives considered* rejected — and the reason the
+rejection no longer holds is written there: the line moved to **the server
+knows, the browser draws.** The viewport keeps ifc-lite because it must run in a
+browser, and it asserts nothing; every name, count, quantity and verdict comes
+from the server. Two readers can only contradict each other about facts they
+both assert.
+
+Three consequences for this ADR's own subject matter:
+
+- **A second internal route, and not a second authorization.**
+  `POST /api/internal/bim/source` resolves project + file name to a short-lived
+  presigned URL. It shares `lib/bim/internal-access` with
+  `POST /api/internal/bim/query` — one `ifc-models` evaluation, one model-list
+  scope (the conversation's project plus the org Archiv), one set of German
+  `resolved: false` sentences. A model `ifc_measure` can reach is by
+  construction one `ifc_query` would already answer questions about, because
+  there is no second copy of the rule to widen.
+- **It presigns the ORIGINAL object, signed with the internal client.** Not the
+  `_bim/source.ifc.gz` above: that is transparent only because a *browser*
+  inflates `Content-Encoding: gzip`, and IfcOpenShell handed gzip bytes reports
+  a perfectly good building as unreadable. The transfer is inside the compose
+  network, where the compression bought nothing.
+- **Caching is content-addressed, and a hash is not a permission.** The agent
+  process parses one model at a time (two resident, LRU) and keys them by the
+  sha256 of the bytes, with the object's ETag standing in as the "same bytes as
+  last time" hint so a second question costs no download. Every call still
+  re-resolves the model through the route above, so the cache can only ever
+  skip work for a building this process was just granted.
+
 ### The viewer's compressed source
 
 The 3D viewport is the one surface that does not read the structured index: it

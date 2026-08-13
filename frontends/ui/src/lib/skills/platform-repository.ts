@@ -15,7 +15,7 @@
  */
 
 import 'server-only'
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   platformSkills,
@@ -39,17 +39,78 @@ export async function listPlatformSkillRows(
   return db.select().from(platformSkills).orderBy(asc(platformSkills.name)).limit(limit)
 }
 
-/** Only what organizations may see: the published rows. */
-export async function listPublishedPlatformSkillRows(
+/**
+ * The published OFFERS — what organizations are shown and may switch on.
+ *
+ * Capped, like every list read here. Truncating this list costs an organization
+ * a listing for a capability it was never running anyway, which is what a safety
+ * rail on a catalogue read is for.
+ */
+export async function listPublishedOfferRows(
   limit = PLATFORM_SKILLS_LIST_LIMIT,
 ): Promise<PlatformSkillRow[]> {
   const db = getDb()
   return db
     .select()
     .from(platformSkills)
-    .where(eq(platformSkills.published, true))
+    .where(and(eq(platformSkills.published, true), eq(platformSkills.delivery, 'offer')))
     .orderBy(asc(platformSkills.name))
     .limit(limit)
+}
+
+/**
+ * The published STANDARD rows — the fleet's policy set. Deliberately UNCAPPED.
+ *
+ * This is a second query where one used to do, and the round trip is worth it.
+ * A single capped read partitioned in the service looks cheaper and has a
+ * failure mode the cap was never meant to cover: past the limit, standard rows
+ * sorting after the cut stop resolving for every organization on the platform —
+ * silently, since nothing errors — while `findStandardPlatformSkillRowByName`
+ * (uncapped, by design) goes on reserving their names and 404ing job
+ * attachments. Fleet policy would be off with the catalogue still insisting it
+ * owns the name.
+ *
+ * A cap is a rail against an unbounded read. This set is bounded by how many
+ * house rules a platform owner has written, and the partial index
+ * `idx_platform_skills_standard` covers the predicate exactly, so there is
+ * nothing here to rail against.
+ */
+export async function listPublishedStandardRows(): Promise<PlatformSkillRow[]> {
+  const db = getDb()
+  return db
+    .select()
+    .from(platformSkills)
+    .where(and(eq(platformSkills.published, true), eq(platformSkills.delivery, 'standard')))
+    .orderBy(asc(platformSkills.name))
+}
+
+/**
+ * The names the platform has reserved fleet-wide: published `standard` rows.
+ *
+ * Its own query, and a narrow one, because it serves the ORG write path — a
+ * tenant naming a skill the platform already standardised. That row would never
+ * resolve (standard wins the merge, by design), so authoring it has to be
+ * refused at the boundary rather than accepted and quietly ignored. Reading the
+ * whole catalogue to answer "is this one name taken" would put a 200-row read on
+ * every skill save in the fleet; the partial index `idx_platform_skills_standard`
+ * makes this a point lookup instead.
+ */
+export async function findStandardPlatformSkillRowByName(
+  name: string,
+): Promise<PlatformSkillRow | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(platformSkills)
+    .where(
+      and(
+        eq(platformSkills.name, name),
+        eq(platformSkills.delivery, 'standard'),
+        eq(platformSkills.published, true),
+      ),
+    )
+    .limit(1)
+  return row ?? null
 }
 
 export async function findPlatformSkillRow(skillId: string): Promise<PlatformSkillRow | null> {
@@ -75,7 +136,10 @@ export async function insertPlatformSkillRow(
 
 /** The columns a service may update on a curated skill. */
 export type PlatformSkillUpdate = Partial<
-  Pick<PlatformSkillRow, 'name' | 'description' | 'body' | 'metadata' | 'published' | 'updatedAt'>
+  Pick<
+    PlatformSkillRow,
+    'name' | 'description' | 'body' | 'metadata' | 'published' | 'delivery' | 'updatedAt'
+  >
 >
 
 export async function updatePlatformSkillRow(

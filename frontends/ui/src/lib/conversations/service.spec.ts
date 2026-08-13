@@ -158,6 +158,8 @@ function stubConversation(
     engagement: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-02T10:00:00Z'),
+    subjectResourceType: null,
+    subjectResourceId: null,
     ...tenancy,
   })
 }

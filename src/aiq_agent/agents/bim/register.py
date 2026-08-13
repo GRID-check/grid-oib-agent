@@ -306,6 +306,20 @@ def _bcf_link(
     return f"/api/projects/{quote(project_id, safe='')}/bim/checks/export?{query}"
 
 
+#: No project on this conversation, so there is no model to address.
+#:
+#: „Do not retry" is the operative half. Every other refusal in this tool is
+#: something the agent can fix in the same turn by calling again differently;
+#: this one it cannot fix at all, and without being told so it will keep trying
+#: until its tool budget runs out — spending the turn instead of answering.
+NO_PROJECT_TEXT = (
+    "Error: this conversation is not attached to a project, so no BIM model can be selected. "
+    "Do not retry — no argument to this tool can fix it. Tell the user (in German) that the "
+    "question refers to a building model and that they need to open the conversation inside the "
+    "project the model belongs to. Do not state anything about the building."
+)
+
+
 def _build_query(
     operation: str,
     filters: str,
@@ -867,6 +881,18 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
         if not organization_id:
             return "Error: organization unknown for this session — the BIM model cannot be queried. Do not retry."
         project_id = get_project_id_from_context()
+        if not project_id:
+            # The route requires `projectId` OR `modelId`, and this tool has
+            # never sent a `modelId` — it addresses a model by project and file
+            # name. So a project-less conversation produced a request that could
+            # only 400, which arrives as a REJECTION: „there was a problem with
+            # the arguments, call the tool again". The agent then retries a call
+            # that cannot succeed, for as many turns as it is allowed.
+            #
+            # Refused here instead, where it is actually decidable, and phrased
+            # as the fact it is: the conversation is not attached to a project,
+            # which is something only the user can change.
+            return NO_PROJECT_TEXT
 
         query = _build_query(
             operation=(operation or "overview").strip().lower(),

@@ -40,11 +40,22 @@ export const conversationsClient = {
     return res.json()
   },
 
-  async create(id: string, title?: string | null, projectId?: string | null): Promise<Conversation> {
+  async create(
+    id: string,
+    title?: string | null,
+    projectId?: string | null,
+    subject?: { resourceType: 'document'; resourceId: string } | null,
+  ): Promise<Conversation> {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, title: title ?? null, projectId: projectId ?? null }),
+      body: JSON.stringify({
+        id,
+        title: title ?? null,
+        projectId: projectId ?? null,
+        subjectResourceType: subject?.resourceType ?? null,
+        subjectResourceId: subject?.resourceId ?? null,
+      }),
     })
     if (!res.ok) throw new Error('Failed to create conversation')
     return res.json()

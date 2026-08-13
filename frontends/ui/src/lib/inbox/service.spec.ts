@@ -79,6 +79,7 @@ const ALL_TYPES = [
   'conversation.shared_with_you',
   'conversation.activity',
   'storage.quota_warning',
+  'document.assigned_to_you',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */

@@ -48,6 +48,8 @@ export const INBOX_ITEM_TYPES = [
    * (see `gate` in `@/lib/inbox/registry`).
    */
   'storage.quota_warning',
+  /** Informational: you were named responsible for a resource (ADR-0047). */
+  'document.assigned_to_you',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 

@@ -12,7 +12,7 @@ import { documentDisplayName } from '@/lib/documents/display-name'
 import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
-import { DocumentStatusBadge, isSettlingStatus } from './document-status'
+import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -210,7 +210,7 @@ export function FileCard({
   const ext = fileExtensionLabel(file.filename)
   const isFailed = file.status === 'failed'
   const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
-  const showStatus = !!file.status && !(hideStatusWhenReady && file.status === 'ready')
+  const showStatus = !!file.status && !(hideStatusWhenReady && isCitableStatus(file.status))
   // The AI summary is the last thing ingestion produces, so a document that is
   // still being read has an empty description slot. Left blank it reads as a
   // card that failed to render; skeleton lines say the sentence is on its way —

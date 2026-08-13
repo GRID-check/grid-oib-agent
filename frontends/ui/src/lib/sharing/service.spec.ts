@@ -33,6 +33,16 @@ vi.mock('@/lib/authz/project-membership', () => ({
 vi.mock('@/lib/conversations/repository', () => ({
   findConversationTenancy: vi.fn(),
   updateConversationVisibilityInOrg: vi.fn(),
+  findConversationInOrg: vi.fn(),
+  conversationIdsExisting: vi.fn(),
+  listConversationIdsForProject: vi.fn(),
+}))
+
+vi.mock('@/lib/documents/repository', () => ({
+  findDocumentTenancy: vi.fn(),
+  updateDocumentVisibilityInOrg: vi.fn(),
+  documentIdsExisting: vi.fn(),
+  listDocumentIdsForProject: vi.fn(),
 }))
 
 vi.mock('@/lib/mentions/service', () => ({

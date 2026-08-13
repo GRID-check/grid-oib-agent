@@ -234,12 +234,22 @@ The org toolbox:
 
 | Method | Path | Auth | Description | Request Body / Params | Response |
 |--------|------|------|-------------|-----------------------|----------|
-| `GET` | `/api/skills` | org member | The merged toolbox: platform builtins plus the org's own rows, org rows shadowing a builtin of the same name. | — | `{ skills }` |
-| `POST` | `/api/skills` | org:skills:manage | Author a skill. Validates the SKILL.md name/description rules and the reserved `grid-cards` value; `clonedFrom` records a platform clone. | `{ name, description, body, metadata?, clonedFrom?, enabled? }` | `{ skill }` (201) |
-| `PATCH` | `/api/skills/{skillId}` | org:skills:manage | Update an org skill. | partial create body | `{ skill }` |
+| `GET` | `/api/skills` | org member | The org's own rows plus the platform's **offers** (each carrying this org's on/off decision), org rows shadowing an offer of the same name. Never the pipeline machinery, and never a platform **standard** skill — those run for every org but are not a tenant's decision. | — | `{ skills }` |
+| `POST` | `/api/skills` | org:skills:manage | Author a skill. Validates the SKILL.md name/description rules and the reserved `grid-cards` value; `clonedFrom` records a platform clone. 409s a name reserved by a published platform **standard** skill (such a row could never resolve, so accepting it would mean a green save and an agent that never follows it). | `{ name, description, body, metadata?, clonedFrom?, enabled? }` | `{ skill }` (201) |
+| `PATCH` | `/api/skills/{skillId}` | org:skills:manage | Update an org skill. 409s when the row's **current** name is standardised (such a row is inert, so a successful save would be the same green-save-no-effect trap) and when a rename would take a standardised name. Deleting the row still works. | partial create body | `{ skill }` |
 | `DELETE` | `/api/skills/{skillId}` | org:skills:manage | Delete an org skill. | — | `{ deleted: true }` |
-| `GET` | `/api/skills/invocable` | org member | The `/name` composer picker's list: enabled skills a chat turn can actually run, **name + description only** — the same progressive-disclosure level 1 the agent is given. Invoking is use, not administration, so any member may read it. | — | `{ skills }` |
-| `GET` | `/api/skills/attachable` | org member | The job builder's skill picker: the skills the chosen output kind can run (`chat` → `shallow_researcher`, `deep-research` → `deep_researcher`, both via `grid-agents`). Carries bodies, because the builder previews the composed prompt. | `?output=chat\|deep-research` | `{ skills }` |
+| `PATCH` | `/api/skills/curated/{name}` | org:skills:manage | Switch a platform **offer** on or off for this organization. Addressed by NAME, because the catalogue's id belongs to the fleet's copy. 404s any name that is not a published offer, so neither the machinery nor a standard skill can be switched off by hand-crafting a request. | `{ enabled }` | `{ skill }` |
+| `GET` | `/api/skills/invocable` | org member | The `/name` composer picker's list: enabled skills a chat turn can actually run, **name + description only** — the same progressive-disclosure level 1 the agent is given. Invoking is use, not administration, so any member may read it. Excludes platform standard skills: they run for this org, but they are not the org's to invoke by name. | — | `{ skills }` |
+| `GET` | `/api/skills/attachable` | org member | The job builder's skill picker: the skills the chosen output kind can run (`chat` → `shallow_researcher`, `deep-research` → `deep_researcher`, both via `grid-agents`). Carries bodies, because the builder previews the composed prompt. Excludes platform standard skills — the snapshot path refuses them, so offering one would 404 on save. | `?output=chat\|deep-research` | `{ skills }` |
+
+The platform catalogue — platform owners only (ADR-0016, `platformApiRoute`), no per-org feature flag; this is the layer *under* every tenant's skill list:
+
+| Method | Path | Auth | Description | Request Body / Params | Response |
+|--------|------|------|-------------|-----------------------|----------|
+| `GET` | `/api/platform/skills` | platform owner | The whole fleet-wide catalogue, drafts included, each row carrying its `published` and `delivery` state. | — | `{ skills }` |
+| `POST` | `/api/platform/skills` | platform owner | Add one. Created as a DRAFT and as an OFFER unless told otherwise — both defaults closed, so imposing on the fleet takes two deliberate words. A name belonging to a builtin is refused. | `{ name, description, body, metadata?, published?, delivery? }` | `{ skill }` (201) |
+| `PATCH` | `/api/platform/skills/{skillId}` | platform owner | Edit, publish/withdraw, or move between deliveries. **offer → standard** starts every organization running it, including ones that had switched it off; **standard → offer** is a fleet-wide deactivation, since each org stops until it switches the skill on. | partial create body | `{ skill }` |
+| `DELETE` | `/api/platform/skills/{skillId}` | platform owner | Withdraw from the fleet. Activation rows are left alone, so re-creating the skill under the same name restores the fleet as it was. | — | `{ deleted: true }` |
 
 Project jobs — a prompt on a timer, with an optional skill attached (read = `project:view`, mutate/run = `project:skills:manage` via `requireProjectAccess`):
 

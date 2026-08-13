@@ -18,6 +18,8 @@ const createConversationSchema = z.object({
   id: z.string().min(1).max(128),
   title: z.string().nullable().optional(),
   projectId: z.string().uuid().nullable().optional(),
+  subjectResourceType: z.literal('document').nullable().optional(),
+  subjectResourceId: z.string().min(1).max(128).nullable().optional(),
 })
 
 const listConversationsQuerySchema = z.object({

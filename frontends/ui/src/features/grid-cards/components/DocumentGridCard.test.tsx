@@ -14,6 +14,9 @@ import { server } from '@/mocks/server'
 import { DocumentGridCard } from './DocumentGridCard'
 import { resetSurfacedDocumentsCache } from '@/features/documents/hooks/use-surfaced-documents'
 import { resetThumbnailCache } from '@/features/documents/components/file-card'
+import { resetFilePeekBinding } from '@/features/documents/lib/open-file-peek'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+import { useChatStore } from '@/features/chat/store'
 
 function row(id: string, filename: string, extra: Record<string, unknown> = {}) {
   return {
@@ -37,6 +40,9 @@ function row(id: string, filename: string, extra: Record<string, unknown> = {}) 
 afterEach(() => {
   resetSurfacedDocumentsCache()
   resetThumbnailCache()
+  resetFilePeekBinding()
+  useFilePreviewStore.setState({ file: null, hidden: false, mode: 'modal', context: {} })
+  useChatStore.setState({ composerSubject: null })
 })
 
 describe('DocumentGridCard', () => {
@@ -62,7 +68,10 @@ describe('DocumentGridCard', () => {
       />
     )
 
-    expect(screen.getByText('Relevante Dokumente – Fluchtwege')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByText('Relevante Dokumente – Fluchtwege')).toBeInTheDocument(),
+    )
+    expect(screen.getByTestId('document-grid-card')).toHaveAttribute('data-layout', 'choice')
 
     // Both surfaced files resolve to real file cards (name + summary/hint).
     await waitFor(() => expect(screen.getByText('Fluchtwegplan.pdf')).toBeInTheDocument())
@@ -127,7 +136,8 @@ describe('DocumentGridCard', () => {
 
     // Retrying refetches and now resolves the file.
     await userEvent.click(screen.getByText('Try again'))
-    await waitFor(() => expect(screen.getByText('Fluchtwegplan.pdf')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/Fluchtwegplan\.pdf/)).toBeInTheDocument())
+    expect(screen.getByTestId('document-grid-card')).toHaveAttribute('data-layout', 'receipt')
     expect(screen.queryByTestId('document-grid-error')).not.toBeInTheDocument()
   })
 
@@ -136,14 +146,13 @@ describe('DocumentGridCard', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('opens the same shared preview dialog on click (identical to Files/Archiv)', async () => {
+  it('one file is a receipt that peeks; several files stay a choice', async () => {
     server.use(
       http.get('/api/documents', () =>
         HttpResponse.json({ documents: [row('p1', 'Plan.dwg', { contentType: 'application/acad' })] })
       ),
       http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 403 })),
       http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 })),
-      // FilePreviewPane loads these when the dialog opens.
       http.get('/api/documents/:id/preview', () => HttpResponse.json({ url: null })),
       http.get('/api/documents/:id/visual-details', () => HttpResponse.json({ details: [] }))
     )
@@ -152,10 +161,11 @@ describe('DocumentGridCard', () => {
       <DocumentGridCard title="CAD" documents={[{ file_name: 'Plan.dwg', source: 'projekt' }]} projectId="proj-1" />
     )
 
-    await waitFor(() => expect(screen.getByText('Plan.dwg')).toBeInTheDocument())
-    await userEvent.click(screen.getByText('Plan.dwg'))
-    // The shared FilePreviewDialog opens — same modal the workspaces use.
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('document-grid-card')).toHaveAttribute('data-layout', 'receipt'))
+    expect(screen.getByText(/Plan\.dwg/)).toBeInTheDocument()
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.filename).toBe('Plan.dwg'))
+    await userEvent.click(screen.getByText(/Plan\.dwg/))
+    expect(useFilePreviewStore.getState().file?.filename).toBe('Plan.dwg')
   })
 
   it('does NOT cross corpora when the backend tagged a source (avoids opening a same-named file)', async () => {

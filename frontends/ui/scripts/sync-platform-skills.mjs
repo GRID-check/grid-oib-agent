@@ -165,7 +165,16 @@ const header = [
   " * 'platform' value - only org-authored and platform-clone rows live there).",
   ' */',
   '',
-  "export type PlatformSkillCollection = 'research' | 'synthesis'",
+  // Derived from the directories actually found, never hardcoded. It WAS
+  // hardcoded to 'research' | 'synthesis', so adding a skill under a new
+  // collection (bim/) emitted `collection: 'bim'` against a union that did not
+  // contain it — `tsc` failed on the generated file itself. Nothing caught it
+  // until the module was regenerated, because a stale module type-checks fine.
+  'export type PlatformSkillCollection =\n  | ' +
+    Array.from(new Set(skills.map((s) => s.collection)))
+      .sort()
+      .map((c) => "'" + c + "'")
+      .join('\n  | '),
   '',
   'export type PlatformSkill = {',
   '  name: string',

@@ -49,7 +49,7 @@ vi.mock('@/lib/workos/feature-flags', () => ({
 
 vi.mock('@/lib/skills/service', () => ({
   resolveSkillSnapshot: vi.fn(),
-  resolveSkillsForAgent: vi.fn(),
+  resolveSelectableSkills: vi.fn(),
 }))
 
 vi.mock('./repository', () => ({
@@ -76,7 +76,7 @@ import { computeCollectionScope } from '@/lib/collection-scope'
 import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
-import { resolveSkillSnapshot, resolveSkillsForAgent } from '@/lib/skills/service'
+import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
 import { insertConversation } from '@/lib/conversations/repository'
 import * as repository from './repository'
 import { submitJob, JobSubmitSkippedError, JobSubmitError } from './backend-client'
@@ -173,7 +173,7 @@ beforeEach(() => {
   vi.mocked(loadProjectPromptView).mockResolvedValue(null)
   vi.mocked(loadProjectBundesland).mockResolvedValue(null)
   vi.mocked(resolveSkillSnapshot).mockResolvedValue(SNAPSHOT)
-  vi.mocked(resolveSkillsForAgent).mockResolvedValue({ skills: [] })
+  vi.mocked(resolveSelectableSkills).mockResolvedValue({ skills: [] })
   vi.mocked(repository.findJob).mockResolvedValue(null)
   vi.mocked(repository.insertJob).mockImplementation(async (values) => makeJob(values as Partial<Job>))
   vi.mocked(repository.insertJobRun).mockImplementation(async (values) =>
@@ -485,13 +485,13 @@ describe('fireScheduledJob', () => {
 describe('listAttachableSkills', () => {
   it('resolves chat against the shallow researcher and deep-research against the deep one', async () => {
     await listAttachableSkills(session, 'chat')
-    expect(resolveSkillsForAgent).toHaveBeenCalledWith('org_1', 'shallow_researcher')
+    expect(resolveSelectableSkills).toHaveBeenCalledWith('org_1', 'shallow_researcher')
     await listAttachableSkills(session, 'deep-research')
-    expect(resolveSkillsForAgent).toHaveBeenCalledWith('org_1', 'deep_researcher')
+    expect(resolveSelectableSkills).toHaveBeenCalledWith('org_1', 'deep_researcher')
   })
 
   it('returns the resolved skills sorted by name', async () => {
-    vi.mocked(resolveSkillsForAgent).mockResolvedValue({
+    vi.mocked(resolveSelectableSkills).mockResolvedValue({
       skills: [
         { ...SNAPSHOT, name: 'zeta' },
         { ...SNAPSHOT, name: 'alpha' },

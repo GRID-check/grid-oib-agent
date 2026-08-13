@@ -76,6 +76,11 @@ vi.mock('./model-advanced-sheet', () => ({
     open ? <div data-testid="advanced-sheet" /> : null,
 }))
 
+/** People + Ask have their own spec; they fetch assignments. */
+vi.mock('./model-file-ownership', () => ({
+  ModelFileOwnership: () => <div data-testid="stage-file-ownership" />,
+}))
+
 /** The last props the stand-in canvas was handed; see the mock above. */
 let lastCanvasProps: {
   isolatedExpressIds?: Set<number> | null
