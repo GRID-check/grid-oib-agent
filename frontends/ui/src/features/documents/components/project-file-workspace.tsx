@@ -706,6 +706,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           // showing the old name, or a card for a building that is gone.
           onModelRenamed={handleRenamed}
           onModelDeleted={handleDeleted}
+          canCollaborate={canCollaborate}
         />
       )}
 
