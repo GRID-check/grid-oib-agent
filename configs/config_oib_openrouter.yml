@@ -453,10 +453,9 @@ functions:
   emit_card:
     _type: emit_card
 
-  # Document surfacing: the agent calls surface_documents to run a real vector
-  # search over the project + Büroarchiv corpus and present the matching files
-  # as a clickable preview grid (a `document_grid` system card). Distinct from
-  # knowledge_search, which grounds legal answers as citations.
+  # Document surfacing: show a file (filename= / mode=one) or a short browse
+  # choice (mode=many). Distinct from knowledge_search, which cites passages;
+  # the UI peeks cited files, so the agent must not also surface after citing.
   surface_documents:
     _type: surface_documents
 

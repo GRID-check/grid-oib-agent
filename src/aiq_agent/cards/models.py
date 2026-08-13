@@ -625,12 +625,12 @@ class SurfacedDocument(BaseModel):
 
 
 class DocumentGridCard(BaseModel):
-    """A grid of REAL project/Büroarchiv documents surfaced for the user.
+    """Project/Büroarchiv files the user asked to see.
 
-    System-emitted by the ``surface_documents`` tool after a deterministic vector
-    search — the model asks for a search, the tool returns real files. Renders as
-    clickable file-explorer preview cards (thumbnail, name, match snippet) that
-    open the document.
+    System-emitted by ``surface_documents``. One file or a short browse
+    choice — same card, the list length is the difference. Never a
+    catalogue. Citations of exactly one project/Büro file peek without
+    this card (``useCitationPeek``).
     """
 
     type: Literal["document_grid"] = "document_grid"

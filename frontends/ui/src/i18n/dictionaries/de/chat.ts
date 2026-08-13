@@ -51,6 +51,10 @@ export const chat: typeof en.chat = {
     loadError: 'Dokumente konnten nicht geladen werden.',
     retry: 'Erneut versuchen',
     openAria: 'Dokument öffnen: {label}',
+    thisFile: 'Diese Unterlage',
+    choose: 'Welche Datei?',
+    // Ruhige Quittung, wenn die Karte genau eine Datei neben dem Chat geöffnet hat.
+    showing: '{label} wird angezeigt',
   },
   composer: {
     placeholder: 'Fragen Sie Piloti zu diesem Projekt …',

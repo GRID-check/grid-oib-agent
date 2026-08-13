@@ -85,6 +85,7 @@ import {
   applyMessageMentions,
   getAwaitingState,
   listMentionCandidates,
+  listShareCandidates,
   releaseRequest,
   resolveRequestsOnReply,
 } from './service'
@@ -661,5 +662,15 @@ describe('listMentionCandidates (spec MN-4, SH-19)', () => {
 
     const { canInvite } = await listMentionCandidates(session, 'conv_1')
     expect(canInvite).toBe(false)
+  })
+})
+
+describe('listShareCandidates', () => {
+  it('requires owner — assignment must not reuse this list', async () => {
+    stubCallerRole('owner')
+
+    await listShareCandidates(session, 'document', 'doc_1')
+
+    expect(requireResourceAccess).toHaveBeenCalledWith(session, 'document', 'doc_1', 'owner')
   })
 })

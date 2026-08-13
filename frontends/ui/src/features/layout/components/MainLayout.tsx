@@ -30,6 +30,9 @@ import {
 import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
 import { useLayoutStore } from '../store'
 import { useSessionUrl } from '@/hooks/use-session-url'
+import { documentDisplayName } from '@/lib/documents/display-name'
+import { useTranslations } from '@/i18n'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 
 interface MainLayoutProps {
   /** Whether the user is authenticated */
@@ -121,6 +124,15 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const prefersReducedMotion = useReducedMotion()
   const isMobile = useIsMobile()
+  const filePeeking = useFilePreviewStore(
+    (s) => s.mode === 'peek' && s.file !== null && !s.hidden,
+  )
+  const peekWidth = useFilePreviewStore((s) => s.peekWidth)
+  const peekedFile = useFilePreviewStore((s) => s.file)
+  const previewHidden = useFilePreviewStore((s) => s.hidden)
+  const previewMode = useFilePreviewStore((s) => s.mode)
+  const expandFile = useFilePreviewStore((s) => s.expand)
+  const tFiles = useTranslations('files')
 
   // Measure the floating composer stack (NoSourcesBanner + InputArea — variable
   // height: multi-line textarea, wrapped chips, hint, banners) and publish it as
@@ -157,6 +169,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
   // Start a new unsaved draft session and clear URL until first interaction.
   const handleNewSession = useCallback(() => {
     startNewSessionDraft()
+    useFilePreviewStore.getState().close()
     clearSessionUrl()
   }, [startNewSessionDraft, clearSessionUrl])
 
@@ -226,10 +239,16 @@ export const MainLayout: FC<MainLayoutProps> = ({
         <div
           className="relative flex min-w-0 flex-col overflow-hidden"
           style={{
-            // Balanced split: the research panel informs alongside chat rather
-            // than squeezing it into a cramped column. On mobile the panel
-            // takes the full viewport instead, so chat collapses away.
-            width: isResearchPanelOpen ? (isMobile ? '0%' : '50%') : '100%',
+            // Chat stays the home column. A peeked file sits to the right
+            // as a companion (~22rem), not a 50/50 split. Research still
+            // shares the row 50/50 and the peek yields to it.
+            width: isResearchPanelOpen
+              ? isMobile
+                ? '0%'
+                : '50%'
+              : filePeeking && !isMobile
+                ? `calc(100% - ${peekWidth + 24}px)`
+                : '100%',
             transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
             // Published from the ResizeObserver above; inherits into ChatArea
             // (a descendant), which reads it via calc(). undefined pre-measure.
@@ -267,6 +286,24 @@ export const MainLayout: FC<MainLayoutProps> = ({
             isCollaborationEnabled={canCollaborate}
             currentUserId={currentUserId}
           />
+
+          {isMobile &&
+            peekedFile &&
+            previewMode !== 'modal' &&
+            previewMode !== 'expanded' && (
+              <button
+                type="button"
+                onClick={expandFile}
+                className="border-base bg-card/70 absolute left-3 right-3 top-14 z-20 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60"
+              >
+                <span className="min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
+                  {documentDisplayName(peekedFile)}
+                </span>
+                <span className="text-muted-foreground shrink-0 text-[11px]">
+                  {previewHidden ? tFiles('assignment.showFile') : tFiles('assignment.expandFile')}
+                </span>
+              </button>
+            )}
 
           {/* Chat Area - Scrollable, extends behind the floating composer AND
               the floating toolbar */}

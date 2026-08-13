@@ -99,6 +99,8 @@ export interface CreateConversationInput {
   id: string
   title?: string | null
   projectId?: string | null
+  subjectResourceType?: 'document' | null
+  subjectResourceId?: string | null
 }
 
 export interface CreateMessageInput {
@@ -270,6 +272,8 @@ export async function createConversation(
     createdBy: session.userId,
     title: input.title ?? null,
     projectId: input.projectId ?? null,
+    subjectResourceType: input.subjectResourceType ?? null,
+    subjectResourceId: input.subjectResourceId ?? null,
   })
   if (inserted) return inserted
 

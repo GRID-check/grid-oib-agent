@@ -1,7 +1,7 @@
 # File-native work objects — design
 
 Date: 2026-08-13
-Status: proposed (awaiting review; UX pass added the same day)
+Status: accepted (building)
 Branch: `feature/document-ownership` (worktree `.worktrees/document-ownership`)
 
 Related: [ADR-0032](../../adr/0032-shareable-resource-model.md),
@@ -127,6 +127,28 @@ have nobody or several responsible people → **Piloti dazu fragen** (subject +
 filename focus) and **Kollegin fragen** (assignment + mention + inbox, landing
 on the same subject).
 
+## One Ask Piloti
+
+File-ask is **not** a second chat product. It is the existing Ask Piloti
+pipe with one extra field.
+
+| Entry | Lands on | Mechanism |
+|---|---|---|
+| Sidebar „Frag Piloti“ | `/chat?new=1` | `startNewSessionDraft` |
+| Applicable standard | `/chat?ask=` | `setComposerPrefill(text)` |
+| IFC wall | `/chat?ask=` | `setComposerPrefill(text)` |
+| Welcome chips | composer | `setComposerPrefill(text)` |
+| **A file** | `/chat?new=1&doc=&ask?` | `startNewSessionDraft` + `setComposerPrefill(text, _, subject)` |
+
+The composer shows a **subject bar** (project-green, same family as the
+scope chip and InvokedSkillChip). Dismissing it drops the focus; the thread
+stays. The empty-chat greeting and starter chips swap to file-shaped
+questions that reuse the same prefill function. The Projektunterlagen
+source preset turns on, because that is already how chat says “ground in
+the project corpus.”
+
+There is no files-only agent, no parallel composer, no second websocket.
+
 ## UX language
 
 The existing Files and collaboration chrome already has a voice. This feature
@@ -248,35 +270,22 @@ No toast “Sie sind jetzt verantwortlich.” The uploader is not.
 
 ### F4 — Ask Piloti about this file
 
-1. Click `Piloti dazu fragen`.
-2. Navigate to `/app/projects/{id}/chat?ask=&doc={fileId}` (empty `ask` is
-   intentional). Do **not** dump a canned question the user has to delete.
-   IFC’s canned sentence is right for a *selected wall*; a whole file is a
-   place, not a question.
-3. Composer has the subject chip and focus. Cursor in an empty field.
-   Placeholder: `Frage zu Brandschutzplan.pdf…`.
-4. Optional starter chips *under* the composer, two, static, citation-shaped —
-   not an LLM: `Was sind die Kernaussagen?` · `Welche OIB-Stellen gelten hier?`
-   Clicking one fills and can send. They are shortcuts, not a third agent.
-5. They type and send. Retrieval is focused on this file (`include_file_names`)
-   and may still cite law. The answer’s “Belegt durch” should usually include
-   this file; if it does not, that is a retrieval bug, not a UI one.
-6. The chip stays for the life of the thread. × drops focus for *this turn
-   onward* (they want to compare with another file) but does not rewrite
-   history. A small `Datei anzeigen` on the chip goes to `/files?doc=`.
+1. Click `Piloti dazu fragen` while the preview is open (same
+   `FilePreviewPane` for PDF, image, IFC).
+2. You land on `/chat`. Chat is home. The file comes with you as a **peek**
+   on the right (~22rem) — the file you are talking about, not a 50/50
+   split. Expand uses the same pane. Research yields the peek.
+3. The composer stays empty. Placeholder: `Frage zu {name}…`. Retrieval
+   is told the filename on the wire (`focus_file_name`); the user does
+   not have to type it. Starter chips still name it if they pick one.
+4. Coming back to the session restores the peek from
+   `conversations.subject_resource_id`. X hides it; the thread still knows
+   the file. Another file in the same thread replaces the peek.
 
-They left Files. The chip is what stops that from feeling like they dropped
-the drawing on the floor. A3 later keeps the drawing on screen.
+### F5 — Kollegin fragen
 
-### F5 — Ask without leaving the drawing (A3, follow-on)
-
-1. Same click as F4, but the Files layout keeps the preview and opens chat
-   in the remaining column (desktop). Mobile still navigates (no usable
-   split).
-2. Citations in the answer that belong to this file scroll the preview to
-   the page and use the existing passage highlight. No new viewer.
-3. Closing chat returns to the ordinary preview. The thread remains listed
-   under History with the file’s name as the title seed.
+Same dock, same chat. Picking a person prefills `@Anna` plus the named-file
+question and uses the existing mention hand-off. No second thread type.
 
 ### F6 — Assign one file
 
@@ -463,7 +472,7 @@ Each piece is a function with one job.
 |---|---|---|---|
 | A1 | `documentQuestionHref` | `elementQuestionHref`, `askGridHref`, `?ask=` consumption in `project-chat-client` | Same shape for a document. Preview primary action + file-card action. |
 | A2 | Document focus | `exclude_file_names` on knowledge retrieval; `available_documents` inventory; `view_knowledge_image` | `include_file_names` (or equivalent metadata `$in`). Conversation subject = document id. Composer chip “Frage zu …”. Retrieval and image-view prefer that file. Inventory still lists the rest; this file is the subject. |
-| A3 | File-docked chat | PDF viewer already highlights a cited passage; preview pane already exists | Preview stays open beside the thread when the conversation has a subject file. Chrome, not a new agent. |
+| A3 | File-docked chat | Same `FilePreviewPane` (including IFC) | Persistent host in the project shell. Modal on Files → docked split on `/chat`. Reopening the session restores it. |
 | A4 | Citation → ask again | “Belegt durch” opens the page | “Weiterfragen” on that locus, same `?ask=` + focus. |
 | A5 | File activity | Citation-events pipeline (platform dashboard) | Project-side “which threads cited this file”. Read-only first. |
 

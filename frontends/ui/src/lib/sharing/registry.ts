@@ -27,7 +27,20 @@ import {
   type ResourceVisibility,
   type ShareableResourceType,
 } from '@/lib/db/schema'
-import { findConversationTenancy } from '@/lib/conversations/repository'
+import {
+  conversationIdsExisting,
+  findConversationInOrg,
+  findConversationTenancy,
+  listConversationIdsForProject,
+  updateConversationVisibilityInOrg,
+} from '@/lib/conversations/repository'
+import {
+  documentIdsExisting,
+  findDocumentTenancy,
+  listDocumentIdsForProject,
+  updateDocumentVisibilityInOrg,
+} from '@/lib/documents/repository'
+import { documentDisplayName } from '@/lib/documents/display-name'
 
 /**
  * Everything `@/lib/sharing/access` needs about a resource to decide access, in
@@ -42,9 +55,20 @@ import { findConversationTenancy } from '@/lib/conversations/repository'
  * legitimate for legacy conversations created before project stamping, which no
  * project membership could describe.
  */
+export interface ResourceContainer {
+  kind: 'project' | 'organization'
+  id: string | null
+}
+
+export interface ResourceRef {
+  title: string | null
+}
+
 export interface ResourceProbe {
   organizationId: string
   projectId: string | null
+  /** Declared container — project documents use `project`; Archiv can declare `organization`. */
+  container: ResourceContainer
   visibility: ResourceVisibility
   /** WorkOS user id of the creator, who is always an owner. */
   createdBy: string | null
@@ -80,6 +104,22 @@ export interface ShareableDescriptor {
   readonly deepLink: (resourceId: string, options?: { anchorId?: string; projectId?: string | null }) => string
   /** i18n key suffix for the type's display name (`sharing.resourceTypes.<key>`). */
   readonly labelKey: string
+  /**
+   * Persist a visibility change. Returns false when the row is missing in this
+   * org (caller maps to 404). Lives on the descriptor so a new type cannot
+   * compile a silent no-op write (§3.1).
+   */
+  readonly setVisibility: (
+    resourceId: string,
+    organizationId: string,
+    visibility: ResourceVisibility,
+  ) => Promise<boolean>
+  /** One-line title for inbox / mention copy (§3.3). */
+  readonly describeRef: (resourceId: string, organizationId: string) => Promise<ResourceRef | null>
+  /** Which of these ids still exist — orphan sweeps walk every registered type (§3.6). */
+  readonly exists: (ids: readonly string[]) => Promise<Set<string>>
+  /** Ids of this type inside a project — project-member cleanup (§3.5). */
+  readonly listIdsInProject: (projectId: string, organizationId: string) => Promise<string[]>
 }
 
 /**
@@ -102,6 +142,9 @@ const conversationDescriptor: ShareableDescriptor = {
     return {
       organizationId: row.organizationId,
       projectId: row.projectId,
+      container: row.projectId
+        ? { kind: 'project', id: row.projectId }
+        : { kind: 'organization', id: row.organizationId },
       visibility: row.visibility,
       createdBy: row.createdBy,
       deletedAt: row.deletedAt,
@@ -111,6 +154,17 @@ const conversationDescriptor: ShareableDescriptor = {
   defaultVisibility: 'private',
   roles: RESOURCE_ROLES,
   supportsMentions: true,
+  setVisibility: async (resourceId, organizationId, visibility) => {
+    const row = await updateConversationVisibilityInOrg(resourceId, organizationId, visibility)
+    return row !== null
+  },
+  describeRef: async (resourceId, organizationId) => {
+    const row = await findConversationInOrg(resourceId, organizationId)
+    if (!row) return null
+    return { title: row.title ?? null }
+  },
+  exists: (ids) => conversationIdsExisting(ids),
+  listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
@@ -128,8 +182,51 @@ const conversationDescriptor: ShareableDescriptor = {
   labelKey: 'conversation',
 }
 
+const DOCUMENT_VISIBILITIES = ['private', 'project'] as const
+
+const documentDescriptor: ShareableDescriptor = {
+  type: 'document',
+  probe: async (resourceId) => {
+    const row = await findDocumentTenancy(resourceId)
+    if (!row) return null
+    return {
+      organizationId: row.organizationId,
+      projectId: row.projectId,
+      container: row.projectId
+        ? { kind: 'project', id: row.projectId }
+        : { kind: 'organization', id: row.organizationId },
+      visibility: row.visibility,
+      createdBy: row.createdBy,
+      deletedAt: row.deletedAt,
+    }
+  },
+  allowedVisibilities: DOCUMENT_VISIBILITIES,
+  defaultVisibility: 'project',
+  roles: RESOURCE_ROLES,
+  // Mentions about a file happen on a conversation that has the file as
+  // subject (spec F7), not on the document resource itself.
+  supportsMentions: false,
+  setVisibility: async (resourceId, organizationId, visibility) => {
+    const row = await updateDocumentVisibilityInOrg(resourceId, organizationId, visibility)
+    return row !== null
+  },
+  describeRef: async (resourceId, organizationId) => {
+    const row = await findDocumentTenancy(resourceId)
+    if (!row || row.organizationId !== organizationId) return null
+    return { title: documentDisplayName(row) }
+  },
+  exists: (ids) => documentIdsExisting(ids),
+  listIdsInProject: (projectId, organizationId) => listDocumentIdsForProject(projectId, organizationId),
+  deepLink: (resourceId, options) => {
+    if (!options?.projectId) return `/app/archiv?doc=${encodeURIComponent(resourceId)}`
+    return `/app/projects/${encodeURIComponent(options.projectId)}/files?doc=${encodeURIComponent(resourceId)}`
+  },
+  labelKey: 'document',
+}
+
 export const SHAREABLE_REGISTRY: Record<ShareableResourceType, ShareableDescriptor> = {
   conversation: conversationDescriptor,
+  document: documentDescriptor,
 }
 
 /** Descriptor lookup. Throws on an unregistered type — that is a programming error. */

@@ -33,7 +33,10 @@ import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/sign
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard } from '@/lib/storage/admission'
-import { FEATURE_FLAGS, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
+import { listResourceAssignments } from '@/lib/assignments/service'
+import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
+import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
@@ -276,7 +279,18 @@ export async function listDocuments(
   // without this they would stay 'pending' forever (no completion callback).
   const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
 
-  return reconciled.map(({ metadata: _metadata, ...row }) => row)
+  const listed = reconciled.map(({ metadata: _metadata, ...row }) => row)
+
+  if (!isCollaborationEnabled(session) || listed.length === 0) {
+    return listed.map((row) => ({ ...row, assignees: [] }))
+  }
+
+  const grouped = await listResourceAssignments(
+    session,
+    'document',
+    listed.map((row) => row.id),
+  )
+  return listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] }))
 }
 
 /**
@@ -909,6 +923,11 @@ export async function deleteDocument(
   if (!doc || doc.projectId === null) throw new NotFoundError()
 
   await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
+
+  await Promise.all([
+    purgeResourceCollaboration('document', documentId).catch(() => undefined),
+    deleteAssignmentsForResource(session.organizationId, 'document', documentId).catch(() => undefined),
+  ])
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB

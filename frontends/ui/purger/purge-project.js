@@ -209,6 +209,10 @@ async function purgeProject(tx, entry, deps) {
   await tx`DELETE FROM inbox_items WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
   await tx`DELETE FROM mention_requests WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_shares WHERE resource_type = 'conversation' AND resource_id IN (SELECT id FROM conversations WHERE project_id = ${projectId})`
+  await tx`DELETE FROM inbox_items WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
+  await tx`DELETE FROM mention_requests WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
+  await tx`DELETE FROM resource_shares WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
+  await tx`DELETE FROM resource_assignments WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }

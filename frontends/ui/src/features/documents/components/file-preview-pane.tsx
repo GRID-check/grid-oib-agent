@@ -35,6 +35,11 @@ import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
+import { AssignmentFaces } from './assignment-faces'
+import { AssignPopover } from './assign-popover'
+import { useRouter } from 'next/navigation'
+import { askAboutFile } from '../lib/ask-about-file'
+import { useFilePreviewStore } from '../stores/file-preview-store'
 
 interface FilePreviewPaneProps {
   file: FileItem
@@ -71,6 +76,10 @@ interface FilePreviewPaneProps {
   onRenamed?: (fileId: string, displayName: string | null) => void
   /** The document was deleted from the header menu; the pane closes itself. */
   onDeleted?: (fileId: string) => void
+  canCollaborate?: boolean
+  /** Modal on Files; peek/expanded once this file is the chat subject. */
+  presentation?: 'modal' | 'peek' | 'expanded'
+  onAssigneesChanged?: (assignees: FileItem['assignees']) => void
 }
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
@@ -125,9 +134,18 @@ export function FilePreviewPane({
   onRenamed,
   onDeleted,
   showMetadataPanel = true,
+  canCollaborate = false,
+  presentation = 'modal',
+  onAssigneesChanged,
 }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
+  const router = useRouter()
+  const storeMode = useFilePreviewStore((state) => state.mode)
+  const storeFileId = useFilePreviewStore((state) => state.file?.id)
+  const inChat = presentation === 'peek' || presentation === 'expanded' ||
+    ((storeMode === 'peek' || storeMode === 'expanded') && storeFileId === file.id)
+  const peeking = presentation === 'peek'
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   /**
    * The same-origin signed path for the same bytes, when the optimizer can
@@ -261,14 +279,9 @@ export function FilePreviewPane({
   const ext = fileExtensionLabel(file.filename)
 
   return (
-    <div className="@container flex h-full flex-col bg-card">
-      {/* Header — extension tile, name/meta, download, expand, close. The row
-          stays on one line (the name truncates); below `@md` the Download label
-          collapses to its icon so the controls never crowd a ~360px sheet. The
-          top padding grows past the safe-area inset on the full-screen sheet.
-
-          Given more air than the rest of the pane on purpose: this is the line
-          that says WHICH document is open, and it is read first every time. */}
+    <div className="@container flex h-full min-h-0 flex-col bg-card">
+      {/* Peek chrome lives on the host — this header is the modal/expanded one. */}
+      {!peeking && (
       <div className="flex shrink-0 items-center gap-2.5 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:gap-3 @md:px-5 sm:pt-3.5">
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold uppercase leading-none"
@@ -304,7 +317,45 @@ export function FilePreviewPane({
             </span>
             <DocumentStatusBadge status={file.status} className="shrink-0" />
           </div>
+          {canCollaborate && (
+            <div className="mt-1.5 flex min-w-0 items-center gap-1">
+              <AssignmentFaces assignees={file.assignees} />
+              <AssignPopover
+                documentId={file.id}
+                assignees={file.assignees ?? []}
+                onChanged={(next) => onAssigneesChanged?.(next)}
+              />
+            </div>
+          )}
         </div>
+        {projectId && file.status === 'ready' && !inChat && (
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 shrink-0"
+            onClick={() =>
+              askAboutFile({
+                projectId,
+                file,
+                navigate: (href) => router.push(href),
+              })
+            }
+          >
+            {t('assignment.ask')}
+          </Button>
+        )}
+        {projectId && canCollaborate && file.status === 'ready' && (
+          <AskColleagueButton
+            projectId={projectId}
+            file={file}
+            documentId={file.id}
+          />
+        )}
+        {projectId && file.status !== 'ready' && file.status !== 'failed' && (
+          <Button size="sm" className="h-8 shrink-0" disabled title={t('assignment.askDisabled')}>
+            {t('assignment.ask')}
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -349,6 +400,7 @@ export function FilePreviewPane({
           </Button>
         )}
       </div>
+      )}
 
       {actions.downloadFailed && (
         <div
@@ -402,7 +454,12 @@ export function FilePreviewPane({
           when split. Without a bounded panel above (the dialog now gives one)
           this used to overflow into the panel's `overflow-hidden` and clip the
           metadata unreachably. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain @2xl:flex-row @2xl:overflow-hidden">
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col overscroll-contain',
+          peeking ? 'overflow-hidden' : 'overflow-y-auto @2xl:flex-row @2xl:overflow-hidden',
+        )}
+      >
         {/* Left: live preview, or a decorative page mock while loading / when
             there is no inline preview. Stacked (mobile): a capped ~50dvh block
             that clips to itself so a tall document/image never pushes the
@@ -414,7 +471,14 @@ export function FilePreviewPane({
             real shadow reads as a document ON something — which is what a
             drawing on a desk actually looks like, and the whole reason this
             column exists rather than a download link. */}
-        <div className="flex h-[50dvh] shrink-0 min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7">
+        <div
+          className={cn(
+            'flex min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60',
+            peeking
+              ? 'h-full min-h-0 flex-1 p-3'
+              : 'h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
+          )}
+        >
           {isModel && projectId ? (
             <IfcFilePreview
               documentId={file.id}
@@ -428,7 +492,10 @@ export function FilePreviewPane({
             file.contentType === 'application/pdf' ? (
               <iframe
                 src={previewUrl}
-                className="h-full w-full rounded-lg border bg-background shadow-lg"
+                className={cn(
+                  'h-full w-full rounded-lg border bg-background',
+                  peeking ? 'shadow-xs' : 'shadow-lg',
+                )}
                 title={actions.name}
               />
             ) : (
@@ -495,6 +562,7 @@ export function FilePreviewPane({
             middle of a value reads as broken rather than as "there is more".
             The utility is scroll-driven, so the fade RETRACTS at the bottom of
             travel: its presence is the signal, not decoration. */}
+        {!peeking && (
         <div className="scroll-fade-bottom flex w-full flex-col border-t bg-muted/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
           {/* The building's own numbers lead the rail: they are what the file
               IS. Ungated by the metadata flag, which covers what INGESTION
@@ -678,6 +746,7 @@ export function FilePreviewPane({
             </p>
           )}
         </div>
+        )}
       </div>
 
       {/* No footer page band. It stated the page count a second time, three
@@ -1035,5 +1104,37 @@ function PageMock({ caption, action, skeleton }: { caption?: string; action?: Re
         </div>
       )}
     </div>
+  )
+}
+
+function AskColleagueButton({
+  projectId,
+  file,
+  documentId,
+}: {
+  projectId: string
+  file: FileItem
+  documentId: string
+}): JSX.Element {
+  const t = useTranslations('files')
+  const router = useRouter()
+  return (
+    <AssignPopover
+      documentId={documentId}
+      assignees={file.assignees ?? []}
+      pickOnly
+      triggerLabel={t('assignment.askColleague')}
+      onPick={(person) => {
+        const name = person.name || person.email || t('assignment.to')
+        askAboutFile({
+          projectId,
+          file,
+          ask: `@${name} `,
+          mentions: [{ targetId: person.userId, display: name }],
+          navigate: (href) => router.push(href),
+        })
+      }}
+      onChanged={() => undefined}
+    />
   )
 }

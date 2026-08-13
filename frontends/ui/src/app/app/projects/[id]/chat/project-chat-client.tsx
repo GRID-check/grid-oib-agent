@@ -6,6 +6,9 @@ import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
 import { useChatStore, useLoadJobData, useDeepResearchTitle } from '@/features/chat'
 import type { ResearchPanelTab } from '@/features/layout/types'
+import { fileItemFromStatus } from '@/features/documents/lib/document-question'
+import { useCitationPeek } from '@/features/documents/hooks/use-citation-peek'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 
 export interface ProjectChatClientProps {
   projectId: string
@@ -73,6 +76,8 @@ const ProjectChatContent = ({
   // strip the param from the URL so a refresh/back-nav doesn't re-inject it. The
   // guard ref keeps this to a single application per distinct question.
   const askPrefill = searchParams?.get('ask') ?? null
+  const docPrefill = searchParams?.get('doc') ?? null
+  const filePrefill = searchParams?.get('file') ?? null
   const consumedAskRef = useRef<string | null>(null)
 
   // Sidebar "Frag Piloti" entry point: /projects/:id/chat?new=1 always lands on
@@ -106,19 +111,72 @@ const ProjectChatContent = ({
   }, [projectId, setProjectId, loadServerConversations])
 
   useEffect(() => {
-    if (!askPrefill || consumedAskRef.current === askPrefill) return
-    consumedAskRef.current = askPrefill
-    setComposerPrefill(askPrefill)
+    // Files, IFC walls and applicable standards all land here: one Ask Piloti
+    // pipe (`setComposerPrefill`). `doc` is the optional subject of that ask,
+    // not a second chat.
+    const token = `${askPrefill ?? ''}|${docPrefill ?? ''}|${filePrefill ?? ''}`
+    if ((!askPrefill && !docPrefill) || consumedAskRef.current === token) return
+    consumedAskRef.current = token
+    setComposerPrefill(
+      askPrefill ?? '',
+      undefined,
+      docPrefill
+        ? { resourceType: 'document', resourceId: docPrefill, filename: filePrefill }
+        : undefined,
+    )
 
-    // Remove ?ask= (preserving any other params, e.g. ?job=) without adding a
-    // history entry.
     if (pathname) {
       const params = new URLSearchParams(searchParams?.toString() ?? '')
       params.delete('ask')
+      params.delete('doc')
+      params.delete('file')
       const query = params.toString()
       router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
     }
-  }, [askPrefill, searchParams, pathname, router, setComposerPrefill])
+  }, [askPrefill, docPrefill, filePrefill, searchParams, pathname, router, setComposerPrefill])
+
+  const composerSubject = useChatStore((s) => s.composerSubject)
+  const currentConversation = useChatStore((s) => s.currentConversation)
+  const subjectId =
+    currentConversation?.subjectResourceId ?? composerSubject?.resourceId ?? docPrefill
+
+  // Citations are the signal to show a project/Büro file — do not wait for
+  // the agent to call surface_documents. Mounted once on the chat client.
+  useCitationPeek({ projectId, projectName, canCollaborate })
+
+  useEffect(() => {
+    if (!subjectId) return
+    const preview = useFilePreviewStore.getState()
+    if (preview.file?.id === subjectId) {
+      preview.peek()
+      return
+    }
+    let cancelled = false
+    void fetch(`/api/documents/${encodeURIComponent(subjectId)}/status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body?.id) return
+        const item = fileItemFromStatus(body)
+        useFilePreviewStore.getState().open(item, 'peek', {
+          projectId,
+          projectName: projectName ?? undefined,
+          scope: 'files',
+          canCollaborate,
+        })
+        const subject = useChatStore.getState().composerSubject
+        if (subject?.resourceId === item.id && !subject.filename) {
+          useChatStore.getState().setComposerSubject({
+            ...subject,
+            title: subject.title || item.filename,
+            filename: item.filename,
+          })
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [subjectId, projectId, projectName, canCollaborate])
 
   useEffect(() => {
     if (!isAuthenticated || !jobId) return

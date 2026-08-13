@@ -14,6 +14,7 @@ import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListView } from './file-list-view'
 import { FileSearchBar } from './file-search-bar'
 import { FilterChip } from './filter-chip'
+import { AssignmentFaces } from './assignment-faces'
 
 interface FileBrowserPaneProps {
   files: FileItem[]
@@ -49,6 +50,7 @@ interface FileBrowserPaneProps {
    * a presentation choice, never a different data path.
    */
   view?: 'cards' | 'list'
+  showAssignment?: boolean
 }
 
 export function FileBrowserPane({
@@ -64,6 +66,7 @@ export function FileBrowserPane({
   onSelectFolder,
   projectId,
   view = 'cards',
+  showAssignment = false,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -238,6 +241,7 @@ export function FileBrowserPane({
                   onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
                   locale={locale}
                   match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
+                  footerLead={showAssignment ? <AssignmentFaces assignees={hit.assignees} /> : undefined}
                 />
               ))}
             </FileGrid>
@@ -283,6 +287,7 @@ export function FileBrowserPane({
                   isSelected={selectedFileId === file.id}
                   onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
                   locale={locale}
+                  footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
                 />
               ))}
               {uploadCard}

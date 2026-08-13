@@ -4,3 +4,4 @@
 
 export { useFileUpload } from './use-file-upload'
 export { useFileDragDrop } from './use-file-drag-drop'
+export { useCitationPeek } from './use-citation-peek'

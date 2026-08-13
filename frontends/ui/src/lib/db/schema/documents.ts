@@ -12,6 +12,7 @@ import {
 import { sql } from 'drizzle-orm'
 import { projects } from './projects'
 import { projectFolders } from './project-folders'
+import { type ResourceVisibility } from './resource-shares'
 
 /**
  * The scope a document belongs to. `project` documents hang off a single
@@ -29,6 +30,14 @@ export const documents = pgTable('documents', {
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   scope: text('scope').$type<DocumentScope>().notNull().default('project'),
   createdBy: text('created_by').notNull(),
+  /**
+   * Blanket visibility (ADR-0032). Default `project` — a file is evidence the
+   * whole project can see. `private` is available once the type is registered;
+   * the first Files vertical does not offer the chip on project-visible rows.
+   * Provenance (`createdBy`) is never this column. Assignment is never this
+   * column (ADR-0047).
+   */
+  visibility: text('visibility').$type<ResourceVisibility>().notNull().default('project'),
   /**
    * The document's identity, not its label — see `displayName` below.
    *

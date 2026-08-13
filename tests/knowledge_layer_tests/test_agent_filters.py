@@ -1,10 +1,10 @@
 """Tests for agentic filters on knowledge retrieval.
 
 ``knowledge_retrieval.search`` accepts ``doc_class`` (validated against the
-store vocabulary, store-authoritative) and ``title_contains`` (case-insensitive
-substring on file name OR display title). Filtering happens post-merge so a
-reclassification without re-ingest is honored; invalid input returns a clear
-message instead of raising.
+store vocabulary, store-authoritative), ``title_contains`` (case-insensitive
+substring on file name OR display title), and ``file_name`` (indexed name).
+Filtering happens post-merge so a reclassification without re-ingest is
+honored; invalid input returns a clear message instead of raising.
 """
 
 from __future__ import annotations
@@ -13,7 +13,10 @@ from types import SimpleNamespace
 
 from aiq_agent.knowledge.document_classification import DOCUMENT_CLASSES
 from sources.knowledge_layer.src.register import _AGENT_FILTER_OVERFETCH
+from sources.knowledge_layer.src.register import _KNOWLEDGE_SEARCH_DESCRIPTION
 from sources.knowledge_layer.src.register import _apply_agent_filters
+from sources.knowledge_layer.src.register import _empty_search_message
+from sources.knowledge_layer.src.register import _file_name_matches
 
 
 def _chunk(
@@ -94,3 +97,36 @@ def test_document_classes_vocabulary_is_known() -> None:
     assert "oib_richtlinie" in DOCUMENT_CLASSES
     assert "gesetz" in DOCUMENT_CLASSES
     assert "sonstiges" in DOCUMENT_CLASSES
+
+
+def test_file_name_matches_exact_and_contained() -> None:
+    assert _file_name_matches("Brandschutzplan_EG.pdf", "Brandschutzplan_EG.pdf")
+    assert _file_name_matches("Brandschutzplan_EG.pdf", "brandschutzplan_eg.pdf")
+    assert _file_name_matches("Brandschutzplan_EG.pdf", "Brandschutzplan")
+    assert not _file_name_matches("Schnitt.pdf", "Brandschutzplan")
+    assert not _file_name_matches(None, "x.pdf")
+
+
+def test_file_name_filter_keeps_only_the_named_file() -> None:
+    chunks = [_chunk(file_name="Brandschutzplan_EG.pdf"), _chunk(file_name="Schnitt.pdf")]
+    kept = _apply_agent_filters(chunks, doc_class=None, title_contains=None, file_name="Brandschutzplan")
+    assert [c.file_name for c in kept] == ["Brandschutzplan_EG.pdf"]
+
+
+def test_empty_search_message_steers_and_forbids_invented_citations() -> None:
+    text = _empty_search_message("Fluchtwege", file_name="fehlend.pdf")
+    assert "fehlend.pdf" in text
+    assert "inventory" in text
+    assert "do not invent" in text.lower()
+    assert "surface_documents" in text
+
+
+def test_knowledge_search_description_is_the_evidence_tool() -> None:
+    desc = _KNOWLEDGE_SEARCH_DESCRIPTION
+    assert "evidence" in desc.lower()
+    assert "surface_documents" in desc
+    assert "file_name=" in desc
+    assert "do not also call" in desc.lower() or "do not also call" in desc
+    assert "WHEN TO CALL" in desc
+    assert "WHEN NOT TO CALL" in desc
+    assert "Citation" in desc

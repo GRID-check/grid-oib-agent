@@ -683,7 +683,7 @@
       "type": "object"
     },
     "DocumentGridCard": {
-      "description": "A grid of REAL project/B\u00fcroarchiv documents surfaced for the user.\n\nSystem-emitted by the ``surface_documents`` tool after a deterministic vector\nsearch \u2014 the model asks for a search, the tool returns real files. Renders as\nclickable file-explorer preview cards (thumbnail, name, match snippet) that\nopen the document.",
+      "description": "Project/B\u00fcroarchiv files the user asked to see.\n\nSystem-emitted by ``surface_documents``. One file or a short browse\nchoice \u2014 same card, the list length is the difference. Never a\ncatalogue. Citations of exactly one project/B\u00fcro file peek without\nthis card (``useCitationPeek``).",
       "properties": {
         "documents": {
           "description": "The surfaced files, best match first",

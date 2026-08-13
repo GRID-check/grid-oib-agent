@@ -14,7 +14,7 @@ import 'server-only'
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolders, type Document } from '@/lib/db/schema'
+import { documents, projectFolders, type Document, type ResourceVisibility } from '@/lib/db/schema'
 
 /** Hard cap for unpaginated per-project document lists. */
 export const DOCUMENT_LIST_LIMIT = 500
@@ -64,6 +64,75 @@ export async function listProjectDocuments(
       .orderBy(desc(documents.createdAt))
       .limit(boundedLimit),
   )
+}
+
+/**
+ * Tenancy probe for authorization — unscoped, like `findConversationTenancy`.
+ * The caller decides whether an organization mismatch is a 404.
+ */
+export async function findDocumentTenancy(
+  documentId: string,
+): Promise<Pick<
+  Document,
+  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt' | 'filename' | 'displayName'
+> | null> {
+  const db = getDb()
+  const [row] = await db
+    .select({
+      organizationId: documents.organizationId,
+      projectId: documents.projectId,
+      visibility: documents.visibility,
+      createdBy: documents.createdBy,
+      deletedAt: documents.deletedAt,
+      filename: documents.filename,
+      displayName: documents.displayName,
+    })
+    .from(documents)
+    .where(eq(documents.id, documentId))
+    .limit(1)
+  return row ?? null
+}
+
+export async function updateDocumentVisibilityInOrg(
+  documentId: string,
+  organizationId: string,
+  visibility: ResourceVisibility,
+): Promise<Document | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ visibility, updatedAt: new Date() })
+      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
+      .returning(),
+  )
+  return row ?? null
+}
+
+export async function listDocumentIdsForProject(
+  projectId: string,
+  organizationId: string,
+  limit = 5_000,
+): Promise<string[]> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(and(eq(documents.projectId, projectId), eq(documents.organizationId, organizationId)))
+      .limit(limit),
+  )
+  return rows.map((row) => row.id)
+}
+
+export async function documentIdsExisting(ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const db = getDb()
+  const rows = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(inArray(documents.id, [...ids]))
+  return new Set(rows.map((row) => row.id))
 }
 
 /** Load a document by id scoped to an organization. */

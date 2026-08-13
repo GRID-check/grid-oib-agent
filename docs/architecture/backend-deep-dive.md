@@ -737,18 +737,25 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
 (`knowledge_search` / `knowledge_retrieval`) and `llamaindex` package, all
 **fail-open** (any error degrades to the previous plain behavior, never raises):
 
-1. **Agentic filters** — `knowledge_search` accepts optional `doc_class`
-   (`oib_richtlinie` / `oib_leitfaden` / `norm` / `gesetz` / `sonstiges`) and
-   `title_contains` (case-insensitive substring) arguments. `_apply_agent_filters`
-   applies them post-merge with an over-fetch factor of 3
-   (`_AGENT_FILTER_OVERFETCH`): retrieval asks for 3× `top_k` candidates so the
-   filters still leave ≥ `top_k` results. Both filters are **store-authoritative**:
-   `_resolve_doc_classes` / `_resolve_display_titles` build `(collection,
-   file_name) → value` maps via `aiq_agent.knowledge.factory`
-   (`get_document_doc_classes` / `get_document_display_titles`), so an admin
-   reclassification in the base-knowledge panel takes effect immediately with no
-   re-ingest; chunk metadata is only the fallback. An invalid `doc_class` value
-   returns the allowed vocabulary in the message instead of an empty result.
+1. **Agentic filters** — `knowledge_search` is the evidence tool (read/cite).
+   It accepts optional `file_name` (indexed name — a FILTER, not a preference),
+   `doc_class` (`oib_richtlinie` / `oib_leitfaden` / `norm` / `gesetz` /
+   `sonstiges`) and `title_contains` (case-insensitive substring of file name
+   or display title). `_apply_agent_filters` applies them post-merge with an
+   over-fetch factor of 3 (`_AGENT_FILTER_OVERFETCH`): retrieval asks for 3×
+   `top_k` candidates so the filters still leave ≥ `top_k` results. `doc_class`
+   and titles are **store-authoritative**: `_resolve_doc_classes` /
+   `_resolve_display_titles` build `(collection, file_name) → value` maps via
+   `aiq_agent.knowledge.factory` (`get_document_doc_classes` /
+   `get_document_display_titles`), so an admin reclassification in the
+   base-knowledge panel takes effect immediately with no re-ingest; chunk
+   metadata is only the fallback. An invalid `doc_class` value returns the
+   allowed vocabulary instead of an empty result. A miss names the filters
+   that produced it and tells the agent how to retry — it is not permission
+   to invent a citation. Showing a file is `surface_documents` (one
+   `document_grid` card: one file peeks, several is a short choice); after
+   a citation the UI peeks the cited project/Büro file itself
+   (`useCitationPeek`) so the two tools are not a pair.
 
 2. **Hybrid lexical + vector retrieval (RRF)** — gated on `AIQ_HYBRID_RETRIEVAL`
    (default on, config key `hybrid_search` in the knowledge layer YAML block).

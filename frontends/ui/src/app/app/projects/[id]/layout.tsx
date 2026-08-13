@@ -10,6 +10,7 @@ import { AppSidebar, NavigationTrailLabel } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { RouteFocus } from '@/shared/components/route-focus'
 import { isAuthRequired } from '@/lib/auth/auth-required'
+import { FilePreviewBridge } from '@/features/documents/components/file-preview-host'
 
 interface ProjectLayoutProps {
   children: React.ReactNode
@@ -107,10 +108,10 @@ export default async function ProjectLayout({
         <main
           id="main-content"
           tabIndex={-1}
-          className="bg-background min-w-0 flex-1 overflow-y-auto outline-none"
+          className="bg-background relative min-w-0 flex-1 overflow-y-auto outline-none"
         >
           <RouteFocus />
-          {children}
+          <FilePreviewBridge>{children}</FilePreviewBridge>
         </main>
       </div>
     )

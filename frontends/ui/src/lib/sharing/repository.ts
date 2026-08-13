@@ -16,10 +16,11 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, notExists, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, notExists, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   conversations,
+  documents,
   resourceShares,
   type NewResourceShare,
   type ResourceRole,
@@ -205,12 +206,25 @@ export async function deleteOrphanedGrants(limit = 500): Promise<number> {
     .from(resourceShares)
     .where(
       and(
-        eq(resourceShares.resourceType, 'conversation'),
-        notExists(
-          db
-            .select({ one: sql`1` })
-            .from(conversations)
-            .where(eq(conversations.id, resourceShares.resourceId)),
+        or(
+          and(
+            eq(resourceShares.resourceType, 'conversation'),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(conversations)
+                .where(eq(conversations.id, resourceShares.resourceId)),
+            ),
+          ),
+          and(
+            eq(resourceShares.resourceType, 'document'),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(documents)
+                .where(sql`${documents.id}::text = ${resourceShares.resourceId}`),
+            ),
+          ),
         ),
       ),
     )

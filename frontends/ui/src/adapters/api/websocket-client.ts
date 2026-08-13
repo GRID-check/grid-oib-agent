@@ -91,6 +91,11 @@ export interface SendMessageWireOptions {
    * ordinary message stays byte-for-byte the envelope it always was.
    */
   skills?: string[]
+  /**
+   * Filename of the file this turn is about. Retrieval prefers it; the
+   * user does not have to type the name. Omitted when there is no subject.
+   */
+  focusFileName?: string | null
 }
 
 /** Context passed with connection status changes */
@@ -412,6 +417,7 @@ export class NATWebSocketClient {
       // skills" (undefined) from "explicitly no skills" ([]), exactly as it
       // does for data_sources.
       ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
+      ...(options?.focusFileName?.trim() ? { focus_file_name: options.focusFileName.trim() } : {}),
       ...(options?.contextOnly ? { context_only: true } : {}),
       ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
     })

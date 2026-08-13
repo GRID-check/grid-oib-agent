@@ -48,6 +48,7 @@ const BOUNDARY_MIGRATIONS = [
   // Adds platform_skills — the fleet-wide curated catalogue. A PLATFORM table:
   // every tenant reads it, only the platform role writes it.
   '0047_platform_skills.sql',
+  '0049_file_native_ownership.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

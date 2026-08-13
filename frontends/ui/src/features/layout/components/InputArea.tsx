@@ -76,6 +76,8 @@ import { useFileUpload, useFileDragDrop } from '@/features/documents'
 import type { TrackedFile } from '@/features/documents'
 import { trackedFileToFileItem } from '@/features/documents/types'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { ComposerSubjectBar } from '@/features/documents/components/composer-subject-bar'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import {
   MentionPicker,
@@ -481,6 +483,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
   const tCollab = useTranslations('collaboration')
+  const tFiles = useTranslations('files')
   const [message, setMessage] = useState('')
 
   // ——— @-mentions (spec MN-3, MN-4) ————————————————————————————————————————
@@ -550,6 +553,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // One-shot composer prefill from deep links (?ask=) and welcome-screen chips.
   const composerPrefill = useChatStore((state) => state.composerPrefill)
   const consumeComposerPrefill = useChatStore((state) => state.consumeComposerPrefill)
+  const composerSubject = useChatStore((state) => state.composerSubject)
+  const setComposerSubject = useChatStore((state) => state.setComposerSubject)
+  const previewFileId = useFilePreviewStore((state) => state.file?.id ?? null)
+  const previewBesideChat = useFilePreviewStore(
+    (state) => (state.mode === 'peek' || state.mode === 'expanded') && !state.hidden,
+  )
+  const previewHidden = useFilePreviewStore((state) => state.hidden)
+  const fileDockVisible =
+    previewBesideChat && previewFileId !== null && previewFileId === composerSubject?.resourceId
 
   // Per-session composer drafts: the user's own in-progress text, persisted
   // per conversation id so it survives session switches AND reloads.
@@ -676,6 +688,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
   const activeSourcePreset = useLayoutStore((s) => s.activeSourcePreset)
   const applySourcePreset = useLayoutStore((s) => s.applySourcePreset)
+  const projectId = useChatStore((s) => s.projectId)
+
+  useEffect(() => {
+    if (!composerSubject) return
+    const sources = useLayoutStore.getState().availableDataSources ?? []
+    applySourcePreset('project', computePresetSourceIds('project', sources))
+  }, [composerSubject?.resourceId, applySourcePreset])
 
   // Persist source selection per conversation, exactly like the panel does.
   const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
@@ -850,6 +869,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     if (isResponseMode) return t('inputArea.typeResponse')
     if (isBusy) return t('inputArea.pleaseWait')
     if (isResearchSessionFailed) return t('inputArea.researchFailedFollowUp')
+    if (composerSubject) {
+      return tFiles('assignment.askingAbout', {
+        name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
+      })
+    }
     return placeholder ?? tChat('composer.placeholder')
   }
 
@@ -1414,6 +1438,24 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             </div>
           </div>
         )}
+        <ComposerSubjectBar
+          subject={fileDockVisible ? null : composerSubject}
+          projectId={projectId}
+          onClear={() => {
+            setComposerSubject(null)
+            useFilePreviewStore.getState().close()
+          }}
+          onShowFile={
+            previewHidden && composerSubject
+              ? () => useFilePreviewStore.getState().peek()
+              : undefined
+          }
+          onTitle={(title) => {
+            if (!composerSubject) return
+            setComposerSubject({ ...composerSubject, title })
+          }}
+        />
+
         {/* Inline file chips — one per attached file, above the textarea.
             Live status dot/spinner, retry on failure, ✕ to remove. */}
         {sessionFiles.length > 0 && (

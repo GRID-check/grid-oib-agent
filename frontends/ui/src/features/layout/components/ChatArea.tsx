@@ -1378,6 +1378,8 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
   const tChat = useTranslations('chat')
   const { user } = useAuth()
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
+  const composerSubject = useChatStore((s) => s.composerSubject)
+  const tFiles = useTranslations('files')
   // Only a project can have a model, so the global chat never asks. A failed
   // or forbidden list (the `ifc-models` flag is off) leaves `data` null and the
   // building chips simply do not appear — this is an offer, not a diagnostic.
@@ -1436,7 +1438,11 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       {/* One-line subtitle under the greeting: tells a first-timer that answers
           cite their sources (copy already in both locales — chat.greeting.subtitle). */}
       <p className="text-muted-foreground mt-2 max-w-md text-center text-[13.5px] leading-relaxed">
-        {tChat('greeting.subtitle')}
+        {composerSubject
+          ? tFiles('assignment.welcomeAbout', {
+              name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
+            })
+          : tChat('greeting.subtitle')}
       </p>
 
       {/* Example question chips — quiet bg-card hairline chips that prefill the
@@ -1451,7 +1457,26 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
             carries the model glyph, because "this asks your building" and "this
             asks the Richtlinien" are two different offers that must not look
             like one list. */}
-        {hasReadyModel &&
+        {composerSubject &&
+          (['starterKeyPoints', 'starterOib'] as const).map((key) => {
+            const name = composerSubject.title?.trim() || tFiles('assignment.thisFile')
+            const question =
+              key === 'starterKeyPoints'
+                ? tFiles('assignment.starterKeyPointsNamed', { name })
+                : tFiles('assignment.starterOibNamed', { name })
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setComposerPrefill(question, undefined, composerSubject)}
+                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
+              >
+                <FileText className="size-3.5 shrink-0" style={{ color: 'var(--source-project)' }} aria-hidden="true" />
+                {question}
+              </button>
+            )
+          })}
+        {!composerSubject && hasReadyModel &&
           MODEL_QUESTION_KEYS.map((key) => {
             const question = tChat(`examples.questions.${key}`)
             return (
@@ -1466,7 +1491,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
               </button>
             )
           })}
-        {EXAMPLE_QUESTION_KEYS.map((key) => {
+        {!composerSubject && EXAMPLE_QUESTION_KEYS.map((key) => {
           const question = tChat(`examples.questions.${key}`)
           return (
             <button

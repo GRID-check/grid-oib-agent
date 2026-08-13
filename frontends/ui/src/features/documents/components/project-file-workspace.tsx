@@ -12,7 +12,7 @@ import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast
 import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
-import { FilePreviewDialog } from './file-preview-dialog'
+import { useFilePreviewStore } from '../stores/file-preview-store'
 import { isSettlingStatus } from './document-status'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
@@ -43,6 +43,9 @@ interface ProjectFileWorkspaceProps {
    * endpoints answer 403 is worse than no viewer.
    */
   showModels?: boolean
+  /** Faces, Unvergeben, Zuweisen — behind the collaboration flag. */
+  canCollaborate?: boolean
+  currentUserId?: string
 }
 
 /**
@@ -91,6 +94,15 @@ export interface FileItem {
   contentTypes: string[] | null
   /** Controlled ingestion-generated tags (document type + OIB discipline). */
   tags: string[] | null
+  /** Who is on the hook. Empty = Unvergeben. Absent when collaboration is off. */
+  assignees?: readonly FileAssignee[]
+}
+
+export interface FileAssignee {
+  userId: string
+  name: string | null
+  email: string | null
+  profilePictureUrl: string | null
 }
 
 /**
@@ -110,6 +122,7 @@ type OptionalWireField =
   | 'chunkCount'
   | 'contentTypes'
   | 'tags'
+  | 'assignees'
 
 /**
  * Presentation of the file browser.
@@ -129,7 +142,7 @@ type FileView = 'cards' | 'list' | 'tree'
 const SETTLING_POLL_MS = 4_000
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, canCollaborate = false, currentUserId }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -230,6 +243,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           chunkCount: d.chunkCount ?? null,
           contentTypes: d.contentTypes ?? null,
           tags: d.tags ?? null,
+          assignees: d.assignees ?? [],
         }))
         setFiles(docs)
       })
@@ -380,53 +394,17 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     wasUploading.current = isUploading
   }, [isUploading, loadFiles])
 
-  const filteredFiles = useMemo(
-    () => (selectedFolderId ? files.filter((f) => f.folderId === selectedFolderId) : files),
-    [files, selectedFolderId]
-  )
+  const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'mine' | 'unassigned'>('all')
 
-  const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
-
-  /**
-   * Opening a file — and the one file type that opens differently.
-   *
-   * An `.ifc` is a building, so it opens as one: full screen, viewer first.
-   * Every other file opens in the preview dialog exactly as before. The
-   * branch lives HERE rather than in the card, because the card is shared with
-   * the org-wide Archiv, which has no project to resolve a model against.
-   *
-   * `inferDocumentKind` is already the app's answer to "what kind of file is
-   * this" — it classifies by extension before it looks at tags, so a model
-   * called `Grundriss EG.ifc` is still a model.
-   */
-  const handleSelectFile = useCallback(
-    (id: string | null) => {
-      if (id === null) {
-        setSelectedFileId(null)
-        return
-      }
-      const file = files.find((candidate) => candidate.id === id)
-      const isModel =
-        file !== undefined &&
-        inferDocumentKind({
-          filename: file.filename,
-          contentType: file.contentType,
-          tags: file.tags,
-        }) === 'model'
-      if (showModels && isModel) {
-        openModel(file.filename)
-        return
-      }
-      setSelectedFileId(id)
-    },
-    [files, showModels, openModel]
-  )
-
-  // The preview is a centered modal on every breakpoint. Dialog semantics,
-  // Escape, backdrop click, focus trapping and focus return to the card that
-  // opened it are all Radix's now (FilePreviewDialog) — this file used to hand
-  // -roll the Escape listener and the focus return, which meant two handlers
-  // raced for the same key and the modal still had no focus trap.
+  const docParam = searchParams?.get('doc')
+  const filteredFiles = useMemo(() => {
+    const inFolder = selectedFolderId ? files.filter((f) => f.folderId === selectedFolderId) : files
+    if (!canCollaborate || assignmentFilter === 'all') return inFolder
+    if (assignmentFilter === 'unassigned') {
+      return inFolder.filter((file) => !file.assignees || file.assignees.length === 0)
+    }
+    return inFolder.filter((file) => file.assignees?.some((person) => person.userId === currentUserId))
+  }, [files, selectedFolderId, canCollaborate, assignmentFilter, currentUserId])
 
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
@@ -458,6 +436,49 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const handleRenamed = useCallback((fileId: string, displayName: string | null) => {
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, displayName } : f)))
   }, [])
+
+  const handleSelectFile = useCallback(
+    (id: string | null) => {
+      if (id === null) {
+        setSelectedFileId(null)
+        useFilePreviewStore.getState().close()
+        return
+      }
+      const file = files.find((candidate) => candidate.id === id)
+      setSelectedFileId(id)
+      if (!file) return
+      useFilePreviewStore.getState().open(file, 'modal', {
+        projectId,
+        projectName,
+        scope: 'files',
+        canCollaborate,
+        showMetadataPanel,
+        onRenamed: handleRenamed,
+        onDeleted: handleDeleted,
+        onReingested: handleReingested,
+        onTagsUpdated: handleTagsUpdated,
+      })
+    },
+    [
+      files,
+      projectId,
+      projectName,
+      canCollaborate,
+      showMetadataPanel,
+      handleRenamed,
+      handleDeleted,
+      handleReingested,
+      handleTagsUpdated,
+    ],
+  )
+
+  useEffect(() => {
+    if (!docParam || files.length === 0) return
+    if (useFilePreviewStore.getState().file?.id === docParam) return
+    if (files.some((file) => file.id === docParam)) {
+      handleSelectFile(docParam)
+    }
+  }, [docParam, files, handleSelectFile])
 
   // This session's own uploads for this project's corpus — every phase, so the
   // tray can carry a batch all the way from queued to its "added" summary
@@ -550,6 +571,23 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               icon={ListTree}
             />
           </div>
+          {canCollaborate && (
+            <div role="group" aria-label={t('assignment.responsible')} className="flex items-center gap-1">
+              {(['all', 'mine', 'unassigned'] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setAssignmentFilter(key)}
+                  className={cn(
+                    'rounded-md px-2 py-1 text-[11px] font-medium',
+                    assignmentFilter === key ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {t(`assignment.filter${key === 'all' ? 'All' : key === 'mine' ? 'Mine' : 'Unassigned'}`)}
+                </button>
+              ))}
+            </div>
+          )}
           <ProjectUppyUpload
             projectId={projectId}
             folderId={selectedFolderId}
@@ -623,6 +661,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               hasFolderSelected={selectedFolderId !== null}
               projectId={projectId}
               view={view === 'list' ? 'list' : 'cards'}
+              showAssignment={canCollaborate}
               {...(view !== 'tree'
                 ? {
                     folders,
@@ -674,22 +713,6 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         />
       )}
 
-      {/* Preview — the shared centered-modal dialog (identical in Files + Archiv).
-          The file operations live in its header now (rename, delete), so this
-          hands down the two callbacks that keep the corpus on screen truthful
-          rather than a hand-built Delete control. */}
-      <FilePreviewDialog
-        file={selectedFile}
-        projectId={projectId}
-        projectName={projectName}
-        scope="files"
-        onClose={() => setSelectedFileId(null)}
-        onReingested={handleReingested}
-        onTagsUpdated={handleTagsUpdated}
-        onRenamed={handleRenamed}
-        onDeleted={handleDeleted}
-        showMetadataPanel={showMetadataPanel}
-      />
     </div>
   )
 }
