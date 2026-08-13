@@ -1003,3 +1003,117 @@ class TestAnUnwrappedHandlerStillCannotLeakATraceback:
             call(tools, "light_incidence", {"model": handle, "globalId": "0" * 22, "angle": 45})
         assert "Unbekannte GlobalId" in str(raised.value)
         assert "find_elements" in str(raised.value)
+
+
+class TestARoomWhoseBodyIsAShellIsStillMeasurable:
+    """`clearHeight` answered nothing at all on an ArchiCAD export.
+
+    Reported from production. „In dem Institut wie hoch ist der Keller?" came
+    back with the DECLARED storey height of 3.00 m and the note that the lichte
+    Höhe „war in diesem Export nicht entscheidbar (Raumkörper zu schmal/
+    zerklüftet für das Standardraster)".
+
+    Neither half of that was true. The room is an 11.6 × 11.4 m seminar room,
+    and it was not the grid: on `AC20-Institute-Var-2.ifc` **all 82 spaces**
+    were undecidable, while all 82 build in the triangulated pass.
+
+    The cause is `geom.tree.select(point)`, which needs a closed orientable
+    SOLID to classify against. ArchiCAD writes `IfcSpace` bodies as `Brep`
+    shells; OCCT accepts them into the tree — `select_box` finds them — and
+    will not classify them, so the containment test that decides which grid
+    points count returned nothing for every room in the file.
+
+    The answer the user got was the storey pitch, 3.00 m, for a room whose
+    modelled body is 2.70 m. A structural height reported where a clear height
+    was asked for is wrong in the unsafe direction, and it was dressed in a
+    sentence blaming the architect's room shape.
+
+    The fixture is that seminar room and the slab above it, extracted from
+    `AC20-Institute-Var-2.ifc` (KIT/IFC Wiki example, free use) — 6.8 KB, and
+    it reproduces the classifier miss exactly.
+    """
+
+    FIXTURE = FIXTURES / "keller-brep-raum.ifc"
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def model(cls) -> SpatialModel:
+        return SpatialModel(str(cls.FIXTURE))
+
+    def test_the_solid_classifier_really_does_miss_this_room(self, model: SpatialModel) -> None:
+        """The anti-vacuity guard.
+
+        If a future IfcOpenShell classifies these shells, this test goes red and
+        the fixture stops reproducing the defect — at which point the fix below
+        is still correct but is no longer being exercised, and somebody should
+        know that rather than read a green tick.
+        """
+        space = model.file.by_type("IfcSpace")[0]
+        geo = model.geometry(space.GlobalId)
+        assert geo is not None, "the room triangulates — it is only the classifier that fails"
+        low, high = geo.box
+        x = float((low[0] + high[0]) / 2)
+        y = float((low[1] + high[1]) / 2)
+        z = float(low[2]) + 0.06
+        hits = [e.GlobalId for e in model.tree.select((x, y, z))]
+        assert space.GlobalId not in hits, "the classifier now works; this fixture no longer reproduces"
+
+    def test_the_room_is_measured_rather_than_refused(self, model: SpatialModel) -> None:
+        space = model.file.by_type("IfcSpace")[0]
+        answer = op.clear_height(model, space.GlobalId)
+        assert answer.decidable is True, "every room in this export used to come back undecidable"
+        assert answer.value == pytest.approx(2.7, abs=0.01)
+        assert answer.unit == "m"
+
+    def test_every_grid_point_is_used_because_the_room_is_large(self, model: SpatialModel) -> None:
+        """„Zu schmal oder zu zerklüftet" was the diagnosis the operator printed.
+        The room is 132 m²; all 25 points land in it."""
+        space = model.file.by_type("IfcSpace")[0]
+        answer = op.clear_height(model, space.GlobalId)
+        assert "aus 25 von 25 Rasterpunkten" in (answer.caveat or "")
+
+    def test_the_footprint_is_the_room_not_its_bounding_box(self) -> None:
+        """The containment test must still reject a point outside an L-shaped
+        room, which is the whole reason the old code asked the classifier."""
+        from ifc_spatial.geometry import plan_footprint
+        from shapely.geometry import Point
+
+        # An L: 10x10 with the (5..10, 5..10) quadrant removed, as two boxes of
+        # downward-facing triangles.
+        def box(x0, y0, x1, y1):
+            return [
+                [[x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0]],
+                [[x0, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0]],
+            ]
+
+        # Wound so the normals point DOWN (-z), which is what a floor facet is.
+        tris = np.array([list(reversed(t)) for t in box(0, 0, 10, 5) + box(0, 5, 5, 10)], dtype=float)
+        footprint = plan_footprint(tris)
+        assert footprint is not None
+        assert footprint.area == pytest.approx(75.0, abs=1e-6)
+        assert footprint.covers(Point(2.0, 2.0))
+        assert footprint.covers(Point(8.0, 2.0))
+        # Inside the bounding box, outside the room — the point the old
+        # classifier existed to reject.
+        assert not footprint.covers(Point(8.0, 8.0))
+
+    def test_the_remedy_no_longer_names_an_argument_no_tool_exposes(self) -> None:
+        """The refusal used to tell the caller to „clearHeight() mit einem
+        höheren samples-Wert aufrufen".
+
+        No tool surface takes `samples` — not `MEASURE_FN`, not the agent's
+        `ifc_measure`. So the one instruction the agent was given on this path
+        was one it could not carry out, which is how the production turn ended
+        up reporting the storey height instead.
+        """
+        import inspect
+
+        from ifc_spatial import tools
+
+        source = inspect.getsource(op.clear_height)
+        remedy = source[source.index("kein Rasterpunkt lag im Raumkörper") :]
+        remedy = remedy[: remedy.index("elements=")]
+        assert "samples" not in remedy
+        assert "extent()" in remedy
+        # And the reason it is unreachable, pinned: no tool takes the argument.
+        assert "samples" not in inspect.getsource(tools.create_tools)

@@ -59,6 +59,7 @@ from typing import NoReturn
 
 import ifcopenshell.util.shape as us
 import numpy as np
+from shapely.geometry import Point as ShapelyPoint
 
 from .envelope import Answer
 from .envelope import ElementRef
@@ -74,6 +75,7 @@ from .geometry import clip_polygon
 from .geometry import dominant_plane
 from .geometry import dominant_vertical_plane
 from .geometry import outermost_parallel_face
+from .geometry import plan_footprint
 from .geometry import signed_distance
 from .geometry import triangle_normals_areas
 from .model import AIR_TYPES
@@ -1466,6 +1468,18 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
     floor_z = float(low[2]) + 0.01
 
     tree = model.tree
+    # The plan outline from the room's own MESH, not from OCCT's solid
+    # classifier. `tree.select(point)` needs a closed, orientable solid, and
+    # ArchiCAD writes `IfcSpace` bodies as `Brep` shells that OCCT will take
+    # into the tree but not classify — so the point query returned nothing for
+    # 82 of 82 rooms in `AC20-Institute-Var-2.ifc`, every one of them
+    # undecidable, while the same rooms triangulate 82 of 82.
+    #
+    # The mesh needs no classification, and it still answers the question the
+    # tree query was standing in for: an L-shaped room's bounding box covers
+    # plan area the room does not, so only points really inside the outline may
+    # lower the answer.
+    footprint = plan_footprint(geo.verts[geo.faces])
     tested = 0
     shortest = modelled
     hit_by: dict[str, float] = {}
@@ -1473,10 +1487,12 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
         for iy in range(samples):
             x = float(low[0] + (high[0] - low[0]) * (ix + 0.5) / samples)
             y = float(low[1] + (high[1] - low[1]) * (iy + 0.5) / samples)
-            # An L-shaped room's bounding box covers plan area the room does not.
-            # Only points really inside the space solid may lower the answer.
-            inside = [e.GlobalId for e in tree.select((x, y, floor_z + 0.05))]
-            if space_global_id not in inside:
+            if footprint is not None:
+                if not footprint.covers(ShapelyPoint(x, y)):
+                    continue
+            # No usable horizontal face — fall back to the classifier, which
+            # is what this did before and is right when it works.
+            elif space_global_id not in [e.GlobalId for e in tree.select((x, y, floor_z + 0.05))]:
                 continue
             tested += 1
             for hit in tree.select_ray((x, y, floor_z), (0.0, 0.0, 1.0), length=modelled + 5.0):
@@ -1507,8 +1523,9 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
             missing=MissingFact(
                 what="kein Rasterpunkt lag im Raumkörper",
                 remedy=(
-                    "Der Raum ist für dieses Raster zu schmal oder zu zerklüftet. clearHeight() mit einem "
-                    "höheren samples-Wert aufrufen; extent() liefert die modellierte Höhe ohne Rasterprüfung."
+                    "Der Raumkörper ist für dieses Raster zu schmal oder zu zerklüftet. extent() liefert "
+                    "die Höhe des modellierten Raumkörpers — als solche benennen, nicht als lichte Höhe: "
+                    "Unterzüge und abgehängte Decken sind darin nicht berücksichtigt."
                 ),
                 elements=[space_global_id],
             ),
