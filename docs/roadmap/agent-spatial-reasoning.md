@@ -842,15 +842,35 @@ trustworthy. Most quantities are knowable two or three independent ways:
 
 | fact | declared | computed | third route |
 |---|---|---|---|
-| window area | `Qto_WindowBaseQuantities.Area` | opening geometry via `voids` | `OverallWidth × OverallHeight` |
+| window area — **name the target first** | `Qto_WindowBaseQuantities.Area`, whichever area the exporter chose to publish | opening geometry via `voids`: the structural clear opening (Rohbaulichte) | `OverallWidth × OverallHeight` — a **nominal rectangle off the type**, not a measurement of this opening |
 | room area | `Qto_SpaceBaseQuantities.NetFloorArea` | footprint polygon | sum of bounding surfaces |
 | storey height | next elevation − this one | slab top to soffit | `Qto_*.Height` on the space |
 | wall length | `Qto_WallBaseQuantities.Length` | OBB principal axis | axis from `connects` |
 
 Agreement is a fact. **Disagreement is a finding about the export** — and one an
 architect wants before submission, because it means their schedule and their
-geometry disagree. Today only the declared route exists, so a wrong quantity is
-undetectable and is reported with full confidence.
+geometry disagree. When this was written only the declared route existed, so a
+wrong quantity was undetectable and was reported with full confidence.
+
+That licence has one condition, and the window row is the one that fails it:
+**two routes may only be compared once they are known to answer the same
+question.** `Qto_WindowBaseQuantities.Area` is whichever area the exporter
+decided to publish; the opening geometry is the Rohbaulichte; and
+`OverallWidth × OverallHeight` is a nominal rectangle that includes the frame
+and describes a non-rectangular opening not at all. On an ordinary window those
+are 15–25 % apart — the figure `clear_opening_width`'s own caveat already
+carries — so triangulating across them manufactures an export defect out of
+three correct numbers.
+
+So: **normalise to one named target — gross, structural clear, or clear less
+frame and sash — before anything is called a disagreement**, and where a route
+cannot be normalised, report it as a separate nominal measure rather than as a
+third opinion on the same one. Finding 7 in
+[spatial-review-findings.md](spatial-review-findings.md) is what the other
+version of this mistake costs: an area-unit bug had `triangulate` publish a
+99 % „WIDERSPRUCH" against a file that was right. A false accusation against a
+correct export is the same failure as a wrong number, and it arrives wearing the
+same tolerance.
 
 ---
 
@@ -898,6 +918,20 @@ single-digit seconds for a house and minutes for a large federated model, with
 peak memory several times the file size. This forces the move ADR-0045 already
 flags: **extraction must leave the request process and become a worker.** Treat
 that as a precondition of Phase 2, not a consequence.
+
+Measured rather than intended, neither reader has that boundary today. The
+TypeScript `openModel` awaits `runGeometryPass` directly, and on the shipping
+Python path `SpatialModel.geometry_pass()` runs in the calling process —
+`ifc_measure` hands the blocking unit to `asyncio.to_thread`, which keeps the
+event loop answering and is **not** isolation: the tessellations, the OCCT tree
+and the contact map sit in the request process's address space, so a model that
+exhausts memory takes the conversation down with it. What stands in for the
+worker is an admission gate (`MAX_MODEL_BYTES`, derived from container memory
+and overridable with `BIM_SPATIAL_MAX_MODEL_BYTES`) and
+`CONTACT_BUDGET_SECONDS`, which turn an OOM and a hang into refusals. Both
+bound the damage; neither removes it, and ADR-0045 should carry the worker as
+an **open** precondition rather than an assumed one — the gate is the reason
+this has not hurt yet, not a reason it will not.
 
 **A second derived thing to keep in step.** Mitigated the way the codebase
 already does it: `graph_version`, a miss rather than a stale hit, no backfill.
@@ -953,9 +987,10 @@ is live in `configs/config_oib_openrouter.yml`, backed by
 | **2** extraction → worker | **not done** | still in-request, bounded instead by a memory-derived admission gate (`BIM_SPATIAL_MAX_MODEL_BYTES`) |
 | **3** prism, obstructions, ray, overhang | **done** | `light_incidence`, `overhang`; the original failing turn is a standing regression |
 | **3** Lichteinfall **ratio** | **done** | `measure/lightEntryArea` — the „Raum-%" half of the failing answer, external openings only |
-| **3** clear widths | **missing** | `distance` measures centroids and boxes; a *lichte Breite* needs face-to-face |
-| **3** Fluchtweglängen | **missing** | adjacency is not walkability: two rooms sharing a wall with no door are adjacent and unreachable |
-| **3** room depth | **missing** | `depth(space, facade)` — daylight falls off with depth and OIB 3 turns on it |
+| **3** clear widths | **done** (2026-08-13) | `measure/clearWidth` measures the aperture face-to-face — 0.810 m against `extent`'s 0.178 m on the same door. It is the **Rohbaulichte**, and the skill is required to say so |
+| **3** Fluchtweglängen | **partial** (2026-08-13) | `measure/egressPath` walks doors rather than adjacency, and its length is a centroid polyline: an explicit *Untergrenze*, barred from use as a Fluchtweglänge |
+| **3** room depth | **done** (2026-08-13) | `measure/roomDepth` — depth normal to the daylight facade, the width along it, and the ratio to the clear height |
+| **2/4/5/6** the OIB operators of 2026-08-13 | **see the coverage map** | stairs, ramps, accessibility and `fire` shipped; the thermal-envelope operators exist in `envelope_geometry.py` and are on **no** tool surface. [oib-geometry-coverage.md](oib-geometry-coverage.md) is the row-by-row state |
 | **4** briefing, disclosure, derivations, triangulation | **done** | every answer carries `provenance`/`tolerance`/`method`/`from`; `decidable:false` carries `missing.remedy` |
 | **4** the agent can SEE | **done** | `operation: "view"` returns a raster image block with `highlight`/`only`; `draw` returns a path the agent cannot read |
 | **5** IDS export | **missing** | the shopping list is German prose in a chat turn, not a file an architect can run in Solibri |

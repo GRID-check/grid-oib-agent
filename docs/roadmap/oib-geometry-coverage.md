@@ -1,6 +1,13 @@
 # What each OIB Richtlinie needs from the model, and what we can measure
 
-*Written 2026-08-12, against shipped code.*
+*Written 2026-08-12 against shipped code; operator rows re-verified 2026-08-13
+against `ifc_spatial.tools.MEASURE_FN` / `.FIRE_ASPECTS` and
+`aiq_agent.agents.bim.measure_register.VALID_OPERATIONS` / `.MEASURES`.*
+
+A row here names an operator an agent can actually call. „Library only" means
+the function exists and is tested and **no tool surface reaches it** — worth
+saying rather than hiding, because a map that promises a call nobody can make
+costs a turn and reads as a defect in the model.
 
 ## Why this document exists
 
@@ -58,11 +65,11 @@ The heaviest Richtlinie and, until this round, the thinnest coverage.
 |---|---|
 | escape route: which rooms connect, through which doors | `measure/egressPath`, `measure/reachableFrom` |
 | escape route LENGTH | partial — a centroid polyline, explicitly an *Untergrenze* and barred from use as a Fluchtweglänge |
-| escape route WIDTH | `measure/clearWidth` on the doors along the route |
-| Fluchtniveau (decides the Gebäudeklasse) | **being built** |
-| fire compartment area | **being built** |
-| what separates two compartments, and its declared FireRating | **being built** |
-| distance to site boundary (Brandübertragung) | **being built** — expected to be undecidable on most exports |
+| escape route WIDTH | `measure/clearWidth` on the doors along the route — the **Rohbaulichte**; the finished lichte Durchgangsbreite between the Zargenfalze is 15–25 % smaller, and the answer has to carry that or a too-narrow door reads as compliant |
+| Fluchtniveau (decides the Gebäudeklasse) | `fire/fluchtniveau` — the HEIGHT of the topmost Aufenthaltsgeschoß over the lowest adjoining terrain, with the storeys it counted. Never a Gebäudeklasse: that word belongs to the Bestimmung |
+| fire compartment area | `fire/compartmentArea` — summed across the rooms of one compartment, every room listed beside the total |
+| what separates two compartments, and its declared FireRating | `fire/separatingElements` — the wall, the slab and the doors in them, each with its **declared** `FireRating` and explicitly with its absence |
+| distance to site boundary (Brandübertragung) | `fire/siteBoundary` — and **undecidable on all five fixtures**, none of which carries a boundary. There is deliberately no site-bounding-box fallback: the modelled extent of an `IfcSite` is the terrain patch somebody drew, not the Grundstücksgrenze, and this number decides whether a facade may have openings at all |
 | fire resistance ratings | declared only (`FireRating`); the sample house declares none anywhere, which is itself the finding |
 | smoke extraction, detection, sprinklers | **not geometric — out of scope** |
 
@@ -98,15 +105,16 @@ Named in the repo's own benchmark and, until this round, entirely absent.
 
 | need | state |
 |---|---|
-| door clear width (lichte Durchgangsbreite) | `measure/clearWidth` — measured on the aperture, not between centroids |
-| stair riser/tread, and whether they are equal | **being built** |
-| Treppenlauf-Nutzbreite | **being built** |
-| headroom over a flight (Durchgangshöhe) | **being built** — normal to the pitch, not vertical |
-| ramp slope | **being built** |
-| turning circle (Wendekreis) | **being built** |
-| threshold height at a door | **being built** |
-| balustrade height where there is a fall | **being built** |
-| clear approach beside a door | **being built** |
+| door clear width (Rohbaulichte, not the finished lichte Durchgangsbreite) | `measure/clearWidth` — measured on the aperture, not between centroids; see the OIB 2 row for the 15–25 % that separates the two |
+| stair riser/tread, and whether they are equal | `measure/stairGeometry` — riser, tread, riser count **and the spread over the flight**; a stair can be right on average and unwalkable. Declared values are cross-checked and a contradiction reported |
+| Treppenlauf-Nutzbreite | part of `measure/stairGeometry` — the flight's clear width, beside the declared one |
+| which flights and landings a stair is made of | `measure/stepsOf` — so a single flight can be asked about, which is how Bestimmungen count risers |
+| headroom over a flight (Durchgangshöhe) | `measure/headroom` — **normal to the pitch**, not vertical: a plumb ray from the tread misses the tight point (1.35 m against 1.65 m measured) |
+| ramp slope | `measure/rampSlope` — percent *and* ratio, with run, rise and clear width, because a clause names one or the other |
+| turning circle (Wendekreis) | `measure/turningCircle` — the largest circle on the free floor, counting fixed built-ins only; furniture is reported beside it, never inside it |
+| threshold height at a door | `measure/thresholdHeight` — where the export models no floor build-up this is a Rohbaumaß and the answer says so: screed, covering and seal are what make the step |
+| balustrade height where there is a fall | `measure/balustrade` — undecidable when the export contains no `IfcRailing` at all, because no railing in the model is not no railing on site |
+| clear approach beside a door | `measure/clearApproach` — the free floor on each side, and what ends it |
 | Brüstungshöhe (Absturzsicherung) | `measure/sillAndHead` |
 | tactile guidance, contrast, signage | **not geometric — out of scope** |
 
@@ -119,7 +127,7 @@ Mostly a property question, with one geometric half we already have.
 | need | state |
 |---|---|
 | which rooms adjoin which | `relations/adjacentSpaces` |
-| what separates two rooms | **being built** (`separating_elements`, shared with OIB 2) |
+| what separates two rooms | `fire/separatingElements` — shared with OIB 2. It names the elements and reads `FireRating`; the rating a Schallschutz question wants is the row below, and no operator reads it |
 | what is directly above/below a room (impact sound) | `relations/above`, `relations/below` |
 | declared acoustic ratings | declared only (`AcousticRating`); nowhere filled in the sample house |
 | flanking transmission, R'w calculation | **not geometric — out of scope** |
@@ -130,12 +138,20 @@ Mostly a property question, with one geometric half we already have.
 
 | need | state |
 |---|---|
-| which elements form the heated envelope | **being built** |
-| envelope area by orientation, opaque vs transparent | **being built** |
-| window-to-wall ratio per facade | **being built** |
-| compactness (A/V) | **being built** |
+| which elements form the heated envelope | `envelope_geometry.thermal_envelope` — **library only**: implemented and tested, on no tool surface |
+| envelope area by orientation, opaque vs transparent | `envelope_geometry.envelope_area_by_orientation` — **library only** |
+| window-to-wall ratio per facade | part of `envelope_geometry.envelope_area_by_orientation` — **library only** |
+| compactness (A/V) | `envelope_geometry.compactness` — **library only** |
 | declared U-values | declared only — never recomputed from layers, because a U-value derived from a material list is a different number than the one the architect signed |
 | shading, thermal bridges, the energy balance | **not geometric — out of scope** |
+
+All three operators live in `packages/ifc-spatial-py/src/ifc_spatial/envelope_geometry.py`
+and are covered by `tests/test_envelope_geometry.py`, and **not one of them is
+in `MEASURE_FN` or in `measure_register.VALID_OPERATIONS`.** An agent asked a
+U-Wert or Kompaktheit question today therefore reaches nothing, exactly as with
+`daylight.sun_position`. The remaining work is the tool surface, not the
+geometry — which is a much smaller decision than it looks, and it is the one
+that decides whether OIB 6 is covered or merely implemented.
 
 ---
 

@@ -24,7 +24,26 @@ would change how a finding is read. **C** = cosmetic / robustness.
 
 # CONFIRMED
 
+**Dispositions, 2026-08-13.** The severity-A findings carry a status line each,
+because those are the ones that change a number an architect signs. `fixed`
+names the commit and the regression that goes red without it; `open` means the
+reproduction recorded under that finding still reproduces today. The
+lower-severity findings (5, 8–16) were addressed in `248b9811`; its commit
+message says what each change was.
+
+Nothing below is marked fixed on the strength of a commit message. Finding 4 is
+claimed closed by `ac979650` and is not — which is the reason this paragraph
+exists rather than a checkmark column.
+
 ## 1. (A) `adjacentSpaces` makes two rooms neighbours through a shared FLOOR SLAB — and calls it `declared`
+
+**Disposition: fixed** (`ac979650`). `_separates_horizontally_only` keeps
+`IfcSlab` / `IfcRoof` / `IfcCovering` from making two spaces neighbours when
+they share nothing else, and the answer is `computed` however declared its
+inputs were — so it keeps the „Nachbarschaft ist keine begehbare Verbindung"
+caveat. Regression: `tests/test_review_regressions.py::TestAdjacencyIsNotStacking`,
+which runs the operator against the fixture authored for it and against the
+sample house, so a filter that over-reaches fails too.
 
 `operators.adjacent_spaces` intersects the `bounds()` sets of two spaces and
 declares a neighbour on **any** shared element. It applies no filter for
@@ -79,6 +98,16 @@ declared branch).
 
 ## 2. (A) `lightEntryArea` double-counts an opening that a 2nd-level export bounds twice
 
+**Disposition: fixed** (`ac979650`), with a regression weaker than the
+reproduction. `light_entry_area` now skips a GlobalId it has already summed.
+Regression:
+`TestLightEntryAreaCountsEachOpeningOnce::test_a_doubled_space_boundary_does_not_double_the_ratio`
+— but it asserts the invariant on the sample house, which declares no
+`IfcRelSpaceBoundary` at all and therefore never takes the declared route this
+finding was reproduced on. The test that would actually pin it is the snippet
+below turned into a fixture: two boundary rows for one window, and the ratio
+still 14.21 %.
+
 `bounds()` returns `model.refs(declared_boundaries)` and `model.refs`
 (`model.py:414`) does **not** deduplicate. 2nd-level space boundaries routinely
 split one element's boundary into several surfaces per space — which is exactly
@@ -114,6 +143,13 @@ likely the bug, because `bounds` prefers the declared route.
 
 ## 3. (A) `lightEntryArea` credits a shared opening 100 % to every room it bounds
 
+**Disposition: fixed** (`ac979650`). Every opening is clipped to the room's own
+z-band before its area is taken, so the sample house's facade is split between
+the living room (63.39 %) and the loft (6.14 %) instead of being claimed twice.
+Regression:
+`TestLightEntryAreaCountsEachOpeningOnce::test_an_opening_is_split_between_the_rooms_it_passes`,
+which asserts both rooms fall AND that neither is zeroed by the clip.
+
 There is no clipping of an opening to the room's own height band or footprint.
 On the sample house the six curtain-wall panes (31.085 m² total, each spanning
 z = 0…3.36 m) are credited **in full** to the Living room (z = 0…2.5) and **again
@@ -139,6 +175,25 @@ one (too large). Both numbers are the input to an OIB 3 Raum-% — the operator
 this whole package was justified by.
 
 ## 4. (A) A glazed curtain-wall panel is classified „Innentür" the moment `IsExternal` is absent
+
+**Disposition: OPEN**, and recorded as fixed by mistake. `ac979650`'s message
+says „Non-doors now come back UNDETERMINED: neither counted nor discarded";
+`_faces_outside` appears in no hunk of that commit, nor of `248b9811`. The
+two-space fallback still runs on every element class. Reproduced again on
+2026-08-13: with `IsExternal` absent and `opens_to` reporting two rooms, an
+`IfcPlate` comes back `(False, "öffnet in 2 Räume (Innentür)")`.
+
+The regression written for it,
+`TestTheDoorHeuristicOnlyJudgesDoors::test_glazing_without_is_external_is_undetermined_not_internal`,
+passes for the wrong reason: its stub model declares no boundaries, so
+`opens_to` is undecidable, the plate never reaches the two-space branch, and it
+lands on the final `return None` that every unjudgeable element lands on. A
+green test over a path the defect does not run through is what let a commit
+message close a finding the code did not.
+
+Closing it takes two things: the fallback gated on `IfcDoor` (its docstring
+already calls it a door heuristic), and the stub taught to report two rooms so
+the branch is entered.
 
 `_faces_outside` prefers the element's own `IsExternal` and otherwise falls back
 to a **door** heuristic (`count >= 2 → False`, „öffnet in 2 Räume (Innentür)").
@@ -220,6 +275,22 @@ answers — see SUSPECTED below.
 
 ## 6. (A) The skill and two tool descriptions still route a lichte Breite to `extent`, and relabel a Rohbaulichte as a Durchgangsbreite
 
+**Disposition: fixed**, in two steps. The three strings that routed a clear
+width to `extent` were repointed at `clearWidth` in `ac979650`
+(`DISTANCE_MODES["horizontal"]`, the bad-mode error in `_build_call`, and the
+skill), and `test_ifc_measure_tool.py:121` pins `DISTANCE_MODES["horizontal"]`
+against the name it must carry. „Treppe, Rampe" no longer appears in the routing
+row for `clearWidth` either, so the advertised capability that could only ever
+produce a `_wrong_kind` is gone with it.
+
+The relabelling — the half this finding names second and the dangerous half —
+is fixed in this PR: the routing row now offers a **Rohbaulichte**, the
+escape-route chain says so at the step where the door is measured, and a
+Fallstrick in §4 requires the operator's own hedge in the answer and forbids the
+name „lichte Durchgangsbreite" on that number. A width reported 15–25 % too
+large is the direction that makes a too-narrow escape door read as compliant,
+which is why the hedge is a rule and not a footnote.
+
 §12b names this defect class („`DISTANCE_MODES["horizontal"]` was documented as
 'what a lichte Breite check needs'") and records it as corrected. Three copies of
 the same mistake are still shipped, now pointing at `extent` instead:
@@ -257,6 +328,13 @@ Two further mislabels in the same skill:
   capability that does not exist, whose failure reads as an export defect.
 
 ## 7. (A) An SI prefix on an area unit is applied linearly, not squared
+
+**Disposition: fixed** (`ac979650`). `_unit_scale_to_si` raises the prefix
+multiplier to the unit's own dimension (`_UNIT_DIMENSION`: 2 for an area, 3 for
+a volume). Regression:
+`TestAnSiPrefixOnAnAreaIsSquared::test_the_prefix_is_raised_to_the_units_dimension`,
+parametrised over area and volume prefixes so the cubed case is covered rather
+than assumed.
 
 `model._unit_scale_to_si` finishes with `scale *= uu.get_prefix_multiplier(unit.Prefix)`
 regardless of the unit's dimensionality. For `IfcSIUnit(*, .AREAUNIT., .CENTI.,

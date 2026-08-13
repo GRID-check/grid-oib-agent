@@ -93,7 +93,7 @@ Es gibt einen vierten Fall, und der ist uns wichtiger als die drei anderen:
 Das heißt: die Frage ist sinnvoll gestellt, und *diese Datei* kann sie nicht
 beantworten. Kein Fehler. Ein Befund über den Export.
 
-```
+```text
 NICHT ENTSCHEIDBAR: dieser Export liefert IfcGeometricRepresentationContext.TrueNorth
 nicht. Das ist ein Befund über den EXPORT, nicht über das Gebäude.
 Abhilfe: Nordrichtung im CAD setzen und neu exportieren.
