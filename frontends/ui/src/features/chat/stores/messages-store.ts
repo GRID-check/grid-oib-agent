@@ -45,11 +45,9 @@ export type MessagesSlice = {
    */
   composerPrefill: ComposerPrefill | null
   /**
-   * What this draft is asking about. A peek-bound subject (citation auto-peek,
-   * document_grid) lives only while that peek is visible: hide/close of the
-   * peek MUST clear this (`openFilePeek`). A user-intent subject (Ask Piloti
-   * `?doc=`) is not peek-bound and survives hide so the bar can restore the
-   * file. Retrieval already ignores a hidden peek (`use-websocket-chat`).
+   * What this draft is asking about. The composer bar is the commitment:
+   * hide() of the peek keeps this so the user can still see (and dismiss)
+   * the file they are asking about. close() or the bar's X clears it.
    */
   composerSubject: ComposerSubject | null
   /**

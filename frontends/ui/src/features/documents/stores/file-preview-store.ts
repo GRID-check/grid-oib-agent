@@ -4,9 +4,8 @@
  * Files opens it as a modal. Chat keeps it as a peek of the file you are
  * talking about (not a half-screen split). Expand uses the same pane.
  *
- * hide() / close() drop composerSubject when it is this file so a dismissed
- * peek cannot leave a silent retrieval focus. The send path also ignores
- * focus unless the peek is actually visible (`isFilePeekVisible`).
+ * close() drops composerSubject when it is this file. hide() does not —
+ * the composer bar is the commitment, and "Show file" restores the peek.
  */
 
 import { create } from 'zustand'
@@ -94,9 +93,8 @@ export const useFilePreviewStore = create<FilePreviewState>((set, get) => ({
 
   hide: () => {
     set({ hidden: true, mode: get().mode === 'modal' ? 'modal' : 'peek' })
-    // Do not clear composerSubject here. Peek-bound subjects are dropped by
-    // `openFilePeek`'s subscriber. Ask-Piloti subjects are user intent: hiding
-    // the preview must leave the pill so the user can restore or dismiss it.
+    // The composer bar stays. Hiding is "put the viewer away", not "stop
+    // asking about this file". X on the bar (or close()) drops the subject.
   },
 
   close: () => {
