@@ -378,7 +378,7 @@ describe('useWebSocketChat', () => {
     expect(mockSetLoading).toHaveBeenCalledWith(false)
   })
 
-  test('sendMessage includes focusFileName only while the peek is visible', () => {
+  test('sendMessage includes focusFileName while the composer bar names a file', () => {
     mockWsClient.isConnected.mockReturnValue(true)
     const peekFile = {
       id: 'doc-1',
@@ -417,6 +417,17 @@ describe('useWebSocketChat', () => {
 
     mockWsClient.sendMessage.mockClear()
     useFilePreviewStore.setState({ hidden: true })
+    act(() => {
+      result.current.sendMessage('Still about the plan')
+    })
+    // Hiding the peek keeps the bar, so the next send still names the file.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Still about the plan', expect.any(Array), {
+      focusFileName: 'plan.pdf',
+    })
+
+    mockWsClient.sendMessage.mockClear()
+    mockStoreState = { ...mockStoreState, composerSubject: null }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     act(() => {
       result.current.sendMessage('Now a general question')
     })

@@ -2,11 +2,9 @@
  * Open a stored file as the chat peek and, optionally, bind it as the
  * composer's retrieval subject.
  *
- * Retrieval follows the visible peek (`use-websocket-chat`). When this helper
- * SETS composerSubject it is only for that visible window — hide/close of
- * THIS peek drops the subject. The preview store also clears a matching
- * subject on hide/close, so Ask-Piloti (`?doc=`) cannot leave a silent
- * focus after the user dismisses the file.
+ * The composer bar is the commitment ("Asking about this file"). Opening a
+ * peek binds that subject. Hiding the peek keeps the bar — Show file brings
+ * the viewer back; the X on the bar (or close()) is what drops the subject.
  *
  * See `file-preview-store` hide/close and `messages-store` setComposerSubject.
  */
@@ -29,13 +27,12 @@ const clearBoundSubject = (): void => {
   boundSubjectId = null
 }
 
-const ensureHideClearsSubject = (): void => {
+const ensureCloseClearsSubject = (): void => {
   if (unsubscribe) return
   unsubscribe = useFilePreviewStore.subscribe((state, previous) => {
     if (!boundSubjectId) return
-    const hid = !previous.hidden && state.hidden
     const closed = previous.file != null && state.file == null
-    if (hid || closed) clearBoundSubject()
+    if (closed) clearBoundSubject()
   })
 }
 
@@ -46,9 +43,9 @@ export interface OpenFilePeekOptions {
   projectName?: string | null
   canCollaborate?: boolean
   /**
-   * Bind composerSubject to this file for retrieval focus while the peek is
-   * visible. Default true. Hide/close of this peek clears that subject.
-   * Pass false only when the caller already owns the subject (Ask Piloti).
+   * Bind composerSubject to this file so the composer bar says what the
+   * next send is about. Default true. Close (not hide) of this peek clears
+   * that subject. Pass false only when the caller already owns the subject.
    */
   bindComposerSubject?: boolean
 }
@@ -56,7 +53,7 @@ export interface OpenFilePeekOptions {
 /** Open `file` as a chat peek. Bind/clear of composerSubject is the default. */
 export function openFilePeek(options: OpenFilePeekOptions): void {
   const bind = options.bindComposerSubject !== false
-  ensureHideClearsSubject()
+  ensureCloseClearsSubject()
 
   useFilePreviewStore.getState().open(options.file, 'peek', {
     projectId: options.source === 'projekt' ? (options.projectId ?? undefined) : undefined,

@@ -101,7 +101,7 @@ describe('useCitationPeek', () => {
     await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('p1'))
     useFilePreviewStore.getState().hide()
     expect(useFilePreviewStore.getState().hidden).toBe(true)
-    expect(useChatStore.getState().composerSubject).toBeNull()
+    expect(useChatStore.getState().composerSubject?.filename).toBe('Plan.pdf')
 
     rerender()
     expect(useFilePreviewStore.getState().hidden).toBe(true)

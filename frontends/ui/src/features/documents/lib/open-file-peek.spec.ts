@@ -54,11 +54,11 @@ describe('openFilePeek', () => {
     })
   })
 
-  it('clears a bound subject when the peek is hidden', () => {
+  it('keeps a bound subject when the peek is hidden so the composer bar stays', () => {
     openFilePeek({ file: FILE, source: 'projekt', projectId: 'p1' })
     useFilePreviewStore.getState().hide()
     expect(useFilePreviewStore.getState().hidden).toBe(true)
-    expect(useChatStore.getState().composerSubject).toBeNull()
+    expect(useChatStore.getState().composerSubject?.resourceId).toBe('doc-1')
   })
 
   it('clears a bound subject when the peek is closed', () => {

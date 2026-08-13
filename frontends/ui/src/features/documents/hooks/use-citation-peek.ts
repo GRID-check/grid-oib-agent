@@ -15,8 +15,8 @@ import { useSurfacedDocuments } from './use-surfaced-documents'
  *
  * Mount once (project chat / MainLayout), never per card. A ref keyed by
  * message id is the hide-guard: hide() must not be undone by a later render
- * of the same answer. composerSubject is set only while that peek is visible
- * (`openFilePeek`); hide/close of the peek clears it.
+ * of the same answer. The composer bar stays after hide so the user can
+ * still see they are asking about this file.
  */
 export function useCitationPeek(options: {
   projectId: string | null
