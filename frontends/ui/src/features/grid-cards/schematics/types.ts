@@ -9,6 +9,14 @@
 
 export type DimStatus = 'pass' | 'fail' | 'warning' | 'needs_input'
 
+/**
+ * Where a number on a card came from. Mirrors `Provenance` in
+ * `src/aiq_agent/cards/models.py`, which is `ifc_spatial.envelope.Answer`'s own
+ * vocabulary — so the card and the sentence beside it cannot disagree about who
+ * is making the claim.
+ */
+export type Provenance = 'declared' | 'computed' | 'inferred'
+
 /** A verifiable pointer into a regulation — the atom of grounding. */
 export interface NormReferenceData {
   document: string
@@ -17,7 +25,19 @@ export interface NormReferenceData {
   excerpt?: string | null
 }
 
-/** One measured dimension drawn on a schematic and checked against a limit. */
+/**
+ * One measured dimension drawn on a schematic and checked against a limit.
+ *
+ * `provenance`, `tolerance` and `missing` are what keep the card as honest as
+ * the sentence beside it. Without them this card drew „2.47 m ✓" for a figure
+ * the engine had reported as „gemessen (±5 mm), aus der Geometrie berechnet,
+ * nicht deklariert" — and a card is the part a reviewer screenshots into a
+ * submission, so it was the surface most likely to be forwarded stripped of the
+ * qualifier that made it true.
+ *
+ * All three are optional: a card built from the Bestimmung alone has nothing to
+ * put in them, and absent means „not stated", never „declared".
+ */
 export interface DimensionCheckData {
   label: string
   value?: number | null
@@ -25,6 +45,11 @@ export interface DimensionCheckData {
   unit?: string
   comparator?: '<=' | '>=' | null
   status: DimStatus
+  provenance?: Provenance | null
+  /** The ± band on `value`, in the same unit. Only meaningful when computed. */
+  tolerance?: number | null
+  /** With `needs_input`: what the export lacks and what to change in the CAD. */
+  missing?: string | null
 }
 
 /** One storey in a building cross-section, drawn as a band to scale. */

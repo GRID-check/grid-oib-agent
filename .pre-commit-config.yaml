@@ -64,6 +64,22 @@ repos:
 
   - repo: local
     hooks:
+      - id: sync-platform-skills
+        name: platform-skills.ts is generated from the builtin SKILL.md files
+        # This file has broken the build from behind THREE times, and the shape
+        # of the failure is the same every time: a stale generated module
+        # type-checks perfectly, so nothing local objects and only CI knows.
+        # `--check` runs the generator and diffs, which is the one thing that
+        # can see it.
+        #
+        # Scoped to the two inputs rather than run always: the generator stamps
+        # a timestamp into its output, so running it on every commit would make
+        # the file dirty on every commit.
+        entry: node frontends/ui/scripts/sync-platform-skills.mjs --check
+        language: system
+        pass_filenames: false
+        files: ^(src/aiq_agent/skills/builtin/.*/SKILL\.md|frontends/ui/src/lib/skills/platform-skills\.ts|frontends/ui/scripts/sync-platform-skills\.mjs)$
+
       - id: pytest
         name: pytest
         entry: pytest tests sources --cov=aiq_agent --cov-report=term --cov-fail-under=65

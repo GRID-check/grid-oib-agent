@@ -292,6 +292,14 @@ FIRE_ASPECTS: dict[str, str] = {
         "Abstand zur Grundgrenze (Brandübertragung). Auf den meisten Exporten nicht entscheidbar: "
         "eine Grundgrenze wird selten mitexportiert, und geraten wird sie hier nicht"
     ),
+    "doorGraph": (
+        "Der begehbare Graph des GANZEN Gebäudes: Räume als Knoten, DRAUSSEN als eigener Knoten, "
+        "Türen als Kanten — und ausdrücklich die Türen, die zu keiner Kante wurden (unbestimmt, "
+        "ausgeschlossen). Ein Raum ohne Kante hat keinen Ausgang, und eine unbestimmte Tür ist ein "
+        "Loch in JEDEM Weg dieses Gebäudes. measure/egressPath nennt EINE Route; das hier sagt, wie "
+        "vollständig die Grundlage aller Routen ist. Teilt sich den Aufbau mit egressPath und "
+        "reachableFrom, kostet also nur beim ersten der drei Aufrufe Sekunden"
+    ),
 }
 
 #: The `what` values `envelope` accepts.
@@ -605,6 +613,15 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
             return run(lambda: fi.separating_elements(model, ids[0], ids[1]))
         if what == "siteBoundary":
             return run(lambda: fi.distance_to_site_boundary(model, ids[0] if ids else None))
+        if what == "doorGraph":
+            # No `globalId`, like `fluchtniveau`: the graph IS the building. It
+            # was reachable from nothing while `egressPath` and `reachableFrom`
+            # — both of which are views ONTO it — were on the surface, so an
+            # agent could get a route and never the two lists that say how many
+            # doors the route-finder could not read. A route out of a graph with
+            # four unresolved doors is not wrong, it is unfounded, and the
+            # difference was invisible from here.
+            return run(lambda: circ.door_graph(model))
         raise ToolError(f'what "{what}" gibt es nicht. Erlaubt: {", ".join(FIRE_ASPECTS)}')
 
     # ── envelope (OIB 6) ────────────────────────────────────────────────────
@@ -636,6 +653,34 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         if what == "compactness":
             return run(lambda: env.compactness(model))
         raise ToolError(f'what "{what}" gibt es nicht. Erlaubt: {", ".join(ENVELOPE_ASPECTS)}')
+
+    # ── sun_position ────────────────────────────────────────────────────────
+
+    def sun_position(args: dict[str, Any]) -> Any:
+        """Where the sun stood — from the FILE's georeference and nowhere else.
+
+        The operator accepts ``latitude``/``longitude`` to override the model,
+        and this tool deliberately does not forward them. On a library call an
+        override is a surveyor handing over a better coordinate; on a tool
+        surface it is a field an agent can fill, and an agent that CAN supply a
+        latitude will supply one — which is exactly the substitution the
+        operator refuses to make on its own. An assumed 48°N Vienna on a
+        Vorarlberg project is 1.4° out in solar altitude and comes back as a
+        `computed` number with a tolerance, indistinguishable from a measured
+        one. A host that really has a survey coordinate calls the operator.
+
+        ``when`` gets its own check rather than ``_require``: that helper's
+        refusal names a GlobalId and find_elements, which for a timestamp sends
+        the caller looking in the model for something that is not in it.
+        """
+        model = resolve(args.get("model"))
+        when = args.get("when")
+        if not isinstance(when, str) or not when.strip():
+            raise ToolError(
+                "when fehlt — den Zeitpunkt nach ISO 8601 MIT Zeitzone angeben, "
+                "z. B. 2026-06-21T12:00:00+02:00 (Sommerzeit) oder 2026-06-21T10:00:00Z."
+            )
+        return run(lambda: dl.sun_position(model, when.strip()))
 
     # ── ids ─────────────────────────────────────────────────────────────────
 
@@ -993,6 +1038,38 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
             handler=distance,
         ),
         ToolDef(
+            name="clearance",
+            title="Lichtes Maß zwischen zwei Bauteilen",
+            description=(
+                "Der kleinste Abstand OBERFLÄCHE zu OBERFLÄCHE zwischen zwei Körpern, in Metern — das "
+                "lichte Maß, das distance nicht hat. Für den Gang zwischen zwei Wänden, den Abstand "
+                "Handlauf/Wand, den Durchgang zwischen zwei Einbauten.\n\n"
+                "NICHT distance: dessen min ist der Abstand der HÜLLBOXEN. Am Pultdach gegen die "
+                "Innenwand des Musterhauses meldet min 0,000 m — die Box des Daches verschluckt die der "
+                "Wand — wo das lichte Maß 0,995 m beträgt. Eine Boxlücke ist immer eine Untergrenze und "
+                "nie eine Obergrenze: sie meldet Bauteile näher beieinander als sie sind, also in der "
+                "Richtung, in der zu eng als frei durchgeht.\n\n"
+                "Für das lichte Maß EINER Öffnung ist measure/clearWidth der Aufruf — eine Öffnung hat "
+                "zwei Laibungen, aber nur ein Bauteil, und dieses Werkzeug braucht zwei.\n\n"
+                "Die Antwort trägt die beiden Punkte, zwischen denen gemessen wurde (für eine Maßlinie "
+                "im eigenen Modell), und boxGap: die Zahl, die distance('min') geliefert hätte. Der "
+                "Unterschied der beiden ist selbst der Befund.\n\n"
+                "Braucht Geometrie: einige Sekunden beim ersten Aufruf auf ein Modell."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "a": {"type": "string", "description": "GlobalId des ersten Bauteils"},
+                    "b": {"type": "string", "description": "GlobalId des zweiten Bauteils"},
+                },
+                "required": ["model", "a", "b"],
+            },
+            handler=lambda args: _jsonable(
+                clr.clear_width(resolve(args.get("model")), _require(args, "a"), _require(args, "b"))
+            ),
+        ),
+        ToolDef(
             name="fire",
             title="Brandschutz-Geometrie (OIB 2)",
             description=(
@@ -1196,6 +1273,45 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 "required": ["model", "globalId", "angle"],
             },
             handler=lambda args: _light_incidence(resolve(args.get("model")), args),
+        ),
+        ToolDef(
+            name="sun_position",
+            title="Sonnenstand über diesem Gebäude",
+            description=(
+                "Azimut (Grad im Uhrzeigersinn ab Nord) und Höhenwinkel der Sonne zu einem Zeitpunkt, "
+                "dazu die Richtung ZUR Sonne in den Koordinaten DIESES Modells — die Eingangsgröße "
+                "jeder Verschattungsbetrachtung, und die Zahl, an der eine Besonnungsfrage anfängt.\n\n"
+                "KEINE Besonnungsstudie. Ein Sonnenstand sagt, dass die Sonne 61,9° hoch und 178,9° "
+                "herum stand; er sagt NICHT, ob der Giebel des Nachbarn davorstand, ob der Balkon "
+                "darüber den Strahl schnitt oder wie viele Stunden Sonne das Fenster über den Tag "
+                "bekam. Das sind Verschattungsfragen, und sie brauchen zusätzlich alles außerhalb der "
+                "Grundgrenze — was in dieser Datei nicht steht. Der Caveat sagt das in jeder Antwort.\n\n"
+                "Ohne IfcSite.RefLatitude/RefLongitude nicht entscheidbar, und es wird KEINE Breite "
+                "angenommen: ein unterstelltes Wien auf einem Vorarlberger Projekt liegt 1,4° im "
+                "Höhenwinkel daneben, ein unterstelltes Nord auf einem um 40° gedrehten Gebäude 40° — "
+                "beides käme als gemessene Zahl mit Toleranz zurück. Aus demselben Grund nimmt dieses "
+                "Werkzeug auch keine Koordinaten entgegen.\n\n"
+                "when MUSS eine Zeitzone tragen. 2026-06-21T12:00:00 ohne Zone als UTC zu lesen "
+                "verschiebt die Sonne in Österreich um 30° — zwei Stunden Schatten, bei einer Eingabe, "
+                "die vollständig aussah.\n\n"
+                "Genauigkeit 0,01° (Michalsky 1988) für 1950–2050, außerhalb 0,1°; die Toleranz steht "
+                "in der Antwort. Keine Geometrie, Millisekunden."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "when": {
+                        "type": "string",
+                        "description": (
+                            "Zeitpunkt nach ISO 8601 MIT Zeitzone, z. B. 2026-06-21T12:00:00+02:00 "
+                            "oder 2026-06-21T10:00:00Z"
+                        ),
+                    },
+                },
+                "required": ["model", "when"],
+            },
+            handler=sun_position,
         ),
         ToolDef(
             name="storey_heights",

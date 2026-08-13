@@ -97,16 +97,22 @@ from .model import SpatialModel
 # umlauts transliterated — because a storey called `Dachgeschoß` and one called
 # `Dachgeschoss` are the same storey and an exporter picks the spelling.
 
-#: STOREY names that are positive evidence AGAINST occupancy. Only these remove
-#: a level from :func:`fluchtniveau`; everything else is counted, including a
-#: level the export says nothing about. Each entry is a substring match on the
-#: normalised name.
+#: STOREY names that are evidence AGAINST occupancy. Each entry is a substring
+#: match on the normalised name.
 #:
-#: Storey names only. Run over ROOM names these terms struck „Dachzimmer" and
-#: „Attikazimmer" out of the habitable list and dropped the storey holding them,
-#: reporting a Fluchtniveau of 0.000 m for a house whose upper floor sits at
-#: 3.500 m. What a room is used for is the room lexicon's question, and
-#: :func:`~ifc_spatial.briefing.classify_rooms` answers it.
+#: **This is a tie-breaker, not a veto.** It is consulted only after the room
+#: lexicon has been asked and returned nothing — see :func:`_judge_one_storey`.
+#: Tested ahead of the rooms it struck out the 107 m² Galerie in the
+#: „Dachgeschoss" of ``AC20-FZK-Haus.ifc`` and reported a Fluchtniveau of
+#: **1.000 m** instead of **3.700 m**.
+#:
+#: Never used to remove a room the lexicon has PLACED. Run that way these terms
+#: struck „Dachzimmer" and „Attikazimmer" out of the habitable list and dropped
+#: the storey holding them, reporting a Fluchtniveau of 0.000 m for a house
+#: whose upper floor sits at 3.500 m. What a room is used for is the room
+#: lexicon's question, and :func:`~ifc_spatial.briefing.classify_rooms` answers
+#: it; these terms only corroborate a storey name over the room names it could
+#: not answer for.
 #:
 #: ``dach`` is in the list and ``dachgeschoss`` is not a separate entry: the
 #: substring covers both, and a *Dachgeschoss* that is genuinely occupied is
@@ -157,9 +163,10 @@ SEPARATION_SLACK = 0.15
 #: tessellation noise rather than by being modelled twice, in m².
 MIN_OVERLAP_AREA = 0.01
 
-#: Where the "does this file declare any FireRating at all" scan is memoised.
-#: On the model, for the reason :mod:`~ifc_spatial.circulation` gives for its own
-#: memo — see :func:`_declares_fire_rating`.
+#: Where the "does this file declare any FireRating at all, and how many of them
+#: are blank" scan is memoised. On the model, for the reason
+#: :mod:`~ifc_spatial.circulation` gives for its own memo — see
+#: :func:`_fire_rating_scan`.
 _FIRE_RATING_MEMO = "_ifc_spatial_fire_declares_rating"
 
 _NO_GEBAEUDEKLASSE = (
@@ -226,20 +233,27 @@ def fluchtniveau(model: SpatialModel) -> Answer[dict[str, Any]]:
     "Zum Aufenthalt von Menschen bestimmt" is a statement about intent. Nothing
     in an IFC file settles it — a 16 m² room under the roof is a Kinderzimmer or
     a Lüftungszentrale depending on the Einreichplan. Two signals are used, both
-    of them evidence and neither of them proof:
+    of them evidence and neither of them proof, **and they are ranked**:
 
-    1. the storey's own NAME against :data:`NOT_OCCUPIED_TERMS`
-       (``Technikgeschoss``, ``Dachgeschoss``, ``Attika``);
-    2. the rooms on it, classified by this package's existing room lexicon
-       (:func:`~ifc_spatial.briefing.classify_rooms`) — a storey whose every
-       room is a Neben- or Erschließungsfläche is not a level people stay on.
+    1. the rooms on it, classified by this package's existing room lexicon
+       (:func:`~ifc_spatial.briefing.classify_rooms`) — one Aufenthaltsraum
+       counts the storey, and a storey whose every room is a Neben- or
+       Erschließungsfläche is not a level people stay on;
+    2. only where the lexicon places nothing at all: the storey's own NAME
+       against :data:`NOT_OCCUPIED_TERMS` (``Technikgeschoss``,
+       ``Dachgeschoss``, ``Attika``), and then only while every unplaceable room
+       name falls in that same vocabulary.
 
-    A storey is removed only on **positive** evidence of one of those. A storey
-    with no rooms in the export, or with rooms the lexicon cannot place, is
-    COUNTED, because a Fluchtniveau reported too low is the dangerous direction:
-    it understates the height the Gebäudeklasse turns on, and every requirement
-    behind that classification loosens with it. Every storey comes back in
-    ``storeys`` with its reason, counted or not.
+    The order is not cosmetic. Tested first, the name vetoed unconditionally and
+    reported **1.00 m** instead of **3.70 m** for ``AC20-FZK-Haus.ifc``, whose
+    „Dachgeschoss" holds a 107 m² Galerie — see :func:`_judge_one_storey`.
+
+    A storey is removed only on **positive** evidence. A storey with no rooms in
+    the export, or with rooms the lexicon cannot place and a name nothing
+    corroborates, is COUNTED, because a Fluchtniveau reported too low is the
+    dangerous direction: it understates the height the Gebäudeklasse turns on,
+    and every requirement behind that classification loosens with it. Every
+    storey comes back in ``storeys`` with its reason, counted or not.
 
     ## The lower half is a measurement with three possible references
 
@@ -407,52 +421,7 @@ def _judge_storeys(model: SpatialModel, storeys: Sequence[Any]) -> list[StoreyJu
             for space in spaces
         ]
 
-        hit = _matching_term(storey.name)
-        if hit is not None:
-            counted, warum = (
-                False,
-                f"Geschoßname „{storey.name}“ enthält „{hit}“ — das deutet auf ein Technik-, Dach- oder "
-                "Attikageschoß und damit nicht auf Aufenthalt",
-            )
-        elif not spaces:
-            counted, warum = (
-                True,
-                "Auf diesem Geschoß ist kein IfcSpace exportiert — über die Nutzung sagt die Datei nichts. "
-                "Im Zweifel MITGEZÄHLT: ein zu niedrig gemeldetes Fluchtniveau ist die gefährliche Richtung",
-            )
-        else:
-            # The lexicon's classification is the whole of the room signal. The
-            # veto that used to sit here ran `NOT_OCCUPIED_TERMS` — a STOREY
-            # vocabulary, matched on substrings — over ROOM names, so a
-            # „Dachzimmer" or „Attikazimmer" that `classify_rooms` had placed as
-            # `aufenthaltsraum` was struck out. With no habitable room left, the
-            # branch below then read „Alle Räume … sind Neben- oder
-            # Erschließungsflächen" and dropped the storey: on a two-storey
-            # house whose upper storey is cleanly named „1. Obergeschoss" and
-            # holds one Dachzimmer, the Fluchtniveau came back 0.000 m instead
-            # of 3.500 m. That is the direction the module docstring names as
-            # the dangerous one, the reason given was untrue, and a substring on
-            # a room name is not the positive evidence the rule demands.
-            habitable = [entry for entry in described if entry["nutzung"] == "aufenthaltsraum"]
-            placed = [entry for entry in described if entry["nutzung"] is not None]
-            if habitable:
-                counted, warum = (
-                    True,
-                    f"{len(habitable)} von {len(described)} Raum/Räumen auf diesem Geschoß sind dem Lexikon "
-                    f"nach Aufenthaltsräume (z. B. „{habitable[0]['name']}“)",
-                )
-            elif placed and len(placed) == len(described):
-                counted, warum = (
-                    False,
-                    f"Alle {len(described)} Räume auf diesem Geschoß sind dem Lexikon nach Neben- oder "
-                    "Erschließungsflächen — kein Raum, in dem sich Menschen dauernd aufhalten",
-                )
-            else:
-                counted, warum = (
-                    True,
-                    f"{len(described) - len(placed)} von {len(described)} Raumnamen passen zu keinem "
-                    "Lexikoneintrag; die Nutzung dieses Geschoßes ist damit offen. Im Zweifel MITGEZÄHLT",
-                )
+        counted, warum = _judge_one_storey(storey, described)
 
         out.append(
             StoreyJudgement(
@@ -470,6 +439,116 @@ def _judge_storeys(model: SpatialModel, storeys: Sequence[Any]) -> list[StoreyJu
             )
         )
     return out
+
+
+def _judge_one_storey(storey: Any, described: Sequence[dict[str, Any]]) -> tuple[bool, str]:
+    """Counted or not, and the German reason — rooms first, storey name last.
+
+    ## The order is the fix, and it is the second time it had to be made
+
+    The room evidence is read FIRST and the storey's own name only breaks a tie.
+    Until this ordering the storey name was tested ahead of everything and
+    vetoed unconditionally, which is the same mistake the comment below records
+    against ROOM names, one level up: a substring is not the positive evidence
+    the rule demands, and it was outranking the rooms that are.
+
+    Measured on ``AC20-FZK-Haus.ifc``: the „Dachgeschoss" at elevation 2.70 m
+    holds the 107 m² **Galerie** — two windows, a stair up to it, a 2.70 m drop
+    into the living room — and was struck out because the German word for an
+    attic storey contains „dach". The Fluchtniveau came back **1.00 m** instead
+    of **3.70 m**, on the one number the Gebäudeklasse hangs on and in the
+    direction the module docstring names as the dangerous one.
+
+    ## Why the name still has a job, and exactly how small a one
+
+    ``Ifc4_SampleHouse.ifc`` has a storey called „Roof" at 2.50 m whose single
+    space is also called „Roof" — a bungalow, Fluchtniveau **0.00 m**, and
+    counting that level would report 2.50 m for a single-storey house. Nothing
+    in the lexicon places a room called „Roof", so the room evidence there is
+    silent and only the names are left. So the name decides ONLY where the
+    lexicon has no opinion at all, and only while the rooms do not dispute it:
+    every room the lexicon could not place must itself fall in the same
+    not-occupied vocabulary. „Roof" in a „Roof" corroborates; „Galerie" in a
+    „Dachgeschoss" does not, and 107 m² of Galerie is precisely the thing a
+    substring must not be allowed to overrule.
+
+    Note what this is NOT: :data:`NOT_OCCUPIED_TERMS` never removes a room the
+    lexicon has placed — that veto was taken out once already (see below) and
+    stays out. It is read over room names only to corroborate a storey name
+    where the lexicon returned nothing, and never to contradict it.
+
+    ``AC20-Institute-Var-2.ifc`` needs none of this: its „Dachgeschoss" at
+    9.00 m holds ``Dachboden-1``, ``Dachboden-2`` and a Flur, all three placed
+    by the lexicon as Neben-/Erschließungsflächen, so the room branch drops it
+    on room evidence alone and the Fluchtniveau stays **9.30 m**. That is the
+    proof that the name was never carrying this case.
+    """
+    # The lexicon's classification is the whole of the positive room signal. The
+    # veto that used to sit here ran `NOT_OCCUPIED_TERMS` — a STOREY vocabulary,
+    # matched on substrings — over ROOM names, so a „Dachzimmer" or
+    # „Attikazimmer" that `classify_rooms` had placed as `aufenthaltsraum` was
+    # struck out. With no habitable room left, the branch below then read „Alle
+    # Räume … sind Neben- oder Erschließungsflächen" and dropped the storey: on
+    # a two-storey house whose upper storey is cleanly named „1. Obergeschoss"
+    # and holds one Dachzimmer, the Fluchtniveau came back 0.000 m instead of
+    # 3.500 m. That is the direction the module docstring names as the dangerous
+    # one, the reason given was untrue, and a substring on a room name is not
+    # the positive evidence the rule demands.
+    habitable = [entry for entry in described if entry["nutzung"] == "aufenthaltsraum"]
+    placed = [entry for entry in described if entry["nutzung"] is not None]
+    unplaced = [entry for entry in described if entry["nutzung"] is None]
+
+    if habitable:
+        return (
+            True,
+            f"{len(habitable)} von {len(described)} Raum/Räumen auf diesem Geschoß sind dem Lexikon "
+            f"nach Aufenthaltsräume (z. B. „{habitable[0]['name']}“)",
+        )
+    if described and not unplaced:
+        return (
+            False,
+            f"Alle {len(described)} Räume auf diesem Geschoß sind dem Lexikon nach Neben- oder "
+            f"Erschließungsflächen (z. B. „{placed[0]['name']}“) — kein Raum, in dem sich Menschen "
+            "dauernd aufhalten",
+        )
+
+    # No positive and no negative room signal. Only here does the storey name
+    # count, and only while every unplaceable room name agrees with it.
+    hit = _matching_term(storey.name)
+    corroborating = [(entry, _matching_term(entry["name"])) for entry in unplaced]
+    if hit is not None and all(term is not None for _, term in corroborating):
+        if not described:
+            return (
+                False,
+                f"Geschoßname „{storey.name}“ enthält „{hit}“ — das deutet auf ein Technik-, Dach- oder "
+                "Attikageschoß und damit nicht auf Aufenthalt; ein Raum, der dem widerspräche, ist auf "
+                "diesem Geschoß nicht exportiert",
+            )
+        return (
+            False,
+            f"Geschoßname „{storey.name}“ enthält „{hit}“ — das deutet auf ein Technik-, Dach- oder "
+            f"Attikageschoß und damit nicht auf Aufenthalt; die Raumnamen bestätigen das "
+            f"(z. B. „{corroborating[0][0]['name']}“ enthält „{corroborating[0][1]}“) und kein Raum "
+            "dieses Geschoßes ist dem Lexikon nach ein Aufenthaltsraum",
+        )
+
+    if not described:
+        return (
+            True,
+            "Auf diesem Geschoß ist kein IfcSpace exportiert — über die Nutzung sagt die Datei nichts. "
+            "Im Zweifel MITGEZÄHLT: ein zu niedrig gemeldetes Fluchtniveau ist die gefährliche Richtung",
+        )
+    naming = (
+        f"; der Geschoßname enthält zwar „{hit}“, wird aber von den Raumnamen nicht bestätigt"
+        if hit is not None
+        else ""
+    )
+    return (
+        True,
+        f"{len(unplaced)} von {len(described)} Raumnamen passen zu keinem Lexikoneintrag; die Nutzung "
+        f"dieses Geschoßes ist damit offen{naming}. Im Zweifel MITGEZÄHLT: ein zu niedrig gemeldetes "
+        "Fluchtniveau ist die gefährliche Richtung",
+    )
 
 
 def _ground_reference(model: SpatialModel) -> dict[str, Any] | None:
@@ -957,7 +1036,9 @@ class SeparatingElement:
     rolle: str
     #: German, naming the test that decided ``rolle``.
     warum: str
-    #: Exactly as declared, or ``None``. ``None`` is a finding about the export.
+    #: Exactly as declared, or ``None``. ``None`` is a finding about the export,
+    #: and a property carrying an empty string is one of those — see
+    #: :func:`_fire_rating`.
     fire_rating: str | None
     #: ``Pset_*Common.Compartmentation`` — the architect saying this element is
     #: meant to compartmentalise. Rarely present, decisive when it is.
@@ -1026,6 +1107,12 @@ def separating_elements(model: SpatialModel, space_a: str, space_b: str) -> Answ
     says so in full rather than leaving an empty field to be read as "kein
     Feuerwiderstand".
 
+    A property present but EMPTY is not a declaration either, and is reported as
+    if it were absent — see :func:`_fire_rating`. ``AC20-FZK-Haus.ifc`` carries
+    ``FireRating = ''`` on four ArchiCAD placeholders and nothing else; reading
+    those as declarations turned a finding about the export into a finding about
+    the design.
+
     No verdict: whether REI 90 is sufficient is a question about the
     Bestimmung, and the Bestimmung answers it.
     """
@@ -1083,8 +1170,7 @@ def separating_elements(model: SpatialModel, space_a: str, space_b: str) -> Answ
 
     for ref in sorted(shared, key=lambda r: r.global_id):
         element = model.file.by_guid(ref.global_id)
-        rating = model.declared_property(element, ("FireRating",))
-        rating = None if rating is None else str(rating)
+        rating = _fire_rating(model, element)
         compartmentation = model.declared_property(element, ("Compartmentation",))
         rolle, warum = _classify(model, element, geo_a, geo_b, axis, testable)
         entry = SeparatingElement(
@@ -1280,14 +1366,14 @@ def _openings_in(model: SpatialModel, global_id: str) -> list[dict[str, Any]]:
 
 
 def _opening_entry(model: SpatialModel, element: Any, host: str | None, via: str) -> dict[str, Any]:
-    rating = model.declared_property(element, ("FireRating",))
+    rating = _fire_rating(model, element)
     return {
         "globalId": element.GlobalId,
         "name": model.label(element),
         "ifcType": element.is_a(),
         "inBauteil": host,
         "via": via,
-        "fireRating": None if rating is None else str(rating),
+        "fireRating": rating,
         "fireRatingDeklariert": rating is not None,
     }
 
@@ -1349,7 +1435,7 @@ def _separating_caveat(
             "IfcRelFillsElement fehlen) und tragen den Ausschnitt bereits im Wandkörper."
         )
 
-    declared_anywhere = _declares_fire_rating(model)
+    declared_anywhere, blanks = _fire_rating_scan(model)
     if missing_rating and not declared_anywhere:
         parts.append(
             "In dieser Datei ist NIRGENDS ein Feuerwiderstand deklariert — kein einziges Bauteil trägt "
@@ -1358,6 +1444,17 @@ def _separating_caveat(
             "Feuerwiderstand am Bauteil bzw. am Bauteiltyp setzen (Pset_WallCommon.FireRating, "
             "Pset_DoorCommon.FireRating, Pset_SlabCommon.FireRating) und mitexportieren."
         )
+        if blanks:
+            # Named separately because the file LOOKS like it declares something.
+            # In `AC20-FZK-Haus.ifc` four ArchiCAD placeholders carry FireRating
+            # as the empty string; counting those as declarations sent the whole
+            # answer down the „Lücke in genau diesen Bauteilen" branch below and
+            # blamed the architect for a defect that is the export's.
+            parts.append(
+                f"{blanks} Bauteil(e) führen das Merkmal FireRating zwar mit, aber LEER — ein Platzhalter, "
+                "wie ihn manche CAD-Vorlagen mitexportieren. Ein leerer Wert ist keine Deklaration und wird "
+                "hier wie ein fehlender behandelt; im CAD ist an diesen Bauteilen ein Wert einzutragen."
+            )
     elif missing_rating:
         parts.append(
             f"{len(missing_rating)} der genannten Bauteile tragen keinen deklarierten Feuerwiderstand, obwohl "
@@ -1376,12 +1473,42 @@ def _separating_caveat(
     return " ".join(parts)
 
 
-def _declares_fire_rating(model: SpatialModel) -> bool:
-    """Does ANY product in this file declare a FireRating?
+def _fire_rating(model: SpatialModel, element: Any) -> str | None:
+    """The declared ``FireRating`` of one element, or ``None`` — blank is ``None``.
+
+    The single place this property is turned into an answer, because the empty
+    string has to mean the same thing at every one of them.
+
+    ``AC20-FZK-Haus.ifc`` carries ``FireRating = ''`` on four ArchiCAD
+    placeholder properties (two ``IfcDoor``, two ``IfcWindow``) and declares a
+    fire resistance nowhere else. ``''`` is not ``None``, so every reader of the
+    raw property counted those four as declarations:
+    :func:`_declares_fire_rating` answered ``True`` and
+    :func:`_separating_caveat` therefore told the reader the gap was „eine Lücke
+    in genau diesen Bauteilen" — a finding about the DESIGN, addressed to the
+    architect — where the truth is a finding about the EXPORT, addressed to
+    whoever runs the CAD, with a different remedy attached. ``_opening_entry``
+    published ``{'fireRating': '', 'fireRatingDeklariert': True}``: a declared
+    class that is blank.
+
+    Whitespace counts as blank for the same reason: ``' '`` is what a cleared
+    field leaves behind, and it is not a fire resistance class either.
+    """
+    value = model.declared_property(element, ("FireRating",))
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _fire_rating_scan(model: SpatialModel) -> tuple[bool, int]:
+    """``(does any product declare a FireRating, how many declare it BLANK)``.
 
     The difference between "this wall has no fire rating" and "this export has
     no fire ratings at all" is the difference between a finding about a building
-    and a finding about a file, and only the second one is true here.
+    and a finding about a file, and only the second one is true here. The blank
+    count is carried alongside because a file with four empty placeholders looks
+    from the outside like the first case and is the second.
 
     Memoised on the ``SpatialModel`` and not in a module-level table, for the
     reason :mod:`~ifc_spatial.circulation` gives for its own memo: one model
@@ -1391,13 +1518,26 @@ def _declares_fire_rating(model: SpatialModel) -> bool:
     :func:`separating_elements` may be called once per room pair.
     """
     cached = getattr(model, _FIRE_RATING_MEMO, None)
-    if isinstance(cached, bool):
+    if isinstance(cached, tuple):
         return cached
-    found = any(
-        model.declared_property(element, ("FireRating",)) is not None for element in model.file.by_type("IfcProduct")
-    )
-    setattr(model, _FIRE_RATING_MEMO, found)
-    return found
+    declared_anywhere = False
+    blanks = 0
+    for element in model.file.by_type("IfcProduct"):
+        raw = model.declared_property(element, ("FireRating",))
+        if raw is None:
+            continue
+        if str(raw).strip():
+            declared_anywhere = True
+        else:
+            blanks += 1
+    result = (declared_anywhere, blanks)
+    setattr(model, _FIRE_RATING_MEMO, result)
+    return result
+
+
+def _declares_fire_rating(model: SpatialModel) -> bool:
+    """Does ANY product in this file declare a NON-BLANK FireRating?"""
+    return _fire_rating_scan(model)[0]
 
 
 # ════════════════════════════════════════════════════════════════════════════

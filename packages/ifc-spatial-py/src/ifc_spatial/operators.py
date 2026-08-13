@@ -59,6 +59,7 @@ from typing import NoReturn
 
 import ifcopenshell.util.shape as us
 import numpy as np
+from shapely.geometry import Point as ShapelyPoint
 
 from .envelope import Answer
 from .envelope import ElementRef
@@ -74,6 +75,7 @@ from .geometry import clip_polygon
 from .geometry import dominant_plane
 from .geometry import dominant_vertical_plane
 from .geometry import outermost_parallel_face
+from .geometry import plan_footprint
 from .geometry import signed_distance
 from .geometry import triangle_normals_areas
 from .model import AIR_TYPES
@@ -1466,6 +1468,18 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
     floor_z = float(low[2]) + 0.01
 
     tree = model.tree
+    # The plan outline from the room's own MESH, not from OCCT's solid
+    # classifier. `tree.select(point)` needs a closed, orientable solid, and
+    # ArchiCAD writes `IfcSpace` bodies as `Brep` shells that OCCT will take
+    # into the tree but not classify — so the point query returned nothing for
+    # 82 of 82 rooms in `AC20-Institute-Var-2.ifc`, every one of them
+    # undecidable, while the same rooms triangulate 82 of 82.
+    #
+    # The mesh needs no classification, and it still answers the question the
+    # tree query was standing in for: an L-shaped room's bounding box covers
+    # plan area the room does not, so only points really inside the outline may
+    # lower the answer.
+    footprint = plan_footprint(geo.verts[geo.faces])
     tested = 0
     shortest = modelled
     hit_by: dict[str, float] = {}
@@ -1473,10 +1487,12 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
         for iy in range(samples):
             x = float(low[0] + (high[0] - low[0]) * (ix + 0.5) / samples)
             y = float(low[1] + (high[1] - low[1]) * (iy + 0.5) / samples)
-            # An L-shaped room's bounding box covers plan area the room does not.
-            # Only points really inside the space solid may lower the answer.
-            inside = [e.GlobalId for e in tree.select((x, y, floor_z + 0.05))]
-            if space_global_id not in inside:
+            if footprint is not None:
+                if not footprint.covers(ShapelyPoint(x, y)):
+                    continue
+            # No usable horizontal face — fall back to the classifier, which
+            # is what this did before and is right when it works.
+            elif space_global_id not in [e.GlobalId for e in tree.select((x, y, floor_z + 0.05))]:
                 continue
             tested += 1
             for hit in tree.select_ray((x, y, floor_z), (0.0, 0.0, 1.0), length=modelled + 5.0):
@@ -1507,8 +1523,9 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
             missing=MissingFact(
                 what="kein Rasterpunkt lag im Raumkörper",
                 remedy=(
-                    "Der Raum ist für dieses Raster zu schmal oder zu zerklüftet. clearHeight() mit einem "
-                    "höheren samples-Wert aufrufen; extent() liefert die modellierte Höhe ohne Rasterprüfung."
+                    "Der Raumkörper ist für dieses Raster zu schmal oder zu zerklüftet. extent() liefert "
+                    "die Höhe des modellierten Raumkörpers — als solche benennen, nicht als lichte Höhe: "
+                    "Unterzüge und abgehängte Decken sind darin nicht berücksichtigt."
                 ),
                 elements=[space_global_id],
             ),
@@ -2174,6 +2191,70 @@ def _clear_opening_area(model: SpatialModel, opening: Any, z_band: tuple[float, 
     return area if area > 0 else None
 
 
+#: How far a room centroid must sit off an element's plane to count as a side.
+#:
+#: A room whose centroid lands essentially ON the plane says nothing about which
+#: side it is on, and the commonest way that happens is a space modelled to the
+#: wall's centre line rather than its face. Ignored rather than guessed.
+SIDE_TOLERANCE = 0.05
+
+
+def _rooms_on_one_side(model: SpatialModel, element: Any, rooms: Sequence[Any]) -> bool | None:
+    """Whether every room this element bounds lies on the SAME side of it.
+
+    ``True`` → outside is on the other side. ``False`` → rooms both sides, so it
+    is a Trennbauteil. ``None`` → the element's plane could not be established,
+    and the caller must not fall back to counting (see :func:`_external_route`).
+
+    The element's DOMINANT plane rather than its vertical one, so the same test
+    serves a slab: a floor with rooms above and below is internal by exactly the
+    reasoning that makes a wall with rooms left and right internal, and a ground
+    slab carrying rooms only above it is external by the same test that catches
+    a facade. The centroid is the point on that plane — for a wall it sits in
+    the middle of the thickness, which is where the two sides part.
+    """
+    geo = model.geometry(element.GlobalId)
+    if geo is None or geo.faces.size == 0:
+        return None
+    normal = dominant_plane(geo.verts[geo.faces])
+    if normal is None:
+        return None
+    length = float(np.linalg.norm(normal))
+    if length <= 0:
+        return None
+    normal = np.asarray(normal, dtype=float) / length
+    origin = np.asarray(geo.centroid, dtype=float)
+
+    sides: set[bool] = set()
+    unplaceable = False
+    for ref in rooms:
+        room = model.geometry(getattr(ref, "global_id", ref))
+        if room is None:
+            # A room we cannot place is not a room on the other side — it is a
+            # room we know nothing about, and skipping it silently is how
+            # „rooms on one side" gets returned from partial evidence.
+            #
+            # It matters because of WHICH way the error runs. A wall between
+            # two rooms, one of them without a body, would come back with a
+            # single side and be called external: `_external_route` puts it in
+            # the thermal envelope, `_faces_outside` calls its windows daylight,
+            # and `_facade_candidates` will rank it as a facade. Every one of
+            # those adds something that is not there. Undecided is the honest
+            # answer, and the callers all handle it.
+            unplaceable = True
+            continue
+        offset = float(np.dot(np.asarray(room.centroid, dtype=float) - origin, normal))
+        if abs(offset) < SIDE_TOLERANCE:
+            # ON the plane, which says nothing about a side. Distinct from the
+            # case above: this room WAS placed, and the placement is what is
+            # uninformative, so it does not poison the rest of the evidence.
+            continue
+        sides.add(offset > 0)
+    if unplaceable or not sides:
+        return None
+    return len(sides) == 1
+
+
 def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]:
     """Whether this window or door lets daylight IN from outside.
 
@@ -2217,6 +2298,28 @@ def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]
             found = model.declared_property(wall, ("IsExternal",))
             if isinstance(found, bool):
                 return found, "Pset_*Common.IsExternal der Wand (deklariert)"
+        # The wall declares nothing — so MEASURE the wall instead of giving up.
+        #
+        # A window is outside-facing exactly when the wall carrying it is, and
+        # whether a wall is external is a question about its sides: rooms on one
+        # side only means outside is on the other. Without this rung an export
+        # that omits `IsExternal` — which `AC20-FZK-Haus.ifc` does on all 26 of
+        # its walls — leaves every window undetermined, and
+        # `light_entry_area` then reported **0.00 %** for the Schlafzimmer, the
+        # Bad, the Büro, the Küche and the Galerie of a house with a window in
+        # each of them. Honest (the windows land under „unbestimmt" and the
+        # caveat says so) and still a 0 % headline on an OIB 3 daylight check,
+        # which reads as a finding about the building.
+        for ref in hosts_.value or []:
+            wall = model.file.by_guid(ref.global_id)
+            walls_rooms = enclosed_by(model, wall.GlobalId)
+            if not walls_rooms.decidable or not walls_rooms.value:
+                continue
+            one_side = _rooms_on_one_side(model, wall, walls_rooms.value)
+            if one_side is True:
+                return True, "die tragende Wand hat Räume nur auf einer Seite (aus der Geometrie)"
+            if one_side is False:
+                return False, "die tragende Wand hat Räume auf beiden Seiten (aus der Geometrie)"
 
     # The space-count fallback is a DOOR heuristic and is applied ONLY to doors.
     # A curtain-wall pane runs past a floor, so it touches the room and the one

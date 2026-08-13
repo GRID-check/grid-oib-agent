@@ -86,7 +86,25 @@ PARAMETERS = {
     "limit",
     "angle_deg",
     "swivel_deg",
+    "when",
 }
+
+
+def test_the_parameter_list_is_the_tool_s_own_signature() -> None:
+    """This set was hand-written, and a hand-written mirror drifts.
+
+    It is the reference every „is this an invention" assertion below resolves
+    against, so a parameter added to the tool and forgotten here makes the skill
+    UNABLE to teach it: the first `when: "…"` written into the prose would fail
+    as an invention when it is a real field of a real call. `model_name` is the
+    one addition — `_ifc_measure` resolves the model before `_build_call` ever
+    sees the arguments, so it is not in that signature.
+    """
+    import inspect
+
+    from aiq_agent.agents.bim.measure_register import _build_call
+
+    assert PARAMETERS == set(inspect.signature(_build_call).parameters) | {"model_name"}
 
 
 def _card_field_names() -> set[str]:
@@ -190,6 +208,11 @@ def test_no_backticked_identifier_is_an_invention(backticked: set[str], text: st
             # which of the two it wants.
             "volume",
             "envelopeArea",
+            # A key of what `clearance` returns, and the skill has to name it:
+            # it is the number `distance('min')` would have given, carried
+            # BESIDE the clear one so the size of the difference is a fact in
+            # the same answer rather than a second call away.
+            "boxGap",
         }
         | _CARD_FIELDS
     )

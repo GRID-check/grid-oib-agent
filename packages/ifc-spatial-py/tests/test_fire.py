@@ -62,6 +62,16 @@ NO_SPACES = FIXTURES / "einheiten-fuss.ifc"
 #: No storeys.
 NO_STOREYS = FIXTURES / "strasse-ifc4x3.ifc"
 BOUNDARIES_ONLY = FIXTURES / "geschossdecke-und-fenster.ifc"
+#: Two storeys and seven rooms out of ``AC20-FZK-Haus.ifc`` (KIT/IFC Wiki
+#: example, free use), with the terrain body that makes the ground reference
+#: −1.00 m and without a single wall, slab or pset — 24 KB. Its „Dachgeschoss"
+#: at 2.70 m holds the Galerie, and it reproduces the storey-name veto exactly:
+#: 1.000 m where the answer is 3.700 m.
+DACHGESCHOSS_GALERIE = FIXTURES / "dachgeschoss-galerie.ifc"
+#: Its two storeys and the one room that decides the answer.
+FZK_DACHGESCHOSS = "273g3wqLzDtfYIl7qqkgcO"
+FZK_ERDGESCHOSS = "2eyxpyOx95m90jmsXLOuR0"
+GALERIE = "2dQFggKBb1fOc1CqZDIDlx"
 
 GROUND_FLOOR = "1o0c33arXF9AEePDYchjCY"
 ROOF_STOREY = "1o0c33arXF9AEePDYchj2Z"
@@ -644,13 +654,55 @@ def test_a_room_name_containing_dach_does_not_veto_the_lexicon(tmp_path: Path) -
     assert "Dachzimmer" in top["warum"]
 
 
-def test_the_storeys_own_name_still_removes_it(tmp_path: Path) -> None:
-    """The storey-name signal is untouched: only the ROOM-level veto goes.
+def test_the_storeys_own_name_still_removes_it_when_its_rooms_agree(tmp_path: Path) -> None:
+    """The storey-name signal survives — as a tie-breaker, where nothing disputes it.
 
-    Same building, same Dachzimmer, storey renamed „Dachgeschoss" — that IS the
-    documented signal and the level must drop back out.
+    A „Dachgeschoss" at 3.5 whose only room is a „Dachraum": the lexicon places
+    that room nowhere, so there is no room evidence at all, and the two names
+    are all the file offers. Both say the same thing, so the level drops and the
+    Fluchtniveau is 0.000 m. This is the shape of ``Ifc4_SampleHouse.ifc``,
+    whose storey „Roof" holds one space also called „Roof".
+
+    This test used to hold the same storey with a lexicon-placed ``Dachzimmer``
+    and assert the level dropped anyway. That is the defect the test below
+    pins: the name was tested FIRST and vetoed unconditionally, so it outranked
+    the room evidence it is supposed to stand in for.
     """
     w = _Writer("Dachgeschoss")
+    building = w.product("IfcBuilding", "Building", "Haus", CompositionType="ELEMENT")
+    eg = w.product("IfcBuildingStorey", "StoreyEG", "Erdgeschoss", CompositionType="ELEMENT", Elevation=0.0)
+    og = w.product("IfcBuildingStorey", "StoreyDG", "Dachgeschoss", CompositionType="ELEMENT", Elevation=3.5)
+    unten = w.product("IfcSpace", "Space01", "R.01", (0.0, 4.0, 0.0, 5.0, 0.0, 2.8), LongName="Wohnzimmer")
+    oben = w.product("IfcSpace", "Space02", "R.02", (0.0, 4.0, 0.0, 5.0, 3.5, 6.3), LongName="Dachraum")
+    w.rel("IfcRelAggregates", "Aggr1", RelatingObject=w.project, RelatedObjects=[building])
+    w.rel("IfcRelAggregates", "Aggr2", RelatingObject=building, RelatedObjects=[eg, og])
+    w.rel("IfcRelAggregates", "Aggr3", RelatingObject=eg, RelatedObjects=[unten])
+    w.rel("IfcRelAggregates", "Aggr4", RelatingObject=og, RelatedObjects=[oben])
+    model = w.write(tmp_path / "dachgeschoss.ifc")
+
+    # The premise: the lexicon has no opinion on „Dachraum", so the names are
+    # the only evidence there is. If a later lexicon places it, this fixture
+    # stops testing the tie-breaker and somebody should find out from a red bar.
+    assert {room.name: room.kind for room in classify_rooms(model)}.get("Dachraum") is None
+
+    answer = fire.fluchtniveau(model)
+    assert answer.value["fluchtniveau"] == pytest.approx(0.0, abs=1e-9)
+    dropped = {entry["globalId"]: entry for entry in answer.value["storeys"]}[og.GlobalId]
+    assert dropped["gezaehlt"] is False
+    assert "Geschoßname" in dropped["warum"]
+    # And it says the rooms corroborate, because that is now part of the reason.
+    assert "Dachraum" in dropped["warum"]
+
+
+def test_a_habitable_room_outranks_the_storeys_name(tmp_path: Path) -> None:
+    """Same „Dachgeschoss", one Dachzimmer in it — an ausgebautes Dachgeschoss.
+
+    The storey name is a substring; ``classify_rooms`` placing the room as an
+    ``aufenthaltsraum`` is the positive evidence the rule demands, and it wins.
+    Dropping the level here reports 0.000 m for a house whose top floor is at
+    3.500 m — the direction the module docstring calls the dangerous one.
+    """
+    w = _Writer("Ausgebautes Dachgeschoss")
     building = w.product("IfcBuilding", "Building", "Haus", CompositionType="ELEMENT")
     eg = w.product("IfcBuildingStorey", "StoreyEG", "Erdgeschoss", CompositionType="ELEMENT", Elevation=0.0)
     og = w.product("IfcBuildingStorey", "StoreyDG", "Dachgeschoss", CompositionType="ELEMENT", Elevation=3.5)
@@ -660,13 +712,90 @@ def test_the_storeys_own_name_still_removes_it(tmp_path: Path) -> None:
     w.rel("IfcRelAggregates", "Aggr2", RelatingObject=building, RelatedObjects=[eg, og])
     w.rel("IfcRelAggregates", "Aggr3", RelatingObject=eg, RelatedObjects=[unten])
     w.rel("IfcRelAggregates", "Aggr4", RelatingObject=og, RelatedObjects=[oben])
-    model = w.write(tmp_path / "dachgeschoss.ifc")
+    model = w.write(tmp_path / "ausgebautes-dachgeschoss.ifc")
+
+    assert {room.name: room.kind for room in classify_rooms(model)}["Dachzimmer"] == "aufenthaltsraum"
 
     answer = fire.fluchtniveau(model)
-    assert answer.value["fluchtniveau"] == pytest.approx(0.0, abs=1e-9)
-    dropped = {entry["globalId"]: entry for entry in answer.value["storeys"]}[og.GlobalId]
-    assert dropped["gezaehlt"] is False
-    assert "Geschoßname" in dropped["warum"]
+    assert answer.value["fluchtniveau"] == pytest.approx(3.5, abs=1e-9)
+    top = {entry["globalId"]: entry for entry in answer.value["storeys"]}[og.GlobalId]
+    assert top["gezaehlt"] is True
+    assert "Aufenthaltsräume" in top["warum"]
+    assert "Dachzimmer" in top["warum"]
+
+
+class TestTheStoreyNameIsATieBreakerAndNotAVeto:
+    """1.000 m for a house whose top floor sits at 3.700 m.
+
+    Reproduced on ``AC20-FZK-Haus.ifc``. The storey name was matched against
+    :data:`fire.NOT_OCCUPIED_TERMS` BEFORE the rooms were looked at and vetoed
+    unconditionally, so „Dachgeschoss" — the ordinary German word for an attic
+    storey — removed the level at 2.70 m that holds the 107 m² **Galerie**: two
+    windows, a stair up to it, a 2.70 m drop into the living room, occupied by
+    any reading. The Fluchtniveau came back **1.000 m** instead of **3.700 m**,
+    on the one number the Gebäudeklasse hangs on and in the direction that
+    under-reports it.
+
+    The same veto had already been removed once, from ROOM names, for the same
+    reason: a substring is not the positive evidence the rule demands. It
+    survived on the STOREY name and outranked all room evidence.
+
+    The fixture is those two storeys and their seven rooms, extracted with the
+    terrain body that makes the ground reference −1.00 m, so the number here is
+    the number the corpus file produces.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def model(cls) -> SpatialModel:
+        return SpatialModel(str(DACHGESCHOSS_GALERIE))
+
+    def test_the_veto_would_still_fire_if_it_were_still_there(self, model: SpatialModel) -> None:
+        """The anti-vacuity guard.
+
+        „Dachgeschoss" must still match the term list, and the Galerie must
+        still be a room the lexicon cannot place. If either stops being true,
+        this fixture no longer reproduces the defect and the assertions below
+        pass for a reason that has nothing to do with the fix.
+        """
+        assert "dach" in fire.NOT_OCCUPIED_TERMS
+        assert fire._matching_term("Dachgeschoss") == "dach"
+        rooms = {room.global_id: room.kind for room in classify_rooms(model)}
+        assert rooms.get(GALERIE) is None, "the lexicon now places „Galerie“; this fixture no longer reproduces"
+
+    def test_the_galerie_storey_is_counted_and_the_answer_is_three_seven(self, model: SpatialModel) -> None:
+        answer = fire.fluchtniveau(model)
+        assert answer.value["fluchtniveau"] == pytest.approx(3.7, abs=1e-9), "1.000 m was the reported defect"
+        assert answer.value["topOccupiedFloor"]["globalId"] == FZK_DACHGESCHOSS
+        assert answer.value["groundReference"]["z"] == pytest.approx(-1.0, abs=1e-9)
+
+    def test_the_reason_is_the_open_use_and_not_the_storeys_name(self, model: SpatialModel) -> None:
+        """„Geschoßname enthält „dach"" was published over a 107 m² Galerie.
+
+        The reason has to be the true one — the lexicon has no entry for
+        „Galerie", so the use of this storey is open and it is counted in doubt.
+        The name is reported as the weak signal it is, not as the finding.
+        """
+        judged = {entry["globalId"]: entry for entry in fire.fluchtniveau(model).value["storeys"]}
+        dachgeschoss = judged[FZK_DACHGESCHOSS]
+        assert dachgeschoss["gezaehlt"] is True
+        assert "Im Zweifel MITGEZÄHLT" in dachgeschoss["warum"]
+        assert "von den Raumnamen nicht bestätigt" in dachgeschoss["warum"]
+        assert [room["name"] for room in dachgeschoss["raeume"]] == ["Galerie"]
+        assert judged[FZK_ERDGESCHOSS]["gezaehlt"] is True
+
+    def test_counting_it_in_doubt_is_priced_into_the_confidence(self, model: SpatialModel) -> None:
+        """0.85 → 0.70. The storey is counted on no positive signal, and a
+        reader has to be able to see that this is the cautious direction rather
+        than a measured fact."""
+        answer = fire.fluchtniveau(model)
+        assert answer.confidence == pytest.approx(0.7, abs=1e-9)
+        assert any("ohne positives Nutzungssignal" in reason for reason in answer.because)
+
+    def test_it_is_still_a_height_and_never_a_class(self, model: SpatialModel) -> None:
+        answer = fire.fluchtniveau(model)
+        assert answer.unit == "m"
+        assert re.search(r"\bGK\s?[1-5]\b", _text(answer)) is None
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -913,6 +1042,122 @@ def test_a_gap_in_a_file_that_declares_elsewhere_reads_differently(bodyless: Spa
     assert answer.value["trennend"][0]["fireRating"] is None
     assert "obwohl die Datei ihn andernorts deklariert" in answer.caveat
     assert "NIRGENDS" not in answer.caveat
+
+
+class TestAnEmptyFireRatingIsNotADeclaration:
+    """The answer blamed the architect for a defect that belongs to the export.
+
+    Reproduced on ``AC20-FZK-Haus.ifc``: four ArchiCAD placeholder properties
+    carry ``FireRating`` as the EMPTY STRING (``IfcDoor``
+    ``2jTRqchjf7oB0yhQ6462T0`` and ``1M$gxUrX1Fiwe3P64ww7U5``, ``IfcWindow``
+    ``1zOBw0Gej5Wf0QAJfHnOc0`` and ``2ACmFFQhT1Ouf0x4YRUh9m``), and the file
+    declares a fire resistance nowhere at all. ``''`` is not ``None``, so
+    ``_declares_fire_rating`` answered ``True`` and the caveat took the branch
+    that reads „eine Lücke in GENAU DIESEN BAUTEILEN" — a finding about the
+    DESIGN, telling an architect to fix walls — instead of the branch that names
+    the gap as a finding about the EXPORT and hands over the CAD remedy. Two
+    opposite instructions to two different people.
+
+    ``_opening_entry`` published the same thing element by element:
+    ``{'fireRating': '', 'fireRatingDeklariert': True}`` — a declared fire
+    resistance class that is blank.
+
+    The fixture is synthetic because the shape of the defect is one property
+    value: a Trennwand and a door in it, both carrying an empty ``FireRating``,
+    which is exactly what the CAD template writes.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def model(cls, tmp_path_factory: pytest.TempPathFactory) -> SpatialModel:
+        w = _Writer("Leere FireRating-Platzhalter")
+        building = w.product("IfcBuilding", "BuildingE", "Haus", CompositionType="ELEMENT")
+        storey = w.product("IfcBuildingStorey", "StoreyE", "Erdgeschoss", CompositionType="ELEMENT", Elevation=0.0)
+        wall = w.product("IfcWall", "WallE01", "Trennwand", (4.0, 4.2, 0.0, 6.0, 0.0, 3.0))
+        door = w.product(
+            "IfcDoor", "DoorE01", "Zimmertuer", (4.0, 4.2, 2.0, 3.0, 0.0, 2.1), OverallHeight=2.1, OverallWidth=1.0
+        )
+        opening = w.product("IfcOpeningElement", "OpenE01", "Tueroeffnung", (4.0, 4.2, 2.0, 3.0, 0.0, 2.1))
+        left = w.product("IfcSpace", "SpaceE01", "R.01", (0.0, 4.0, 0.0, 6.0, 0.0, 3.0), LongName="Wohnzimmer")
+        right = w.product("IfcSpace", "SpaceE02", "R.02", (4.2, 8.0, 0.0, 6.0, 0.0, 3.0), LongName="Kueche")
+        w.rel("IfcRelAggregates", "AggrE1", RelatingObject=w.project, RelatedObjects=[building])
+        w.rel("IfcRelAggregates", "AggrE2", RelatingObject=building, RelatedObjects=[storey])
+        w.rel("IfcRelAggregates", "AggrE3", RelatingObject=storey, RelatedObjects=[left, right])
+        w.rel("IfcRelContainedInSpatialStructure", "ContE1", RelatingStructure=storey, RelatedElements=[wall, door])
+        w.rel("IfcRelVoidsElement", "VoidE1", RelatingBuildingElement=wall, RelatedOpeningElement=opening)
+        w.rel("IfcRelFillsElement", "FillE1", RelatingOpeningElement=opening, RelatedBuildingElement=door)
+        for index, room in enumerate((left, right)):
+            w.rel(
+                "IfcRelSpaceBoundary",
+                f"BndE{index:02d}",
+                RelatingSpace=room,
+                RelatedBuildingElement=wall,
+                PhysicalOrVirtualBoundary="PHYSICAL",
+                InternalOrExternalBoundary="INTERNAL",
+            )
+        # The defect itself: the property is there, and it says nothing.
+        w.pset("E1", "Pset_WallCommon", [("FireRating", "IfcLabel", "")], [wall])
+        w.pset("E2", "Pset_DoorCommon", [("FireRating", "IfcLabel", "")], [door])
+        return w.write(tmp_path_factory.mktemp("leer") / "leere-firerating.ifc")
+
+    def test_the_empty_string_really_is_in_the_file(self, model: SpatialModel) -> None:
+        """The anti-vacuity guard: the property is present and blank.
+
+        If ``declared_property`` ever starts filtering blanks itself, this
+        fixture stops carrying the defect and the assertions below would pass
+        without the fix being what makes them pass.
+        """
+        wall = model.file.by_guid(_gid("WallE01"))
+        assert model.declared_property(wall, ("FireRating",)) == ""
+
+    def test_a_blank_is_not_a_declaration_anywhere_in_the_file(self, model: SpatialModel) -> None:
+        assert fire._declares_fire_rating(model) is False
+
+    def test_the_finding_is_about_the_export_and_carries_the_cad_remedy(self, model: SpatialModel) -> None:
+        """The whole point: who is being told to do what.
+
+        „Lücke in genau diesen Bauteilen" sends an architect to redesign a wall.
+        The truth is that the wall has a fire resistance and this export does
+        not name it, and the remedy is a field in the CAD.
+        """
+        answer = fire.separating_elements(model, _gid("SpaceE01"), _gid("SpaceE02"))
+        assert "NIRGENDS ein Feuerwiderstand deklariert" in answer.caveat
+        assert "Befund über den EXPORT" in answer.caveat
+        assert "Pset_WallCommon.FireRating" in answer.caveat
+        assert "Lücke in genau diesen Bauteilen" not in answer.caveat
+        # And the placeholders are named, because the file LOOKS like it declares.
+        assert "2 Bauteil(e) führen das Merkmal FireRating zwar mit, aber LEER" in answer.caveat
+
+    def test_no_element_claims_a_declared_class_that_is_blank(self, model: SpatialModel) -> None:
+        answer = fire.separating_elements(model, _gid("SpaceE01"), _gid("SpaceE02"))
+        wall = answer.value["trennend"][0]
+        assert wall["globalId"] == _gid("WallE01")
+        assert wall["fireRating"] is None, "'' was published as the declared class"
+        assert wall["fireRatingDeklariert"] is False
+        opening = answer.value["oeffnungen"][0]
+        assert opening["globalId"] == _gid("DoorE01")
+        assert opening["fireRating"] is None
+        assert opening["fireRatingDeklariert"] is False
+        # Fehlend heißt fehlend: both belong in the gap list.
+        assert set(answer.value["ohneFeuerwiderstand"]) == {_gid("WallE01"), _gid("DoorE01")}
+
+    def test_whitespace_is_blank_too(self, tmp_path: Path) -> None:
+        """A cleared field leaves ``' '`` behind, and that is not a class either."""
+        w = _Writer("Leerzeichen")
+        wall = w.product("IfcWall", "WallW01", "Trennwand", (0.0, 0.2, 0.0, 6.0, 0.0, 3.0))
+        w.pset("W1", "Pset_WallCommon", [("FireRating", "IfcLabel", "   ")], [wall])
+        model = w.write(tmp_path / "leerzeichen.ifc")
+        assert fire._fire_rating(model, model.file.by_guid(_gid("WallW01"))) is None
+        assert fire._declares_fire_rating(model) is False
+
+    def test_a_real_class_is_still_read_and_still_verbatim(self, tmp_path: Path) -> None:
+        """The guard on the fix: trimming blanks must not trim anything else."""
+        w = _Writer("Echte Klasse")
+        wall = w.product("IfcWall", "WallR01", "Brandwand", (0.0, 0.2, 0.0, 6.0, 0.0, 3.0))
+        w.pset("R1", "Pset_WallCommon", [("FireRating", "IfcLabel", "REI 90")], [wall])
+        model = w.write(tmp_path / "echte-klasse.ifc")
+        assert fire._fire_rating(model, model.file.by_guid(_gid("WallR01"))) == "REI 90"
+        assert fire._declares_fire_rating(model) is True
 
 
 def test_without_bodies_the_betweenness_test_is_skipped_and_says_so(bodyless: SpatialModel) -> None:

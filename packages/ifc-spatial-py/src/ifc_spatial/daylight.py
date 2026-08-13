@@ -220,8 +220,22 @@ def _facade_candidates(model: SpatialModel, space_global_id: str, bounding: list
         if element.is_a() not in ("IfcWall", "IfcWallStandardCase"):
             continue
         declared = model.declared_property(element, ("IsExternal",))
-        if declared is not True:
+        if declared is False:
             continue
+        if declared is not True:
+            # Not declared. Measure the wall rather than drop it — the same
+            # question `_faces_outside` asks two loops below for the apertures,
+            # which makes it odd that the wall selection ever answered it
+            # differently. `AC20-FZK-Haus.ifc` declares `IsExternal` on none of
+            # its 26 walls, so this `continue` refused **all seven rooms** of a
+            # real single-family house with „keine als außenliegend deklarierte
+            # Wand begrenzt diesen Raum" — a sentence about a wall that is named
+            # `Wand-Ext-ERDG-1` in the file it is describing.
+            rooms = op.enclosed_by(model, element.GlobalId)
+            if not rooms.decidable or not rooms.value:
+                continue
+            if op._rooms_on_one_side(model, element, rooms.value) is not True:
+                continue
         external[element.GlobalId] = {
             "globalId": element.GlobalId,
             "name": model.label(element),

@@ -35,6 +35,8 @@ WINDOW = "3cUkl32yn9qRSPvBJVyWcE"
 BEDROOM = "3w0zWKm7n8SB1qbfwUzt0J"
 NORTH_WALL = "3cUkl32yn9qRSPvBJVyWw5"
 GROUND_FLOOR = "1o0c33arXF9AEePDYchjCY"
+PARTITION = "3cUkl32yn9qRSPvBJVyWY1"
+ROOF = "3cUkl32yn9qRSPvBJVyWh4"
 
 
 @pytest.fixture(scope="module")
@@ -157,7 +159,7 @@ def test_open_and_briefing_do_not_run_geometry() -> None:
 
 
 def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: list) -> None:
-    """Ten tools ported from `tools.ts`, and six the port added.
+    """Ten tools ported from `tools.ts`, and eight the port added.
 
     `view` sits BEFORE `draw` deliberately. They look like duplicates and are
     not: `draw` writes an SVG file for a human, `view` returns a raster the
@@ -177,6 +179,14 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
     GlobalId. Its three operators shipped implemented and tested and reachable
     from nothing, so every OIB 6 question was answered „das kann dieser Export
     nicht" — a sentence about the file that was really about our wiring.
+
+    `clearance` and `sun_position` are the third and fourth instances of that
+    same defect, found by walking every public operator against this list.
+    `clearance` sits directly after `distance` because it is the operator
+    `distance` sends the reader to and never had: on the roof against the
+    partition, `distance('min')` reports 0.000 m where the clear dimension is
+    0.995 m. `sun_position` sits after `light_incidence` because it is the other
+    half of a shading question and composes with nothing else.
     """
     assert [tool.name for tool in tools] == [
         "open_model",
@@ -186,6 +196,7 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
         "relations",
         "measure",
         "distance",
+        "clearance",
         "fire",
         "envelope",
         "shopping_list",
@@ -193,6 +204,7 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
         "draw",
         "overhang",
         "light_incidence",
+        "sun_position",
         "storey_heights",
         "room_inventory",
     ]
@@ -451,3 +463,320 @@ class TestTheEnvelopeReachesTheSurface:
         assert entries, "the sample house has an envelope"
         for entry in entries:
             assert entry.get("uValue") is None or entry.get("uValueSource") == "declared"
+
+
+class TestTheClearanceReachesTheSurface:
+    """The lichte Breite between TWO elements, which had no tool at all.
+
+    `clearance.clear_width` shipped with fifteen tests in `test_clearance.py`
+    and was on no surface. What an agent could reach instead was `distance`,
+    whose own description sends the reader to „measure/clearWidth on the
+    opening" — an operator that takes ONE element and cannot answer the
+    two-element question at all. So the honest route for „how wide is the gap
+    between these two walls" was a box gap, in the one direction that matters.
+    """
+
+    def test_the_box_gap_and_the_clear_dimension_disagree_by_a_metre(self, tools: list, house: str) -> None:
+        """The pitched roof over the interior partition — the case that shows why
+        this needed a tool rather than a sentence in `distance`'s description.
+
+        The roof's bounding box swallows the partition's, so `distance('min')`
+        reports 0.000 m and a reader concludes the two touch. They are 0.995 m
+        apart. A box gap is a LOWER bound on a clearance and never an upper one,
+        so it can only ever report elements as closer than they are.
+        """
+        box = call(tools, "distance", {"model": house, "a": ROOF, "b": PARTITION, "mode": "min"})
+        assert box["value"] == pytest.approx(0.0, abs=1e-9)
+
+        answer = call(tools, "clearance", {"model": house, "a": ROOF, "b": PARTITION})
+        assert answer["decidable"] is True
+        assert answer["provenance"] == "computed"
+        assert answer["value"]["distance"] == pytest.approx(0.9947, abs=0.001)
+        # And it reports what `distance` would have said, so the size of the
+        # difference is visible in the same answer rather than needing a second
+        # call to discover.
+        assert answer["value"]["boxGap"] == pytest.approx(0.0, abs=1e-9)
+        assert "unterschätzt" in answer["caveat"]
+
+    def test_the_two_measured_points_come_back_for_a_dimension_line(self, tools: list, house: str) -> None:
+        """Without them the number cannot be checked in the architect's own model:
+        „0.995 m somewhere between these two solids" is not reviewable."""
+        value = call(tools, "clearance", {"model": house, "a": ROOF, "b": PARTITION})["value"]
+        assert len(value["pointOnA"]) == 3 and len(value["pointOnB"]) == 3
+
+    def test_both_elements_are_demanded_rather_than_guessed(self, tools: list, house: str) -> None:
+        with pytest.raises(ToolError) as raised:
+            call(tools, "clearance", {"model": house, "a": ROOF})
+        assert "b fehlt" in str(raised.value) and "find_elements" in str(raised.value)
+
+    def test_one_element_twice_is_refused_with_the_operator_that_does_answer(self, tools: list, house: str) -> None:
+        """A clear dimension needs two solids. The refusal names `clearOpeningWidth`,
+        because „the clear width of this door" is a real question with a real
+        operator — it is just not this one."""
+        answer = call(tools, "clearance", {"model": house, "a": ROOF, "b": ROOF})
+        assert answer["decidable"] is False
+        assert "clearOpeningWidth()" in answer["missing"]["remedy"]
+
+    def test_the_description_does_not_let_it_be_mistaken_for_measure_clear_width(self, tools: list) -> None:
+        """Two operators, both called a lichte Breite, one surface. The tool has to
+        say which is which where the model reads it, or it will pick by name."""
+        clearance = next(tool for tool in tools if tool.name == "clearance")
+        assert "measure/clearWidth" in clearance.description
+        assert "zwei Laibungen" in clearance.description
+
+
+class TestTheDoorGraphReachesTheSurface:
+    """`egressPath` was on the surface and the graph under it was not.
+
+    A route is only as complete as the graph it was found in, and the two lists
+    that say how complete — the doors whose rooms could not be resolved and the
+    doors deliberately excluded — live on the graph, not on the route. An agent
+    could therefore report a Fluchtweg over three doors from a building whose
+    export made five doors unreadable, and nothing in its answer said so.
+    """
+
+    def test_the_graph_answers_through_fire_and_names_the_room_with_no_exit(self, tools: list, house: str) -> None:
+        """The finding this exposes and `egressPath` cannot: „Roof" has no door.
+
+        A room with no edge is not missing from the graph — it is IN it, with
+        nothing attached, which is how „dieser Raum hat keinen Ausgang" becomes
+        visible instead of the room quietly not being listed.
+        """
+        answer = call(tools, "fire", {"model": house, "what": "doorGraph"})
+        assert answer["decidable"] is True
+        assert answer["provenance"] == "computed"
+        graph = answer["value"]
+        # Four IfcSpace plus the OUTSIDE node.
+        assert len(graph["nodes"]) == 5
+        assert len(graph["edges"]) == 3
+        with_edges = {node for edge in graph["edges"] for node in edge["verbindet"]}
+        stranded = [ref["name"] for ref in graph["nodes"] if ref["globalId"] not in with_edges]
+        assert stranded == ["Roof"]
+        assert "keine Türkante" in answer["caveat"]
+
+    def test_the_doors_that_became_no_edge_are_reported_and_not_dropped(self, tools: list, house: str) -> None:
+        """Both lists must be PRESENT even when empty, because their absence and
+        their emptiness are different claims: „no unreadable doors" is a fact
+        about this export, and a renderer that omits the key says nothing."""
+        graph = call(tools, "fire", {"model": house, "what": "doorGraph"})["value"]
+        assert graph["unbestimmt"] == []
+        assert graph["ausgeschlossen"] == []
+
+    def test_the_aspect_is_matched_case_insensitively(self, tools: list, house: str) -> None:
+        assert call(tools, "fire", {"model": house, "what": "DOORGRAPH"})["decidable"] is True
+
+    def test_it_needs_no_global_id(self, tools: list, house: str) -> None:
+        """Like `fluchtniveau`, and unlike the other three aspects: the graph IS
+        the building, so there is nothing to point at."""
+        assert call(tools, "fire", {"model": house, "what": "doorGraph"})["decidable"] is True
+
+
+class TestTheSunPositionReachesTheSurface:
+    """Named „library only" in the coverage map for a whole release, and it was.
+
+    The operator was validated against the NREL SPA reference and three USNO
+    almanac positions, and no tool called it — so a question about where the sun
+    stood over the building reached nothing.
+    """
+
+    def test_the_almanac_position_arrives_through_the_tool(self, tools: list, house: str) -> None:
+        answer = call(tools, "sun_position", {"model": house, "when": "2026-06-21T12:00:00Z"})
+        assert answer["decidable"] is True
+        assert answer["provenance"] == "computed" and answer["unit"] == "°"
+        assert answer["value"]["azimuth"] == pytest.approx(178.867641, abs=0.01)
+        assert answer["value"]["altitude"] == pytest.approx(61.934279, abs=0.01)
+        assert answer["value"]["compass"] == "S"
+        # The direction in MODEL coordinates is the part a shading question needs;
+        # a bearing alone cannot be cast into a building rotated off north.
+        assert len(answer["value"]["directionInModel"]) == 3
+
+    def test_the_answer_says_it_is_not_a_besonnungsstudie(self, tools: list, house: str) -> None:
+        """A sun position says where the sun stood. Whether the neighbour's gable
+        was in the way needs everything outside the property line, which is not
+        in this file — and the gap between the two is exactly the size of the
+        mistake an agent would otherwise make."""
+        answer = call(tools, "sun_position", {"model": house, "when": "2026-06-21T12:00:00Z"})
+        assert "Besonnungsstudie" in answer["caveat"]
+
+    def test_a_timestamp_without_a_zone_is_refused_rather_than_read_as_utc(self, tools: list, house: str) -> None:
+        """Austria runs UTC+1 and UTC+2. Reading 12:00 as UTC puts the sun 30°
+        east of where it stood — two hours of shadow, from an input that looked
+        complete."""
+        answer = call(tools, "sun_position", {"model": house, "when": "2026-06-21T12:00:00"})
+        assert answer["decidable"] is False
+        assert "Zeitzone" in answer["missing"]["what"]
+
+    def test_a_missing_when_is_a_caller_error_phrased_for_a_timestamp(self, tools: list, house: str) -> None:
+        """`_require` would answer „eine GlobalId angeben (aus find_elements)",
+        which sends the caller hunting in the model for a clock."""
+        with pytest.raises(ToolError) as raised:
+            call(tools, "sun_position", {"model": house})
+        assert "ISO 8601" in str(raised.value) and "GlobalId" not in str(raised.value)
+
+    def test_an_ungeoreferenced_file_is_undecidable_and_stays_undecidable(self, tools: list) -> None:
+        """The narrowing this tool makes on purpose.
+
+        The operator accepts `latitude`/`longitude`; the tool does not forward
+        them and its schema does not offer them. An agent that CAN supply a
+        latitude will supply one, and an assumed 48.2°N Vienna comes back as a
+        `computed` number carrying a tolerance — indistinguishable on the page
+        from a measured one. Passing them anyway must change nothing.
+        """
+        handle = call(tools, "open_model", {"path": str(NO_NORTH)})["model"]
+        answer = call(tools, "sun_position", {"model": handle, "when": "2026-06-21T12:00:00+02:00"})
+        assert answer["decidable"] is False
+        assert answer["missing"]["what"] == "IfcSite.RefLatitude / RefLongitude"
+
+        smuggled = call(
+            tools,
+            "sun_position",
+            {"model": handle, "when": "2026-06-21T12:00:00+02:00", "latitude": 48.2082, "longitude": 16.3738},
+        )
+        assert smuggled["decidable"] is False, "the tool forwarded coordinates it must not accept"
+
+    def test_the_schema_offers_no_coordinates(self, tools: list) -> None:
+        sun = next(tool for tool in tools if tool.name == "sun_position")
+        assert set(sun.input_schema["properties"]) == {"model", "when"}
+
+
+# ── nothing may be library-only ─────────────────────────────────────────────
+
+
+#: The modules whose public functions are the engine's operators.
+OPERATOR_MODULES = (
+    "operators",
+    "circulation",
+    "clearance",
+    "daylight",
+    "stairs",
+    "fire",
+    "accessibility",
+    "envelope_geometry",
+    "render",
+    "ids_export",
+    "relations",
+)
+
+#: Public operators deliberately NOT reachable from a tool, each with its reason.
+#:
+#: An entry here is a DECISION that somebody wrote down, not a backlog item. The
+#: point of the test below is that the third state — implemented, tested, and
+#: reachable from nothing because nobody noticed — stops existing. It has been
+#: found three times: `overhang` and `light_incidence`, then all three
+#: `envelope_geometry` operators, then `clearance.clear_width`,
+#: `circulation.door_graph` and `daylight.sun_position` — and every time the
+#: user was told the export could not answer a question our own wiring could not
+#: ask. Only the last of those six was ever written down as „library only",
+#: which is what a hand-maintained list is worth.
+NOT_ON_THE_SURFACE = {
+    "operators.facade_plane_of": (
+        "A construction, not an answer: it returns a normal and a point, and the only thing an agent "
+        "can do with three floats is quote them. The two things a caller actually wants from it are "
+        "already surfaced — the compass direction as measure/azimuth, and the „Außenseite ungesichert“ "
+        "caveat, which `overhang` copies verbatim into its own answer."
+    ),
+    "operators.ray": (
+        "Takes raw model coordinates, and the surface offers no honest way to obtain one: every "
+        "GlobalId-shaped answer here reports metres, not a point in the file's coordinate system. An "
+        "agent would have to invent an origin, and a hit reported from an invented origin is a fact "
+        "about a ray nobody cast. Its three real uses are wired as relations/above, relations/below "
+        "and light_incidence, which build the geometry themselves."
+    ),
+    "ids_export.answers_as_ids": (
+        "Needs the ANSWERS of a whole conversation, and this surface keeps none: every handler is one "
+        "call in and one result out, by design (see the module docstring on why nothing is retained "
+        "beyond the model handle). Wiring it would mean an answer ledger inside the tool layer, which "
+        "is a host's job. `shopping_list` covers the model-wide half from the briefing's blind spots."
+    ),
+    "ids_export.to_xml": (
+        "Reached, but through `write_ids`, which `shopping_list` calls — the XML is validated against "
+        "the bundled XSD on the way to the file. Exposing the string separately would offer an IDS "
+        "that skipped the file the checker actually opens."
+    ),
+}
+
+
+def _tool_surface_references() -> set[str]:
+    """Every ``<module>.<function>`` `tools.py` names, read from its own AST.
+
+    Text search would not do: `MEASURE_FN` and `RELATION_FN` hold BARE
+    references (``"extent": op.extent,``), so a `name(` pattern misses twenty
+    operators, and a bare `\\bname\\b` pattern matches German prose. The
+    aliases are read from the import statements rather than written out here,
+    so renaming `env` back to `envelope_geometry` cannot silently empty this
+    set and turn the test green.
+    """
+    import ast
+    import pathlib
+
+    import ifc_spatial.tools as tools_module
+
+    tree = ast.parse(pathlib.Path(tools_module.__file__).read_text(encoding="utf-8"))
+    alias_of: dict[str, str] = {}
+    for node in ast.walk(tree):
+        # `from . import accessibility as acc`, wherever it sits — two of them
+        # are inside handlers, because their dependencies are optional.
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module is None:
+            for alias in node.names:
+                alias_of[alias.asname or alias.name] = alias.name
+    referenced = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            module = alias_of.get(node.value.id)
+            if module is not None:
+                referenced.add(f"{module}.{node.attr}")
+    return referenced
+
+
+def test_no_operator_is_implemented_tested_and_reachable_from_nothing() -> None:
+    """The defect this suite keeps re-learning, checked once for all modules.
+
+    „Library only" is the worst shape a gap can take, because it does not look
+    like a gap: the operator is written, the tests are green, the coverage map
+    claims the row, and the only person who finds out is the architect who is
+    told their export cannot answer a question the engine answers fine. Three
+    rounds of it shipped before anybody walked the list.
+
+    A new operator therefore has exactly two ways past this line: reach it from
+    a tool, or write down here why it stays unreachable.
+
+    What this alone does NOT catch is a handler that calls the operator and is
+    then bound to no `ToolDef` — the reference is in the file either way. That
+    half is covered by the surface list above, which pins the tool NAMES; the
+    two together are what make the claim.
+    """
+    import ast
+    import pathlib
+
+    import ifc_spatial
+
+    referenced = _tool_surface_references()
+    package = pathlib.Path(ifc_spatial.__file__).parent
+    unreachable = []
+    for module in OPERATOR_MODULES:
+        tree = ast.parse((package / f"{module}.py").read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef) or node.name.startswith("_"):
+                continue
+            qualified = f"{module}.{node.name}"
+            if qualified not in referenced and qualified not in NOT_ON_THE_SURFACE:
+                unreachable.append(qualified)
+    assert not unreachable, (
+        f"{unreachable} exist, are tested, and no tool reaches them. Either wire them into "
+        "create_tools() — a per-element measurement into MEASURE_FN, a whole-model question into a "
+        "grouped tool — or record the decision in NOT_ON_THE_SURFACE with the reason."
+    )
+
+
+def test_the_deliberate_omissions_are_still_real_functions() -> None:
+    """The allowlist may not outlive what it excuses.
+
+    A stale entry is how a real gap hides: `clearance.clear_width` renamed,
+    listed here from a previous round, and the test above goes green on an
+    operator nobody can call.
+    """
+    import importlib
+
+    for qualified in NOT_ON_THE_SURFACE:
+        module, _, name = qualified.rpartition(".")
+        assert hasattr(importlib.import_module(f"ifc_spatial.{module}"), name), qualified

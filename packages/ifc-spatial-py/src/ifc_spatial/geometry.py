@@ -23,11 +23,20 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
 #: |dot| above which two unit normals count as parallel (≈ 10°).
 PARALLEL_DOT = 0.985
+
+#: |n_z| above which a face counts as horizontal for `plan_footprint` (≈ 25°).
+#:
+#: Deliberately loose. A room floor is flat, but a triangulated one picks up
+#: a degree or two of noise, and a threshold tight enough to be "horizontal"
+#: in the strict sense drops facets the footprint needs — leaving a polygon
+#: with holes in it, which reads as a room a grid point can fall outside of.
+HORIZONTAL_DOT = 0.9
 #: A parallel face smaller than this fraction of the largest one is a sliver.
 FACE_AREA_FRACTION = 0.05
 #: Absolute floor under the sliver test, m² — keeps tiny elements usable.
@@ -292,6 +301,60 @@ def box_corners(box: tuple[np.ndarray, np.ndarray]) -> np.ndarray:
     )
 
 
+def plan_footprint(triangles: np.ndarray) -> Any | None:
+    """The element's outline in plan, as a shapely polygon — or ``None``.
+
+    Answers „is this (x, y) inside the room" WITHOUT asking OCCT to classify a
+    point against a solid, which is the whole reason this exists.
+
+    ``geom.tree.select(point)`` needs a closed, orientable solid to classify
+    against. ArchiCAD writes its `IfcSpace` bodies as `Brep` shells that OCCT
+    accepts into the tree — `select_box` finds them — and will not classify as
+    solids, so the point query returns nothing for every room in the file. On
+    `AC20-Institute-Var-2.ifc` that was **82 of 82 spaces**, and `clear_height`
+    answered „kein Rasterpunkt lag im Raumkörper" about an 11.6 × 11.4 m
+    seminar room. The operator then blamed the room's shape („zu schmal oder zu
+    zerklüftet"), the agent fell back to the declared storey height, and a
+    structural 3.00 m was reported where the modelled room is 2.70 m.
+
+    A mesh needs no such classification. The triangles are already in world
+    coordinates and they already build for these rooms — 82 of 82 — so the
+    footprint is the union of the DOWNWARD-facing ones, which for a prismatic
+    room is exactly its floor. Downward-facing rather than all of them because
+    the silhouette of a mesh with sloped soffits is larger than its floor, and
+    because it halves the union.
+
+    ``None`` when the mesh has no usable horizontal face, so the caller can keep
+    whatever it did before rather than treat an empty polygon as an empty room.
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    if triangles.size == 0:
+        return None
+    normals, areas = triangle_normals_areas(triangles)
+    # Downward-facing and non-degenerate. The normal gate rather than `areas > 0`
+    # for the reason `dominant_plane` documents: a zeroed normal still reports an
+    # area, and it would vote here as a horizontal face pointing nowhere.
+    usable = (np.linalg.norm(normals, axis=1) > 0) & (normals[:, 2] < -HORIZONTAL_DOT) & (areas > 1e-9)
+    if not usable.any():
+        # A room whose floor was not modelled as a distinct facet still has a
+        # silhouette, and a silhouette is a better answer than refusing.
+        usable = (np.linalg.norm(normals, axis=1) > 0) & (areas > 1e-9)
+        if not usable.any():
+            return None
+
+    polygons = []
+    for tri in triangles[usable]:
+        polygon = Polygon(tri[:, :2])
+        if polygon.is_valid and polygon.area > 1e-9:
+            polygons.append(polygon)
+    if not polygons:
+        return None
+    merged = unary_union(polygons)
+    return merged if not merged.is_empty else None
+
+
 __all__ = [
     "Plane",
     "box_corners",
@@ -301,6 +364,7 @@ __all__ = [
     "dominant_plane",
     "dominant_vertical_plane",
     "outermost_parallel_face",
+    "plan_footprint",
     "signed_distance",
     "triangle_normals_areas",
 ]

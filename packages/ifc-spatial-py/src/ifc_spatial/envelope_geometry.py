@@ -109,6 +109,7 @@ from .operators import COMPASS
 from .operators import _clear_opening_area
 from .operators import _faces_outside
 from .operators import _footprint_area
+from .operators import _rooms_on_one_side
 from .operators import azimuth
 from .operators import enclosed_by
 
@@ -336,7 +337,56 @@ def _external_route(model: SpatialModel, element: Any) -> tuple[bool | None, str
         source = "deklarierte Raumgrenzen" if spaces.provenance == "declared" else "aus der Geometrie abgeleitet"
         count = len(spaces.value)
         if count >= 2:
-            return False, ROUTE_BOUNDED_SPACES, f"begrenzt {count} Räume (Trennbauteil, {source})"
+            # NOT „two rooms, therefore a partition". That is the mistake this
+            # rung shipped with, and it is the ordinary case rather than an edge
+            # one: an external wall runs along a whole side of a building, so it
+            # bounds every room on that side. On `AC20-FZK-Haus.ifc` — which
+            # declares `IsExternal` on none of its 26 walls, so this rung
+            # decides all of them — the count put `Wand-Ext-ERDG-1` (3 rooms),
+            # `-2` (3), `-3` (2) and `-4` (2) OUTSIDE the thermal envelope. Four
+            # external ground-floor walls missing from an OIB 6 envelope, with a
+            # sentence calling them Trennbauteile.
+            #
+            # What actually separates inside from outside is having rooms on ONE
+            # side only. So ask the side, not the count: project each room's
+            # centroid onto the element's own dominant plane — the wall's face,
+            # or a slab's soffit — and see whether they all land on the same
+            # side of it. Rooms on both sides is a partition; rooms on one side
+            # has outside on the other.
+            #
+            # Checked against the exporter's own naming on that house, where
+            # every wall is `Wand-Ext-*` or `Wand-Int-*`: 26 of 26 correct,
+            # against 22 of 26 for the count.
+            side = _rooms_on_one_side(model, element, spaces.value)
+            if side is False:
+                return (
+                    False,
+                    ROUTE_BOUNDED_SPACES,
+                    f"begrenzt {count} Räume auf beiden Seiten (Trennbauteil, {source})",
+                )
+            if side is True:
+                return (
+                    True,
+                    ROUTE_BOUNDED_SPACES,
+                    f"begrenzt {count} Räume, aber alle auf derselben Seite — "
+                    f"auf der anderen liegt kein IfcSpace ({source})",
+                )
+            # The side could not be established — no body, or no dominant plane.
+            # `geschossdecke-und-fenster.ifc` is exactly that case: declared
+            # `IfcRelSpaceBoundary` and no geometry at all, so the count is the
+            # only evidence there is.
+            #
+            # So the count stays as the last rung rather than being deleted, and
+            # it says outright that it did not check the sides. It is the weaker
+            # signal — it is what put four external walls outside the envelope
+            # on a house where the sides COULD be checked — and a reader has to
+            # be able to tell the two apart.
+            return (
+                False,
+                ROUTE_BOUNDED_SPACES,
+                f"begrenzt {count} Räume (Trennbauteil, {source}) — auf welcher Seite sie liegen, "
+                "war ohne Körper nicht prüfbar",
+            )
         if count == 1:
             return (
                 True,

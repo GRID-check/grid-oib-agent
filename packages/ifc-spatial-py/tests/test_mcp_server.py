@@ -27,6 +27,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT.parents[0] / "ifc-spatial" / "test" / "fixtures"
 SAMPLE_HOUSE = FIXTURES / "Ifc4_SampleHouse.ifc"
 WINDOW = "3cUkl32yn9qRSPvBJVyWcE"
+PARTITION = "3cUkl32yn9qRSPvBJVyWY1"
+ROOF = "3cUkl32yn9qRSPvBJVyWh4"
 
 
 def test_create_server_exposes_the_tool_list() -> None:
@@ -211,3 +213,70 @@ def test_an_unknown_global_id_comes_back_as_a_tool_error(session: _Session) -> N
     )
     assert failed["result"]["isError"] is True
     assert "Unbekannte GlobalId" in failed["result"]["content"][0]["text"]
+
+
+def test_the_three_newly_wired_operators_answer_over_the_wire(session: _Session) -> None:
+    """A tool in `create_tools()` that errors through the transport is worse than
+    a missing one: it is advertised in `tools/list`, so the model reaches for it.
+
+    All three are new SHAPES over this wire and each could have failed here
+    while passing `test_tools.py`. `fire/doorGraph` returns a `DoorGraph`
+    dataclass nested inside an `Answer` — two `to_dict` hops, and a value that
+    is not a dict, a float or a list of refs like every aspect before it.
+    `sun_position` is the first tool whose required argument is not a GlobalId.
+    `clearance` returns NumPy-derived coordinates, which are not JSON at all
+    until `_jsonable` has walked them.
+    """
+    opened = session.request(7, "tools/call", {"name": "open_model", "arguments": {"path": str(SAMPLE_HOUSE)}})
+    handle = json.loads(opened["result"]["content"][0]["text"])["model"]
+
+    graph = session.request(8, "tools/call", {"name": "fire", "arguments": {"model": handle, "what": "doorGraph"}})
+    assert not graph["result"].get("isError"), graph["result"]["content"][0]["text"]
+    answer = json.loads(graph["result"]["content"][0]["text"])
+    assert answer["decidable"] is True
+    assert len(answer["value"]["edges"]) == 3
+    assert "unbestimmt" in answer["value"] and "ausgeschlossen" in answer["value"]
+
+    sun = session.request(
+        9,
+        "tools/call",
+        {"name": "sun_position", "arguments": {"model": handle, "when": "2026-06-21T12:00:00Z"}},
+    )
+    assert not sun["result"].get("isError"), sun["result"]["content"][0]["text"]
+    stood = json.loads(sun["result"]["content"][0]["text"])
+    assert stood["value"]["compass"] == "S"
+    assert stood["value"]["altitude"] == pytest.approx(61.934279, abs=0.01)
+
+    clear = session.request(
+        10,
+        "tools/call",
+        {"name": "clearance", "arguments": {"model": handle, "a": ROOF, "b": PARTITION}},
+    )
+    assert not clear["result"].get("isError"), clear["result"]["content"][0]["text"]
+    gap = json.loads(clear["result"]["content"][0]["text"])
+    assert gap["value"]["distance"] == pytest.approx(0.9947, abs=0.001)
+    # The box gap `distance('min')` would have returned, in the same answer.
+    assert gap["value"]["boxGap"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_the_new_tools_are_advertised_with_their_schemas(session: _Session) -> None:
+    """`tools/list` is the only place a model learns these exist. A tool that
+    works when called and is not listed is unreachable in practice."""
+    listed = {tool["name"]: tool for tool in session.request(11, "tools/list")["result"]["tools"]}
+    assert "clearance" in listed and "sun_position" in listed
+    assert sorted(listed["sun_position"]["inputSchema"]["required"]) == ["model", "when"]
+    # The coordinate override the operator accepts is deliberately not offered.
+    assert set(listed["sun_position"]["inputSchema"]["properties"]) == {"model", "when"}
+    assert "doorGraph" in listed["fire"]["inputSchema"]["properties"]["what"]["enum"]
+
+
+def test_a_missing_timestamp_comes_back_as_a_readable_refusal(session: _Session) -> None:
+    """Not a traceback. `sun_position` is the first tool whose required argument
+    is not a GlobalId, so it does its own check rather than borrowing `_require`
+    — whose sentence would send the caller to `find_elements` for a clock."""
+    opened = session.request(12, "tools/call", {"name": "open_model", "arguments": {"path": str(SAMPLE_HOUSE)}})
+    handle = json.loads(opened["result"]["content"][0]["text"])["model"]
+    failed = session.request(13, "tools/call", {"name": "sun_position", "arguments": {"model": handle}})
+    assert failed["result"]["isError"] is True
+    text = failed["result"]["content"][0]["text"]
+    assert "ISO 8601" in text and "Traceback" not in text
