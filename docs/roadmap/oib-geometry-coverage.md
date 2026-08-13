@@ -9,6 +9,25 @@ the function exists and is tested and **no tool surface reaches it** — worth
 saying rather than hiding, because a map that promises a call nobody can make
 costs a turn and reads as a defect in the model.
 
+**There is no „library only" row left, and there is now a test that keeps it
+that way.** The last three were `clearance.clear_width`,
+`circulation.door_graph` and `daylight.sun_position` — the third of them named
+as such in this document while the first two were not, which is the problem with
+maintaining the list by hand.
+`packages/ifc-spatial-py/tests/test_tools.py::test_no_operator_is_implemented_tested_and_reachable_from_nothing`
+now walks every public function of the eleven operator modules against the AST
+of `tools.py`. A new operator has two ways past it: be reachable from a tool, or
+be entered in `NOT_ON_THE_SURFACE` with the reason it is not. Three operators
+are deliberately unreachable and are listed there — `operators.facade_plane_of`
+(a plane's normal and point, with nothing on this surface that consumes a
+vector; what a caller wants from it is `measure/azimuth`, and `overhang` already
+copies its „Außenseite ungesichert" caveat into its own answer),
+`operators.ray` (takes raw model coordinates, which an agent can only invent —
+its three real uses are wired as `relations/above`, `relations/below` and
+`light_incidence`) and `ids_export.answers_as_ids` (needs a whole
+conversation's answers, and this surface retains nothing beyond the model
+handle; that ledger is a host's job).
+
 ## Why this document exists
 
 The spatial engine grew out of one failing turn: an architect asked whether a
@@ -64,8 +83,10 @@ The heaviest Richtlinie and, until this round, the thinnest coverage.
 | need | state |
 |---|---|
 | escape route: which rooms connect, through which doors | `measure/egressPath`, `measure/reachableFrom` |
+| how complete the route basis is | `fire/doorGraph` — the whole walkable graph, plus the doors that became NO edge (`unbestimmt`, `ausgeschlossen`) and the rooms with no edge at all. On the sample house that is „Roof": four rooms, three door edges, one room with no way out. Those lists live on the graph and not on a route, so an agent could report a Fluchtweg through a building whose export made five doors unreadable and nothing in the answer said so |
 | escape route LENGTH | partial — a centroid polyline, explicitly an *Untergrenze* and barred from use as a Fluchtweglänge |
 | escape route WIDTH | `measure/clearWidth` on the doors along the route — the **Rohbaulichte**; the finished lichte Durchgangsbreite between the Zargenfalze is 15–25 % smaller, and the answer has to carry that or a too-narrow door reads as compliant |
+| clear width between TWO elements (a corridor, a handrail to a wall) | `clearance` — surface to surface. `distance('min')` is a gap between axis-aligned BOXES: on the sample house's pitched roof over the interior partition it reads 0.000 m where the clear dimension is 0.995 m. A box gap is a lower bound on a clearance and never an upper one, so it errs in the direction where too tight passes as free |
 | Fluchtniveau (decides the Gebäudeklasse) | `fire/fluchtniveau` — the HEIGHT of the topmost Aufenthaltsgeschoß over the lowest adjoining terrain, with the storeys it counted. Never a Gebäudeklasse: that word belongs to the Bestimmung |
 | fire compartment area | `fire/compartmentArea` — summed across the rooms of one compartment, every room listed beside the total |
 | what separates two compartments, and its declared FireRating | `fire/separatingElements` — the wall, the slab and the doors in them, each with its **declared** `FireRating` and explicitly with its absence |
@@ -93,7 +114,8 @@ The deep one, for historical reasons rather than good ones.
 | free light incidence, 45° prism | `light_incidence` — angles bound from the clause |
 | room depth relative to its daylight facade | `measure/roomDepth` |
 | facade orientation | `measure/azimuth` — undecidable without a declared TrueNorth |
-| sun position | `daylight.sun_position` — library only, undecidable without georeferencing |
+| sun position | `sun_position` — azimuth, altitude and the direction towards the sun in the MODEL's own coordinates. Undecidable without `IfcSite.RefLatitude`/`RefLongitude`, and the tool deliberately offers no coordinate override: the operator accepts one, but a field an agent can fill is a field it will fill, and an assumed 48.2°N Vienna on a Vorarlberg project is 1.4° out in altitude and returns `computed` with a tolerance |
+| shading / Besonnung | **gap, and not closable from one file** — a sun position is the input, not the answer. Whether the neighbour's gable was in the way needs everything outside the property line; the operator's caveat says so in every answer |
 | ventilation openings, cross-ventilation | **gap** — openable area is a property most exports never write |
 | moisture, ground contact, radon | **not geometric — out of scope** |
 

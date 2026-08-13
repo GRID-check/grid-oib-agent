@@ -231,6 +231,41 @@ class TestBuildCall:
     def test_storey_heights_takes_nothing(self):
         assert build(operation="storey_heights") == ("storey_heights", {})
 
+    def test_clearance_needs_two_elements_and_names_the_one_element_operator(self):
+        """The mistake worth catching in the same turn: `clearance` and
+        `measure/clearWidth` are both called a lichte Breite and take a
+        different number of elements. A model that reaches for the wrong one by
+        name has to be told which is which, not merely refused."""
+        answer = build(operation="clearance", global_id="a")
+        assert isinstance(answer, str)
+        assert "TWO elements" in answer
+        assert "clearWidth" in answer
+
+    def test_clearance_passes_both_elements_through(self):
+        assert build(operation="clearance", global_id="a", other_global_id="b") == (
+            "clearance",
+            {"a": "a", "b": "b"},
+        )
+
+    def test_sun_position_refuses_without_an_instant_and_says_it_needs_a_zone(self):
+        """A timestamp without a zone read as UTC moves the sun 30° in Austria.
+        The refusal spells out the two accepted spellings so the model can fix
+        it in the same turn rather than discovering it as an undecidable."""
+        answer = build(operation="sun_position")
+        assert isinstance(answer, str)
+        assert "ISO 8601" in answer and "time zone" in answer
+        assert "+02:00" in answer
+
+    def test_sun_position_forwards_the_instant_and_nothing_else(self):
+        """No latitude, no longitude, no global_id — even when the model sets
+        them. The operator accepts a coordinate override; offering it here would
+        let an agent supply the very number the operator refuses to assume, and
+        it would come back stamped `computed` with a tolerance."""
+        assert build(operation="sun_position", when=" 2026-06-21T12:00:00+02:00 ", global_id="w1") == (
+            "sun_position",
+            {"when": "2026-06-21T12:00:00+02:00"},
+        )
+
     def test_draw_narrows_by_storey_and_type(self):
         assert build(operation="draw", storey="Ground Floor", ifc_type="IfcWall") == (
             "draw",
@@ -1475,3 +1510,96 @@ class TestARatioDoesNotInheritAnAreaTolerance:
             )
         )
         assert "ratio=0.85" in text
+
+
+class TestTheDoorGraphRendersAsDoorsAndNotAsCounts:
+    """The graph flattened by `_value_text` reads „nodes=83 Einträge,
+    edges=77 Einträge, unbestimmt=0 Einträge" — measured on the institute
+    building in the corpus. Four counts and not one door.
+
+    It is the same defect `egressPath` already has a branch for: the counts are
+    not the answer. The answer is which rooms have no way out and which doors
+    the derivation could not read, and those two lists are the entire reason
+    `fire/doorGraph` is worth a call separate from `measure/egressPath`.
+    """
+
+    GRAPH = {
+        "value": {
+            "nodes": [
+                {"globalId": "r1", "ifcType": "IfcSpace", "name": "Wohnen"},
+                {"globalId": "r2", "ifcType": "IfcSpace", "name": "Dachraum"},
+                {"globalId": "AUSSEN", "ifcType": "outside", "name": "Freie (außerhalb des Gebäudes)"},
+            ],
+            "edges": [
+                {
+                    "globalId": "d1",
+                    "name": "Haustür",
+                    "ifcType": "IfcDoor",
+                    "verbindet": ["r1", "AUSSEN"],
+                    "length": 3.2,
+                    "external": True,
+                    "via": "geom.tree.select",
+                }
+            ],
+            "unbestimmt": [
+                {
+                    "globalId": "d2",
+                    "name": "Zimmertür",
+                    "ifcType": "IfcDoor",
+                    "warum": "Körpergeometrie fehlt",
+                    "abhilfe": "mit Körpergeometrie exportieren",
+                }
+            ],
+            "ausgeschlossen": [
+                {
+                    "globalId": "d3",
+                    "name": "Bodenluke",
+                    "ifcType": "IfcDoor",
+                    "warum": "PredefinedType = TRAPDOOR: nicht begehbar",
+                }
+            ],
+            "buildSeconds": 1.005,
+        },
+        "unit": None,
+        "tolerance": None,
+        "provenance": "computed",
+        "from": ["r1", "r2", "d1"],
+        "method": "doorGraph()",
+        "decidable": True,
+        "caveat": "Der Graph kennt ausschließlich Türen.",
+    }
+
+    def _text(self) -> str:
+        return "\n".join(_render_answer(json.loads(json.dumps(self.GRAPH))))
+
+    def test_the_headline_counts_rooms_doors_and_exits(self):
+        # The OUTSIDE node is not a room and must not be counted as one — a
+        # building with two rooms and an outside would otherwise report three.
+        assert "2 Räume, 1 Türverbindungen, davon 1 ins Freie" in self._text()
+
+    def test_a_room_with_no_door_edge_is_named(self):
+        """The finding `egressPath` cannot produce, because it is asked about one
+        room and this is about all of them."""
+        text = self._text()
+        assert "KEINE Türkante" in text and "Dachraum" in text
+        assert "keinen Ausgang" in text
+
+    def test_an_unresolved_door_is_named_with_its_reason(self):
+        """A hole in EVERY route through this building. A reader who sees only
+        the edge count cannot tell a building with one door from one with two of
+        which one was unreadable."""
+        text = self._text()
+        assert "UNBESTIMMT" in text and "Zimmertür" in text and "Körpergeometrie fehlt" in text
+
+    def test_a_deliberately_excluded_door_is_named_too(self):
+        text = self._text()
+        assert "NICHT als Kante gewertet" in text and "Bodenluke" in text and "TRAPDOOR" in text
+
+    def test_the_counts_alone_never_stand_in_for_the_lists(self):
+        """The line this branch exists to prevent."""
+        assert "unbestimmt=1 Eintrag" not in self._text()
+
+    def test_the_caveat_and_the_method_still_travel(self):
+        text = self._text()
+        assert "Hinweis: Der Graph kennt ausschließlich Türen." in text
+        assert "Methode: doorGraph()" in text

@@ -43,6 +43,9 @@ richtig gemessene Zahl unter einem falschen Namen.
 | Freier Lichteinfall, Tageslicht | `ifc_measure`: `light_incidence`, `measure: "lightEntryArea"`, `measure: "roomDepth"` |
 | Fluchtweg, welche Räume hängen zusammen | `ifc_measure`: `measure: "egressPath"`, `measure: "reachableFrom"` |
 | Rohbaulichte einer Öffnung (Ausgangswert jeder Durchgangsbreite) | `ifc_measure`: `measure: "clearWidth"` |
+| Lichtes Maß zwischen ZWEI Bauteilen (Gang, Handlauf zur Wand) | `ifc_measure`: `clearance` |
+| Türgraph des ganzen Gebäudes, Räume ohne Ausgang | `ifc_measure`: `fire` mit `kind: "doorGraph"` |
+| Sonnenstand zu einem Zeitpunkt (Eingangsgröße einer Verschattungsfrage) | `ifc_measure`: `sun_position` |
 | Fluchtniveau, Brandabschnittsfläche, trennende Bauteile, Grundgrenze | `ifc_measure`: `fire` mit `kind` |
 | Thermische Hülle, Fensterflächenanteil, Kompaktheit (A/V) | `ifc_measure`: `envelope` mit `kind` |
 | Was liegt über oder unter etwas | `ifc_measure`: `relations` mit `above` / `below` |
@@ -123,6 +126,11 @@ darin?" (OIB 2)
    Durchgangsbreite (siehe §4)
 4. `operation: "measure"` mit `measure: "reachableFrom"`, wenn zu klären ist,
    welche Räume überhaupt hinter einer Tür liegen
+5. `operation: "fire"` mit `kind: "doorGraph"`, bevor eine Aussage über *alle*
+   Wege fällt: der Graph nennt die Räume ohne jede Türkante und die Türen, deren
+   Räume nicht bestimmbar waren. Eine unbestimmte Tür ist ein Loch in jedem Weg
+   dieses Gebäudes — eine Route, die sie nicht kennt, ist nicht falsch, sondern
+   unbegründet
 
 Zur Länge gehört zwingend der Hinweis dazu: sie ist ein Streckenzug über
 Mittelpunkte und damit eine **Untergrenze**, keine Fluchtweglänge im Sinne der
@@ -207,6 +215,17 @@ Abstand größer als der gemeldete. Für eine Durchgangsbreite
 `measure: "clearWidth"`, das an der Öffnung selbst misst — `extent` liefert an
 einer Tür die Bauteildicke als `width`, nicht die Durchgangsbreite.
 
+**Zwei Bauteile, ein lichtes Maß: `clearance`.** Für den Gang zwischen zwei
+Wänden, den Abstand Handlauf zur Wand, den Durchgang zwischen zwei Einbauten
+misst `clearance` Oberfläche zu Oberfläche. Am Pultdach über der Innenwand des
+Musterhauses meldet `mode: "min"` 0,000 m — die Hüllbox des Daches verschluckt
+die der Wand — wo das lichte Maß 0,995 m beträgt. Eine Boxlücke ist immer eine
+Untergrenze und nie eine Obergrenze: sie meldet Bauteile näher beieinander als
+sie sind, also in der Richtung, in der zu eng als frei durchgeht. Die Antwort
+trägt `boxGap` daneben, damit der Unterschied im selben Befund sichtbar ist.
+Nicht zu verwechseln mit `measure: "clearWidth"`: das misst EINE Öffnung, dieses
+Werkzeug braucht ZWEI Bauteile.
+
 **`clearWidth` liefert die Rohbaulichte, nicht die fertige Durchgangsbreite.**
 Gemessen wird die lichte Öffnung im Rohbau, auf die Öffnungsebene projiziert.
 Die lichte Durchgangsbreite einer Tür wird zwischen den fertigen Zargenfalzen
@@ -236,6 +255,15 @@ Brüstungshöhe um seine Dicke — bei der 1,00-m-Grenze der Absturzsicherung
 entscheidet das. Ohne Geschoßzuordnung, oder wenn die deklarierten Geschoßhöhen
 neben der Geometrie liegen (Vermessungsnull statt Projektnull), kommt
 `decidable: false` statt einer Zahl.
+
+**Ein Sonnenstand ist keine Besonnungsstudie.** `sun_position` braucht `when`
+als ISO-8601-Zeitpunkt **mit Zeitzone** und sagt, wo die Sonne stand — nicht, ob
+der Giebel des Nachbarn davorstand oder wie viele Stunden Sonne ein Fenster über
+den Tag bekam. Dafür bräuchte es alles außerhalb der Grundgrenze, und das steht
+in keiner Gebäudedatei. Ohne Georeferenz in der Datei kommt `decidable: false`;
+eine Breite wird nicht angenommen und kann diesem Werkzeug auch nicht übergeben
+werden — eine unterstellte Lage käme als gemessene Zahl mit Toleranz zurück und
+wäre von einer echten nicht zu unterscheiden.
 
 **`azimuth` kann um 180° gedreht sein.** „Außen" ist die Normale, die von der
 Grundrissmitte wegzeigt; an einem Innenhof oder in einem einspringenden

@@ -72,6 +72,8 @@ VALID_OPERATIONS = {
     "relations",
     "measure",
     "distance",
+    "clearance",
+    "sun_position",
     "storey_heights",
     "room_inventory",
     "draw",
@@ -226,6 +228,12 @@ FIRE_ASPECTS = {
         "distance to the site boundary (Brandübertragung). Undecidable on most exports, because a "
         "parcel boundary is rarely exported — and it is not guessed here"
     ),
+    "doorGraph": (
+        "the WHOLE building's walkable graph: rooms as nodes, OUTSIDE as its own node, doors as edges "
+        "— plus the doors that became NEITHER (unbestimmt, ausgeschlossen). A room with no edge has no "
+        "way out; an unresolved door is a hole in EVERY route through this building. measure/egressPath "
+        "gives one route, this says how sound the basis of all routes is. Takes no global_id"
+    ),
 }
 
 #: `what` on the `envelope` operation — the OIB 6 geometry.
@@ -305,6 +313,21 @@ _TOOL_DESCRIPTION = (
     "  'distance'       — the distance between TWO elements. Set 'global_id' and 'other_global_id', "
     "and 'mode':\n"
     f"{_enum_lines(DISTANCE_MODES)}\n"
+    "  'clearance'      — the LICHTE dimension between TWO elements: the smallest SURFACE-to-SURFACE "
+    "gap, in metres. Set 'global_id' and 'other_global_id'. This is the number 'distance' does not "
+    "have — its 'min' is a gap between BOUNDING BOXES, and on the sample house's pitched roof against "
+    "the interior partition that reads 0.000 m where the clear dimension is 0.995 m, because the "
+    "roof's box swallows the wall's. A box gap is a lower bound on a clearance and never an upper one, "
+    "so it errs in the direction where too tight passes as free. For the clear width of ONE opening "
+    "use measure/clearWidth — an opening has two reveals but is one element. The answer carries both "
+    "measured points and the box gap beside the clear one.\n"
+    "  'sun_position'   — where the sun stood over this building at an instant: azimuth, altitude, and "
+    "the direction TOWARDS the sun in THIS model's coordinates. Set 'when' to an ISO 8601 instant WITH "
+    "a time zone. NOT a Besonnungsstudie: it says where the sun was, never whether the neighbour's "
+    "gable was in the way — that needs everything outside the property line, which is not in the file, "
+    "and the caveat says so. Undecidable without IfcSite.RefLatitude/RefLongitude, and no latitude is "
+    "assumed: an assumed Vienna on a Vorarlberg project is 1.4° out in altitude and would come back as "
+    "a measured number with a tolerance. This tool therefore takes no coordinates at all.\n"
     "  'storey_heights' — the storey pitch (slab top to slab top) for every storey. This is the "
     "STRUCTURAL height, NOT the lichte Raumhöhe — never use it for a Raumhöhennachweis, use "
     "measure/clearHeight.\n"
@@ -424,6 +447,7 @@ def _build_call(
     limit: int = 50,
     angle_deg: float | None = None,
     swivel_deg: float | None = None,
+    when: str = "",
 ) -> tuple[str, dict[str, Any]] | str:
     """The engine tool name and its arguments, or a correctable error string.
 
@@ -449,6 +473,24 @@ def _build_call(
 
     if op == "storey_heights":
         return "storey_heights", {}
+
+    if op == "sun_position":
+        moment = _clean(when)
+        if not moment:
+            return (
+                "Error: sun_position needs 'when' — an ISO 8601 instant WITH a time zone, e.g. "
+                "'2026-06-21T12:00:00+02:00' (Austrian summer time) or '2026-06-21T10:00:00Z'. A "
+                "timestamp without a zone is refused rather than read as UTC: Austria runs UTC+1 and "
+                "UTC+2, so reading 12:00 as UTC moves the sun 30° east of where it stood."
+            )
+        # No latitude/longitude field, deliberately, and the engine's schema has
+        # none either. The operator accepts an override — a surveyor's coordinate
+        # is better than an exporter's default — but a model that CAN fill a
+        # latitude fills one, and an assumed 48.2°N Vienna on a Vorarlberg
+        # project is 1.4° out in solar altitude and comes back as a `computed`
+        # number with a tolerance, indistinguishable from a measured one. Without
+        # a georeference in the file the answer is undecidable, which is correct.
+        return "sun_position", {"when": moment}
 
     if op == "overhang":
         if not subject or not _clean(other_global_id):
@@ -586,6 +628,15 @@ def _build_call(
         if wanted not in MEASURES:
             return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
         return "measure", {"globalId": subject, "measure": wanted}
+
+    if op == "clearance":
+        if not _clean(other_global_id):
+            return (
+                "Error: clearance needs TWO elements — set 'global_id' and 'other_global_id'. For the "
+                "clear width of ONE opening use operation='measure' with measure='clearWidth': an "
+                "opening has two reveals but is only one element."
+            )
+        return "clearance", {"a": subject, "b": _clean(other_global_id)}
 
     # distance
     other = _clean(other_global_id)
@@ -877,6 +928,51 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
                 f"- {(leg.get('von') or {}).get('name')} → "
                 f"{'INS FREIE' if outside else (leg.get('nach') or {}).get('name')} "
                 f"durch „{door.get('name')}“ ({_num(leg.get('length'), 2)} m) · GlobalId {door.get('globalId')}"
+            )
+        if answer.get("caveat"):
+            lines.append(f"Hinweis: {answer['caveat']}")
+        if answer.get("method"):
+            lines.append(f"Methode: {answer['method']}")
+        return lines
+
+    # `doorGraph` is the whole building, and `_value_text` flattens it to
+    # „nodes=83 Einträge, edges=77 Einträge, unbestimmt=0 Einträge,
+    # ausgeschlossen=0 Einträge" — four counts and not one door. Measured on the
+    # institute building in the corpus, and it is the same defect `egressPath`
+    # has a branch for: the counts are not the answer. The answer is WHICH rooms
+    # have no way out and WHICH doors the derivation could not read, because
+    # those two lists are what makes every route in the building sound or
+    # unfounded, and this tool was wired precisely to surface them.
+    if isinstance(value, dict) and "nodes" in value and "edges" in value and "unbestimmt" in value:
+        edges = value.get("edges") or []
+        nodes = value.get("nodes") or []
+        rooms = [node for node in nodes if isinstance(node, dict) and node.get("globalId") != "AUSSEN"]
+        outside = sum(1 for edge in edges if isinstance(edge, dict) and edge.get("external"))
+        lines[0] = (
+            f"gemessen: {len(rooms)} Räume, {len(edges)} Türverbindungen, davon {outside} ins Freie "
+            "— aus der Geometrie abgeleitet, nicht deklariert."
+        )
+        reached = {node for edge in edges if isinstance(edge, dict) for node in (edge.get("verbindet") or [])}
+        stranded = [node for node in rooms if node.get("globalId") not in reached]
+        for node in stranded[:list_limit]:
+            lines.append(
+                f"- KEINE Türkante: {node.get('ifcType')} „{node.get('name')}“ · "
+                f"GlobalId {node.get('globalId')} — dieser Raum hat in dieser Datei keinen Ausgang"
+            )
+        # These two are the reason the graph is worth a call of its own. A door
+        # whose rooms could not be resolved is a hole in EVERY route through the
+        # building, and a reader who sees only the edge count cannot tell a
+        # building with three doors from one with five of which two were
+        # unreadable.
+        for entry in (value.get("unbestimmt") or [])[:list_limit]:
+            lines.append(
+                f"- UNBESTIMMT: {entry.get('ifcType')} „{entry.get('name')}“ · "
+                f"GlobalId {entry.get('globalId')} — {entry.get('warum')}"
+            )
+        for entry in (value.get("ausgeschlossen") or [])[:list_limit]:
+            lines.append(
+                f"- NICHT als Kante gewertet: {entry.get('ifcType')} „{entry.get('name')}“ · "
+                f"GlobalId {entry.get('globalId')} — {entry.get('warum')}"
             )
         if answer.get("caveat"):
             lines.append(f"Hinweis: {answer['caveat']}")
@@ -1284,6 +1380,7 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
         limit: int = 0,
         angle_deg: float = 0.0,
         swivel_deg: float = 0.0,
+        when: str = "",
     ) -> list[dict] | str:
         """Measure the project's IFC/BIM model and report the provenance."""
         organization_id = get_organization_id_from_context()
@@ -1317,6 +1414,7 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
             # fact about the clause and supplying it would be applying the law.
             angle_deg=angle_deg if angle_deg else None,
             swivel_deg=swivel_deg if swivel_deg else None,
+            when=when or "",
         )
         if isinstance(built, str):
             # Rejected before anything was resolved, downloaded or parsed.
