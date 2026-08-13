@@ -1605,3 +1605,115 @@ class TestTheDoorGraphRendersAsDoorsAndNotAsCounts:
         text = self._text()
         assert "Hinweis: Der Graph kennt ausschließlich Türen." in text
         assert "Methode: doorGraph()" in text
+
+
+class TestRenderingASurvey:
+    """A survey is many answers, and the rendering decides whether the caller
+    reads them as many.
+
+    The failure this branch exists to prevent is not a crash. Flattened through
+    the generic value renderer, seventeen measurements print as
+    „results=17 Einträge, summary=(…)" — a shape, not a finding — and the model
+    downstream reports „der Keller ist 2,70 m hoch" because that is the only
+    number it can see. The spread has to come first and the outlier has to have
+    a name, or the survey has bought nothing over measuring one room.
+    """
+
+    SURVEY = {
+        "measure": "clearHeight",
+        "results": [
+            {
+                "globalId": "3UEb2iq7D2tOgbX6Mufs$X",
+                "name": "Seminarraum",
+                "storey": "Keller",
+                "answer": {"value": 2.7, "unit": "m", "tolerance": 0.005, "decidable": True},
+            },
+            {
+                "globalId": "3Gz7u_d1P7IA35Wmtg48Rc",
+                "name": "Flur Keller Treppe",
+                "storey": "Keller",
+                "answer": {"value": 0.2497, "unit": "m", "tolerance": 0.005, "decidable": True},
+            },
+            {
+                "globalId": "0V74RtuUH1zQt_CcawQbBc",
+                "name": "Technikraum I",
+                "storey": "Keller",
+                "answer": {
+                    "decidable": False,
+                    "missing": {"what": "auswertbare Körpergeometrie", "remedy": "als Solid exportieren"},
+                },
+            },
+        ],
+        "summary": {
+            "measured": 2,
+            "of": 3,
+            "undecidable": [{"globalId": "0V74RtuUH1zQt_CcawQbBc", "name": "Technikraum I"}],
+            "min": 0.2497,
+            "max": 2.7,
+            "spread": 2.4503,
+            "provenance": {"computed": 2},
+        },
+    }
+
+    def _text(self, **overrides):
+        payload = {**self.SURVEY, **overrides}
+        return _render("survey", payload)
+
+    def test_the_spread_is_stated_before_any_single_room(self):
+        """Read top-down, the first fact has to be that the rooms disagree."""
+        text = self._text()
+        head = text.splitlines()[0]
+        assert "2.450" in head and "0.250" in head and "2.700" in head
+        assert head.index("Spanne") < text.index("Seminarraum")
+
+    def test_the_outlier_is_named_not_just_identified(self):
+        """A GlobalId is not something a person can carry to a CAD window."""
+        text = self._text()
+        assert "Flur Keller Treppe (Keller): 0.250 m" in text
+        assert "3Gz7u_d1P7IA35Wmtg48Rc" not in text
+
+    def test_a_room_that_could_not_be_measured_is_never_folded_into_the_others(self):
+        text = self._text()
+        assert "Technikraum I (Keller): NICHT ENTSCHEIDBAR" in text
+        assert "1 Bauteil konnte nicht gemessen werden" in text
+        assert "wie die anderen" in text
+
+    def test_the_agreement_line_counts_correctly_in_german(self):
+        """„1 Bauteile konnten" is the kind of sentence that makes a reader stop
+        trusting the rest of the number."""
+        assert "1 Bauteil konnte" in self._text()
+        many = self._text(
+            summary={**self.SURVEY["summary"], "undecidable": [{"name": "A"}, {"name": "B"}]},
+        )
+        assert "2 Bauteile konnten" in many
+
+    def test_a_truncated_survey_says_the_spread_covers_only_a_slice(self):
+        text = self._text(
+            truncated=True,
+            hint="200 Bauteile passen zur Auswahl, gemessen wurden die ersten 50.",
+            summary={**self.SURVEY["summary"], "selected": 200},
+        )
+        assert "NUR diese Auswahl" in text
+        assert "200 Bauteile passen" in text
+
+    def test_a_declared_computed_conflict_is_reported_as_an_export_defect(self):
+        text = self._text(
+            summary={**self.SURVEY["summary"], "disagree": [{"name": "Seminarraum", "globalId": "x"}]},
+        )
+        assert "WIDERSPRUCH" in text and "Seminarraum" in text
+        assert "über den Export, nicht über das Gebäude" in text
+
+    def test_a_survey_that_measured_nothing_does_not_lecture_about_a_spread(self):
+        """The sentence has to keep meaning something for the cases where it fires."""
+        text = self._text(
+            results=[],
+            summary={"measured": 0, "of": 0, "undecidable": []},
+            hint="Kein Bauteil passt zu dieser Auswahl.",
+        )
+        assert "Die Spanne ist die Aussage" not in text
+        assert "Kein Bauteil passt" in text
+
+    def test_the_raw_dict_shape_never_reaches_the_reader(self):
+        """The line this branch exists to prevent."""
+        text = self._text()
+        assert "results=" not in text and "summary=" not in text and "Einträge" not in text

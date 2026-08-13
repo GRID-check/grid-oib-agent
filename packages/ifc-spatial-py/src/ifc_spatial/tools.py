@@ -277,6 +277,47 @@ MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
     "clearApproach": acc.clear_approach,
 }
 
+#: Which IFC types each measure is ABOUT, read off the operators' own
+#: signatures — `clear_height(model, space_global_id)` takes a space, and
+#: `threshold_height(model, door_global_id)` takes a door.
+#:
+#: An empty tuple means the measure is about geometry as such and applies to
+#: anything with a shape (`extent`, `elevation`, `orientedExtent`, `floorArea`).
+#:
+#: This is deliberately NOT wired into `measure` as a refusal. Asking for the
+#: floor area of a wall is odd but answerable, and a guard here would turn a
+#: type this table happens not to list — IfcSpatialZone, a proxy standing in for
+#: a room — into a refusal for a measurement that would have worked. The table
+#: exists to CHOOSE, in `profile`, not to forbid.
+MEASURE_SUBJECT: dict[str, tuple[str, ...]] = {
+    "extent": (),
+    "elevation": (),
+    "orientedExtent": (),
+    "floorArea": (),
+    "clearHeight": ("IfcSpace",),
+    "lightEntryArea": ("IfcSpace",),
+    "egressPath": ("IfcSpace",),
+    "reachableFrom": ("IfcSpace",),
+    "roomDepth": ("IfcSpace",),
+    "turningCircle": ("IfcSpace",),
+    "balustrade": ("IfcSpace",),
+    "sillAndHead": ("IfcWindow", "IfcDoor"),
+    "clearWidth": ("IfcOpeningElement", "IfcDoor", "IfcWindow"),
+    "azimuth": ("IfcWall", "IfcWallStandardCase", "IfcCurtainWall", "IfcPlate", "IfcWindow", "IfcDoor"),
+    "thresholdHeight": ("IfcDoor",),
+    "clearApproach": ("IfcDoor",),
+    "stairGeometry": ("IfcStair", "IfcStairFlight"),
+    "rampSlope": ("IfcRamp", "IfcRampFlight"),
+    "headroom": ("IfcStair", "IfcStairFlight", "IfcRamp", "IfcRampFlight"),
+    "stepsOf": ("IfcStair", "IfcStairFlight", "IfcRamp", "IfcRampFlight"),
+}
+
+#: Measures that walk the door graph or sample a raster over the whole model.
+#: `profile` runs them only when asked, because a profile is meant to be the
+#: cheap „was ist das für ein Bauteil" call and these are seconds, not
+#: milliseconds — the same budget argument that motivates `survey`.
+MEASURE_EXPENSIVE: frozenset[str] = frozenset({"egressPath", "reachableFrom", "turningCircle", "clearApproach"})
+
 #: The `what` values `fire` accepts.
 FIRE_ASPECTS: dict[str, str] = {
     "fluchtniveau": (
@@ -329,6 +370,15 @@ ENVELOPE_ASPECTS: dict[str, str] = {
         "unterschreibt, nicht geprüft werden kann. V ist das NETTO-Volumen (Summe der IfcSpace-Körper)"
     ),
 }
+
+#: How many elements one `measure` call may take.
+#:
+#: The cap exists because the geometry is real work — a `clearHeight` is a
+#: 25-ray raster per room — and an agent that pastes a whole building into
+#: the field would sit inside one tool call for minutes with no way to see
+#: progress. Fifty covers every storey in the corpus (the largest is 22
+#: rooms) and refuses the paste.
+MAX_BATCH = 50
 
 KINDS = ["project", "site", "building", "storey", "space", "element", "opening", "group"]
 
@@ -459,9 +509,14 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
 
     # ── find_elements ───────────────────────────────────────────────────────
 
-    def find_elements(args: dict[str, Any]) -> Any:
-        model = resolve(args.get("model"))
-        limit = _clamp(args.get("limit", 50), 1, 500)
+    def _select(model: SpatialModel, args: dict[str, Any], limit: int) -> tuple[list[Any], int]:
+        """The selection half of `find_elements`, shared with `survey`.
+
+        Kept as one function so the two tools cannot drift: a caller who scopes
+        a survey with `storey="Keller"` has to get exactly the set that
+        `find_elements(storey="Keller")` lists, or the names beside the numbers
+        would be answering a different question than the numbers.
+        """
         wanted_type = _lower(args.get("ifcType"))
         wanted_name = _lower(args.get("nameContains"))
         wanted_storey = _lower(args.get("storey"))
@@ -485,6 +540,12 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
             total += 1
             if len(matches) < limit:
                 matches.append(element)
+        return matches, total
+
+    def find_elements(args: dict[str, Any]) -> Any:
+        model = resolve(args.get("model"))
+        limit = _clamp(args.get("limit", 50), 1, 500)
+        matches, total = _select(model, args, limit)
 
         out: dict[str, Any] = {
             "elements": [model.ref(e).to_dict() for e in matches],
@@ -567,12 +628,228 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         return run(lambda: fn(model, str(args.get("globalId") or "")))
 
     def measure(args: dict[str, Any]) -> Any:
+        """One measurement, of one element or of MANY.
+
+        `globalId` takes a comma-separated list, the way `view` and
+        `fire/compartmentArea` already do. That is not a convenience — it is
+        what makes the common question answerable inside a caller's budget.
+
+        „Wie hoch ist der Keller?" is one question and seventeen rooms. Asked
+        one call at a time it costs seventeen tool calls, and the agent that
+        reported this had a budget of FIVE: it spent them on two briefings and
+        a storey table, was cut off before the first `clearHeight`, and fell
+        back to the declared storey pitch of 3.00 m for rooms whose measured
+        clear height is 2.70 m. The measurement was available and correct the
+        whole time; nothing in the answer was wrong except which number it
+        reached for, and it ran out of turns before it could reach the right
+        one.
+
+        A list also answers a question a single measurement cannot: whether the
+        rooms AGREE. „Alle 17 Kellerräume 2.70 m" is a different and much
+        stronger statement than one room measured and sixteen assumed, and it
+        is the statement a Raumhöhennachweis actually needs.
+        """
         model = resolve(args.get("model"))
         name = str(args.get("measure") or "")
         fn = MEASURE_FN.get(name)
         if fn is None:
             raise ToolError(f'measure "{name}" gibt es nicht. Erlaubt: {", ".join(MEASURES)}')
-        return run(lambda: fn(model, str(args.get("globalId") or "")))
+
+        ids = [part.strip() for part in str(args.get("globalId") or "").split(",") if part.strip()]
+        if not ids:
+            raise ToolError("globalId fehlt — eine GlobalId angeben (aus find_elements)")
+        if len(ids) == 1:
+            return run(lambda: fn(model, ids[0]))
+        if len(ids) > MAX_BATCH:
+            raise ToolError(
+                f"höchstens {MAX_BATCH} GlobalIds je Aufruf — {len(ids)} übergeben. "
+                "In mehreren Aufrufen messen, oder mit find_elements eingrenzen."
+            )
+
+        # Each element keeps its OWN answer, with its own provenance, tolerance
+        # and refusal. A batch that merged them into one number would be the
+        # error this package exists to prevent: seventeen rooms measured and
+        # one of them undecidable is not „the basement is 2.70 m", and the
+        # caller has to be able to see which one.
+        results = [{"globalId": gid, "answer": _jsonable(run(lambda gid=gid: fn(model, gid)))} for gid in ids]
+        decided = [r for r in results if (r["answer"] or {}).get("decidable")]
+        values = [(r["answer"] or {}).get("value") for r in decided]
+        numeric = [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        agreement: dict[str, Any] = {
+            "measured": len(decided),
+            "of": len(ids),
+            "undecidable": [r["globalId"] for r in results if not (r["answer"] or {}).get("decidable")],
+        }
+        if numeric:
+            low, high = min(numeric), max(numeric)
+            agreement |= {"min": round(low, 6), "max": round(high, 6), "spread": round(high - low, 6)}
+        return {"measure": name, "results": results, "summary": agreement}
+
+    def survey(args: dict[str, Any]) -> Any:
+        """One measurement over a NAMED SET — selection, measurement and names
+        in a single call.
+
+        This exists because of the shape of the questions, not the shape of the
+        code. „Wie hoch ist der Keller?" is not a question about a room; it is a
+        question about seventeen rooms, and the honest answer is a range with an
+        outlier in it. Composed from primitives it costs `find_elements` +
+        `measure` + a GlobalId→Name join the caller has to carry in its head —
+        four turns of a five-turn budget, which is exactly how a real query came
+        back quoting the declared storey pitch of 3.00 m for rooms that measure
+        2.70 m, with one at 0.25 m nobody saw.
+
+        `find_elements` and `measure` stay: a caller who needs an unusual set,
+        or one element, should not pay for a survey. This is the composition of
+        the two, not a replacement for either — and it deliberately reports the
+        same set `find_elements` would, because names beside numbers are only
+        useful if they belong to the same rooms.
+        """
+        model = resolve(args.get("model"))
+        name = str(args.get("measure") or "")
+        fn = MEASURE_FN.get(name)
+        if fn is None:
+            raise ToolError(f'measure "{name}" gibt es nicht. Erlaubt: {", ".join(MEASURES)}')
+
+        limit = _clamp(args.get("limit", MAX_BATCH), 1, MAX_BATCH)
+        matches, total = _select(model, args, limit)
+        if not matches:
+            return {
+                "measure": name,
+                "results": [],
+                "summary": {"measured": 0, "of": 0, "undecidable": []},
+                "hint": (
+                    "Kein Bauteil passt zu dieser Auswahl — gemessen wurde daher nichts. "
+                    "Geschoßnamen und Typen stehen im Briefing; sie stammen aus diesem Export "
+                    "und lauten selten so, wie die Frage sie nennt."
+                ),
+            }
+
+        results: list[dict[str, Any]] = []
+        for element in matches:
+            ref = model.ref(element).to_dict()
+            storey = model.storey_of(element)
+            results.append(
+                {
+                    "globalId": ref.get("globalId"),
+                    # The name is the whole point of surveying rather than
+                    # batching: a caller that has to report WHICH room is the
+                    # outlier cannot do it from a GlobalId.
+                    "name": ref.get("name"),
+                    "storey": getattr(storey, "Name", None),
+                    "answer": _jsonable(run(lambda gid=str(ref.get("globalId") or ""): fn(model, gid))),
+                }
+            )
+
+        decided = [r for r in results if (r["answer"] or {}).get("decidable")]
+        numeric = [
+            v
+            for v in ((r["answer"] or {}).get("value") for r in decided)
+            if isinstance(v, (int, float)) and not isinstance(v, bool)
+        ]
+        summary: dict[str, Any] = {
+            "measured": len(decided),
+            "of": len(results),
+            "undecidable": [
+                {"globalId": r["globalId"], "name": r["name"]}
+                for r in results
+                if not (r["answer"] or {}).get("decidable")
+            ],
+        }
+        if numeric:
+            low, high = min(numeric), max(numeric)
+            summary |= {"min": round(low, 6), "max": round(high, 6), "spread": round(high - low, 6)}
+
+        # Where the numbers CAME FROM, counted. A set answered half from the
+        # file's own declarations and half from geometry is not one finding, and
+        # the split is the caller's business: a declared value is wrong only if
+        # the export is wrong, a computed one carries a tolerance. `disagree`
+        # counts the elements where an operator ran both routes and they did not
+        # match — those are export defects, and they are the reason a reviewer
+        # asked in the first place.
+        provenances = [(r["answer"] or {}).get("provenance") for r in decided]
+        summary["provenance"] = {
+            kind: provenances.count(kind) for kind in ("declared", "computed", "inferred") if provenances.count(kind)
+        }
+        disagreeing = [r for r in decided if (r["answer"] or {}).get("agreement") == "disagree"]
+        if disagreeing:
+            summary["disagree"] = [{"globalId": r["globalId"], "name": r["name"]} for r in disagreeing]
+
+        out: dict[str, Any] = {"measure": name, "results": results, "summary": summary}
+        if total > len(results):
+            # Said out loud, never inferred. A survey of 50 of 200 rooms
+            # reported as „the rooms" is the one error this package exists to
+            # prevent, and silence would produce it every time.
+            out["truncated"] = True
+            out["summary"]["selected"] = total
+            out["hint"] = (
+                f"{total} Bauteile passen zur Auswahl, gemessen wurden die ersten {len(results)}. "
+                "Die Spanne gilt NUR für diese; enger auswählen (storey, nameContains) und erneut messen."
+            )
+        return out
+
+    def profile(args: dict[str, Any]) -> Any:
+        """Every measure that applies to ONE element — the inverse of `survey`.
+
+        `survey` is one measure over many elements; this is many measures over
+        one. Both exist for the same reason: the expensive thing is not the
+        measurement, it is the turn. „Erzähl mir alles über diesen Raum" is a
+        normal opening move for a reviewer who has just been pointed at an
+        outlier, and composed from primitives it costs one `measure` call per
+        kind — twenty turns for a question that has one answer.
+
+        Which measures apply is read from `MEASURE_SUBJECT`, so a door is not
+        asked for its lichte Raumhöhe and a room is not asked for its
+        Schwellenhöhe. The refusals that would produce are not useful output;
+        they are noise that pushes the real numbers out of the context window.
+        """
+        model = resolve(args.get("model"))
+        global_id = _require(args, "globalId")
+        try:
+            subject = model.file.by_guid(global_id)
+        except (RuntimeError, KeyError):
+            raise ToolError(
+                f"GlobalId {global_id} steht nicht in diesem Modell. "
+                "Mit find_elements suchen — GlobalIds sind exakt 22 Zeichen und gelten je Datei."
+            ) from None
+
+        ifc_type = subject.is_a()
+        applicable = [
+            name
+            for name in MEASURES
+            if not MEASURE_SUBJECT.get(name, ())
+            or any(subject.is_a(subject_type) for subject_type in MEASURE_SUBJECT[name])
+        ]
+        if not _lower(args.get("include")) == "expensive":
+            applicable = [name for name in applicable if name not in MEASURE_EXPENSIVE]
+
+        measures: dict[str, Any] = {}
+        for name in applicable:
+            fn = MEASURE_FN[name]
+            try:
+                measures[name] = _jsonable(run(lambda fn=fn: fn(model, global_id)))
+            except Exception as exc:  # noqa: BLE001
+                # One measure that throws must not cost the caller the other
+                # fifteen. The failure is reported in place, as a failure, and
+                # the profile still comes back — the alternative is a dead call
+                # and another turn spent finding out which kind was to blame.
+                measures[name] = {"decidable": False, "error": f"{type(exc).__name__}: {exc}"}
+
+        skipped = [name for name in MEASURES if name not in applicable]
+        out: dict[str, Any] = {
+            "element": model.ref(subject).to_dict(),
+            "storey": getattr(model.storey_of(subject), "Name", None),
+            "measures": measures,
+        }
+        if skipped:
+            out["notMeasured"] = {
+                "kinds": skipped,
+                "why": (
+                    f"Diese Kennwerte sind nicht über ein {ifc_type} definiert (oder sind teuer und "
+                    'wurden übersprungen — dann include="expensive" setzen). Kein Befund über das '
+                    "Bauteil, sondern über die Frage."
+                ),
+            }
+        return out
 
     def distance(args: dict[str, Any]) -> Any:
         model = resolve(args.get("model"))
@@ -998,19 +1275,86 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 "und sie tragen immer eine Toleranz. Genau deshalb sind Raumflächen und Brüstungshöhen hier "
                 "beantwortbar, wo eine reine Property-Abfrage leer zurückkommt.\n\n"
                 + "\n".join(f"  {name} — {meaning}" for name, meaning in MEASURES.items())
-                + "\n\nDer erste Aufruf tesselliert das Modell (~2 s für ein Einfamilienhaus), danach sind "
+                + "\n\nGilt für EIN Bauteil. Für ein ganzes Geschoß oder eine Raumgruppe `survey` nehmen — "
+                "gleiche Kennwerte, aber mit Namen und Spanne, und in einem Aufruf statt in zwanzig. "
+                "(globalId nimmt hier auch eine kommagetrennte Liste, wenn die Menge schon feststeht.)\n\n"
+                "Der erste Aufruf tesselliert das Modell (~2 s für ein Einfamilienhaus), danach sind "
                 "die Maße Millisekunden."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
                     "model": {"type": "string"},
-                    "globalId": {"type": "string"},
+                    "globalId": {
+                        "type": "string",
+                        "description": (
+                            f"Eine GlobalId, oder bis zu {MAX_BATCH} kommagetrennt für eine Messung über "
+                            "mehrere Bauteile."
+                        ),
+                    },
                     "measure": {"type": "string", "enum": list(MEASURES)},
                 },
                 "required": ["model", "globalId", "measure"],
             },
             handler=measure,
+        ),
+        ToolDef(
+            name="survey",
+            title="Eine Messung über ein ganzes Geschoß",
+            description=(
+                "Misst EINEN Kennwert an ALLEN Bauteilen einer Auswahl und nennt sie beim Namen. "
+                "Der erste Griff, sobald die Frage im Plural steht — „wie hoch ist der Keller“, „wie groß "
+                "sind die Büros“, „haben alle Aufenthaltsräume genug Licht“: das ist je eine Frage über "
+                "viele Räume, und sie ist erst beantwortet, wenn alle gemessen sind.\n\n"
+                "Ausgewählt wird wie bei find_elements (storey, ifcType, nameContains, kind); gemessen wird "
+                "mit den Kennwerten aus `measure`, die dort erklärt sind. Zurück kommen Name, Geschoß und "
+                "eigene Antwort je Bauteil, dazu die Spanne.\n\n"
+                "Die Spanne ist der eigentliche Befund. „Alle 17 Kellerräume 2,70 m“ und „16 davon 2,70 m, "
+                "einer 0,25 m“ sind verschiedene Antworten auf dieselbe Frage, und aus einem einzeln "
+                "gemessenen Raum folgt keine von beiden."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "measure": {"type": "string", "enum": list(MEASURES)},
+                    "storey": {"type": "string", "description": "Geschoßname exakt wie im Briefing"},
+                    "ifcType": {"type": "string", "description": "z. B. IfcSpace, IfcWindow, IfcDoor"},
+                    "nameContains": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "limit": {"type": "integer", "description": f"höchstens {MAX_BATCH}"},
+                },
+                "required": ["model", "measure"],
+            },
+            handler=survey,
+        ),
+        ToolDef(
+            name="profile",
+            title="Alles Messbare an einem Bauteil",
+            description=(
+                "Misst ALLE Kennwerte, die für dieses eine Bauteil definiert sind, in einem Aufruf — "
+                "welche das sind, ergibt sich aus seinem IFC-Typ. Der Griff, sobald ein Bauteil "
+                "interessant geworden ist: der Ausreißer aus einem survey, der Raum aus der Frage, die "
+                "Tür, um die es geht. Statt zwanzig Mal `measure` mit geratenem Kennwert.\n\n"
+                "Teure Kennwerte (Fluchtweg, Erreichbarkeit, Bewegungsfläche, Türvorfeld) laufen nur mit "
+                'include="expensive" mit; sie brauchen den Türgraph oder ein Raster über das Modell. '
+                "Was NICHT gemessen wurde, steht mit Begründung in der Antwort — das ist eine Aussage "
+                "über die Frage, nicht über das Gebäude."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "globalId": {"type": "string"},
+                    "include": {
+                        "type": "string",
+                        "enum": ["expensive"],
+                        "description": "Teure Kennwerte mitmessen (Sekunden statt Millisekunden).",
+                    },
+                },
+                "required": ["model", "globalId"],
+            },
+            handler=profile,
         ),
         ToolDef(
             name="distance",

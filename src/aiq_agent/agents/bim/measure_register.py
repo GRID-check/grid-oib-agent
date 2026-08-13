@@ -72,6 +72,7 @@ VALID_OPERATIONS = {
     "element",
     "relations",
     "measure",
+    "survey",
     "distance",
     "clearance",
     "sun_position",
@@ -311,6 +312,15 @@ _TOOL_DESCRIPTION = (
     f"{_enum_lines(RELATIONS)}\n"
     "  'measure'        — one measurement of one element. Set 'measure':\n"
     f"{_enum_lines(MEASURES)}\n"
+    "                     'global_id' also takes up to 50 GlobalIds separated by commas when the set "
+    "is already known — each element keeps its own answer, its own tolerance and its own refusal, and "
+    "nothing is averaged.\n"
+    "  'survey'         — ONE of those same measures across ALL elements of a selection, each named. "
+    "Select as with find_elements ('storey', 'ifc_type', 'name_contains', 'kind'); the answer carries "
+    "per element its name, storey and own answer, plus the SPREAD over the set. Reach for this the "
+    "moment the question is plural — 'wie hoch ist der Keller' names one room and means seventeen, and "
+    "'all 17 at 2.70 m' and '16 at 2.70 m, one at 0.25 m' are different answers to it. Measuring one "
+    "element and generalising supports neither. Up to 50 elements.\n"
     "  'distance'       — the distance between TWO elements. Set 'global_id' and 'other_global_id', "
     "and 'mode':\n"
     f"{_enum_lines(DISTANCE_MODES)}\n"
@@ -635,6 +645,34 @@ def _build_call(
             record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
             return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
         return "measure", {"globalId": subject, "measure": wanted}
+
+    if op == "survey":
+        # The selection half is `find_elements`, the measuring half is
+        # `measure`, and the reason the two are fused into one operation is the
+        # turn budget: composed from primitives, „wie hoch ist der Keller" costs
+        # find_elements + measure + a GlobalId→Name join the agent carries in its
+        # head — three of five turns to answer a question that has one call in it.
+        wanted = _clean(measure)
+        if wanted not in MEASURES:
+            record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
+            return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
+        # Capped at 50 rather than find_elements' 500: every row here is a real
+        # geometric measurement, not an index lookup.
+        args: dict[str, Any] = {"measure": wanted, "limit": max(1, min(int(limit or 50), 50))}
+        if _clean(ifc_type):
+            args["ifcType"] = _clean(ifc_type)
+        if _clean(name_contains):
+            args["nameContains"] = _clean(name_contains)
+        if _clean(storey):
+            args["storey"] = _clean(storey)
+        if _clean(kind):
+            if _clean(kind).lower() not in KINDS:
+                return (
+                    f"Error: kind '{kind}' does not exist. Use one of: {', '.join(KINDS)}. "
+                    "'kind' is the spatial ROLE (a room is 'space'); an IFC type goes in 'ifc_type'."
+                )
+            args["kind"] = _clean(kind).lower()
+        return "survey", args
 
     if op == "clearance":
         if not _clean(other_global_id):
@@ -1243,6 +1281,67 @@ def _render(
             "Die Zeichnung liegt als Datei auf dem Server. Maße NICHT aus dem Bild ablesen — dafür "
             "operation='measure' oder 'distance' verwenden."
         )
+        return "\n".join(line for line in lines if line)
+
+    # A batch measurement — one `measure` call over several elements. Rendered
+    # as a table with the SPREAD first, because that is the finding: „alle 17
+    # Kellerräume 2.70 m" and „16 davon 2.70 m, einer 0.25 m" are different
+    # answers to the same question, and only the second is true of the
+    # Institute's basement. Flattening this through `_value_text` would print
+    # „results=17 Einträge, summary=(…)" — seventeen measurements and not one
+    # number, the same defect the door graph had.
+    if isinstance(payload, dict) and "results" in payload and "summary" in payload:
+        summary = payload.get("summary") or {}
+        results = payload.get("results") or []
+        measured, of = summary.get("measured", 0), summary.get("of", len(results))
+        spread = summary.get("spread")
+        head = f"gemessen: {payload.get('measure')} an {measured} von {of} Bauteilen"
+        if spread is not None and spread > 0:
+            head += f" — von {_num(summary.get('min'), 3)} bis {_num(summary.get('max'), 3)}, Spanne {_num(spread, 3)}"
+        elif spread == 0:
+            head += f" — durchgehend {_num(summary.get('min'), 3)}"
+        if payload.get("truncated"):
+            head += f" (von {summary.get('selected')} passenden — NUR diese Auswahl)"
+        lines.append(head + ".")
+        for entry in results[:40]:
+            answer = entry.get("answer") or {}
+            # `survey` carries the name; a bare `measure` over a list of ids does
+            # not. Preferring the name matters more than it looks: a reviewer who
+            # has to act on „einer dieser Räume ist 0,25 m hoch" needs to know
+            # WHICH, and a 22-character GlobalId is not something a person can
+            # carry to a CAD window.
+            label = entry.get("name") or entry.get("globalId")
+            if entry.get("name") and entry.get("storey"):
+                label = f"{entry['name']} ({entry['storey']})"
+            if answer.get("decidable"):
+                value = _num(answer.get("value"), _decimals(answer.get("tolerance")))
+                lines.append(f"- {label}: {value} {answer.get('unit') or ''}".rstrip())
+            else:
+                missing = (answer.get("missing") or {}).get("what") or "nicht entscheidbar"
+                lines.append(f"- {label}: NICHT ENTSCHEIDBAR — {missing}")
+        if len(results) > 40:
+            lines.append(f"… {len(results) - 40} weitere nicht gezeigt.")
+        if summary.get("undecidable"):
+            count = len(summary["undecidable"])
+            noun = "Bauteil konnte" if count == 1 else "Bauteile konnten"
+            lines.append(
+                f"{count} {noun} nicht gemessen werden — sie sind oben einzeln genannt und dürfen "
+                "nicht als „wie die anderen“ berichtet werden."
+            )
+        if summary.get("disagree"):
+            named = ", ".join(entry.get("name") or entry.get("globalId") for entry in summary["disagree"])
+            lines.append(
+                f"WIDERSPRUCH zwischen deklariertem und gemessenem Wert bei: {named}. "
+                "Das ist ein Befund über den Export, nicht über das Gebäude."
+            )
+        if payload.get("hint"):
+            lines.append(str(payload["hint"]))
+        if spread:
+            # Only when there IS a spread. Printing „die Spanne ist die Aussage"
+            # under a survey that measured nothing was advice about a number the
+            # caller does not have, and the sentence has to keep meaning
+            # something for the cases where it fires.
+            lines.append("Die Spanne ist die Aussage: ein einzeln gemessener Raum belegt nichts über die übrigen.")
         return "\n".join(line for line in lines if line)
 
     if isinstance(payload, dict) and "decidable" in payload:
