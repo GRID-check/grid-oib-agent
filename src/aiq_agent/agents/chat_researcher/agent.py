@@ -109,6 +109,8 @@ def _finalize_shallow_answer(
     citation_grounded: bool,
     *,
     quotes_verified: bool = True,
+    measurement_grounded: bool = False,
+    normative_claim_uncited: bool = False,
     escalation_present: bool | None = None,
     self_reported: ConfidenceLevel | None = None,
     self_reported_reason: str | None = None,
@@ -135,6 +137,16 @@ def _finalize_shallow_answer(
     - Otherwise → a normal success turn (``shallow_result=None``); the parsed
       confidence level is passed through the overconfidence guard and carried on
       ``answer_confidence`` (None when the marker was absent/malformed).
+
+    The guard recognises two kinds of grounding. ``citation_grounded`` is the
+    only route to a surfaced "high". ``measurement_grounded`` — this turn
+    measured the building out of the IFC model, evidence that structurally has no
+    passage to quote — lifts the answer off the "low" floor to at most "medium",
+    and only while ``normative_claim_uncited`` is False: a measured answer that
+    also asserts something about the Bauordnung without a verified citation stays
+    at "low", because the measurement grounds the number and not the law. Both
+    default False, which is exactly the pre-measurement behaviour, so a caller
+    that does not supply them is unaffected.
 
     Non-string content is passed through untouched with no confidence signal.
     """
@@ -190,10 +202,20 @@ def _finalize_shallow_answer(
     return {
         "messages": [updated_message],
         "shallow_result": None,
-        "answer_confidence": surface_answer_confidence(self_reported, citation_grounded, quotes_verified),
+        "answer_confidence": surface_answer_confidence(
+            self_reported,
+            citation_grounded,
+            quotes_verified,
+            measurement_grounded=measurement_grounded,
+            normative_claim_uncited=normative_claim_uncited,
+        ),
         "answer_confidence_reason": self_reported_reason,
         "answer_confidence_capped_reason": answer_confidence_capped_reason(
-            self_reported, citation_grounded, quotes_verified
+            self_reported,
+            citation_grounded,
+            quotes_verified,
+            measurement_grounded=measurement_grounded,
+            normative_claim_uncited=normative_claim_uncited,
         ),
         "verified_sources": verified_sources,
         "citations_removed": citations_removed,
@@ -500,6 +522,23 @@ class ChatResearcherAgent:
             # a retrieved passage (drives the same overconfidence guard). Absent
             # field → fail-open True, so an older caller never spuriously caps.
             quotes_verified = bool(getattr(result, "answer_quotes_verified", True))
+            # The SECOND kind of grounding: this turn measured the building from
+            # the IFC model (provenance + tolerance + method + GlobalIds), which
+            # can never satisfy the citation gate because there is no passage to
+            # quote. Absent field → conservative False, i.e. exactly the old
+            # behaviour. Its brake travels with it: a measured answer that ALSO
+            # makes an un-cited normative claim stays capped at "low", so the
+            # measurement can never carry a statement about the Bauordnung.
+            # ``is True`` / ``is not False``, NOT ``bool(...)``, and that is the
+            # whole point: this is the one signal that can RAISE a confidence, so
+            # it fails closed on anything it does not recognise. ``bool()`` on a
+            # duck-typed or auto-vivifying result object (a mock, a partially
+            # migrated caller) returns True for an attribute nobody ever set, and
+            # would hand measurement grounding to an answer that never measured
+            # anything. Only a real ``False`` disarms the brake, only a real
+            # ``True`` opens the gate; everything else lands on the old behaviour.
+            measurement_grounded = getattr(result, "answer_measurement_grounded", False) is True
+            normative_claim_uncited = getattr(result, "answer_normative_claim_uncited", True) is not False
 
             # Prefer the structured control-marker signals the shallow agent
             # extracted in its run(); fall back to string-detection inside
@@ -536,6 +575,8 @@ class ChatResearcherAgent:
                     final_ai_message,
                     citation_grounded,
                     quotes_verified=quotes_verified,
+                    measurement_grounded=measurement_grounded,
+                    normative_claim_uncited=normative_claim_uncited,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
                     self_reported_reason=self_reported_reason,
@@ -548,6 +589,8 @@ class ChatResearcherAgent:
                     new_messages[-1],
                     citation_grounded,
                     quotes_verified=quotes_verified,
+                    measurement_grounded=measurement_grounded,
+                    normative_claim_uncited=normative_claim_uncited,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
                     self_reported_reason=self_reported_reason,

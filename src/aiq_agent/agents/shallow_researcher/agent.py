@@ -50,6 +50,8 @@ from aiq_agent.common.norm_registry import render_block_for_prompt
 from ...common import LLMProvider
 from ...common import LLMRole
 from .dsml import strip_and_salvage_dsml_tool_calls
+from .grounding import answer_mentions_normative_claim
+from .grounding import tool_result_is_measurement
 from .markers import answer_confidence_capped_reason
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
@@ -628,9 +630,18 @@ class ShallowResearcherAgent:
             # Resolve registry at call time (not build time) so each request
             # writes to its own session-scoped registry when available.
             active_registry = get_session_registry() or self.source_registry
+            # The second kind of grounding, captured on the same pass. STICKY:
+            # OR-ed with what the loop already saw, so a later refused call
+            # cannot un-measure an earlier successful one. Recorded BEFORE the
+            # data-source filter below, because `ifc_measure` is deliberately not
+            # a data source — it produces no citable passage, which is exactly
+            # why the citation gate could never see it.
+            measurement_grounded = state.answer_measurement_grounded
             for msg in result.get("messages", []):
                 if isinstance(msg, ToolMessage) and msg.content:
                     tool_name = getattr(msg, "name", "") or ""
+                    if tool_result_is_measurement(tool_name, str(msg.content)):
+                        measurement_grounded = True
                     if tool_name not in source_tool_names:
                         continue
                     source_id = get_source_id_for_tool(tool_name)
@@ -653,6 +664,8 @@ class ShallowResearcherAgent:
                             tool_name,
                             [s.url or s.citation_key for s in sources],
                         )
+            if measurement_grounded:
+                return {**result, "answer_measurement_grounded": True}
             return result
 
         builder.add_node("agent", agent_node)
@@ -725,6 +738,12 @@ class ShallowResearcherAgent:
         # Same signal as a count, for the citation-health ledger (how MANY spans
         # failed, not just whether any did).
         unverified_quote_count = 0
+        # Whether the answer asserts something normative without a verified
+        # citation — the brake that stops measurement grounding from laundering a
+        # legal claim (see ``shallow_researcher.grounding``). Computed below on
+        # the final answer text; False when there is no answer message to read,
+        # which is safe because measurement grounding alone never reaches "high".
+        answer_normative_claim_uncited = False
         # Whether the single-source fallback below had to supply the citation
         # because nothing the model wrote survived verification. Grounded, but
         # not by the model's own choice — recorded as its own ledger event.
@@ -942,6 +961,15 @@ class ShallowResearcherAgent:
                         cb.emit_final_report(content)
                         break
 
+                # The anti-laundering brake, read off the FINAL user-visible text
+                # (post-verification, post-sanitization) so it judges the answer
+                # the reader actually gets. Only meaningful when the citation gate
+                # already failed: with no verified citation, "mentions the law"
+                # and "asserts the law without support" are the same thing. A
+                # measurement grounds the measurement — it must not carry
+                # „…und erfüllt damit OIB 4 Punkt 2.1" out at "medium".
+                answer_normative_claim_uncited = not citation_grounded and answer_mentions_normative_claim(content)
+
                 if hasattr(answer_msg, "model_copy"):
                     messages_list[answer_index] = answer_msg.model_copy(update={"content": content})
                 else:
@@ -949,6 +977,13 @@ class ShallowResearcherAgent:
 
         # Carry the grounding signal to the chat node's overconfidence guard.
         validated_result["answer_citation_grounded"] = citation_grounded
+        # The second kind of grounding and its brake. ``answer_measurement_grounded``
+        # was written by the tools node (it is the only place that sees the raw
+        # tool results); it is echoed here rather than recomputed so both signals
+        # reach the chat node by the same path as ``answer_citation_grounded``.
+        measurement_grounded = bool(validated_result.get("answer_measurement_grounded", False))
+        validated_result["answer_measurement_grounded"] = measurement_grounded
+        validated_result["answer_normative_claim_uncited"] = answer_normative_claim_uncited
         # Carry the quote-verification signal too: False iff a quoted span could
         # not be verified against a retrieved passage this turn. The chat node
         # composes it with grounding to cap confidence (reason quote_unverified).
@@ -1001,7 +1036,11 @@ class ShallowResearcherAgent:
                 grounded=citation_grounded,
                 fallback_used=citation_fallback_used,
                 confidence_capped_reason=answer_confidence_capped_reason(
-                    answer_confidence_marker, citation_grounded, answer_quotes_verified
+                    answer_confidence_marker,
+                    citation_grounded,
+                    answer_quotes_verified,
+                    measurement_grounded=measurement_grounded,
+                    normative_claim_uncited=answer_normative_claim_uncited,
                 ),
                 source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources],
                 source_lanes=[source.get("lane") for source in wire_sources],

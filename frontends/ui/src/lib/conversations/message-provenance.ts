@@ -44,10 +44,30 @@ export interface StoredThinkingStep {
   traceLanes?: unknown[]
 }
 
+/**
+ * Why the deterministic overconfidence guard downgraded the model's own
+ * self-assessment. Four causes, two of them about the SECOND kind of grounding:
+ * an IFC measurement carries a provenance, a tolerance, a readable method and
+ * the GlobalIds it came from, but has no passage to quote — so it can never
+ * satisfy the citation gate.
+ *
+ * - `ungrounded`              nothing verified and nothing measured.
+ * - `quote_unverified`        a quoted span matched no source passage.
+ * - `normative_claim_uncited` the answer WAS measurement-grounded but also
+ *   asserts something normative with no verified citation, so it is held at
+ *   'low' rather than riding out on the measurement's evidence.
+ * - `measurement_only`        measured and purely descriptive, so 'high' was
+ *   reduced to 'medium' (measurement grounding never reaches 'high').
+ *
+ * Exported so the chip, the stored provenance and the wire mapper share one
+ * list instead of three copies that can drift apart.
+ */
+export type AnswerConfidenceCappedReason = (typeof CAPPED_REASONS)[number]
+
 export interface MessageProvenance {
   thinkingSteps?: StoredThinkingStep[]
   answerConfidence?: 'low' | 'medium' | 'high'
-  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   answerConfidenceReason?: string
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
   routingReason?: string
@@ -73,7 +93,12 @@ const MAX_REMOVED_REASON_CHARS = 120
 const MAX_TRACE_LANES = 40
 
 const CONFIDENCES = ['low', 'medium', 'high'] as const
-const CAPPED_REASONS = ['ungrounded', 'quote_unverified'] as const
+const CAPPED_REASONS = [
+  'ungrounded',
+  'quote_unverified',
+  'normative_claim_uncited',
+  'measurement_only',
+] as const
 const ROUTING_DECISIONS = ['meta', 'shallow', 'deep', 'error'] as const
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

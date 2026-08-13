@@ -36,7 +36,9 @@ class ShallowResearchAgentState(BaseModel):
             when the registry was empty or verification removed every citation.
             The chat node reads it as the deterministic overconfidence guard:
             a model self-reported "high"/"medium" is capped to "low" when the
-            answer is not grounded. Defaults to False (conservative).
+            answer is neither citation-grounded nor measurement-grounded, and it
+            is the ONLY route to a surfaced "high". Defaults to False
+            (conservative).
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -57,6 +59,28 @@ class ShallowResearchAgentState(BaseModel):
     # ``answer_citation_grounded`` to cap confidence to "low" with the
     # ``quote_unverified`` reason. Fail-open default True.
     answer_quotes_verified: bool = True
+    # The SECOND kind of grounding: whether THIS turn produced at least one
+    # `declared`/`computed` answer from the IFC model (see
+    # ``shallow_researcher.grounding``). An IFC measurement carries a provenance,
+    # a tolerance, a readable method and the GlobalIds it was derived from, and
+    # has no passage to quote — so it can never satisfy the citation gate, and a
+    # correctly measured number used to be capped to "low" for lacking evidence
+    # it structurally cannot have. Set by the tools node as a sticky OR across
+    # the tool loop (never un-set by a later refusal); per-turn by construction,
+    # because the chat node builds a fresh state each turn. Lifts the surfaced
+    # confidence off the "low" floor to at most "medium" — and only when
+    # ``answer_normative_claim_uncited`` is False. Defaults to False.
+    answer_measurement_grounded: bool = False
+    # The anti-laundering brake. True when the answer talks about regulatory
+    # material or passes a verdict („erfüllt damit OIB 4 Punkt 2.1", „ausreichend",
+    # „Gebäudeklasse 3") while carrying NO verified citation. A measurement grounds
+    # the measurement; it must not ground a claim about the Bauordnung, and there
+    # is no per-sentence confidence to separate them with — so the mixed answer
+    # keeps the "low" it gets today and says why (`normative_claim_uncited`)
+    # instead of resolving silently in the measurement's favour. Set by ``run()``
+    # from the final, cleaned answer text; only meaningful alongside
+    # ``answer_measurement_grounded``. Defaults to False.
+    answer_normative_claim_uncited: bool = False
     # Structured control-marker signals extracted (and stripped from the answer
     # text) inside ShallowResearcherAgent.run(). The chat orchestrator reads these
     # instead of re-parsing the answer string. ``escalation_requested`` doubles as

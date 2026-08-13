@@ -5,9 +5,22 @@ import { Gauge } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslations } from '@/i18n'
+import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 
 /** The three self-assessment levels the model can report. */
 export type AnswerConfidence = 'low' | 'medium' | 'high'
+
+/**
+ * Wire value → dictionary key. A lookup rather than a ternary chain so adding a
+ * cause to {@link AnswerConfidenceCappedReason} fails to compile here until its
+ * copy exists, instead of silently rendering no explanation for the cap.
+ */
+const CAPPED_REASON_KEYS: Record<AnswerConfidenceCappedReason, string> = {
+  ungrounded: 'ungrounded',
+  quote_unverified: 'quoteUnverified',
+  normative_claim_uncited: 'normativeClaimUncited',
+  measurement_only: 'measurementOnly',
+}
 
 interface ConfidenceChipProps {
   /** The model's guarded self-assessment; undefined/null renders nothing. */
@@ -15,11 +28,9 @@ interface ConfidenceChipProps {
   /**
    * Why the self-assessment was capped (WP-A transparency extra), appended as an
    * extra sentence to the tooltip so the cap is explained rather than silent
-   * (PB-9). `'ungrounded'` = the answer is not grounded in verified sources;
-   * `'quote_unverified'` = a quoted span could not be confirmed verbatim in the
-   * source.
+   * (PB-9). See {@link AnswerConfidenceCappedReason} for the four causes.
    */
-  cappedReason?: 'ungrounded' | 'quote_unverified'
+  cappedReason?: AnswerConfidenceCappedReason
   /**
    * The model's own one-clause justification for its level
    * (`[CONFIDENCE:level | reason]`), shown verbatim in the tooltip so the
@@ -53,12 +64,9 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReas
   // When the confidence was capped, explain WHY in the tooltip (PB-9) instead of
   // leaving the downgrade silent. Fail-open: an absent/unknown reason keeps the
   // generic tooltip.
-  const cappedReasonText =
-    cappedReason === 'ungrounded'
-      ? t('confidence.cappedReasons.ungrounded')
-      : cappedReason === 'quote_unverified'
-        ? t('confidence.cappedReasons.quoteUnverified')
-        : undefined
+  const cappedReasonText = cappedReason
+    ? t(`confidence.cappedReasons.${CAPPED_REASON_KEYS[cappedReason]}`)
+    : undefined
   // Trim only to DETECT an empty/whitespace-only reason; the reason itself is
   // rendered verbatim, as the wire contract promises.
   const displayReason = reason?.trim() ? reason : undefined

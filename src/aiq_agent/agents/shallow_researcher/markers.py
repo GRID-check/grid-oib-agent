@@ -179,48 +179,137 @@ def detect_and_strip_confidence_marker(content: Any) -> tuple[Any, ConfidenceLev
 # research agents (which record the cap as a citation-health event) alike.
 
 
+#: Why a self-report was downgraded. Four causes, two of them about the second
+#: kind of grounding (see :mod:`.grounding`):
+#:
+#: - ``ungrounded``             no verified citation, and nothing was measured.
+#: - ``quote_unverified``       a quoted span matched no retrieved passage.
+#: - ``normative_claim_uncited`` the answer WAS measurement-grounded, but it also
+#:   talks about the law without a verified citation — the mixed case, reported
+#:   rather than resolved silently in the measurement's favour.
+#: - ``measurement_only``       measurement-grounded and purely descriptive, so
+#:   "high" was reduced to "medium" instead of to "low".
+CappedReason = Literal[
+    "ungrounded",
+    "quote_unverified",
+    "normative_claim_uncited",
+    "measurement_only",
+]
+
+#: The ceiling measurement grounding can reach. Never "high": that level is
+#: reserved for an answer verified against a retrieved passage, and a measurement
+#: is grounding for the answer's NUMBERS, not for every sentence around them.
+#: This is the structural half of the anti-laundering design — it holds even if
+#: the normative-claim heuristic misses something.
+MEASUREMENT_CONFIDENCE_CEILING: ConfidenceLevel = "medium"
+
+_CONFIDENCE_ORDER: tuple[ConfidenceLevel, ...] = ("low", "medium", "high")
+
+
+def _at_most(level: ConfidenceLevel, ceiling: ConfidenceLevel) -> ConfidenceLevel:
+    """``level`` clamped down to ``ceiling`` — never raises a self-report."""
+    return level if _CONFIDENCE_ORDER.index(level) <= _CONFIDENCE_ORDER.index(ceiling) else ceiling
+
+
 def surface_answer_confidence(
     self_reported: ConfidenceLevel | None,
     citation_grounded: bool,
     quotes_verified: bool = True,
+    *,
+    measurement_grounded: bool = False,
+    normative_claim_uncited: bool = False,
 ) -> ConfidenceLevel | None:
     """Apply the deterministic overconfidence guard to a self-reported level.
 
-    Returns ``None`` when there is no self-assessment to surface. Otherwise caps
-    the surfaced value at "low" whenever the answer is not grounded in a verified
-    citation (empty registry or verification removed every citation) OR carries a
-    quoted span that could not be verified against a retrieved passage
-    (``quotes_verified`` is False — the weak model's "real section, fabricated
-    quote" pattern). A self-reported "high"/"medium" in either case is
-    untrustworthy and becomes "low"; a fully grounded answer with all quotes
-    verified surfaces the model's own level verbatim.
+    Returns ``None`` when there is no self-assessment to surface. Otherwise the
+    guard recognises TWO kinds of grounding and treats them differently.
+
+    **Citation grounding** is unchanged and is the only route to "high": an
+    answer grounded in a verified citation with every quoted span verified
+    surfaces the model's own level verbatim.
+
+    **Measurement grounding** (``measurement_grounded`` — this turn produced at
+    least one ``declared``/``computed`` answer from the IFC model; see
+    :mod:`.grounding`) is the second kind. An IFC measurement carries a
+    provenance, a tolerance, a readable method and the GlobalIds it came from;
+    it is reproducible, and it has no passage to quote. It lifts an answer off
+    the "low" floor — but only as far as
+    :data:`MEASUREMENT_CONFIDENCE_CEILING` ("medium"), and only when
+    ``normative_claim_uncited`` is False.
+
+    Everything else still caps at "low", and the order of the branches is the
+    guard:
+
+    - An unverified quote caps to "low" BEFORE measurement grounding is
+      consulted. A measured number elsewhere in the answer must never rescue a
+      fabricated quotation — that pattern is the entire reason this guard exists.
+    - An answer that is measurement-grounded but ALSO makes an un-cited normative
+      claim (``normative_claim_uncited``) caps to "low" exactly as today. The
+      measurement grounds the measurement; it does not ground a statement about
+      the Bauordnung, and there is no per-sentence confidence to split them with.
     """
     if self_reported is None:
         return None
-    if not citation_grounded or not quotes_verified:
+    if citation_grounded and quotes_verified:
+        return self_reported
+    if not quotes_verified:
         return "low"
-    return self_reported
+    if measurement_grounded and not normative_claim_uncited:
+        return _at_most(self_reported, MEASUREMENT_CONFIDENCE_CEILING)
+    return "low"
 
 
 def answer_confidence_capped_reason(
     self_reported: ConfidenceLevel | None,
     citation_grounded: bool,
     quotes_verified: bool = True,
-) -> Literal["ungrounded", "quote_unverified"] | None:
+    *,
+    measurement_grounded: bool = False,
+    normative_claim_uncited: bool = False,
+) -> CappedReason | None:
     """Why the surfaced confidence was capped, or ``None`` when no cap applied.
 
-    Returns a reason only when a real downgrade happened: a self-reported
-    "medium"/"high" that got capped to "low". ``"ungrounded"`` when the answer is
-    not grounded in a verified citation (the more fundamental failure, so it wins
-    when both apply); ``"quote_unverified"`` when the answer is grounded but
-    carries a quoted span not verifiable against a retrieved passage. A missing
-    self-report, an already-"low" self-report, or a fully-verified grounded
-    answer is not a downgrade and yields ``None``.
+    Derived from :func:`surface_answer_confidence` rather than re-deriving the
+    branches, so the reason can never disagree with the level it explains: a
+    reason is returned only when that function actually returned something lower
+    than the self-report.
+
+    Precedence, and why:
+
+    - ``quote_unverified`` first whenever the answer had *some* grounding
+      (citation or measurement) but a quoted span did not survive. The quote is
+      why the answer sits at "low"; naming the grounding instead would read as
+      though the measurement had helped.
+    - ``normative_claim_uncited`` for the mixed case — measured numbers plus an
+      un-cited claim about the law. The level is the same "low" this answer got
+      before the change; the REASON is the change, because it is the only place
+      the mixed case becomes visible to a reviewer or to the citation-health
+      ledger.
+    - ``measurement_only`` when a measured, purely descriptive answer had "high"
+      reduced to "medium".
+    - ``"ungrounded"`` otherwise — the original cause, unchanged: nothing
+      verified and nothing measured.
+
+    A missing self-report, an already-"low" self-report, or a fully-verified
+    grounded answer is not a downgrade and yields ``None``.
     """
     if self_reported is None or self_reported == "low":
         return None
-    if not citation_grounded:
-        return "ungrounded"
-    if not quotes_verified:
+    surfaced = surface_answer_confidence(
+        self_reported,
+        citation_grounded,
+        quotes_verified,
+        measurement_grounded=measurement_grounded,
+        normative_claim_uncited=normative_claim_uncited,
+    )
+    if surfaced == self_reported:
+        return None
+    if not quotes_verified and (citation_grounded or measurement_grounded):
         return "quote_unverified"
-    return None
+    if not citation_grounded:
+        if measurement_grounded and normative_claim_uncited:
+            return "normative_claim_uncited"
+        if measurement_grounded:
+            return "measurement_only"
+        return "ungrounded"
+    return "quote_unverified"

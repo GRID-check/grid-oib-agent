@@ -88,10 +88,19 @@ class ChatResearcherState(BaseModel):
     # clarifier node from ``ShallowResult.escalation_reason`` or, on the
     # keyword-fallback path, the fixed German notice.
     escalation_reason: str | None = None
-    # Present only when the self-reported confidence was downgraded: "ungrounded"
-    # (answer lacked citation grounding) or "quote_unverified" (a quoted span was
-    # not verifiable against a retrieved passage).
-    answer_confidence_capped_reason: Literal["ungrounded", "quote_unverified"] | None = None
+    # Present only when the self-reported confidence was downgraded. Four causes:
+    #   "ungrounded"              nothing verified and nothing measured.
+    #   "quote_unverified"        a quoted span matched no retrieved passage.
+    #   "normative_claim_uncited" the answer WAS measurement-grounded but also
+    #                             asserts something normative with no verified
+    #                             citation — the mixed case, held at "low" and
+    #                             named rather than resolved in the measurement's
+    #                             favour.
+    #   "measurement_only"        measured and purely descriptive, so "high" was
+    #                             reduced to "medium" rather than to "low".
+    answer_confidence_capped_reason: (
+        Literal["ungrounded", "quote_unverified", "normative_claim_uncited", "measurement_only"] | None
+    ) = None
     # The model's own one-clause justification for its self-assessment, parsed
     # from the ``[CONFIDENCE:level | reason]`` marker. Present only when the
     # marker carried a reason; surfaced so the UI can show WHY the level was
