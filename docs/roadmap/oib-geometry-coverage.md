@@ -138,20 +138,35 @@ Mostly a property question, with one geometric half we already have.
 
 | need | state |
 |---|---|
-| which elements form the heated envelope | `envelope_geometry.thermal_envelope` — **library only**: implemented and tested, on no tool surface |
-| envelope area by orientation, opaque vs transparent | `envelope_geometry.envelope_area_by_orientation` — **library only** |
-| window-to-wall ratio per facade | part of `envelope_geometry.envelope_area_by_orientation` — **library only** |
-| compactness (A/V) | `envelope_geometry.compactness` — **library only** |
+| which elements form the heated envelope | `envelope/thermalEnvelope` — grouped by kind, each element with its area, its declared U-value and WHICH rung decided it; plus the `innenliegend` and `unbestimmt` lists that make the total checkable. 225.700 m² on the sample house |
+| envelope area by orientation, opaque vs transparent | `envelope/areaByOrientation` |
+| window-to-wall ratio per facade | part of `envelope/areaByOrientation` — N 19.3 %, O 0 %, S 40.5 %, W 100 %. The west is a curtain wall whose panes are the whole elevation, and the caveat says so, because a WWR of 1.0 read without that sentence is a modelling error rather than a building |
+| compactness (A/V) | `envelope/compactness` — 0.846 1/m, with A and V reported separately because a ratio whose inputs are invisible cannot be checked by whoever signs it. V is the NET volume (266.728 m³, summed room solids); a gross one is larger by the whole build-up |
 | declared U-values | declared only — never recomputed from layers, because a U-value derived from a material list is a different number than the one the architect signed |
 | shading, thermal bridges, the energy balance | **not geometric — out of scope** |
 
 All three operators live in `packages/ifc-spatial-py/src/ifc_spatial/envelope_geometry.py`
-and are covered by `tests/test_envelope_geometry.py`, and **not one of them is
-in `MEASURE_FN` or in `measure_register.VALID_OPERATIONS`.** An agent asked a
-U-Wert or Kompaktheit question today therefore reaches nothing, exactly as with
-`daylight.sun_position`. The remaining work is the tool surface, not the
-geometry — which is a much smaller decision than it looks, and it is the one
-that decides whether OIB 6 is covered or merely implemented.
+and are covered by `tests/test_envelope_geometry.py`. They were **library only**
+for the whole of their first existence — implemented, tested, and on no tool
+surface — so an agent asked a U-Wert or Kompaktheit question reached nothing and
+answered that the export could not say. That is the worst shape a gap can take:
+a sentence about the architect's file that was really about our wiring, sending
+them to fix something that was not broken.
+
+They are now the `envelope` tool, grouped the way `fire` is, and the row above
+is what an agent can call. Two things did NOT change with the wiring, because
+they are the point:
+
+- **no U-value is calculated.** A declared one is repeated, a missing one stays
+  missing, and neither is derived from the layer set — a U-value computed from a
+  material list is a different number from the one the architect signed and is
+  indistinguishable from it on the page.
+- **no threshold and no „erfüllt".** Which U-value or which A/V is admissible
+  lives in OIB 6 and in the Energieausweis procedure. This engine supplies the
+  geometry underneath it.
+
+What remains genuinely uncovered for OIB 6 is the row below it: shading, thermal
+bridges and the energy balance, all still out of scope on purpose.
 
 ---
 

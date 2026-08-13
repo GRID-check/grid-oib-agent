@@ -274,6 +274,31 @@ class TestTheEnumsMatchTheEngine:
 
         assert set(KINDS) == set(self._engine().KINDS)
 
+    def test_the_fire_aspects_are_the_engine_s(self):
+        from aiq_agent.agents.bim.measure_register import FIRE_ASPECTS
+
+        assert set(FIRE_ASPECTS) == set(self._engine().FIRE_ASPECTS)
+
+    def test_the_envelope_aspects_are_the_engine_s(self):
+        from aiq_agent.agents.bim.measure_register import ENVELOPE_ASPECTS
+
+        assert set(ENVELOPE_ASPECTS) == set(self._engine().ENVELOPE_ASPECTS)
+
+    def test_every_operation_this_tool_offers_exists_on_the_engine(self):
+        """The gap this class exists for, checked one level up.
+
+        The enum tests above compare the ASPECT vocabularies. Nothing compared
+        the operation names themselves, so an operation could be offered in the
+        description, accepted by `_build_call`, and then refused by the engine
+        as an unknown tool — a failure the model cannot correct, because from
+        where it stands the call was exactly what it was told to make.
+        """
+        from aiq_agent.agents.bim.measure_register import VALID_OPERATIONS
+
+        engine_tools = {tool.name for tool in self._engine().create_tools()}
+        # `open_model` is the host's job, not an operation the model picks.
+        assert VALID_OPERATIONS <= engine_tools, VALID_OPERATIONS - engine_tools
+
 
 class TestProvenanceIsThreeDifferentSentences:
     """The reason this tool exists.
@@ -1352,3 +1377,101 @@ class TestAWrongOperatorIsNotAWrongId:
             assert text.startswith("Error:")
             # Never a finding about the export: nothing here is the file's fault.
             assert "Befund über den EXPORT" not in text
+
+
+class TestOIB6ReachesTheModel:
+    """`envelope` — the operation that existed as geometry and as nothing else.
+
+    `thermal_envelope`, `envelope_area_by_orientation` and `compactness` were
+    implemented, tested, and on no tool surface. Every OIB 6 question therefore
+    came back as „das kann dieser Export nicht beantworten", which is a claim
+    about the architect's file and was actually a claim about our wiring — the
+    worst shape a gap can take, because it sends them to fix something that is
+    not broken.
+    """
+
+    def test_the_operation_dispatches_to_the_engine_tool(self):
+        assert _build_call(operation="envelope", kind="compactness") == ("envelope", {"what": "compactness"})
+
+    def test_the_aspect_is_matched_case_insensitively(self):
+        assert _build_call(operation="envelope", kind="AREABYORIENTATION") == (
+            "envelope",
+            {"what": "areaByOrientation"},
+        )
+
+    def test_it_defaults_to_the_envelope_itself(self):
+        """Which elements ARE the envelope is the first question of an OIB 6
+        calculation, and the one the other two are built on."""
+        assert _build_call(operation="envelope") == ("envelope", {"what": "thermalEnvelope"})
+
+    def test_an_unknown_aspect_names_the_ones_that_exist(self):
+        answer = _build_call(operation="envelope", kind="uWert")
+        assert isinstance(answer, str) and "thermalEnvelope" in answer
+
+    def test_a_global_id_is_not_forwarded(self):
+        """The engine's schema has no `globalId` on this tool, and an envelope is
+        not a property of one element anyway. Forwarding a surplus id would turn
+        a harmless extra argument into a schema rejection the model cannot read
+        its way out of."""
+        _, args = _build_call(operation="envelope", kind="compactness", global_id="3cUkl32yn9qRSPvBJVyWw5")
+        assert args == {"what": "compactness"}
+
+
+class TestARatioDoesNotInheritAnAreaTolerance:
+    """A dimensionless value must not be rounded to the band of a different unit.
+
+    `_decimals` derives its precision from the answer's tolerance, which carries
+    the answer's UNIT. `envelope/areaByOrientation` has a tolerance of ±2.3 m²,
+    which earns ZERO decimals — and the window-to-wall ratios, which are the
+    entire point of that operator, rendered as `windowWallRatio=0` for north
+    (truly 0.193), south (0.405) and the building as a whole (0.177).
+
+    A facade reported at 0 does not read as an imprecise number. It reads as a
+    facade with no glazing in it — a statement about the building, produced by a
+    rounding rule, and false on three of four elevations.
+    """
+
+    @staticmethod
+    def _answer():
+        return {
+            "decidable": True,
+            "provenance": "computed",
+            "tolerance": 2.3,
+            "unit": "m²",
+            "value": {
+                "opaque": 185.850015,
+                "transparent": 39.85055,
+                "windowWallRatio": 0.176564,
+                "byOrientation": {"N": {"total": 33.982401, "windowWallRatio": 0.193455}},
+            },
+        }
+
+    def test_the_ratio_survives_at_every_nesting_depth(self):
+        text = "\n".join(_render_answer(self._answer()))
+        assert "windowWallRatio=0.18" in text
+        assert "windowWallRatio=0.19" in text
+        assert "windowWallRatio=0," not in text and "windowWallRatio=0\n" not in text
+
+    def test_the_areas_still_follow_their_own_band(self):
+        """The band is not abandoned — only stopped from crossing units. A
+        ±2.3 m² area has no business showing a centimetre digit."""
+        text = "\n".join(_render_answer(self._answer()))
+        assert "opaque=186" in text and "transparent=40" in text
+
+    def test_a_ratio_that_carries_a_unit_keeps_its_own_precision(self):
+        """`compactness.ratio` is A/V in 1/m — the answer's OWN value, whose
+        ±0.021 1/m band is exactly right for it. Overriding that one would be
+        this same bug pointing the other way, which is why the rule is a list of
+        keys and not a guess from the name."""
+        text = "\n".join(
+            _render_answer(
+                {
+                    "decidable": True,
+                    "provenance": "computed",
+                    "tolerance": 0.021,
+                    "unit": "1/m",
+                    "value": {"ratio": 0.846182, "characteristicLength": 1.181779},
+                }
+            )
+        )
+        assert "ratio=0.85" in text

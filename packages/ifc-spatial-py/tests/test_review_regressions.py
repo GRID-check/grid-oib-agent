@@ -55,6 +55,10 @@ GROUND_SLAB = "3cUkl32yn9qRSPvBJVyWgQ"
 SIMPLE_FLOOR = "3ntFzSulnDNeQ4nJrMgcOt"
 CURTAIN_PANE = "3cUkl32yn9qRSPvBJVyW_5"
 BEDROOM_WINDOW = "3cUkl32yn9qRSPvBJVyWcE"
+#: `Doors_IntSgl:810x2110mm` — the interior door in
+#: `TestAWindowsDeclaredAreaIsNotAnOpeningArea`, which publishes a
+#: `BaseQuantities.Area` of its own that is not an opening area either.
+INTERNAL_DOOR = "3cUkl32yn9qRSPvBJVyWaG"
 #: `einheiten-fuss.ifc` declares this wall and gives it no representation.
 BODYLESS_WALL = "3Fuss000000Wall000001"
 
@@ -821,6 +825,88 @@ class TestTheDeclaredVolumeSumCoversTheMeasuredSpaces:
         assert answer.value["volumeAgreement"] == "agree"
         assert answer.value["volume"] == pytest.approx(266.728298, abs=1e-4)
         assert "keinen auswertbaren Körper" not in answer.caveat
+
+
+class TestAWindowsDeclaredAreaIsNotAnOpeningArea:
+    """A window's `Area` may never reach `triangulate`, whatever it turns out to be.
+
+    Nothing in either engine reads `Qto_WindowBaseQuantities` or
+    `OverallWidth`/`OverallHeight` today, so this is not a fix — it is the guard
+    that keeps it that way, and the guard is one tuple wide: `floor_area` narrows
+    its declared-quantity search to `("NetFloorArea", "GrossFloorArea")` for
+    anything that is not an `IfcSpace`, and a window publishes neither.
+
+    Widen that tuple by one entry and the sample house convicts itself. Its
+    bedroom window declares `BaseQuantities.Area = 3.53486 m²` — a Revit *surface*
+    figure, not an elevation area — while `floor_area` measures the window's
+    horizontal footprint at **0.63928 m²**. `triangulate` would publish those as
+    „Zwei Wege zu dieser Zahl widersprechen sich … Abweichung 81.9 %. Das ist ein
+    Befund über den Export" against a file that is right, and the architect would
+    be told to go and fix a window that has nothing wrong with it.
+
+    The measured shape of the trap, on this file:
+
+    | route | bedroom window | interior door |
+    |---|---|---|
+    | `OverallWidth × OverallHeight` | 2.19010 m² | 1.70910 m² |
+    | opening geometry (Rohbaulichte) | 2.19010 m² | 1.70910 m² |
+    | declared `BaseQuantities.Area` | 3.53486 m² | 2.27348 m² |
+
+    Note which pair is the dangerous one. The nominal rectangle and the clear
+    opening are the SAME number here to 1e-9 m², because Revit writes
+    `OverallWidth` as the rough-opening dimension for these families — so the
+    third route is not off by the 15–25 % that separates a Rohbaulichte from a
+    lichte Durchgangsbreite. The declared area is the outlier, at +61 % on the
+    window and +33 % on the door, and it is the one route no measurement can
+    normalise because only the exporter knows what it published.
+    """
+
+    def test_a_window_answers_with_one_route_and_no_contradiction(self, house: SpatialModel) -> None:
+        answer = op.floor_area(house, BEDROOM_WINDOW)
+        assert answer.decidable
+        assert answer.provenance == "computed"
+        # `single` is never reached here: with no declared side found at all,
+        # `floor_area` returns the measured answer before `triangulate` is called,
+        # so the field stays unset. Either way there is no pair and no verdict.
+        assert answer.agreement is None
+        assert answer.value == pytest.approx(0.639275, abs=1e-5)
+        assert answer.caveat is None
+
+    def test_the_declared_area_really_is_there_to_be_picked_up(self, house: SpatialModel) -> None:
+        """Otherwise the test above passes for the wrong reason — a file with no
+        declared window area cannot demonstrate a guard against reading one.
+        """
+        for global_id, published in ((BEDROOM_WINDOW, 3.5348570571731), (INTERNAL_DOOR, 2.27347800000496)):
+            element = house.file.by_guid(global_id)
+            found = house.declared_quantity(element, ("Area",))
+            assert found is not None
+            assert found.path == "BaseQuantities.Area"
+            assert found.value == pytest.approx(published, abs=1e-9)
+            # And the tuple `floor_area` actually asks with finds nothing, which
+            # is the whole of the protection.
+            assert house.declared_quantity(element, ("NetFloorArea", "GrossFloorArea")) is None
+
+    def test_the_nominal_rectangle_is_this_files_rohbaulichte_not_a_third_opinion(self, house: SpatialModel) -> None:
+        """The measurement behind the table in this class's docstring.
+
+        `OverallWidth × OverallHeight` agreeing with the opening geometry to
+        1e-9 m² is a fact about THIS exporter, not a licence to triangulate the
+        two — an exporter that writes the leaf size instead would put them
+        centimetres apart with nothing in the file to say which happened. It is
+        recorded so the claim „those are 15–25 % apart" is never made about this
+        pair again on the strength of a figure borrowed from a different one.
+        """
+        for global_id, nominal in ((BEDROOM_WINDOW, 2.19010), (INTERNAL_DOOR, 1.70910)):
+            element = house.file.by_guid(global_id)
+            rectangle = element.OverallWidth * element.OverallHeight * house.unit_scale**2
+            assert rectangle == pytest.approx(nominal, abs=1e-5)
+
+            void = [rel.RelatingOpeningElement for rel in element.FillsVoids][0]
+            clear = op._clear_opening_area(house, void)
+            assert clear == pytest.approx(rectangle, abs=1e-9)
+
+            declared_area = house.declared_quantity(element, ("Area",)).value
+            assert declared_area > clear * 1.3
 
 
 class TestATriangleWithNoDirectionDoesNotVoteOnThePlane:

@@ -157,7 +157,7 @@ def test_open_and_briefing_do_not_run_geometry() -> None:
 
 
 def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: list) -> None:
-    """Ten tools ported from `tools.ts`, and five the port added.
+    """Ten tools ported from `tools.ts`, and six the port added.
 
     `view` sits BEFORE `draw` deliberately. They look like duplicates and are
     not: `draw` writes an SVG file for a human, `view` returns a raster the
@@ -171,6 +171,12 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
     is missing answers the original question exactly as badly as before. The
     order is asserted because it is the order the model reads them in, and the
     two additions sit after `draw` — after everything they compose.
+
+    `envelope` is the same story one Richtlinie over, and it sits beside `fire`
+    because the two are the same shape: one subject, several aspects, no
+    GlobalId. Its three operators shipped implemented and tested and reachable
+    from nothing, so every OIB 6 question was answered „das kann dieser Export
+    nicht" — a sentence about the file that was really about our wiring.
     """
     assert [tool.name for tool in tools] == [
         "open_model",
@@ -181,6 +187,7 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
         "measure",
         "distance",
         "fire",
+        "envelope",
         "shopping_list",
         "view",
         "draw",
@@ -364,3 +371,83 @@ def test_an_unreadable_file_is_refused_with_the_reason_a_person_can_act_on(tools
     with pytest.raises(ToolError) as raised:
         call(tools, "open_model", {"path": str(broken)})
     assert "Modell konnte nicht geöffnet werden" in str(raised.value)
+
+
+class TestTheEnvelopeReachesTheSurface:
+    """OIB 6 through the tool surface, which is where it was missing.
+
+    `thermal_envelope`, `envelope_area_by_orientation` and `compactness` shipped
+    implemented and covered by `test_envelope_geometry.py`, and were on NO tool
+    surface — not in `MEASURE_FN`, not a tool of their own. An agent asked a
+    Kompaktheit or Hüllflächen question therefore reached nothing and reported
+    that the export could not answer it, which is a statement about the file and
+    was really a statement about our wiring. These tests are about the wiring:
+    the operators' own numbers are pinned next door.
+    """
+
+    def test_all_three_aspects_answer_through_the_tool(self, tools: list, house: str) -> None:
+        for what in ("thermalEnvelope", "areaByOrientation", "compactness"):
+            answer = call(tools, "envelope", {"model": house, "what": what})
+            assert answer["decidable"] is True, what
+            assert answer["provenance"] == "computed", what
+
+    def test_the_envelope_area_is_the_same_number_by_all_three_routes(self, tools: list, house: str) -> None:
+        """One building has one envelope area, whichever question asked for it.
+
+        The three operators derive it independently, and a disagreement between
+        them would mean the same wall was in the envelope for one question and
+        out of it for the next — which no caveat could repair.
+        """
+        thermal = call(tools, "envelope", {"model": house, "what": "thermalEnvelope"})["value"]
+        oriented = call(tools, "envelope", {"model": house, "what": "areaByOrientation"})["value"]
+        compact = call(tools, "envelope", {"model": house, "what": "compactness"})["value"]
+        assert thermal["totalArea"] == pytest.approx(225.700565, abs=1e-6)
+        assert oriented["total"] == pytest.approx(thermal["totalArea"], abs=1e-6)
+        assert compact["envelopeArea"] == pytest.approx(thermal["totalArea"], abs=1e-6)
+
+    def test_the_window_wall_ratio_survives_per_facade(self, tools: list, house: str) -> None:
+        """The split is the point of `areaByOrientation`, so it is pinned here.
+
+        West is 100 % glazed and that is the curtain wall, not a bug — the
+        mullions that would be its opaque share are `IfcMember` and out of
+        scope. It is pinned BECAUSE it looks wrong: a later change that
+        "corrects" it has to argue with this line first.
+        """
+        value = call(tools, "envelope", {"model": house, "what": "areaByOrientation"})["value"]
+        assert value["orientationKnown"] is True
+        ratios = {k: v["windowWallRatio"] for k, v in value["byOrientation"].items()}
+        assert ratios["N"] == pytest.approx(0.193455, abs=1e-5)
+        assert ratios["O"] == pytest.approx(0.0, abs=1e-9)
+        assert ratios["S"] == pytest.approx(0.405, abs=5e-3)
+        assert ratios["W"] == pytest.approx(1.0, abs=1e-9)
+
+    def test_the_aspect_is_matched_case_insensitively(self, tools: list, house: str) -> None:
+        """The trap `fire` documents: lowercasing "areaByOrientation" into the
+        key turns it into "areabyorientation", which matches nothing and refuses
+        a call that was correct."""
+        assert call(tools, "envelope", {"model": house, "what": "AREABYORIENTATION"})["decidable"] is True
+
+    def test_an_unknown_aspect_names_the_ones_that_exist(self, tools: list, house: str) -> None:
+        with pytest.raises(ToolError) as raised:
+            call(tools, "envelope", {"model": house, "what": "uWert"})
+        assert "thermalEnvelope" in str(raised.value)
+
+    def test_no_aspect_returns_a_verdict_or_a_limit(self, tools: list, house: str) -> None:
+        """The invariant of the whole engine, checked where OIB 6 is loudest.
+
+        A U-value limit is the single most quotable number in OIB 6, and an
+        operator that supplied one would be applying a clause it never read.
+        """
+        for what in ("thermalEnvelope", "areaByOrientation", "compactness"):
+            text = json.dumps(call(tools, "envelope", {"model": house, "what": what}), ensure_ascii=False)
+            for forbidden in ("erfüllt", "zulässig", "Grenzwert überschritten", "Gebäudeklasse"):
+                assert forbidden not in text, f"{what} carries „{forbidden}“"
+
+    def test_a_declared_u_value_is_never_invented(self, tools: list, house: str) -> None:
+        """A U-value derived from a layer set is a different number from the one
+        the architect signed, and looks exactly like it."""
+        value = call(tools, "envelope", {"model": house, "what": "thermalEnvelope"})["value"]
+        entries = [entry for group in value["byKind"].values() for entry in group]
+        assert entries, "the sample house has an envelope"
+        for entry in entries:
+            assert entry.get("uValue") is None or entry.get("uValueSource") == "declared"

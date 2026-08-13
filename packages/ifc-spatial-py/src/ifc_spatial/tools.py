@@ -62,6 +62,11 @@ from . import accessibility as acc
 from . import circulation as circ
 from . import clearance as clr
 from . import daylight as dl
+
+# `env`, not `envelope`: `envelope.py` is the ANSWER CONTRACT (`Answer`,
+# `computed`, `undecidable`) and `envelope_geometry.py` is the thermal envelope.
+# Two unrelated meanings of one word, one of which is imported from below.
+from . import envelope_geometry as env
 from . import fire as fi
 from . import operators as op
 from . import relations as extra
@@ -286,6 +291,34 @@ FIRE_ASPECTS: dict[str, str] = {
     "siteBoundary": (
         "Abstand zur Grundgrenze (Brandübertragung). Auf den meisten Exporten nicht entscheidbar: "
         "eine Grundgrenze wird selten mitexportiert, und geraten wird sie hier nicht"
+    ),
+}
+
+#: The `what` values `envelope` accepts.
+#:
+#: Grouped for the same reason as `FIRE_ASPECTS`: one subject — the building as
+#: a heat-loss problem — asked three ways. All three take the WHOLE model and no
+#: GlobalId, which is what separates them from `measure`: an envelope is not a
+#: property of an element, it is the set of elements that happens to bound the
+#: heated volume, and asking about it one wall at a time is how the wall that
+#: was left out stays invisible.
+ENVELOPE_ASPECTS: dict[str, str] = {
+    "thermalEnvelope": (
+        "Welche Bauteile die Grenze zwischen beheiztem Innen und Außen bilden, nach Art gruppiert, "
+        "je mit Fläche und DEKLARIERTEM U-Wert. Jeder Eintrag nennt, WORAUS die Zuordnung folgt — "
+        "IsExternal deklariert oder aus den Raumberührungen abgeleitet ist nicht dieselbe Aussage. "
+        "Dazu die zwei Listen, die die Summe überprüfbar machen: innenliegend (entschieden und "
+        "weggelassen) und unbestimmt (nicht entschieden, also weder gezählt noch verworfen)"
+    ),
+    "areaByOrientation": (
+        "Hüllfläche je Himmelsrichtung, opak und transparent getrennt, mit dem Fensterflächenanteil "
+        "(WWR) je Fassade. Braucht einen deklarierten TrueNorth — ohne den wird die Richtung nicht "
+        "geraten, sondern verweigert"
+    ),
+    "compactness": (
+        "A/V in 1/m, mit der charakteristischen Länge l_c = V/A daneben. A und V kommen einzeln "
+        "zurück, weil ein Verhältnis, dessen Eingangsgrößen unsichtbar sind, von der Person, die es "
+        "unterschreibt, nicht geprüft werden kann. V ist das NETTO-Volumen (Summe der IfcSpace-Körper)"
     ),
 }
 
@@ -573,6 +606,36 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         if what == "siteBoundary":
             return run(lambda: fi.distance_to_site_boundary(model, ids[0] if ids else None))
         raise ToolError(f'what "{what}" gibt es nicht. Erlaubt: {", ".join(FIRE_ASPECTS)}')
+
+    # ── envelope (OIB 6) ────────────────────────────────────────────────────
+
+    def envelope_op(args: dict[str, Any]) -> Any:
+        """The three OIB-6 operators behind one name.
+
+        These existed, were tested, and were on NO tool surface — so an agent
+        asked a Kompaktheit or Hüllfläche question reached nothing and said the
+        export could not answer it, while the operator sat in the package with
+        30 passing tests. A capability nobody can call is indistinguishable from
+        a missing one, and the second is what the user was told.
+
+        No `globalId`: all three take the whole model. `measure` is the tool for
+        a named element; this one is for a set that has to be DERIVED before it
+        can be measured, and the derivation is most of the answer.
+        """
+        model = resolve(args.get("model"))
+        # Matched case-insensitively against the real keys rather than
+        # lowercased into them — the same trap `fire_op` documents: lowercasing
+        # turns "areaByOrientation" into "areabyorientation", which matches no
+        # key and refuses a correct call.
+        wanted = str(args.get("what") or "thermalEnvelope").strip().lower()
+        what = next((k for k in ENVELOPE_ASPECTS if k.lower() == wanted), wanted)
+        if what == "thermalEnvelope":
+            return run(lambda: env.thermal_envelope(model))
+        if what == "areaByOrientation":
+            return run(lambda: env.envelope_area_by_orientation(model))
+        if what == "compactness":
+            return run(lambda: env.compactness(model))
+        raise ToolError(f'what "{what}" gibt es nicht. Erlaubt: {", ".join(ENVELOPE_ASPECTS)}')
 
     # ── ids ─────────────────────────────────────────────────────────────────
 
@@ -952,6 +1015,31 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 "required": ["model", "what"],
             },
             handler=fire_op,
+        ),
+        ToolDef(
+            name="envelope",
+            title="Thermische Gebäudehülle (OIB 6)",
+            description=(
+                "Die geometrischen Größen, die eine OIB-6-Rechnung als Eingang braucht:\n"
+                + "\n".join(f"  {k} — {v}" for k, v in ENVELOPE_ASPECTS.items())
+                + "\n\nKEIN U-Wert wird gerechnet. Ein deklarierter U-Wert wird wiedergegeben; ein "
+                "nicht deklarierter FEHLT und wird NICHT aus den Schichten hergeleitet — ein aus einer "
+                "Materialliste gerechneter U-Wert ist eine andere Zahl als die, die die Architektin "
+                "unterschrieben hat, und sieht genauso aus.\n\n"
+                "KEIN Grenzwert und kein „erfüllt“: welcher U-Wert oder welches A/V zulässig ist, steht "
+                "in OIB 6 und im Energieausweis-Verfahren, nicht in der Geometrie.\n\n"
+                "Kostet Geometrie (Sekunden, nicht Millisekunden): alle drei bauen die Körper der "
+                "Hüllbauteile auf."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "what": {"type": "string", "enum": list(ENVELOPE_ASPECTS)},
+                },
+                "required": ["model", "what"],
+            },
+            handler=envelope_op,
         ),
         ToolDef(
             name="shopping_list",

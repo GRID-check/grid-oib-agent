@@ -78,6 +78,7 @@ VALID_OPERATIONS = {
     "view",
     "shopping_list",
     "fire",
+    "envelope",
     "overhang",
     "light_incidence",
 }
@@ -227,6 +228,30 @@ FIRE_ASPECTS = {
     ),
 }
 
+#: `what` on the `envelope` operation — the OIB 6 geometry.
+#:
+#: Carried on `kind`, the same field `fire` uses, because both are "one subject
+#: asked several ways" and a third field spelling would make the model choose a
+#: parameter name instead of a question.
+ENVELOPE_ASPECTS = {
+    "thermalEnvelope": (
+        "which elements form the boundary between heated inside and outside, grouped by kind, each "
+        "with its area and its DECLARED U-value. Every entry says which rung decided it — declared "
+        "IsExternal and inferred from room contact are not the same claim — and the two lists that "
+        "make the total checkable come back with it: innenliegend (decided, left out) and "
+        "unbestimmt (not decided, so neither counted nor discarded)"
+    ),
+    "areaByOrientation": (
+        "envelope area per compass bearing, opaque and transparent apart, with the window-to-wall "
+        "ratio per facade. Needs a declared TrueNorth; without one the bearing is refused, not guessed"
+    ),
+    "compactness": (
+        "A/V in 1/m, with the characteristic length (V over A) beside it. A and V come back separately, "
+        "because a ratio whose inputs are invisible cannot be checked by whoever signs it. V is the "
+        "NET volume (the sum of the IfcSpace solids)"
+    ),
+}
+
 #: `mode` on view. A SECOND vocabulary on the same field, which is worth naming
 #: rather than leaving inline: `mode` already carries the distance senses, and a
 #: model that reads DISTANCE_MODES and then meets `mode="highlight"` has to work
@@ -285,6 +310,18 @@ _TOOL_DESCRIPTION = (
     "measure/clearHeight.\n"
     "  'room_inventory' — rooms grouped by a SUSPECTED use (room_kind: aufenthaltsraum, nebenraum, "
     "erschliessung), inferred from their names. A proposal for a human to confirm, never a finding.\n"
+    "  'fire'           — the OIB 2 (Brandschutz) geometry. Set 'kind':\n"
+    f"{_enum_lines(FIRE_ASPECTS)}\n"
+    "                     NO Gebäudeklasse. fluchtniveau returns a HEIGHT; which class follows from it "
+    "is a legal classification under OIB 2 plus Landesrecht. compartmentArea takes the storey or the "
+    "rooms in 'global_id' (comma-separated); separatingElements takes exactly TWO rooms there.\n"
+    "  'envelope'       — the OIB 6 (Wärmeschutz) geometry of the whole building. Set 'kind':\n"
+    f"{_enum_lines(ENVELOPE_ASPECTS)}\n"
+    "                     Takes NO global_id — an envelope is not a property of an element but the set "
+    "of elements bounding the heated volume, and asking wall by wall is how the wall that was left out "
+    "stays invisible. No U-value is CALCULATED: a declared one is repeated, a missing one is missing "
+    "and is never derived from the layer set, because a U-value computed from a material list is a "
+    "different number from the one the architect signed and looks identical. Costs geometry (seconds).\n"
     "  'overhang'       — how far one element projects past another's facade plane, in metres. The "
     "Dachüberstand, the balcony, the canopy. global_id is the projecting element, other_global_id the "
     "one whose outer face is the reference — get that from relations/hostedIn on the window.\n"
@@ -485,6 +522,17 @@ def _build_call(
             args["globalId"] = _clean(global_id)
         return "fire", args
 
+    if op == "envelope":
+        # No `globalId` forwarded even when the model supplies one: all three
+        # aspects take the WHOLE model, and the engine's schema does not accept
+        # the field. Passing it through would turn a harmless surplus argument
+        # into a schema rejection the model cannot read its way out of.
+        wanted = _clean(kind) or "thermalEnvelope"
+        aspect = next((k for k in ENVELOPE_ASPECTS if k.lower() == wanted.lower()), None)
+        if aspect is None:
+            return f"Error: for operation 'envelope', kind must be one of: {', '.join(ENVELOPE_ASPECTS)}. Got '{kind}'."
+        return "envelope", {"what": aspect}
+
     if op == "shopping_list":
         return "shopping_list", {}
 
@@ -646,6 +694,31 @@ def _angle(value: Any) -> str:
     return str(int(value)) if float(value).is_integer() else _num(float(value), 1)
 
 
+#: Keys whose value is DIMENSIONLESS and must not inherit the answer's band.
+#:
+#: `_decimals` derives its precision from the answer's tolerance, which carries
+#: the answer's UNIT. Applied to a ratio that is a different quantity entirely,
+#: it destroys the number: `envelope/areaByOrientation` has a tolerance of
+#: ±2.3 m², which earns zero decimals, and the window-to-wall ratios then
+#: rendered `windowWallRatio=0` for north (0.193), south (0.405) and the
+#: building as a whole (0.177). The WWR is the entire point of that operator,
+#: and a facade reported at 0 reads as one with no glazing in it — a claim about
+#: the building, made by a rounding rule, and false.
+#:
+#: Two decimals rather than the band's, because these are ratios in 0…1 and
+#: their own resolution has nothing to do with how well an area was measured.
+#:
+#: Bare `ratio` is deliberately NOT in this set, and the exclusion is the whole
+#: reason the set is a set rather than a regex on the name. Two operators return
+#: a key called `ratio` and only one of them is unitless:
+#: `lightEntryArea.ratio` is a fraction, but `compactness.ratio` is A/V in
+#: **1/m** — the answer's own main value, whose ±0.021 1/m band is exactly the
+#: right precision for it. Overriding that one would be this same bug pointed
+#: the other way. `lightEntryArea` loses nothing by the omission: its headline
+#: line already states the share as „**14.21 %**" at full precision.
+_UNITLESS_KEYS = frozenset({"windowWallRatio", "percent", "confidence"})
+
+
 def _value_text(value: Any, decimals: int | None = None) -> str:
     """The answer's value as one readable line."""
     if value is None:
@@ -658,7 +731,7 @@ def _value_text(value: Any, decimals: int | None = None) -> str:
         # "box=min=[…], max=[…]", which reads as one key with two values.
         parts = []
         for key, inner in value.items():
-            text = _value_text(inner, decimals)
+            text = _value_text(inner, 2 if key in _UNITLESS_KEYS else decimals)
             parts.append(f"{key}=({text})" if isinstance(inner, dict) else f"{key}={text}")
         return ", ".join(parts)
     if isinstance(value, list):

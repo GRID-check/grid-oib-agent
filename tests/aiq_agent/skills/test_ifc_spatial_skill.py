@@ -37,6 +37,8 @@ from pathlib import Path
 import pytest
 
 from aiq_agent.agents.bim.measure_register import DISTANCE_MODES
+from aiq_agent.agents.bim.measure_register import ENVELOPE_ASPECTS
+from aiq_agent.agents.bim.measure_register import FIRE_ASPECTS
 from aiq_agent.agents.bim.measure_register import KINDS
 from aiq_agent.agents.bim.measure_register import MEASURES
 from aiq_agent.agents.bim.measure_register import RELATIONS
@@ -153,6 +155,8 @@ def test_no_backticked_identifier_is_an_invention(backticked: set[str], text: st
         | set(MEASURES)
         | set(DISTANCE_MODES)
         | set(KINDS)
+        | set(FIRE_ASPECTS)
+        | set(ENVELOPE_ASPECTS)
         | set(ROOM_KINDS)
         | set(TOOL_OPERATIONS)
         | {
@@ -179,6 +183,13 @@ def test_no_backticked_identifier_is_an_invention(backticked: set[str], text: st
             "depth",
             "height",
             "centroid",
+            # Keys of what `envelope/compactness` returns. `volume` is here
+            # because the skill has to name it to say WHICH volume it is: the
+            # net one, summed from the room solids. A gross volume is larger by
+            # the whole construction build-up, and an OIB 6 calculation names
+            # which of the two it wants.
+            "volume",
+            "envelopeArea",
         }
         | _CARD_FIELDS
     )
@@ -227,7 +238,13 @@ def test_dotted_and_valued_forms_resolve_too(text: str) -> None:
         # operation lookup is what `test_the_routing_table_puts_each_operation
         # _under_its_own_tool` already does.
         "mode": set(DISTANCE_MODES) | set(VIEW_MODES),
-        "kind": set(KINDS),
+        # `kind` carries THREE vocabularies, for the same reason `mode` carries
+        # two: the spatial role on `find_elements`, the OIB 2 aspect on `fire`,
+        # and the OIB 6 aspect on `envelope`. Spelling all three out is what
+        # keeps this a check rather than a guess — the union was `KINDS` alone,
+        # so the first `kind: "thermalEnvelope"` the skill wrote failed here as
+        # an invention when it is a real value of a real field.
+        "kind": set(KINDS) | set(FIRE_ASPECTS) | set(ENVELOPE_ASPECTS),
         "room_kind": set(ROOM_KINDS),
     }
     calls = written_calls(text)

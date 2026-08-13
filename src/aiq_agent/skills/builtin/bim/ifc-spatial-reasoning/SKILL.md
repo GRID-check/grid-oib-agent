@@ -43,6 +43,8 @@ richtig gemessene Zahl unter einem falschen Namen.
 | Freier Lichteinfall, Tageslicht | `ifc_measure`: `light_incidence`, `measure: "lightEntryArea"`, `measure: "roomDepth"` |
 | Fluchtweg, welche Räume hängen zusammen | `ifc_measure`: `measure: "egressPath"`, `measure: "reachableFrom"` |
 | Rohbaulichte einer Öffnung (Ausgangswert jeder Durchgangsbreite) | `ifc_measure`: `measure: "clearWidth"` |
+| Fluchtniveau, Brandabschnittsfläche, trennende Bauteile, Grundgrenze | `ifc_measure`: `fire` mit `kind` |
+| Thermische Hülle, Fensterflächenanteil, Kompaktheit (A/V) | `ifc_measure`: `envelope` mit `kind` |
 | Was liegt über oder unter etwas | `ifc_measure`: `relations` mit `above` / `below` |
 | Bauteilmaße bei schräger Lage | `ifc_measure`: `measure: "orientedExtent"` |
 | Welches Bauteil ist gemeint (hinsehen) | `ifc_measure`: `view` |
@@ -126,6 +128,34 @@ Zur Länge gehört zwingend der Hinweis dazu: sie ist ein Streckenzug über
 Mittelpunkte und damit eine **Untergrenze**, keine Fluchtweglänge im Sinne der
 OIB 2. Wer sie ohne diesen Satz berichtet, lässt einen zu langen Weg
 unauffällig aussehen.
+
+„Wie kompakt ist das Gebäude, und wie groß ist der Fensterflächenanteil?"
+(OIB 6)
+
+1. `operation: "envelope"` mit `kind: "thermalEnvelope"` → welche Bauteile die
+   Hülle überhaupt bilden, je mit Fläche und **deklariertem** U-Wert
+2. `operation: "envelope"` mit `kind: "areaByOrientation"` → Hüllfläche je
+   Himmelsrichtung, opak und transparent getrennt, mit dem Fensterflächenanteil
+   je Fassade
+3. `operation: "envelope"` mit `kind: "compactness"` → A/V und die
+   charakteristische Länge
+
+`envelope` nimmt **kein** `global_id`: eine Gebäudehülle ist keine Eigenschaft
+eines Bauteils, sondern die Menge der Bauteile, die das beheizte Volumen
+begrenzen — und Wand für Wand zu fragen ist genau der Weg, auf dem die
+vergessene Wand unsichtbar bleibt.
+
+Zwei Sätze gehören zu jeder Antwort daraus. Erstens: **kein U-Wert wird
+gerechnet.** Ein deklarierter wird weitergereicht, ein fehlender fehlt und wird
+nie aus dem Schichtaufbau hergeleitet — eine aus einer Materialliste gerechnete
+Zahl sieht aus wie die, die die Architektin unterschrieben hat, und ist eine
+andere. Zweitens: das `volume` in `compactness` ist ein **Nettovolumen**
+(Summe der Raumkörper). Welches Volumen eine Berechnung meint, entscheidet die
+Berechnung.
+
+Die Grenzwerte — zulässige U-Werte, das erforderliche A/V — stehen in OIB 6 und
+im Energieausweis-Verfahren. Dieses Werkzeug liefert die Geometrie dazu und
+kein „erfüllt".
 
 „Steht dieses Bauteil schief im Raster?" (Maße für OIB 1 und 4)
 
