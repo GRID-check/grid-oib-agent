@@ -13,7 +13,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { buildGraph } from '../src/graph/build.js'
-import { runGeometryPass, type GeometryIndex } from '../src/geometry/pass.js'
+import { runGeometryPass, signedDistance, type GeometryIndex } from '../src/geometry/pass.js'
 import type { BuildingGraph } from '../src/graph/types.js'
 import { UnknownElementError } from '../src/operators/topology.js'
 import { facadePlaneOf, freeLightIncidence, obstructions, overhang, prism, ray } from '../src/operators/constructive.js'
@@ -296,5 +296,66 @@ describe('freeLightIncidence', () => {
     expect(answer.method).toContain('freeLightIncidence(')
     expect(answer.method).toContain('45°')
     expect(answer.method).toContain('±30°')
+  })
+})
+
+describe('the seated area is a ranking key, not a face area', () => {
+  /**
+   * The rename this suite exists to hold in place.
+   *
+   * `OrientedPlane.seatedArea` and `Plane.binArea` were both called `area`, and
+   * `OrientedPlane.area` was documented as "Area of the face the plane was
+   * seated on". It is not one: `outermostParallelFace` bins triangles by offset
+   * along the normal and sums both facings, so the total spans every co-planar
+   * sliver within FACE_MERGE and never subtracts the openings cut out of the
+   * face.
+   *
+   * Both types are re-exported wholesale by `index.ts`, so the name is the only
+   * thing standing between a consumer and a Fassadenfläche overstated by a
+   * third — and nothing was stopping the rename from being reverted, which is
+   * what this file is for.
+   */
+  it('disagrees with the other bin total about the same wall', () => {
+    /**
+     * The proof that neither is a face area: they are two sums over one wall's
+     * plane and they do not match. The south wall is 8.955 x 2.821 m gross and
+     * carries a 1.81 x 1.21 m window and a 1.81 x 2.11 m door, so ~19.25 m² of
+     * it is actually face. `seatedArea` lands under that and `binArea` over it.
+     *
+     * Asserted as a RELATIONSHIP rather than as two magic numbers, so a change
+     * to the binning fails here with the two values in the message instead of
+     * being absorbed by a loosened bound. The first draft of this test asserted
+     * `> 20` on a figure carried over from a report rather than measured, and
+     * it failed on the real value of 17.958 — which is how the numbers in the
+     * docstrings above came to be re-measured.
+     */
+    const seated = facadePlaneOf(graph, geometry, SOUTH_WALL).value!.seatedArea
+    const binned = geometry.elements.get(SOUTH_WALL)!.facade!.binArea
+    expect(seated).toBeCloseTo(17.958, 2)
+    expect(binned).toBeCloseTo(20.652, 2)
+    expect(binned).toBeGreaterThan(seated)
+  })
+
+  it('is reachable under the new name only, on both types', () => {
+    const plane = facadePlaneOf(graph, geometry, SOUTH_WALL).value!
+    expect(plane).toHaveProperty('seatedArea')
+    expect('area' in plane).toBe(false)
+
+    const wall = geometry.elements.get(SOUTH_WALL)!
+    expect(wall.facade).toHaveProperty('binArea')
+    expect('area' in wall.facade!).toBe(false)
+  })
+
+  it('never reaches a distance calculation, which does not take it', () => {
+    /**
+     * `signedDistance` used to require a whole `Plane`, so callers with a
+     * normal and a point had to invent an area — one passed 0, one passed the
+     * seated bin's total. Neither was read. It now takes only what it reads,
+     * so there is no field to invent and no implication that a face area
+     * belongs in a distance.
+     */
+    const plane = facadePlaneOf(graph, geometry, SOUTH_WALL).value!
+    const distance = signedDistance([0, 0, 0], { normal: plane.normal, point: plane.point })
+    expect(Number.isFinite(distance)).toBe(true)
   })
 })

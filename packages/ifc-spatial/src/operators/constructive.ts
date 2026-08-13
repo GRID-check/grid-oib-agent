@@ -182,17 +182,36 @@ export interface OrientedPlane {
    * the face's area and it is not one. `outermostParallelFace` bins triangles
    * by offset along the normal and sums BOTH facings (the winding is
    * unreliable), so the total covers every co-planar sliver within `FACE_MERGE`
-   * — the wall's outer leaf plus whatever else happens to lie in that plane —
-   * and it never subtracts the openings cut out of it. Measured on the sample
-   * house's south wall: 23.527 m² binned against a true face of 17.776 m²,
-   * +32 %. Reporting that as a Fassadenfläche would put a third of a wall that
-   * is not there into an OIB 6 window-to-wall ratio.
+   * — the wall's outer leaf plus whatever else happens to lie in that plane.
+   *
+   * The clearest proof is that the two bin totals in this package disagree
+   * about the same wall. On the sample house's south wall
+   * (`3cUkl32yn9qRSPvBJVyWy4`, 8.955 × 2.821 m gross, carrying a 1.81 × 1.21 m
+   * window and a 1.81 × 2.11 m door, so ≈19.25 m² of face once the openings
+   * are taken out):
+   *
+   *     seatedArea (this field)              17.958 m²
+   *     Plane.binArea (the geometry pass)    20.652 m²
+   *
+   * Two numbers for one wall's plane, one under the face and one over it,
+   * because each is a sum over whichever triangles its own binning rule
+   * collected — not a measurement of anything an architect would point at. At
+   * most one could be "the area of the face", and neither is. Feeding either
+   * into an OIB 6 window-to-wall ratio would put square metres that are not
+   * there on one side of the fraction.
    *
    * The Python engine withdrew the equivalent field from `facade_plane_of`
    * for this reason — it publishes `{normal, point, outward}` only. This one
-   * survives because `outermostParallelFace` needs it to choose a winning bin;
-   * it is deliberately not re-exported from `index.ts`, and the only sound use
-   * is comparing two bins of the SAME element to each other.
+   * survives because `outermostParallelFace` needs it to choose a winning bin,
+   * and the only sound use is comparing two bins of the SAME element to each
+   * other.
+   *
+   * It IS public: `index.ts` re-exports this module wholesale (`export * from
+   * './operators/constructive.js'`), so the name is the only thing standing
+   * between a consumer and the wrong reading. That is exactly why it was
+   * renamed rather than left as `area` with a warning attached — a caller who
+   * writes `plane.area` has already decided what it means, and a caller who
+   * writes `plane.seatedArea` has to come here to find out.
    */
   seatedArea: number
   /** Whether the outward orientation could be established at all. */
@@ -1276,7 +1295,7 @@ function clip(poly: Vec3[], hs: HalfSpace): Vec3[] {
  * which side is positive.
  */
 function planeDistance(p: Vec3, hs: { normal: Vec3; point: Vec3 }): number {
-  return signedDistance(p, { normal: hs.normal, point: hs.point, area: 0 })
+  return signedDistance(p, { normal: hs.normal, point: hs.point })
 }
 
 /** True when the box is entirely outside at least one half-space. Conservative. */

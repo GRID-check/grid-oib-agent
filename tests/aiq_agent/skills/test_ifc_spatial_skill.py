@@ -388,3 +388,32 @@ def test_the_light_incidence_angles_are_taught_as_law_not_as_geometry(text: str)
 def test_the_three_provenances_are_all_present_and_distinct(text: str) -> None:
     for word in ("deklariert", "Gemessen", "Vermutlich"):
         assert word in text, word
+
+
+def test_the_clear_width_hedge_survives(text: str) -> None:
+    """`clearWidth` is a Rohbaulichte, and the skill must keep saying so.
+
+    This is the escape-door step of an OIB 2 check, and the error is in the
+    unsafe direction: the finished lichte Durchgangsbreite is measured between
+    the fitted Zargenfalze and is smaller than the aperture the operator
+    measures, so a door reported at its Rohbaulichte reads as wide enough when
+    the built one is not.
+
+    Pinned here because nothing else pins it. The rest of this suite compares
+    IDENTIFIERS against `measure_register`'s enums, so the entire hedge could be
+    deleted — the caveat, the percentage and the instruction not to call the
+    number a Durchgangsbreite — and every test in the repo would stay green
+    while the skill quietly started teaching a compliant-looking answer.
+
+    Asserted on words with whitespace collapsed, not on line breaks, so a
+    reflowed paragraph does not read as a removed warning.
+    """
+    flowed = " ".join(text.replace("**", "").split())
+    # The operator's own result, named for what it is.
+    assert "Rohbaulichte" in flowed
+    # The size of the gap, and its direction. Both matter: a warning that the
+    # number is "approximate" would not stop anyone reporting it as compliant.
+    assert "15–25 % kleiner" in flowed
+    assert "zu schmale" in flowed
+    # And the instruction that keeps the wrong noun off the answer.
+    assert "nie „lichte Durchgangsbreite" in flowed

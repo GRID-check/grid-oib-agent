@@ -110,7 +110,30 @@ export interface Box {
 export interface Plane {
   normal: Vec3
   point: Vec3
-  area: number
+  /**
+   * The summed area of the co-planar triangle bin that produced this plane, m²
+   * — a ranking key, NOT the area of a face.
+   *
+   * Same reasoning as `OrientedPlane.seatedArea` in `operators/constructive.ts`
+   * and the same rename for the same reason: this is a bin total over every
+   * triangle sharing a quantised normal, so it spans faces that are parallel
+   * but not contiguous and never subtracts the openings cut out of them. It is
+   * read in exactly one place — picking the largest bin as `dominant`/`facade`
+   * — which is the only thing it is sound for, because comparing two bins of
+   * the same element is a comparison of like with like.
+   *
+   * That the two are not interchangeable is measurable: on the sample house's
+   * south wall this field reports 20.652 m² and `seatedArea` reports
+   * 17.958 m², against ≈19.25 m² of actual face (8.955 × 2.821 m less a
+   * 2.190 m² window and a 3.819 m² door). One over, one under, because the two
+   * bin differently — which is the whole argument for not calling either
+   * of them `area`.
+   *
+   * `index.ts` re-exports this module wholesale, so the field is public API and
+   * the name is all that stands between a consumer and a Fassadenfläche built
+   * on square metres that are not there.
+   */
+  binArea: number
 }
 
 export interface ElementGeometry {
@@ -129,11 +152,16 @@ export interface ElementGeometry {
   /**
    * Largest vertical planar cluster.
    *
-   * `area` is the real one-sided area of that face: the kernel emits one
-   * triangle per face with unreliable winding, not two opposed copies, so
-   * nothing here is double-counted. Verified by binning a wall's triangles by
-   * orientation AND offset — the two large bins are its two leaves at different
-   * offsets, not one face counted twice.
+   * `binArea` is not double-counted — the kernel emits one triangle per face
+   * with unreliable winding, not two opposed copies, verified by binning a
+   * wall's triangles by orientation AND offset, where the two large bins are
+   * its two leaves at different offsets rather than one face counted twice.
+   *
+   * It is still NOT the area of the face, and this comment used to say it was.
+   * The bin spans every co-planar triangle within the quantisation, contiguous
+   * or not, and nothing subtracts the openings cut out of it: on the sample
+   * house's south wall it reports 20.652 m² against ≈19.25 m² of real face.
+   * The field's own docstring on {@link Plane} carries the rest.
    */
   facade: Plane | null
   /** Largest planar cluster of any orientation. */
@@ -553,10 +581,10 @@ function measureTriangles(triangles: Float64Array): {
     const plane: Plane = {
       normal: [bin.normal[0] / length, bin.normal[1] / length, bin.normal[2] / length],
       point: [bin.point[0] / bin.area, bin.point[1] / bin.area, bin.point[2] / bin.area],
-      area: bin.area,
+      binArea: bin.area,
     }
-    if (!dominant || plane.area > dominant.area) dominant = plane
-    if (Math.abs(plane.normal[2]) < VERTICAL_TOLERANCE && (!facade || plane.area > facade.area)) facade = plane
+    if (!dominant || plane.binArea > dominant.binArea) dominant = plane
+    if (Math.abs(plane.normal[2]) < VERTICAL_TOLERANCE && (!facade || plane.binArea > facade.binArea)) facade = plane
   }
 
   return {
@@ -575,8 +603,16 @@ function quantize(value: number): number {
   return Math.round(value / PLANE_TOLERANCE)
 }
 
-/** Signed distance from a point to a plane, positive along the normal. */
-export function signedDistance(point: Vec3, plane: Plane): number {
+/**
+ * Signed distance from a point to a plane, positive along the normal.
+ *
+ * Takes only the two fields it reads. It used to take a whole `Plane`, which
+ * forced every caller that had a normal and a point to invent an `area` — and
+ * the callers duly did, one passing a literal `0` and one passing the seated
+ * bin's total. Neither number was used, and the second one quietly implied
+ * that a face area belonged in a distance calculation.
+ */
+export function signedDistance(point: Vec3, plane: Pick<Plane, 'normal' | 'point'>): number {
   return (
     (point[0] - plane.point[0]) * plane.normal[0] +
     (point[1] - plane.point[1]) * plane.normal[1] +
