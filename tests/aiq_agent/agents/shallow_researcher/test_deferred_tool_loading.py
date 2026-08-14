@@ -50,9 +50,12 @@ TOOLS = [ifc_measure, ris_search, remember, emit_card]
 class FakeOpenRouterLLM:
     """ChatOpenAI stand-in on OpenRouter's Responses API."""
 
-    def __init__(self):
+    def __init__(self, model_name="openai/gpt-5.6-luna"):
         self.openai_api_base = "https://openrouter.ai/api/v1"
         self.use_responses_api = True
+        # A model id is not decoration: the per-model gate reads it, and a model
+        # it cannot identify is treated as not cleared for deferral.
+        self.model_name = model_name
         self.bind_calls: list[dict] = []
 
     def bind_tools(self, tools, **kwargs):

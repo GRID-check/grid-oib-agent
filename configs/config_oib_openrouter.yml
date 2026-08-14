@@ -602,8 +602,52 @@ functions:
     # majority: the synthesis turn, the meta turns, and every turn answered from
     # a tool already loaded. Read the trade that way round before enabling it.
     #
+    # Deferral is gated PER MODEL as well as per endpoint, because the per-org
+    # override seam (ADR-0014) can hand a single research turn a model this
+    # workflow was never built against. Two independent conditions must hold:
+    # the model is cleared for the tool_search + namespace shape, AND it scores
+    # at least `min_intelligence_index` on Artificial Analysis's
+    # intelligence_index. Neither implies the other — x-ai/grok-4.6 scores 60.9
+    # and cannot defer at all; anthropic/claude-sonnet-4.6 defers (it was one of
+    # six models seen emitting a real function_call) and is excluded on SCORE
+    # alone, at 48.4. Do not re-add sonnet-4.6 or minimax/minimax-m3 (45.4) to
+    # the allowlist without also moving the threshold — their absence is a
+    # threshold decision, not a missing measurement.
+    #
+    # A "no" from either condition means BIND THE FULL SCHEMAS. It is never a
+    # refused request or a failed build, so a sub-floor model runs exactly as it
+    # did before this existed.
+    #
+    # The defaults ship the measured lists (see `deferred_tool_loading.py`), so
+    # `enabled: true` alone is the normal configuration. Verified = the provider
+    # echoed `defer_loading` back on every function, NOT merely HTTP 200 — a
+    # provider that accepts and normalizes the deferral away is the silent
+    # failure this whole feature guards against.
+    #
+    # An unlisted model is probed ONCE, off the request path, and the verdict
+    # cached; until it lands that model gets full schemas. So a new model costs
+    # one background request, never a wasted round trip on a live turn.
+    #
     # deferred_tool_loading:
     #   enabled: true
+    #   # Floor on Artificial Analysis intelligence_index. 0 disables it.
+    #   min_intelligence_index: 50
+    #   models:
+    #     # Only override these to add a model the shipped lists do not know.
+    #     # Setting `allow` REPLACES the seeded list rather than extending it.
+    #     deny:
+    #       - x-ai/grok-4.6                    # 422, and scores 60.9 — capability is not quality
+    #       - deepseek/deepseek-v4-flash-0731  # routing-flaky: two sweeps disagreed
+    #       - meta-llama/llama-3.3-70b-instruct  # routing-flaky: 5 of 6 defer, the 6th 422s
+    #     provisional:
+    #       # Permitted on request, capability UNVERIFIED — OpenRouter answers 403
+    #       # "requires 18+ age confirmation", an ACCOUNT gate that fires before
+    #       # the payload is read, so nobody knows whether it takes the shape.
+    #       # Yields to whatever the probe or a real request learns (unlike
+    #       # `allow`, which is an assertion). Deliberate and informed: if it
+    #       # cannot defer, the fallback costs one round trip per tool subset,
+    #       # then latches. Not a precedent for listing unverified models.
+    #       - meta/muse-spark-1.1
 
   deep_research_agent:
     _type: deep_research_agent
