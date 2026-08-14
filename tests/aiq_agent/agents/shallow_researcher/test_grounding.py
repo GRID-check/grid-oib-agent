@@ -463,12 +463,18 @@ class TestNormativeClaimDetection:
             # survive standing next to a measurement, which is the whole point:
             # „die gemessene Höhe ist zu wenig" is the commonest verdict shape
             # there is, so „gemessen" is deliberately not an apparatus word.
+            # Each VERDICT here must carry no strong stem at all, or the case
+            # proves nothing about the weak tier: an earlier version paired
+            # „Der Raum ist als Aufenthaltsraum geeignet" — which fires on the
+            # strong `als aufenthaltsraum` — with its apparatus twin, and would
+            # have passed with the weak tier deleted outright.
             ("Die gemessene lichte Höhe ist zu wenig.", "Die Datei ist zu wenig."),
-            ("Der Raum ist als Aufenthaltsraum geeignet.", "Der Raum ist für eine Messung geeignet."),
+            ("Der Wohnraum ist dafür nicht geeignet.", "Der Raum ist für eine Messung geeignet."),
             ("Ein zweiter Fluchtweg ist hier erforderlich.", "Für die Ermittlung ist ein Geschoß erforderlich."),
+            ("Die Höhe liegt unter dem Sollwert.", "Der Sollwert aus dem Pset beträgt 2,50 m."),
         ],
     )
-    def test_the_weak_tier_is_scoped_to_its_own_sentence(self, verdict, apparatus):
+    def test_the_weak_tier_is_scoped_to_its_own_clause(self, verdict, apparatus):
         assert answer_mentions_normative_claim(verdict) is True
         assert answer_mentions_normative_claim(apparatus) is False
 
@@ -479,11 +485,122 @@ class TestNormativeClaimDetection:
         whose second passes a verdict is the realistic case; suppressing the
         verdict because another sentence mentioned a Messung would reinstate
         exactly the miss this test class exists to prevent.
+
+        The verdict sentence deliberately carries NO strong stem — an earlier
+        version said „der Raum ist kein Aufenthaltsraum", which fires on the
+        strong tier, so the test passed however the weak tier behaved.
         """
-        text = (
-            "Die Messung erfolgte an 4 von 4 Bauteilen.\n"
-            "Damit ist der Raum kein Aufenthaltsraum und die Höhe ist zu wenig."
-        )
+        text = "Die Messung erfolgte an 4 von 4 Bauteilen.\nDamit ist die lichte Höhe zu wenig."
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # „Die Auswertung zeigt, dass …" is how a model introduces a
+            # conclusion, so scoping the carve-out to the SENTENCE handed every
+            # verdict introduced that way to the word „Auswertung".
+            "Die Auswertung zeigt, dass der Fluchtweg zu schmal ist.",
+            "Die Messung ergibt 2,20 m; das ist zu niedrig.",
+            "Das Ergebnis der Berechnung: der Wohnraum ist zu niedrig.",
+            # An evidential adjunct CITES the apparatus for the verdict — it
+            # does not predicate the verdict of it.
+            "Laut Messung ist der Raum als Wohnraum nicht geeignet.",
+            "Gemäß der Auswertung ist die lichte Höhe zu gering.",
+            "Auf Basis der Berechnung ist der Gang zu schmal.",
+        ],
+    )
+    def test_the_carve_out_does_not_eat_a_verdict_drawn_from_the_measurement(self, text):
+        """B1. The suppressor's job is renderer prose, not the model's conclusion.
+
+        This function never sees renderer output — it reads the model's finished
+        answer, where naming the apparatus is exactly what a model does when it
+        states what the numbers mean. Every sentence here was measured firing at
+        ``862e453a^`` and silent at ``862e453a``: a fire-safety or habitability
+        verdict shipped at "medium" under reason ``measurement_only``.
+        """
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # The apparatus word and the stem share ONE clause here, so only
+            # the strong tier can fire — a weak stem would be suppressed.
+            "Die Auswertung zeigt einen zu geringen Feuerwiderstand der Trennwand.",
+            "Die Messung ergibt ein zu hohes Fluchtniveau.",
+            "Die Auswertung betrifft den baulichen Brandschutz des Stiegenhauses.",
+            "Die Messung umfasst den Brandabschnitt im Regelgeschoß.",
+        ],
+    )
+    def test_fire_safety_categories_are_strong_again(self, text):
+        """These spent a release in the weak tier on a justification that does
+        not exist. Grep ``src/``: „Fluchtniveau", „Feuerwiderstand",
+        „Brandschutz" and „Brandabschnitt" appear only in tool DESCRIPTIONS and
+        prompt templates — never in an emitted measurement, and this function
+        reads neither. Three of the four were unconditional at ``862e453a^``.
+        Promoting them back cost zero false fires across 294 sentences from four
+        independently authored corpora, so no context may disarm them.
+        """
+        assert answer_mentions_normative_claim(text) is True
+
+    def test_a_dash_separates_the_measurement_from_the_verdict(self):
+        """The module docstring's own headline verdict, next to its number.
+
+        „2,70 m — das reicht" is the shortest route to a verdict there is. Under
+        a sentence-scoped carve-out the whole line belonged to „Auswertung".
+        """
+        assert answer_mentions_normative_claim("Die Auswertung zeigt 2,70 m — das reicht.") is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # „Verstoß" is o + ß. Spelling only „verstöß" (ö + ß) and
+            # „verstoss" (o + ss) left the canonical singular — the form the
+            # verdict is actually written in — matching neither pattern.
+            "Ein Verstoß liegt vor.",
+            "Gegen § 87 wurde verstoßen.",
+            "Verstöße sind der Behörde zu melden.",
+            "Ein Verstoss liegt vor.",
+            # „unterschritten" was covered from the first round; the other side
+            # of the same threshold never was, and it is the side a
+            # Gebäudehöhe is breached on.
+            "Die Gebäudehöhe wird überschritten.",
+            "Die zulaessige Hoehe wird ueberschritten.",
+            # „erlaubt" covered one register of permission out of four.
+            "Die Nutzung ist untersagt.",
+            "Eine Abweichung ist hier nicht gestattet.",
+            "Der Grenzwert wurde missachtet.",
+        ],
+    )
+    def test_verdict_vocabulary_that_had_no_pattern(self, text):
+        """Gaps confirmed silent on both ``862e453a`` and its parent.
+
+        Each is an unhedged legal verdict a reader acts on, and each used to
+        ship at "medium" with reason ``measurement_only``.
+        """
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # L1: „pflicht" as the LEFT half of a compound is a form input, not
+            # a duty. Austria's duty nouns all put it on the right.
+            "Das Feld model_id ist ein Pflichtfeld.",
+            # L2: the „Modell" is the uploaded IFC, not the building.
+            "Ein Sollwert ist im Modell nicht hinterlegt.",
+            "Das Modell ist zu groß für den Schnellpfad; die Messung lief im Vollpfad.",
+        ],
+    )
+    def test_prose_about_the_upload_is_not_prose_about_the_building(self, text):
+        assert answer_mentions_normative_claim(text) is False
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Die Bewilligungspflicht besteht unabhängig davon.",
+            "Der Bauherr ist dazu verpflichtet.",
+        ],
+    )
+    def test_left_anchoring_pflicht_keeps_the_duty_nouns(self, text):
         assert answer_mentions_normative_claim(text) is True
 
 
@@ -828,6 +945,35 @@ class TestTheBibliographyStripIsNotAnEscapeHatch:
         kept = _prose_without_references(content)
         assert kept.strip() == "Die Höhe beträgt 2,20 m."
         assert answer_mentions_normative_claim(kept) is False
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            # A bullet under „**Quellen:**" that points at nothing.
+            "Die Höhe beträgt 2,20 m.\n\n**Quellen:**\n"
+            "- [1] Wiener Bauordnung — https://example.invalid/bo\n"
+            "- Damit ist der Raum unzulässig und darf nicht als Aufenthaltsraum genutzt werden.",
+            # A numbered entry that is a sentence, not a source.
+            "Die Höhe beträgt 2,20 m.\n\n## Quellen\n"
+            "1. OIB-Richtlinie 3, https://example.invalid/oib3\n"
+            "2. Der Raum erfüllt die Anforderung nicht.",
+            # A nested item under a real entry.
+            "Die Höhe beträgt 2,20 m.\n\n**Quellen:**\n"
+            "- [1] Wiener Bauordnung — https://example.invalid/bo\n"
+            "  - Der Raum ist unzulässig.",
+        ],
+    )
+    def test_list_punctuation_alone_does_not_make_a_line_a_reference(self, content):
+        """S1. „- " is available to any sentence the model writes.
+
+        Accepting any bullet, any numbered entry and any indented line as a
+        bibliography entry reopened the door this class exists to close: the
+        model writes „**Quellen:**", then writes its verdict as a list item, and
+        the verdict left the text before the brake ever read it. A reference has
+        to point at something — a URL or a „[n]" marker.
+        """
+        kept = _prose_without_references(content)
+        assert answer_mentions_normative_claim(kept) is True
 
     def test_an_answer_without_a_reference_list_is_untouched(self):
         content = "Die lichte Raumhöhe beträgt 2,70 m (gemessen ±5 mm)."

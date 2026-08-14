@@ -171,10 +171,14 @@ _REFERENCES_SECTION_RE = re.compile(
 )
 
 
-#: What a reference list is allowed to consist of: a numbered entry, a bullet, a
-#: bare link, or nothing. Anything else after a „**Quellen:**" line is PROSE,
-#: and prose after a heading is still the answer talking.
-_REFERENCE_LINE_RE = re.compile(r"^\s*(?:[-*+]\s|\d+[.)]\s|\[\d+\]|<?https?://|$)")
+#: What a reference list is allowed to consist of: a blank line, or a line that
+#: carries an actual REFERENCE — a URL or a „[n]" citation marker. List
+#: punctuation is not enough and never was: „- " is available to any sentence,
+#: so accepting it let „- Damit ist der Raum unzulässig …" under a
+#: „**Quellen:**" heading count as a bibliography entry and leave the text
+#: before the brake ever read it. A bullet, a numbered entry and a nested item
+#: are all still references when they point at something.
+_REFERENCE_LINE_RE = re.compile(r"^\s*$|\[\d+\]|<?https?://")
 
 
 def _prose_without_references(content: str) -> str:
@@ -198,18 +202,25 @@ def _prose_without_references(content: str) -> str:
         dropped: „…erfüllt die Anforderung nicht und ist unzulässig."
 
     That is the laundering this module exists to prevent, arriving through the
-    door marked "bibliography". So a heading is a cut point only when every
-    line after it is a link, a list entry or blank; otherwise the search moves
-    to the previous heading, and failing that nothing is removed. Erring
-    towards keeping text is the safe direction here — a reference line that
-    survives costs a hedge, a verdict that is dropped costs a claim about the
-    law.
+    door marked "bibliography". So a heading is a cut point only when every line
+    after it POINTS AT A SOURCE — carries a URL or a „[n]" marker — or is blank;
+    otherwise the search moves to the previous heading, and failing that nothing
+    is removed. Erring towards keeping text is the safe direction here — a
+    reference line that survives costs a hedge, a verdict that is dropped costs
+    a claim about the law.
+
+    Known gap: a verdict written as the TITLE of a markdown link,
+    „- [Damit ist der Raum unzulässig](https://ris…)", is still cut. Nothing
+    structural separates it from „- [Wiener Bauordnung](https://ris…)", and the
+    rules that would — a finite-verb list, or running the brake on the tail —
+    either guess or cut the wrong way, since „Wiener Bauordnung" trips the brake
+    itself. Left open deliberately rather than fixed with a heuristic.
     """
     if not isinstance(content, str):
         return ""
     for match in reversed(list(_REFERENCES_SECTION_RE.finditer(content))):
         tail = content[match.end() :]
-        if all(_REFERENCE_LINE_RE.match(line) for line in tail.splitlines()):
+        if all(_REFERENCE_LINE_RE.search(line) for line in tail.splitlines()):
             return content[: match.start()]
     return content
 

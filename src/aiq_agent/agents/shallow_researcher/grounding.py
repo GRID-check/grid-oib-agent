@@ -44,12 +44,19 @@ answer already gets — but "bias" is not "over-fire at any price": a brake that
 fires on ``ifc_measure``'s own „für eine Messung geeignet" re-floors precisely
 the measured answers this module exists to un-hedge, and fills the
 ``confidence_capped`` ledger with entries nobody should act on. Both directions
-are measured, on corpora written without sight of the vocabulary
-(``tests/…/test_grounding.py``): the brake misses none of 119 verdict sentences
-and fires on 2 of 88 descriptive ones, both of them a renderer PREREQUISITE
-phrased with „muss" („um X zu bestimmen, muss das Modell Y enthalten"). That
-residue is the deliberate trade: no context disarms a deontic modal, so a
-refusal gets hedged rather than a verdict slipping out.
+are measured, on four corpora written by three other authors without sight of
+the vocabulary: over 294 sentences the brake misses 0 of 162 verdicts and fires
+on 8 of 132 descriptive ones. Six of the eight are a renderer PREREQUISITE
+phrased with „muss"/„darf" („um X zu bestimmen, muss das Modell Y enthalten",
+„die Datei darf 200 MB nicht überschreiten"). That residue is the deliberate
+trade: no context disarms a deontic modal, so a refusal gets hedged rather than
+a verdict slipping out.
+
+The carve-out that keeps the other direction honest is scoped to the CLAUSE, and
+that is not a detail. This function reads the model's FINISHED ANSWER — never
+renderer output — and „Die Auswertung zeigt, dass …" is how a model introduces a
+conclusion. A sentence-scoped carve-out therefore suppressed verdicts in exactly
+the sentences that carry them.
 
 Note what brake 1 does NOT have to decide: whether a normative claim is
 *supported*. The citation gate already answered that — this module is only ever
@@ -148,13 +155,23 @@ def tool_result_is_measurement(tool_name: str, content: str) -> bool:
 #    cases nobody should act on. It is gone: every genuinely normative use of it
 #    („entspricht der OIB-Richtlinie 3", „entspricht der Anforderung") names the
 #    instrument it conforms to, and the instrument is already in this list.
-# 3. **Some stems are verdicts only outside the measurement's own prose.** The
-#    renderers in :mod:`aiq_agent.agents.bim.measure_register` say „für eine
-#    Messung geeignet", „für die Ermittlung … erforderlich" and „die Datei ist
-#    zu groß" — every one of them a stem this list wants, used about the
-#    APPARATUS rather than about the building. Those stems live in
-#    :data:`_WEAK_NORMATIVE_PATTERNS` and are suppressed inside a sentence that
+# 3. **Some stems are verdicts only outside the measurement's own prose.** „für
+#    eine Messung geeignet", „für die Ermittlung … erforderlich", „der Sollwert
+#    aus dem Pset" — a stem this list wants, used about the APPARATUS rather
+#    than about the building. Those stems live in
+#    :data:`_WEAK_NORMATIVE_PATTERNS` and are suppressed inside a CLAUSE that
 #    names the apparatus; everything else fires unconditionally.
+#
+#    The membership test is measurement, not plausibility. An earlier round put
+#    fourteen stems here on the grounds that they are „near verbatim
+#    ``ifc_measure`` output"; grep `src/` and „geeignet", „erforderlich",
+#    „Sollwert" and „Ermittlung" do not occur in a single emitted string, and
+#    „Fluchtweg"/„Brandschutz" occur only in tool DESCRIPTIONS, which this
+#    module never sees. The one real renderer line — „das Modell … ist zu groß"
+#    (`measure_register.py`) — is an `Error:` string that `tool_result_is_
+#    measurement` already drops upstream. What justifies the seven that remain
+#    is not the renderer but the MODEL: three independent blind corpora write
+#    exactly this prose when reporting why a measurement could not be made.
 #
 # What is deliberately NOT here: descriptive superlatives a survey answer
 # legitimately uses about its own numbers — „Mindestwert", „Höchstwert",
@@ -200,7 +217,12 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"bewillig",
     r"genehmig",
     r"\bversagung",
-    r"pflicht",  # Bewilligungspflicht, Nachweispflicht, verpflichtet
+    # Austria's duty nouns put „pflicht" on the RIGHT — Bewilligungspflicht,
+    # Nachweispflicht, Meldepflicht, verpflichtet. Unanchored it also matched
+    # „Pflichtfeld", where „pflicht" is the LEFT half and the subject is a form
+    # input, not a duty. Requiring something in front of it is the same compound
+    # rule this list applies to `Behörde` and `Nachweis`, read the other way.
+    r"\w+pflicht",
     r"\bbedarf\s+(einer|eines|einem|einen|der|des)\b",  # the VERB; „der Bedarf an" is a quantity
     r"\bhaft(et|en|ung|bar)\b",
     r"statthaft",
@@ -248,9 +270,14 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bverlangt",
     r"\bgrenzwert",
     r"konform",
-    r"\bverstöß",
-    r"\bverstoss",
+    # „Verstoß" is o + ß; „Verstöße" is ö + ß; „Verstoss" is o + ss. Two
+    # patterns spelling only the first and last of those left the CANONICAL
+    # singular — the form a verdict is actually written in — matching neither.
+    r"\bverst(o|ö)(ß|ss)",
     r"\bwiderspr",  # „widerspricht der OIB-Richtlinie", „widersprechen"
+    r"\buntersag",  # „untersagt" — the Behörde's word for „darf nicht"
+    r"\bgestatt",  # „nicht gestattet"; „erlaubt" alone covered only one register
+    r"\bmissacht",
     r"\bverfehl",  # „verfehlt das Kriterium um 9 cm" — a verdict with no stem
     r"\bzwingend",
     r"\bauflage[n]?\b",
@@ -263,6 +290,10 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bmindest(?!ens|wert)",
     r"\bmindestens\s+(rund\s+|ca\.\s*|etwa\s+)?\d+([.,]\d+)?\s*(m\b|cm\b|mm\b|m²|m2\b|%|grad\b|w/)",
     r"\bunterschr(eit|itt)",
+    # The other side of the same threshold, and the one a Gebäudehöhe or a
+    # Fluchtweglänge is breached on: „die Gebäudehöhe wird überschritten".
+    r"\büberschr(eit|itt)",
+    r"\bueberschr(eit|itt)",
     r"\bnicht\s+unter\b",
     r"nachweis(e|es|en)?\b",  # „Brandschutznachweis"; not „Nachweisführung"
     r"\bnachgewiesen",
@@ -294,28 +325,48 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\blimit\b",
     r"\bapprov(e|ed|al)\b",
     r"\bfails?\b[^.!?\n]{0,40}?\b(requirement|target|test|criterion|criteria)\b",
+    # --- Fire safety and escape routes ---------------------------------------
+    # These spent one release in the weak tier on the stated grounds that
+    # ``measure_register``'s renderers emit them about the apparatus. They do
+    # not: grep `src/` and „Fluchtniveau", „Feuerwiderstand", „Brandschutz" and
+    # „Brandabschnitt" appear only in TOOL DESCRIPTIONS and prompt templates,
+    # which this function never reads — it reads the model's finished answer.
+    # Suppressing them there cost real verdicts („die Auswertung zeigt, dass der
+    # Feuerwiderstand zu gering ist") and bought nothing measurable: promoting
+    # them back adds zero false fires across 294 sentences from four corpora.
+    r"\bfluchtniveau",
+    r"\bfeuerwiderstand",
+    r"\bbrandschutz",
+    r"\bbrandabschnitt",
+    # Same finding for „reicht": the renderer says „erreicht", never „reicht",
+    # so the weak tier was protecting prose that does not exist. The lookahead
+    # is what does the actual work — „reicht" is „suffices" only when nothing
+    # extends: „reicht von … bis", „reicht vom Rohfußboden", „reicht 1,20 m
+    # über … hinaus" are all geometry.
+    r"\breicht\b(?![^.!?\n]*\b(von|vom|bis|über|ueber|hinaus|hinein|herab|herauf|hinunter)\b)",
 )
 
 #: Stems that are a verdict about the BUILDING and a description of the
-#: MEASUREMENT, depending on what the sentence is about. Each one below is a
-#: documented false fire on near-verbatim ``ifc_measure`` output.
+#: MEASUREMENT, depending on what the CLAUSE is about.
+#:
+#: Membership here is expensive — a suppressed stem is a verdict that ships at
+#: "medium" — so it is now held to measured evidence rather than to a plausible
+#: story about renderer prose. Each stem below was individually promoted to the
+#: strong tier and measured across 294 sentences from four corpora written by
+#: three other authors; these are the seven that cost false fires when promoted.
+#: Five others (``fluchtniveau``, ``feuerwiderstand``, ``brandschutz``,
+#: ``brandabschnitt``, ``reicht``) cost nothing and are strong again.
 _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bgeeignet",  # „als Aufenthaltsraum geeignet" vs „für eine Messung geeignet"
     r"\berforderlich",  # a legal requirement vs a tool prerequisite
     r"\bsollwert",  # „liegt unter dem Sollwert" vs „der Sollwert aus dem Pset"
-    # „reicht" is „suffices" only when nothing extends: „reicht von … bis",
-    # „reicht vom Rohfußboden", „reicht 1,20 m über … hinaus" are all geometry.
-    r"\breicht\b(?![^.!?\n]*\b(von|vom|bis|über|ueber|hinaus|hinein|herab|herauf|hinunter)\b)",
     r"\bzu\s+(niedrig|gering|klein|hoch|groß|gross|knapp|schmal|kurz|eng|wenig|lang|breit|steil|tief|weit)\b",
     r"\btoo\s+(low|small|narrow|short|high|large|wide|long|steep|few|little)\b",
     r"\bminimum\b",  # a requirement vs „the minimum of the series"
-    # Fire-safety and escape-route categories: a verdict when asserted of the
-    # building, a gap report when the renderer says it cannot compute them.
-    r"\bfluchtniveau",
+    # „Fluchtweg" alone stays weak: „für die Auswertung der Fluchtwege ist eine
+    # Türverknüpfung erforderlich" is a gap report. The verdict about one still
+    # fires — „dass der Fluchtweg zu schmal ist" is its own clause.
     r"\bfluchtweg",
-    r"\bfeuerwiderstand",
-    r"\bbrandschutz",
-    r"\bbrandabschnitt",
 )
 
 #: The measurement APPARATUS naming itself. Narrow on purpose — every entry is
@@ -335,17 +386,33 @@ _MEASUREMENT_APPARATUS_PATTERNS: tuple[str, ...] = (
     r"\bdeklaration",
     r"\bfile\b",  # „The file is too large"
     r"\bseries\b",  # „the minimum of the series"
+    # „Das Modell ist zu groß für den Schnellpfad", „ein Sollwert ist im Modell
+    # nicht hinterlegt" — the uploaded IFC, not the building. This is what lets
+    # the split below cut at a semicolon without losing the apparatus.
+    r"\bmodell",
 )
 
 _STRONG_NORMATIVE_RE = re.compile("|".join(_STRONG_NORMATIVE_PATTERNS), re.IGNORECASE)
 _WEAK_NORMATIVE_RE = re.compile("|".join(_WEAK_NORMATIVE_PATTERNS), re.IGNORECASE)
 _MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS), re.IGNORECASE)
 
-#: Sentence boundaries for the weak-stem check. A semicolon is NOT one: German
-#: uses it to join the two halves of a single statement („Das Modell ist zu groß
-#: für den Schnellpfad; die Messung lief im Vollpfad"), and splitting there would
-#: hide the apparatus from the stem it qualifies.
-_SENTENCE_SPLIT_RE = re.compile(r"[.!?\n]+")
+#: Where the weak tier's apparatus carve-out stops. The unit is the CLAUSE, not
+#: the sentence: „Die Auswertung zeigt, dass der Fluchtweg zu schmal ist" is one
+#: sentence with two subjects, and scoping to the sentence handed the whole
+#: verdict to the word „Auswertung". A semicolon, a colon, a dash and a „, dass"
+#: all separate a statement about the apparatus from the verdict drawn out of it.
+_SENTENCE_SPLIT_RE = re.compile(r"[.!?\n;:–—]+|,(?=\s*(?:dass|wie|was|damit)\b)", re.IGNORECASE)
+
+#: „laut der Messung", „gemäß Auswertung", „auf Basis der Berechnung". An
+#: evidential adjunct CITES the apparatus for the claim; it does not predicate
+#: the claim OF the apparatus, which is the only thing the carve-out is for.
+#: „Laut Messung ist der Raum als Wohnraum nicht geeignet" is a habitability
+#: verdict however scrupulously it names its source.
+_EVIDENTIAL_ADJUNCT_RE = re.compile(
+    r"\b(laut|gem(äß|aess)|anhand|ausweislich|auf\s+basis)\s+"
+    r"(der|des|dem|den|einer|eines)?\s*\w*(mess|ermittl|auswertung|berechnung)",
+    re.IGNORECASE,
+)
 
 
 def answer_mentions_normative_claim(content: str) -> bool:
@@ -356,12 +423,23 @@ def answer_mentions_normative_claim(content: str) -> bool:
     tell a supported normative claim from an unsupported one.
 
     Two tiers. A :data:`_STRONG_NORMATIVE_PATTERNS` stem fires wherever it
-    appears; a :data:`_WEAK_NORMATIVE_PATTERNS` stem fires unless its own
-    SENTENCE names the measurement apparatus, which is how the renderer's
-    „für eine Messung geeignet" stops reading as a habitability verdict.
+    appears; a :data:`_WEAK_NORMATIVE_PATTERNS` stem fires unless its own CLAUSE
+    names the measurement apparatus, which is how the renderer's „für eine
+    Messung geeignet" stops reading as a habitability verdict.
+
+    Two rules keep that carve-out off real verdicts, and both were learned the
+    expensive way — by suppressing some:
+
+    1. **The clause, not the sentence.** This function reads the model's
+       finished ANSWER, never renderer output, and „Die Auswertung zeigt, dass
+       …" is how a model introduces a conclusion. Scoping to the sentence let
+       the word „Auswertung" disarm the verdict it was introducing.
+    2. **An evidential adjunct is a citation, not a subject.** „Laut Messung ist
+       der Raum als Wohnraum nicht geeignet" predicates „geeignet" of the room
+       and merely names where the number came from.
 
     The asymmetry is deliberate and is the trade this function makes: the weak
-    tier holds only stems that appear verbatim in ``ifc_measure`` output, and no
+    tier holds only stems measured to cost false fires when promoted, and no
     context of any kind can disarm a deontic modal or a named instrument. So the
     worst case remains a hedge on a descriptive answer, never a confident legal
     assertion — see the module docstring. Non-string input is False; there is
@@ -371,7 +449,10 @@ def answer_mentions_normative_claim(content: str) -> bool:
         return False
     if _STRONG_NORMATIVE_RE.search(content):
         return True
-    return any(
-        _WEAK_NORMATIVE_RE.search(sentence) and not _MEASUREMENT_APPARATUS_RE.search(sentence)
-        for sentence in _SENTENCE_SPLIT_RE.split(content)
-    )
+    for clause in _SENTENCE_SPLIT_RE.split(content):
+        if not clause or not _WEAK_NORMATIVE_RE.search(clause):
+            continue
+        if _MEASUREMENT_APPARATUS_RE.search(clause) and not _EVIDENTIAL_ADJUNCT_RE.search(clause):
+            continue
+        return True
+    return False
