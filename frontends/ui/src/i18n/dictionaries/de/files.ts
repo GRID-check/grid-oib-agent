@@ -250,6 +250,12 @@ export const files: typeof en.files = {
       'Vom Server geladene Dateien können nicht erneut versucht werden. Bitte laden Sie die Datei erneut hoch.',
     imageVlmUnavailable:
       'Das Hochladen von Bildern erfordert ein konfiguriertes Vision-Modell (VLM) in dieser Umgebung.',
+    maxFilesExceeded: '{total} Dateien überschreiten das Limit von {limit} Dateien pro Upload.',
+    maxFilesRemaining:
+      'Damit wären es {total} Dateien. Es sind nur noch {available} weitere erlaubt (maximal {limit}).',
+    totalSizeExceeded: 'Die Gesamtgröße {total} überschreitet das Limit von {limit}.',
+    totalSizeRemaining:
+      'Die Gesamtgröße wäre {total}. Es sind nur noch {available} verfügbar ({limit} Limit).',
     fileSingular: 'Datei',
     filePlural: 'Dateien',
   },

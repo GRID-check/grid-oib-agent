@@ -21,7 +21,12 @@ import type { TrackedFile } from '../types'
 import { mapUploadResponseStatus } from '../utils'
 import { distributeBatchBytes, shouldEmitProgress } from '../lib/upload-progress'
 import { runWithConcurrency, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
-import { validateFileUpload, type ValidationContext } from '../validation'
+import {
+  summarizeFileErrors,
+  validateFileUpload,
+  type BatchValidationError,
+  type ValidationContext,
+} from '../validation'
 import { UploadOrchestrator } from '../orchestrator'
 import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
@@ -126,13 +131,55 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     [trackedFiles, collectionName]
   )
 
+  /**
+   * Whether this hook is pointed at a store that KEEPS its documents — a
+   * project's Dateiablage or the org Archiv — rather than a chat session's
+   * throwaway attachment set.
+   *
+   * The same predicate chooses the durable upload endpoint below, so the two
+   * cannot disagree about what surface this is: one signal, read from the
+   * options the caller already passes, not guessed from the collection name.
+   */
+  const isDurableCollection = Boolean(projectId || archiv)
+
   const validationContext: ValidationContext = useMemo(
     () => ({
+      // `sessionFiles` is not just the in-flight batch: for a durable store
+      // `UploadOrchestrator.loadFilesForSession` writes the PERSISTED document
+      // list into the same array. Counting those toward the per-upload caps is
+      // what turned "10 files per session" into "10 documents per project,
+      // ever" (issue #432), so a durable collection declares itself and the
+      // validator measures the incoming batch on its own.
+      collectionKind: isDurableCollection ? 'durable' : 'chat-session',
       existingTotalSize: sessionFiles.reduce((sum, f) => sum + f.fileSize, 0),
       existingFileCount: sessionFiles.length,
       existingFileNames: new Set(sessionFiles.map((f) => f.fileName)),
     }),
-    [sessionFiles]
+    [sessionFiles, isDurableCollection]
+  )
+
+  /**
+   * The batch-level refusal, from the dictionary rather than from the
+   * validator. `validateFileUpload` is a pure module shared with specs and
+   * non-React callers, so it emits the code, the variant and the numbers
+   * (already punctuated for the app's locale) and the sentence lives here —
+   * the same split `reason: 'image-vlm-unavailable'` already uses for the
+   * file-level VLM copy.
+   */
+  const localizeBatchError = useCallback(
+    (error: BatchValidationError): string => {
+      switch (error.code) {
+        case 'MAX_FILES_EXCEEDED':
+          return error.variant === 'remaining'
+            ? t('errors.maxFilesRemaining', error.values)
+            : t('errors.maxFilesExceeded', error.values)
+        case 'TOTAL_SIZE_EXCEEDED':
+          return error.variant === 'remaining'
+            ? t('errors.totalSizeRemaining', error.values)
+            : t('errors.totalSizeExceeded', error.values)
+      }
+    },
+    [t]
   )
 
   useEffect(() => {
@@ -215,7 +262,14 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       const imageVlmMessage = t('errors.imageVlmUnavailable')
 
       if (validationResult.batchErrors.length > 0) {
-        setError(validationResult.summary)
+        // Rebuilt rather than taking `validationResult.summary`, which carries
+        // the validator's English fallback for the batch half. The file-level
+        // half is kept beside it — it names which file was the problem.
+        const fileHalf = imageVlmBlocked
+          ? imageVlmMessage
+          : summarizeFileErrors(validationResult.fileErrors)
+        const parts = [fileHalf, ...validationResult.batchErrors.map(localizeBatchError)]
+        setError(parts.filter((part): part is string => Boolean(part)).join(' '))
         return
       }
 
@@ -268,7 +322,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       try {
         await ensureCollectionExists(targetCollection)
 
-        if (projectId || archiv) {
+        if (isDurableCollection) {
           // Project AND Archiv uploads persist a durable document row before
           // backend ingestion (unlike throwaway chat-session uploads). They
           // share the per-file POST; only the endpoint and form fields differ
@@ -438,9 +492,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       projectId,
       folderId,
       archiv,
+      isDurableCollection,
       validationContext,
       fileUploadConfig,
       locale,
+      localizeBatchError,
       ensureCollectionExists,
       addTrackedFile,
       updateTrackedFile,

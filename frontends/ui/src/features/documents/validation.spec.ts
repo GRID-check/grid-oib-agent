@@ -78,6 +78,11 @@ describe('validation', () => {
       expect(context.existingFileCount).toBe(0)
       expect(context.existingFileNames.size).toBe(0)
     })
+
+    test('defaults to the chat session, and takes a durable collection', () => {
+      expect(createEmptyValidationContext().collectionKind).toBe('chat-session')
+      expect(createEmptyValidationContext('durable').collectionKind).toBe('durable')
+    })
   })
 
   describe('validateFileUpload', () => {
@@ -154,6 +159,7 @@ describe('validation', () => {
       test('detects duplicates against existing session files', () => {
         const files = [createFile('existing.pdf')]
         const context: ValidationContext = {
+          collectionKind: 'chat-session',
           existingTotalSize: 1024,
           existingFileCount: 1,
           existingFileNames: new Set(['existing.pdf']),
@@ -185,6 +191,7 @@ describe('validation', () => {
       test('allows valid files when some are duplicates', () => {
         const files = [createFile('new.pdf'), createFile('existing.pdf')]
         const context: ValidationContext = {
+          collectionKind: 'chat-session',
           existingTotalSize: 1024,
           existingFileCount: 1,
           existingFileNames: new Set(['existing.pdf']),
@@ -238,9 +245,12 @@ describe('validation', () => {
         expect(result.batchErrors[0].code).toBe('MAX_FILES_EXCEEDED')
       })
 
-      test('blocks all files when max count exceeded including existing', () => {
+      test("a chat session's count still includes what is already attached", () => {
+        // A conversation's attachment set is bounded on purpose: the cap is
+        // cumulative HERE, and issue #432 must not have relaxed that.
         const files = [createFile('new.pdf')]
         const context: ValidationContext = {
+          collectionKind: 'chat-session',
           existingTotalSize: 1024,
           existingFileCount: MAX_FILE_COUNT,
           existingFileNames: new Set(),
@@ -252,6 +262,7 @@ describe('validation', () => {
         expect(result.validFiles).toHaveLength(0)
         expect(result.batchErrors).toHaveLength(1)
         expect(result.batchErrors[0].code).toBe('MAX_FILES_EXCEEDED')
+        expect(result.batchErrors[0].variant).toBe('remaining')
       })
 
       test('batch errors take precedence over file errors', () => {
@@ -566,7 +577,8 @@ describe('a model already in the session keeps the IFC ceiling', () => {
     Object.defineProperty(f, 'size', { value: bytes })
     return f
   }
-  const sessionWithModel = () => ({
+  const sessionWithModel = (): ValidationContext => ({
+    collectionKind: 'chat-session',
     existingTotalSize: Math.round(149.3 * 1024 * 1024),
     existingFileCount: 1,
     existingFileNames: new Set(['2026-02-17_WB_Lacknergasse-98.ifc']),
@@ -595,5 +607,224 @@ describe('a model already in the session keeps the IFC ceiling', () => {
     const result = validateFileUpload([file('zweiter-stand.ifc', 120 * 1024 * 1024)], sessionWithModel(), config)
 
     expect(result.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
+  })
+})
+
+describe('a durable collection is not capped by what it already holds (issue #432)', () => {
+  /*
+    Reported by a user: "Dateiupload auf 10 Dateien begrenzt". A project's
+    Dateiablage refused every upload once the project held ten documents —
+    `Would have 11 files. Only 0 more allowed (10 max).` — and the same
+    arithmetic on BYTES made a project un-uploadable for good at 100 MB.
+
+    The cause was scope, not the numbers: a cap authored for a chat session's
+    throwaway attachment set was being applied to a durable corpus, because
+    both surfaces share `useFileUpload` and `loadFilesForSession` writes the
+    project's PERSISTED documents into the same `trackedFiles` array. What
+    actually bounds a durable corpus is the org storage quota (ADR-0042),
+    enforced server-side.
+  */
+  const config = {
+    acceptedTypes: '.pdf,.ifc',
+    acceptedMimeTypes: ['application/pdf', 'application/octet-stream'],
+    maxTotalSizeMB: 100,
+    maxFileSize: 100 * 1024 * 1024,
+    maxIfcFileSize: 250 * 1024 * 1024,
+    maxTotalSize: 100 * 1024 * 1024,
+    maxFileCount: 10,
+    fileExpirationCheckIntervalHours: 0,
+  }
+  const file = (name: string, bytes = 1024): File => {
+    const f = new File(['x'], name)
+    Object.defineProperty(f, 'size', { value: bytes })
+    return f
+  }
+  /** A project Dateiablage (or org Archiv) that already holds a real corpus. */
+  const durableStore = (count: number, bytes: number): ValidationContext => ({
+    collectionKind: 'durable',
+    existingTotalSize: bytes,
+    existingFileCount: count,
+    existingFileNames: new Set(Array.from({ length: count }, (_, i) => `bestand-${i}.pdf`)),
+  })
+
+  test('accepts a new document into a project that already holds 10', () => {
+    const result = validateFileUpload([file('Einreichplan.pdf')], durableStore(10, 1024 * 10), config)
+
+    expect(result.batchErrors).toEqual([])
+    expect(result.validFiles).toHaveLength(1)
+    expect(result.canUpload).toBe(true)
+  })
+
+  test('accepts a new document into a project that already holds 100 MB', () => {
+    const result = validateFileUpload(
+      [file('Einreichplan.pdf', 2 * 1024 * 1024)],
+      durableStore(3, 100 * 1024 * 1024),
+      config
+    )
+
+    expect(result.batchErrors).toEqual([])
+    expect(result.validFiles).toHaveLength(1)
+  })
+
+  test('still caps the INCOMING batch at the file count', () => {
+    // Per-batch, not per-corpus: eleven at once is still eleven at once.
+    const eleven = Array.from({ length: 11 }, (_, i) => file(`neu-${i}.pdf`))
+
+    const result = validateFileUpload(eleven, durableStore(40, 500 * 1024 * 1024), config)
+
+    expect(result.batchErrors).toHaveLength(1)
+    expect(result.batchErrors[0].code).toBe('MAX_FILES_EXCEEDED')
+    // Measured against the batch alone, so the message names 11 and not 51.
+    expect(result.batchErrors[0].variant).toBe('batch')
+    expect(result.batchErrors[0].values).toEqual({ total: 11, limit: 10 })
+  })
+
+  test('still caps the INCOMING batch at the total size', () => {
+    const twoBig = [file('a.pdf', 60 * 1024 * 1024), file('b.pdf', 60 * 1024 * 1024)]
+
+    const result = validateFileUpload(twoBig, durableStore(40, 500 * 1024 * 1024), config)
+
+    expect(result.batchErrors).toHaveLength(1)
+    expect(result.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
+    expect(result.batchErrors[0].variant).toBe('batch')
+  })
+
+  test('keeps duplicate detection against the persisted documents', () => {
+    // Still correct, and still useful: re-uploading a name the corpus already
+    // has is almost always a mistake, and it is about identity, not volume.
+    const result = validateFileUpload([file('bestand-3.pdf')], durableStore(10, 1024 * 10), config)
+
+    expect(result.fileErrors).toHaveLength(1)
+    expect(result.fileErrors[0].code).toBe('DUPLICATE_FILE')
+  })
+
+  test('a batch carrying a model still gets the IFC ceiling', () => {
+    const result = validateFileUpload(
+      [file('Lacknergasse-98.ifc', 150 * 1024 * 1024)],
+      durableStore(10, 90 * 1024 * 1024),
+      config
+    )
+
+    expect(result.batchErrors).toEqual([])
+    expect(result.validFiles).toHaveLength(1)
+  })
+
+  test('a model already in the corpus does NOT lift the ceiling for a PDF batch', () => {
+    // The session lift exists because the session's own bytes are in the total.
+    // Here they are not, so three 40 MB PDFs must still fail the 100 MB batch
+    // limit even though the Dateiablage happens to hold a model.
+    const corpusWithModel: ValidationContext = {
+      collectionKind: 'durable',
+      existingTotalSize: 150 * 1024 * 1024,
+      existingFileCount: 1,
+      existingFileNames: new Set(['Lacknergasse-98.ifc']),
+    }
+    const threePdfs = [
+      file('a.pdf', 40 * 1024 * 1024),
+      file('b.pdf', 40 * 1024 * 1024),
+      file('c.pdf', 40 * 1024 * 1024),
+    ]
+
+    const result = validateFileUpload(threePdfs, corpusWithModel, config)
+
+    expect(result.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
+  })
+})
+
+describe('batch errors carry what a translator needs', () => {
+  /*
+    The two batch messages were hardcoded English inside a validator with no
+    translator, in a UI that is otherwise fully localized and whose users are
+    German-speaking. The module keeps the English string as a fallback and
+    additionally emits the variant plus the interpolation values — sizes
+    already punctuated for the caller's locale, counts as plain numbers — so
+    `useFileUpload` can render the sentence from `files.errors.*`. Same split
+    as `reason: 'image-vlm-unavailable'` for the file-level VLM copy.
+  */
+  const config = {
+    acceptedTypes: '.pdf',
+    acceptedMimeTypes: ['application/pdf'],
+    maxTotalSizeMB: 1,
+    maxFileSize: 100 * 1024 * 1024,
+    maxIfcFileSize: 0,
+    maxTotalSize: 1_000_000,
+    maxFileCount: 2,
+    fileExpirationCheckIntervalHours: 0,
+  }
+  const file = (name: string, bytes = 1024): File => {
+    const f = new File(['x'], name)
+    Object.defineProperty(f, 'size', { value: bytes })
+    return f
+  }
+
+  test('MAX_FILES_EXCEEDED, batch variant', () => {
+    const result = validateFileUpload(
+      [file('a.pdf'), file('b.pdf'), file('c.pdf')],
+      createEmptyValidationContext('durable'),
+      config
+    )
+
+    expect(result.batchErrors[0]).toMatchObject({
+      code: 'MAX_FILES_EXCEEDED',
+      variant: 'batch',
+      values: { total: 3, limit: 2 },
+    })
+  })
+
+  test('MAX_FILES_EXCEEDED, remaining variant, names the headroom', () => {
+    const result = validateFileUpload([file('c.pdf'), file('d.pdf')], {
+      collectionKind: 'chat-session',
+      existingTotalSize: 10,
+      existingFileCount: 1,
+      existingFileNames: new Set(['a.pdf']),
+    }, config)
+
+    expect(result.batchErrors[0]).toMatchObject({
+      code: 'MAX_FILES_EXCEEDED',
+      variant: 'remaining',
+      values: { total: 3, available: 1, limit: 2 },
+    })
+  })
+
+  test('TOTAL_SIZE_EXCEEDED punctuates its sizes with the caller locale', () => {
+    const german = validateFileUpload(
+      [file('a.pdf', 1_500_000)],
+      createEmptyValidationContext('durable'),
+      config,
+      'de'
+    )
+    const english = validateFileUpload(
+      [file('a.pdf', 1_500_000)],
+      createEmptyValidationContext('durable'),
+      config,
+      'en-US'
+    )
+
+    expect(german.batchErrors[0]).toMatchObject({
+      code: 'TOTAL_SIZE_EXCEEDED',
+      variant: 'batch',
+      values: { total: '1,5 MB', limit: '1 MB' },
+    })
+    expect(english.batchErrors[0].values).toEqual({ total: '1.5 MB', limit: '1 MB' })
+  })
+
+  test('TOTAL_SIZE_EXCEEDED, remaining variant, names what is left', () => {
+    const result = validateFileUpload(
+      [file('b.pdf', 800_000)],
+      {
+        collectionKind: 'chat-session',
+        existingTotalSize: 400_000,
+        existingFileCount: 1,
+        existingFileNames: new Set(['a.pdf']),
+      },
+      config,
+      'en-US'
+    )
+
+    expect(result.batchErrors[0]).toMatchObject({
+      code: 'TOTAL_SIZE_EXCEEDED',
+      variant: 'remaining',
+      values: { total: '1.2 MB', available: '600 kB', limit: '1 MB' },
+    })
   })
 })

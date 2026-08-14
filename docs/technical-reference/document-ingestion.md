@@ -54,7 +54,7 @@ User's Browser                 Next.js BFF                    SeaweedFS         
 
 The user selects files via the `FileUploadZone` (drag-and-drop or click-to-browse). The `useFileUpload` hook:
 
-1. Validates files against configured limits (`FILE_UPLOAD_ACCEPTED_TYPES`, `FILE_UPLOAD_MAX_SIZE_MB`, `FILE_UPLOAD_MAX_FILE_COUNT`)
+1. Validates files against configured limits (`FILE_UPLOAD_ACCEPTED_TYPES`, `FILE_UPLOAD_MAX_SIZE_MB`, `FILE_UPLOAD_MAX_FILE_COUNT`). The count and total-size caps are cumulative over a chat session's existing attachments, but apply to the incoming upload alone for a durable store (project Dateiablage, org Archiv) — `ValidationContext.collectionKind` in `features/documents/validation.ts` carries the distinction, and the org storage quota (ADR-0042) is what bounds a durable store
 2. Checks for duplicate filenames in the current session
 3. Creates `TrackedFile` entries in the Zustand store (status: `uploading`)
 4. Ensures the target collection exists via `ensureCollectionExists()`

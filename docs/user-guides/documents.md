@@ -45,12 +45,20 @@ The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default
 
 ### File Size Limits
 
-The maximum upload size is configured via `FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**). This limit applies per **batch** (total of all files in a single upload operation), not per individual file.
+`FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**) is both the largest single file and the largest total an upload may carry. `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**) caps how many files one upload may carry.
 
-Additional limits:
-- **Maximum file count per batch**: `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**)
-- **Duplicate filenames** within a session are rejected
-- Files already tracked in the current session are skipped on re-upload
+**What those two caps are measured over depends on the surface**, because a chat session and a durable file store are different kinds of thing:
+
+| Surface | Count and total size are measured over |
+|---|---|
+| **Chat upload zone** (a conversation's attachments) | the whole session — the files already attached count toward both caps, so a conversation holds at most 10 files / 100 MB in total |
+| **Project Files workspace** (Dateiablage) and **org Archiv** | the **incoming upload only** — the documents already stored are not counted, so a project or Archiv can hold any number of documents and you can keep adding 10 at a time |
+
+The project store and the Archiv are corpora that grow for the life of the project, so a per-session cap applied to them would be a permanent ceiling on how many documents a project may ever hold (this was [issue #432](https://github.com/GRID-check/grid-oib-agent/issues/432): a project stopped accepting uploads at ten documents with "Would have 11 files. Only 0 more allowed (10 max)."). What actually bounds a durable store is the organization's **storage quota** (`Speicherkontingent`, set under Organization → Storage; see [`GRID_DEFAULT_STORAGE_QUOTA_BYTES`](../deployment/environment-variables.md#file-upload)), enforced on the server inside the transaction that records each document.
+
+Additional limits, on every surface:
+- A `.ifc` building model is measured against its own, much larger ceiling (`BIM_MAX_IFC_BYTES`, default 250 MB) rather than the document limit.
+- **Duplicate filenames** are rejected — in a chat session against the session's attachments, in a project or the Archiv against the documents already stored.
 
 ---
 

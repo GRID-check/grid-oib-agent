@@ -244,6 +244,16 @@ export const files = {
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
     imageVlmUnavailable: 'Image upload requires a configured vision model (VLM) on this deployment.',
+    // Batch-level upload limits. The validator (`features/documents/validation.ts`)
+    // is a pure module with no translator, so it hands over the code, the
+    // variant and the already-locale-formatted numbers, and the sentence lives
+    // here. The `…Remaining` variants only occur on a chat session, which is the
+    // only surface whose limits accumulate over what is already attached.
+    maxFilesExceeded: '{total} files exceed the limit of {limit} files per upload.',
+    maxFilesRemaining:
+      'That would be {total} files. Only {available} more are allowed ({limit} max).',
+    totalSizeExceeded: 'Total size {total} exceeds the {limit} limit.',
+    totalSizeRemaining: 'Total size would be {total}. Only {available} available ({limit} limit).',
     fileSingular: 'file',
     filePlural: 'files',
   },

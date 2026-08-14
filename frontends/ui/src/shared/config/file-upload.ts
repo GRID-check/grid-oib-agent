@@ -27,7 +27,15 @@ import { BYTES_PER_MB, maxIfcBytesFrom } from './request-body-limit'
 // dependency that could be missing (see FEATURE_FLAGS.ifcModels).
 const DEFAULT_ACCEPTED_TYPES = '.pdf,.docx,.txt,.md'
 const DEFAULT_MAX_SIZE_MB = 100
-const DEFAULT_MAX_FILE_COUNT = 10
+
+/**
+ * Default `FILE_UPLOAD_MAX_FILE_COUNT`: the most files one upload may carry.
+ *
+ * Exported and re-exported by `@/features/documents/constants` rather than
+ * declared twice. It was declared twice, and issue #432 had to be traced
+ * through both copies before it was clear they were the same 10.
+ */
+export const DEFAULT_MAX_FILE_COUNT = 10
 const DEFAULT_EXPIRATION_CHECK_INTERVAL_HOURS = 0
 
 const EXTENSION_TO_MIME: Record<string, string[]> = {

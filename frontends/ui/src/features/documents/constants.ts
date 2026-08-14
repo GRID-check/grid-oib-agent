@@ -6,6 +6,8 @@
  * Runtime configuration is provided via AppConfigContext from environment variables.
  */
 
+import { DEFAULT_MAX_FILE_COUNT } from '@/shared/config/file-upload'
+
 /**
  * Default maximum file size in bytes per individual file (100 MB).
  *
@@ -16,11 +18,19 @@
  */
 export const DEFAULT_MAX_FILE_SIZE = 100 * 1e6
 
-/** Default maximum total size for all files including existing session files (100 MB). */
+/** Default maximum total size for one upload (100 MB). */
 export const DEFAULT_MAX_TOTAL_SIZE = 100 * 1e6
 
-/** Default maximum number of files per session */
-export const DEFAULT_MAX_FILE_COUNT = 10
+/**
+ * Default maximum number of files in one upload.
+ *
+ * Re-exported from the server-composed config so the client fallback and the
+ * `FILE_UPLOAD_MAX_FILE_COUNT` default are one number rather than two copies
+ * that can drift. What the cap is measured over depends on the surface — a chat
+ * session accumulates, a durable collection does not; see `CollectionKind` in
+ * `./validation`.
+ */
+export { DEFAULT_MAX_FILE_COUNT }
 
 /**
  * Default accepted file extensions for upload (used by file inputs).

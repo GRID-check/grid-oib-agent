@@ -112,7 +112,11 @@ vi.mock('../persistence', () => ({
   markSessionHasCollection: (...args: unknown[]) => mockMarkSessionHasCollection(...args),
 }))
 
-vi.mock('../validation', () => ({
+// Only the entry point is stubbed. `summarizeFileErrors` stays real, because
+// the hook composes it into the message it shows and a stub would let the two
+// halves of that sentence drift apart unnoticed.
+vi.mock('../validation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../validation')>()),
   validateFileUpload: vi.fn((files: File[]) => ({
     validFiles: files,
     batchErrors: [],
@@ -235,6 +239,7 @@ describe('useFileUpload', () => {
       const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
 
       expect(result.current.validationContext).toEqual({
+        collectionKind: 'chat-session',
         existingTotalSize: 3000,
         existingFileCount: 2,
         existingFileNames: new Set(['file1.pdf', 'file2.pdf']),
@@ -291,6 +296,135 @@ describe('useFileUpload', () => {
       })
 
       expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(en.files.errors.imageVlmUnavailable)
+    })
+
+    /*
+      The batch limits were the last hardcoded English left on this path, in a
+      UI that is otherwise localized and whose users are German-speaking. The
+      validator emits the code, the variant and the numbers; the sentence comes
+      from `files.errors.*`.
+    */
+    test('renders a batch-limit refusal from the dictionary, not the validator', async () => {
+      const { validateFileUpload } = await import('../validation')
+      const pdf = new File(['x'], 'neu.pdf', { type: 'application/pdf' })
+      vi.mocked(validateFileUpload).mockReturnValueOnce({
+        valid: false,
+        canUpload: false,
+        validFiles: [],
+        fileErrors: [],
+        batchErrors: [
+          {
+            code: 'MAX_FILES_EXCEEDED',
+            variant: 'batch',
+            message: '11 files exceeds the 10 file limit.',
+            values: { total: 11, limit: 10 },
+          },
+        ],
+        summary: '11 files exceeds the 10 file limit.',
+      })
+
+      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+
+      await act(async () => {
+        await result.current.uploadFiles([pdf])
+      })
+
+      expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
+        '11 files exceed the limit of 10 files per upload.'
+      )
+    })
+
+    test('the remaining-headroom variant names the space left', async () => {
+      const { validateFileUpload } = await import('../validation')
+      const pdf = new File(['x'], 'neu.pdf', { type: 'application/pdf' })
+      vi.mocked(validateFileUpload).mockReturnValueOnce({
+        valid: false,
+        canUpload: false,
+        validFiles: [],
+        fileErrors: [],
+        batchErrors: [
+          {
+            code: 'TOTAL_SIZE_EXCEEDED',
+            variant: 'remaining',
+            message: 'Total size would be 120 MB. Only 40 MB available (100 MB limit).',
+            values: { total: '120 MB', available: '40 MB', limit: '100 MB' },
+          },
+        ],
+        summary: 'Total size would be 120 MB. Only 40 MB available (100 MB limit).',
+      })
+
+      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+
+      await act(async () => {
+        await result.current.uploadFiles([pdf])
+      })
+
+      expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
+        'Total size would be 120 MB. Only 40 MB available (100 MB limit).'
+      )
+    })
+
+    test('keeps the file-level half of the message beside the localized batch half', async () => {
+      const { validateFileUpload } = await import('../validation')
+      const pdf = new File(['x'], 'neu.pdf', { type: 'application/pdf' })
+      const exe = new File(['x'], 'setup.exe')
+      vi.mocked(validateFileUpload).mockReturnValueOnce({
+        valid: false,
+        canUpload: false,
+        validFiles: [],
+        fileErrors: [{ file: exe, code: 'INVALID_TYPE', message: '"setup.exe" is not a supported file type.' }],
+        batchErrors: [
+          {
+            code: 'MAX_FILES_EXCEEDED',
+            variant: 'batch',
+            message: '11 files exceeds the 10 file limit.',
+            values: { total: 11, limit: 10 },
+          },
+        ],
+        summary: 'ignored',
+      })
+
+      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+
+      await act(async () => {
+        await result.current.uploadFiles([pdf, exe])
+      })
+
+      expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
+        '"setup.exe" is not a supported file type. 11 files exceed the limit of 10 files per upload.'
+      )
+    })
+  })
+
+  /*
+    Issue #432: the project Dateiablage and the org Archiv reuse this hook, and
+    `UploadOrchestrator.loadFilesForSession` writes their PERSISTED documents
+    into the same `trackedFiles` array the session's in-flight uploads live in.
+    Whether those existing files count toward the per-upload caps therefore has
+    to be declared, and the declaration is the same signal that chooses the
+    durable endpoint — not a guess at the collection name.
+  */
+  describe('the validation context declares what kind of store this is', () => {
+    test('a chat session accumulates', () => {
+      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+
+      expect(result.current.validationContext.collectionKind).toBe('chat-session')
+    })
+
+    test('a project Dateiablage does not', () => {
+      const { result } = renderHook(() =>
+        useFileUpload({ collectionName: 'proj_abc', projectId: 'proj-1' })
+      )
+
+      expect(result.current.validationContext.collectionKind).toBe('durable')
+    })
+
+    test('the org Archiv does not', () => {
+      const { result } = renderHook(() =>
+        useFileUpload({ collectionName: 'archiv_org-1', archiv: true })
+      )
+
+      expect(result.current.validationContext.collectionKind).toBe('durable')
     })
 
     test('uploads files successfully', async () => {
