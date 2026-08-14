@@ -211,12 +211,24 @@ def _prose_without_references(content: str) -> str:
     reference line that survives costs a hedge, a verdict that is dropped costs
     a claim about the law.
 
-    Known gap: a verdict written as the TITLE of a markdown link,
-    „- [Damit ist der Raum unzulässig](https://ris…)", is still cut. Nothing
-    structural separates it from „- [Wiener Bauordnung](https://ris…)", and the
-    rules that would — a finite-verb list, or running the brake on the tail —
-    either guess or cut the wrong way, since „Wiener Bauordnung" trips the brake
-    itself. Left open deliberately rather than fixed with a heuristic.
+    Known gap: the test above is „does this line POINT AT A SOURCE", so ANY
+    tail line carrying a URL or a „[n]" marker is cut — whatever else it says.
+    A markdown link title is the tidiest example („- [Damit ist der Raum
+    unzulässig](https://ris…)"), but the rule is wider than that, and a verdict
+    that merely carries a „[1]" or trails a bare URL is cut the same way:
+
+        cut:  „- Damit ist der Raum unzulässig [1]"
+        cut:  „- Damit ist der Raum unzulässig, siehe https://ris…"
+        kept: „- Damit ist der Raum unzulässig"          (no pointer)
+        kept: „1. Damit ist der Raum unzulässig"         (no pointer)
+
+    Nothing structural separates any of them from „- [Wiener Bauordnung](https://ris…)",
+    and the rules that would — a finite-verb list, or running the brake on the
+    tail — either guess or cut the wrong way, since „Wiener Bauordnung" trips
+    the brake itself. It also takes a model that writes an ALL-references tail
+    under a „**Quellen:**"/„## Sources" heading and smuggles the verdict into
+    it; one ordinary prose line in that tail and nothing is cut at all. Left
+    open deliberately rather than fixed with a heuristic.
     """
     if not isinstance(content, str):
         return ""

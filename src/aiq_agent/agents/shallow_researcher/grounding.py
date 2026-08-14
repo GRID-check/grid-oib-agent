@@ -332,8 +332,21 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # „Brandabschnitt" appear only in TOOL DESCRIPTIONS and prompt templates,
     # which this function never reads — it reads the model's finished answer.
     # Suppressing them there cost real verdicts („die Auswertung zeigt, dass der
-    # Feuerwiderstand zu gering ist") and bought nothing measurable: promoting
-    # them back adds zero false fires across 294 sentences from four corpora.
+    # Feuerwiderstand zu gering ist"). „Adds zero false fires" was measured on
+    # the 294 sentences available WHEN THEY WERE PROMOTED — in-sample, and it
+    # does not hold out. On the round-5 blind corpus (120 sentences, written
+    # against the finished code) these four cost 9 false fires, all one shape:
+    # a model-gap report, which is the commonest real shape of a fire-safety
+    # answer — „im Modell sind keine Brandabschnitte hinterlegt", „ein
+    # Brandschutzkonzept liegt der Auswertung nicht bei".
+    #
+    # They stay strong anyway, and the trade is deliberate rather than
+    # unmeasured: demoting „brandschutz" and „brandabschnitt" to the weak tier
+    # removes 5 of those 9 and breaks nothing across all 376 sentences, so it is
+    # a live option — but a demoted stem is a verdict that can be disarmed by
+    # any apparatus word in its clause, and this module's whole asymmetry is
+    # that a hedge on a descriptive answer is the cheap failure and a confident
+    # legal assertion is the expensive one. Nine hedges is the price paid here.
     r"\bfluchtniveau",
     r"\bfeuerwiderstand",
     r"\bbrandschutz",
@@ -355,7 +368,9 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
 #: strong tier and measured across 294 sentences from four corpora written by
 #: three other authors; these are the seven that cost false fires when promoted.
 #: Five others (``fluchtniveau``, ``feuerwiderstand``, ``brandschutz``,
-#: ``brandabschnitt``, ``reicht``) cost nothing and are strong again.
+#: ``brandabschnitt``, ``reicht``) cost nothing IN THAT SAMPLE and are strong
+#: again — a later blind corpus charged the four fire-safety nouns 9 false
+#: fires, which is a known and accepted cost; see the note beside them above.
 _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bgeeignet",  # „als Aufenthaltsraum geeignet" vs „für eine Messung geeignet"
     r"\berforderlich",  # a legal requirement vs a tool prerequisite
@@ -401,7 +416,35 @@ _MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS)
 #: sentence with two subjects, and scoping to the sentence handed the whole
 #: verdict to the word „Auswertung". A semicolon, a colon, a dash and a „, dass"
 #: all separate a statement about the apparatus from the verdict drawn out of it.
-_SENTENCE_SPLIT_RE = re.compile(r"[.!?\n;:–—]+|,(?=\s*(?:dass|wie|was|damit)\b)", re.IGNORECASE)
+#:
+#: Two gaps closed after the fact, both found by varying only the CONNECTIVE in
+#: the module's own headline verdict („Die Messung ergibt 0,95 m … der Fluchtweg
+#: ist zu schmal") — a shape that split on „;" and on an EN DASH but not on the
+#: two spellings a model actually reaches for most:
+#:
+#: 1. **The ASCII hyphen.** „–" and „—" were listed, „-" was not, so the same
+#:    sentence typed on an ordinary keyboard kept apparatus and verdict in one
+#:    clause and shipped a fire-escape-width verdict as ``measurement_only``.
+#:    It is matched ONLY with whitespace on both sides, because unspaced it is
+#:    not punctuation at all: „2,20-2,50 m" is one range, „OIB-RL 4" one
+#:    citation, „Modell-ID" one compound, and cutting any of them apart moves a
+#:    weak stem out of reach of its own apparatus word and invents a false fire.
+#: 2. **Consecutive „, sodass"-type connectives.** „dass|wie|was|damit" covered
+#:    the complement clauses and missed the consequence clauses, which is the
+#:    half a verdict is actually drawn in.
+#:
+#: Bare „," and „ und " are deliberately NOT split on. Both genuinely coordinate
+#: as often as they subordinate, and both were measured: the bare comma added a
+#: false fire on the round-5 blind corpus, and „ und " changed nothing at all
+#: across 376 sentences while splitting „Die Datei ist zu groß und der Sollwert
+#: fehlt" into a verdict. Two clauses about the apparatus are not a verdict
+#: because a conjunction stands between them.
+_SENTENCE_SPLIT_RE = re.compile(
+    r"[.!?\n;:–—]+"
+    r"|\s-{1,2}\s"
+    r"|,(?=\s*(?:dass|wie|was|damit|sodass|so\s+dass|weshalb|weswegen|womit|wodurch)\b)",
+    re.IGNORECASE,
+)
 
 #: „laut der Messung", „gemäß Auswertung", „auf Basis der Berechnung". An
 #: evidential adjunct CITES the apparatus for the claim; it does not predicate

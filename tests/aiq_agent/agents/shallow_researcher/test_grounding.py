@@ -33,6 +33,7 @@ from langchain_core.tools import tool
 from aiq_agent.agents.bim.measure_register import _render
 from aiq_agent.agents.shallow_researcher.agent import ShallowResearcherAgent
 from aiq_agent.agents.shallow_researcher.agent import _prose_without_references
+from aiq_agent.agents.shallow_researcher.grounding import _SENTENCE_SPLIT_RE
 from aiq_agent.agents.shallow_researcher.grounding import MEASUREMENT_TOOL_NAMES
 from aiq_agent.agents.shallow_researcher.grounding import answer_mentions_normative_claim
 from aiq_agent.agents.shallow_researcher.grounding import tool_result_is_measurement
@@ -549,6 +550,81 @@ class TestNormativeClaimDetection:
         a sentence-scoped carve-out the whole line belonged to „Auswertung".
         """
         assert answer_mentions_normative_claim("Die Auswertung zeigt 2,70 m — das reicht.") is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # The module's headline verdict, typed on an ordinary keyboard. It
+            # split on „;" and on „–" and NOT on „-", so the same sentence
+            # shipped a fire-escape-width verdict as ``measurement_only``
+            # depending only on which dash the model reached for.
+            "Die Messung ergibt 0,95 m - der Fluchtweg ist zu schmal.",
+            "Die Messung lief im Vollpfad - der Fluchtweg ist dennoch zu schmal.",
+            "Die Auswertung zeigt 2,70 m -- das ist zu wenig.",
+        ],
+    )
+    def test_a_spaced_ascii_hyphen_also_separates_the_verdict(self, text):
+        """„–" and „—" were listed; „-" was not, and „-" is what gets typed.
+
+        None of these carries a strong stem, so the split is the only thing
+        that can fire them.
+        """
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # „dass|wie|was|damit" are the COMPLEMENT clauses. A verdict is
+            # drawn in the CONSEQUENCE clause, and none of those were listed.
+            "Die Messung ergibt 0,95 m, sodass der Fluchtweg zu schmal ist.",
+            "Die Messung ergibt 0,95 m, so dass der Fluchtweg zu schmal ist.",
+            "Die Messung ergibt 0,95 m, weshalb der Fluchtweg zu schmal ist.",
+            "Die Auswertung ergibt 2,20 m, weswegen der Raum zu niedrig ist.",
+            "Die Auswertung ergibt 1,90 m, womit die Höhe zu gering ist.",
+            "Die Messung ergibt 0,90 m, wodurch der Fluchtweg zu schmal wird.",
+        ],
+    )
+    def test_a_consequence_clause_separates_the_verdict(self, text):
+        """The apparatus is the subject of the left clause only.
+
+        „Die Messung ergibt 0,95 m, sodass der Fluchtweg zu schmal ist" is one
+        sentence with two subjects exactly as „…, dass …" is; leaving the
+        consequence connectives out let „Messung" disarm the verdict it was
+        introducing.
+        """
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        ("text", "intact"),
+        [
+            # A German numeric range, an OIB citation and an ordinary compound.
+            # Splitting an UNSPACED hyphen tears each of these in half, which
+            # moves a weak stem out of reach of its own apparatus word and
+            # invents a false fire — so the hyphen is punctuation only when
+            # whitespace flanks it.
+            ("Die Geschosshöhe schwankt zwischen 2,20-2,50 m", "2,20-2,50"),
+            ("Die Auswertung folgt OIB-RL 4 für dieses Modell", "OIB-RL"),
+            ("Für die Auswertung ist eine Modell-ID erforderlich", "Modell-ID"),
+        ],
+    )
+    def test_an_unspaced_hyphen_is_a_compound_not_a_clause_break(self, text, intact):
+        """Ranges, citations and compounds must survive the splitter whole."""
+        assert _SENTENCE_SPLIT_RE.split(text) == [text]
+        assert intact in text
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # The same three, as sentences, where tearing the hyphen apart
+            # strands „erforderlich"/„Sollwert" in a clause with no apparatus
+            # word left in it and the carve-out can no longer reach them.
+            "Für die Auswertung ist eine Modell-ID erforderlich.",
+            "Die Auswertung nennt 2,20-2,50 m als Sollwert.",
+        ],
+    )
+    def test_tearing_a_compound_apart_would_invent_a_false_fire(self, text):
+        """Why the whitespace guard is load-bearing rather than tidy."""
+        assert answer_mentions_normative_claim(text) is False
 
     @pytest.mark.parametrize(
         "text",

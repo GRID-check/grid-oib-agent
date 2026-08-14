@@ -169,7 +169,7 @@ llms:
     reasoning_effort: low
     # Uncomment TOGETHER WITH shallow_research_agent.deferred_tool_loading below
     # — that feature needs the Responses API and fails the workflow build without
-    # it, deliberately, rather than sending the tool schemas anyway (ADR-0046).
+    # it, deliberately, rather than sending the tool schemas anyway (ADR-0048).
     # Nothing else in this file needs it; the default (chat_completion) is what
     # every other role runs on.
     # api_type: responses
@@ -580,7 +580,7 @@ functions:
     #     - surface_documents
     #     - ris_fetch_tool
     #
-    # OpenRouter server-side tool search (ADR-0046). OFF, and the block below is
+    # OpenRouter server-side tool search (ADR-0048). OFF, and the block below is
     # the measured configuration rather than a suggestion. Orthogonal to
     # `tool_search` above: that one decides WHICH tools are bound, this one
     # decides whether their schemas travel with the request. Requires

@@ -311,10 +311,21 @@ def assert_request_defers_tools(llm: Any, payload: list[dict[str, Any]]) -> dict
     langchain-openai builds what actually goes over the wire
     (``_get_request_payload`` — the same method ``ainvoke`` uses). Between the
     two sits every rewrite this module does not control: the chat-shape
-    flattening, a future version's own ``defer_loading`` handling, and the
-    Chat-Completions path, which would drop the namespace entirely. Checking
+    flattening and a future version's own ``defer_loading`` handling. Checking
     the wire payload is what makes a client-side strip impossible rather than
     merely unlikely.
+
+    What this does NOT cover: the Chat-Completions path. Chat Completions
+    forwards ``tools`` verbatim, so a namespace handed to it arrives here
+    unmodified and the assertion passes — while the provider, which only reads
+    ``defer_loading`` on the Responses API, silently ignores the deferral. That
+    case is caught EARLIER and elsewhere: :func:`bind_tools_deferred` consults
+    :func:`supports_deferred_tool_loading` — which requires ``use_responses_api``
+    — and returns the full-schema binding before this function is ever reached,
+    and :func:`verify_deferred_tool_loading` raises at workflow build time. So
+    this is one of three checks and not three-of-three: delete the capability
+    gate and no error appears HERE, which is the opposite of what the module
+    docstring's "a silent strip must be impossible" would lead you to expect.
     """
     from langchain_core.messages import HumanMessage
 
@@ -455,6 +466,17 @@ class DeferredToolBinding(Runnable):
     The latch is per instance and the instance is per bound tool SET, which is
     the right scope — a shape the endpoint rejects will be rejected again, and
     a different tool set gets its own verdict.
+
+    Only ``invoke``/``ainvoke`` are overridden, on purpose. ``Runnable``'s
+    default ``astream`` yields one chunk from ``ainvoke``, so a caller that
+    streams through this gets a correct answer delivered in a single chunk —
+    degraded latency, never wrong output. The shallow agent is ``ainvoke``-only,
+    so nothing streams through it today. A real ``astream`` is not a delegation
+    one-liner and is deliberately not guessed at here: the fallback cannot be
+    decided until the deferred stream has already failed, by which point chunks
+    may have been emitted, and re-running the prompt on the full schemas would
+    replay them. Whoever needs streaming here owes that question an answer
+    first — start by deciding whether a mid-stream failure degrades or raises.
     """
 
     def __init__(self, deferred: Runnable, fallback: Runnable, *, description: str = "") -> None:
