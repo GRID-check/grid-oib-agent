@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import math
+import time
 from collections.abc import AsyncGenerator
 from typing import Annotated
 from typing import Any
@@ -237,6 +239,125 @@ async def _aggregate_documents_across_collections(collections, fetch_one, max_do
         )
         aggregated = aggregated[:limit]
     return aggregated
+
+
+#: How long a turn may wait for an attachment that is still being indexed, in
+#: seconds. `0` disables the wait; anything unparseable or negative falls back to
+#: the default rather than disabling it, because a typo must neither silently
+#: remove the wait nor park a turn indefinitely.
+ENV_ATTACHMENT_INDEX_WAIT = "GRID_ATTACHMENT_INDEX_WAIT_SECONDS"
+_DEFAULT_ATTACHMENT_INDEX_WAIT_SECONDS = 8.0
+
+#: Gap between inventory re-reads while waiting. Short enough that a document
+#: that lands early is picked up promptly, long enough not to hammer the
+#: summaries store for the whole budget.
+_ATTACHMENT_POLL_INTERVAL_SECONDS = 0.5
+
+
+def _attachment_index_wait_seconds() -> float:
+    """The configured wait budget in seconds; ``0.0`` when disabled."""
+    import os
+
+    raw = (os.environ.get(ENV_ATTACHMENT_INDEX_WAIT) or "").strip()
+    if not raw:
+        return _DEFAULT_ATTACHMENT_INDEX_WAIT_SECONDS
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid %s=%r; using the %.0fs default",
+            ENV_ATTACHMENT_INDEX_WAIT,
+            raw,
+            _DEFAULT_ATTACHMENT_INDEX_WAIT_SECONDS,
+        )
+        return _DEFAULT_ATTACHMENT_INDEX_WAIT_SECONDS
+    if math.isnan(value) or value < 0:
+        logger.warning(
+            "Invalid %s=%r; using the %.0fs default",
+            ENV_ATTACHMENT_INDEX_WAIT,
+            raw,
+            _DEFAULT_ATTACHMENT_INDEX_WAIT_SECONDS,
+        )
+        return _DEFAULT_ATTACHMENT_INDEX_WAIT_SECONDS
+    return value
+
+
+async def _wait_for_indexing_attachments(aggregated, attachments, reload_inventory):
+    """Re-read the inventory until a still-indexing attachment shows up.
+
+    The inventory (``available_documents``) is written by the async ingest job
+    and the composer does not gate send, so on the first prompt after a drop the
+    file the turn is ABOUT is routinely absent from it. The client says so —
+    ``state: 'indexing'`` — and this waits, briefly, for the store to agree.
+
+    Only a **declared-`indexing`** attachment the inventory does not list is
+    waited for. A `ready` attachment is the client stating it believes the file
+    is indexed; waiting on one would park every turn whose upload finished but
+    was never summarized.
+
+    Bounded twice over — a monotonic deadline AND a poll count derived from the
+    budget — so a slow store cannot overshoot, and disablable with
+    ``GRID_ATTACHMENT_INDEX_WAIT_SECONDS=0``. That matters because the turn holds
+    a ``GRID_MAX_ACTIVE_TURNS`` admission lease for the whole wait.
+
+    Fail-open on ANY error and never raises: the worst outcome of giving up is
+    the behaviour that existed before this function, and the agent's prompt
+    already tells it to say the file is still being processed rather than answer
+    from another document. Logs once, naming the file and the elapsed wait.
+    """
+    try:
+        pending = {
+            a.file_name
+            for a in (attachments or [])
+            if getattr(a, "state", None) == "indexing" and getattr(a, "file_name", None)
+        }
+        if not pending:
+            return aggregated
+        listed = {getattr(doc, "file_name", None) for doc in (aggregated or [])}
+        missing = pending - listed
+        if not missing:
+            return aggregated
+
+        budget = _attachment_index_wait_seconds()
+        if budget <= 0:
+            return aggregated
+
+        started = time.monotonic()
+        deadline = started + budget
+        max_polls = max(1, int(budget / _ATTACHMENT_POLL_INTERVAL_SECONDS))
+        for _ in range(max_polls):
+            if time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(_ATTACHMENT_POLL_INTERVAL_SECONDS)
+            try:
+                refreshed = await reload_inventory()
+            except Exception:
+                logger.debug("Inventory re-read failed while waiting for %s", sorted(missing), exc_info=True)
+                continue
+            aggregated = refreshed if refreshed else aggregated
+            listed = {getattr(doc, "file_name", None) for doc in (refreshed or [])}
+            missing = pending - listed
+            if not missing:
+                break
+
+        elapsed = time.monotonic() - started
+        if missing:
+            logger.info(
+                "Attachment(s) %s still absent from the inventory after %.1fs; answering without them",
+                sorted(missing),
+                elapsed,
+            )
+        else:
+            logger.info(
+                "Attachment(s) %s appeared in the inventory after %.1fs",
+                sorted(pending),
+                elapsed,
+            )
+        return aggregated
+    except Exception:
+        # Never let the wait cost the turn its inventory.
+        logger.debug("Attachment index wait failed open", exc_info=True)
+        return aggregated
 
 
 # --- Final-answer streaming ------------------------------------------------
@@ -1017,9 +1138,19 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 # Read every collection concurrently (instead of one round-trip
                 # at a time) and merge deterministically; see the helper for the
                 # order/dedup/fail-open contract.
-                aggregated = await _aggregate_documents_across_collections(
-                    collections_to_check, get_available_documents_async
-                )
+                async def _read_inventory():
+                    return await _aggregate_documents_across_collections(
+                        collections_to_check, get_available_documents_async
+                    )
+
+                aggregated = await _read_inventory()
+
+                # If the turn declared an attachment that is still being indexed
+                # and the inventory does not list it yet, wait briefly for the
+                # ingest job to catch up. Bounded, disablable and fail-open; this
+                # runs inside the gather below, so it overlaps the other per-turn
+                # fetches rather than serializing behind them.
+                aggregated = await _wait_for_indexing_attachments(aggregated, _session_attachments, _read_inventory)
 
                 checked_names = [entry.collection for entry in collections_to_check]
                 if aggregated:

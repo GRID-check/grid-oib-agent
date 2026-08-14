@@ -1,21 +1,26 @@
 """Tests for chat_researcher register.py helper functions."""
 
 import asyncio
+import logging
 from unittest.mock import MagicMock
 
+import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.chat_researcher.register import _aggregate_documents_across_collections
+from aiq_agent.agents.chat_researcher.register import _attachment_index_wait_seconds
 from aiq_agent.agents.chat_researcher.register import _fold_chunks_to_response
 from aiq_agent.agents.chat_researcher.register import _iter_answer_deltas
 from aiq_agent.agents.chat_researcher.register import _reflection_answer_is_substantive
 from aiq_agent.agents.chat_researcher.register import _response_to_chunks
+from aiq_agent.agents.chat_researcher.register import _wait_for_indexing_attachments
 from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
 from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
 from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.turn_attachments import SessionAttachment
 from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.scoping import ScopedCollection
 
@@ -34,6 +39,15 @@ class _Doc:
 
     def __repr__(self):
         return f"_Doc({self.file_name!r})"
+
+
+def _recording_sleep(recorded):
+    """An `asyncio.sleep` stand-in that records the delay and advances no clock."""
+
+    async def _sleep(seconds):
+        recorded.append(seconds)
+
+    return _sleep
 
 
 def _sequential_reference(collections, per_collection):
@@ -934,3 +948,181 @@ class TestExtractQueryAndSourcesEdgeCases:
         query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Query"
         assert sources == ["web_search", "confluence"]
+
+
+class TestAttachmentIndexWaitBudget:
+    """`GRID_ATTACHMENT_INDEX_WAIT_SECONDS` — how long the turn may wait."""
+
+    def test_default_is_eight_seconds(self, monkeypatch):
+        monkeypatch.delenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", raising=False)
+
+        assert _attachment_index_wait_seconds() == 8.0
+
+    def test_zero_disables_the_wait(self, monkeypatch):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "0")
+
+        assert _attachment_index_wait_seconds() == 0.0
+
+    @pytest.mark.parametrize("value", ["", "   ", "abc", "-3", "NaN", "8s"])
+    def test_an_invalid_value_falls_back_to_the_default(self, monkeypatch, value):
+        # Never disabled by accident: a typo must not silently remove the wait,
+        # and must not park a turn on an admission lease forever either.
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", value)
+
+        assert _attachment_index_wait_seconds() == 8.0
+
+    def test_a_valid_value_is_honoured(self, monkeypatch):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "2.5")
+
+        assert _attachment_index_wait_seconds() == 2.5
+
+
+class TestWaitForIndexingAttachments:
+    """A bounded, fail-open wait for an attachment the inventory cannot see yet.
+
+    The inventory is written by the async ingest job and the composer does not
+    gate send, so the file the turn is ABOUT is routinely missing from it for
+    the first few seconds. Everything here is best-effort: the turn holds a
+    `GRID_MAX_ACTIVE_TURNS` lease while it waits, so it is bounded, disablable,
+    and never allowed to raise.
+    """
+
+    @staticmethod
+    def _attachments(*specs):
+        return [SessionAttachment(file_name=name, state=state) for name, state in specs]
+
+    @pytest.mark.asyncio
+    async def test_no_wait_when_the_indexing_attachment_is_already_listed(self, monkeypatch):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "8")
+        reloads = []
+
+        async def _reload():
+            reloads.append(1)
+            return [_Doc("Statik.pdf")]
+
+        result = await _wait_for_indexing_attachments(
+            [_Doc("Statik.pdf")],
+            self._attachments(("Statik.pdf", "indexing")),
+            _reload,
+        )
+
+        assert reloads == []
+        assert result == [_Doc("Statik.pdf")]
+
+    @pytest.mark.asyncio
+    async def test_a_ready_attachment_is_never_waited_for(self, monkeypatch):
+        """`ready` says the client believes it is indexed. Waiting on it would
+        park every turn whose upload finished but was never summarized."""
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "8")
+        reloads = []
+
+        async def _reload():
+            reloads.append(1)
+            return []
+
+        result = await _wait_for_indexing_attachments([], self._attachments(("Statik.pdf", "ready")), _reload)
+
+        assert reloads == []
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_it_polls_until_the_attachment_appears(self, monkeypatch):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "8")
+        slept: list[float] = []
+        monkeypatch.setattr(
+            "aiq_agent.agents.chat_researcher.register.asyncio.sleep",
+            _recording_sleep(slept),
+        )
+        attempts = []
+
+        async def _reload():
+            attempts.append(1)
+            return [_Doc("Statik.pdf")] if len(attempts) >= 3 else []
+
+        result = await _wait_for_indexing_attachments([], self._attachments(("Statik.pdf", "indexing")), _reload)
+
+        assert result == [_Doc("Statik.pdf")]
+        assert len(attempts) == 3
+        # 500 ms between polls, per the plan.
+        assert slept == [0.5, 0.5, 0.5]
+
+    @pytest.mark.asyncio
+    async def test_it_gives_up_at_the_budget_and_returns_what_it_has(self, monkeypatch):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "1")
+        slept: list[float] = []
+        monkeypatch.setattr(
+            "aiq_agent.agents.chat_researcher.register.asyncio.sleep",
+            _recording_sleep(slept),
+        )
+        existing = [_Doc("OIB-RL-2.pdf")]
+
+        async def _reload():
+            return existing
+
+        result = await _wait_for_indexing_attachments(existing, self._attachments(("Statik.pdf", "indexing")), _reload)
+
+        # Fail open: the turn proceeds with the inventory it has.
+        assert result == existing
+        # Bounded: 1 s budget at 500 ms per poll.
+        assert sum(slept) <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_a_zero_budget_disables_the_wait_entirely(self, monkeypatch):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "0")
+        reloads = []
+
+        async def _reload():
+            reloads.append(1)
+            return []
+
+        result = await _wait_for_indexing_attachments([], self._attachments(("Statik.pdf", "indexing")), _reload)
+
+        assert reloads == []
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_a_failing_reload_fails_open_without_raising(self, monkeypatch):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "1")
+        monkeypatch.setattr(
+            "aiq_agent.agents.chat_researcher.register.asyncio.sleep",
+            _recording_sleep([]),
+        )
+        existing = [_Doc("OIB-RL-2.pdf")]
+
+        async def _reload():
+            raise RuntimeError("summaries DB unreachable")
+
+        result = await _wait_for_indexing_attachments(existing, self._attachments(("Statik.pdf", "indexing")), _reload)
+
+        assert result == existing
+
+    @pytest.mark.asyncio
+    async def test_no_attachments_means_no_wait(self, monkeypatch):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "8")
+        reloads = []
+
+        async def _reload():
+            reloads.append(1)
+            return []
+
+        assert await _wait_for_indexing_attachments([], [], _reload) == []
+        assert await _wait_for_indexing_attachments([], None, _reload) == []
+        assert reloads == []
+
+    @pytest.mark.asyncio
+    async def test_it_logs_once_with_the_file_name_and_the_elapsed_wait(self, monkeypatch, caplog):
+        monkeypatch.setenv("GRID_ATTACHMENT_INDEX_WAIT_SECONDS", "1")
+        monkeypatch.setattr(
+            "aiq_agent.agents.chat_researcher.register.asyncio.sleep",
+            _recording_sleep([]),
+        )
+
+        async def _reload():
+            return []
+
+        with caplog.at_level(logging.INFO, logger="aiq_agent.agents.chat_researcher.register"):
+            await _wait_for_indexing_attachments([], self._attachments(("Statik.pdf", "indexing")), _reload)
+
+        waited = [r for r in caplog.records if "Statik.pdf" in r.getMessage()]
+        assert len(waited) == 1
+        assert "s" in waited[0].getMessage()

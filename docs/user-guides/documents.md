@@ -204,9 +204,10 @@ write "fass den Inhalt zusammen" without naming it — Piloti is told which file
 this turn carries and reads those, rather than asking which document you mean.
 
 - **While it is still indexing**, the chat turn already knows the file exists.
-  If the passages are not retrievable yet, Piloti tells you the file is still
-  being processed and offers to retry, instead of answering from another
-  document.
+  Piloti waits a short, bounded moment for the passages to appear
+  (`GRID_ATTACHMENT_INDEX_WAIT_SECONDS`, default 8 seconds, operator-tunable);
+  if they still are not there it tells you the file is still being processed and
+  offers to retry, instead of answering from another document.
 - **An attachment does not lock the conversation to that file.** Later turns
   that ask a general Baurecht/OIB question are answered from the Richtlinien as
   usual. This is deliberate (ADR-0048): an attachment is a signal about the turn

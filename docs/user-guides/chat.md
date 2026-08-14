@@ -262,10 +262,10 @@ document "das Dokument" means and answers from it instead of asking back
 Two things worth knowing:
 
 - **You can send before indexing finishes.** Nothing blocks the send. Piloti is
-  told the file exists even while it is still being processed. If the passages
-  genuinely are not ready yet it says so and offers to retry — it will not
-  quietly answer from a different document. Big PDFs take the longest; sending
-  again a few seconds later is usually enough.
+  told the file exists even while it is still being processed, and waits a few
+  seconds for it. If the passages genuinely are not ready by then it says so and
+  offers to retry — it will not quietly answer from a different document. Big
+  PDFs take the longest; sending again a few seconds later is usually enough.
 - **An attachment does not lock the conversation to that file.** It is the
   subject of the turns that refer to it, not of every later turn. Attach a
   Statik-Bericht, ask about it, then ask a general Fluchtweg question — the
