@@ -43,6 +43,8 @@ from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
+from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
+from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.norm_registry import doctrine_for
 from aiq_agent.common.norm_registry import parcel_note
 from aiq_agent.common.norm_registry import render_block_for_prompt
@@ -260,6 +262,7 @@ class ShallowResearcherAgent:
         max_tool_iterations: int = 5,
         callbacks: list[Any] | None = None,
         tool_search: ToolSearchSettings | None = None,
+        deferred_tool_loading: DeferredToolLoadingSettings | None = None,
     ) -> None:
         """
         Initialize the shallow researcher agent.
@@ -277,6 +280,11 @@ class ShallowResearcherAgent:
                 disabled settings object) leaves every path below exactly as it
                 was: the full binding, the full prompt tool list, the full
                 ToolNode.
+            deferred_tool_loading: Optional OpenRouter server-side tool search.
+                None (or disabled) binds tool schemas the way it always has.
+                Orthogonal to ``tool_search``: that one decides WHICH tools are
+                bound, this one decides whether their schemas travel with the
+                request — a narrowed set is deferred exactly like a full one.
         """
         self.llm_provider = llm_provider
         self.tools = list(tools)
@@ -284,6 +292,9 @@ class ShallowResearcherAgent:
         self.max_tool_iterations = max_tool_iterations
         self.callbacks = callbacks or []
         self.tool_search = tool_search if (tool_search is not None and tool_search.enabled) else None
+        self.deferred_tool_loading = (
+            deferred_tool_loading if (deferred_tool_loading is not None and deferred_tool_loading.enabled) else None
+        )
 
         # Load prompts
         self.system_prompt = system_prompt or self._load_system_prompt()
@@ -304,7 +315,7 @@ class ShallowResearcherAgent:
         # its OpenAI JSON schema, so hoisting it out of `agent_node` removes that
         # pure-CPU conversion from every tool-loop iteration. Request payloads are
         # byte-identical; only when the conversion happens changes.
-        self._llm_with_tools = self._get_llm().bind_tools(self.tools, parallel_tool_calls=True)
+        self._llm_with_tools = self._bind_research_tools(self.tools)
 
         # Conversational/meta turns use a NARROWER tool set: only interaction
         # tools (`remember`, `emit_card`), never the data-source search tools.
@@ -360,6 +371,26 @@ class ShallowResearcherAgent:
     def _get_llm(self) -> BaseChatModel:
         """Get the LLM for shallow research."""
         return self.llm_provider.get(LLMRole.RESEARCHER)
+
+    def _bind_research_tools(self, tools: Sequence[BaseTool]) -> Any:
+        """Bind a RESEARCH-turn tool set, deferring the schemas when configured.
+
+        The single binding seam for research turns — the construction-time full
+        binding and every narrowed one go through it, so the deferral cannot
+        apply to one and silently miss the other.
+
+        Meta turns deliberately do NOT go through here. They bind only the
+        interaction tools (``remember``, ``emit_card``), whose schemas are a few
+        hundred characters, and OpenRouter's tool-search apparatus costs input
+        tokens of its own (~600 measured on an otherwise empty request) — so
+        deferring there would spend more than it withholds.
+        """
+        return bind_tools_deferred(
+            self._get_llm(),
+            list(tools),
+            settings=self.deferred_tool_loading,
+            parallel_tool_calls=True,
+        )
 
     def _ensure_meta_partition(self) -> None:
         """Lazily compute the meta-turn tool partition (binding, names, ToolNode).
@@ -494,7 +525,7 @@ class ShallowResearcherAgent:
                 # Belt and braces over ``select``'s own empty guard: an empty
                 # binding would leave the model with no way to answer at all.
                 return self._llm_with_tools, tools_info
-            bound = self._get_llm().bind_tools(narrowed_tools, parallel_tool_calls=True)
+            bound = self._bind_research_tools(narrowed_tools)
             if len(self._narrowed_bindings) >= _MAX_CACHED_BINDINGS:
                 self._narrowed_bindings.clear()
             self._narrowed_bindings[chosen] = bound

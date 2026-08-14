@@ -19,6 +19,7 @@ from aiq_agent.common import render_prompt_template
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+from aiq_agent.common.deferred_tool_loading import tool_payload_name
 
 logger = logging.getLogger(__name__)
 
@@ -267,20 +268,13 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
 
 
 def _request_tool_name(tool: object) -> str | None:
-    """Return a LangChain model-request tool name across common tool shapes."""
-    name = getattr(tool, "name", None)
-    if isinstance(name, str):
-        return name
-    if isinstance(tool, dict):
-        dict_name = tool.get("name")
-        if isinstance(dict_name, str):
-            return dict_name
-        function = tool.get("function")
-        if isinstance(function, dict):
-            function_name = function.get("name")
-            if isinstance(function_name, str):
-                return function_name
-    return None
+    """Return a LangChain model-request tool name across common tool shapes.
+
+    One implementation, in ``common.deferred_tool_loading``, because the
+    deferred-tool payload builder has to read tool identity out of exactly the
+    same three shapes and a second traversal would drift from this one.
+    """
+    return tool_payload_name(tool)
 
 
 class ToolVisibilityMiddleware(AgentMiddleware):

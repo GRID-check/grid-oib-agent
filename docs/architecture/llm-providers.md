@@ -112,6 +112,18 @@ bounded by per-org/member/project budgets — see
   [`scaling-review-2026-07.md`](scaling-review-2026-07.md) §6.3 for the
   cross-run multiplication this still doesn't address (bounded fan-out, not
   a shared retry budget).
+- **`api_type: responses` is a per-ROLE opt-in, not a fleet default
+  (ADR-0048).** `LLMBaseConfig.api_type` (`chat_completion` | `responses`) is
+  already understood by NAT: `nat.plugins.langchain.llm.openai_langchain`
+  builds `ChatOpenAI(use_responses_api=True, use_previous_response_id=True)`
+  when it is `responses`, so no app-side shim exists or is needed. Only roles
+  that require a Responses-only capability set it — today that is
+  `shallow_llm` when `shallow_research_agent.deferred_tool_loading` is
+  enabled, because OpenRouter's server-side tool search has no Chat
+  Completions equivalent. Enabling that feature without this line fails the
+  workflow build deliberately (`verify_deferred_tool_loading`) rather than
+  sending the tool schemas anyway. Every other role stays on the default;
+  `configs/config_grid_oib.yml` (Kimi, Chat Completions) cannot use either.
 - `reasoning_effort` is a **native** `ChatOpenAI` field
   (`langchain_openai`'s `BaseChatOpenAI.reasoning_effort`), not something
   routed through `extra_body`: NAT's `OpenAIModelConfig` allows extra YAML
