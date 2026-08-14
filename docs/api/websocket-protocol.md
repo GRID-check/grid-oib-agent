@@ -290,7 +290,7 @@ Delivers final or streaming response text.
   routing_decision?: "meta" | "shallow" | "deep" | "error",
   routing_reason?: string,
   escalation_reason?: string,
-  answer_confidence_capped_reason?: "ungrounded" | "quote_unverified" | "normative_claim_uncited" | "measurement_only",
+  answer_confidence_capped_reason?: "ungrounded" | "quote_unverified" | "normative_claim_uncited" | "measurement_only" | "citation_fallback",
   citations_removed?: { count: number, reasons: string[] },
   job_admission_rejected?: true,
   retry_after_seconds?: number,
@@ -313,7 +313,7 @@ The client extracts content in priority order: `output` → `text` → raw strin
 | `routing_reason` | `string` | Human-readable "why" for the routing decision, rendered verbatim from the classifier. |
 | `escalation_reason` | `string` | Present only when a shallow→deep escalation happened this turn. Rendered as `Eskaliert zur Tiefenrecherche: <reason>` in the thinking panel and above the deep-research banner. |
 | `answer_confidence_reason` | `string` (≤300 chars) | The model's own one-clause justification for its self-assessed confidence, parsed from the `[CONFIDENCE:<level> \| <reason>]` marker. Shown verbatim in the ConfidenceChip tooltip under "Assistant's reason". |
-| `answer_confidence_capped_reason` | `"ungrounded" \| "quote_unverified" \| "normative_claim_uncited" \| "measurement_only"` | Present only when confidence was downgraded by the deterministic overconfidence guard. `ungrounded` — no citation grounding and nothing measured. `quote_unverified` — a quoted span matched no retrieved passage. `normative_claim_uncited` — the answer WAS grounded in an IFC measurement but also asserts something normative with no verified citation, so it is held at "low" rather than riding out on the measurement's evidence. `measurement_only` — measured and purely descriptive, so a self-reported "high" was reduced to "medium" (measurement grounding never reaches "high"). Adds a sentence to the ConfidenceChip tooltip. |
+| `answer_confidence_capped_reason` | `"ungrounded" \| "quote_unverified" \| "normative_claim_uncited" \| "measurement_only" \| "citation_fallback"` | Present only when confidence was downgraded by the deterministic overconfidence guard. `ungrounded` — no citation grounding and nothing measured. `quote_unverified` — a quoted span matched no retrieved passage. `normative_claim_uncited` — the answer WAS grounded in an IFC measurement but also asserts something normative with no verified citation, so it is held at "low" rather than riding out on the measurement's evidence. `measurement_only` — measured and purely descriptive, so a self-reported "high" was reduced to "medium" (measurement grounding never reaches "high"). `citation_fallback` — nothing the model cited survived verification and the grounding is the one source the agent attached from the cumulative session registry, which may predate this turn; it lifts the answer no further than a measurement does. Adds a sentence to the ConfidenceChip tooltip. |
 | `citations_removed` | `{ count: number, reasons: string[] }` | Present only when citation verification removed ≥1 citation. Renders a muted note under the sources row (reasons in a tooltip). |
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |

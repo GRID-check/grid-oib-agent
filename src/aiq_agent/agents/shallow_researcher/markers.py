@@ -179,7 +179,7 @@ def detect_and_strip_confidence_marker(content: Any) -> tuple[Any, ConfidenceLev
 # research agents (which record the cap as a citation-health event) alike.
 
 
-#: Why a self-report was downgraded. Four causes, two of them about the second
+#: Why a self-report was downgraded. Five causes, three of them about the second
 #: kind of grounding (see :mod:`.grounding`):
 #:
 #: - ``ungrounded``             no verified citation, and nothing was measured.
@@ -189,11 +189,16 @@ def detect_and_strip_confidence_marker(content: Any) -> tuple[Any, ConfidenceLev
 #:   rather than resolved silently in the measurement's favour.
 #: - ``measurement_only``       measurement-grounded and purely descriptive, so
 #:   "high" was reduced to "medium" instead of to "low".
+#: - ``citation_fallback``      nothing the model cited survived verification and
+#:   the grounding comes from the single-source fallback — a source the agent
+#:   attached, possibly captured on an EARLIER turn of the conversation. It
+#:   grounds the answer no further than a measurement does.
 CappedReason = Literal[
     "ungrounded",
     "quote_unverified",
     "normative_claim_uncited",
     "measurement_only",
+    "citation_fallback",
 ]
 
 #: The ceiling measurement grounding can reach. Never "high": that level is
@@ -218,6 +223,7 @@ def surface_answer_confidence(
     *,
     measurement_grounded: bool = False,
     normative_claim_uncited: bool = False,
+    citation_fallback_used: bool = False,
 ) -> ConfidenceLevel | None:
     """Apply the deterministic overconfidence guard to a self-reported level.
 
@@ -247,14 +253,30 @@ def surface_answer_confidence(
       claim (``normative_claim_uncited``) caps to "low" exactly as today. The
       measurement grounds the measurement; it does not ground a statement about
       the Bauordnung, and there is no per-sentence confidence to split them with.
+
+    **Fallback grounding** (``citation_fallback_used``) is the third case and it
+    is deliberately NOT the first. The agent's single-source fallback appends
+    one registry source when nothing the model cited survived verification — and
+    the registry is cumulative across the conversation, so that source may have
+    been retrieved two turns ago for a different question. Treated as citation
+    grounding it laundered the whole answer: the normative brake never ran (it
+    is gated on the absence of citation grounding), and a measured answer that
+    also asserted „…erfüllt damit OIB 4" surfaced at the model's own "high" with
+    an unrelated Bauordnung link attached. So a fallback citation buys exactly
+    what a measurement buys — at most "medium", and nothing at all once the
+    normative brake is up.
     """
     if self_reported is None:
         return None
-    if citation_grounded and quotes_verified:
+    # A fallback flag without citation grounding describes nothing — the
+    # fallback IS the grounding. Normalised here so a caller that only sets one
+    # of the two cannot produce a cap nobody can explain.
+    fallback_grounded = citation_grounded and citation_fallback_used
+    if citation_grounded and quotes_verified and not fallback_grounded:
         return self_reported
     if not quotes_verified:
         return "low"
-    if measurement_grounded and not normative_claim_uncited:
+    if (measurement_grounded or fallback_grounded) and not normative_claim_uncited:
         return _at_most(self_reported, MEASUREMENT_CONFIDENCE_CEILING)
     return "low"
 
@@ -266,6 +288,7 @@ def answer_confidence_capped_reason(
     *,
     measurement_grounded: bool = False,
     normative_claim_uncited: bool = False,
+    citation_fallback_used: bool = False,
 ) -> CappedReason | None:
     """Why the surfaced confidence was capped, or ``None`` when no cap applied.
 
@@ -287,6 +310,10 @@ def answer_confidence_capped_reason(
       ledger.
     - ``measurement_only`` when a measured, purely descriptive answer had "high"
       reduced to "medium".
+    - ``citation_fallback`` when the only citation grounding came from the
+      agent's single-source fallback and there was no measurement — the source
+      is real but the model never cited it, and it may predate this turn, so the
+      cap has to say that rather than claim a measurement it does not have.
     - ``"ungrounded"`` otherwise — the original cause, unchanged: nothing
       verified and nothing measured.
 
@@ -301,15 +328,22 @@ def answer_confidence_capped_reason(
         quotes_verified,
         measurement_grounded=measurement_grounded,
         normative_claim_uncited=normative_claim_uncited,
+        citation_fallback_used=citation_fallback_used,
     )
     if surfaced == self_reported:
         return None
     if not quotes_verified and (citation_grounded or measurement_grounded):
         return "quote_unverified"
-    if not citation_grounded:
-        if measurement_grounded and normative_claim_uncited:
+    fallback_grounded = citation_grounded and citation_fallback_used
+    if not citation_grounded or fallback_grounded:
+        # Fallback grounding is judged with the measurement, not with the
+        # verified citation it is not: it lifts the same amount and is stopped
+        # by the same brake.
+        if (measurement_grounded or fallback_grounded) and normative_claim_uncited:
             return "normative_claim_uncited"
         if measurement_grounded:
             return "measurement_only"
+        if fallback_grounded:
+            return "citation_fallback"
         return "ungrounded"
     return "quote_unverified"

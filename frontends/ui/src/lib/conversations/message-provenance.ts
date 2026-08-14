@@ -46,7 +46,7 @@ export interface StoredThinkingStep {
 
 /**
  * Why the deterministic overconfidence guard downgraded the model's own
- * self-assessment. Four causes, two of them about the SECOND kind of grounding:
+ * self-assessment. Five causes, two of them about the SECOND kind of grounding:
  * an IFC measurement carries a provenance, a tolerance, a readable method and
  * the GlobalIds it came from, but has no passage to quote — so it can never
  * satisfy the citation gate.
@@ -58,6 +58,10 @@ export interface StoredThinkingStep {
  *   'low' rather than riding out on the measurement's evidence.
  * - `measurement_only`        measured and purely descriptive, so 'high' was
  *   reduced to 'medium' (measurement grounding never reaches 'high').
+ * - `citation_fallback`       nothing the model cited survived verification, so
+ *   the agent attached the one source in the session registry — real, but not a
+ *   citation the answer made, and possibly captured on an earlier turn. It
+ *   lifts the answer no further than a measurement does.
  *
  * Exported so the chip, the stored provenance and the wire mapper share one
  * list instead of three copies that can drift apart.
@@ -98,6 +102,7 @@ const CAPPED_REASONS = [
   'quote_unverified',
   'normative_claim_uncited',
   'measurement_only',
+  'citation_fallback',
 ] as const
 const ROUTING_DECISIONS = ['meta', 'shallow', 'deep', 'error'] as const
 

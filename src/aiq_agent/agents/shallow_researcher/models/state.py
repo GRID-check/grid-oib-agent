@@ -81,6 +81,16 @@ class ShallowResearchAgentState(BaseModel):
     # from the final, cleaned answer text; only meaningful alongside
     # ``answer_measurement_grounded``. Defaults to False.
     answer_normative_claim_uncited: bool = False
+    # Whether ``answer_citation_grounded`` rests on the single-source FALLBACK
+    # rather than on a citation the model itself wrote. The registry is
+    # cumulative across the conversation, so the one source the fallback appends
+    # can have been retrieved on an earlier turn for a different question —
+    # grounding of a kind, but not the kind "high" is reserved for. Read by the
+    # chat node's guard, which treats it exactly like measurement grounding: a
+    # ceiling of "medium", and the normative brake still applies (it is computed
+    # against this flag, not against ``answer_citation_grounded``, or one stale
+    # source would switch the brake off entirely). Defaults to False.
+    answer_citation_fallback_used: bool = False
     # Structured control-marker signals extracted (and stripped from the answer
     # text) inside ShallowResearcherAgent.run(). The chat orchestrator reads these
     # instead of re-parsing the answer string. ``escalation_requested`` doubles as

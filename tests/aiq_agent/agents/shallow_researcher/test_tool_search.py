@@ -301,12 +301,20 @@ class TestNeverNarrowsAwayTheToolTheModelNeeds:
 # recommended production pin set; the test below is the reason it exists.
 RECOMMENDED_PINS = ["remember", "emit_card", "use_skill", "surface_documents", "ris_fetch_tool"]
 
-# One realistic German question per tool. Measured against the real tool
-# descriptions this set scores 71 % recall unpinned and 100 % pinned — the
-# single strongest argument for shipping this feature off by default and
-# never turning it on without a pin set.
+# One realistic German question per tool. Over the fixture descriptions above
+# this set scores 8/11 unpinned and 11/11 pinned — the single strongest argument
+# for shipping this feature off by default and never turning it on without a pin
+# set. The numbers survive swapping in `measure_register._TOOL_DESCRIPTION` (the
+# real 10 603-char text, against these 643-char stand-ins), which is the only
+# claim made for them: this is a shape check on the ranker, not a measurement of
+# production recall.
+#
+# No question here may appear verbatim in the description of the tool it expects.
+# „wie hoch ist der Keller" did — it is quoted in `ifc_measure`'s own text as the
+# example of a question that means seventeen rooms — so the item was scoring the
+# ranker against a sentence the ranker had already been handed.
 RECALL_EVAL = [
-    ("wie hoch ist der Keller", "ifc_measure"),
+    ("Wie hoch sind die Kellerraeume tatsaechlich?", "ifc_measure"),
     ("Wie viele Raeume hat das Erdgeschoss?", "ifc_query"),
     ("Welche Waende sind tragend?", "ifc_query"),
     ("Wie weit ist die Tuer von der Wand entfernt?", "ifc_measure"),
@@ -698,7 +706,9 @@ class TestObservability:
             tool_search=ToolSearchSettings(enabled=True, top_k=3),
         )
 
-        secret = "Bauherr Familie Gruber, Parzelle 1234/7, wie hoch ist der Keller"
+        # A client's name and their Parzelle, not a credential — `detect-secrets`
+        # reads the variable name. pragma: allowlist secret
+        secret = "Bauherr Familie Gruber, Parzelle 1234/7, wie hoch ist der Keller"  # pragma: allowlist secret
         with caplog.at_level("INFO", logger="aiq_agent.agents.shallow_researcher.agent"):
             agent._select_tools_for_query([HumanMessage(content=secret)])
 

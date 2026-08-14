@@ -62,6 +62,8 @@ from pydantic import model_validator
 # stays loadable on a deployment without the spatial engine — which is the
 # independence the two entry points in pyproject.toml exist to preserve.
 from aiq_agent.agents.bim.capability_gaps import record_gap
+from aiq_agent.agents.bim.measurement_evidence import EVIDENCE_PROVENANCES
+from aiq_agent.agents.bim.measurement_evidence import measurement_evidence_line
 from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
@@ -318,9 +320,19 @@ def _enum_lines(entries: dict[str, str], indent: str = "    ") -> str:
 # `max_tool_iterations: 5` and force-synthesises at the limit, so an invented
 # operation or a misspelled measure name cost one call in five: the request was
 # accepted, reached `_build_call`, and came back as a sentence the model had to
-# read and retry. A value the schema forbids is one most models will not emit
-# at all, and one that is emitted anyway is refused by the validator before the
-# tool body runs.
+# read and retry.
+#
+# What the schema buys, precisely — and it is NOT the turn back. The budget is
+# charged when the model EMITS the call (`shallow_researcher.agent` adds one per
+# tool call in the response) and nothing refunds it, so a call refused by the
+# validator spends the same iteration a call refused by `_build_call` does; the
+# ToolNode returns the ValidationError as the tool result and the loop carries
+# on. What the schema changes is how often a bad call is EMITTED at all — an
+# enum in the args schema is the one place a model reliably reads a vocabulary
+# from, and most models will not emit a value it forbids. The refusal that does
+# happen is cheaper (the tool body never runs, so nothing resolves a project or
+# opens a model) and it is better: the permitted set travels with it, out of the
+# schema, rather than being retyped in a sentence that can drift from it.
 #
 # FLAT, with each overloaded field naming the operations it belongs to — NOT a
 # discriminated union, although `operation` is a perfect discriminator and the
@@ -509,10 +521,16 @@ class IfcMeasureInput(BaseModel):
             "geometric measurement and not an index lookup. 0 leaves the server's default."
         ),
     )
-    angle_deg: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=90.0,
+    # `None`, not `0.0`, and the bounds are the ones `_build_call` enforces.
+    # Two defects came out of the old `default=0.0, ge=0.0, le=90.0`: it made
+    # „not given" indistinguishable from „zero degrees" — the same
+    # default-in-two-places defect the `mode` field was fixed for — and it
+    # declared a range the tool does not accept, so `angle_deg=90` passed
+    # validation and then spent one of five turns on `_build_call`'s refusal.
+    angle_deg: float | None = Field(
+        default=None,
+        gt=0.0,
+        lt=90.0,
         description=(
             "'light_incidence' only — the Lichteinfallswinkel in degrees, strictly between 0 and 90. "
             "It is a fact about the BESTIMMUNG and not about the model (OIB 3: 45, with swivel_deg 30). "
@@ -520,8 +538,8 @@ class IfcMeasureInput(BaseModel):
             "applying the clause."
         ),
     )
-    swivel_deg: float = Field(
-        default=0.0,
+    swivel_deg: float | None = Field(
+        default=None,
         ge=0.0,
         lt=90.0,
         description=(
@@ -1545,6 +1563,41 @@ def _render_unresolved(result: dict[str, Any]) -> str:
     return f"{message} {heading}: {listed}."
 
 
+def _measured_count(payload: Any) -> int:
+    """How many values in one payload carry a ``declared``/``computed`` provenance.
+
+    Read off the envelope's own fields — ``decidable`` and ``provenance`` — and
+    never off the German the renderer wraps them in. This is the number the
+    result states about itself (:mod:`.measurement_evidence`), and it is what
+    the confidence gate stands on, so it counts EVIDENCE and nothing else: an
+    undecidable finding, a heuristic ``inferred`` guess and a measure that
+    raised are all zero.
+    """
+
+    def _one(answer: Any) -> int:
+        if not isinstance(answer, dict) or answer.get("error"):
+            return 0
+        if not answer.get("decidable"):
+            return 0
+        return 1 if answer.get("provenance") in EVIDENCE_PROVENANCES else 0
+
+    if not isinstance(payload, dict):
+        return 0
+    # `element_profile`: many measures over one element.
+    if "measures" in payload and "element" in payload:
+        return sum(_one(answer) for answer in (payload.get("measures") or {}).values())
+    # `survey` / a batch `measure`: one measure over many elements.
+    if "results" in payload and "summary" in payload:
+        return sum(_one((entry or {}).get("answer")) for entry in (payload.get("results") or []))
+    # A single `Answer`.
+    if "decidable" in payload:
+        return _one(payload)
+    # Everything else — a briefing, a find_elements hit list, an element's
+    # index metadata, a written IDS file, a drawing's path. Those are real
+    # results and none of them is a measurement of the building.
+    return 0
+
+
 def _render(
     operation: str,
     payload: Any,
@@ -1552,7 +1605,29 @@ def _render(
     source: dict[str, Any] | None = None,
     handle: str = "",
 ) -> str:
-    """The engine's result as the string the model reads."""
+    """The engine's result as the string the model reads.
+
+    Ends with the evidence trailer (:func:`.measurement_evidence_line`) on every
+    path, because "how many values did this actually measure" is a question the
+    result has to answer about itself — the confidence gate reads that line, and
+    a reader who sees „gemessen: raumhoehe an 0 von 3 Bauteilen" needs the same
+    fact stated rather than implied.
+    """
+    return (
+        _render_body(operation, payload, source=source, handle=handle)
+        + "\n"
+        + measurement_evidence_line(_measured_count(payload))
+    )
+
+
+def _render_body(
+    operation: str,
+    payload: Any,
+    *,
+    source: dict[str, Any] | None = None,
+    handle: str = "",
+) -> str:
+    """The result itself, one branch per operation shape."""
     lines: list[str] = []
     header = _model_line(source or {}, handle)
     if header:
@@ -1906,12 +1981,13 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
             kind=arguments.kind or "",
             room_kind=arguments.room_kind or "",
             limit=limit if limit and limit > 0 else tool_config.default_limit,
-            # Zero is "not given" for both, which is safe because neither is a
-            # usable angle: `light_incidence` refuses a missing or out-of-range
-            # one by name rather than defaulting to 45, since the angle is a
-            # fact about the clause and supplying it would be applying the law.
-            angle_deg=arguments.angle_deg or None,
-            swivel_deg=arguments.swivel_deg or None,
+            # Passed through as they arrived. "Not given" is `None` in the
+            # schema itself, so nothing here has to re-decide what a missing
+            # angle looks like — and `swivel_deg=0` (a real, legal value: no
+            # lateral Verschwenkung) reaches `_build_call` as 0 instead of being
+            # laundered into "absent" by a falsiness test.
+            angle_deg=arguments.angle_deg,
+            swivel_deg=arguments.swivel_deg,
             when=arguments.when,
         )
         if isinstance(built, str):

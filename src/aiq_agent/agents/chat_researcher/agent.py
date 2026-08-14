@@ -111,6 +111,7 @@ def _finalize_shallow_answer(
     quotes_verified: bool = True,
     measurement_grounded: bool = False,
     normative_claim_uncited: bool = False,
+    citation_fallback_used: bool = False,
     escalation_present: bool | None = None,
     self_reported: ConfidenceLevel | None = None,
     self_reported_reason: str | None = None,
@@ -144,9 +145,13 @@ def _finalize_shallow_answer(
     passage to quote — lifts the answer off the "low" floor to at most "medium",
     and only while ``normative_claim_uncited`` is False: a measured answer that
     also asserts something about the Bauordnung without a verified citation stays
-    at "low", because the measurement grounds the number and not the law. Both
-    default False, which is exactly the pre-measurement behaviour, so a caller
-    that does not supply them is unaffected.
+    at "low", because the measurement grounds the number and not the law.
+    ``citation_fallback_used`` says the citation grounding came from the shallow
+    agent's single-source fallback rather than from a citation the model wrote —
+    a source that may predate this turn — and is therefore treated like a
+    measurement: at most "medium", and stopped by the same normative brake. All
+    three default False, which is exactly the pre-measurement behaviour, so a
+    caller that does not supply them is unaffected.
 
     Non-string content is passed through untouched with no confidence signal.
     """
@@ -208,6 +213,7 @@ def _finalize_shallow_answer(
             quotes_verified,
             measurement_grounded=measurement_grounded,
             normative_claim_uncited=normative_claim_uncited,
+            citation_fallback_used=citation_fallback_used,
         ),
         "answer_confidence_reason": self_reported_reason,
         "answer_confidence_capped_reason": answer_confidence_capped_reason(
@@ -216,6 +222,7 @@ def _finalize_shallow_answer(
             quotes_verified,
             measurement_grounded=measurement_grounded,
             normative_claim_uncited=normative_claim_uncited,
+            citation_fallback_used=citation_fallback_used,
         ),
         "verified_sources": verified_sources,
         "citations_removed": citations_removed,
@@ -539,6 +546,14 @@ class ChatResearcherAgent:
             # ``True`` opens the gate; everything else lands on the old behaviour.
             measurement_grounded = getattr(result, "answer_measurement_grounded", False) is True
             normative_claim_uncited = getattr(result, "answer_normative_claim_uncited", True) is not False
+            # WHICH citation grounded the answer: one the model wrote and the
+            # verifier resolved, or the single registry source the agent attached
+            # when nothing else survived. The second may have been captured on an
+            # earlier turn, so it grounds no more than a measurement does. Read
+            # with the same fail-CLOSED shape as the two above — anything that is
+            # not an explicit ``False`` is treated as "fallback", because this is
+            # the flag that HOLDS a confidence down.
+            citation_fallback_used = getattr(result, "answer_citation_fallback_used", False) is not False
 
             # Prefer the structured control-marker signals the shallow agent
             # extracted in its run(); fall back to string-detection inside
@@ -577,6 +592,7 @@ class ChatResearcherAgent:
                     quotes_verified=quotes_verified,
                     measurement_grounded=measurement_grounded,
                     normative_claim_uncited=normative_claim_uncited,
+                    citation_fallback_used=citation_fallback_used,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
                     self_reported_reason=self_reported_reason,
@@ -591,6 +607,7 @@ class ChatResearcherAgent:
                     quotes_verified=quotes_verified,
                     measurement_grounded=measurement_grounded,
                     normative_claim_uncited=normative_claim_uncited,
+                    citation_fallback_used=citation_fallback_used,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
                     self_reported_reason=self_reported_reason,

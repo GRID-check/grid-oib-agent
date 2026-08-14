@@ -531,6 +531,10 @@ export const chat = {
       // reserved for an answer with a verified citation.
       measurementOnly:
         'Medium confidence: the figure was measured on the model (with tolerance and method), but is not backed by a source.',
+      // The source came from the conversation, not from this answer — so it
+      // backs no more than a measurement does.
+      citationFallback:
+        'Medium confidence: the source shown was attached by the assistant, not cited by the answer itself.',
     },
   },
   // Per-answer thumbs feedback (WS-7, `answer-feedback` flag).

@@ -311,3 +311,117 @@ class TestMeasurementConfidenceEndToEnd:
         result = await agent.run(state, thread_id="m3")
         assert result["answer_confidence"] == "low"
         assert result["answer_confidence_capped_reason"] == "ungrounded"
+
+
+class TestTheSingleSourceFallbackDoesNotLaunder:
+    """The third kind of grounding, and why it is not the first.
+
+    The shallow agent appends ONE registry source when nothing the model cited
+    survived verification. The registry is cumulative across the conversation,
+    so that source can be a Bauordnung link captured two turns ago for a
+    different question — and treating it as citation grounding switched off the
+    normative brake (which only runs when citation grounding is absent) AND
+    handed the answer the model's own self-report. A measured answer with
+    „…erfüllt damit OIB 4 Punkt 2.1" bolted on came out at "high", with the
+    unrelated link attached to the verdict.
+    """
+
+    def test_a_fallback_citation_does_not_reach_high(self):
+        assert (
+            surface_answer_confidence("high", citation_grounded=True, citation_fallback_used=True)
+            == MEASUREMENT_CONFIDENCE_CEILING
+        )
+        assert (
+            answer_confidence_capped_reason("high", citation_grounded=True, citation_fallback_used=True)
+            == "citation_fallback"
+        )
+
+    def test_a_citation_the_model_actually_wrote_still_reaches_high(self):
+        """The feature stays intact: only the FALLBACK is capped."""
+        assert surface_answer_confidence("high", citation_grounded=True, citation_fallback_used=False) == "high"
+        assert answer_confidence_capped_reason("high", citation_grounded=True, citation_fallback_used=False) is None
+
+    def test_a_measured_mixed_answer_on_a_fallback_citation_stays_at_low(self):
+        """The reported defect, at the guard: measured number + legal verdict."""
+        assert (
+            surface_answer_confidence(
+                "high",
+                citation_grounded=True,
+                measurement_grounded=True,
+                normative_claim_uncited=True,
+                citation_fallback_used=True,
+            )
+            == "low"
+        )
+        assert (
+            answer_confidence_capped_reason(
+                "high",
+                citation_grounded=True,
+                measurement_grounded=True,
+                normative_claim_uncited=True,
+                citation_fallback_used=True,
+            )
+            == "normative_claim_uncited"
+        )
+
+    def test_the_flag_alone_describes_nothing(self):
+        """A fallback without grounding is incoherent — the fallback IS the grounding.
+
+        Normalised rather than left to the caller, so a partially-set pair
+        cannot produce a cap with no explanation behind it.
+        """
+        assert surface_answer_confidence("high", citation_grounded=False, citation_fallback_used=True) == "low"
+        assert (
+            answer_confidence_capped_reason("high", citation_grounded=False, citation_fallback_used=True)
+            == "ungrounded"
+        )
+
+    @pytest.fixture
+    def research_orchestration(self):
+        async def classifier(state):
+            return {
+                "user_intent": IntentResult(intent="research", raw=None),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="simple"),
+            }
+
+        return classifier
+
+    @pytest.fixture
+    def deep_fn(self):
+        async def deep(state):
+            result = MagicMock()
+            result.messages = list(state.messages) + [AIMessage(content="Deep report.")]
+            return result
+
+        return deep
+
+    @pytest.mark.asyncio
+    async def test_a_mixed_answer_on_a_stale_source_arrives_at_low(self, research_orchestration, deep_fn):
+        """End to end through the chat node, which is where the level is set."""
+
+        async def shallow(state_input):
+            messages = state_input.messages if hasattr(state_input, "messages") else state_input
+            result = MagicMock()
+            result.messages = list(messages) + [AIMessage(content=KELLER_MEASURED_PLUS_VERDICT + " [1]")]
+            result.answer_citation_grounded = True
+            result.answer_citation_fallback_used = True
+            result.answer_quotes_verified = True
+            result.answer_measurement_grounded = True
+            result.answer_normative_claim_uncited = True
+            result.escalation_requested = False
+            result.answer_confidence_marker = "high"
+            result.answer_confidence_marker_reason = None
+            return result
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=research_orchestration,
+            shallow_research_fn=shallow,
+            deep_research_fn=deep_fn,
+            clarifier_fn=None,
+            enable_clarifier=False,
+            enable_escalation=False,
+        )
+        state = ChatResearcherState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
+        result = await agent.run(state, thread_id="f1")
+        assert result["answer_confidence"] == "low"
+        assert result["answer_confidence_capped_reason"] == "normative_claim_uncited"

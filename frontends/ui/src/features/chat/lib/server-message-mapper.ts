@@ -267,7 +267,7 @@ const isRoutingDecision = (value: unknown): value is 'meta' | 'shallow' | 'deep'
   value === 'meta' || value === 'shallow' || value === 'deep' || value === 'error'
 
 /**
- * The four causes the overconfidence guard can report. An allowlist rather than
+ * The five causes the overconfidence guard can report. An allowlist rather than
  * a cast because this reads a persisted jsonb column: an older row, or a newer
  * server, can carry anything, and a value the chip has no copy for would render
  * a cap with no explanation.
@@ -277,6 +277,7 @@ const CAPPED_REASONS: readonly AnswerConfidenceCappedReason[] = [
   'quote_unverified',
   'normative_claim_uncited',
   'measurement_only',
+  'citation_fallback',
 ]
 
 const isCappedReason = (value: unknown): value is AnswerConfidenceCappedReason =>

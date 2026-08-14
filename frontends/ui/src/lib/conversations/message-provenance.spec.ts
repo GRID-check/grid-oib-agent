@@ -84,8 +84,13 @@ describe('sanitizeProvenance', () => {
 
   it('stores the measurement-grounding cap reasons', () => {
     // Persisted so a reopened thread still explains why a measured answer sat at
-    // 'medium', and why a measured answer with an un-cited legal claim did not.
-    for (const reason of ['normative_claim_uncited', 'measurement_only'] as const) {
+    // 'medium', why a measured answer with an un-cited legal claim did not, and
+    // why an answer whose only source was attached rather than cited did not.
+    for (const reason of [
+      'normative_claim_uncited',
+      'measurement_only',
+      'citation_fallback',
+    ] as const) {
       const result = sanitizeProvenance({ answerConfidenceCappedReason: reason })
       expect(result!.answerConfidenceCappedReason).toBe(reason)
     }

@@ -113,7 +113,7 @@ boundary in `ChatResearcherAgent.run()`:
   and capped), and `_finalize_shallow_answer` carries it as
   `answer_confidence_reason` alongside the level. Escalated turns drop it.
 - `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified" |
-  "normative_claim_uncited" | "measurement_only"`) — set when
+  "normative_claim_uncited" | "measurement_only" | "citation_fallback"`) — set when
   `surface_answer_confidence` downgraded the self-report. Gives the confidence
   chip a machine-readable reason the UI can explain.
   - `"ungrounded"` — citation verification left the answer without grounding and
@@ -125,6 +125,13 @@ boundary in `ChatResearcherAgent.run()`:
     otherwise altered).
   - `"normative_claim_uncited"` / `"measurement_only"` — the two reasons about
     the SECOND kind of grounding, below.
+  - `"citation_fallback"` — the answer's only citation is the single registry
+    source the shallow agent appended when nothing the model wrote survived
+    verification (`_append_minimal_citation`). The registry is cumulative across
+    the conversation, so that source may have been retrieved on an earlier turn
+    for a different question: it is treated exactly like a measurement (ceiling
+    `"medium"`, and the normative brake still applies), never as the verified
+    citation that "high" is reserved for.
 
   **Two kinds of grounding.** The guard was written against one form of
   evidence: a citation the verifier can resolve to a retrieved passage. An IFC
@@ -150,7 +157,23 @@ boundary in `ChatResearcherAgent.run()`:
     withheld and the answer keeps its `"low"`, reported as
     `"normative_claim_uncited"` rather than resolved silently. The `"medium"`
     ceiling is the structural half of the same defence and does not depend on
-    that text heuristic.
+    that text heuristic. The brake reads the answer's PROSE — a trailing
+    reference list is stripped first (`_prose_without_references`), because a
+    source title is a pointer, not a claim the answer makes.
+  - `answer_citation_fallback_used` — which citation did the grounding. A
+    fallback citation does not disarm the normative brake and does not reach
+    `"high"`: one stale session source used to do both, and „Der Keller ist
+    2,70 m hoch und erfüllt damit OIB 4 Punkt 2.1" surfaced at the model's own
+    self-report with an unrelated Bauordnung link attached to the verdict.
+
+  **What counts as a measurement.** `ifc_measure`'s renderer states it: every
+  result ends with a line reporting how many values in it carry a
+  `declared`/`computed` provenance (`agents/bim/measurement_evidence.py`), and
+  the gate reads that count. It used to search the result for „gemessen" /
+  „deklariert" instead, which three renderers write into prose explaining why
+  NOTHING could be measured („gemessen: raumhoehe an 0 von 3 Bauteilen") — so a
+  refusal granted measurement grounding, and a model that invented a number on
+  top of one surfaced at `"medium"`.
 - `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
   result's `verify_citations` summary when ≥1 citation was removed.
 - `job_admission_rejected` + `retry_after_seconds` — set in the deep-research

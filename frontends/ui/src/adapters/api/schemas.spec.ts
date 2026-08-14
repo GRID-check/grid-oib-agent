@@ -160,6 +160,14 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
       answer_confidence_capped_reason: 'measurement_only',
     })
     expect(measured.answer_confidence_capped_reason).toBe('measurement_only')
+
+    // And the third cause on the same footing as a measurement: the source was
+    // attached by the fallback, not cited by the answer, so 'high' was reduced.
+    const attached = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_capped_reason: 'citation_fallback',
+    })
+    expect(attached.answer_confidence_capped_reason).toBe('citation_fallback')
   })
 
   test('an unknown answer_confidence_capped_reason degrades to undefined (catch)', () => {

@@ -163,6 +163,33 @@ def _append_minimal_citation(report_text: str, source: SourceEntry) -> str:
     return f"{content}\n\n**References:**\n{reference}"
 
 
+#: A trailing reference list, in the headings this agent and the models it runs
+#: actually produce.
+_REFERENCES_SECTION_RE = re.compile(
+    r"\n\s*(?:\*\*(?:References|Sources|Quellen):?\*\*|#{2,3}\s+(?:References|Sources|Quellen))\s*(?:\n|$)",
+    re.IGNORECASE,
+)
+
+
+def _prose_without_references(content: str) -> str:
+    """The answer's own sentences, with any trailing reference list removed.
+
+    The normative brake judges what the ANSWER asserts, and a bibliography
+    asserts nothing — „- [1] Wiener Bauordnung — https://ris…" is a pointer to a
+    source, not a claim about the law. It matters because of where that line
+    comes from: the single-source fallback appends it, so leaving it in made
+    every fallback-grounded answer read as normative and floored measured,
+    purely descriptive answers to "low" under a reason („normative_claim_uncited")
+    that was not true of a single sentence the model wrote.
+    """
+    if not isinstance(content, str):
+        return ""
+    last = None
+    for last in _REFERENCES_SECTION_RE.finditer(content):
+        pass
+    return content[: last.start()] if last else content
+
+
 class ShallowResearcherAgent:
     """
     Shallow research agent for fast, bounded research with tool-calling.
@@ -968,7 +995,18 @@ class ShallowResearcherAgent:
                 # and "asserts the law without support" are the same thing. A
                 # measurement grounds the measurement — it must not carry
                 # „…und erfüllt damit OIB 4 Punkt 2.1" out at "medium".
-                answer_normative_claim_uncited = not citation_grounded and answer_mentions_normative_claim(content)
+                #
+                # The single-source FALLBACK does not count as the citation that
+                # switches this brake off. It fires when nothing the model cited
+                # survived verification, and the source it appends comes from the
+                # cumulative session registry — one Bauordnung link captured two
+                # turns ago was enough to disarm the brake AND to hand the whole
+                # mixed answer the model's own "high", with that unrelated link
+                # attached to the verdict.
+                model_cited_grounding = citation_grounded and not citation_fallback_used
+                answer_normative_claim_uncited = not model_cited_grounding and answer_mentions_normative_claim(
+                    _prose_without_references(content)
+                )
 
                 if hasattr(answer_msg, "model_copy"):
                     messages_list[answer_index] = answer_msg.model_copy(update={"content": content})
@@ -984,6 +1022,10 @@ class ShallowResearcherAgent:
         measurement_grounded = bool(validated_result.get("answer_measurement_grounded", False))
         validated_result["answer_measurement_grounded"] = measurement_grounded
         validated_result["answer_normative_claim_uncited"] = answer_normative_claim_uncited
+        # …and WHICH citation grounded it. The guard needs the difference between
+        # "the model cited a source and the verifier resolved it" and "we
+        # attached the one source in the registry because nothing else survived".
+        validated_result["answer_citation_fallback_used"] = citation_fallback_used
         # Carry the quote-verification signal too: False iff a quoted span could
         # not be verified against a retrieved passage this turn. The chat node
         # composes it with grounding to cap confidence (reason quote_unverified).
@@ -1041,6 +1083,7 @@ class ShallowResearcherAgent:
                     answer_quotes_verified,
                     measurement_grounded=measurement_grounded,
                     normative_claim_uncited=answer_normative_claim_uncited,
+                    citation_fallback_used=citation_fallback_used,
                 ),
                 source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources],
                 source_lanes=[source.get("lane") for source in wire_sources],

@@ -20,6 +20,7 @@ const CAPPED_REASON_KEYS: Record<AnswerConfidenceCappedReason, string> = {
   quote_unverified: 'quoteUnverified',
   normative_claim_uncited: 'normativeClaimUncited',
   measurement_only: 'measurementOnly',
+  citation_fallback: 'citationFallback',
 }
 
 interface ConfidenceChipProps {

@@ -517,6 +517,10 @@ export const chat: typeof en.chat = {
       // aber der Antwort mit geprüfter Quellenangabe vorbehalten.
       measurementOnly:
         'Mittlere Sicherheit: die Angabe ist am Modell gemessen (mit Toleranz und Methode), aber nicht durch eine Quelle belegt.',
+      // Die Quelle stammt aus dem Gespräch, nicht aus dieser Antwort — sie
+      // belegt daher nur so viel wie eine Messung.
+      citationFallback:
+        'Mittlere Sicherheit: die angeführte Quelle wurde ergänzt, nicht von der Antwort selbst zitiert.',
     },
   },
   // Antwort-Feedback per Daumen (WS-7, Feature-Flag `answer-feedback`).

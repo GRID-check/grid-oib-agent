@@ -2049,14 +2049,21 @@ class TestTheSchemaIsWhatTheModelActuallySees:
 
 
 class TestAMalformedCallIsRefusedBeforeTheToolRuns:
-    """Where the refusal happens is the whole point of the typed input.
+    """Where the refusal happens, and what that is actually worth.
 
-    `_build_call` has always refused an unknown measure, and refused it well.
-    But it refuses it INSIDE the tool: the call was accepted, dispatched and
-    executed, and at `max_tool_iterations: 5` that is a fifth of everything the
-    agent will do about the question, spent to be told a name was wrong. The
-    same refusal from the input model happens before any of it — and most
-    models will not emit a value the schema forbids in the first place.
+    `_build_call` has always refused an unknown measure, and refused it well —
+    but it refuses INSIDE the tool, after the call was accepted and dispatched.
+    Declaring the vocabulary in the input model moves the refusal in front of
+    the tool body: nothing runs, nothing resolves a project or opens a model,
+    and the permitted set travels with the error out of the schema itself.
+
+    What it does NOT buy is the turn back. The iteration budget is charged when
+    the model EMITS the call (`shallow_researcher.agent`), nothing refunds it,
+    and the ToolNode hands the ValidationError back as the tool result rather
+    than short-circuiting the loop — so a rejected call costs the same fifth of
+    the budget either way. The saving is upstream of all of that: a value the
+    schema forbids is one most models never emit, and the enum in the args
+    schema is where a model reliably reads the vocabulary from.
     """
 
     @staticmethod
@@ -2132,6 +2139,33 @@ class TestAMalformedCallIsRefusedBeforeTheToolRuns:
 
         with pytest.raises(pydantic.ValidationError):
             self._model()(operation="light_incidence", global_id="1kTv", angle_deg=120.0)
+
+    @pytest.mark.parametrize("angle", [0.0, 90.0])
+    def test_the_schema_bounds_are_the_bounds_the_tool_actually_accepts(self, angle):
+        """The schema said 0 ≤ angle ≤ 90; `_build_call` accepts 0 < angle < 90.
+
+        Both endpoints passed validation and were then refused inside the tool —
+        a fifth of the iteration budget spent on an angle the schema had just
+        told the model was fine. The same "default written in two places" defect
+        the `mode` field was fixed for.
+        """
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            self._model()(operation="light_incidence", global_id="1kTv", angle_deg=angle)
+
+    def test_an_absent_angle_is_absent_and_not_zero(self):
+        """„not given" and „zero degrees" must not be the same value.
+
+        `_build_call` refuses both, so nothing breaks today — but the default
+        lived in the schema AND in an `or None` at the call site, which is
+        exactly how the two drift apart. ``swivel_deg=0`` is meanwhile a real
+        value (no lateral Verschwenkung) and must survive the trip.
+        """
+        model = self._model()(operation="light_incidence", global_id="1kTv", angle_deg=45.0, swivel_deg=0.0)
+        assert model.angle_deg == 45.0
+        assert model.swivel_deg == 0.0
+        assert self._model()(operation="briefing").angle_deg is None
 
     def test_a_name_this_surface_does_not_have_still_reaches_the_backlog(self, monkeypatch):
         """The enums must not silence `capability_gaps`.

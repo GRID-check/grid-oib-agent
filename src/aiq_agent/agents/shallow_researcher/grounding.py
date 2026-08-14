@@ -64,57 +64,53 @@ from __future__ import annotations
 
 import re
 
+from aiq_agent.agents.bim.measurement_evidence import result_carries_measurement
+
+from .tool_search import tool_basename
+
 #: Tools whose results constitute a MEASUREMENT of the building.
 #:
 #: Only ``ifc_measure``. ``ifc_query`` is deliberately absent: it reads the
 #: extracted index and its renderer carries no provenance contract, so a caller
 #: cannot tell a published quantity from an inferred one by reading the result —
 #: which is the whole basis on which measurement grounding is granted here.
+#:
+#: Matched on the tool's BASE name (``tool_search.tool_basename``): NAT delivers
+#: a function-group or MCP tool as ``group__ifc_measure``, and an exact compare
+#: against the bare name silently switched measurement grounding off for every
+#: deployment that uses grouping — reinstating the "low" floor this whole gate
+#: exists to lift, by nothing but topology.
 MEASUREMENT_TOOL_NAMES: frozenset[str] = frozenset({"ifc_measure"})
-
-#: The provenance verbs ``ifc_measure``'s renderer puts in front of every
-#: answer (``measure_register._provenance_line``), restricted to the two that
-#: constitute EVIDENCE:
-#:
-#:   ``deklariert``  the file states it — wrong only if the export is wrong;
-#:   ``gemessen``    computed from the geometry, and the tolerance travels along.
-#:
-#: ``vermutlich`` (provenance ``inferred``) is excluded on purpose. The renderer
-#: calls it „ein Vorschlag zur Bestätigung, keine Feststellung" — a heuristic is
-#: exactly the kind of thing that must not raise anybody's confidence. So is
-#: ``NICHT ENTSCHEIDBAR``, which is a finding about the EXPORT and carries no
-#: number at all.
-#:
-#: Coupled to the renderer's German by nothing but this regex, so
-#: ``tests/aiq_agent/agents/shallow_researcher/test_grounding.py`` pins it
-#: against ``_provenance_line``'s real output for all four cases. Drift shows up
-#: as a red test, and the failure direction if it ever slips past is the old
-#: over-hedging, never a confident answer.
-_GROUNDING_PROVENANCE_RE = re.compile(r"\b(deklariert|gemessen)\b", re.IGNORECASE)
 
 #: Every error path in ``ifc_measure`` — rejected arguments, an unreachable
 #: model service, a missing engine, an oversized file — returns a string opening
-#: with this token. None of them carries a provenance verb either; this is the
-#: second, cheaper check.
+#: with this token. None of them carries the evidence trailer either (they never
+#: reach the renderer); this is the second, cheaper check.
 _TOOL_ERROR_PREFIX = "error:"
 
 
 def tool_result_is_measurement(tool_name: str, content: str) -> bool:
     """Whether one tool result is a MEASUREMENT of the building.
 
-    True only for a result from a tool in :data:`MEASUREMENT_TOOL_NAMES` that
-    actually answered with a ``declared`` or ``computed`` provenance line. A
-    refusal, an outage, an ``inferred`` guess, and a ``decidable: false`` finding
-    about the export are all False — none of them is a number anyone can stand
-    behind, and treating them as evidence is the failure this whole gate exists
-    to prevent.
+    True only for a result from a tool in :data:`MEASUREMENT_TOOL_NAMES` whose
+    own evidence trailer reports at least one ``declared``/``computed`` value
+    (:mod:`aiq_agent.agents.bim.measurement_evidence`). A refusal, an outage, an
+    ``inferred`` guess, and a ``decidable: false`` finding about the export are
+    all False — none of them is a number anyone can stand behind, and treating
+    them as evidence is the failure this whole gate exists to prevent.
+
+    It reads the renderer's stated COUNT rather than searching the result for
+    „gemessen"/„deklariert", because the renderer uses those verbs in prose that
+    explains why nothing could be measured — „gemessen: raumhoehe an 0 von 3
+    Bauteilen", „…dessen Höhe gemessen werden könnte". Under the old vocabulary
+    match every one of those refusals granted grounding.
     """
-    if tool_name not in MEASUREMENT_TOOL_NAMES:
+    if tool_basename(tool_name) not in MEASUREMENT_TOOL_NAMES:
         return False
     text = (content or "").strip()
     if not text or text[: len(_TOOL_ERROR_PREFIX)].lower() == _TOOL_ERROR_PREFIX:
         return False
-    return bool(_GROUNDING_PROVENANCE_RE.search(text))
+    return result_carries_measurement(text)
 
 
 # ---------------------------------------------------------------------------
@@ -127,20 +123,38 @@ def tool_result_is_measurement(tool_name: str, content: str) -> bool:
 # positive returns the answer to the "low" it already gets today, a false
 # negative lets a legal claim ride at "medium".
 #
+# Two rules learned from measuring this list against a corpus of German verdict
+# sentences, on which it missed 26 of 30:
+#
+# 1. **German compounds defeat a right-hand `\b`.** „geforderten", „normkonform"
+#    and „Mindesthöhe" are the ordinary way the language says these things, and
+#    `\bgefordert\b` matches none of them. So the stems below anchor on the LEFT
+#    only. The left anchor stays — it is what keeps „Normalerweise" out of
+#    „Norm".
+# 2. **An ordinary verb is not a verdict.** `entspr(icht|echen)` was the single
+#    biggest source of false fires — „das entspricht rund 14 % der Geschoßfläche"
+#    is a measurement, and flooring it to "low" both re-hedged the answers this
+#    module exists to un-hedge and filled the `confidence_capped` ledger with
+#    cases nobody should act on. It is gone: every genuinely normative use of it
+#    („entspricht der OIB-Richtlinie 3", „entspricht der Anforderung") names the
+#    instrument it conforms to, and the instrument is already in this list.
+#
 # What is deliberately NOT here: descriptive superlatives a survey answer
 # legitimately uses about its own numbers — „Mindestwert", „Höchstwert",
 # „maximal", „die kleinste Raumhöhe". Those collide head-on with the measurement
-# vocabulary this change exists to un-hedge, and the normative senses of each
-# („höchstzulässig", „Mindestanforderung") are already caught by `zulässig`,
-# `anforderung` and `erforderlich`.
+# vocabulary this change exists to un-hedge, which is why `mindest` below carves
+# „Mindestwert" back out: „Mindesthöhe" and „Mindestmaß" are the Bauordnung's
+# words, „Mindestwert" is the survey renderer's.
 _NORMATIVE_PATTERNS: tuple[str, ...] = (
     # --- Named instruments and the grammar of citing them --------------------
     r"\boib\b",
     r"\bö?norm(en)?\b",
     r"\boenorm\b",
+    r"\bnorm(gerecht|konform)",
     r"\brichtlinie",
     r"\brl\s*\d",
     r"\bbauordnung",
+    r"\bbaurecht",
     r"\bbautechnik(verordnung)?\b",
     r"\bverordnung",
     r"\bvorschrift",
@@ -148,28 +162,43 @@ _NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"§",
     r"\bpunkt\s+\d+\.\d",
     r"\babs\.\s*\d",
+    r"\bbehörde",
+    r"\bbehoerde",
+    r"\bstand\s+der\s+technik\b",
     # --- Compliance verdicts -------------------------------------------------
     r"\berfüll",
     r"\berfuell",
-    r"\bentspr(icht|echen|echend)\b",
-    r"\beinzuhalten\b",
-    r"\beingehalten\b",
+    r"\beinzuhalten",
+    r"\beingehalten",
     r"\beinhalt",
     r"\b(un)?zulässig",
     r"\b(un)?zulaessig",
-    r"\bvorgeschrieben\b",
-    r"\bgefordert\b",
+    r"\berlaubt",
+    r"\bvorgeschrieben",
+    r"\bvorzusehen",
+    r"\bgefordert",
     r"\bforderung",
     r"\banforderung",
     r"\berforderlich",
     r"\bgrenzwert",
-    r"\bkonform\b",
+    r"\bsollwert",
+    r"konform",
     r"\bverstöß",
     r"\bverstoss",
-    r"\bzwingend\b",
+    r"\bzwingend",
+    r"\bdarf\b",
     r"\bgenehmigungs",
     r"\bbewilligungs",
     r"\bauflage[n]?\b",
+    # --- Thresholds, and being on the wrong side of one ----------------------
+    # „mindestens 2,50 m", „die Mindesthöhe wird unterschritten", „darf nicht
+    # unter 2,50 m liegen" — the shape a height requirement is actually written
+    # in, and the shape a breach of it is reported in.
+    r"\bmindest(?!wert)",
+    r"\bunterschr(eit|itt)",
+    r"\bnicht\s+unter\b",
+    r"\bnachweis",
+    r"\bnachgewiesen",
     # --- Classifications the measurement layer is forbidden to emit ----------
     r"\bgebäudeklasse",
     r"\bgebaeudeklasse",
@@ -178,18 +207,27 @@ _NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bfeuerwiderstand",
     r"\bfluchtniveau\b",
     # --- Bare adequacy judgments ---------------------------------------------
+    # The shortest route to a verdict, and the one a reader is least likely to
+    # read as one. „reicht von … bis" is excluded: that is a RANGE, which is the
+    # one thing a survey answer says about its own numbers.
     r"\bausreichend",
     r"\bunzureichend",
-    r"\bgenügt\b",
-    r"\bgenügend\b",
-    r"\bzu\s+(niedrig|gering|klein|hoch|groß|gross)\b",
+    r"\bgenüg",
+    r"\bgeeignet",
+    r"\breicht\b(?!\s+von\b)",
+    r"\bzu\s+(niedrig|gering|klein|hoch|groß|gross|knapp|schmal|kurz|eng)\b",
     # --- English, for a model that switches language mid-answer --------------
     r"\bcompl(y|ies|iant|iance)\b",
-    r"\brequirement",
+    r"\brequir(e|es|ed|ement)",
     r"\bpermissible\b",
     r"\bbuilding\s+code\b",
     r"\bregulation",
+    r"\bguideline",
     r"\bmandator",
+    r"\bminimum\b",
+    r"\bsufficient",
+    r"\bfalls\s+short\b",
+    r"\blimit\b",
 )
 
 _NORMATIVE_RE = re.compile("|".join(_NORMATIVE_PATTERNS), re.IGNORECASE)
