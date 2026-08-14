@@ -552,8 +552,13 @@ class ChatResearcherAgent:
             # earlier turn, so it grounds no more than a measurement does. Read
             # with the same fail-CLOSED shape as the two above — anything that is
             # not an explicit ``False`` is treated as "fallback", because this is
-            # the flag that HOLDS a confidence down.
-            citation_fallback_used = getattr(result, "answer_citation_fallback_used", False) is not False
+            # the flag that HOLDS a confidence down, and so is the DEFAULT: a
+            # result that never set the field is assumed to be fallback-grounded.
+            # It defaulted False, which is fail-OPEN and contradicted the comment
+            # above it — a duck-typed or partially migrated result with
+            # `citation_grounded` set would have surfaced the model's own "high"
+            # instead of the "medium" a fallback citation is worth.
+            citation_fallback_used = getattr(result, "answer_citation_fallback_used", True) is not False
 
             # Prefer the structured control-marker signals the shallow agent
             # extracted in its run(); fall back to string-detection inside

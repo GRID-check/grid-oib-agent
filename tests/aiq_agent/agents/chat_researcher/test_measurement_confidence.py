@@ -16,6 +16,7 @@ The four claims under test, and only the first is the feature:
    turn does not rescue it.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -425,3 +426,61 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
         result = await agent.run(state, thread_id="f1")
         assert result["answer_confidence"] == "low"
         assert result["answer_confidence_capped_reason"] == "normative_claim_uncited"
+
+
+class TestTheFallbackFlagFailsClosedLikeItsSiblings:
+    """L1. The default the comment above it claimed, and did not have.
+
+    ``answer_citation_fallback_used`` is read with ``is not False`` — the same
+    shape as ``answer_normative_claim_uncited`` — and for the same reason: it is
+    a flag that HOLDS a confidence down, so an unrecognised value must count as
+    "fallback". The DEFAULT was ``False`` and therefore fail-OPEN: a result that
+    never set the field (a duck-typed caller, a partially migrated state, a
+    mock) surfaced the model's own "high" on a citation nobody checked.
+    """
+
+    def _shallow_missing_the_field(self):
+        async def shallow(state_input):
+            messages = state_input.messages if hasattr(state_input, "messages") else state_input
+            result = SimpleNamespace()
+            result.messages = list(messages) + [AIMessage(content="Der Keller ist 2,70 m hoch.")]
+            # Everything the node reads EXCEPT the fallback flag — the shape of
+            # a caller written before that field existed.
+            result.answer_citation_grounded = True
+            result.answer_quotes_verified = True
+            result.answer_measurement_grounded = False
+            result.answer_normative_claim_uncited = False
+            result.escalation_requested = False
+            result.answer_confidence_marker = "high"
+            result.answer_confidence_marker_reason = None
+            return result
+
+        return shallow
+
+    @pytest.mark.asyncio
+    async def test_a_result_missing_the_flag_is_treated_as_fallback_grounded(self):
+        async def classifier(state):
+            return {
+                "user_intent": IntentResult(intent="research", raw=None),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="simple"),
+            }
+
+        async def deep(state):
+            result = MagicMock()
+            result.messages = list(state.messages) + [AIMessage(content="Deep report.")]
+            return result
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=classifier,
+            shallow_research_fn=self._shallow_missing_the_field(),
+            deep_research_fn=deep,
+            clarifier_fn=None,
+            enable_clarifier=False,
+            enable_escalation=False,
+        )
+        state = ChatResearcherState(messages=[HumanMessage(content="Wie hoch ist der Keller?")])
+
+        result = await agent.run(state, thread_id="fc1")
+
+        assert result["answer_confidence"] == MEASUREMENT_CONFIDENCE_CEILING
+        assert result["answer_confidence_capped_reason"] == "citation_fallback"

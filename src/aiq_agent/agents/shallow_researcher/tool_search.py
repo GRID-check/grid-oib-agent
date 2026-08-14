@@ -28,10 +28,19 @@ was the narrowing that blinded it. Every ambiguous case therefore resolves to
 * no query text, no scoring signal, fewer candidates than ``top_k``,
   a non-positive ``top_k``, or any exception → the FULL tool set;
 * ``always_include`` names are pinned in *on top of* the ``top_k`` retrieved
-  slots, never counted against them;
-* when scores are positive but sparse, the ranking still fills ``top_k`` slots
-  from the unmatched tools rather than handing back a smaller set — an extra
-  irrelevant schema costs tokens, a missing relevant one costs the turn.
+  slots, never counted against them.
+
+What "return everything" does NOT mean is padding. When scores are positive but
+sparse the selection is exactly the tools that SCORED, and the unspent slots
+stay unspent. Filling them from the unmatched tools looked like recall
+insurance and was not: the padded tools are unrelated to the question by
+construction, so the only thing the padding decided was which unrelated tools —
+by registration order. Reversing the tool list changed the selection on 10 of
+the 11 evaluation questions, which made the order a workflow assembles its
+tools in a silent config knob and a selection nobody could reproduce from the
+query. ``ToolSelection.reason`` tells the two apart in the log: ``ranked`` when
+the ranking filled ``top_k``, ``ranked_sparse`` when the corpus recognized fewer
+tools than that.
 
 MATCHING
 ========
@@ -352,15 +361,31 @@ class ToolSearchIndex:
             return ToolSelection(selected=all_names, reason="no_signal")
 
         # Descending score, ties broken by the tool set's own order so the
-        # decision is deterministic and a zero-scoring tool that fills the last
-        # slot is at least a stable choice.
+        # decision is deterministic.
         scored.sort(key=lambda row: (-row[0], row[1]))
-        chosen = {name for _, _, name in scored[:top_k]} | pinned
+        # A tool that scored ZERO was not retrieved, and binding it as though it
+        # had been makes the tool set's REGISTRATION ORDER a silent config knob:
+        # reversing the list changed the selection on 10 of the 11 evaluation
+        # questions, because whichever zero-scoring tools happened to sit first
+        # filled the slots the ranking left over. Padding buys no recall — the
+        # padded tools are unrelated to the question by construction — and it
+        # costs the schemas of `top_k` tools on every turn plus a selection
+        # nobody can reproduce from the query.
+        ranked = [name for score, _, name in scored[:top_k] if score > 0.0]
+        if not ranked:
+            return ToolSelection(selected=all_names, reason="no_signal")
+
+        chosen = set(ranked) | pinned
         selected = tuple(name for name in all_names if name in chosen)
         withheld = tuple(name for name in all_names if name not in chosen)
         if not selected:
             return ToolSelection(selected=all_names, reason="empty_selection")
-        return ToolSelection(selected=selected, withheld=withheld, narrowed=bool(withheld), reason="ranked")
+        # Two distinguishable outcomes in the log. "ranked" is a full ranking
+        # over more candidates than fit; "ranked_sparse" means the corpus only
+        # recognized `len(ranked)` tools and the rest of the budget went unspent
+        # — which is the shape to look at when an agent reports being blinded.
+        reason = "ranked" if len(ranked) >= top_k else "ranked_sparse"
+        return ToolSelection(selected=selected, withheld=withheld, narrowed=bool(withheld), reason=reason)
 
 
 def build_query_parts(messages: Sequence[Any], *, context_turns: int = 2) -> list[QueryPart]:

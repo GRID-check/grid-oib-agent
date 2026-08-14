@@ -103,6 +103,32 @@ OPERATIONS: tuple[str, ...] = (
 
 VALID_OPERATIONS = frozenset(OPERATIONS)
 
+#: Operations that answer with something other than a quantity, and therefore
+#: carry no measurement-evidence trailer (:func:`_render`).
+#:
+#: A briefing, a hit list, an element's index metadata, a written IDS file and a
+#: drawing's path are all real results and none of them measures the building.
+#: Telling the model „Messwerte in diesem Ergebnis: 0" about a `draw` reads as a
+#: measurement that failed and invites a retry that costs one of five tool
+#: iterations.
+#:
+#: This is an allow-list of SUPPRESSION, not of grounding, so it fails in the
+#: safe direction: an operation missing from this set gets a trailer stating its
+#: true count, and an operation wrongly IN it gets no trailer — which the
+#: confidence gate reads as no measurement either way. `relations` is
+#: deliberately absent: „0 Messwerte" is exactly what the model needs to hear
+#: before it turns a list of bounding walls into „rund 2,7 m".
+NON_MEASURING_OPERATIONS: frozenset[str] = frozenset(
+    {
+        "briefing",
+        "find_elements",
+        "element",
+        "draw",
+        "view",
+        "shopping_list",
+    }
+)
+
 # ── the enums, mirrored ──────────────────────────────────────────────────────
 #
 # These four sets mirror `ifc_spatial.tools.RELATIONS`, `.MEASURES`, `.KINDS`
@@ -1416,7 +1442,11 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
         prism = answer.get("prism") or {}
         angles = (
             f" (Prisma {_angle(prism.get('angleDeg'))}°"
-            + (f", seitlich {_angle(prism.get('swivelDeg'))}°" if prism.get("swivelDeg") else "")
+            # `is not None`, not truthiness: a swivel of 0° is a STATED
+            # parameter from the Bestimmung („senkrecht, kein seitlicher
+            # Schwenk"), and dropping the phrase leaves a reader unable to tell
+            # it from a prism that was never given one.
+            + (f", seitlich {_angle(prism.get('swivelDeg'))}°" if prism.get("swivelDeg") is not None else "")
             + ")"
             if prism
             else ""
@@ -1564,14 +1594,30 @@ def _render_unresolved(result: dict[str, Any]) -> str:
 
 
 def _measured_count(payload: Any) -> int:
-    """How many values in one payload carry a ``declared``/``computed`` provenance.
+    """How many QUANTITIES in one payload carry a ``declared``/``computed`` provenance.
 
-    Read off the envelope's own fields — ``decidable`` and ``provenance`` — and
-    never off the German the renderer wraps them in. This is the number the
-    result states about itself (:mod:`.measurement_evidence`), and it is what
-    the confidence gate stands on, so it counts EVIDENCE and nothing else: an
-    undecidable finding, a heuristic ``inferred`` guess and a measure that
-    raised are all zero.
+    Read off the envelope's own fields — ``decidable``, ``provenance``, ``unit``
+    and ``tolerance`` — and never off the German the renderer wraps them in.
+    This is the number the result states about itself
+    (:mod:`.measurement_evidence`), and it is what the confidence gate stands
+    on, so it counts EVIDENCE and nothing else: an undecidable finding, a
+    heuristic ``inferred`` guess and a measure that raised are all zero.
+
+    A provenance alone is NOT enough, and that distinction is the whole point.
+    ``relations`` answers a topology question — „welche Bauteile begrenzen
+    diesen Raum" — and returns a decidable ``Answer`` whose ``value`` is a LIST
+    of GlobalIds with ``provenance: declared``. Nothing in it was measured, yet
+    it used to report one Messwert, and an answer that ran a `relations` lookup
+    and then invented „rund 2,7 m" surfaced at "medium" as a measurement.
+    ``find_elements`` was already excluded for exactly this reason; a hit list
+    does not stop being a hit list by arriving in an ``Answer`` wrapper.
+
+    So the test is whether the value is a QUANTITY: a ``unit`` or a
+    ``tolerance``. Not scalar-ness — ``storey_heights`` measures every storey
+    and legitimately answers with a list carrying ``unit: "m"`` — and not both
+    fields either, since ``envelope`` reports areas in m² without a tolerance.
+    Verified against all 19 operations over the repository's IFC fixtures: the
+    only count this changes is ``relations``.
     """
 
     def _one(answer: Any) -> int:
@@ -1579,7 +1625,9 @@ def _measured_count(payload: Any) -> int:
             return 0
         if not answer.get("decidable"):
             return 0
-        return 1 if answer.get("provenance") in EVIDENCE_PROVENANCES else 0
+        if answer.get("provenance") not in EVIDENCE_PROVENANCES:
+            return 0
+        return 1 if answer.get("unit") is not None or answer.get("tolerance") is not None else 0
 
     if not isinstance(payload, dict):
         return 0
@@ -1608,16 +1656,24 @@ def _render(
     """The engine's result as the string the model reads.
 
     Ends with the evidence trailer (:func:`.measurement_evidence_line`) on every
-    path, because "how many values did this actually measure" is a question the
-    result has to answer about itself — the confidence gate reads that line, and
-    a reader who sees „gemessen: raumhoehe an 0 von 3 Bauteilen" needs the same
-    fact stated rather than implied.
+    path that could carry a measurement, because "how many values did this
+    actually measure" is a question the result has to answer about itself — the
+    confidence gate reads that line, and a reader who sees „gemessen: raumhoehe
+    an 0 von 3 Bauteilen" needs the same fact stated rather than implied.
+
+    :data:`NON_MEASURING_OPERATIONS` get no trailer at all. „Messwerte in diesem
+    Ergebnis: 0" is true of a `draw` and useless to the model: it reads as a
+    measurement that failed and invites a retry, and with
+    ``max_tool_iterations`` at 5 a wasted turn is expensive. Suppressing the
+    line cannot open the gate, because the gate needs a trailer stating a
+    NON-ZERO count and an absent trailer is False either way
+    (:func:`measurement_evidence.result_carries_measurement`) — so an operation
+    nobody thought to list here still yields no grounding.
     """
-    return (
-        _render_body(operation, payload, source=source, handle=handle)
-        + "\n"
-        + measurement_evidence_line(_measured_count(payload))
-    )
+    body = _render_body(operation, payload, source=source, handle=handle)
+    if operation in NON_MEASURING_OPERATIONS:
+        return body
+    return body + "\n" + measurement_evidence_line(_measured_count(payload))
 
 
 def _render_body(

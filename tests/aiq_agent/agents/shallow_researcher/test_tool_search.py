@@ -246,10 +246,18 @@ class TestNeverNarrowsAwayTheToolTheModelNeeds:
         assert "mcp__remember" in selection.selected
 
     def test_pins_do_not_eat_the_retrieval_budget(self):
-        """`top_k` counts retrieved tools; pins sit on top of them."""
-        selection = _ask("wie hoch ist der Keller", top_k=2, always_include=["remember", "emit_card"])
-        assert len(selection.selected) == 4
-        assert "ifc_measure" in selection.selected
+        """`top_k` counts RETRIEVED tools; pins sit on top of them.
+
+        The budget is a ceiling on the ranking, not a quota to fill: this query
+        scores one tool, so two pins make three bound tools and not four. What
+        must never happen is a pin displacing a tool that actually ranked.
+        """
+        unpinned = _ask("wie hoch ist der Keller", top_k=2)
+        pinned = _ask("wie hoch ist der Keller", top_k=2, always_include=["remember", "emit_card"])
+
+        assert "ifc_measure" in pinned.selected
+        assert {"remember", "emit_card"} <= set(pinned.selected)
+        assert set(pinned.selected) == set(unpinned.selected) | {"remember", "emit_card"}
 
     def test_a_query_the_corpus_does_not_recognize_binds_everything(self):
         """No signal is not a ranking. Ranking a table of zeros picks at random."""
@@ -286,10 +294,42 @@ class TestNeverNarrowsAwayTheToolTheModelNeeds:
             selection = _ask(query)
             assert selection.selected, f"empty selection for {query!r}"
 
-    def test_the_selection_always_fills_the_retrieval_budget(self):
-        """A sparse match still binds `top_k` — an extra schema is cheaper than a miss."""
+    def test_a_sparse_match_binds_what_scored_and_not_the_budget(self):
+        """The padding that made registration order a config knob.
+
+        Filling the leftover `top_k` slots from the unmatched tools was sold as
+        recall insurance and bought none — the padded tools are unrelated to
+        the question by construction. All it decided was WHICH unrelated tools,
+        by the order the workflow happened to assemble its list in.
+        """
         selection = _ask("wie hoch ist der Keller", top_k=4)
-        assert len(selection.selected) == 4
+
+        assert selection.reason == "ranked_sparse"
+        assert len(selection.selected) < 4
+        assert "ifc_measure" in selection.selected
+
+    def test_reversing_the_tool_list_does_not_change_the_selection(self):
+        """The defect, stated as the property it violated.
+
+        With padding, 10 of the 11 evaluation questions selected a different
+        tool set when the same tools were registered in the opposite order.
+        """
+        forward = ToolSearchIndex(PRODUCTION_SHAPED_TOOLS)
+        backward = ToolSearchIndex(list(reversed(PRODUCTION_SHAPED_TOOLS)))
+
+        for question, _ in RECALL_EVAL:
+            a = forward.select([QueryPart(question, 1.0)], top_k=4)
+            b = backward.select([QueryPart(question, 1.0)], top_k=4)
+            assert set(a.selected) == set(b.selected), f"registration order changed the selection for {question!r}"
+            assert a.reason == b.reason
+
+    def test_the_reason_tells_a_full_ranking_from_a_sparse_one(self):
+        """`ranked` vs `ranked_sparse` is the log line that explains a blinding."""
+        sparse = _ask("wie hoch ist der Keller", top_k=4)
+        full = _ask("wie hoch ist der Keller", top_k=1)
+
+        assert sparse.reason == "ranked_sparse"
+        assert full.reason == "ranked"
 
 
 # The five tools a question does NOT describe. Four are interaction tools —
@@ -465,7 +505,10 @@ class TestTheAgentBindsWhatWasRetrieved:
         narrowed = [b for b in bindings if len(b) < len(PRODUCTION_SHAPED_TOOLS)]
         assert narrowed, "expected a narrowed binding"
         assert "ifc_measure" in narrowed[-1]
-        assert len(narrowed[-1]) == 3
+        # What SCORED, not what fits: `top_k` is a ceiling, not a quota.
+        assert set(narrowed[-1]) == set(
+            agent._select_tools_for_query([HumanMessage(content="wie hoch ist der Keller")]).selected
+        )
 
     @pytest.mark.asyncio
     async def test_the_prompt_tool_list_matches_the_binding(self, provider):
@@ -692,7 +735,9 @@ class TestObservability:
         assert records, "the narrowing decision must be observable"
         message = records[-1].getMessage()
         assert "ifc_measure" in message
-        assert "3/11" in message
+        assert "1/11" in message
+        # The reason is what makes a thin binding readable in the log.
+        assert "ranked_sparse" in message
 
     def test_the_log_never_carries_the_users_question(self, caplog):
         """ADR-0045: tool names are code identifiers; the question is not."""

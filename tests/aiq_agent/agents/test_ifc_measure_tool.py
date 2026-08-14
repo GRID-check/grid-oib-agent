@@ -27,14 +27,19 @@ import urllib.error
 import pytest
 
 from aiq_agent.agents.bim.measure_register import ENGINE_UNAVAILABLE_TEXT
+from aiq_agent.agents.bim.measure_register import NON_MEASURING_OPERATIONS
+from aiq_agent.agents.bim.measure_register import OPERATIONS
 from aiq_agent.agents.bim.measure_register import UNAVAILABLE_TEXT
 from aiq_agent.agents.bim.measure_register import _build_call
+from aiq_agent.agents.bim.measure_register import _measured_count
 from aiq_agent.agents.bim.measure_register import _provenance_line
 from aiq_agent.agents.bim.measure_register import _rejected_text
 from aiq_agent.agents.bim.measure_register import _render
 from aiq_agent.agents.bim.measure_register import _render_answer
 from aiq_agent.agents.bim.measure_register import _render_unresolved
 from aiq_agent.agents.bim.measure_register import _unrunnable_text
+from aiq_agent.agents.bim.measurement_evidence import MEASUREMENT_EVIDENCE_PREFIX
+from aiq_agent.agents.bim.measurement_evidence import result_carries_measurement
 
 
 def build(**overrides):
@@ -749,6 +754,24 @@ class TestRendering:
         for word in ("compliant", "erfüllt", "verstoß", "unzulässig"):
             assert word not in rendered
 
+    def test_a_swivel_of_zero_degrees_is_stated_and_not_dropped(self):
+        """L2. 0° is a PARAMETER, and falsiness is not absence.
+
+        „seitlich 0°" says the Bestimmung asked for an unswivelled prism; no
+        phrase at all says nobody specified one. A reader checking a
+        Lichteinfall against the clause it came from cannot tell those apart,
+        and `swivel_deg=0.0` survives argument parsing precisely so it can be
+        reported.
+        """
+        straight = {**self.BLOCKED, "prism": {**self.BLOCKED["prism"], "swivelDeg": 0.0}}
+        assert "seitlich 0°" in "\n".join(_render_answer(straight))
+
+    def test_a_prism_without_a_swivel_says_nothing_about_one(self):
+        unspecified = {**self.BLOCKED, "prism": {"angleDeg": 45.0, "openingId": "3cUkl32yn9qRSPvBJVyWcE"}}
+        rendered = "\n".join(_render_answer(unspecified))
+        assert "seitlich" not in rendered
+        assert "Prisma 45°" in rendered
+
     def test_an_unresolved_model_reports_the_reason_and_the_choices(self):
         rendered = _render_unresolved(
             {
@@ -772,6 +795,155 @@ class TestRendering:
         )
         assert "noch nicht abfragbar" in rendered
         assert "Verfügbare Modelle" not in rendered
+
+
+class TestOnlyAQuantityCountsAsAMeasurement:
+    """`_measured_count` decides what the confidence gate may stand on.
+
+    A ``provenance`` is attached to every decidable ``Answer`` the engine
+    returns, including the ones that answer a TOPOLOGY question. Counting those
+    as Messwerte let a `relations` lookup — a list of the walls bounding a room —
+    grant measurement grounding to an answer that then invented „rund 2,7 m",
+    and the trailer told the model it had measured something.
+    """
+
+    RELATIONS = {
+        # Verbatim shape of `relations(relation="bounds")`: a decidable answer
+        # whose value is a list of GlobalIds, declared, with no unit at all.
+        "value": [
+            {"globalId": "3cUkl32yn9qRSPvBJVyWcE", "ifcType": "IfcWall", "name": "Wand 01", "kind": "element"},
+            {"globalId": "3cUkl32yn9qRSPvBJVyWh4", "ifcType": "IfcWall", "name": "Wand 02", "kind": "element"},
+        ],
+        "unit": None,
+        "tolerance": None,
+        "provenance": "declared",
+        "decidable": True,
+    }
+
+    def test_a_topology_lookup_measures_nothing(self):
+        assert _measured_count(dict(self.RELATIONS)) == 0
+
+    def test_a_topology_lookup_does_not_grant_grounding_through_the_trailer(self):
+        rendered = _render("relations", dict(self.RELATIONS))
+        assert result_carries_measurement(rendered) is False
+        assert f"{MEASUREMENT_EVIDENCE_PREFIX} 0" in rendered
+
+    @pytest.mark.parametrize(
+        ("label", "answer"),
+        [
+            # Every shape of REAL measurement the engine actually returns. The
+            # gate is `unit` OR `tolerance`, and each of these is here because
+            # a narrower gate would have excluded it:
+            ("scalar with both", {"value": 2.48, "unit": "m", "tolerance": 0.005}),
+            # `envelope` reports areas in m² and carries no tolerance…
+            ("area without tolerance", {"value": 184.2, "unit": "m²"}),
+            # …and `storey_heights` measures every storey, so a real
+            # measurement's value is legitimately a LIST. Gating on
+            # scalar-ness would have thrown it away.
+            ("list of storeys", {"value": [{"storey": "EG", "height": 2.85}], "unit": "m"}),
+            # A ratio carries a tolerance and no unit.
+            ("ratio with tolerance", {"value": 0.118, "unit": None, "tolerance": 0.001}),
+        ],
+    )
+    def test_a_real_measurement_still_counts(self, label, answer):
+        assert _measured_count({**answer, "provenance": "computed", "decidable": True}) == 1
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            {"value": 2.48, "unit": "m", "tolerance": 0.005, "provenance": "inferred", "decidable": True},
+            {"value": 2.48, "unit": "m", "tolerance": 0.005, "provenance": "computed", "decidable": False},
+            {"value": [], "unit": None, "provenance": "declared", "decidable": True},
+        ],
+    )
+    def test_the_older_exclusions_are_untouched(self, answer):
+        """A heuristic, an undecidable finding and a bare list are still zero."""
+        assert _measured_count(answer) == 0
+
+    def test_the_gate_reaches_into_a_profile_and_a_survey(self):
+        """The same rule inside the two multi-answer shapes.
+
+        `element_profile` and `survey` are counted per sub-answer, so a payload
+        of topology lookups must not add up to a measurement either.
+        """
+        profile = {
+            "element": {"globalId": "1kTv"},
+            "measures": {
+                "balustrade": {
+                    "value": 0.9,
+                    "unit": "m",
+                    "tolerance": 0.01,
+                    "provenance": "computed",
+                    "decidable": True,
+                },
+                "bounds": {"value": ["a", "b"], "unit": None, "provenance": "declared", "decidable": True},
+            },
+        }
+        assert _measured_count(profile) == 1
+        survey = {
+            "summary": {"kind": "spaces"},
+            "results": [
+                {"answer": {"value": ["a"], "unit": None, "provenance": "declared", "decidable": True}},
+                {
+                    "answer": {
+                        "value": 2.6,
+                        "unit": "m",
+                        "tolerance": 0.005,
+                        "provenance": "computed",
+                        "decidable": True,
+                    }
+                },
+            ],
+        }
+        assert _measured_count(survey) == 1
+
+
+class TestTheTrailerOnlyAppearsWhereAMeasurementCould:
+    """L3. „Messwerte in diesem Ergebnis: 0" on a `draw` is noise with a cost.
+
+    It is true and useless: the model reads it as a measurement that failed and
+    spends one of five tool iterations retrying an operation that never had a
+    number to give.
+    """
+
+    PAYLOADS = {
+        "briefing": {"briefing": "Zwei Geschoße, 14 Räume."},
+        "find_elements": {"elements": [], "total": 0},
+        "element": {"element": {"ifcType": "IfcSpace", "name": "Küche", "globalId": "1kTv"}},
+        "draw": {"path": "/tmp/plan.svg", "bytes": 4096, "seconds": 0.4},
+        "shopping_list": {"summary": "3 Spezifikationen.", "path": "/tmp/x.ids", "specifications": 3, "bytes": 900},
+    }
+
+    @pytest.mark.parametrize("operation", sorted(PAYLOADS))
+    def test_a_non_measuring_operation_carries_no_trailer(self, operation):
+        rendered = _render(operation, self.PAYLOADS[operation])
+        assert MEASUREMENT_EVIDENCE_PREFIX not in rendered
+
+    @pytest.mark.parametrize("operation", sorted(PAYLOADS))
+    def test_suppressing_the_trailer_still_grants_no_grounding(self, operation):
+        """The fail-closed property the suppression must not cost.
+
+        No trailer reads as no measurement, so an operation wrongly listed as
+        non-measuring loses information and never gains confidence.
+        """
+        assert result_carries_measurement(_render(operation, self.PAYLOADS[operation])) is False
+
+    def test_a_measuring_operation_still_states_its_count(self):
+        rendered = _render(
+            "measure",
+            {"value": 2.48, "unit": "m", "tolerance": 0.005, "provenance": "computed", "decidable": True},
+        )
+        assert result_carries_measurement(rendered) is True
+
+    def test_relations_keeps_its_trailer_on_purpose(self):
+        """„0 Messwerte" is what stops a bounds list becoming „rund 2,7 m"."""
+        assert "relations" not in NON_MEASURING_OPERATIONS
+        assert MEASUREMENT_EVIDENCE_PREFIX in _render(
+            "relations", {"value": [], "provenance": "declared", "decidable": True}
+        )
+
+    def test_every_suppressed_operation_is_a_real_operation(self):
+        assert NON_MEASURING_OPERATIONS <= set(OPERATIONS)
 
 
 class TestAConversationWithoutAProjectIsRefusedBeforeTheNetwork:

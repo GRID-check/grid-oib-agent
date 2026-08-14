@@ -38,9 +38,18 @@ on a drawing an architect signs — is a liability. Two independent brakes:
    confident legal assertion.
 
 Brake 2 is the structural one and does not depend on any text heuristic. Brake 1
-is behavioural and is the weaker of the two; it is deliberately written to
-over-fire, because a false positive costs the honest hedge we already ship and a
-false negative costs a claim about the law.
+is behavioural and is the weaker of the two. It is biased towards firing — a
+false negative costs a claim about the law, a false positive costs the hedge the
+answer already gets — but "bias" is not "over-fire at any price": a brake that
+fires on ``ifc_measure``'s own „für eine Messung geeignet" re-floors precisely
+the measured answers this module exists to un-hedge, and fills the
+``confidence_capped`` ledger with entries nobody should act on. Both directions
+are measured, on corpora written without sight of the vocabulary
+(``tests/…/test_grounding.py``): the brake misses none of 119 verdict sentences
+and fires on 2 of 88 descriptive ones, both of them a renderer PREREQUISITE
+phrased with „muss" („um X zu bestimmen, muss das Modell Y enthalten"). That
+residue is the deliberate trade: no context disarms a deontic modal, so a
+refusal gets hedged rather than a verdict slipping out.
 
 Note what brake 1 does NOT have to decide: whether a normative claim is
 *supported*. The citation gate already answered that — this module is only ever
@@ -117,20 +126,21 @@ def tool_result_is_measurement(tool_name: str, content: str) -> bool:
 # Normative-claim detection (brake 1)
 # ---------------------------------------------------------------------------
 #
-# A deliberately WIDE net over the vocabulary in which Austrian building law is
-# asserted, plus the bare adequacy judgments that are the shortest way to smuggle
-# a verdict past a reader („2,70 m — das reicht"). Tuned to over-fire: a false
-# positive returns the answer to the "low" it already gets today, a false
-# negative lets a legal claim ride at "medium".
+# A wide net over the vocabulary in which Austrian building law is asserted, plus
+# the bare adequacy judgments that are the shortest way to smuggle a verdict past
+# a reader („2,70 m — das reicht"). It errs towards firing: a false negative
+# lets a legal claim ride at "medium", which is the liability this whole module
+# exists to prevent.
 #
-# Two rules learned from measuring this list against a corpus of German verdict
-# sentences, on which it missed 26 of 30:
+# Three rules, each learned from measuring the list against a corpus it had not
+# been tuned on:
 #
-# 1. **German compounds defeat a right-hand `\b`.** „geforderten", „normkonform"
-#    and „Mindesthöhe" are the ordinary way the language says these things, and
-#    `\bgefordert\b` matches none of them. So the stems below anchor on the LEFT
-#    only. The left anchor stays — it is what keeps „Normalerweise" out of
-#    „Norm".
+# 1. **German compounds defeat a `\b` on EITHER side.** „geforderten",
+#    „normkonform" and „Mindesthöhe" need the right-hand anchor gone;
+#    „Landesbauordnung", „Baugesetz" and „Bautechnikverordnung" — which is how
+#    Austria actually names its law — need the LEFT one gone too. A stem that
+#    keeps a left `\b` for safety (`\bnorm`, so „Normalerweise" stays out) is
+#    the exception, not the rule, and each one below says why.
 # 2. **An ordinary verb is not a verdict.** `entspr(icht|echen)` was the single
 #    biggest source of false fires — „das entspricht rund 14 % der Geschoßfläche"
 #    is a measurement, and flooring it to "low" both re-hedged the answers this
@@ -138,99 +148,204 @@ def tool_result_is_measurement(tool_name: str, content: str) -> bool:
 #    cases nobody should act on. It is gone: every genuinely normative use of it
 #    („entspricht der OIB-Richtlinie 3", „entspricht der Anforderung") names the
 #    instrument it conforms to, and the instrument is already in this list.
+# 3. **Some stems are verdicts only outside the measurement's own prose.** The
+#    renderers in :mod:`aiq_agent.agents.bim.measure_register` say „für eine
+#    Messung geeignet", „für die Ermittlung … erforderlich" and „die Datei ist
+#    zu groß" — every one of them a stem this list wants, used about the
+#    APPARATUS rather than about the building. Those stems live in
+#    :data:`_WEAK_NORMATIVE_PATTERNS` and are suppressed inside a sentence that
+#    names the apparatus; everything else fires unconditionally.
 #
 # What is deliberately NOT here: descriptive superlatives a survey answer
 # legitimately uses about its own numbers — „Mindestwert", „Höchstwert",
 # „maximal", „die kleinste Raumhöhe". Those collide head-on with the measurement
 # vocabulary this change exists to un-hedge, which is why `mindest` below carves
 # „Mindestwert" back out: „Mindesthöhe" and „Mindestmaß" are the Bauordnung's
-# words, „Mindestwert" is the survey renderer's.
-_NORMATIVE_PATTERNS: tuple[str, ...] = (
+# words, „Mindestwert" is the survey renderer's. „mindestens" is carved out for
+# the same reason and readmitted only in front of a QUANTITY — „mindestens
+# 2,50 m" is a requirement, „mindestens drei Räume" is a count.
+
+#: Stems that are normative wherever they appear. No context can make „muss",
+#: „unzulässig" or „§ 118" a measurement.
+_STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # --- Named instruments and the grammar of citing them --------------------
+    # Left-anchor-free, because the instrument is the RIGHT half of the compound
+    # Austria actually writes: Landes|bauordnung, Bau|gesetz, Bautechnik|verordnung.
     r"\boib\b",
     r"\bö?norm(en)?\b",
     r"\boenorm\b",
-    r"\bnorm(gerecht|konform)",
-    r"\brichtlinie",
+    r"\bnorm(gerecht|konform)",  # keeps the left \b: „Normalerweise" is not „Norm"
+    r"richtlinie",
     r"\brl\s*\d",
-    r"\bbauordnung",
+    r"bauordnung",
     r"\bbaurecht",
-    r"\bbautechnik(verordnung)?\b",
-    r"\bverordnung",
-    r"\bvorschrift",
-    r"\bgesetz",
+    r"bautechnik(verordnung)?\b",
+    r"verordnung",
+    r"vorschrift",
+    r"gesetz(?!t)",  # „Baugesetz", „gesetzlich" — never „gesetzt"/„festgesetzt"
     r"§",
     r"\bpunkt\s+\d+\.\d",
     r"\babs\.\s*\d",
-    r"\bbehörde",
-    r"\bbehoerde",
+    # „der Behörde", „Baubehörde" — but „Behördenwege" is a trip to an office,
+    # not a rule, so Behörde may be the right half of a compound and not the left.
+    r"behörden?\b",
+    r"behoerden?\b",
     r"\bstand\s+der\s+technik\b",
+    # --- Austrian procedure --------------------------------------------------
+    r"\bbauverhandlung",
+    r"\banrainer",
+    r"\beinwendung",
+    r"\bwidmung",
+    r"\bkonsens\b",
+    r"bewillig",
+    r"genehmig",
+    r"\bversagung",
+    r"pflicht",  # Bewilligungspflicht, Nachweispflicht, verpflichtet
+    r"\bbedarf\s+(einer|eines|einem|einen|der|des)\b",  # the VERB; „der Bedarf an" is a quantity
+    r"\bhaft(et|en|ung|bar)\b",
+    r"statthaft",
+    # --- Deontic modals ------------------------------------------------------
+    # The commonest way either language states an obligation, and the widest gap
+    # this list ever had: „muss" outranks every other verdict word in OIB prose
+    # and used to match nothing at all.
+    r"\bmu(ss|ß|ess)",
+    r"\bmü(ss|ß)",
+    r"\bdarf\b",
+    r"\bdürf",
+    r"\bduerf",
+    r"\bsoll(en|te|ten)\b",  # not bare „Soll", which is „Soll-Ist-Vergleich"
+    r"\bsoll\s+(mindestens|maximal|höchstens|hoechstens|nicht)\b",
+    r"\bmust\b",
+    r"\bshall\b",
+    r"\bmay\s+not\b",
+    r"\bnot\s+(permitted|allowed)\b",
+    # --- „ist … zu tun": the zu-infinitive that carries most of the OIB -------
+    # A separable prefix + „zu" + infinitive is a prescription and is almost
+    # never anything else: einzuhalten, sicherzustellen, einzuholen, vorzusehen,
+    # nachzureichen, anzuheben, abzuraten, freizuhalten, vorzulegen, beizubringen.
+    # Enumerating the prefixes is what keeps „Geschoßzuordnungen" and „Nutzungen"
+    # out; a bare `\w+zu\w+en` catches both.
+    r"\b(ein|vor|nach|an|auf|aus|ab|bei|mit|her|hin|zurück|zurueck|frei|fest"
+    r"|sicher|durch|über|ueber|unter|um|zusammen|nieder)zu\w+en\b",
+    # …and the non-separable half of the same construction, which needs the
+    # „ist/hat … zu" frame to tell „hat zu erfolgen" from „ist zu groß, um … zu
+    # werden".
+    r"\b(ist|sind|wäre|wären|waere|waeren|hat|haben)\b[^.!?\n]{0,80}?"
+    r"\bzu\s+(erfolgen|beachten|erbringen|begrenzen|erhöhen|erhoehen"
+    r"|gewährleisten|gewaehrleisten|unterlassen|reduzieren)\b",
     # --- Compliance verdicts -------------------------------------------------
     r"\berfüll",
     r"\berfuell",
-    r"\beinzuhalten",
     r"\beingehalten",
-    r"\beinhalt",
+    r"\b(nicht)?einhalt",  # „Einhaltung", „Nichteinhaltung" — but not „beinhaltet"
     r"\b(un)?zulässig",
     r"\b(un)?zulaessig",
     r"\berlaubt",
     r"\bvorgeschrieben",
-    r"\bvorzusehen",
     r"\bgefordert",
     r"\bforderung",
     r"\banforderung",
-    r"\berforderlich",
+    r"\bverlangt",
     r"\bgrenzwert",
-    r"\bsollwert",
     r"konform",
     r"\bverstöß",
     r"\bverstoss",
+    r"\bwiderspr",  # „widerspricht der OIB-Richtlinie", „widersprechen"
+    r"\bverfehl",  # „verfehlt das Kriterium um 9 cm" — a verdict with no stem
     r"\bzwingend",
-    r"\bdarf\b",
-    r"\bgenehmigungs",
-    r"\bbewilligungs",
     r"\bauflage[n]?\b",
+    r"\bempfohlen",
+    r"\bempfehl",
     # --- Thresholds, and being on the wrong side of one ----------------------
     # „mindestens 2,50 m", „die Mindesthöhe wird unterschritten", „darf nicht
     # unter 2,50 m liegen" — the shape a height requirement is actually written
     # in, and the shape a breach of it is reported in.
-    r"\bmindest(?!wert)",
+    r"\bmindest(?!ens|wert)",
+    r"\bmindestens\s+(rund\s+|ca\.\s*|etwa\s+)?\d+([.,]\d+)?\s*(m\b|cm\b|mm\b|m²|m2\b|%|grad\b|w/)",
     r"\bunterschr(eit|itt)",
     r"\bnicht\s+unter\b",
-    r"\bnachweis",
+    r"nachweis(e|es|en)?\b",  # „Brandschutznachweis"; not „Nachweisführung"
     r"\bnachgewiesen",
     # --- Classifications the measurement layer is forbidden to emit ----------
     r"\bgebäudeklasse",
     r"\bgebaeudeklasse",
     r"\bgk\s*[1-5]\b",
-    r"\bbrandschutzklasse",
-    r"\bfeuerwiderstand",
-    r"\bfluchtniveau\b",
+    r"brennbar",
+    r"\bals\s+aufenthaltsraum\b",
+    r"\bkeine?\s+aufenthaltsraum",
+    r"\b(gilt|gelten|zählt|zaehlt|zählen|zaehlen)\b[^.!?\n]{0,40}?\bals\b",
     # --- Bare adequacy judgments ---------------------------------------------
     # The shortest route to a verdict, and the one a reader is least likely to
-    # read as one. „reicht von … bis" is excluded: that is a RANGE, which is the
-    # one thing a survey answer says about its own numbers.
+    # read as one.
     r"\bausreichend",
     r"\bunzureichend",
     r"\bgenüg",
-    r"\bgeeignet",
-    r"\breicht\b(?!\s+von\b)",
-    r"\bzu\s+(niedrig|gering|klein|hoch|groß|gross|knapp|schmal|kurz|eng)\b",
+    r"\bgenueg",
     # --- English, for a model that switches language mid-answer --------------
     r"\bcompl(y|ies|iant|iance)\b",
     r"\brequir(e|es|ed|ement)",
-    r"\bpermissible\b",
+    r"\b(im)?permissible\b",
     r"\bbuilding\s+code\b",
     r"\bregulation",
     r"\bguideline",
     r"\bmandator",
-    r"\bminimum\b",
     r"\bsufficient",
     r"\bfalls\s+short\b",
     r"\blimit\b",
+    r"\bapprov(e|ed|al)\b",
+    r"\bfails?\b[^.!?\n]{0,40}?\b(requirement|target|test|criterion|criteria)\b",
 )
 
-_NORMATIVE_RE = re.compile("|".join(_NORMATIVE_PATTERNS), re.IGNORECASE)
+#: Stems that are a verdict about the BUILDING and a description of the
+#: MEASUREMENT, depending on what the sentence is about. Each one below is a
+#: documented false fire on near-verbatim ``ifc_measure`` output.
+_WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
+    r"\bgeeignet",  # „als Aufenthaltsraum geeignet" vs „für eine Messung geeignet"
+    r"\berforderlich",  # a legal requirement vs a tool prerequisite
+    r"\bsollwert",  # „liegt unter dem Sollwert" vs „der Sollwert aus dem Pset"
+    # „reicht" is „suffices" only when nothing extends: „reicht von … bis",
+    # „reicht vom Rohfußboden", „reicht 1,20 m über … hinaus" are all geometry.
+    r"\breicht\b(?![^.!?\n]*\b(von|vom|bis|über|ueber|hinaus|hinein|herab|herauf|hinunter)\b)",
+    r"\bzu\s+(niedrig|gering|klein|hoch|groß|gross|knapp|schmal|kurz|eng|wenig|lang|breit|steil|tief|weit)\b",
+    r"\btoo\s+(low|small|narrow|short|high|large|wide|long|steep|few|little)\b",
+    r"\bminimum\b",  # a requirement vs „the minimum of the series"
+    # Fire-safety and escape-route categories: a verdict when asserted of the
+    # building, a gap report when the renderer says it cannot compute them.
+    r"\bfluchtniveau",
+    r"\bfluchtweg",
+    r"\bfeuerwiderstand",
+    r"\bbrandschutz",
+    r"\bbrandabschnitt",
+)
+
+#: The measurement APPARATUS naming itself. Narrow on purpose — every entry is
+#: here to disarm one concrete false fire, and nothing else. In particular
+#: „gemessen"/„berechnet"/„deklariert" are ABSENT: a measured number is exactly
+#: what a verdict gets passed on, so „die gemessene Höhe ist zu wenig" must
+#: still fire.
+_MEASUREMENT_APPARATUS_PATTERNS: tuple[str, ...] = (
+    r"\bmess",  # Messung, Messpunkt, Messachse, Messwert — not „gemessen"
+    r"\bermittl",  # „Für die Ermittlung … ist … erforderlich"
+    r"\bauswertung",
+    r"berechnung",  # „für eine Volumenberechnung nicht geeignet"
+    r"\bberechnen\b",
+    r"\bbema(ß|ss)",  # „zu klein bemaßt", „die Bemaßung"
+    r"\bdatei",  # „Die Datei ist zu groß"
+    r"\bpset",  # „der Sollwert aus dem Pset"
+    r"\bdeklaration",
+    r"\bfile\b",  # „The file is too large"
+    r"\bseries\b",  # „the minimum of the series"
+)
+
+_STRONG_NORMATIVE_RE = re.compile("|".join(_STRONG_NORMATIVE_PATTERNS), re.IGNORECASE)
+_WEAK_NORMATIVE_RE = re.compile("|".join(_WEAK_NORMATIVE_PATTERNS), re.IGNORECASE)
+_MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS), re.IGNORECASE)
+
+#: Sentence boundaries for the weak-stem check. A semicolon is NOT one: German
+#: uses it to join the two halves of a single statement („Das Modell ist zu groß
+#: für den Schnellpfad; die Messung lief im Vollpfad"), and splitting there would
+#: hide the apparatus from the stem it qualifies.
+_SENTENCE_SPLIT_RE = re.compile(r"[.!?\n]+")
 
 
 def answer_mentions_normative_claim(content: str) -> bool:
@@ -240,12 +355,23 @@ def answer_mentions_normative_claim(content: str) -> bool:
     "asserts without support" are the same thing here, and this does not have to
     tell a supported normative claim from an unsupported one.
 
-    Wide by construction (see the module docstring): the cost of firing on
-    „das entspricht 2,70 m" is the hedge the answer gets today, and the cost of
-    NOT firing on „erfüllt damit OIB 4" is a legal claim at "medium". Non-string
-    input is False — there is nothing to read, and the caller's other gates still
-    apply.
+    Two tiers. A :data:`_STRONG_NORMATIVE_PATTERNS` stem fires wherever it
+    appears; a :data:`_WEAK_NORMATIVE_PATTERNS` stem fires unless its own
+    SENTENCE names the measurement apparatus, which is how the renderer's
+    „für eine Messung geeignet" stops reading as a habitability verdict.
+
+    The asymmetry is deliberate and is the trade this function makes: the weak
+    tier holds only stems that appear verbatim in ``ifc_measure`` output, and no
+    context of any kind can disarm a deontic modal or a named instrument. So the
+    worst case remains a hedge on a descriptive answer, never a confident legal
+    assertion — see the module docstring. Non-string input is False; there is
+    nothing to read, and the caller's other gates still apply.
     """
     if not isinstance(content, str) or not content:
         return False
-    return bool(_NORMATIVE_RE.search(content))
+    if _STRONG_NORMATIVE_RE.search(content):
+        return True
+    return any(
+        _WEAK_NORMATIVE_RE.search(sentence) and not _MEASUREMENT_APPARATUS_RE.search(sentence)
+        for sentence in _SENTENCE_SPLIT_RE.split(content)
+    )

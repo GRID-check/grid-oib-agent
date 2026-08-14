@@ -171,6 +171,12 @@ _REFERENCES_SECTION_RE = re.compile(
 )
 
 
+#: What a reference list is allowed to consist of: a numbered entry, a bullet, a
+#: bare link, or nothing. Anything else after a „**Quellen:**" line is PROSE,
+#: and prose after a heading is still the answer talking.
+_REFERENCE_LINE_RE = re.compile(r"^\s*(?:[-*+]\s|\d+[.)]\s|\[\d+\]|<?https?://|$)")
+
+
 def _prose_without_references(content: str) -> str:
     """The answer's own sentences, with any trailing reference list removed.
 
@@ -181,13 +187,31 @@ def _prose_without_references(content: str) -> str:
     every fallback-grounded answer read as normative and floored measured,
     purely descriptive answers to "low" under a reason („normative_claim_uncited")
     that was not true of a single sentence the model wrote.
+
+    Only a genuinely TRAILING list is cut. Taking everything before the last
+    heading match assumed the heading was the last thing in the answer, and a
+    model that writes „**Quellen:** …" and then carries on — or that puts a
+    ``## Sources`` line inside a fenced example — had the rest of its answer
+    dropped before the brake ever read it:
+
+        kept:    „Die Höhe beträgt 2,20 m."
+        dropped: „…erfüllt die Anforderung nicht und ist unzulässig."
+
+    That is the laundering this module exists to prevent, arriving through the
+    door marked "bibliography". So a heading is a cut point only when every
+    line after it is a link, a list entry or blank; otherwise the search moves
+    to the previous heading, and failing that nothing is removed. Erring
+    towards keeping text is the safe direction here — a reference line that
+    survives costs a hedge, a verdict that is dropped costs a claim about the
+    law.
     """
     if not isinstance(content, str):
         return ""
-    last = None
-    for last in _REFERENCES_SECTION_RE.finditer(content):
-        pass
-    return content[: last.start()] if last else content
+    for match in reversed(list(_REFERENCES_SECTION_RE.finditer(content))):
+        tail = content[match.end() :]
+        if all(_REFERENCE_LINE_RE.match(line) for line in tail.splitlines()):
+            return content[: match.start()]
+    return content
 
 
 class ShallowResearcherAgent:

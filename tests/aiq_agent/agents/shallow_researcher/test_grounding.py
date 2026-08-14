@@ -5,9 +5,12 @@ Two detectors, and they fail in opposite directions on purpose:
 - :func:`tool_result_is_measurement` must not call a refusal, an outage, a
   heuristic or an undecidable finding "evidence" — those are the ways a guess
   gets stamped.
-- :func:`answer_mentions_normative_claim` must over-fire rather than under-fire:
-  a false positive costs the hedge the answer already gets today, a false
-  negative lets a claim about the Bauordnung out at "medium".
+- :func:`answer_mentions_normative_claim` is biased towards firing — a false
+  positive costs the hedge the answer already gets today, a false negative lets
+  a claim about the Bauordnung out at "medium" — but it is held to BOTH rates.
+  It has to catch „muss" and „shall", and it has to leave „für eine Messung
+  geeignet" alone, because a false fire re-floors exactly the measured answers
+  the other detector exists to un-hedge.
 
 Nothing here writes a tool result by hand. Every fixture is either a real
 :class:`ifc_spatial.envelope.Answer` put through ``measure_register._render``,
@@ -29,6 +32,7 @@ from langchain_core.tools import tool
 
 from aiq_agent.agents.bim.measure_register import _render
 from aiq_agent.agents.shallow_researcher.agent import ShallowResearcherAgent
+from aiq_agent.agents.shallow_researcher.agent import _prose_without_references
 from aiq_agent.agents.shallow_researcher.grounding import MEASUREMENT_TOOL_NAMES
 from aiq_agent.agents.shallow_researcher.grounding import answer_mentions_normative_claim
 from aiq_agent.agents.shallow_researcher.grounding import tool_result_is_measurement
@@ -360,6 +364,128 @@ class TestNormativeClaimDetection:
         """„normalerweise" is not „Norm"; a substring match would over-cap everything."""
         assert answer_mentions_normative_claim("Normalerweise liegt die Höhe bei 2,50 m.") is False
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # THE gap: „muss" is the commonest deontic modal in OIB prose and the
+            # vocabulary had no word for it. A whole-answer verdict — the exact
+            # shape the agent produces after a real clearHeight measurement —
+            # surfaced at "medium" and was logged as a pure measurement.
+            "Die lichte Raumhöhe beträgt 2,20 m.\n"
+            "Damit ist der Raum kein Aufenthaltsraum; die Decke muss angehoben werden.",
+            "Die lichte Raumhöhe beträgt 2,20 m.\nFür einen Aufenthaltsraum ist das zu wenig.",
+            "Aufenthaltsräume müssen eine lichte Höhe von 2,50 m aufweisen.",
+            "Die Brüstung muß mindestens 1,00 m hoch sein.",
+            "Fenster in dieser Lage dürfen nicht öffenbar ausgeführt werden.",
+            "Wäre die Raumhöhe geringer, dürfte der Raum nicht als Aufenthaltsraum genutzt werden.",
+            "The clear height must not fall below 2.50 m.",
+            "Handrails shall be continuous along the full flight.",
+            "Openings in this wall may not be provided without a fire damper.",
+            "Combustible cladding is not permitted on this façade.",
+        ],
+    )
+    def test_deontic_modals_fire_the_brake(self, text):
+        """B1. „muss"/„müssen"/„must"/„shall"/„may not" — the deontic core."""
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # Austria names its law by putting the instrument on the RIGHT of a
+            # compound. A left `\b` matches none of these.
+            "Nach der Wiener Landesbauordnung sind 2,50 m vorgesehen.",
+            "Das Steiermärkische Baugesetz kennt hier keine Ausnahme.",
+            "Die NÖ Bautechnikverordnung sieht für Aufenthaltsräume 2,50 m vor.",
+            "Die Ausführungsrichtlinie des Landes weicht davon ab.",
+        ],
+    )
+    def test_instrument_compounds_fire_on_the_right_half(self, text):
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Der Wert wurde auf 2,50 m gesetzt.",  # „gesetz" must not eat „gesetzt"
+            "Die Höhe wurde vom Planer festgesetzt.",
+            "Das Ergebnis beinhaltet 12 Räume.",  # „einhalt" must not eat „beinhaltet"
+            "Der Soll-Ist-Vergleich zeigt eine Differenz von 3 cm.",  # bare „Soll"
+            "Der Bedarf an zusätzlichen Punkten wurde mit drei angegeben.",  # noun, not „bedarf einer"
+            "Die Behördenwege des Bauherrn sind hier nicht dokumentiert.",  # Behörde as LEFT half
+            "Ein Nachweisdokument war der Anfrage nicht beigelegt.",  # Nachweis as LEFT half
+            "Für 3 der 12 Räume fehlt die Geschoßzuordnung im Modell.",  # not a zu-infinitive
+        ],
+    )
+    def test_dropping_the_left_anchor_does_not_swallow_ordinary_words(self, text):
+        """The cost of rule 1 in the module docstring, held to zero.
+
+        Each of these contains a normative stem as a SUBSTRING of an ordinary
+        word. Un-anchoring „gesetz", „einhalt", „behörde" and „nachweis" on the
+        left is what makes „Baugesetz" and „Baubehörde" work, and it is exactly
+        what would make „festgesetzt" and „beinhaltet" read as law.
+        """
+        assert answer_mentions_normative_claim(text) is False
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # Near-verbatim `ifc_measure` renderer output. Every one of these
+            # carries a normative STEM used about the APPARATUS, and every one
+            # of them used to re-floor the measured answer it was attached to.
+            "Für die Ermittlung der lichten Höhe ist eine Geschoßzuordnung erforderlich.",
+            "Das Bauteil ist für eine Messung der lichten Höhe geeignet.",
+            "Das Bauteil ist für eine Volumenberechnung nicht geeignet.",
+            "Die Nachweisführung ist nicht Gegenstand dieser Messung.",
+            "Die Datei ist zu groß, um vollständig geladen zu werden.",
+            "Der Raum ist zu groß für eine einzelne Messachse, daher wurde in zwei Achsen gemessen.",
+            "Der Sollwert aus dem Pset beträgt 2,50 m, gemessen wurden 2,47 m.",
+            "Die Wand reicht vom Rohfußboden bis zur Unterkante der Rohdecke.",
+            "Das Vordach reicht 1,20 m über die Fassadenflucht hinaus.",
+            "Mindestens ein Wert stammt aus einer Deklaration, die übrigen wurden berechnet.",
+            "Die Serie umfasst 12 Räume; mindestens drei liegen im Kellergeschoß.",
+            "The file is too large to load in a single pass.",
+            "The minimum of the series is 2.44 m and the maximum is 2.71 m.",
+        ],
+    )
+    def test_renderer_prose_about_the_apparatus_does_not_fire(self, text):
+        """S3. A false fire re-floors the answers this module exists to un-hedge.
+
+        These are not adversarial inventions — they are the shapes
+        ``measure_register``'s own renderers emit. Flooring them to "low" costs
+        the honest hedge twice over: the measured answer is re-hedged, and the
+        ``confidence_capped`` ledger fills with entries nobody should act on.
+        """
+        assert answer_mentions_normative_claim(text) is False
+
+    @pytest.mark.parametrize(
+        ("verdict", "apparatus"),
+        [
+            # The weak tier turns on the SENTENCE, not the answer. A verdict must
+            # survive standing next to a measurement, which is the whole point:
+            # „die gemessene Höhe ist zu wenig" is the commonest verdict shape
+            # there is, so „gemessen" is deliberately not an apparatus word.
+            ("Die gemessene lichte Höhe ist zu wenig.", "Die Datei ist zu wenig."),
+            ("Der Raum ist als Aufenthaltsraum geeignet.", "Der Raum ist für eine Messung geeignet."),
+            ("Ein zweiter Fluchtweg ist hier erforderlich.", "Für die Ermittlung ist ein Geschoß erforderlich."),
+        ],
+    )
+    def test_the_weak_tier_is_scoped_to_its_own_sentence(self, verdict, apparatus):
+        assert answer_mentions_normative_claim(verdict) is True
+        assert answer_mentions_normative_claim(apparatus) is False
+
+    def test_a_verdict_survives_a_measurement_sentence_beside_it(self):
+        """The apparatus carve-out must not leak across sentences.
+
+        A two-sentence answer whose FIRST sentence is pure renderer prose and
+        whose second passes a verdict is the realistic case; suppressing the
+        verdict because another sentence mentioned a Messung would reinstate
+        exactly the miss this test class exists to prevent.
+        """
+        text = (
+            "Die Messung erfolgte an 4 von 4 Bauteilen.\n"
+            "Damit ist der Raum kein Aufenthaltsraum und die Höhe ist zu wenig."
+        )
+        assert answer_mentions_normative_claim(text) is True
+
 
 # ---------------------------------------------------------------------------
 # Plumbing: how the signal actually reaches the confidence computation
@@ -652,3 +778,60 @@ class TestTheSingleSourceFallbackIsNotTheModelsCitation:
             )
             == "medium"
         )
+
+
+class TestTheBibliographyStripIsNotAnEscapeHatch:
+    """S2. What `_prose_without_references` is allowed to throw away.
+
+    The brake reads the answer's PROSE, so a reference list is removed first —
+    „- [1] Wiener Bauordnung — https://ris…" is a pointer, not a claim, and the
+    single-source fallback appends one to every answer it grounds.
+
+    Cutting at the LAST heading match assumed the heading was the last thing in
+    the answer. It is a rule about position, and the model controls position:
+    write „**Quellen:**", then keep writing, and every sentence after it left
+    the text before the brake saw it.
+    """
+
+    def test_prose_after_a_reference_heading_is_not_a_reference(self):
+        content = (
+            "Die Höhe beträgt 2,20 m.\n\n"
+            "**Quellen:**\n"
+            "- [1] OIB-Richtlinie 4 - https://example.invalid/oib4\n\n"
+            "Die Ausführung erfüllt die Anforderung nicht und ist unzulässig."
+        )
+        kept = _prose_without_references(content)
+        assert "unzulässig" in kept
+        assert answer_mentions_normative_claim(kept) is True
+
+    def test_a_heading_inside_a_fenced_block_is_not_a_reference_list(self):
+        content = "Beispiel:\n\n```md\n## Sources\n- [1] foo\n```\n\nDer Raum ist damit unzulässig."
+        kept = _prose_without_references(content)
+        assert "unzulässig" in kept
+        assert answer_mentions_normative_claim(kept) is True
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "Die Höhe beträgt 2,20 m.\n\n**Quellen:**\n- [1] Wiener Bauordnung - https://example.invalid/bo",
+            "Die Höhe beträgt 2,20 m.\n\n### Sources\n- [1] OIB 4 - https://example.invalid/oib4\n",
+            "Die Höhe beträgt 2,20 m.\n\n**References:**\n1. https://example.invalid/x\n",
+            "Die Höhe beträgt 2,20 m.\n\n**Quellen:**\n[1] Wiener Bauordnung\n",
+        ],
+    )
+    def test_a_genuinely_trailing_list_is_still_removed(self, content):
+        """The regression this strip exists to prevent, still prevented.
+
+        Leaving the bibliography in made every fallback-grounded answer read as
+        normative and floored purely descriptive measured answers to "low".
+        """
+        kept = _prose_without_references(content)
+        assert kept.strip() == "Die Höhe beträgt 2,20 m."
+        assert answer_mentions_normative_claim(kept) is False
+
+    def test_an_answer_without_a_reference_list_is_untouched(self):
+        content = "Die lichte Raumhöhe beträgt 2,70 m (gemessen ±5 mm)."
+        assert _prose_without_references(content) == content
+
+    def test_non_string_input_is_empty(self):
+        assert _prose_without_references(None) == ""  # type: ignore[arg-type]

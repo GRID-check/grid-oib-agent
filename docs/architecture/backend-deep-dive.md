@@ -157,23 +157,47 @@ boundary in `ChatResearcherAgent.run()`:
     withheld and the answer keeps its `"low"`, reported as
     `"normative_claim_uncited"` rather than resolved silently. The `"medium"`
     ceiling is the structural half of the same defence and does not depend on
-    that text heuristic. The brake reads the answer's PROSE — a trailing
+    that text heuristic. The vocabulary is two-tier: named instruments and
+    deontic modals („muss", „darf", `must`, `shall`) fire wherever they appear,
+    while the handful of stems `ifc_measure`'s own renderers use about the
+    APPARATUS („für eine Messung geeignet", „für die Ermittlung … erforderlich",
+    „die Datei ist zu groß") fire only in a sentence that does not name the
+    apparatus — a false fire re-floors exactly the measured answers the signal
+    above exists to un-hedge. The brake reads the answer's PROSE — a trailing
     reference list is stripped first (`_prose_without_references`), because a
-    source title is a pointer, not a claim the answer makes.
+    source title is a pointer, not a claim the answer makes. Only a GENUINELY
+    trailing list is cut: every line after the heading must be a link, a list
+    entry or blank, or the „**Quellen:**" line is just something the model wrote
+    in the middle of an answer and the verdict after it would be dropped before
+    the brake ever read it.
   - `answer_citation_fallback_used` — which citation did the grounding. A
     fallback citation does not disarm the normative brake and does not reach
     `"high"`: one stale session source used to do both, and „Der Keller ist
     2,70 m hoch und erfüllt damit OIB 4 Punkt 2.1" surfaced at the model's own
     self-report with an unrelated Bauordnung link attached to the verdict.
 
-  **What counts as a measurement.** `ifc_measure`'s renderer states it: every
-  result ends with a line reporting how many values in it carry a
-  `declared`/`computed` provenance (`agents/bim/measurement_evidence.py`), and
-  the gate reads that count. It used to search the result for „gemessen" /
-  „deklariert" instead, which three renderers write into prose explaining why
-  NOTHING could be measured („gemessen: raumhoehe an 0 von 3 Bauteilen") — so a
-  refusal granted measurement grounding, and a model that invented a number on
-  top of one surfaced at `"medium"`.
+  **What counts as a measurement.** `ifc_measure`'s renderer states it: a result
+  from an operation that could measure something ends with a line reporting how
+  many QUANTITIES in it carry a `declared`/`computed` provenance
+  (`agents/bim/measurement_evidence.py`), and the gate reads that count. It used
+  to search the result for „gemessen" / „deklariert" instead, which three
+  renderers write into prose explaining why NOTHING could be measured
+  („gemessen: raumhoehe an 0 von 3 Bauteilen") — so a refusal granted
+  measurement grounding, and a model that invented a number on top of one
+  surfaced at `"medium"`.
+
+  A provenance alone does not make a Messwert. `relations` answers a topology
+  question with a list of GlobalIds in a decidable `Answer` marked
+  `declared`, and it counted as one measurement until the count was gated on a
+  `unit` or a `tolerance` — the fields that make a value a quantity. Not on
+  scalar-ness: `storey_heights` measures every storey and answers with a list
+  carrying `unit: "m"`. The operations that answer with something other than a
+  quantity at all (`NON_MEASURING_OPERATIONS` — briefing, find_elements,
+  element, draw, view, shopping_list) carry no trailer, because „Messwerte in
+  diesem Ergebnis: 0" on a `draw` reads to the model as a measurement that
+  failed and invites a retry that costs one of five tool iterations. Suppression
+  is safe in the same direction as everything else here: no trailer reads as no
+  measurement, so an operation nobody thought to list still grants nothing.
 - `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
   result's `verify_citations` summary when ≥1 citation was removed.
 - `job_admission_rejected` + `retry_after_seconds` — set in the deep-research
