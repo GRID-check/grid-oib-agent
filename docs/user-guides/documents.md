@@ -58,7 +58,7 @@ The project store and the Archiv are corpora that grow for the life of the proje
 
 Additional limits, on every surface:
 - A `.ifc` building model is measured against its own, much larger ceiling (`BIM_MAX_IFC_BYTES`, default 250 MB) rather than the document limit.
-- **Duplicate filenames** are rejected — in a chat session against the session's attachments, in a project or the Archiv against the documents already stored.
+- **Duplicate filenames** are rejected — in a chat session against the session's attachments, in a project or the Archiv against the documents already stored. The refusal names the surface it is talking about ("is already attached to this chat" / "is already in this project" / "is already in the Archiv"), and is shown in the app's language like every other message on this path: the validator (`features/documents/validation.ts`) is a pure module with no translator, so it emits a variant plus the interpolation values and `useFileUpload` renders the sentence from `files.errors.*`.
 
 ---
 

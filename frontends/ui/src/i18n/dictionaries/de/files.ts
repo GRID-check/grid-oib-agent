@@ -246,6 +246,8 @@ export const files: typeof en.files = {
       '{failed} von {total} Dokumenten konnten nicht hochgeladen werden. Erster Grund: {reason}',
     uploadingSkipped:
       'Es werden {uploading} {fileLabel} hochgeladen, {skipped} übersprungen ({summary})',
+    uploadingSkippedOne:
+      'Es wird {uploading} {fileLabel} hochgeladen, {skipped} übersprungen ({summary})',
     cannotRetryServerFile:
       'Vom Server geladene Dateien können nicht erneut versucht werden. Bitte laden Sie die Datei erneut hoch.',
     imageVlmUnavailable:
@@ -253,9 +255,24 @@ export const files: typeof en.files = {
     maxFilesExceeded: '{total} Dateien überschreiten das Limit von {limit} Dateien pro Upload.',
     maxFilesRemaining:
       'Damit wären es {total} Dateien. Es sind nur noch {available} weitere erlaubt (maximal {limit}).',
+    // Bei genau einem freien Platz: „Es sind nur noch 1 weitere erlaubt.“
+    // Dieses i18n kennt kein ICU, also wählt die Anzahl den Schlüssel.
+    maxFilesRemainingOne:
+      'Damit wären es {total} Dateien. Es ist nur noch eine weitere erlaubt (maximal {limit}).',
     totalSizeExceeded: 'Die Gesamtgröße {total} überschreitet das Limit von {limit}.',
     totalSizeRemaining:
       'Die Gesamtgröße wäre {total}. Es sind nur noch {available} verfügbar ({limit} Limit).',
+    // Fehler einzelner Dateien. Der Duplikat-Satz nennt die Ablage beim Namen:
+    // „in dieser Sitzung“ stimmt in einer Dateiablage und im Archiv nicht.
+    duplicateInBatch: '„{name}“ ist mehrfach ausgewählt.',
+    duplicateInSession: '„{name}“ ist bereits angehängt.',
+    duplicateInProject: '„{name}“ liegt bereits in diesem Projekt.',
+    duplicateInArchiv: '„{name}“ liegt bereits im Archiv.',
+    unsupportedType: '„{name}“ ist kein unterstützter Dateityp. Zulässig: {accepted}',
+    fileTooLarge: '„{name}“ ist {size} groß und überschreitet das Limit von {limit}.',
+    // Mehrere Dateien auf einmal: ohne Verb formuliert, damit der Satz bei
+    // jeder Anzahl stimmt.
+    fileIssues: '{count} {fileLabel} mit Problemen',
     fileSingular: 'Datei',
     filePlural: 'Dateien',
   },

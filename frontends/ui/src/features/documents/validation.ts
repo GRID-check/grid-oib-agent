@@ -52,12 +52,47 @@ export type BatchValidationErrorCode = 'TOTAL_SIZE_EXCEEDED' | 'MAX_FILES_EXCEED
  */
 export type FileValidationReason = 'image-vlm-unavailable'
 
+/**
+ * Which sentence a file-level error renders.
+ *
+ * The two duplicate variants are the same *rule* on two different surfaces:
+ * a chat session's attachment set is something you attach to, a project's
+ * Dateiablage or the org Archiv is somewhere a file already is. Saying "already
+ * exists in this session" on a Dateiablage was simply untrue (issue #432's
+ * neighbourhood — `collectionKind` is what tells them apart).
+ */
+export type FileValidationVariant =
+  | 'duplicate-in-batch'
+  | 'duplicate-in-session'
+  | 'duplicate-in-collection'
+  | 'unsupported-type'
+  | 'too-large'
+
 /** Detailed error information for a single file */
 export interface FileValidationError {
   file: File
   code: FileValidationErrorCode
+  /**
+   * English fallback, and what {@link BatchValidationResult.summary} is built
+   * from. A caller that HAS a translator renders `variant` + `values` from the
+   * dictionary instead — `useFileUpload` does. Same split as
+   * {@link BatchValidationError.message}: this module is pure and is called from
+   * specs and non-React code, so it emits the facts and the UI layer owns the
+   * sentence.
+   */
   message: string
-  /** Optional targeted reason enabling localized, specific copy in the UI. */
+  variant: FileValidationVariant
+  /**
+   * Interpolation values for the localized sentence. Sizes arrive already
+   * formatted in the caller's locale (this module has no translator, but it
+   * does have `formatBytes`).
+   */
+  values: TranslationVars
+  /**
+   * Optional targeted reason enabling localized, specific copy in the UI.
+   * A REFINEMENT of the variant, not a competing signal: the variant still says
+   * what rule refused the file, this says why that rule is in force right now.
+   */
   reason?: FileValidationReason
 }
 
@@ -224,14 +259,33 @@ export function createEmptyValidationContext(
 }
 
 /**
+ * How a caller with a translator renders the two sentences this summary is made
+ * of. Omit it and the summary is the English fallback, which is what a spec or
+ * any other non-React caller wants.
+ */
+export interface FileErrorLocalizer {
+  /** One file's sentence, when exactly one file was refused. */
+  file: (error: FileValidationError) => string
+  /** The headline when several were, in place of naming each one. */
+  many: (count: number) => string
+}
+
+/**
  * The file-level half of {@link BatchValidationResult.summary}.
  *
  * Exported so a caller that re-renders the BATCH-level half from the dictionary
- * can rebuild the whole sentence rather than dropping the file-level part.
+ * can rebuild the whole sentence rather than dropping the file-level part —
+ * and, with a `localize`, render this half from the dictionary too.
  */
-export function summarizeFileErrors(fileErrors: FileValidationError[]): string | null {
+export function summarizeFileErrors(
+  fileErrors: FileValidationError[],
+  localize?: FileErrorLocalizer
+): string | null {
   if (fileErrors.length === 0) return null
-  return fileErrors.length === 1 ? fileErrors[0].message : `${fileErrors.length} files have issues`
+  if (fileErrors.length === 1) {
+    return localize ? localize.file(fileErrors[0]) : fileErrors[0].message
+  }
+  return localize ? localize.many(fileErrors.length) : `${fileErrors.length} files have issues`
 }
 
 // ============================================================================
@@ -292,17 +346,27 @@ export function validateFileUpload(
       fileErrors.push({
         file,
         code: 'DUPLICATE_FILE',
+        variant: 'duplicate-in-batch',
         message: `"${file.name}" is included multiple times`,
+        values: { name: file.name },
       })
       continue
     }
 
-    // Check for duplicates against existing session files
+    // Check for duplicates against the files already in the target collection.
+    // WHERE that is decides the sentence: a chat session is something a file is
+    // attached to, a project's Dateiablage or the org Archiv is somewhere it
+    // already is. The old copy said "in this session" on all three.
     if (context.existingFileNames.has(file.name)) {
+      const durable = context.collectionKind === 'durable'
       fileErrors.push({
         file,
         code: 'DUPLICATE_FILE',
-        message: `"${file.name}" already exists in this session`,
+        variant: durable ? 'duplicate-in-collection' : 'duplicate-in-session',
+        message: durable
+          ? `"${file.name}" already exists here`
+          : `"${file.name}" is already attached to this chat`,
+        values: { name: file.name },
       })
       continue
     }
@@ -317,9 +381,11 @@ export function validateFileUpload(
       fileErrors.push({
         file,
         code: 'INVALID_TYPE',
+        variant: 'unsupported-type',
         message: isImageBlockedByVlm
           ? `"${file.name}" needs a configured vision model (VLM) to upload.`
           : `"${file.name}" is not a supported file type. Accepted: ${config.acceptedTypes}`,
+        values: { name: file.name, accepted: config.acceptedTypes },
         ...(isImageBlockedByVlm ? { reason: 'image-vlm-unavailable' as const } : {}),
       })
       continue
@@ -334,10 +400,14 @@ export function validateFileUpload(
         ? config.maxIfcFileSize
         : config.maxFileSize
     if (file.size > sizeCeiling) {
+      const size = formatBytes(file.size, locale)
+      const limit = formatBytes(sizeCeiling, locale)
       fileErrors.push({
         file,
         code: 'FILE_TOO_LARGE',
-        message: `"${file.name}" is ${formatBytes(file.size, locale)}, exceeds ${formatBytes(sizeCeiling, locale)} limit`,
+        variant: 'too-large',
+        message: `"${file.name}" is ${size}, exceeds ${limit} limit`,
+        values: { name: file.name, size, limit },
       })
       continue
     }

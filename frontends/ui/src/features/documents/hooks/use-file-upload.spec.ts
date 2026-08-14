@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { en } from '@/i18n/dictionaries/en'
+import type { Locale } from '@/i18n'
 
 // Use vi.hoisted for mocks that need to be available before vi.mock
 const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(() => {
@@ -141,6 +142,8 @@ vi.mock('uuid', () => ({
 import { useFileUpload } from './use-file-upload'
 import { installFakeXhr, type FakeXhrHandle } from '@/test-utils/xhr-mock'
 import { UPLOAD_CONCURRENCY } from '../lib/upload-queue'
+import { localeWrapper } from '@/test-utils/i18n'
+import type { FileValidationError, FileValidationVariant } from '../validation'
 
 describe('useFileUpload', () => {
   beforeEach(() => {
@@ -284,7 +287,14 @@ describe('useFileUpload', () => {
         validFiles: [],
         batchErrors: [],
         fileErrors: [
-          { file: pngFile, code: 'INVALID_TYPE', message: 'blocked', reason: 'image-vlm-unavailable' },
+          {
+            file: pngFile,
+            code: 'INVALID_TYPE',
+            variant: 'unsupported-type',
+            message: 'blocked',
+            values: { name: 'photo.png', accepted: '.pdf' },
+            reason: 'image-vlm-unavailable',
+          },
         ],
         summary: 'blocked',
       })
@@ -372,7 +382,15 @@ describe('useFileUpload', () => {
         valid: false,
         canUpload: false,
         validFiles: [],
-        fileErrors: [{ file: exe, code: 'INVALID_TYPE', message: '"setup.exe" is not a supported file type.' }],
+        fileErrors: [
+          {
+            file: exe,
+            code: 'INVALID_TYPE',
+            variant: 'unsupported-type',
+            message: '"setup.exe" is not a supported file type.',
+            values: { name: 'setup.exe', accepted: '.pdf,.docx,.txt,.md' },
+          },
+        ],
         batchErrors: [
           {
             code: 'MAX_FILES_EXCEEDED',
@@ -390,9 +408,365 @@ describe('useFileUpload', () => {
         await result.current.uploadFiles([pdf, exe])
       })
 
+      // Both halves now come from the dictionary — the file-level one used to be
+      // whatever English the validator had put in `message`.
       expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
-        '"setup.exe" is not a supported file type. 11 files exceed the limit of 10 files per upload.'
+        '“setup.exe” is not a supported file type. Accepted: .pdf,.docx,.txt,.md ' +
+          '11 files exceed the limit of 10 files per upload.'
       )
+    })
+
+    /*
+      The file-level half was the other half of the same defect: the validator
+      emitted English string literals, `summarizeFileErrors` handed them to the
+      hook, and `errors.uploadingSkipped` interpolated them into a German
+      sentence. These assert the sentence the user actually reads.
+    */
+    describe('file-level refusals come from the dictionary', () => {
+      const refuse = async (
+        fileErrors: FileValidationError[],
+        options: Parameters<typeof useFileUpload>[0] = { collectionName: 'session-1' },
+        locale?: Locale
+      ) => {
+        const { validateFileUpload } = await import('../validation')
+        vi.mocked(validateFileUpload).mockReturnValueOnce({
+          valid: false,
+          canUpload: false,
+          validFiles: [],
+          batchErrors: [],
+          fileErrors,
+          summary: 'the validator’s English fallback, which must not be shown',
+        })
+
+        const { result } = renderHook(() => useFileUpload(options), {
+          wrapper: locale ? localeWrapper(locale) : undefined,
+        })
+        await act(async () => {
+          await result.current.uploadFiles([new File(['x'], 'egal.pdf')])
+        })
+        return mockDocumentsStoreState.setError.mock.calls.at(-1)?.[0] as string
+      }
+
+      const duplicate = (variant: FileValidationVariant): FileValidationError[] => [
+        {
+          file: new File(['x'], 'Einreichplan.pdf'),
+          code: 'DUPLICATE_FILE',
+          variant,
+          message: 'english fallback',
+          values: { name: 'Einreichplan.pdf' },
+        },
+      ]
+
+      test('a duplicate inside the batch says so', async () => {
+        expect(await refuse(duplicate('duplicate-in-batch'))).toBe(
+          '“Einreichplan.pdf” is included more than once.'
+        )
+      })
+
+      test('a chat session says the file is already attached', async () => {
+        expect(await refuse(duplicate('duplicate-in-session'))).toBe(
+          '“Einreichplan.pdf” is already attached to this chat.'
+        )
+      })
+
+      // Issue #432's other half: "already exists in this session" was shown on a
+      // project Dateiablage and in the org Archiv, where there is no session.
+      test('a project Dateiablage names the project', async () => {
+        expect(
+          await refuse(duplicate('duplicate-in-collection'), {
+            collectionName: 'proj_abc',
+            projectId: 'proj-1',
+          })
+        ).toBe('“Einreichplan.pdf” is already in this project.')
+      })
+
+      test('the org Archiv names the Archiv', async () => {
+        expect(
+          await refuse(duplicate('duplicate-in-collection'), {
+            collectionName: 'archiv_org-1',
+            archiv: true,
+          })
+        ).toBe('“Einreichplan.pdf” is already in the Archiv.')
+      })
+
+      test('an unsupported type lists what is accepted', async () => {
+        const message = await refuse([
+          {
+            file: new File(['x'], 'setup.exe'),
+            code: 'INVALID_TYPE',
+            variant: 'unsupported-type',
+            message: 'english fallback',
+            values: { name: 'setup.exe', accepted: '.pdf,.docx' },
+          },
+        ])
+
+        expect(message).toBe('“setup.exe” is not a supported file type. Accepted: .pdf,.docx')
+      })
+
+      test('an oversized file names both sizes, as the validator formatted them', async () => {
+        const message = await refuse([
+          {
+            file: new File(['x'], 'modell.ifc'),
+            code: 'FILE_TOO_LARGE',
+            variant: 'too-large',
+            message: 'english fallback',
+            values: { name: 'modell.ifc', size: '260 MB', limit: '250 MB' },
+          },
+        ])
+
+        expect(message).toBe('“modell.ifc” is 260 MB, which exceeds the 250 MB limit.')
+      })
+
+      test('several at once become a count, not a wall of sentences', async () => {
+        const message = await refuse([
+          ...duplicate('duplicate-in-batch'),
+          {
+            file: new File(['x'], 'setup.exe'),
+            code: 'INVALID_TYPE',
+            variant: 'unsupported-type',
+            message: 'english fallback',
+            values: { name: 'setup.exe', accepted: '.pdf' },
+          },
+        ])
+
+        expect(message).toBe('Issues with 2 files')
+      })
+
+      // The VLM explanation is about the deployment, not the file, so it still
+      // replaces the whole half rather than being buried in a count.
+      test('a missing VLM keeps its own explanation even beside other refusals', async () => {
+        const message = await refuse([
+          ...duplicate('duplicate-in-batch'),
+          {
+            file: new File(['x'], 'foto.png'),
+            code: 'INVALID_TYPE',
+            variant: 'unsupported-type',
+            message: 'english fallback',
+            values: { name: 'foto.png', accepted: '.pdf' },
+            reason: 'image-vlm-unavailable',
+          },
+        ])
+
+        expect(message).toBe(en.files.errors.imageVlmUnavailable)
+      })
+
+      test('the skipped-files notice interpolates the localized half, not English', async () => {
+        const { validateFileUpload } = await import('../validation')
+        const good = new File(['x'], 'gut.pdf')
+        vi.mocked(validateFileUpload).mockReturnValueOnce({
+          valid: false,
+          canUpload: true,
+          validFiles: [good],
+          batchErrors: [],
+          fileErrors: duplicate('duplicate-in-batch'),
+          summary: 'the validator’s English fallback, which must not be shown',
+        })
+        mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
+        mockClient.uploadFiles.mockResolvedValue({ job_id: 'job-1', file_ids: ['file-id-1'] })
+
+        const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+        await act(async () => {
+          await result.current.uploadFiles([good])
+        })
+
+        expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
+          'Uploading 1 file, skipped 1 (“Einreichplan.pdf” is included more than once.)'
+        )
+      })
+
+      /*
+        The whole point. #432 was reported by a German-speaking architect, and
+        the mixed-language sentence — an English validator string interpolated
+        into `errors.uploadingSkipped` — is what they were reading.
+      */
+      describe('and read as German when the app does', () => {
+        test('each duplicate names the surface it is talking about', async () => {
+          expect(await refuse(duplicate('duplicate-in-batch'), undefined, 'de')).toBe(
+            '„Einreichplan.pdf“ ist mehrfach ausgewählt.'
+          )
+          expect(await refuse(duplicate('duplicate-in-session'), undefined, 'de')).toBe(
+            '„Einreichplan.pdf“ ist bereits angehängt.'
+          )
+          expect(
+            await refuse(
+              duplicate('duplicate-in-collection'),
+              { collectionName: 'proj_abc', projectId: 'proj-1' },
+              'de'
+            )
+          ).toBe('„Einreichplan.pdf“ liegt bereits in diesem Projekt.')
+          expect(
+            await refuse(
+              duplicate('duplicate-in-collection'),
+              { collectionName: 'archiv_org-1', archiv: true },
+              'de'
+            )
+          ).toBe('„Einreichplan.pdf“ liegt bereits im Archiv.')
+        })
+
+        test('an unsupported type and an oversized file', async () => {
+          expect(
+            await refuse(
+              [
+                {
+                  file: new File(['x'], 'setup.exe'),
+                  code: 'INVALID_TYPE',
+                  variant: 'unsupported-type',
+                  message: 'english fallback',
+                  values: { name: 'setup.exe', accepted: '.pdf,.docx' },
+                },
+              ],
+              undefined,
+              'de'
+            )
+          ).toBe('„setup.exe“ ist kein unterstützter Dateityp. Zulässig: .pdf,.docx')
+
+          expect(
+            await refuse(
+              [
+                {
+                  file: new File(['x'], 'modell.ifc'),
+                  code: 'FILE_TOO_LARGE',
+                  variant: 'too-large',
+                  message: 'english fallback',
+                  values: { name: 'modell.ifc', size: '260 MB', limit: '250 MB' },
+                },
+              ],
+              undefined,
+              'de'
+            )
+          ).toBe('„modell.ifc“ ist 260 MB groß und überschreitet das Limit von 250 MB.')
+        })
+
+        test('several at once', async () => {
+          expect(
+            await refuse(
+              [...duplicate('duplicate-in-batch'), ...duplicate('duplicate-in-batch')],
+              undefined,
+              'de'
+            )
+          ).toBe('2 Dateien mit Problemen')
+        })
+
+        test('the skipped-files notice is German throughout, not half English', async () => {
+          const { validateFileUpload } = await import('../validation')
+          const good = new File(['x'], 'gut.pdf')
+          vi.mocked(validateFileUpload).mockReturnValueOnce({
+            valid: false,
+            canUpload: true,
+            validFiles: [good],
+            batchErrors: [],
+            fileErrors: duplicate('duplicate-in-batch'),
+            summary: '"Einreichplan.pdf" is included multiple times',
+          })
+          mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
+          mockClient.uploadFiles.mockResolvedValue({ job_id: 'job-1', file_ids: ['file-id-1'] })
+
+          const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }), {
+            wrapper: localeWrapper('de'),
+          })
+          await act(async () => {
+            await result.current.uploadFiles([good])
+          })
+
+          // "Es wird", not "Es werden": one file is being uploaded.
+          expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
+            'Es wird 1 Datei hochgeladen, 1 übersprungen ' +
+              '(„Einreichplan.pdf“ ist mehrfach ausgewählt.)'
+          )
+        })
+
+        test('…and conjugates for more than one', async () => {
+          const { validateFileUpload } = await import('../validation')
+          const good = [new File(['x'], 'a.pdf'), new File(['x'], 'b.pdf')]
+          vi.mocked(validateFileUpload).mockReturnValueOnce({
+            valid: false,
+            canUpload: true,
+            validFiles: good,
+            batchErrors: [],
+            fileErrors: duplicate('duplicate-in-batch'),
+            summary: 'english fallback',
+          })
+          mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
+          mockClient.uploadFiles.mockResolvedValue({
+            job_id: 'job-1',
+            file_ids: ['file-id-1', 'file-id-2'],
+          })
+
+          const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }), {
+            wrapper: localeWrapper('de'),
+          })
+          await act(async () => {
+            await result.current.uploadFiles(good)
+          })
+
+          expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
+            'Es werden 2 Dateien hochgeladen, 1 übersprungen ' +
+              '(„Einreichplan.pdf“ ist mehrfach ausgewählt.)'
+          )
+        })
+      })
+    })
+
+    /*
+      495da2e moved this sentence into the dictionary and introduced "Only 1
+      more are allowed" with it. This i18n has no ICU, so the count picks the
+      key — the same way `permissionCountOne` does in the organization namespace.
+    */
+    describe('the remaining-files limit agrees with its count', () => {
+      const refuseBatch = async (available: number, locale?: Locale) => {
+        const { validateFileUpload } = await import('../validation')
+        vi.mocked(validateFileUpload).mockReturnValueOnce({
+          valid: false,
+          canUpload: false,
+          validFiles: [],
+          fileErrors: [],
+          batchErrors: [
+            {
+              code: 'MAX_FILES_EXCEEDED',
+              variant: 'remaining',
+              message: 'english fallback',
+              values: { total: 12, available, limit: 10 },
+            },
+          ],
+          summary: 'english fallback',
+        })
+
+        const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }), {
+          wrapper: locale ? localeWrapper(locale) : undefined,
+        })
+        await act(async () => {
+          await result.current.uploadFiles([new File(['x'], 'egal.pdf')])
+        })
+        return mockDocumentsStoreState.setError.mock.calls.at(-1)?.[0] as string
+      }
+
+      test('one slot left, in both languages', async () => {
+        expect(await refuseBatch(1)).toBe(
+          'That would be 12 files. Only one more is allowed (10 max).'
+        )
+        expect(await refuseBatch(1, 'de')).toBe(
+          'Damit wären es 12 Dateien. Es ist nur noch eine weitere erlaubt (maximal 10).'
+        )
+      })
+
+      test('more than one, in both languages', async () => {
+        expect(await refuseBatch(3)).toBe(
+          'That would be 12 files. Only 3 more are allowed (10 max).'
+        )
+        expect(await refuseBatch(3, 'de')).toBe(
+          'Damit wären es 12 Dateien. Es sind nur noch 3 weitere erlaubt (maximal 10).'
+        )
+      })
+
+      // Zero is plural in both languages, so it keeps the general sentence.
+      test('none left keeps the plural', async () => {
+        expect(await refuseBatch(0)).toBe(
+          'That would be 12 files. Only 0 more are allowed (10 max).'
+        )
+        expect(await refuseBatch(0, 'de')).toBe(
+          'Damit wären es 12 Dateien. Es sind nur noch 0 weitere erlaubt (maximal 10).'
+        )
+      })
     })
   })
 
@@ -866,6 +1240,46 @@ describe('useFileUpload — durable document uploads', () => {
     })
 
     expect(xhr.requests.every((request) => request.aborted)).toBe(true)
+  })
+
+  /*
+    Issue #432 as reported, end to end and with the REAL validator: a project
+    whose Dateiablage already holds `maxFileCount` documents could not accept an
+    eleventh, because `loadFilesForSession` had written those persisted rows into
+    the same `trackedFiles` array the session caps count. Every other test on
+    this path stubs `validateFileUpload`, so the hook↔validator seam — the hook
+    declaring `collectionKind`, the validator acting on it — is asserted by
+    construction rather than by behaviour. This is the behaviour.
+  */
+  test('a project already holding the file-count limit still accepts an upload (#432)', async () => {
+    const { validateFileUpload } = await import('../validation')
+    const real = await vi.importActual<typeof import('../validation')>('../validation')
+    vi.mocked(validateFileUpload).mockImplementationOnce(real.validateFileUpload)
+
+    // The project's persisted documents, exactly as the orchestrator loads them.
+    mockDocumentsStoreState.trackedFiles = Array.from({ length: 10 }, (_, i) => ({
+      id: `doc-${i}`,
+      fileName: `bestand-${i}.pdf`,
+      collectionName: 'proj-collection',
+      fileSize: 1024,
+    })) as unknown[]
+
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-10'))
+      await pending
+    })
+
+    // Not refused: the request went out and nothing was written to the error bar.
+    expect(xhr.requests).toHaveLength(1)
+    expect(xhr.requests[0].url).toBe('/api/documents/upload')
+    expect(mockDocumentsStoreState.setError).not.toHaveBeenCalled()
   })
 
   test('the Archiv posts to its own endpoint and never names a project', async () => {

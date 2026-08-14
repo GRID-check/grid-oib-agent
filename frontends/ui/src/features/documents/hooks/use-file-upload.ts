@@ -25,6 +25,8 @@ import {
   summarizeFileErrors,
   validateFileUpload,
   type BatchValidationError,
+  type FileErrorLocalizer,
+  type FileValidationError,
   type ValidationContext,
 } from '../validation'
 import { UploadOrchestrator } from '../orchestrator'
@@ -168,18 +170,79 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
    */
   const localizeBatchError = useCallback(
     (error: BatchValidationError): string => {
-      switch (error.code) {
+      const { code, variant, values, message } = error
+      switch (code) {
         case 'MAX_FILES_EXCEEDED':
-          return error.variant === 'remaining'
-            ? t('errors.maxFilesRemaining', error.values)
-            : t('errors.maxFilesExceeded', error.values)
+          if (variant !== 'remaining') return t('errors.maxFilesExceeded', values)
+          // "Only 1 more are allowed" otherwise — this i18n has no ICU, so the
+          // count picks the key.
+          return values.available === 1
+            ? t('errors.maxFilesRemainingOne', values)
+            : t('errors.maxFilesRemaining', values)
         case 'TOTAL_SIZE_EXCEEDED':
-          return error.variant === 'remaining'
-            ? t('errors.totalSizeRemaining', error.values)
-            : t('errors.totalSizeExceeded', error.values)
+          return variant === 'remaining'
+            ? t('errors.totalSizeRemaining', values)
+            : t('errors.totalSizeExceeded', values)
+        default: {
+          // Compile time: a third `BatchValidationErrorCode` stops type-checking
+          // here until it has a sentence. Run time: the validator's English
+          // fallback, rather than the `undefined` that `.filter(Boolean)` below
+          // would drop — a refusal the user never sees is worse than an
+          // untranslated one.
+          const unhandledCode: never = code
+          void unhandledCode
+          return message
+        }
       }
     },
     [t]
+  )
+
+  /**
+   * The file-level refusal, from the dictionary — the same split as
+   * {@link localizeBatchError}. Which duplicate sentence a durable collection
+   * gets is decided HERE and not in the validator, because `collectionKind`
+   * knows only that the store keeps its files; the hook's own options are what
+   * say whether that store is a project's Dateiablage or the org Archiv.
+   */
+  const localizeFileError = useCallback(
+    (error: FileValidationError): string => {
+      // An image refused for a missing VLM explains the deployment, not the
+      // file: the same copy the batch path shows, not a second string.
+      if (error.reason === 'image-vlm-unavailable') return t('errors.imageVlmUnavailable')
+
+      const { variant, values, message } = error
+      switch (variant) {
+        case 'duplicate-in-batch':
+          return t('errors.duplicateInBatch', values)
+        case 'duplicate-in-session':
+          return t('errors.duplicateInSession', values)
+        case 'duplicate-in-collection':
+          return archiv ? t('errors.duplicateInArchiv', values) : t('errors.duplicateInProject', values)
+        case 'unsupported-type':
+          return t('errors.unsupportedType', values)
+        case 'too-large':
+          return t('errors.fileTooLarge', values)
+        default: {
+          const unhandledVariant: never = variant
+          void unhandledVariant
+          return message
+        }
+      }
+    },
+    [t, archiv]
+  )
+
+  const fileErrorLocalizer: FileErrorLocalizer = useMemo(
+    () => ({
+      file: localizeFileError,
+      many: (count) =>
+        t('errors.fileIssues', {
+          count,
+          fileLabel: count === 1 ? t('errors.fileSingular') : t('errors.filePlural'),
+        }),
+    }),
+    [localizeFileError, t]
   )
 
   useEffect(() => {
@@ -261,20 +324,26 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       const imageVlmBlocked = validationResult.fileErrors.some((e) => e.reason === 'image-vlm-unavailable')
       const imageVlmMessage = t('errors.imageVlmUnavailable')
 
+      // The file-level half of every refusal below, from the dictionary rather
+      // than from `validationResult.summary` — which is the validator's English
+      // fallback and was being interpolated into the German sentences. When one
+      // of several files is an image blocked by a missing VLM, that explanation
+      // replaces the count: "Issues with 3 files" would bury the only sentence
+      // that says what to do about it.
+      const fileHalf = imageVlmBlocked
+        ? imageVlmMessage
+        : summarizeFileErrors(validationResult.fileErrors, fileErrorLocalizer)
+
       if (validationResult.batchErrors.length > 0) {
-        // Rebuilt rather than taking `validationResult.summary`, which carries
-        // the validator's English fallback for the batch half. The file-level
+        // Rebuilt rather than taking `validationResult.summary`. The file-level
         // half is kept beside it — it names which file was the problem.
-        const fileHalf = imageVlmBlocked
-          ? imageVlmMessage
-          : summarizeFileErrors(validationResult.fileErrors)
         const parts = [fileHalf, ...validationResult.batchErrors.map(localizeBatchError)]
         setError(parts.filter((part): part is string => Boolean(part)).join(' '))
         return
       }
 
       if (validationResult.validFiles.length === 0) {
-        setError(imageVlmBlocked ? imageVlmMessage : validationResult.summary)
+        setError(fileHalf)
         return
       }
 
@@ -282,15 +351,19 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       setUploading(true)
 
       if (validationResult.fileErrors.length > 0) {
-        const skippedCount = validationResult.fileErrors.length
         const uploadingCount = validFiles.length
+        const values = {
+          uploading: uploadingCount,
+          fileLabel: uploadingCount > 1 ? t('errors.filePlural') : t('errors.fileSingular'),
+          skipped: validationResult.fileErrors.length,
+          summary: fileHalf ?? '',
+        }
+        // "Es werden 1 Datei hochgeladen" otherwise — German conjugates where
+        // English does not, so the count picks the key here too.
         setError(
-          t('errors.uploadingSkipped', {
-            uploading: uploadingCount,
-            fileLabel: uploadingCount > 1 ? t('errors.filePlural') : t('errors.fileSingular'),
-            skipped: skippedCount,
-            summary: imageVlmBlocked ? imageVlmMessage : (validationResult.summary ?? ''),
-          })
+          uploadingCount === 1
+            ? t('errors.uploadingSkippedOne', values)
+            : t('errors.uploadingSkipped', values)
         )
       } else {
         clearError()
@@ -497,6 +570,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       fileUploadConfig,
       locale,
       localizeBatchError,
+      fileErrorLocalizer,
       ensureCollectionExists,
       addTrackedFile,
       updateTrackedFile,

@@ -4,6 +4,9 @@ import {
   isValidFileExtension,
   isValidMimeType,
   createEmptyValidationContext,
+  summarizeFileErrors,
+  type CollectionKind,
+  type FileValidationError,
   type ValidationContext,
 } from './validation'
 import { MAX_FILE_SIZE, MAX_FILE_COUNT } from './constants'
@@ -170,7 +173,8 @@ describe('validation', () => {
         expect(result.validFiles).toHaveLength(0)
         expect(result.fileErrors).toHaveLength(1)
         expect(result.fileErrors[0].code).toBe('DUPLICATE_FILE')
-        expect(result.fileErrors[0].message).toContain('already exists in this session')
+        expect(result.fileErrors[0].variant).toBe('duplicate-in-session')
+        expect(result.fileErrors[0].message).toContain('already attached to this chat')
       })
     })
 
@@ -696,6 +700,10 @@ describe('a durable collection is not capped by what it already holds (issue #43
 
     expect(result.fileErrors).toHaveLength(1)
     expect(result.fileErrors[0].code).toBe('DUPLICATE_FILE')
+    // …and it does NOT call the Dateiablage a session, which is what the old
+    // copy did on every durable surface.
+    expect(result.fileErrors[0].variant).toBe('duplicate-in-collection')
+    expect(result.fileErrors[0].message).not.toContain('session')
   })
 
   test('a batch carrying a model still gets the IFC ceiling', () => {
@@ -825,6 +833,132 @@ describe('batch errors carry what a translator needs', () => {
       code: 'TOTAL_SIZE_EXCEEDED',
       variant: 'remaining',
       values: { total: '1.2 MB', available: '600 kB', limit: '1 MB' },
+    })
+  })
+})
+
+describe('file errors carry what a translator needs', () => {
+  /*
+    The other half of the same split. `FileValidationError.message` stays as the
+    English fallback for non-React callers; `variant` + `values` are what
+    `useFileUpload` renders `files.errors.*` from. The duplicate variant depends
+    on the SURFACE, because "already exists in this session" is a false
+    statement on a project Dateiablage or in the org Archiv.
+  */
+  const config = {
+    acceptedTypes: '.pdf',
+    acceptedMimeTypes: ['application/pdf'],
+    maxTotalSizeMB: 100,
+    maxFileSize: 1_000_000,
+    maxIfcFileSize: 0,
+    maxTotalSize: 100 * 1024 * 1024,
+    maxFileCount: 10,
+    fileExpirationCheckIntervalHours: 0,
+  }
+  const file = (name: string, bytes = 1024): File => {
+    const f = new File(['x'], name)
+    Object.defineProperty(f, 'size', { value: bytes })
+    return f
+  }
+  const holding = (kind: CollectionKind, ...names: string[]): ValidationContext => ({
+    collectionKind: kind,
+    existingTotalSize: 1024 * names.length,
+    existingFileCount: names.length,
+    existingFileNames: new Set(names),
+  })
+
+  test('a duplicate inside the batch', () => {
+    const result = validateFileUpload([file('a.pdf'), file('a.pdf')], undefined, config)
+
+    expect(result.fileErrors[0]).toMatchObject({
+      code: 'DUPLICATE_FILE',
+      variant: 'duplicate-in-batch',
+      values: { name: 'a.pdf' },
+    })
+  })
+
+  test('a duplicate of something already attached to the chat', () => {
+    const result = validateFileUpload([file('a.pdf')], holding('chat-session', 'a.pdf'), config)
+
+    expect(result.fileErrors[0]).toMatchObject({
+      variant: 'duplicate-in-session',
+      values: { name: 'a.pdf' },
+    })
+  })
+
+  test('a duplicate of something already in a durable collection', () => {
+    const result = validateFileUpload([file('a.pdf')], holding('durable', 'a.pdf'), config)
+
+    expect(result.fileErrors[0]).toMatchObject({
+      variant: 'duplicate-in-collection',
+      values: { name: 'a.pdf' },
+    })
+  })
+
+  test('an unsupported type hands over the accept list', () => {
+    const result = validateFileUpload([file('setup.exe')], undefined, config)
+
+    expect(result.fileErrors[0]).toMatchObject({
+      code: 'INVALID_TYPE',
+      variant: 'unsupported-type',
+      values: { name: 'setup.exe', accepted: '.pdf' },
+    })
+  })
+
+  test('an image blocked by a missing VLM keeps its targeted reason', () => {
+    const result = validateFileUpload([file('foto.png')], undefined, {
+      ...config,
+      imageUploadBlockedReason: 'vlm-unavailable',
+    })
+
+    expect(result.fileErrors[0]).toMatchObject({
+      code: 'INVALID_TYPE',
+      variant: 'unsupported-type',
+      reason: 'image-vlm-unavailable',
+    })
+  })
+
+  test('an oversized file punctuates both sizes with the caller locale', () => {
+    const german = validateFileUpload([file('gross.pdf', 1_500_000)], undefined, config, 'de')
+    const english = validateFileUpload([file('gross.pdf', 1_500_000)], undefined, config, 'en-US')
+
+    expect(german.fileErrors[0]).toMatchObject({
+      code: 'FILE_TOO_LARGE',
+      variant: 'too-large',
+      values: { name: 'gross.pdf', size: '1,5 MB', limit: '1 MB' },
+    })
+    expect(english.fileErrors[0].values).toEqual({
+      name: 'gross.pdf',
+      size: '1.5 MB',
+      limit: '1 MB',
+    })
+  })
+
+  describe('summarizeFileErrors', () => {
+    const errors = (count: number): FileValidationError[] =>
+      Array.from({ length: count }, (_, i) => ({
+        file: file(`a-${i}.pdf`),
+        code: 'DUPLICATE_FILE' as const,
+        variant: 'duplicate-in-batch' as const,
+        message: `english ${i}`,
+        values: { name: `a-${i}.pdf` },
+      }))
+
+    test('with no localizer it is the English fallback, for non-React callers', () => {
+      expect(summarizeFileErrors([])).toBeNull()
+      expect(summarizeFileErrors(errors(1))).toBe('english 0')
+      expect(summarizeFileErrors(errors(3))).toBe('3 files have issues')
+    })
+
+    test('with one it renders the caller’s sentences instead', () => {
+      const localize = {
+        file: (error: FileValidationError) => `refused: ${String(error.values.name)}`,
+        many: (count: number) => `${count} refused`,
+      }
+
+      expect(summarizeFileErrors([], localize)).toBeNull()
+      expect(summarizeFileErrors(errors(1), localize)).toBe('refused: a-0.pdf')
+      expect(summarizeFileErrors(errors(3), localize)).toBe('3 refused')
     })
   })
 })

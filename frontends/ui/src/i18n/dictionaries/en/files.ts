@@ -242,6 +242,9 @@ export const files = {
   errors: {
     someUploadsFailed: '{failed} of {total} documents could not be uploaded. First reason: {reason}',
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
+    // Identical in English, which has no verb to agree here — the German does
+    // ("Es werden 1 Datei hochgeladen"), and both locales need the same keys.
+    uploadingSkippedOne: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
     imageVlmUnavailable: 'Image upload requires a configured vision model (VLM) on this deployment.',
     // Batch-level upload limits. The validator (`features/documents/validation.ts`)
@@ -252,8 +255,25 @@ export const files = {
     maxFilesExceeded: '{total} files exceed the limit of {limit} files per upload.',
     maxFilesRemaining:
       'That would be {total} files. Only {available} more are allowed ({limit} max).',
+    // …and with exactly one slot left, "Only 1 more are allowed". This i18n has
+    // no ICU, so the count picks the key — same as `permissionCountOne` in the
+    // organization namespace.
+    maxFilesRemainingOne: 'That would be {total} files. Only one more is allowed ({limit} max).',
     totalSizeExceeded: 'Total size {total} exceeds the {limit} limit.',
     totalSizeRemaining: 'Total size would be {total}. Only {available} available ({limit} limit).',
+    // File-level refusals, from the same split: the validator names the file,
+    // the accepted types and the (locale-formatted) sizes, the sentence is here.
+    // The duplicate copy is per-surface because "already exists in this session"
+    // is simply false on a Dateiablage or in the Archiv.
+    duplicateInBatch: '“{name}” is included more than once.',
+    duplicateInSession: '“{name}” is already attached to this chat.',
+    duplicateInProject: '“{name}” is already in this project.',
+    duplicateInArchiv: '“{name}” is already in the Archiv.',
+    unsupportedType: '“{name}” is not a supported file type. Accepted: {accepted}',
+    fileTooLarge: '“{name}” is {size}, which exceeds the {limit} limit.',
+    // Several files refused at once: they are not named individually, so the
+    // sentence is a count. Phrased without a verb so it agrees at any count.
+    fileIssues: 'Issues with {count} {fileLabel}',
     fileSingular: 'file',
     filePlural: 'files',
   },

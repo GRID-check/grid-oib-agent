@@ -78,8 +78,10 @@ export { DEFAULT_JOB_BANNER_STATE } from './types'
 
 export type {
   FileValidationErrorCode,
+  FileValidationVariant,
   BatchValidationErrorCode,
   FileValidationError,
+  FileErrorLocalizer,
   BatchValidationError,
   BatchValidationResult,
   ValidationContext,
