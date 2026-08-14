@@ -207,6 +207,10 @@ class IntentClassifier:
             user_info=user_info,
             tools=tools_info if tools_info is not None else self.tools_info,
             project_context=state.project_context,
+            # Routing evidence: what the user attached to THIS turn. Prompt-only
+            # on purpose — a deterministic "attachments ⇒ research" override
+            # would answer "wer hat die WM gewonnen?" out of an attached PDF.
+            session_attachments=[a.model_dump() for a in (state.session_attachments or [])],
         )
         trimmed_conversation = trim_message_history(list(state.messages), max_tokens=self.max_history_tokens)
         messages: list[BaseMessage] = (

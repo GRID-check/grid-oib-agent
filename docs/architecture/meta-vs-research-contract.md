@@ -85,6 +85,32 @@ search tool", so a genuine search tool that is **not** declared under
 `data_sources:` is not recognized as one — it would remain bound on meta turns
 (and is also uncitable). Declare evidence/search tools under `data_sources:`.
 
+## An attached file is routing evidence, not a routing rule (ADR-0048)
+
+The classifier now also sees `session_attachments` — the files the user attached
+to THIS turn (`### FILES ATTACHED TO THIS TURN`, below the KV cache boundary in
+`intent_classification.j2`). It changes how one class of turn is routed:
+
+| The turn | Route | Why |
+|---|---|---|
+| Refers to a document without naming one ("fass den Inhalt zusammen", "das Dokument", "the attachment") **with an attachment present** | `research` / `shallow` | It has a clear subject — the attached file — and one lookup answers it. |
+| Same words, **no attachment** | unchanged | Nothing identifies a subject, so the existing tie-breaks apply. |
+| Anything else, attachment or not | unchanged | "wer hat die WM gewonnen?" is still `out_of_scope`; "was kannst du?" is still `meta`. |
+
+Two properties of this are deliberate and should survive future edits:
+
+- **It is prompt-only.** There is no code path that forces `research` when
+  attachments are present. A deterministic override would answer an off-domain
+  question out of an attached PDF and bypass the fixed out-of-scope redirect —
+  the exact failure the `out_of_scope` route exists to prevent.
+- **The route is explicitly not `deep`.** `deep` is the one route that summons
+  the clarifier (`route_after_orchestration` returns `"clarifier"` solely on
+  `depth_decision == "deep"`, and the shallow→deep escalation edge is wired to
+  the same node). Reading one attached file through a research-plan approval
+  dialog is the reported symptom, not a deeper answer. The clarifier's own
+  document blocks were corrected too, but that is defence in depth on the
+  escalation path — keeping the turn shallow is what actually removes the plan.
+
 ## The structural direction: a dedicated meta agent
 
 The tactical fix stops the bleeding, but the deeper design should **separate the

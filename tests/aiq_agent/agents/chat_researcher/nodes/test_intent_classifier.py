@@ -1,5 +1,6 @@
 """Tests for the IntentClassifier node (combined intent + depth + meta orchestration)."""
 
+from pathlib import Path
 from typing import ClassVar
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -12,6 +13,8 @@ from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
 from aiq_agent.agents.chat_researcher.nodes.intent_classifier import IntentClassifier
+from aiq_agent.common.prompt_utils import render_prompt_template
+from aiq_agent.common.turn_attachments import SessionAttachment
 
 
 class TestIntentClassifier:
@@ -496,3 +499,107 @@ class TestReasoningIncompatibleOverrideFallback:
         state = ChatResearcherState(messages=[HumanMessage(content="hello")])
         result = await classifier.run(state)
         assert result["user_intent"].intent == "error"
+
+
+class TestAttachmentsReachTheClassifier:
+    """The turn's attachments are routing evidence, and the routing is prompt-only.
+
+    A subjectless "Fass den Inhalt zusammen" with a file attached is a research
+    turn, and a SHALLOW one — a deep route is what summons the clarifier and its
+    research plan, which is the user's third reported symptom.
+    """
+
+    TEMPLATE = (
+        Path(__file__).resolve().parents[4].parent
+        / "src"
+        / "aiq_agent"
+        / "agents"
+        / "chat_researcher"
+        / "prompts"
+        / "intent_classification.j2"
+    )
+
+    HEADING = "### FILES ATTACHED TO THIS TURN"
+
+    def _render(self, session_attachments):
+        return render_prompt_template(
+            self.TEMPLATE.read_text(encoding="utf-8"),
+            query="Fass den Inhalt zusammen",
+            current_datetime="2026-08-14",
+            user_info={},
+            tools=[],
+            project_context=None,
+            session_attachments=session_attachments,
+        )
+
+    def test_no_block_without_attachments(self):
+        assert self.HEADING not in self._render([])
+
+    def test_the_attached_file_names_are_rendered(self):
+        rendered = self._render([{"file_name": "Statikbericht.pdf", "state": "indexing"}])
+
+        assert self.HEADING in rendered
+        assert "Statikbericht.pdf" in rendered
+
+    def test_an_attachment_referring_turn_is_research_and_shallow(self):
+        block = self._render([{"file_name": "Statikbericht.pdf", "state": "ready"}]).split(self.HEADING, 1)[1]
+
+        assert '`intent = "research"`' in block
+        assert '`research_depth = "shallow"`' in block
+
+    def test_the_block_rules_out_deep_explicitly(self):
+        """Load-bearing: `deep` routes through the clarifier, which then plans
+        research over Archiv material nobody asked about."""
+        block = self._render([{"file_name": "Statikbericht.pdf", "state": "ready"}]).split(self.HEADING, 1)[1]
+
+        assert "never `deep`" in block
+        assert "clarifier" in block or "Rückfrage" in block or "plan" in block
+
+    def test_the_block_rules_out_meta_and_out_of_scope(self):
+        block = self._render([{"file_name": "Statikbericht.pdf", "state": "ready"}]).split(self.HEADING, 1)[1]
+
+        assert "`out_of_scope`" in block
+        assert "`meta`" in block
+
+    def test_the_block_names_the_german_deictics(self):
+        block = self._render([{"file_name": "Statikbericht.pdf", "state": "ready"}]).split(self.HEADING, 1)[1]
+
+        for phrase in ("fass den Inhalt zusammen", "das Dokument", "die Datei"):
+            assert phrase in block
+
+    def test_an_attachment_does_not_make_every_turn_research(self):
+        """No deterministic override, and the prompt says so: "wer hat die WM
+        gewonnen?" with a PDF attached is still out_of_scope."""
+        block = self._render([{"file_name": "Statikbericht.pdf", "state": "ready"}]).split(self.HEADING, 1)[1]
+
+        assert "does not make every turn" in block
+
+    def test_the_block_sits_below_the_kv_cache_boundary(self):
+        template = self.TEMPLATE.read_text(encoding="utf-8")
+
+        assert template.index("KV CACHE BOUNDARY") < template.index("session_attachments")
+
+    @pytest.mark.asyncio
+    async def test_the_classifier_node_passes_the_turns_attachments_to_the_prompt(self):
+        """The block is inert unless the node forwards state.session_attachments."""
+        llm = FakeMessagesListChatModel(responses=[AIMessage(content='{"intent": "research"}')])
+        classifier = IntentClassifier(llm=llm)
+        captured: list[str] = []
+
+        original = classifier._ainvoke_classifier
+
+        async def _capture(llm_obj, messages, config):
+            captured.append(messages[0].content)
+            return await original(llm_obj, messages, config)
+
+        classifier._ainvoke_classifier = _capture
+        await classifier.run(
+            ChatResearcherState(
+                messages=[HumanMessage(content="Fass den Inhalt zusammen")],
+                session_attachments=[SessionAttachment(file_name="Statikbericht.pdf", state="indexing")],
+            )
+        )
+
+        assert captured, "classifier never invoked the LLM"
+        assert "Statikbericht.pdf" in captured[0]
+        assert "still being indexed" in captured[0]

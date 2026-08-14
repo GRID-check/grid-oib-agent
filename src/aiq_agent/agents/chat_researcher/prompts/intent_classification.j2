@@ -46,6 +46,20 @@ No research tools available.
 {{ project_context }}
 </project_context>
 {% endif %}
+{#- Routing evidence, not a routing rule: there is deliberately no code path
+    that forces `research` when attachments are present. Guarded and glued so a
+    turn without attachments renders byte-identically. -#}
+{% if session_attachments is defined and session_attachments %}
+### FILES ATTACHED TO THIS TURN
+The user attached the following file(s) to this conversation:{% for attachment in session_attachments %}
+- {{ attachment.file_name }}{% if attachment.state == 'indexing' %} (still being indexed){% endif %}{% endfor %}
+
+This is evidence about what the query is ABOUT, and it changes the routing of requests that refer to those files:
+- A request that points at a document without naming one — "fass den Inhalt zusammen", "was steht da drin?", "worum geht es?", "das Dokument", "die Datei", "der Anhang", "the file", "the attachment", "summarize it" — is `intent = "research"` with `research_depth = "shallow"`. It has a clear subject (the attached file) and one lookup answers it.
+- Such a request is never `out_of_scope`: reading a file the user just handed over is core to what Grid does. It is never `meta` either: it needs a document lookup, not a fact about Grid.
+- It is **never `deep`**, however long the attached document is. Reading one named file is a single-topic lookup; `deep` sends the turn through the clarifier, which asks the user to approve a multi-source research plan they did not ask for.
+- An attachment does not make every turn research. Judge THIS query on its own words: "wer hat die WM gewonnen?" is still `out_of_scope` and "was kannst du?" is still `meta`, with or without a PDF attached. Only requests that actually refer to a document are affected.
+{% endif %}
 
 ### USER QUERY
 "{{ query }}"
