@@ -44,13 +44,21 @@ answer already gets — but "bias" is not "over-fire at any price": a brake that
 fires on ``ifc_measure``'s own „für eine Messung geeignet" re-floors precisely
 the measured answers this module exists to un-hedge, and fills the
 ``confidence_capped`` ledger with entries nobody should act on. Both directions
-are measured, on four corpora written by three other authors without sight of
-the vocabulary: over 294 sentences the brake misses 0 of 162 verdicts and fires
-on 8 of 132 descriptive ones. Six of the eight are a renderer PREREQUISITE
-phrased with „muss"/„darf" („um X zu bestimmen, muss das Modell Y enthalten",
-„die Datei darf 200 MB nicht überschreiten"). That residue is the deliberate
-trade: no context disarms a deontic modal, so a refusal gets hedged rather than
-a verdict slipping out.
+are measured, on four corpora written by four other authors without sight of the
+vocabulary: over 376 sentences the brake misses 0 of 186 verdicts and fires on
+25 of 190 descriptive ones.
+
+The residue is not noise, and reading it is how the remaining decisions get
+made. Roughly half is a renderer PREREQUISITE or a refusal phrased with
+„muss"/„darf" („um X zu bestimmen, muss das Modell Y enthalten", „die Datei darf
+200 MB nicht überschreiten", „ich kann nicht beurteilen, ob ein Verstoß
+vorliegt"); the rest names an instrument while declining to apply it („die
+Auswertung nach OIB-RL 4 konnte nicht durchgeführt werden", „OIB-RL 4 regelt den
+Feuerwiderstand tragender Bauteile"). Both are the deliberate trade: no context
+disarms a deontic modal or a named instrument, so a refusal gets hedged rather
+than a verdict slipping out. What is NOT accepted is a residue with a shape of
+its own — see „Brandschutz"/„Brandabschnitt" below, where 5 of these were one
+recurring sentence type and the stems moved tier because of it.
 
 The carve-out that keeps the other direction honest is scoped to the CLAUSE, and
 that is not a detail. This function reads the model's FINISHED ANSWER — never
@@ -90,6 +98,35 @@ from .tool_search import tool_basename
 #: extracted index and its renderer carries no provenance contract, so a caller
 #: cannot tell a published quantity from an inferred one by reading the result —
 #: which is the whole basis on which measurement grounding is granted here.
+#:
+#: AUDITED — do not re-derive this from the tool's name. „Carries no provenance
+#: contract" is right, but the tempting shorter reason („it returns no numbers")
+#: is FALSE and would not survive contact with the renderer. ``ifc_query``
+#: returns quantities routinely, several of them with an explicit unit:
+#:
+#:     op='schedule'  „EG: 86.4 m² (2 Räume)"     — unit from `schedule.units`
+#:     op='takeoff'   „IfcWall / Beton: 412,8 m² (96 Bauteile, 3 ohne Wert)"
+#:     op='element'   „Qto_WallBaseQuantities: NetSideArea=24,6, Width=0,30"
+#:
+#: What none of them carries is the thing this gate reads. Grep
+#: ``knowledge/bim_query.py`` and ``knowledge/ifc_spatial_client.py`` — the
+#: whole ``ifc_query`` path — and ``tolerance``, ``provenance`` and ``declared``
+#: do not occur once; that vocabulary exists only on the ``ifc_measure`` side
+#: (``bim/measure_register.py``). So a caller cannot tell 86.4 m² read off a
+#: published Qto_* from 86.4 m² the exporter guessed, and there is no
+#: ``measurement_evidence`` trailer to state the count either.
+#:
+#: The exclusion is consequently BELT AND BRACES rather than the only guard:
+#: adding ``ifc_query`` here would change no behaviour at all, because
+#: :func:`tool_result_is_measurement` also requires the trailer that only
+#: ``measure_register._render`` emits. It is kept as a statement of intent.
+#:
+#: The cost is real but is not payable here: an answer built purely on a
+#: Raumbuch or a Massenermittlung is a genuinely measured answer that gets no
+#: measurement grounding and stays at "low" when uncited. Fixing that means
+#: giving ``ifc_query`` a provenance contract of its own — a widening of the
+#: grounding surface that deserves its own review, not a name added to a
+#: frozenset.
 #:
 #: Matched on the tool's BASE name (``tool_search.tool_basename``): NAT delivers
 #: a function-group or MCP tool as ``group__ifc_measure``, and an exact compare
@@ -332,25 +369,24 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # „Brandabschnitt" appear only in TOOL DESCRIPTIONS and prompt templates,
     # which this function never reads — it reads the model's finished answer.
     # Suppressing them there cost real verdicts („die Auswertung zeigt, dass der
-    # Feuerwiderstand zu gering ist"). „Adds zero false fires" was measured on
-    # the 294 sentences available WHEN THEY WERE PROMOTED — in-sample, and it
-    # does not hold out. On the round-5 blind corpus (120 sentences, written
-    # against the finished code) these four cost 9 false fires, all one shape:
-    # a model-gap report, which is the commonest real shape of a fire-safety
-    # answer — „im Modell sind keine Brandabschnitte hinterlegt", „ein
-    # Brandschutzkonzept liegt der Auswertung nicht bei".
+    # Feuerwiderstand zu gering ist").
     #
-    # They stay strong anyway, and the trade is deliberate rather than
-    # unmeasured: demoting „brandschutz" and „brandabschnitt" to the weak tier
-    # removes 5 of those 9 and breaks nothing across all 376 sentences, so it is
-    # a live option — but a demoted stem is a verdict that can be disarmed by
-    # any apparatus word in its clause, and this module's whole asymmetry is
-    # that a hedge on a descriptive answer is the cheap failure and a confident
-    # legal assertion is the expensive one. Nine hedges is the price paid here.
+    # Only TWO of the four survived that promotion. „Adds zero false fires" was
+    # measured on the 294 sentences available WHEN THEY WERE PROMOTED —
+    # in-sample, and it did not hold out: on the round-5 blind corpus the four
+    # cost 9 false fires, every one of them a MODEL-GAP REPORT, which is the
+    # commonest real shape a fire-safety answer takes („im Modell sind keine
+    # Brandabschnitte hinterlegt", „ein Brandschutzkonzept liegt der Auswertung
+    # nicht bei"). „Brandschutz" and „Brandabschnitt" are therefore weak now;
+    # see the note in :data:`_WEAK_NORMATIVE_PATTERNS`.
+    #
+    # These two stay strong because they name a PROPERTY of a building element
+    # rather than a document or a subdivision of the plan — there is no
+    # „Fluchtniveaukonzept" to be missing from a model, so the gap-report shape
+    # does not arise for them, and the corpora bear that out: demoting them
+    # clears 2 further false fires but neither is the shape above.
     r"\bfluchtniveau",
     r"\bfeuerwiderstand",
-    r"\bbrandschutz",
-    r"\bbrandabschnitt",
     # Same finding for „reicht": the renderer says „erreicht", never „reicht",
     # so the weak tier was protecting prose that does not exist. The lookahead
     # is what does the actual work — „reicht" is „suffices" only when nothing
@@ -366,11 +402,9 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
 #: "medium" — so it is now held to measured evidence rather than to a plausible
 #: story about renderer prose. Each stem below was individually promoted to the
 #: strong tier and measured across 294 sentences from four corpora written by
-#: three other authors; these are the seven that cost false fires when promoted.
-#: Five others (``fluchtniveau``, ``feuerwiderstand``, ``brandschutz``,
-#: ``brandabschnitt``, ``reicht``) cost nothing IN THAT SAMPLE and are strong
-#: again — a later blind corpus charged the four fire-safety nouns 9 false
-#: fires, which is a known and accepted cost; see the note beside them above.
+#: three other authors; the first seven are the ones that cost false fires when
+#: promoted. ``fluchtniveau``, ``feuerwiderstand`` and ``reicht`` cost nothing
+#: in that sample and are strong.
 _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bgeeignet",  # „als Aufenthaltsraum geeignet" vs „für eine Messung geeignet"
     r"\berforderlich",  # a legal requirement vs a tool prerequisite
@@ -382,6 +416,26 @@ _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # Türverknüpfung erforderlich" is a gap report. The verdict about one still
     # fires — „dass der Fluchtweg zu schmal ist" is its own clause.
     r"\bfluchtweg",
+    # Demoted from the strong tier on measurement, reversing the promotion the
+    # note above describes. Both name something a model either CONTAINS or does
+    # not — a concept document, a subdivision of the plan — so the commonest
+    # sentence either appears in is a report that it is missing:
+    #
+    #     „Die Messung ergibt, dass im Modell keine Brandabschnitte hinterlegt sind."
+    #     „Ein Brandschutzkonzept liegt der Auswertung nicht bei."
+    #
+    # Re-measured across all 376 sentences of the four blind corpora, demoting
+    # these two clears 5 false fires and adds NO miss (0 → 0 misses, 30 → 25
+    # false fires). Demotion is not free in principle — a weak stem can be
+    # disarmed by any apparatus word in its clause, against this module's
+    # hedge-is-cheap asymmetry — and it is taken here on that measurement and
+    # on nothing else. What makes it affordable is the CLAUSE scoping below: a
+    # verdict about a Brandabschnitt („die Auswertung zeigt, dass das
+    # Brandschutzkonzept unzureichend ist", „laut Messung ist der Brandabschnitt
+    # zu groß") lives in its own clause with no apparatus word in it, and the
+    # strong tier still covers every verdict that names its own instrument.
+    r"\bbrandschutz",
+    r"\bbrandabschnitt",
 )
 
 #: The measurement APPARATUS naming itself. Narrow on purpose — every entry is
@@ -432,6 +486,27 @@ _MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS)
 #: 2. **Consecutive „, sodass"-type connectives.** „dass|wie|was|damit" covered
 #:    the complement clauses and missed the consequence clauses, which is the
 #:    half a verdict is actually drawn in.
+#: 3. **The mid-clause sentence adverb.** „Die Messung ergibt 0,95 m, der
+#:    Fluchtweg ist somit zu schmal." „sodass" and „weshalb" INTRODUCE their
+#:    clause, so a lookahead pinned to the comma finds them; „somit" is not a
+#:    subordinator at all and floats to the middle field, behind the subject
+#:    and the finite verb. No amount of lookahead adjacent to the comma can see
+#:    it, so the lookahead scans the REST of the clause instead.
+#:
+#: That last one is a wider cut than the others and is taken only because the
+#: narrow form is measurably free. Splitting on a BARE comma was measured at 30
+#: → 31 false fires over the four blind corpora and rejected; requiring a
+#: sentence adverb somewhere in the following clause costs nothing (0 misses
+#: and 30 false fires before, 0 and 30 after) while firing the shape above. It
+#: changes the clause split of exactly two corpus sentences, both descriptive
+#: and both still silent, because in both the apparatus word travels in the
+#: same clause as the weak stem („Der Raum ist zu groß für eine einzelne
+#: Messachse, daher wurde in zwei Achsen gemessen").
+#:
+#: The whitespace after the comma is load-bearing for the same reason the
+#: hyphen's is: „2,48" is a decimal comma, not punctuation. Without it the
+#: forward scan in „…von 2,48 m ist somit…" splits INSIDE the number and can
+#: strand a weak stem in a clause its own apparatus word no longer reaches.
 #:
 #: Bare „," and „ und " are deliberately NOT split on. Both genuinely coordinate
 #: as often as they subordinate, and both were measured: the bare comma added a
@@ -442,7 +517,9 @@ _MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS)
 _SENTENCE_SPLIT_RE = re.compile(
     r"[.!?\n;:–—]+"
     r"|\s-{1,2}\s"
-    r"|,(?=\s*(?:dass|wie|was|damit|sodass|so\s+dass|weshalb|weswegen|womit|wodurch)\b)",
+    r"|,(?=\s*(?:dass|wie|was|damit|sodass|so\s+dass|weshalb|weswegen|womit|wodurch)\b)"
+    r"|,(?=\s[^.!?\n;:–—]*"
+    r"\b(?:somit|folglich|demnach|mithin|daher|deshalb|darum|infolgedessen)\b)",
     re.IGNORECASE,
 )
 

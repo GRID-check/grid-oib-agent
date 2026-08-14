@@ -528,19 +528,75 @@ class TestNormativeClaimDetection:
             # the strong tier can fire — a weak stem would be suppressed.
             "Die Auswertung zeigt einen zu geringen Feuerwiderstand der Trennwand.",
             "Die Messung ergibt ein zu hohes Fluchtniveau.",
-            "Die Auswertung betrifft den baulichen Brandschutz des Stiegenhauses.",
-            "Die Messung umfasst den Brandabschnitt im Regelgeschoß.",
         ],
     )
-    def test_fire_safety_categories_are_strong_again(self, text):
-        """These spent a release in the weak tier on a justification that does
-        not exist. Grep ``src/``: „Fluchtniveau", „Feuerwiderstand",
-        „Brandschutz" and „Brandabschnitt" appear only in tool DESCRIPTIONS and
-        prompt templates — never in an emitted measurement, and this function
-        reads neither. Three of the four were unconditional at ``862e453a^``.
-        Promoting them back cost zero false fires across 294 sentences from four
-        independently authored corpora, so no context may disarm them.
+    def test_the_fire_safety_categories_that_stayed_strong(self, text):
+        """„Fluchtniveau" and „Feuerwiderstand" name a PROPERTY that only the
+        Bestimmung fixes, so no context may disarm them.
+
+        The other two stems this test used to cover — „Brandschutz" and
+        „Brandabschnitt" — are now weak; see
+        :meth:`test_a_fire_safety_model_gap_report_is_not_a_verdict` for the
+        measurement that moved them and why this assertion was reversed for
+        them and not for these two.
         """
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # REVERSED, deliberately. Both of these were asserted True by the
+            # old `test_fire_safety_categories_are_strong_again`, on the
+            # strength of „promoting them back cost zero false fires across 294
+            # sentences" — which was measured IN-SAMPLE, on the corpora that
+            # existed when they were promoted, and did not hold out.
+            #
+            # Neither sentence is a verdict. Both say what the AUSWERTUNG
+            # covers; nothing here is a claim about the building that anyone
+            # could act on, so asserting that the brake fires on them was
+            # asserting a property nobody wants.
+            "Die Auswertung betrifft den baulichen Brandschutz des Stiegenhauses.",
+            "Die Messung umfasst den Brandabschnitt im Regelgeschoß.",
+            # The shape that actually cost the false fires: the model-gap
+            # report, which is the commonest real fire-safety answer there is.
+            "Die Messung ergibt, dass im Modell keine Brandabschnitte hinterlegt sind.",
+            "Ein Brandschutzkonzept liegt der Auswertung nicht bei.",
+        ],
+    )
+    def test_a_fire_safety_model_gap_report_is_not_a_verdict(self, text):
+        """B3. „Brandschutz"/„Brandabschnitt" demoted to the weak tier.
+
+        On the round-5 blind corpus the four fire-safety nouns cost 9 false
+        fires, every one of them the same shape: a report that the MODEL does
+        not carry the fire-safety data, which is what a fire-safety answer
+        mostly is. Re-measured across all 376 sentences of the four
+        independently authored corpora, demoting these two clears 5 of those 9
+        and adds not one miss (0 misses before, 0 after; 30 false fires → 25).
+
+        Demotion is not free in principle — a weak stem can be disarmed by any
+        apparatus word in its clause, against this module's hedge-is-cheap
+        asymmetry — so it is taken on the measurement and on nothing else. What
+        makes it safe in practice is the CLAUSE scoping: a real verdict about a
+        Brandabschnitt lives in its own clause, with no apparatus word in it,
+        and :meth:`test_a_demoted_fire_safety_verdict_still_fires` pins that.
+        """
+        assert answer_mentions_normative_claim(text) is False
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # The verdict sits in its own clause, so the carve-out cannot
+            # reach it — this is the whole reason the demotion is affordable.
+            "Die Auswertung zeigt, dass das Brandschutzkonzept unzureichend ist.",
+            "Laut Messung ist der Brandabschnitt zu groß.",
+            "Die Messung ergibt 1200 m², der Brandabschnitt ist somit zu groß.",
+            # Strong stems in the same sentence still fire unconditionally.
+            "Der Brandabschnitt ist unzulässig groß.",
+            "Das Brandschutzkonzept entspricht nicht der OIB-Richtlinie 2.",
+        ],
+    )
+    def test_a_demoted_fire_safety_verdict_still_fires(self, text):
+        """Demoting the noun must not cost the verdict drawn about it."""
         assert answer_mentions_normative_claim(text) is True
 
     def test_a_dash_separates_the_measurement_from_the_verdict(self):
@@ -593,6 +649,78 @@ class TestNormativeClaimDetection:
         introducing.
         """
         assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # The module's headline verdict again, joined by the connective a
+            # model reaches for most after „sodass" — and the one no lookahead
+            # on the comma can see, because it is not a subordinator at all. It
+            # sits INSIDE the second clause, after the subject and the finite
+            # verb, so „,(?=\s*somit)" matches nothing here.
+            "Die Messung ergibt 0,95 m, der Fluchtweg ist somit zu schmal.",
+            "Die Auswertung ergibt 2,20 m, der Raum ist folglich zu niedrig.",
+            "Die Messung ergibt 1,10 m, die Stiege ist demnach zu schmal.",
+            "Die Berechnung ergibt 18 m², der Raum ist daher zu klein.",
+            "Die Auswertung ergibt 1,90 m, die Höhe ist mithin zu gering.",
+            "Die Messung ergibt 0,90 m, der Gang ist deshalb zu eng.",
+        ],
+    )
+    def test_a_mid_clause_sentence_adverb_separates_the_verdict(self, text):
+        """A2. „, … somit …" — the consequence clause with no subordinator.
+
+        „sodass"/„weshalb" introduce their clause, so a lookahead pinned to the
+        comma finds them. A sentence adverb does not introduce anything: it
+        floats to the middle field, behind the subject and the finite verb. So
+        the lookahead has to scan the REST of the clause for it, not the two
+        characters after the comma.
+
+        Every sentence here carries no strong stem — „zu schmal"/„zu niedrig"
+        and „Fluchtweg" are all weak — so without the split the apparatus word
+        in the left clause disarms the verdict in the right one, and a
+        fire-escape-width verdict ships as ``measurement_only``.
+        """
+        assert answer_mentions_normative_claim(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # Both clauses are about the APPARATUS. A conjunction between two
+            # descriptive clauses is not a verdict, and splitting here would
+            # strand „zu groß"/„zu klein" away from the word that disarms it.
+            # Both are corpus sentences (critic3 c3d-32, fixer3 f3d-25).
+            "Der Raum ist zu groß für eine einzelne Messachse, daher wurde in zwei Achsen gemessen.",
+            "Der Raum ist zu klein bemaßt worden, die Bemaßung wurde daher wiederholt.",
+            "Die Messung ergibt 2,48 m, der Wert ist daher belastbar.",
+        ],
+    )
+    def test_the_adverb_split_does_not_invent_a_false_fire(self, text):
+        """The narrow version is what makes this affordable.
+
+        Splitting on a BARE comma was measured at 30 → 31 false fires over the
+        four blind corpora and rejected. Splitting only when the following
+        clause carries a sentence adverb costs nothing: 0 misses and 30 false
+        fires before, 0 and 30 after. It changes the clause split of exactly
+        two corpus sentences — the first two here — and both stay silent,
+        because the apparatus word travels in the same clause as the weak stem.
+        """
+        assert answer_mentions_normative_claim(text) is False
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # „2,48" is a decimal comma, not punctuation — the same rule the
+            # unspaced hyphen already follows. The adverb lookahead scans
+            # forward to the end of the clause, so without the whitespace guard
+            # „…2,48 m ist somit…" splits INSIDE the number, and a weak stem
+            # can end up in a clause its apparatus word no longer reaches.
+            "Die Raumhöhe von 2,48 m ist somit ausreichend",
+            "Die Messung von 0,95 m ist daher zu ungenau",
+        ],
+    )
+    def test_a_decimal_comma_is_not_a_clause_break(self, text):
+        """The number must survive the splitter whole."""
+        assert _SENTENCE_SPLIT_RE.split(text) == [text]
 
     @pytest.mark.parametrize(
         ("text", "intact"),

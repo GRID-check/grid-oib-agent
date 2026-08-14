@@ -222,13 +222,38 @@ def _prose_without_references(content: str) -> str:
         kept: „- Damit ist der Raum unzulässig"          (no pointer)
         kept: „1. Damit ist der Raum unzulässig"         (no pointer)
 
-    Nothing structural separates any of them from „- [Wiener Bauordnung](https://ris…)",
-    and the rules that would — a finite-verb list, or running the brake on the
-    tail — either guess or cut the wrong way, since „Wiener Bauordnung" trips
-    the brake itself. It also takes a model that writes an ALL-references tail
-    under a „**Quellen:**"/„## Sources" heading and smuggles the verdict into
-    it; one ordinary prose line in that tail and nothing is cut at all. Left
-    open deliberately rather than fixed with a heuristic.
+    Nothing structural separates any of them from „- [Wiener Bauordnung](https://ris…)".
+    The asymmetry that LOOKS like it should — a bibliography entry is a noun
+    phrase, a verdict has a finite verb — is real, but the cheap proxy for it is
+    not. Running :func:`~.grounding.answer_mentions_normative_claim` over the
+    stripped tail and keeping the lines it fires on was measured, because the
+    strong tier has changed since it was first dismissed, and it is still wrong
+    — by more than the original note claimed. Over the reference shapes this
+    repo actually emits (``_append_minimal_citation``'s own output plus the
+    fixtures pinned in ``tests/…/test_grounding.py``) the brake fires on 11 of
+    14 GENUINE entries, against 5 of 5 smuggled verdicts:
+
+        FIRES  - [1] Wiener Bauordnung - https://…        ← appended by US
+        FIRES  - [1] OIB-Richtlinie 4, Punkt 2.1 - https://…
+        FIRES  - [5] ÖNORM B 1600 - https://…
+        FIRES  - [Damit ist der Raum unzulässig](https://…)
+
+    That is not a weak signal, it is an inverted one. The brake's strong tier is
+    a list of the NAMES of Austrian legal instruments — „bauordnung", „oib",
+    „richtlinie", „verordnung", „§", „norm" — and a compliance bibliography is a
+    list of exactly those names, so the tail is the densest patch of strong
+    stems in the whole answer. The three silent entries are the three that name
+    no instrument („[RIS] BauO", a bare URL, a tool name). Adopting the rule
+    would retain the reference line this module appends ITSELF, re-floor every
+    single-source-fallback answer to "low", and reintroduce precisely the
+    regression the paragraph above describes.
+
+    A real finite-verb test needs a POS tagger or the hand-written verb list
+    that was ruled out for guessing. So this stays open. It also takes a model
+    that writes an ALL-references tail under a „**Quellen:**"/„## Sources"
+    heading and smuggles the verdict into it; one ordinary prose line in that
+    tail and nothing is cut at all. Left open deliberately rather than fixed
+    with a heuristic that cuts the wrong way.
     """
     if not isinstance(content, str):
         return ""
