@@ -19,7 +19,18 @@ vi.mock('./repository', () => ({
   softDeleteProjectAndEnqueue: vi.fn(),
 }))
 
-import { listProjects } from './service'
+const countDocumentsByProject = vi.fn()
+vi.mock('@/lib/documents/repository', () => ({
+  countDocumentsByProject: (...args: unknown[]) => countDocumentsByProject(...args),
+}))
+
+const lastProjectActivityByUser = vi.fn()
+vi.mock('@/lib/conversations/repository', () => ({
+  lastProjectActivityByUser: (...args: unknown[]) => lastProjectActivityByUser(...args),
+  listConversationIdsForProject: vi.fn(),
+}))
+
+import { getProjectsGridData, listProjects } from './service'
 import { makeProject } from '@/test-utils/db-fixtures'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
@@ -113,5 +124,43 @@ describe('listProjects', () => {
     await listProjects(session({ organizationId: 'org_1' }))
 
     expect(listProjectsInOrg).toHaveBeenCalledWith('org_1', { order: 'newest' })
+  })
+})
+
+/**
+ * The grid's derived reads must inherit the FGA filtering above rather than
+ * re-deriving their own scope — a document count or an activity timestamp for a
+ * project the caller cannot open is the same leak in a different shape.
+ */
+describe('getProjectsGridData', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    listProjectsInOrg.mockResolvedValue([ALPHA, BETA, GAMMA])
+    countDocumentsByProject.mockResolvedValue({ proj_beta: 4 })
+    lastProjectActivityByUser.mockResolvedValue({ proj_beta: '2026-08-05T09:00:00.000Z' })
+  })
+
+  it('asks for activity for the caller, and only for the projects they can reach', async () => {
+    check.mockImplementation(({ resourceExternalId }: { resourceExternalId: string }) =>
+      Promise.resolve({ authorized: resourceExternalId === 'proj_beta' })
+    )
+
+    const data = await getProjectsGridData(session())
+
+    expect(lastProjectActivityByUser).toHaveBeenCalledWith('org_1', 'user_1', ['proj_beta'])
+    expect(countDocumentsByProject).toHaveBeenCalledWith('org_1', ['proj_beta'])
+    expect(data.projects.map((project) => project.id)).toEqual(['proj_beta'])
+    expect(data.viewerActivity).toEqual({ proj_beta: '2026-08-05T09:00:00.000Z' })
+    expect(data.documentCounts).toEqual({ proj_beta: 4 })
+  })
+
+  it('returns an empty activity map rather than failing when nobody has worked anywhere', async () => {
+    check.mockResolvedValue({ authorized: true })
+    lastProjectActivityByUser.mockResolvedValue({})
+
+    const data = await getProjectsGridData(session())
+
+    expect(data.viewerActivity).toEqual({})
+    expect(data.projects).toHaveLength(3)
   })
 })

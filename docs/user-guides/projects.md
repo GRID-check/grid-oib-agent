@@ -4,9 +4,17 @@ Projects group related documents and chat conversations under a shared context. 
 
 ## The projects home
 
-The **Projects** page (`/app/projects`) is the app's home. It shows every project in your organization as a card grid (three columns on desktop, collapsing responsively). Each card is split into a raised header — project name, an **Active** status chip, and the project summary from the brief — and a footer with the **last activity** time (relative, e.g. "2 hours ago", from the most recent brief update) plus a gear icon that jumps straight to that project's settings page. Clicking anywhere else on the card opens the project, resuming the section you last used.
+The **Projects** page (`/app/projects`) is the app's home, and it is ordered by what you were doing rather than by when projects were created.
 
-The header row carries the page title, a search field that filters the grid by project name as you type, and the **New project** button.
+**Pick up where you left off** — the top of the page carries up to three project cards: the projects *you* last worked in, most recent first. "Worked in" means a message you wrote in one of the project's conversations, so a colleague's busy week never reorders your page. These cards show **You were last here** with your own timestamp. If you have not worked in any project yet, the section is headed **Your projects** instead and simply shows the three most recently updated ones, with the neutral **Last activity** label — the page never claims a "continue" that did not happen.
+
+**More projects** — everything else follows as a dense list, most recent first. Each row carries the project's initials, its name and brief, the document count and the timestamp, plus the same settings gear. A project with no brief yet simply has no second line. Rows lift onto the card surface as you point at them; on narrow screens the counts and the initials drop away and the timestamp stays, because that is what you choose a row by. Fewer than four projects and there is no list at all — the cards are the whole page.
+
+The list carries no status chip. Every project you can see is **Active** — the data model has no other state — so on a list it would be the same chip on every row, carrying nothing. It stays on the cards, and returns to the list the day a project can genuinely be something else.
+
+Each card is split into a raised header — project name, an **Active** status chip, and the project summary from the brief — and a footer with the activity time (relative, e.g. "2 hours ago") plus a gear icon that jumps straight to that project's settings page. Clicking anywhere else on a card or row opens the project, resuming the section you last used.
+
+The header row carries the page title, a search field, and the **New project** button. Searching collapses both sections into a single **Matches** list — with a query on screen, "continue where you left off" is not the question being asked.
 
 When the organization-wide Archiv is enabled for your org, a full-width **Archiv** entry card appears below the grid and opens `/app/archiv` — the office's shared, org-wide knowledge.
 

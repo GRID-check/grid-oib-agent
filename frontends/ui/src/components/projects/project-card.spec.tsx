@@ -64,6 +64,28 @@ describe('ProjectCard', () => {
     expect(screen.getByText('Last activity')).toBeInTheDocument()
     expect(screen.getByText('2 hours ago')).toBeInTheDocument()
   })
+
+  /**
+   * The resume rail renders THIS card — there is no second "big" project card.
+   * What the rail adds is the viewer's own timestamp, and the card has to say
+   * whose it is: "you were last here" and "this project last moved" are
+   * different facts, and a card that showed one under the other's label would be
+   * wrong in the one place people trust it most.
+   */
+  test('names the viewer’s own activity when the caller supplies it', () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000)
+    render(
+      <ProjectCard
+        project={createProject({ profileUpdatedAt: new Date('2020-01-01T00:00:00Z') })}
+        activityAt={twoHoursAgo.toISOString()}
+      />,
+    )
+
+    expect(screen.getByText('You were last here')).toBeInTheDocument()
+    expect(screen.queryByText('Last activity')).not.toBeInTheDocument()
+    // The viewer's timestamp wins over the project's own, which is far older here.
+    expect(screen.getByText('2 hours ago')).toBeInTheDocument()
+  })
 })
 
 describe('getProjectStatus', () => {

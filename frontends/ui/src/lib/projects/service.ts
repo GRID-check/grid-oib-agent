@@ -13,7 +13,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { checkResourcePermission } from '@/lib/authz/resource-check'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { neutralizeCollaborationForProject } from '@/lib/collaboration/cleanup'
-import { listConversationIdsForProject } from '@/lib/conversations/repository'
+import { lastProjectActivityByUser, listConversationIdsForProject } from '@/lib/conversations/repository'
 import { countDocumentsByProject } from '@/lib/documents/repository'
 import { computePurgeAfter, projectGraceDays } from '@/lib/deletion/policy'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
@@ -77,8 +77,8 @@ export async function listProjects(
 }
 
 /**
- * Everything the projects grid renders: the reachable projects and their
- * document counts.
+ * Everything the projects grid renders: the reachable projects, their document
+ * counts, and when the caller themselves last worked in each of them.
  *
  * Exists so the page has a service call for its whole view instead of a reason
  * to open the database itself. The page previously ran its own
@@ -86,17 +86,29 @@ export async function listProjects(
  * FGA filtering in {@link listProjects} and put every project in the tenant on
  * screen for every member — the precise regression ADR-0038 closed. Counting is
  * derived from the filtered list for the same reason.
+ *
+ * `viewerActivity` is per-CALLER by construction (see
+ * {@link lastProjectActivityByUser}) and asked only for projects that survived
+ * the FGA filter, so it can neither leak another member's working pattern nor
+ * name a project the caller cannot open. Both derived reads run against the
+ * filtered list, concurrently — they do not depend on each other.
  */
 export async function getProjectsGridData(
   session: AuthorizedSession,
   order: 'newest' | 'oldest' = 'newest',
-): Promise<{ projects: Project[]; documentCounts: Record<string, number> }> {
+): Promise<{
+  projects: Project[]
+  documentCounts: Record<string, number>
+  /** ISO timestamp of the caller's own last activity, keyed by project id. */
+  viewerActivity: Record<string, string>
+}> {
   const visible = await listProjects(session, order)
-  const documentCounts = await countDocumentsByProject(
-    session.organizationId,
-    visible.map((project) => project.id),
-  )
-  return { projects: visible, documentCounts }
+  const visibleIds = visible.map((project) => project.id)
+  const [documentCounts, viewerActivity] = await Promise.all([
+    countDocumentsByProject(session.organizationId, visibleIds),
+    lastProjectActivityByUser(session.organizationId, session.userId, visibleIds),
+  ])
+  return { projects: visible, documentCounts, viewerActivity }
 }
 
 /**
