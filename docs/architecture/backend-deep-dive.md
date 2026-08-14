@@ -524,6 +524,31 @@ at all — and one that is listed carries `None` as a genuine turn-boundary rese
 invocation was set on the state and read back as `None` in
 `shallow_research_node`; it and `session_attachments` are both listed now.
 
+**What the signal is allowed to do to retrieval (ADR-0048).** Three layers, and
+the third is deliberately empty:
+
+| Layer | Mechanism | Semantics |
+|---|---|---|
+| L1 | the agent passes `knowledge_search(file_name=…)` | a hard filter — the agent's own decision |
+| L2 | `_named_retrieve_targets` in `sources/knowledge_layer/src/register.py` | a boost: one extra `file_name`-filtered query per non-base collection, merged into the candidate pool |
+| L3 | — | none. A runtime hard scope on "this turn has attachments" is rejected |
+
+L2's precedence is explicit `file_name=` (stands alone) > `focus_file_name` >
+attachments (capped at three). The base collection never gets a named retrieve,
+so a turn carrying an attachment searches the shared corpus exactly as it did
+before; `_augment_with_named_retrieves` only ever *prepends* candidates, so a
+target that misses or fails leaves the collection's result untouched.
+`_merge_results` is deliberately **not** taught about attachments — fronting
+their chunks in the global merge would reorder every turn in every conversation
+that ever had one, and could push genuine corpus hits past `top_k`.
+
+L3 is refused because attachments must not permanently hijack retrieval: the
+user attaches a Statik-Bericht at turn 1 and asks a general Fluchtweg question
+at turn 6. That refusal is carried as an explicit negative rule in the
+researcher and clarifier prompts ("an attachment does NOT take the conversation
+over") and pinned by tests, because a refusal that lives only in an ADR is one
+the next prompt edit deletes.
+
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
 prompts (`agents/deep_researcher/prompts/planner.j2`,
 `agents/deep_researcher/prompts/orchestrator.j2`,

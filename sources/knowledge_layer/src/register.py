@@ -457,6 +457,113 @@ def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: d
     return {"$and": clauses}
 
 
+#: How many of this turn's attachments get their own named retrieve. Each one is
+#: an extra query per non-base collection; the user who drags in ten PDFs is
+#: paying for ten fan-outs on every turn of the session, and the first few are
+#: where the answer is.
+_MAX_ATTACHMENT_NAMED_RETRIEVES = 3
+
+
+def _named_retrieve_targets(file_name: str | None, *, is_base_collection: bool) -> list[str]:
+    """File names to give their own ``file_name``-filtered query, in order.
+
+    Strict precedence, most deliberate statement first:
+
+    1. **The agent's explicit ``file_name=``** stands ALONE. It is a hard filter
+       downstream, so the other names' hits would be discarded anyway — and
+       widening a named request to files the agent did not name is a silent
+       bait-and-switch.
+    2. **``focus_file_name``** — the visible peek / composer subject. Viewing
+       state is a current, deliberate statement of what the user is looking at,
+       so it outranks the fact that files were attached at some point. This
+       preserves the pre-ADR-0048 behaviour exactly when no attachments exist.
+    3. **This turn's attachments**, capped at
+       :data:`_MAX_ATTACHMENT_NAMED_RETRIEVES`.
+
+    The BASE collection never gets one. It is the shared corpus: a named
+    retrieve there would spend a query on a file that, by construction, is not
+    the user's own — and this function returning ``[]`` for it is what keeps a
+    turn with an attachment searching the corpus exactly as before.
+
+    A named retrieve only ever ADDS candidates (see
+    :func:`_augment_with_named_retrieves`); it is a boost, never a filter. The
+    filter is `file_name=`, and only the agent may set it.
+
+    Never raises: an unreadable ContextVar contributes nothing rather than
+    costing the turn its search.
+    """
+    if is_base_collection:
+        return []
+    if file_name:
+        return [file_name]
+
+    try:
+        from aiq_agent.common.focus_file import get_focused_file_name
+
+        focused = get_focused_file_name()
+    except Exception:
+        logger.debug("Could not read the focused file name", exc_info=True)
+        focused = None
+    if focused:
+        return [focused]
+
+    try:
+        from aiq_agent.common.turn_attachments import get_turn_attachments
+
+        attachments = get_turn_attachments()
+    except Exception:
+        logger.debug("Could not read this turn's attachments", exc_info=True)
+        return []
+    names: list[str] = []
+    for attachment in attachments:
+        name = (getattr(attachment, "file_name", "") or "").strip()
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= _MAX_ATTACHMENT_NAMED_RETRIEVES:
+            break
+    return names
+
+
+async def _augment_with_named_retrieves(retriever, result, *, query, collection, shelf, candidate_k, targets):
+    """Add a ``file_name``-filtered query per target to one collection's result.
+
+    ADDITIVE by construction: the similarity hits are kept in place and the
+    named hits are prepended, so a target that returns nothing (or fails) leaves
+    the collection's result exactly as it was. Nothing here can remove a
+    candidate — that is what makes this a boost and not a second filter.
+
+    ``_merge_results`` is deliberately NOT taught about this ordering. Fronting
+    attachment chunks in the global merge would reorder every turn in every
+    conversation that ever had an attachment, and could push genuine corpus hits
+    past ``top_k``.
+
+    Each named chunk is stamped with its collection and shelf on the same terms
+    as the similarity hits (ADR-0047): an unstated shelf stays absent, because
+    absent means unknown and unknown renders unattributed.
+
+    Fail-open per target; never raises.
+    """
+    for target in targets:
+        try:
+            named = await retriever.retrieve(
+                query=query,
+                collection_name=collection,
+                top_k=candidate_k,
+                filters={"file_name": {"$eq": target}},
+            )
+        except Exception:
+            logger.debug("Named-file retrieve skipped for %s in %s", target, collection, exc_info=True)
+            continue
+        chunks = getattr(named, "chunks", None) or []
+        for chunk in chunks:
+            chunk.metadata.setdefault("collection", collection)
+            if shelf is not None:
+                chunk.metadata.setdefault("shelf", str(shelf))
+        if getattr(named, "success", False) and chunks:
+            result = result.model_copy(update={"chunks": list(chunks) + list(getattr(result, "chunks", None) or [])})
+    return result
+
+
 def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_document: int = _MAX_CHUNKS_PER_DOC):
     """
     Merge per-collection retrieval results into a single scored result.
@@ -1103,35 +1210,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 if entry.shelf is not None:
                     chunk.metadata.setdefault("shelf", str(entry.shelf))
 
-            # Named retrieve: the agent's `file_name=` (explicit) or the
-            # visible peek (`focus_file_name`) so similarity is not the only
-            # path to that file. Explicit name wins when both are set.
-            if coll != base_collection:
-                try:
-                    from aiq_agent.common.focus_file import get_focused_file_name
-
-                    focused = file_name or get_focused_file_name()
-                except Exception:
-                    focused = file_name
-                if focused:
-                    try:
-                        named = await retriever.retrieve(
-                            query=query,
-                            collection_name=coll,
-                            top_k=candidate_k,
-                            filters={"file_name": {"$eq": focused}},
-                        )
-                        for chunk in getattr(named, "chunks", []) or []:
-                            chunk.metadata.setdefault("collection", coll)
-                            if entry.shelf is not None:
-                                chunk.metadata.setdefault("shelf", str(entry.shelf))
-                        if getattr(named, "success", False) and named.chunks:
-                            result = result.model_copy(
-                                update={"chunks": list(named.chunks) + list(getattr(result, "chunks", []) or [])}
-                            )
-                    except Exception:
-                        logger.debug("Named-file retrieve skipped for %s", coll, exc_info=True)
-            return result
+            # Named retrieve (ADR-0048 layer 2): give the file(s) this turn is
+            # about their own filtered query, so similarity is not the only path
+            # to them. Additive only — see the helpers.
+            return await _augment_with_named_retrieves(
+                retriever,
+                result,
+                query=query,
+                collection=coll,
+                shelf=entry.shelf,
+                candidate_k=candidate_k,
+                targets=_named_retrieve_targets(file_name, is_base_collection=coll == base_collection),
+            )
 
         try:
             # Fan out across all layers concurrently; tolerate empty/missing layers.
