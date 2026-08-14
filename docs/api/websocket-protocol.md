@@ -157,6 +157,57 @@ so editing the token out removes the invocation. Selection is a *request*
 decision, exactly like `data_sources`. See
 `docs/architecture/agent-skills.md`.
 
+##### What the turn is about (`focus_file_name`, `session_attachments`)
+
+Two more additive fields say **which documents this turn concerns**. They are
+deliberately separate fields, not one: they differ in cardinality, in origin, and
+in whether the document is even retrievable yet.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `focus_file_name` | `string` | The **one** file the user is looking at — the composer's "Asking about this file" bar, or a visible file peek. Viewing state, so the named file is always fully ingested. Trimmed by the client; omitted when there is no subject. Read into the `grid_focused_file_name` ContextVar (`aiq_agent/common/focus_file.py`); retrieval prefers it as a soft re-rank so the user does not have to type the filename. |
+| `session_attachments` | `{file_name: string, state: 'ready' \| 'indexing'}[]` | The files the user **attached to this chat session**. An act, not viewing state, so there can be several and any of them may still be mid-ingest. Capped at 10 by the client. Omitted entirely when the session has none. |
+
+```typescript
+text: JSON.stringify({
+  query: "Fass den Inhalt zusammen",
+  data_sources: [],
+  focus_file_name: "Grundriss.pdf",       // omitted when nothing is in focus
+  session_attachments: [                  // omitted entirely when there are none
+    { file_name: "Statik-Bericht.pdf", state: "ready" },
+    { file_name: "Gross.pdf", state: "indexing" }
+  ]
+})
+```
+
+`state` is **not** a mirror of the upload UI's status. The backend's
+`available_documents` inventory is written by the async ingest job, so a file the
+user just dropped is routinely absent from it for several seconds — and the
+composer does not gate send on ingestion. `indexing` is the client saying "this
+document exists and is the subject of this turn even though your inventory does
+not list it yet"; `ready` says the inventory should already have it. Concretely,
+`uploading` and `ingesting` map to `indexing`, `success` maps to `ready`, and
+`failed` / `deleting` / `canceled` produce no entry at all — naming one of those
+would point the turn at a document that is not there.
+
+`session_attachments` is deliberately **not** an extension of `focus_file_name`.
+Beyond cardinality and ingest state they have different lifetimes (one is cleared
+when the bar closes; the other is a fact about the session) and want different
+retrieval semantics. Folding them together would force one answer on both.
+
+**Client-side:** `focusFileName` / `sessionAttachments` on
+`NATWebSocketClient.sendMessage(content, dataSources, options)`. The attachment
+list is computed by `selectSessionAttachments`
+(`features/chat/lib/session-attachments.ts`), a pure module — separate from the
+`messageFiles` list that draws the display chips, which keeps its own rules and
+excludes `uploading`. Both fields travel **on** the buffered outgoing payload, so
+a frame replayed across a token rotation still says what the turn was about.
+
+**Compatibility by absence,** exactly as for `skills` and `context_only`: neither
+key is ever emitted empty, so a backend that reads neither behaves as it always
+did, and a client that sends neither is indistinguishable from one built before
+the fields existed.
+
 ##### Ingest-only messages (`context_only`)
 
 Two **additive** fields inside that JSON payload deliver a human message to the agent

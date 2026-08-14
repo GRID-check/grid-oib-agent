@@ -547,6 +547,85 @@ describe('NATWebSocketClient — the ingest-only user_message payload', () => {
       context_only: true,
     })
   })
+
+  /**
+   * `focusFileName` has been on this wire since "Asking about this file" shipped
+   * and had no payload test on either side — which is a large part of why the
+   * attachment gap (#429) survived: nothing described what the frame is supposed
+   * to say about which document a turn is about.
+   */
+  test('focusFileName travels as focus_file_name, trimmed', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Fass das zusammen', ['source-1'], { focusFileName: '  Statik.pdf  ' })
+
+    expect(sentPayload(ws)).toEqual({
+      query: 'Fass das zusammen',
+      data_sources: ['source-1'],
+      focus_file_name: 'Statik.pdf',
+    })
+  })
+
+  test('focus_file_name is omitted when there is no subject', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Allgemeine Frage', [], { focusFileName: '   ' })
+
+    expect(sentPayload(ws)).toEqual({ query: 'Allgemeine Frage', data_sources: [] })
+  })
+
+  test('session attachments travel as session_attachments with file_name + state', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Fass den Inhalt zusammen', ['source-1'], {
+      sessionAttachments: [
+        { fileName: 'Statik-Bericht.pdf', state: 'ready' },
+        { fileName: 'Grundriss.pdf', state: 'indexing' },
+      ],
+    })
+
+    expect(sentPayload(ws)).toEqual({
+      query: 'Fass den Inhalt zusammen',
+      data_sources: ['source-1'],
+      session_attachments: [
+        { file_name: 'Statik-Bericht.pdf', state: 'ready' },
+        { file_name: 'Grundriss.pdf', state: 'indexing' },
+      ],
+    })
+  })
+
+  test('session_attachments is omitted entirely when the session has none', async () => {
+    // Compatibility by ABSENCE, like every other additive field on this frame:
+    // never `session_attachments: []`, which a backend cannot distinguish from
+    // "explicitly no attachments".
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Wie breit muss der Fluchtweg sein?', ['source-1'], {
+      sessionAttachments: [],
+    })
+
+    expect(sentPayload(ws)).toEqual({
+      query: 'Wie breit muss der Fluchtweg sein?',
+      data_sources: ['source-1'],
+    })
+  })
+
+  test('focus_file_name and session_attachments coexist on one frame', async () => {
+    // They answer different questions and neither suppresses the other.
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Passt das zusammen?', [], {
+      focusFileName: 'Grundriss.pdf',
+      sessionAttachments: [{ fileName: 'Statik-Bericht.pdf', state: 'indexing' }],
+    })
+
+    expect(sentPayload(ws)).toEqual({
+      query: 'Passt das zusammen?',
+      data_sources: [],
+      focus_file_name: 'Grundriss.pdf',
+      session_attachments: [{ file_name: 'Statik-Bericht.pdf', state: 'indexing' }],
+    })
+  })
 })
 
 describe('NATWebSocketClient reconnect scheduling', () => {

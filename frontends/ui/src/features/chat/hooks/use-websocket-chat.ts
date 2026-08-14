@@ -48,6 +48,7 @@ import { useDocumentsStore } from '@/features/documents/store'
 import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals'
 import { validateGridCards } from '@/shared/cards/schemas'
 import { citationsFromWireList } from '../lib/wire-citation'
+import { selectSessionAttachments, type SessionAttachment } from '../lib/session-attachments'
 import type { GridCard } from '@/shared/cards/schemas'
 import type {
   ChatMessage,
@@ -220,6 +221,10 @@ type PendingOutgoing =
        *  is queued through a reconnect is replayed with its invocation intact. */
       skills?: string[]
       focusFileName?: string
+      /** Files attached to this chat session (#429). Held ON the payload for the
+       *  same reason `skills` is: a frame replayed across a token rotation must
+       *  still say what the turn was about. */
+      sessionAttachments?: SessionAttachment[]
       deliveryRetryCount?: number
     }
   | { kind: 'interaction'; interactionId: string; parentId: string; response: string; deliveryRetryCount?: number }
@@ -1039,6 +1044,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         const extras = {
           ...(payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : {}),
           ...(payload.focusFileName ? { focusFileName: payload.focusFileName } : {}),
+          ...(payload.sessionAttachments && payload.sessionAttachments.length > 0
+            ? { sessionAttachments: payload.sessionAttachments }
+            : {}),
         }
         return Object.keys(extras).length > 0
           ? client.sendMessage(payload.content, payload.dataSources, extras)
@@ -1937,8 +1945,17 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   )
 
   /**
-   * The send metadata both paths need: which sources are live, and which of this
-   * session's files are attached.
+   * The send metadata both paths need: which sources are live, which of this
+   * session's files render as chips on the message, and which of them the agent
+   * is told about.
+   *
+   * `messageFiles` and `sessionAttachments` are two different questions and are
+   * deliberately answered by two different rules. `messageFiles` is display —
+   * the chips under the sent message — and excludes `uploading` because a chip
+   * for a file whose bytes are still crossing the wire would be a lie about what
+   * was sent. `sessionAttachments` is the turn signal (#429) and INCLUDES
+   * `uploading`, because the agent needs to know the document exists precisely
+   * while the inventory does not list it yet.
    */
   const collectSendMetadata = useCallback(() => {
     const layoutState = useLayoutStore.getState()
@@ -1960,6 +1977,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         : enabledDataSources,
       // Prepare file metadata for display
       messageFiles: sessionFiles.map((f) => ({ id: f.id, fileName: f.fileName })),
+      // What the agent is told this turn is about. Its own rules — see the module.
+      sessionAttachments: selectSessionAttachments(trackedFiles, sessionId),
     }
   }, [])
 
@@ -1978,6 +1997,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       dataSourcesForMessage: string[],
       conversationId: string | undefined,
       skills?: string[],
+      sessionAttachments?: SessionAttachment[],
     ): boolean => {
       // thinkingSteps are NOT cleared here -- they persist per userMessageId
       // so chat history still renders prior thinking blocks.
@@ -2006,6 +2026,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         dataSources: dataSourcesForMessage,
         ...(skills && skills.length > 0 ? { skills } : {}),
         ...(focusFileName ? { focusFileName } : {}),
+        ...(sessionAttachments && sessionAttachments.length > 0 ? { sessionAttachments } : {}),
       }
 
       // Helper to actually send the message
@@ -2110,7 +2131,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         return { ok: false }
       }
 
-      const { dataSourcesForMessage, messageFiles } = collectSendMetadata()
+      const { dataSourcesForMessage, messageFiles, sessionAttachments } = collectSendMetadata()
       // Our id, generated up front: it is the anchor the mention request points at,
       // and the idempotency key the server rules on.
       const messageId = uuidv4()
@@ -2177,7 +2198,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         return { ok: true, addressees: ruling }
       }
 
-      const started = openAgentTurn(content, dataSourcesForMessage, conversationId)
+      const started = openAgentTurn(
+        content,
+        dataSourcesForMessage,
+        conversationId,
+        undefined,
+        sessionAttachments,
+      )
       return { ok: started, addressees: ruling }
     },
     [addErrorCard, collectSendMetadata, deliverAsContext, openAgentTurn],
@@ -2204,7 +2231,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         return sendRuledMessage(content, options ?? {})
       }
 
-      const { dataSourcesForMessage, messageFiles } = collectSendMetadata()
+      const { dataSourcesForMessage, messageFiles, sessionAttachments } = collectSendMetadata()
 
       // Add user message to store with metadata
       addUserMessage(content, {
@@ -2220,6 +2247,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         dataSourcesForMessage,
         conversationId,
         options?.skills ? [...options.skills] : undefined,
+        sessionAttachments,
       )
     },
     [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage],

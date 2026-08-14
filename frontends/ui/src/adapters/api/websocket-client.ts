@@ -6,6 +6,7 @@
  * and error message types for full HITL (human-in-the-loop) support.
  */
 
+import type { SessionAttachment } from '@/features/chat/lib/session-attachments'
 import { backoffWithJitter } from '@/shared/utils/backoff'
 import { trackAuthEvent } from '@/shared/utils/rum'
 import { getWebSocketUrl } from './config'
@@ -94,8 +95,22 @@ export interface SendMessageWireOptions {
   /**
    * Filename of the file this turn is about. Retrieval prefers it; the
    * user does not have to type the name. Omitted when there is no subject.
+   *
+   * Wire name: `focus_file_name` (a bare string). One file, and never one that
+   * is mid-ingest — it names what the user is LOOKING at.
    */
   focusFileName?: string | null
+  /**
+   * The files the user attached to this chat session, as a turn signal (#429).
+   *
+   * Wire name: `session_attachments`, an array of `{file_name, state}` where
+   * `state` is `'ready' | 'indexing'`. Distinct from `focusFileName` in
+   * cardinality, origin and indexing state — see
+   * `features/chat/lib/session-attachments.ts`. Omitted entirely when the
+   * session has no attachments, so an ordinary message stays byte-for-byte the
+   * envelope it always was.
+   */
+  sessionAttachments?: readonly SessionAttachment[]
 }
 
 /** Context passed with connection status changes */
@@ -418,6 +433,16 @@ export class NATWebSocketClient {
       // does for data_sources.
       ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
       ...(options?.focusFileName?.trim() ? { focus_file_name: options.focusFileName.trim() } : {}),
+      // Same "compatibility by absence" rule: the key is present only when the
+      // session actually has attachments, never as an empty array.
+      ...(options?.sessionAttachments && options.sessionAttachments.length > 0
+        ? {
+            session_attachments: options.sessionAttachments.map((a) => ({
+              file_name: a.fileName,
+              state: a.state,
+            })),
+          }
+        : {}),
       ...(options?.contextOnly ? { context_only: true } : {}),
       ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
     })

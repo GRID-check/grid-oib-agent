@@ -254,11 +254,28 @@ vi.mock('@/adapters/api/websocket-client', () => ({
 }))
 
 import { useChatStore } from '../store'
+import { useDocumentsStore } from '@/features/documents/store'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 // NOT mocked: the real registry is the point. `useSharedThread` publishes into it
 // after its access read, and the socket layer reads it to decide whether opening a
 // connection on mount could collide with another participant's.
 import { publishThreadSharing, resetThreadSharing } from '@/shared/collaboration/thread-sharing'
+
+/**
+ * Restore the documents-store default (no tracked files).
+ *
+ * `vi.clearAllMocks()` clears call counts but NOT a `mockReturnValue`, so a test
+ * that declares session files leaks them into every later test in the file —
+ * exactly the reason the `useChatStore` implementation is restored above it.
+ * That leak was invisible while session files changed nothing on the wire; now
+ * that they travel as `session_attachments` (#429) it would silently alter the
+ * frame of every downstream test.
+ */
+function resetDocumentsStoreMock(): void {
+  vi.mocked(useDocumentsStore.getState).mockReturnValue({
+    trackedFiles: [],
+  } as unknown as ReturnType<typeof useDocumentsStore.getState>)
+}
 
 /**
  * Helper to render hook with autoConnect enabled (default behavior)
@@ -277,6 +294,7 @@ describe('useWebSocketChat', () => {
     // mockImplementation override (e.g. deep-research escalation) doesn't
     // leak into this one.
     vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    resetDocumentsStoreMock()
     mockStoreState = {
       currentUserId: 'user-1',
       currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
@@ -432,6 +450,61 @@ describe('useWebSocketChat', () => {
       result.current.sendMessage('Now a general question')
     })
     expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Now a general question', expect.any(Array))
+    expect(mockWsClient.sendMessage.mock.calls[0]?.[2]).toBeUndefined()
+  })
+
+  test('sendMessage forwards the session attachments as a turn signal', () => {
+    // The bug (#429): the frame was byte-identical with and without an
+    // attachment, so a user who dropped a PDF and asked "Fass den Inhalt
+    // zusammen" handed the agent a subjectless message.
+    mockWsClient.isConnected.mockReturnValue(true)
+    vi.mocked(useDocumentsStore.getState).mockReturnValue({
+      trackedFiles: [
+        { id: 'f-1', fileName: 'Statik.pdf', collectionName: 'conv-1', status: 'success', fileSize: 1 },
+        { id: 'f-2', fileName: 'Gross.pdf', collectionName: 'conv-1', status: 'uploading', fileSize: 2 },
+        // Another collection entirely -- never this turn's attachment.
+        { id: 'f-3', fileName: 'Archiv.pdf', collectionName: 'archiv_org', status: 'success', fileSize: 3 },
+      ],
+    } as unknown as ReturnType<typeof useDocumentsStore.getState>)
+
+    const { result } = renderWebSocketHook()
+    act(() => {
+      result.current.sendMessage('Fass den Inhalt zusammen')
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Fass den Inhalt zusammen',
+      expect.any(Array),
+      {
+        sessionAttachments: [
+          { fileName: 'Statik.pdf', state: 'ready' },
+          { fileName: 'Gross.pdf', state: 'indexing' },
+        ],
+      }
+    )
+  })
+
+  test('a message with no session attachments stays the two-argument call it has always been', () => {
+    // The `Object.keys(extras).length > 0` guard in sendOutgoingPayload: an
+    // ordinary message must never grow a third `{}` argument.
+    mockWsClient.isConnected.mockReturnValue(true)
+    vi.mocked(useDocumentsStore.getState).mockReturnValue({
+      trackedFiles: [
+        // Only files that are gone or never made it -- none is an attachment.
+        { id: 'f-1', fileName: 'kaputt.pdf', collectionName: 'conv-1', status: 'failed', fileSize: 1 },
+        { id: 'f-2', fileName: 'weg.pdf', collectionName: 'conv-1', status: 'deleting', fileSize: 2 },
+      ],
+    } as unknown as ReturnType<typeof useDocumentsStore.getState>)
+
+    const { result } = renderWebSocketHook()
+    act(() => {
+      result.current.sendMessage('Wie breit muss der Fluchtweg sein?')
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Wie breit muss der Fluchtweg sein?',
+      expect.any(Array)
+    )
     expect(mockWsClient.sendMessage.mock.calls[0]?.[2]).toBeUndefined()
   })
 
@@ -1006,8 +1079,12 @@ describe('useWebSocketChat', () => {
       result.current.sendMessage('Hello')
     })
 
-    // knowledge_layer should be ADDED since files exist for this session
-    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', ['web', 'docs', 'knowledge_layer'])
+    // knowledge_layer should be ADDED since files exist for this session. The same
+    // session file also travels as the turn's attachment (#429) -- these tests
+    // declare one, so the call is legitimately three arguments here.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', ['web', 'docs', 'knowledge_layer'], {
+      sessionAttachments: [{ fileName: 'test.pdf', state: 'ready' }],
+    })
   })
 
   test('sendMessage adds knowledge_layer when files are ingesting', async () => {
@@ -1035,7 +1112,9 @@ describe('useWebSocketChat', () => {
     })
 
     // knowledge_layer should be ADDED since files are being ingested
-    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', ['web', 'knowledge_layer'])
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', ['web', 'knowledge_layer'], {
+      sessionAttachments: [{ fileName: 'test.pdf', state: 'indexing' }],
+    })
   })
 
   test('sendMessage does not add knowledge_layer when knowledgeLayerAvailable is false', async () => {
@@ -1062,8 +1141,11 @@ describe('useWebSocketChat', () => {
       result.current.sendMessage('Hello')
     })
 
-    // knowledge_layer should NOT be added even with files if knowledgeLayerAvailable is false
-    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', ['web', 'docs'])
+    // knowledge_layer should NOT be added even with files if knowledgeLayerAvailable is false.
+    // The attachment signal is independent of the data-source toggles.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', ['web', 'docs'], {
+      sessionAttachments: [{ fileName: 'test.pdf', state: 'ready' }],
+    })
   })
 
   test('sendMessage sets error when WebSocket not connected and no conversation', () => {
@@ -1818,6 +1900,7 @@ describe('useWebSocketChat -- token rotation', () => {
     // overrode it (mockImplementation persists across tests, only
     // call counts are cleared by vi.clearAllMocks).
     vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    resetDocumentsStoreMock()
     vi.mocked(useAuth).mockReturnValue({
       user: { id: 'user-1', email: 'test@example.com' },
       idToken: 'mock-access-token',
@@ -2107,6 +2190,46 @@ describe('useWebSocketChat -- token rotation', () => {
     )
     // No banner -- the rotation was completely silent for the user.
     expect(mockAddErrorCard).not.toHaveBeenCalled()
+  })
+
+  test('a payload buffered across a token rotation is replayed with its attachments', async () => {
+    // Attachments live ON the PendingOutgoing payload, not recomputed at drain
+    // time, for the same reason `skills` does: by the time the fresh socket
+    // handshakes, the store may have moved on -- and a replayed frame that lost
+    // the turn's subject is the original bug all over again.
+    const { result } = await mountAndArmTimers()
+    vi.mocked(useDocumentsStore.getState).mockReturnValue({
+      trackedFiles: [
+        { id: 'f-1', fileName: 'Statik.pdf', collectionName: 'conv-1', status: 'ingesting', fileSize: 1 },
+      ],
+    } as unknown as ReturnType<typeof useDocumentsStore.getState>)
+
+    vi.setSystemTime(EXP_AT_S * 1000 + 1)
+    mockWsClient.isConnected.mockReturnValue(true)
+    mockWsClient.sendMessage.mockClear()
+    mockWsClient.rotate.mockClear()
+
+    act(() => {
+      result.current.sendMessage('Fass den Inhalt zusammen')
+    })
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+    expect(mockWsClient.rotate).toHaveBeenCalledTimes(1)
+
+    // The store forgets the file while the socket is rotating; the buffered
+    // payload must still name it.
+    vi.mocked(useDocumentsStore.getState).mockReturnValue({
+      trackedFiles: [],
+    } as unknown as ReturnType<typeof useDocumentsStore.getState>)
+
+    act(() => {
+      capturedCallbacks.onConnectionChange?.('connected')
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Fass den Inhalt zusammen',
+      expect.any(Array),
+      { sessionAttachments: [{ fileName: 'Statik.pdf', state: 'indexing' }] }
+    )
   })
 
   test('sendMessage with valid token sends directly without rotating', async () => {
@@ -2805,6 +2928,7 @@ describe('useWebSocketChat — mentions and the addressee ruling', () => {
     vi.clearAllMocks()
     capturedCallbacks = {}
     vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    resetDocumentsStoreMock()
     mockStoreState = {
       currentUserId: 'user-1',
       currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
@@ -3039,6 +3163,7 @@ describe('useWebSocketChat — context-only delivery (the agent sees the whole t
     vi.clearAllMocks()
     capturedCallbacks = {}
     vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    resetDocumentsStoreMock()
     mockStoreState = {
       currentUserId: 'user-1',
       currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
@@ -3244,6 +3369,7 @@ describe('useWebSocketChat — the agent socket follows intent to send, not moun
     capturedCallbacks = {}
     resetThreadSharing()
     vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    resetDocumentsStoreMock()
     mockStoreState = {
       currentUserId: 'user-matthias',
       currentConversation: { id: 'conv-1', messages: [], userId: 'user-matthias' },
@@ -3415,6 +3541,7 @@ describe('useWebSocketChat — a context-only send with no socket yet', () => {
     capturedCallbacks = {}
     resetThreadSharing()
     vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    resetDocumentsStoreMock()
     mockStoreState = {
       currentUserId: 'user-anna',
       currentConversation: { id: 'conv-1', messages: [], userId: 'user-anna' },
