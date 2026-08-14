@@ -41,6 +41,7 @@ from aiq_agent.agents.bim.measure_register import ENVELOPE_ASPECTS
 from aiq_agent.agents.bim.measure_register import FIRE_ASPECTS
 from aiq_agent.agents.bim.measure_register import KINDS
 from aiq_agent.agents.bim.measure_register import MEASURES
+from aiq_agent.agents.bim.measure_register import PROFILE_KINDS
 from aiq_agent.agents.bim.measure_register import RELATIONS
 from aiq_agent.agents.bim.measure_register import ROOM_KINDS
 from aiq_agent.agents.bim.measure_register import VALID_OPERATIONS
@@ -56,6 +57,19 @@ TOOL_OPERATIONS: dict[str, set[str]] = {
     "ifc_query": set(QUERY_OPERATIONS),
 }
 EVERY_OPERATION = TOOL_OPERATIONS["ifc_measure"] | TOOL_OPERATIONS["ifc_query"]
+
+#: Every spelling `kind` accepts, assembled ONCE.
+#:
+#: `kind` is one field over four vocabularies and this union had already drifted
+#: twice — first missing `ENVELOPE_ASPECTS`, so the skill's real
+#: `kind: "thermalEnvelope"` failed here as an invention, then missing
+#: `PROFILE_KINDS`, so `kind: "expensive"` did the same when `element_profile`
+#: arrived. Both times the drift read as a bug in the SKILL, which is the
+#: expensive direction: the obvious fix is to delete the line the skill was right
+#: to write. It was assembled by hand in two places; now it is assembled here,
+#: and `test_the_kind_union_still_covers_the_schema` fails if a fifth vocabulary
+#: is added to the tool without reaching this constant.
+EVERY_KIND = set(KINDS) | set(FIRE_ASPECTS) | set(ENVELOPE_ASPECTS) | set(PROFILE_KINDS)
 
 SKILL = (
     Path(__file__).resolve().parents[3]
@@ -105,6 +119,21 @@ def test_the_parameter_list_is_the_tool_s_own_signature() -> None:
     from aiq_agent.agents.bim.measure_register import _build_call
 
     assert PARAMETERS == set(inspect.signature(_build_call).parameters) | {"model_name"}
+
+
+def test_the_kind_union_still_covers_the_schema() -> None:
+    """`EVERY_KIND` is the same set the model is handed on the `kind` field.
+
+    The sibling of the assertion above, for the one field that carries four
+    vocabularies. `_ALL_KINDS` is what builds the `Literal` in `IfcMeasureInput`,
+    so it IS the set of spellings the tool accepts; if a fifth vocabulary is
+    added there and not here, this fails by name instead of surfacing three
+    tests later as „the skill invented `kind: <the new value>`" — a message that
+    points at the skill for being right.
+    """
+    from aiq_agent.agents.bim.measure_register import _ALL_KINDS
+
+    assert EVERY_KIND == set(_ALL_KINDS)
 
 
 def _card_field_names() -> set[str]:
@@ -172,9 +201,7 @@ def test_no_backticked_identifier_is_an_invention(backticked: set[str], text: st
         | set(RELATIONS)
         | set(MEASURES)
         | set(DISTANCE_MODES)
-        | set(KINDS)
-        | set(FIRE_ASPECTS)
-        | set(ENVELOPE_ASPECTS)
+        | EVERY_KIND
         | set(ROOM_KINDS)
         | set(TOOL_OPERATIONS)
         | {
@@ -261,13 +288,12 @@ def test_dotted_and_valued_forms_resolve_too(text: str) -> None:
         # operation lookup is what `test_the_routing_table_puts_each_operation
         # _under_its_own_tool` already does.
         "mode": set(DISTANCE_MODES) | set(VIEW_MODES),
-        # `kind` carries THREE vocabularies, for the same reason `mode` carries
-        # two: the spatial role on `find_elements`, the OIB 2 aspect on `fire`,
-        # and the OIB 6 aspect on `envelope`. Spelling all three out is what
-        # keeps this a check rather than a guess — the union was `KINDS` alone,
-        # so the first `kind: "thermalEnvelope"` the skill wrote failed here as
-        # an invention when it is a real value of a real field.
-        "kind": set(KINDS) | set(FIRE_ASPECTS) | set(ENVELOPE_ASPECTS),
+        # `kind` carries FOUR vocabularies, for the same reason `mode` carries
+        # two: the spatial role on `find_elements`/`survey`, the OIB 2 aspect on
+        # `fire`, the OIB 6 aspect on `envelope`, and the expensive-measure
+        # opt-in on `element_profile`. See `EVERY_KIND` for why the union is
+        # assembled once rather than retyped here.
+        "kind": EVERY_KIND,
         "room_kind": set(ROOM_KINDS),
     }
     calls = written_calls(text)

@@ -1,20 +1,20 @@
 ---
 name: ifc-spatial-reasoning
 description: >
-  Vor dem ersten Aufruf von ifc_measure oder ifc_query laden: welches Werkzeug
-  zuständig ist, wie eine Frage nach vielen Bauteilen in EINEN Aufruf passt, und
+  Vor dem ersten ifc_measure- oder ifc_query-Aufruf laden: welches Werkzeug
+  zuständig ist, wie eine Frage über viele Bauteile in EINEN Aufruf passt, und
   woran man merkt, dass eine Zahl etwas anderes misst als das Gefragte. Auslöser
   sind die Formulierungen selbst — „wie hoch ist", „wie groß ist", „wie breit",
-  „wie lang", „wie viele", „laut Modell", „im IFC", „stimmt das so im Plan" —
-  und ihre Gegenstände: Raumhöhe, Raumfläche, Raumtiefe, Brüstung, lichte
-  Durchgangsbreite, Abstand, Dachüberstand, Himmelsrichtung, Lichteinfall und
-  45-Grad-Prisma, Lichteintrittsfläche, Fluchtweg, Treppe, Rampe,
-  Brandabschnitt, thermische Hülle, Kompaktheit, Raumbuch, Geschoßhöhen, was an
-  was grenzt und was über was liegt. Auch wenn das Maß nur der Zwischenschritt
-  zu einer OIB-Beurteilung ist. Und erst recht in der Mehrzahl — „die Räume",
-  „der Keller", „alle Fenster", „jedes Geschoß" —, weil ein einzeln gemessener
-  Raum über die übrigen nichts aussagt. Nicht für reine Rechtsfragen ohne
-  Modellbezug.
+  „wie viele", „reicht", „ist … ausreichend", „passt", „erfüllt", „laut Modell",
+  „im IFC", „stimmt das so im Plan" — und ihre Gegenstände: Raumhöhe,
+  Raumfläche, Brüstung, lichte Durchgangsbreite, Abstand, Dachüberstand,
+  Himmelsrichtung, Lichteinfall, Lichteintrittsfläche, Fluchtweg,
+  Brandabschnitt, thermische Hülle, Raumbuch, Geschoßhöhen, was an was grenzt
+  und was über was liegt. Auch wenn das Maß nur der Zwischenschritt zu einer
+  OIB-Beurteilung ist: gemessen wird hier, geurteilt aus der Bestimmung. Und
+  erst recht in der Mehrzahl — „die Räume", „der Keller", „alle Fenster", „jedes
+  Geschoß" —, weil ein einzeln gemessener Raum über die übrigen nichts aussagt.
+  Nicht für reine Rechtsfragen ohne Modellbezug.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: ifc_viewer,ifc_element,ifc_schedule
@@ -30,16 +30,29 @@ merkt, dass eine Zahl etwas anderes misst als das, wonach gefragt wurde**. Der
 Fehler, den dieses Paket beseitigen soll, war nie eine falsche Formel — es war
 eine richtig gemessene Zahl unter einem falschen Namen.
 
-## 1. Das Budget: vier Züge
+## 1. Das Budget: gezählt wird beim Abschicken
 
-Nach fünf Werkzeugaufrufen bricht dieser Agent den Werkzeugteil ab und
-formuliert die Antwort aus dem, was bis dahin dasteht. Diesen Skill zu laden war
-der erste Aufruf; es bleiben **vier**.
+Nach einer festen Zahl von Werkzeugaufrufen bricht dieser Agent den Werkzeugteil
+ab und formuliert die Antwort aus dem, was bis dahin dasteht. Gezählt wird, wenn
+der Aufruf **abgeschickt** wird, nicht wenn er etwas liefert:
+
+- Ein Aufruf mit null Treffern kostet so viel wie einer, der antwortet. Nichts
+  wird zurückerstattet, auch ein abgelehnter Aufruf nicht.
+- **Mehrere Aufrufe in EINEM Zug kosten jeder einen.** Drei parallele Aufrufe
+  sind drei verbrauchte Züge, nicht einer — wer parallel arbeitet, hat deutlich
+  weniger Runden, als die Zahl vermuten lässt.
+- Diesen Skill zu laden war einer davon.
 
 Eine Antwort, die vor der Messung abgeschnitten wird, fällt auf die deklarierten
 Werte der Datei zurück — auf genau die Zahlen, wegen deren Unzuverlässigkeit
 überhaupt gemessen wird. So kam eine echte Auskunft dazu, die Geschoßhöhe von
 3,00 m für Räume zu nennen, die 2,70 m messen.
+
+Reicht es nicht bis zur Messung, dann **steht das in der Antwort**: welche
+Messung fehlt und woher die Zahl stattdessen kommt. Eine deklarierte Zahl
+kommentarlos an die Stelle der gemessenen zu setzen, ist die teuerste Art, das
+Budget zu überziehen — von außen ist sie von einer Messung nicht zu
+unterscheiden.
 
 Deshalb weicht die Reihenfolge hier von der Werkzeugbeschreibung ab, die
 „briefing zuerst" sagt: das gilt, wo Züge billig sind. Steht die Auswahl auch
@@ -70,13 +83,19 @@ gemessenen Raum folgt keine von beiden. Was `decidable: false` liefert, wird
 einzeln genannt und nie als „wie die übrigen" mitgezählt.
 
 Steht die Menge schon fest — die Türen aus einem Fluchtweg, die Fenster einer
-Fassade —, nimmt `operation: "measure"` in `global_id` auch eine kommagetrennte
-Liste von bis zu 50 GlobalIds.
+Fassade —, nimmt `operation: "measure"` in `global_id` die ganze Id-Liste auf
+einmal, jedes Bauteil mit eigener Antwort und eigener Toleranz.
 
-Beides ersetzt die Einzelmessung nicht: ein Bauteil misst `measure`, eine bloße
-Liste ohne Maß liefert `find_elements`. Und eine reine Flächenaufstellung über
-alle Räume steht ohne jede Geometrie im Index — dafür `ifc_query` mit
-`operation: "schedule"`.
+Und ist umgekehrt ein einzelnes Bauteil interessant geworden — der Ausreißer,
+den ein `survey` benannt hat —, dann nimmt `operation: "element_profile"` in
+EINEM Zug alle Maße, die für dieses Bauteil überhaupt gelten, statt sie einzeln
+zu erraten. Welche gelten, folgt aus dem IFC-Typ; die teuren (Fluchtweg,
+Erreichbarkeit, Wendekreis, Türanlauf) kommen nur mit `kind: "expensive"` dazu.
+
+Nichts davon ersetzt die Einzelmessung: ein Bauteil mit bekanntem Maß misst
+`measure`, eine bloße Liste ohne Maß liefert `find_elements`. Und eine reine
+Flächenaufstellung über alle Räume steht ohne jede Geometrie im Index — dafür
+`ifc_query` mit `operation: "schedule"`.
 
 ## 3. Welches der beiden Werkzeuge
 
@@ -91,6 +110,7 @@ und leer, wo der Export nichts geschrieben hat. `ifc_measure` misst an der
 | Wie vollständig ist das Modell, was hat sich geändert | `ifc_query`: `health`, `compare`, `compliance-diff` |
 | Ein Maß an EINEM Bauteil oder an einer bekannten Id-Liste | `ifc_measure`: `measure` |
 | Dasselbe Maß über ein Geschoß, eine Raumgruppe, einen Typ | `ifc_measure`: `survey` |
+| Alle Maße, die für EIN Bauteil überhaupt gelten | `ifc_measure`: `element_profile` |
 | Ein Maß, das aus ZWEI Bauteilen entsteht | `ifc_measure`: `distance`, `clearance`, `overhang` |
 | Was grenzt woran, was sitzt worin, was liegt darüber | `ifc_measure`: `relations` |
 | Eine ganze OIB-2- oder OIB-6-Fragestellung auf einmal | `ifc_measure`: `fire`, `envelope`, je mit `kind` |
@@ -128,19 +148,22 @@ kürzer, sobald ein Schritt über eine Menge statt über ein Bauteil geht.
 über die Räume des Geschosses. Ein Zug, alle Räume, Spanne inklusive. Die
 Mindesthöhe kommt aus der Bestimmung, nicht aus dem Modell.
 
-**„Passt dieses Fenster mit dem Dach für den Lichteinfall?" (OIB 3)** — vier
-Züge, also das ganze Budget: `find_elements` mit `ifc_type: "IfcWindow"` →
-`relations` mit `relation: "hostedIn"` für die Wand → `overhang` mit dem Dach als
-`global_id` und dieser Wand als `other_global_id` → `light_incidence` auf dem
-Fenster, mit `angle_deg` und `swivel_deg` aus der **Bestimmung**
-(für OIB 3: 45 und 30). Für Fläche und Prozentsatz liefert `lightEntryArea` beides
-in einem Maß statt in zweien — anders ginge es sich nicht aus.
+**„Passt dieses Fenster mit dem Dach für den Lichteinfall?" (OIB 3)** — die
+längste Kette hier, und sie beginnt nicht am Modell: `find_elements` mit
+`ifc_type: "IfcWindow"` → `relations` mit `relation: "hostedIn"` für die Wand →
+`overhang` mit dem Dach als `global_id` und dieser Wand als `other_global_id` →
+`light_incidence` auf dem Fenster, mit `angle_deg` und `swivel_deg` aus der
+**Bestimmung** (für OIB 3: 45 und 30) — die also vorher aus der Wissensbasis
+geholt sein muss und selbst einen Zug kostet. Für Fläche und Prozentsatz liefert
+`lightEntryArea` beides in einem Maß statt in zweien. Das ist die Kette, bei der
+das Budget zuerst knapp wird; wenn eine Auswahl daneben greift, gehört das
+Fehlende nach Abschnitt 1 in die Antwort, statt am Ende geraten zu werden.
 
 **„Wie lang ist der Fluchtweg, und wie breit sind die Türen darin?" (OIB 2)** —
 `measure: "egressPath"` am Raum nennt Räume, Türen und Länge in einem Zug; die
-Türen daraus gehen als kommagetrennte Liste in einen einzigen
-`measure: "clearWidth"`. Bevor eine Aussage über *alle* Wege fällt, sagt `fire`
-mit `kind: "doorGraph"`, wie tragfähig die Grundlage überhaupt ist. Und zur
+Türen daraus gehen als Id-Liste in einen einzigen `measure: "clearWidth"`. Bevor
+eine Aussage über *alle* Wege fällt, sagt `fire` mit `kind: "doorGraph"`, wie
+tragfähig die Grundlage überhaupt ist. Und zur
 Länge gehört zwingend der Hinweis, dass sie ein Streckenzug über Mittelpunkte
 und damit eine **Untergrenze** ist, keine Fluchtweglänge im Sinne der OIB 2 —
 ohne diesen Satz sieht ein zu langer Weg unauffällig aus.
@@ -233,8 +256,8 @@ Gezeichnet wird immer **ein Grundriss**; Schnitt und Ansicht gibt es **nicht**.
 Ein Überstand wird gemessen (`overhang`), nicht gezeichnet — also keinen Schnitt
 anbieten und keinen ankündigen. Und aus keinem Bild wird je ein Maß abgelesen:
 das ist geraten, auch wenn es zufällig stimmt. Ein Blick auf den Plan kostet
-einen der vier Züge; er lohnt sich, wenn unklar ist, welches Bauteil gemeint
-ist, und nicht als Illustration einer schon feststehenden Zahl.
+einen vollen Zug; er lohnt sich, wenn unklar ist, welches Bauteil gemeint ist,
+und nicht als Illustration einer schon feststehenden Zahl.
 
 ## 6. Wie die Zahl in die Antwort kommt
 

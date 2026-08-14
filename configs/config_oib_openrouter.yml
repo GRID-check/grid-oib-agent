@@ -545,7 +545,51 @@ functions:
       - ifc_measure
     verbose: true
     max_llm_turns: 10
-    max_tool_iterations: 5
+    # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain
+    # this surface documents, plus one repair.
+    #
+    # The accounting is `new_iterations += len(response.tool_calls)` in
+    # `shallow_researcher/agent.py`, charged when the model EMITS the call and
+    # never refunded. Three consequences that are not obvious from the name:
+    #   * a call that comes back with 0 hits costs what one that answers costs;
+    #   * PARALLEL calls each cost one, so a model emitting three per turn gets
+    #     two round trips out of five, not five — and this surface runs frontier
+    #     models, which emit parallel calls routinely;
+    #   * `use_skill` is a real tool call, so the BIM budget is one below the
+    #     number written here before any measurement happens.
+    #
+    # Floors traced against the tool surface as it now stands (survey landed
+    # since the number was last touched, and it shortened exactly one shape):
+    #   „wie hoch ist der Keller"  use_skill + survey                       = 2
+    #     ...plus a storey-name miss repaired by briefing, plus emit_card    = 5
+    #   OIB 3 Lichteinfall         use_skill + knowledge_search (the clause
+    #     supplies angle_deg/swivel_deg, which light_incidence refuses to
+    #     default) + find_elements + relations + overhang + light_incidence  = 6
+    #   OIB 2 Fluchtweg            use_skill + knowledge_search + find_elements
+    #     + egressPath + clearWidth over the door list + fire/doorGraph      = 6
+    #
+    # At 5 the two multi-element chains truncate AT OR BEFORE the measurement
+    # that answers the question, and forced synthesis then writes an answer from
+    # declared values — the 3,00-m-instead-of-2,70-m failure this whole branch
+    # started from. Truncation is also SILENT: the synthesis anchor says
+    # „exhausted your research budget" to the MODEL and asks for no disclosure to
+    # the reader, and `[CONFIDENCE:…]` grades SOURCE grounding, not whether
+    # evidence-gathering was cut off.
+    #
+    # 6 is the bare floor with no repair budget, and a storey-name miss is the
+    # commonest repair on this surface. 7 = floor + one repair. Higher buys a
+    # second repair nothing traced here needs, and every iteration is a full
+    # round trip carrying ~9 000 tokens of tool schema plus the grown history.
+    #
+    # Raising a ceiling costs nothing on a query that never reaches it — the
+    # short shapes above still stop at 2. The only new cost is a confused model
+    # wandering, bounded at two extra round trips. Set against that, truncation
+    # before the measurement is the worst failure this product has.
+    #
+    # 7 serial iterations = 15 node visits + forced synthesis, well under
+    # `recursion_limit` 30 (`max_llm_turns * 2 + 10`), so this does not need
+    # max_llm_turns moved with it.
+    max_tool_iterations: 7
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true
