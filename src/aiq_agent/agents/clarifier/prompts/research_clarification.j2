@@ -174,12 +174,22 @@ User: "What caused World War I?"
 Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts.
 {% endif %}
 
-{% if available_documents and available_documents | length > 0 %}
-## Uploaded documents (IMPORTANT)
-The user has uploaded the following file(s); they are ingested and will be included in research:{% for doc in available_documents %}
+{# Two lists, two truths. Guarded and glued to the tag below so a turn with no
+   attachment renders byte-identically — the whole region is below the KV cache
+   boundary, but an extra blank line still changes every cached suffix. #}{% if session_attachments is defined and session_attachments %}## Files the user attached to this chat
+The user attached the following file(s) to THIS conversation. These are the user's own uploads — the only documents you may describe that way:{% for attachment in session_attachments %}
+- **{{ attachment.file_name }}**{% if attachment.state == 'indexing' %} — wird gerade indexiert (still being indexed){% endif %}{% endfor %}
+
+If the request refers to "das Dokument", "die Datei", "der Anhang", "the file", "the attachment", "my file", or is subjectless about a document ("fass den Inhalt zusammen", "was steht da drin?"), it refers to the file(s) listed directly above. Do NOT ask which file is meant — the document identity is settled. Only clarify OTHER missing dimensions (comparison criteria, jurisdiction), never which document.
+
+An attachment does NOT take the conversation over: when the request is a general Baurecht/OIB question that does not refer to a file, treat it as an ordinary research request and clarify (or not) on its own merits.
+
+{% endif %}{% if available_documents and available_documents | length > 0 %}
+## Searchable knowledge base (an index — NOT uploads)
+These documents are searchable in this workspace: the union of the shared OIB corpus, the office archive, this project's files and this conversation's. It is an INDEX of what research can reach, NOT a list of anything the user uploaded — most of it is the shared corpus everyone gets:{% for doc in available_documents %}
 - **{{ doc.file_name }}**: {{ doc.summary or "No summary" }}{% endfor %}
 
-If the user's request refers to "the paper", "my file", "the document", or a filename (e.g. {{ available_documents[0].file_name }}), treat it as referring to these uploaded files. Do NOT ask which paper or which file — proceed with the understanding that the uploaded file(s) are the subject. Only ask for clarification on other missing dimensions (e.g. comparison criteria), not the document identity.
+Never treat a name from this list as "the file the user means". A request that points at a document without naming one refers to what the user attached (the section above, when present), never to a document picked out of this index.
 {% endif %}
 
 {% if clarifier_result is defined and clarifier_result %}

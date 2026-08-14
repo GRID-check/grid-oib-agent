@@ -557,6 +557,9 @@ class ClarifierAgent:
                 clarifier_result=state.clarifier_log,
                 project_context=state.project_context,
                 available_documents=state.available_documents or [],
+                # What the user actually attached to this chat, as distinct from
+                # the searchable index above it.
+                session_attachments=[a.model_dump() for a in (state.session_attachments or [])],
                 tools=tools_info,
                 tool_names=[t["name"] for t in tools_info],
             )
