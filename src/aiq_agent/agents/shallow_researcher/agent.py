@@ -46,6 +46,7 @@ from aiq_agent.common.citation_verification import verify_quoted_spans
 from aiq_agent.common.norm_registry import doctrine_for
 from aiq_agent.common.norm_registry import parcel_note
 from aiq_agent.common.norm_registry import render_block_for_prompt
+from aiq_agent.common.source_kinds import shelf_origin_label
 
 from ...common import LLMProvider
 from ...common import LLMRole
@@ -375,13 +376,26 @@ class ShallowResearcherAgent:
                 # applicability compute. Each block is truthiness-guarded in the
                 # template, so passing None simply omits it. Research turns are
                 # unchanged.
-                _documents_dump = [doc.model_dump() for doc in available_documents]
+                # Each entry carries the label for the shelf it was read from, so
+                # the inventory says whether a name is the user's own upload or
+                # one of the shared corpus documents. The Shelf→label map lives
+                # in `common.source_kinds` next to the enum; resolving it here
+                # rather than in Jinja is what stops the next prompt that wants
+                # origin labels from forking it.
+                _documents_dump = [
+                    {**doc.model_dump(), "origin_label": shelf_origin_label(getattr(doc, "shelf", None))}
+                    for doc in available_documents
+                ]
                 rendered_system_prompt = render_prompt_template(
                     self.system_prompt,
                     tools=tools_info,
                     user_info=user_info,
                     current_datetime=current_datetime,
                     available_documents=_documents_dump,
+                    # What the user attached to THIS chat. Distinct from the
+                    # inventory above, which is the union of every shelf in
+                    # scope and is routinely missing a just-dropped file.
+                    session_attachments=[a.model_dump() for a in (state.session_attachments or [])],
                     project_context=state.project_context,
                     ris_catalog=render_block_for_prompt(state.project_context) if state.requires_sources else None,
                     norm_doctrine=doctrine_for(state.project_context) if state.requires_sources else None,

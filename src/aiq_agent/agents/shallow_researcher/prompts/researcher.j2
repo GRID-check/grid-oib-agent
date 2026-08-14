@@ -221,12 +221,25 @@ User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
 
 {% endif %}
 
-{% if available_documents %}
+{# The turn's attachments. Guarded and glued to the inventory tag below so a
+   turn with no attachment renders byte-identically to before this block
+   existed — the whole section sits below the KV cache boundary, but an extra
+   blank line would still change the suffix of every cached prompt. #}{% if session_attachments is defined and session_attachments %}## Files the user attached to this chat
+The user attached the following file(s) to THIS conversation. They are the subject of any request that points at "a file" without naming one:
+{% for attachment in session_attachments %}- **{{ attachment.file_name }}**{% if attachment.state == 'indexing' %} — wird gerade indexiert (still being indexed){% endif %}
+{% endfor %}
+- Deictic requests refer to these files: "das Dokument", "die Datei", "der Anhang", "das PDF", "the file", "the attachment", "the document" — and so do subjectless ones like "fass den Inhalt zusammen", "was steht da drin?", "worum geht es?", "summarize it", "what does it say?". Do NOT ask which file is meant: it is one of the files listed directly above.
+- To read one, call **knowledge_search** with `file_name=` set to its exact name as written above, plus a `query` naming what you need from it. `file_name=` is a hard filter — it is how you get that file's passages instead of the shared corpus's.
+- A file marked as still being indexed may not be retrievable yet. Search for it once anyway; if nothing comes back, say plainly that it is still being processed and offer to try again in a moment. Never answer from a different document instead.
+- **An attachment does NOT take the conversation over.** It is the subject only of the turns that actually refer to it. When this turn asks a general Baurecht/OIB question ("Welche maximale Fluchtweglänge muss ich einhalten?"), search the knowledge base normally and pass no `file_name` — silently narrowing a general question to an attached file answers a question the user did not ask. Judge every turn on its own words, not on the fact that a file was attached earlier.
+
+{% endif %}{% if available_documents %}
 ## Knowledge-base inventory (index — NOT sources)
 These files exist and are searchable. This is an index of what is available, not evidence you may cite: the one-line summaries are not quotable, and a filename here is NOT a citable source.
 If the user is looking at one of these files, retrieval already prefers it — still call knowledge_search; do not invent quotes from this list.
+The parenthetical after a name is where the file comes from — Chat-Upload (the user attached it here), Projektwissen (this project), Büroarchiv (the office archive), Basiswissen (the shared corpus everyone gets). An entry with no parenthetical has no stated origin; do not guess one. Most of this list is the shared corpus, not the user's own material.
 {% for doc in available_documents %}
-- **{{ doc.file_name }}**{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
+- **{{ doc.file_name }}**{% if doc.origin_label is defined and doc.origin_label %} ({{ doc.origin_label }}){% endif %}{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
 {% endfor %}
 
 To summarize, describe, explain, quote, or cite any of them, retrieve the passage with the **knowledge_search** tool first — only it can see these files (web search cannot). Citing a document from this list that you did not retrieve produces an answer with no usable source at all, because the citation is dropped by verification.

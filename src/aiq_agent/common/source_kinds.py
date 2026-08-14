@@ -228,6 +228,43 @@ SHELF_QUALIFIERS: dict[Shelf, str] = {
     Shelf.BASE: "Basiswissen",
 }
 
+#: Shelf → the short origin label an INVENTORY entry carries
+#: (`- **Plan.pdf** (Chat-Upload): …`). The knowledge-base inventory is a union
+#: of every shelf in scope; without a label per entry nothing in it says whether
+#: a name is the document the user just attached or one of ~39 shared OIB
+#: Richtlinien, which is what let a subjectless "fass den Inhalt zusammen" read
+#: as ambiguous.
+#:
+#: Deliberately NOT :data:`SHELF_QUALIFIERS`, despite three of the four words
+#: being near-synonyms. Those strings are frozen: they are embedded in citation
+#: keys already persisted in messages, so rewording one unresolves those keys.
+#: These are prose the model reads in a prompt and may be reworded whenever it
+#: reads better — two tables with different change costs, not one table used
+#: twice. ``Chat-Upload`` is where they actually diverge: "Private Sitzung"
+#: describes a storage scope, and what the model needs to know here is that the
+#: user handed it this file in this conversation.
+#:
+#: The map lives here, next to the enum, rather than inline in a Jinja template:
+#: the second prompt that wants origin labels would otherwise fork it.
+SHELF_ORIGIN_LABELS: dict[Shelf, str] = {
+    Shelf.SESSION: "Chat-Upload",
+    Shelf.PROJECT: "Projektwissen",
+    Shelf.ARCHIV: "Büroarchiv",
+    Shelf.BASE: "Basiswissen",
+}
+
+
+def shelf_origin_label(shelf: Shelf | str | None) -> str | None:
+    """The inventory origin label for ``shelf``; ``None`` when it is unknown.
+
+    ``None`` renders NO parenthetical at the call site. ADR-0047: an unknown
+    shelf is unknown — it is never guessed as ``base``, and inventing a label
+    for it would be that same guess written in prose.
+    """
+    parsed = parse_shelf(shelf)
+    return None if parsed is None else SHELF_ORIGIN_LABELS[parsed]
+
+
 #: LEGACY citation-key vocabulary → qualifier. The keys are the pre-ADR-0047
 #: coarse-kind scopes (``buero``/``projekt``/``baurecht``) that qualified keys
 #: persisted in existing messages were written against; they are kept so those

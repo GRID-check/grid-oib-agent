@@ -12,6 +12,7 @@ import pytest
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.source_kinds import DEFAULT_SOURCE_KIND
+from aiq_agent.common.source_kinds import SHELF_ORIGIN_LABELS
 from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
 from aiq_agent.common.source_kinds import SOURCE_KINDS
 from aiq_agent.common.source_kinds import Shelf
@@ -20,6 +21,7 @@ from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
 from aiq_agent.common.source_kinds import parse_shelf
 from aiq_agent.common.source_kinds import scope_for_qualifier
 from aiq_agent.common.source_kinds import shelf_for_qualifier
+from aiq_agent.common.source_kinds import shelf_origin_label
 from aiq_agent.common.source_kinds import shelf_qualifier
 from aiq_agent.common.source_kinds import source_kind
 
@@ -211,3 +213,37 @@ class TestLegacyShelfFallback:
         # `collection_scope` returned "baurecht" here, which is the fail-open
         # ADR-0047 calls out: an unknown collection claimed base-law authority.
         assert legacy_shelf_for_collection_name(collection) is None
+
+
+class TestShelfOriginLabels:
+    """The label an inventory entry carries so a name states where it came from."""
+
+    def test_every_shelf_has_a_label(self):
+        # Exhaustive: a new shelf that renders as nothing in the inventory would
+        # silently read as "origin unknown" for a shelf we do know.
+        assert set(SHELF_ORIGIN_LABELS) == set(Shelf)
+
+    @pytest.mark.parametrize(
+        "shelf,expected",
+        [
+            (Shelf.SESSION, "Chat-Upload"),
+            (Shelf.PROJECT, "Projektwissen"),
+            (Shelf.ARCHIV, "Büroarchiv"),
+            (Shelf.BASE, "Basiswissen"),
+        ],
+    )
+    def test_it_labels_each_shelf(self, shelf, expected):
+        assert shelf_origin_label(shelf) == expected
+        # Wire strings resolve too — a caller holding a raw value need not narrow.
+        assert shelf_origin_label(str(shelf)) == expected
+
+    @pytest.mark.parametrize("value", [None, "", "  ", "baurecht", "oib_knowledge", 7])
+    def test_an_unknown_shelf_has_no_label(self, value):
+        # ADR-0047: unknown is unknown. `None` renders no parenthetical at all,
+        # rather than claiming the document is shared base knowledge.
+        assert shelf_origin_label(value) is None
+
+    def test_it_is_not_the_citation_qualifier_table(self):
+        """Two tables on purpose: the qualifiers are frozen into persisted
+        citation keys, these are prose in a prompt and may be reworded."""
+        assert SHELF_ORIGIN_LABELS[Shelf.SESSION] != SHELF_QUALIFIERS[Shelf.SESSION]

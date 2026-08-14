@@ -195,3 +195,19 @@ Ingestion turns raw files into a searchable knowledge base:
 6. **Summarization** — Optionally, a one-sentence summary is generated for each document (configured via `generate_summary` + `summary_model`)
 
 At query time, the AI searches across all collections in scope (see [Knowledge Search](knowledge-search.md) and [Collection Scoping](../technical-reference/collection-scoping.md)).
+
+### Asking about a file you just attached in chat
+
+A file attached in the chat composer is a **session** document (`s_<conversationId>`
+above), and it is treated as the subject of the turn you attached it to. You can
+write "fass den Inhalt zusammen" without naming it — Piloti is told which files
+this turn carries and reads those, rather than asking which document you mean.
+
+- **While it is still indexing**, the chat turn already knows the file exists.
+  If the passages are not retrievable yet, Piloti tells you the file is still
+  being processed and offers to retry, instead of answering from another
+  document.
+- **An attachment does not lock the conversation to that file.** Later turns
+  that ask a general Baurecht/OIB question are answered from the Richtlinien as
+  usual. This is deliberate (ADR-0048): an attachment is a signal about the turn
+  that carries it, not a permanent scope on the conversation.

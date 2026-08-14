@@ -251,6 +251,27 @@ Set a `projectId` on the store to scope the conversation context to a specific p
 
 Drag and drop or select files to attach them to the current session. Uploaded files are ingested into a session-scoped Milvus collection (`s_<sessionId>`) and become part of the conversation context. File upload status is shown via `file_upload_status` system messages. File uploads trigger a `maybeDiscardAbandonedUploadOnlySession` check: sessions with only uploaded files and no user chat messages are cleaned up on navigation.
 
+### Attach a file and ask about it
+
+You can attach a file and write about it straight away — "fass den Inhalt
+zusammen", "was steht da drin?", "vergleich das mit OIB-RL 2". You do not have
+to name the file: the turn carries what you attached, so Piloti knows which
+document "das Dokument" means and answers from it instead of asking back
+(ADR-0048).
+
+Two things worth knowing:
+
+- **You can send before indexing finishes.** Nothing blocks the send. Piloti is
+  told the file exists even while it is still being processed. If the passages
+  genuinely are not ready yet it says so and offers to retry — it will not
+  quietly answer from a different document. Big PDFs take the longest; sending
+  again a few seconds later is usually enough.
+- **An attachment does not lock the conversation to that file.** It is the
+  subject of the turns that refer to it, not of every later turn. Attach a
+  Statik-Bericht, ask about it, then ask a general Fluchtweg question — the
+  general question is answered from the Richtlinien, as if nothing were
+  attached. Point at the file again whenever you want it back in focus.
+
 ## Session persistence
 
 Conversations persist to `localStorage` via the Zustand `persist` middleware with the key `aiq-chat-store`. The storage layer:
