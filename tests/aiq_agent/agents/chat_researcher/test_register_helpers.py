@@ -15,6 +15,9 @@ from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
 from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
 from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
 from aiq_agent.common import _create_chat_response
+from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.knowledge.schema import AvailableDocument
+from aiq_agent.knowledge.scoping import ScopedCollection
 
 
 class _Doc:
@@ -175,6 +178,142 @@ class TestAggregateDocumentsAcrossCollections:
 
         result = asyncio.run(_aggregate_documents_across_collections(["base"], fetch_one, max_documents=0))
         assert len(result) == 5
+
+
+class TestAggregateDocumentProvenance:
+    """A document's shelf and collection travel with it, and both the dedup and
+    the cap ordering key off the shelf (ADR-0047 substrate lift, issue #429)."""
+
+    @staticmethod
+    def _run(scope, per_collection, **kwargs):
+        async def fetch_one(name):
+            await asyncio.sleep(0)
+            return list(per_collection.get(name, []))
+
+        return asyncio.run(_aggregate_documents_across_collections(scope, fetch_one, **kwargs))
+
+    def test_aggregate_stamps_shelf_and_collection(self):
+        scope = [
+            ScopedCollection("oib_knowledge", Shelf.BASE),
+            ScopedCollection("s_abc", Shelf.SESSION),
+        ]
+        result = self._run(
+            scope,
+            {
+                "oib_knowledge": [AvailableDocument(file_name="richtlinie.pdf")],
+                "s_abc": [AvailableDocument(file_name="statik.pdf")],
+            },
+        )
+        stamped = {d.file_name: (d.collection, d.shelf) for d in result}
+        assert stamped == {
+            "richtlinie.pdf": ("oib_knowledge", Shelf.BASE),
+            "statik.pdf": ("s_abc", Shelf.SESSION),
+        }
+
+    def test_bare_collection_name_stamps_the_collection_but_no_shelf(self):
+        # A legacy bare-string scope entry states no shelf. It is never guessed
+        # back from the `s_` prefix; unknown stays unknown.
+        result = self._run(["s_abc"], {"s_abc": [AvailableDocument(file_name="a.pdf")]})
+        assert result[0].collection == "s_abc"
+        assert result[0].shelf is None
+
+    def test_session_document_wins_dedup_over_same_named_base_document(self):
+        # `Plan.pdf` legitimately exists on two shelves. The one the user put in
+        # THIS session is the one they mean — even though the base corpus is
+        # listed first, which is what first-seen dedup used to hand the tie to.
+        scope = [
+            ScopedCollection("oib_knowledge", Shelf.BASE),
+            ScopedCollection("s_abc", Shelf.SESSION),
+        ]
+        result = self._run(
+            scope,
+            {
+                "oib_knowledge": [AvailableDocument(file_name="Plan.pdf", summary="the corpus copy")],
+                "s_abc": [AvailableDocument(file_name="Plan.pdf", summary="what the user just uploaded")],
+            },
+        )
+        assert len(result) == 1
+        assert result[0].summary == "what the user just uploaded"
+        assert result[0].shelf is Shelf.SESSION
+        assert result[0].collection == "s_abc"
+
+    def test_dedup_precedence_orders_session_project_archiv_base(self):
+        scope = [
+            ScopedCollection("oib_knowledge", Shelf.BASE),
+            ScopedCollection("archiv_org", Shelf.ARCHIV),
+            ScopedCollection("proj_alpha", Shelf.PROJECT),
+            ScopedCollection("s_abc", Shelf.SESSION),
+        ]
+        docs = {e.collection: [AvailableDocument(file_name="Plan.pdf", summary=e.collection)] for e in scope}
+        assert self._run(scope, docs)[0].summary == "s_abc"
+
+        docs.pop("s_abc")
+        assert self._run(scope, docs)[0].summary == "proj_alpha"
+
+        docs.pop("proj_alpha")
+        assert self._run(scope, docs)[0].summary == "archiv_org"
+
+    def test_session_document_survives_the_available_documents_cap(self):
+        # The truncation hazard the shelf sort removes: a full base corpus plus
+        # one session upload whose name sorts last alphabetically. Under the old
+        # file_name-only sort the user's own document was the first thing cut.
+        scope = [
+            ScopedCollection("oib_knowledge", Shelf.BASE),
+            ScopedCollection("s_abc", Shelf.SESSION),
+        ]
+        result = self._run(
+            scope,
+            {
+                "oib_knowledge": [AvailableDocument(file_name=f"oib_{i:02d}.pdf") for i in range(50)],
+                "s_abc": [AvailableDocument(file_name="zzz.pdf")],
+            },
+            max_documents=50,
+        )
+        assert len(result) == 50
+        assert result[0].file_name == "zzz.pdf"
+        assert result[0].shelf is Shelf.SESSION
+        assert "zzz.pdf" in {d.file_name for d in result}
+
+    def test_sort_is_shelf_then_file_name(self):
+        scope = [
+            ScopedCollection("oib_knowledge", Shelf.BASE),
+            ScopedCollection("proj_alpha", Shelf.PROJECT),
+        ]
+        result = self._run(
+            scope,
+            {
+                "oib_knowledge": [AvailableDocument(file_name="b.pdf"), AvailableDocument(file_name="a.pdf")],
+                "proj_alpha": [AvailableDocument(file_name="z.pdf"), AvailableDocument(file_name="y.pdf")],
+            },
+        )
+        # project shelf first (nearer the user), file_name within each shelf.
+        assert [d.file_name for d in result] == ["y.pdf", "z.pdf", "a.pdf", "b.pdf"]
+
+    def test_documents_with_no_stated_shelf_sort_last(self):
+        scope = [ScopedCollection("unknown_coll"), ScopedCollection("oib_knowledge", Shelf.BASE)]
+        result = self._run(
+            scope,
+            {
+                "unknown_coll": [AvailableDocument(file_name="a.pdf")],
+                "oib_knowledge": [AvailableDocument(file_name="z.pdf")],
+            },
+        )
+        # `a.pdf` sorts first alphabetically but has no stated shelf, so the
+        # base-corpus document precedes it. Unknown never displaces stated.
+        assert [d.file_name for d in result] == ["z.pdf", "a.pdf"]
+
+    def test_a_scope_that_states_no_shelves_reduces_to_the_previous_behaviour(self):
+        # Every ordering keys off the STATED shelf, so a bare-name scope ranks
+        # everything equally: first-seen dedup, file_name sort — byte-identical
+        # to the pre-provenance helper.
+        collections = ["base", "session"]
+        per_collection = {
+            "base": [_Doc("dup.pdf"), _Doc("m.pdf")],
+            "session": [_Doc("dup.pdf"), _Doc("a.pdf")],
+        }
+        result = self._run(collections, per_collection)
+        assert result == _sequential_reference(collections, per_collection)
+        assert [d.file_name for d in result] == ["a.pdf", "dup.pdf", "m.pdf"]
 
 
 class _Intent:

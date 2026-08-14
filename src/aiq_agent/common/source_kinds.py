@@ -179,6 +179,42 @@ def parse_shelf(value: object) -> Shelf | None:
         return None
 
 
+#: Shelf → how NEAR that shelf is to the user, lowest first.
+#:
+#: The ordering is "whose document is this, most personally": what the user put
+#: in THIS chat session, then their project, then their office archive, then the
+#: shared corpus everyone gets. It answers two questions that must not be allowed
+#: to disagree — which of two same-named documents is *the* one the user means,
+#: and which documents survive a top-N truncation — so it is one table rather
+#: than a comparator per call site.
+#:
+#: Ordering only. It says nothing about authority: an OIB Richtlinie on the
+#: ``base`` shelf still outranks a session upload as a legal source. Use
+#: :data:`SHELF_QUALIFIERS` for what a shelf is called and
+#: ``norm_registry``/``doc_class`` for what a document is worth.
+SHELF_PRECEDENCE: dict[Shelf, int] = {
+    Shelf.SESSION: 0,
+    Shelf.PROJECT: 1,
+    Shelf.ARCHIV: 2,
+    Shelf.BASE: 3,
+}
+
+#: Rank given to a document whose shelf is unknown. Sorts LAST, behind every
+#: stated shelf — consistent with :func:`parse_shelf` failing closed: an
+#: unattributable document never displaces one whose origin the producer stated.
+UNKNOWN_SHELF_PRECEDENCE: int = len(SHELF_PRECEDENCE)
+
+
+def shelf_precedence(shelf: Shelf | str | None) -> int:
+    """How near ``shelf`` is to the user; lower wins. Unknown sorts last.
+
+    Accepts the same values :func:`parse_shelf` does, so a caller holding a raw
+    wire string does not have to narrow it first.
+    """
+    parsed = parse_shelf(shelf)
+    return UNKNOWN_SHELF_PRECEDENCE if parsed is None else SHELF_PRECEDENCE[parsed]
+
+
 #: Shelf → the short German qualifier a citation key uses
 #: (`Plan.pdf (Projektwissen), p.3`). RENDERING ONLY — the shelf itself is what
 #: travels. Deliberately shorter than ``SourceKind.label`` ("Baurecht &

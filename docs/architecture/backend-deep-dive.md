@@ -454,11 +454,44 @@ double LLM failure" below for the fix that closed the practical case of
 this.
 
 `available_documents` is fetched **once per turn**, in
-`chat_researcher/register.py` (~lines 530–581), aggregated across the
-collections in the request's header-based scope (or the base + session
-collection fallback when no scope header is present) and deduplicated by file
-name. The same list is then shared by the shallow, clarifier, and deep-research
-paths for that turn — it is not re-fetched per node.
+`chat_researcher/register.py` (`_aggregate_documents_across_collections`),
+aggregated across the collections in the request's header-based scope (or the
+base + session collection fallback when no scope header is present). The same
+list is then shared by the shallow, clarifier, and deep-research paths for that
+turn — it is not re-fetched per node.
+
+**Each entry carries its provenance (issue #429).** `AvailableDocument` has an
+optional `collection` and `shelf` (`aiq_agent.common.source_kinds.Shelf` —
+`session | project | archiv | base`, ADR-0047). Neither is stored: a shelf is a
+property of the *request scope*, not of the summary row, so the aggregator — the
+only place that knows which collection a row came from — stamps them. That made
+the list an undifferentiated union of base + Archiv + project + session with no
+way for a prompt (or a reader) to tell the user's own upload from the shared
+corpus. The scope is therefore read with `get_scoped_collections_from_context()`
+(the shelf-carrying read) rather than its names-only projection; the legacy
+base+session fallback *builds* its layers and so states their shelves
+structurally. Nothing is inferred from a collection-id prefix.
+
+The shelf then drives **two orderings**, both changed from what they were:
+
+| | was | is |
+|---|---|---|
+| dedup of a repeated `file_name` | first collection listed wins | nearest shelf wins: `session > project > archiv > base` |
+| sort (which entries survive the cap) | `file_name` | `(shelf_precedence, file_name)` |
+
+One filename legitimately names two different documents — `Plan.pdf` in a
+project and `Plan.pdf` in the Büroarchiv are not the same file — and the copy
+the user just uploaded is the one they mean. The sort matters because the list
+is capped (`GRID_AVAILABLE_DOCUMENTS_MAX`, default 50) and the base corpus alone
+is ~39 documents: under a plain alphabetical sort a session upload whose name
+sorts late was among the first entries truncated, i.e. the agent could not see
+the document the turn was about. Ordering only — `SHELF_PRECEDENCE` says nothing
+about *authority*; an OIB Richtlinie on the `base` shelf remains the stronger
+legal source.
+
+Both orderings key off the **stated** shelf, so a scope of bare collection names
+(the legacy wire shape, which states no shelf) ranks every document equally and
+reduces exactly to the previous first-seen/`file_name` behaviour.
 
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
 prompts (`agents/deep_researcher/prompts/planner.j2`,

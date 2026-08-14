@@ -134,6 +134,10 @@ class TestAvailableDocument:
             "tags": None,
             "doc_class": None,
             "display_title": None,
+            # Provenance is stamped by the per-turn aggregator, not by the
+            # store: a shelf is a property of the request scope, not of the row.
+            "collection": None,
+            "shelf": None,
         }
 
     def test_model_dump_without_summary(self):
@@ -146,6 +150,8 @@ class TestAvailableDocument:
             "tags": None,
             "doc_class": None,
             "display_title": None,
+            "collection": None,
+            "shelf": None,
         }
 
     def test_model_validate(self):

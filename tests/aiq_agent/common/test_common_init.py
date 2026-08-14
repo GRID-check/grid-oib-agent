@@ -457,3 +457,63 @@ class TestGetCheckpointer:
         finally:
             await conn.close()
             os.unlink(db_path)
+
+    @pytest.mark.asyncio
+    async def test_available_document_carrying_a_shelf_round_trips(self):
+        """``AvailableDocument.shelf`` survives the STRICT msgpack allow-list.
+
+        ``Shelf`` is an enum rather than a state type, so it has to be
+        allow-listed in its own right: without it the serializer logs "Blocked
+        deserialization" on every restore and the member survives only because a
+        StrEnum degrades to its own string value. This asserts the enum comes
+        back as the enum, and that the collection travels with it.
+        """
+        import aiosqlite
+        from langgraph.checkpoint.base import empty_checkpoint
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        from aiq_agent.common import _build_checkpointer_serde
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.schema import AvailableDocument
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        conn = await aiosqlite.connect(db_path)
+        try:
+            checkpointer = AsyncSqliteSaver(conn, serde=_build_checkpointer_serde())
+            await checkpointer.setup()
+
+            documents = [
+                AvailableDocument(file_name="statik.pdf", collection="s_abc", shelf=Shelf.SESSION),
+                AvailableDocument(file_name="oib-rl-2.pdf", collection="oib_knowledge", shelf=Shelf.BASE),
+                # No provenance stated — must stay unknown, never defaulted.
+                AvailableDocument(file_name="legacy.pdf"),
+            ]
+
+            checkpoint = empty_checkpoint()
+            checkpoint["channel_values"] = {"available_documents": documents}
+            config = {"configurable": {"thread_id": "shelf", "checkpoint_ns": ""}}
+            saved_config = await checkpointer.aput(config, checkpoint, {}, {})
+
+            restored = (await checkpointer.aget_tuple(saved_config)).checkpoint["channel_values"]
+            assert restored["available_documents"] == documents
+            assert restored["available_documents"][0].shelf is Shelf.SESSION
+            assert isinstance(restored["available_documents"][0].shelf, Shelf)
+            assert restored["available_documents"][0].collection == "s_abc"
+            assert restored["available_documents"][2].shelf is None
+            assert restored["available_documents"][2].collection is None
+        finally:
+            await conn.close()
+            os.unlink(db_path)
+
+    def test_shelf_is_in_the_msgpack_allow_list(self):
+        """``AvailableDocument.shelf`` carries an enum, so the enum is allow-listed."""
+        from aiq_agent.common import _build_checkpointer_serde
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.schema import AvailableDocument
+
+        serde = _build_checkpointer_serde()
+        assert serde.loads_typed(serde.dumps_typed(Shelf.SESSION)) is Shelf.SESSION
+        doc = AvailableDocument(file_name="a.pdf", shelf=Shelf.PROJECT, collection="proj_x")
+        assert serde.loads_typed(serde.dumps_typed(doc)) == doc

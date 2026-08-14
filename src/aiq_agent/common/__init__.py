@@ -222,10 +222,18 @@ def _build_checkpointer_serde() -> JsonPlusSerializer:
     from aiq_agent.agents.chat_researcher.models.depth import DepthDecision
     from aiq_agent.agents.chat_researcher.models.intent import IntentResult
     from aiq_agent.agents.chat_researcher.models.result import ShallowResult
+    from aiq_agent.common.source_kinds import Shelf
     from aiq_agent.knowledge.schema import AvailableDocument
 
+    # ``Shelf`` is an enum, not a state type: it is here because
+    # ``AvailableDocument.shelf`` carries one. Blocking it would not corrupt a
+    # restore — the blocked value degrades to its raw string and pydantic
+    # re-validates a StrEnum member back out of it — but it logs a "Blocked
+    # deserialization" line on EVERY restore, and the recovery depends on
+    # ``Shelf`` staying a StrEnum. Allow-listing it makes the round-trip say
+    # what it means.
     return JsonPlusSerializer(
-        allowed_msgpack_modules=[IntentResult, DepthDecision, ShallowResult, AvailableDocument],
+        allowed_msgpack_modules=[IntentResult, DepthDecision, ShallowResult, AvailableDocument, Shelf],
     )
 
 

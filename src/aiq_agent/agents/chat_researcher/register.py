@@ -24,6 +24,8 @@ from aiq_agent.common.citation_verification import get_or_create_session_registr
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
+from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.source_kinds import shelf_precedence
 from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
@@ -123,44 +125,108 @@ def _available_documents_limit() -> int:
         return 50
 
 
+def _as_scope_entry(entry) -> tuple[str, Shelf | None]:
+    """A scope entry → ``(collection_name, shelf)``.
+
+    Accepts a :class:`~aiq_agent.knowledge.scoping.ScopedCollection` or a bare
+    collection name. A bare name states no shelf, so the shelf is unknown — it is
+    never guessed back from the collection-id prefix (ADR-0047).
+    """
+    if isinstance(entry, str):
+        return entry, None
+    return entry.collection, getattr(entry, "shelf", None)
+
+
+def _stamp_provenance(doc, collection: str, shelf):
+    """Return ``doc`` carrying the collection it was read from and that shelf.
+
+    The summaries store records neither: a shelf is a property of the REQUEST
+    scope, not of the row, so the aggregator — the only place that knows which
+    collection a row came from — is where provenance is attached.
+
+    Fail-open: anything that cannot take the stamp (a stand-in, a future
+    non-pydantic row) is returned untouched rather than dropped, which degrades
+    to exactly the name-only behaviour that existed before provenance.
+    """
+    model_copy = getattr(doc, "model_copy", None)
+    if model_copy is None:
+        return doc
+    try:
+        return model_copy(update={"collection": collection, "shelf": shelf})
+    except Exception:
+        logger.debug("Could not stamp provenance onto a document summary", exc_info=True)
+        return doc
+
+
+def _document_shelf_rank(doc) -> int:
+    """Precedence of the shelf a (possibly unstamped) document sits on."""
+    return shelf_precedence(getattr(doc, "shelf", None))
+
+
 async def _aggregate_documents_across_collections(collections, fetch_one, max_documents=None):
     """Concurrently load document summaries for each collection and merge them.
 
-    ``fetch_one`` is an async callable ``fetch_one(collection) -> list`` (its
-    per-collection round-trip). The reads run concurrently instead of one at a
-    time. Collections are merged in input order and files deduped by
-    ``file_name`` (first-seen winning), then the deduped set is sorted by
-    ``file_name`` and capped to ``max_documents`` (``None`` → the
-    ``GRID_AVAILABLE_DOCUMENTS_MAX`` env default). The sort makes the capped set
-    **stable across turns** — the DB rows have no ordering column, so without it
-    the truncated slice (and the resulting prompt prefix) could differ turn to
-    turn, defeating provider prompt caching.
+    ``collections`` holds :class:`~aiq_agent.knowledge.scoping.ScopedCollection`
+    entries (or bare names, which state no shelf). ``fetch_one`` is an async
+    callable ``fetch_one(collection_name) -> list`` (its per-collection
+    round-trip); the reads run concurrently instead of one at a time.
+
+    Every returned summary is stamped with the collection it came from and that
+    collection's shelf, and both the dedup and the sort are keyed on the shelf:
+
+    - **Dedup** by ``file_name``, won by the NEAREST shelf
+      (session > project > archiv > base). One filename can legitimately exist on
+      two shelves — `Plan.pdf` in a project and `Plan.pdf` in the Büroarchiv are
+      different documents — and the one the user just uploaded is the one they
+      mean. First-seen used to win, which handed the tie to whichever collection
+      the scope happened to list first.
+    - **Sort** by ``(shelf_precedence, file_name)``, so the cap below truncates
+      the shared corpus rather than the user's own upload. Within a shelf the
+      file_name sort keeps the capped set **stable across turns** — the DB rows
+      have no ordering column, so without it the truncated slice (and the
+      resulting prompt prefix) could differ turn to turn, defeating provider
+      prompt caching.
+
+    Both orderings key off the STATED shelf only, so a scope of bare names (no
+    shelf stated anywhere) ranks every document equally and reduces exactly to
+    the previous first-seen/file_name behaviour.
+
+    The result is capped to ``max_documents`` (``None`` → the
+    ``GRID_AVAILABLE_DOCUMENTS_MAX`` env default).
 
     Fail-open per collection: if ``fetch_one`` raises for a collection, that
     collection contributes an empty list (matching the old ``continue``) rather
     than failing the whole aggregation.
     """
+    scoped = [_as_scope_entry(entry) for entry in collections]
 
-    async def _guarded(coll):
+    async def _guarded(name):
         try:
-            return await fetch_one(coll)
+            return await fetch_one(name)
         except Exception as e:
-            logger.debug("No document summaries for collection %s: %s", coll, e)
+            logger.debug("No document summaries for collection %s: %s", name, e)
             return []
 
     # gather preserves input order, so the merge order below matches the old loop.
-    per_collection_docs = await asyncio.gather(*(_guarded(coll) for coll in collections))
+    per_collection_docs = await asyncio.gather(*(_guarded(name) for name, _ in scoped))
 
-    aggregated = []
-    seen_files: set[str] = set()
-    for docs in per_collection_docs:
+    # file_name -> (shelf rank of the winner, stamped document). `order` keeps
+    # first-appearance order so a tie (same rank) resolves exactly as first-seen
+    # did; the sort below is what actually orders the result.
+    winners: dict[str, tuple[int, Any]] = {}
+    order: list[str] = []
+    for (name, shelf), docs in zip(scoped, per_collection_docs, strict=True):
+        rank = shelf_precedence(shelf)
         for doc in docs or []:
-            if doc.file_name in seen_files:
+            incumbent = winners.get(doc.file_name)
+            if incumbent is None:
+                order.append(doc.file_name)
+            elif rank >= incumbent[0]:
                 continue
-            seen_files.add(doc.file_name)
-            aggregated.append(doc)
+            winners[doc.file_name] = (rank, _stamp_provenance(doc, name, shelf))
 
-    aggregated.sort(key=lambda d: d.file_name)
+    aggregated = [winners[file_name][1] for file_name in order]
+    aggregated.sort(key=lambda d: (_document_shelf_rank(d), d.file_name))
     limit = _available_documents_limit() if max_documents is None else max_documents
     if limit and limit > 0 and len(aggregated) > limit:
         logger.info(
@@ -746,11 +812,20 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         import uuid
 
         # Read the X-Grid-Collection-Scope header from NAT context, if present.
+        # Read it SCOPED — each collection with the shelf it sits on (ADR-0047) —
+        # because the available-documents aggregation needs the shelf to rank and
+        # dedup by. `_collection_scope` stays the names-only projection that
+        # `ChatResearcherState.collection_scope` has always carried; it is the same
+        # value `get_collection_scope_from_context()` returns (that function IS
+        # this projection), so nothing downstream changes.
+        _scoped_collections = None
         _collection_scope = None
         try:
-            from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+            from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 
-            _collection_scope = get_collection_scope_from_context()
+            _scoped_collections = get_scoped_collections_from_context()
+            if _scoped_collections is not None:
+                _collection_scope = [entry.collection for entry in _scoped_collections]
         except ImportError:
             pass
 
@@ -903,11 +978,12 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             available_documents = None
             try:
                 from aiq_agent.knowledge import get_available_documents_async
+                from aiq_agent.knowledge.scoping import ScopedCollection
 
                 # Header-based collection scope takes precedence. Reuse the value
-                # already decoded once at the top of the turn (_collection_scope)
+                # already decoded once at the top of the turn (_scoped_collections)
                 # instead of re-reading and re-normalizing the same header here.
-                header_scope = _collection_scope
+                header_scope = _scoped_collections
                 if header_scope:
                     collections_to_check = header_scope
                 else:
@@ -923,10 +999,15 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                         os.environ.get("COLLECTION_NAME") or os.environ.get("OIB_COLLECTION_NAME") or "oib_knowledge"
                     )
                     # Distinct collections to query, preserving order (base first).
-                    collections_to_check: list[str] = []
-                    for coll in (base_collection, session_collection):
-                        if coll and coll not in collections_to_check:
-                            collections_to_check.append(coll)
+                    # This fallback BUILDS the layers, so it knows each one's shelf
+                    # structurally and states it — the same reasoning as
+                    # ``_resolve_scoped_collections``. Nothing is inferred from a name.
+                    collections_to_check: list[ScopedCollection] = []
+                    seen_names: set[str] = set()
+                    for coll, shelf in ((base_collection, Shelf.BASE), (session_collection, Shelf.SESSION)):
+                        if coll and coll not in seen_names:
+                            seen_names.add(coll)
+                            collections_to_check.append(ScopedCollection(coll, shelf))
 
                 # Read every collection concurrently (instead of one round-trip
                 # at a time) and merge deterministically; see the helper for the
@@ -935,15 +1016,16 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     collections_to_check, get_available_documents_async
                 )
 
+                checked_names = [entry.collection for entry in collections_to_check]
                 if aggregated:
                     available_documents = aggregated
                     logger.info(
                         "Loaded %d document summaries across collections %s",
                         len(aggregated),
-                        collections_to_check,
+                        checked_names,
                     )
                 else:
-                    logger.info("No document summaries in DB for collections %s", collections_to_check)
+                    logger.info("No document summaries in DB for collections %s", checked_names)
             except Exception as e:
                 logger.warning("Could not fetch available documents: %s", e)
             return available_documents

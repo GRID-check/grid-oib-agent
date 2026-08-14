@@ -21,6 +21,8 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import model_validator
 
+from aiq_agent.common.source_kinds import Shelf
+
 
 class ContentType(StrEnum):
     """
@@ -258,6 +260,13 @@ class AvailableDocument(BaseModel):
         display_title: Optional user-facing document name shown on citation chips
             and in the base-corpus admin UI. When unset, callers fall back to the
             derived default (``guess_display_title``); the filename is never shown.
+        collection: Optional id of the collection this row was read from. The
+            other half of a document's real identity — ``(collection, file_name)``
+            is the primary key of ``document_metadata``; a filename alone is not
+            unique across the shelves one turn reads (ADR-0047).
+        shelf: Optional :class:`~aiq_agent.common.source_kinds.Shelf` that
+            collection sits on. ``None`` means the producer stated no shelf —
+            unknown, never guessed back from the collection-id prefix.
     """
 
     file_name: str
@@ -265,3 +274,9 @@ class AvailableDocument(BaseModel):
     tags: list[str] | None = None
     doc_class: str | None = None
     display_title: str | None = None
+    # Provenance. Both optional and additive: the summaries store does not
+    # record them (a shelf is a property of the REQUEST scope, not of the row),
+    # so they are stamped by whoever aggregates across collections and stay
+    # None on the name-only path.
+    collection: str | None = None
+    shelf: Shelf | None = None
