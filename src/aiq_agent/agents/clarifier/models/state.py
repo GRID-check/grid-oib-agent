@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import computed_field
 
+from aiq_agent.common.turn_attachments import SessionAttachment
+
 
 class ClarifierResult(BaseModel):
     """
@@ -40,6 +42,8 @@ class ClarifierAgentState(BaseModel):
         data_sources: Optional list of data sources to scope tools.
         available_documents: User-uploaded documents (file_name, summary) that are
             ingested; the user may refer to these.
+        session_attachments: Files the user attached to THIS chat session — what
+            the user actually uploaded, as opposed to the searchable inventory.
         project_context: Optional project profile context for
             project-aware research planning.
         max_turns: Maximum number of turns for the clarification dialog.
@@ -58,6 +62,10 @@ class ClarifierAgentState(BaseModel):
     available_documents: list[dict[str, Any]] | None = Field(
         default=None,
         description="User-uploaded documents (file_name, summary) that are ingested; the user may refer to these.",
+    )
+    session_attachments: list[SessionAttachment] | None = Field(
+        default=None,
+        description="Files the user attached to THIS chat session (file_name, state).",
     )
     max_turns: int = Field(default=3)
     clarifier_log: str = Field(default="")

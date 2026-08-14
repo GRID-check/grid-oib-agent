@@ -223,6 +223,7 @@ def _build_checkpointer_serde() -> JsonPlusSerializer:
     from aiq_agent.agents.chat_researcher.models.intent import IntentResult
     from aiq_agent.agents.chat_researcher.models.result import ShallowResult
     from aiq_agent.common.source_kinds import Shelf
+    from aiq_agent.common.turn_attachments import SessionAttachment
     from aiq_agent.knowledge.schema import AvailableDocument
 
     # ``Shelf`` is an enum, not a state type: it is here because
@@ -233,7 +234,14 @@ def _build_checkpointer_serde() -> JsonPlusSerializer:
     # ``Shelf`` staying a StrEnum. Allow-listing it makes the round-trip say
     # what it means.
     return JsonPlusSerializer(
-        allowed_msgpack_modules=[IntentResult, DepthDecision, ShallowResult, AvailableDocument, Shelf],
+        allowed_msgpack_modules=[
+            IntentResult,
+            DepthDecision,
+            ShallowResult,
+            AvailableDocument,
+            SessionAttachment,
+            Shelf,
+        ],
     )
 
 

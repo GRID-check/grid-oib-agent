@@ -162,38 +162,55 @@ def parse_skills(raw: Any) -> list[str] | None:
     return None
 
 
+def _set_turn_scoped_signals(payload: dict | None) -> None:
+    """Apply this turn's document-scoping signals, or clear them.
+
+    Both signals live in ContextVars that outlive a single turn within a
+    connection, so EVERY path through ``_extract_query_from_text`` has to state a
+    value. A path that simply returns leaves the previous turn's value in place,
+    silently re-scoping an attachment-free turn to a document the user has
+    stopped talking about — pass ``None`` there rather than falling through.
+
+    Never raises: a scoping signal is an optimisation, and losing one must cost
+    the turn its narrowing, not the turn.
+    """
+    try:
+        from aiq_agent.common.focus_file import set_focused_file_name
+        from aiq_agent.common.turn_attachments import parse_turn_attachments
+        from aiq_agent.common.turn_attachments import set_turn_attachments
+
+        focus = payload.get("focus_file_name") if payload else None
+        set_focused_file_name(focus if isinstance(focus, str) else None)
+        set_turn_attachments(parse_turn_attachments(payload.get("session_attachments")) if payload else [])
+    except Exception:
+        pass
+
+
 def _extract_query_from_text(text: str) -> tuple[str, list[str] | None, list[str] | None]:
     if not text:
+        _set_turn_scoped_signals(None)
         return ("", None, None)
     trimmed = text.strip()
     if trimmed.startswith("{") and trimmed.endswith("}"):
         try:
             payload = json.loads(trimmed)
         except json.JSONDecodeError:
+            # Looked like a payload but is not one: it carries no signals, so
+            # the previous turn's must not survive into this one.
+            _set_turn_scoped_signals(None)
             return (text, None, None)
         if isinstance(payload, dict):
             data_sources = parse_data_sources(payload.get("data_sources"))
             skills = parse_skills(payload.get("skills"))
             query_text = payload.get("query") or payload.get("text")
-            focus = payload.get("focus_file_name")
-            try:
-                from aiq_agent.common.focus_file import set_focused_file_name
-
-                set_focused_file_name(focus if isinstance(focus, str) else None)
-            except Exception:
-                pass
+            _set_turn_scoped_signals(payload)
             if isinstance(query_text, str) and query_text.strip():
                 return (query_text.strip(), data_sources, skills)
             # No query/text field — treat the whole blob as the user's
             # message, not as a structured payload. data_sources in that
             # JSON would silently re-aim the turn.
             return (text, None, None)
-    try:
-        from aiq_agent.common.focus_file import set_focused_file_name
-
-        set_focused_file_name(None)
-    except Exception:
-        pass
+    _set_turn_scoped_signals(None)
     return (text, None, None)
 
 

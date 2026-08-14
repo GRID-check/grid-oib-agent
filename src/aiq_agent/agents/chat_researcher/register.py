@@ -26,6 +26,7 @@ from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.common.source_kinds import shelf_precedence
+from aiq_agent.common.turn_attachments import get_turn_attachments
 from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
@@ -960,6 +961,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         logger.info("skip_clarifier=%s", skip_clarifier)
 
         query_text, data_sources, force_skills = _extract_query_and_sources(query)
+        # Read the turn's attachments straight after the payload is parsed —
+        # `_extract_query_from_text` is what set them, and it states a value on
+        # every path (including "no attachments"), so this is never a stale read.
+        _session_attachments = get_turn_attachments()
         logger.info("ChatDeepResearcherAgent: %s", query_text)
         logger.info("ChatDeepResearcherAgent: Data sources: %s", data_sources)
 
@@ -1070,6 +1075,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 data_sources=data_sources,
                 force_skills=force_skills,
                 available_documents=available_documents,
+                session_attachments=_session_attachments or None,
                 collection_scope=_collection_scope,
                 skip_clarifier=skip_clarifier,
                 project_context=_project_context,

@@ -347,6 +347,7 @@ class ChatResearcherAgent:
                     messages=trimmed_messages,
                     data_sources=state.data_sources,
                     available_documents=available_docs if available_docs else None,
+                    session_attachments=state.session_attachments,
                     project_context=state.project_context,
                 )
                 result = await self.clarifier_fn(clarifier_state)
@@ -406,6 +407,7 @@ class ChatResearcherAgent:
                     data_sources=state.data_sources,
                     user_info=state.user_info,
                     available_documents=state.available_documents,
+                    session_attachments=state.session_attachments,
                     project_context=state.project_context,
                     requires_sources=requires_sources,
                     # The user-requested forced skills (WS `skills` array). The
@@ -742,6 +744,15 @@ class ChatResearcherAgent:
                 "user_info": state.user_info,
                 "data_sources": state.data_sources,
                 "available_documents": state.available_documents,
+                # Per-turn signals parsed from THIS turn's wire payload. They are
+                # listed rather than defaulted for both halves of the same reason:
+                # a channel absent here never reaches the graph at all, and one
+                # that is present carries the current turn's value over whatever
+                # a previous turn checkpointed — so `None` here is a RESET, not a
+                # no-op. `force_skills` was missing from this list, which is why
+                # a `/name` invocation never reached the shallow researcher.
+                "force_skills": state.force_skills,
+                "session_attachments": state.session_attachments,
                 "collection_scope": state.collection_scope,
                 "shallow_result": None,  # reset at turn boundary to avoid stale checkpoint state
                 # Reset like shallow_result: a persisted job id from a previous

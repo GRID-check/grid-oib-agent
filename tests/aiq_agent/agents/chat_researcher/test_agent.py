@@ -10,6 +10,7 @@ from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
 from aiq_agent.agents.chat_researcher.models import DepthDecision
 from aiq_agent.agents.chat_researcher.models import IntentResult
+from aiq_agent.common.turn_attachments import SessionAttachment
 
 
 class TestChatResearcherAgent:
@@ -390,6 +391,86 @@ class TestChatResearcherAgent:
         await agent.run(state, thread_id="test-thread")
 
         assert captured_state["collection_scope"] == ["oib_knowledge", "proj_project-1", "s_conv-1"]
+
+    @pytest.mark.asyncio
+    async def test_run_propagates_session_attachments_to_the_shallow_agent(
+        self,
+        mock_intent_classifier,
+        mock_deep_research,
+        mock_clarifier,
+    ):
+        """The turn's attachments must reach the agent that answers the turn (#429).
+
+        `available_documents` is the searchable INVENTORY and can legitimately
+        not list a just-dropped file yet; the attachment list is what the user
+        actually handed over. Threading only the inventory is the original bug.
+        """
+        captured = {}
+
+        async def capturing_shallow(state_input):
+            captured["session_attachments"] = state_input.session_attachments
+            result = MagicMock()
+            result.messages = list(state_input.messages) + [AIMessage(content="Zusammenfassung.")]
+            return result
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=mock_intent_classifier,
+            shallow_research_fn=capturing_shallow,
+            deep_research_fn=mock_deep_research,
+            clarifier_fn=mock_clarifier,
+            enable_escalation=False,
+        )
+
+        attachments = [
+            SessionAttachment(file_name="Statik.pdf", state="ready"),
+            SessionAttachment(file_name="Gross.pdf", state="indexing"),
+        ]
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Fass den Inhalt zusammen")],
+            session_attachments=attachments,
+        )
+        await agent.run(state, thread_id="test-thread")
+
+        assert captured["session_attachments"] == attachments
+
+    @pytest.mark.asyncio
+    async def test_run_propagates_force_skills_to_the_shallow_agent(
+        self,
+        mock_intent_classifier,
+        mock_deep_research,
+        mock_clarifier,
+    ):
+        """Regression: a `/name` invocation reached the graph as nothing.
+
+        `run()` builds its graph input as an explicit allow-list of channels, and
+        `force_skills` was not on it — so the skills a user forced were set on
+        `ChatResearcherState` in the register layer, read by `shallow_research_node`
+        via `state.force_skills`, and were `None` by the time they got there.
+        A channel missing from that list never reaches the graph at all.
+        """
+        captured = {}
+
+        async def capturing_shallow(state_input):
+            captured["force_skills"] = state_input.force_skills
+            result = MagicMock()
+            result.messages = list(state_input.messages) + [AIMessage(content="Geprüft.")]
+            return result
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=mock_intent_classifier,
+            shallow_research_fn=capturing_shallow,
+            deep_research_fn=mock_deep_research,
+            clarifier_fn=mock_clarifier,
+            enable_escalation=False,
+        )
+
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Prüfe die Einreichunterlagen")],
+            force_skills=["oib-vorpruefung"],
+        )
+        await agent.run(state, thread_id="test-thread")
+
+        assert captured["force_skills"] == ["oib-vorpruefung"]
 
     @pytest.mark.asyncio
     async def test_run_propagates_none_data_sources(

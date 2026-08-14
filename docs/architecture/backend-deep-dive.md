@@ -493,6 +493,37 @@ Both orderings key off the **stated** shelf, so a scope of bare collection names
 (the legacy wire shape, which states no shelf) ranks every document equally and
 reduces exactly to the previous first-seen/`file_name` behaviour.
 
+**The inventory is not the same question as "what did the user just attach".**
+`available_documents` answers *what is searchable*; it is written by the async
+ingest job, and the composer does not gate send, so a file the user dropped a
+second ago is legitimately not in it. That is why the turn's attachments travel
+as their own signal — `session_attachments` on the `user_message` payload
+(`docs/api/websocket-protocol.md`) → `parse_turn_attachments` →
+`aiq_agent.common.turn_attachments`'s ContextVar → `ChatResearcherState`. Each
+entry is `{file_name, state}` with `state` in `ready | indexing`.
+
+Two things about that path are load-bearing:
+
+- **The ContextVar is set in `_run`, before the fan-out.** `asyncio` copies the
+  current context into each task it creates, so a value set in the parent
+  coroutine is visible to everything the turn spawns — but a value set inside a
+  child task does not escape it. Setting from a node or a tool would therefore
+  silently do nothing. `focus_file_name` has relied on this since it shipped;
+  both directions are now pinned by tests.
+- **Every path through `_extract_query_from_text` states a value**, including
+  "none" (`_set_turn_scoped_signals`). The variable outlives one turn within a
+  connection, so a path that merely returns leaves the previous turn's scope in
+  place. The malformed-JSON early return did exactly that for `focus_file_name`,
+  which meant a turn whose text merely *looked* like a payload inherited the
+  previous turn's focused file.
+
+`ChatResearcherAgent.run()` builds its graph input as an **explicit allow-list of
+channels**, so a per-turn field that is not listed there never reaches the graph
+at all — and one that is listed carries `None` as a genuine turn-boundary reset.
+`force_skills` was missing from that list, which is why a `/name` skill
+invocation was set on the state and read back as `None` in
+`shallow_research_node`; it and `session_attachments` are both listed now.
+
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
 prompts (`agents/deep_researcher/prompts/planner.j2`,
 `agents/deep_researcher/prompts/orchestrator.j2`,

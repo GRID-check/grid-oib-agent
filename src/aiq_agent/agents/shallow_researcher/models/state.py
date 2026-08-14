@@ -8,6 +8,7 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
+from aiq_agent.common.turn_attachments import SessionAttachment
 from aiq_agent.knowledge import AvailableDocument
 
 
@@ -21,6 +22,10 @@ class ShallowResearchAgentState(BaseModel):
         user_info: Optional user information.
         tools_info: Information about available tools.
         available_documents: User-uploaded documents with summaries for context.
+        session_attachments: Files the user attached to THIS chat session, with
+            whether each is already indexed. Distinct from available_documents:
+            the inventory is written by the async ingest job and may not list a
+            just-dropped file yet, which is exactly when the signal matters.
         collection_name: Knowledge collection name (for fetching documents).
         tool_iterations: Counter for tool-calling iterations.
         requires_sources: Whether this turn must be grounded in captured sources.
@@ -43,6 +48,7 @@ class ShallowResearchAgentState(BaseModel):
     data_sources: list[str] | None = None
     user_info: dict[str, Any] | None = None
     tools_info: list[dict[str, Any]] | None = None
+    session_attachments: list[SessionAttachment] | None = None
     available_documents: list[AvailableDocument] | None = None
     collection_name: str | None = None
     tool_iterations: int = 0

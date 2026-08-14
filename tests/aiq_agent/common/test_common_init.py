@@ -507,6 +507,67 @@ class TestGetCheckpointer:
             await conn.close()
             os.unlink(db_path)
 
+    @pytest.mark.asyncio
+    async def test_session_attachments_field_round_trips(self):
+        """``ChatResearcherState.session_attachments`` survives a checkpoint restore.
+
+        `SessionAttachment` is a NEW pydantic state type, so it must be in the
+        strict msgpack allow-list — without it, restore breaks for every
+        conversation that ever carried an attachment, not just the turn that had
+        one.
+        """
+        import aiosqlite
+        from langchain_core.messages import HumanMessage
+        from langgraph.checkpoint.base import empty_checkpoint
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        from aiq_agent.agents.chat_researcher.models.state import ChatResearcherState
+        from aiq_agent.common import _build_checkpointer_serde
+        from aiq_agent.common.turn_attachments import SessionAttachment
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        conn = await aiosqlite.connect(db_path)
+        try:
+            checkpointer = AsyncSqliteSaver(conn, serde=_build_checkpointer_serde())
+            await checkpointer.setup()
+
+            state = ChatResearcherState(
+                messages=[HumanMessage(content="Fass den Inhalt zusammen")],
+                session_attachments=[
+                    SessionAttachment(file_name="Statik.pdf", state="ready"),
+                    SessionAttachment(file_name="Gross.pdf", state="indexing"),
+                ],
+            )
+
+            checkpoint = empty_checkpoint()
+            checkpoint["channel_values"] = {
+                "messages": state.messages,
+                "session_attachments": state.session_attachments,
+            }
+            config = {"configurable": {"thread_id": "attach", "checkpoint_ns": ""}}
+            saved_config = await checkpointer.aput(config, checkpoint, {}, {})
+
+            restored = (await checkpointer.aget_tuple(saved_config)).checkpoint["channel_values"]
+            assert restored["session_attachments"] == state.session_attachments
+            assert isinstance(restored["session_attachments"][0], SessionAttachment)
+            assert restored["session_attachments"][1].state == "indexing"
+        finally:
+            await conn.close()
+            os.unlink(db_path)
+
+    def test_session_attachment_is_in_the_msgpack_allow_list(self):
+        """A state type missing from the allow-list restores as a bare dict."""
+        from aiq_agent.common import _build_checkpointer_serde
+        from aiq_agent.common.turn_attachments import SessionAttachment
+
+        serde = _build_checkpointer_serde()
+        attachment = SessionAttachment(file_name="Statik.pdf", state="indexing")
+        restored = serde.loads_typed(serde.dumps_typed(attachment))
+        assert restored == attachment
+        assert isinstance(restored, SessionAttachment)
+
     def test_shelf_is_in_the_msgpack_allow_list(self):
         """``AvailableDocument.shelf`` carries an enum, so the enum is allow-listed."""
         from aiq_agent.common import _build_checkpointer_serde

@@ -15,6 +15,7 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
+from aiq_agent.common.turn_attachments import SessionAttachment
 from aiq_agent.knowledge import AvailableDocument
 
 from .depth import DepthDecision
@@ -38,6 +39,7 @@ class ChatResearcherState(BaseModel):
         clarifier_result: Log from clarifier agent dialog.
         original_query: The latest user query, preserved for deep research.
         available_documents: User-uploaded documents with summaries for context.
+        session_attachments: Files the user attached to this chat session.
         cards: Structured response cards generated from the final research context.
         skip_clarifier: When True the clarifier node is bypassed regardless of
             ``enable_clarifier``.  Set automatically for API-key and anonymous
@@ -54,6 +56,15 @@ class ChatResearcherState(BaseModel):
     clarifier_result: str | None = None
     original_query: str | None = None
     available_documents: list[AvailableDocument] | None = None
+    # Files the user attached to THIS chat session, declared by the turn's
+    # `session_attachments` wire field. Distinct from `available_documents`
+    # (which is the searchable inventory, and may not list a just-dropped file
+    # yet) and from the focused-file ContextVar (one file, viewing state, never
+    # mid-ingest). Empty/None means the turn declared no attachments.
+    # NOTE: `SessionAttachment` is a pydantic TYPE, so it is registered in the
+    # checkpointer serde allow-list (aiq_agent/common/__init__.py) — see the
+    # module docstring above.
+    session_attachments: list[SessionAttachment] | None = None
     collection_scope: list[str] | None = None
     cards: list[dict[str, Any]] | None = None
     skip_clarifier: bool = False
