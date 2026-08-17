@@ -142,13 +142,13 @@ describe('ArchivWorkspace — permissions', () => {
     expect(screen.queryByRole('button', { name: /upload/i })).not.toBeInTheDocument()
 
     const user = userEvent.setup()
-    await user.click(screen.getByText('brandschutz-gutachten.pdf'))
-    // The menu carries only mutations here (download has its own button), so
-    // with nothing left to offer it does not render at all — an empty overflow
-    // menu is a control that lies about being one.
-    await waitFor(() =>
-      expect(screen.queryByTestId('document-actions-trigger')).not.toBeInTheDocument()
-    )
+    // Each card keeps a download-only overflow menu; rename/delete stay gone.
+    const triggers = screen.getAllByTestId('document-actions-trigger')
+    expect(triggers.length).toBeGreaterThan(0)
+    await user.click(triggers[0])
+    expect(await screen.findByRole('menuitem', { name: /download/i })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /rename/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /delete/i })).not.toBeInTheDocument()
   })
 })
 
@@ -389,10 +389,11 @@ describe('ArchivWorkspace — only the newest answer may win', () => {
   })
 })
 
-/** Open the Archiv preview for a document and its file-actions menu. */
+/** Open the Archiv preview for a document and the preview-header actions menu. */
 async function openActions(user: ReturnType<typeof userEvent.setup>, filename: string) {
   await user.click(await screen.findByText(filename))
-  await user.click(await screen.findByTestId('document-actions-trigger'))
+  const dialog = await screen.findByRole('dialog')
+  await user.click(within(dialog).getByTestId('document-actions-trigger'))
 }
 
 describe('ArchivWorkspace — file operations', () => {
