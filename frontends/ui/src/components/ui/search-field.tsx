@@ -19,7 +19,11 @@ export interface SearchFieldProps {
   className?: string
   inputClassName?: string
   clearClassName?: string
-  /** Default `search`. Use `text` when specs query `role="textbox"`. */
+  /**
+   * Default `text` so existing `role="textbox"` queries keep working
+   * (DataToolbar, admin filters). Pass `search` only when the field is a
+   * standalone search landmark.
+   */
   type?: 'search' | 'text'
   inputRef?: Ref<HTMLInputElement>
   /** Optional control after the field (a run / submit button). */
@@ -40,7 +44,7 @@ export function SearchField({
   className,
   inputClassName,
   clearClassName,
-  type = 'search',
+  type = 'text',
   inputRef,
   trailing,
 }: SearchFieldProps): JSX.Element {
