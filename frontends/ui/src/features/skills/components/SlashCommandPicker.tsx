@@ -53,6 +53,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
+import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -292,11 +293,17 @@ export const SlashCommandPicker = forwardRef<SlashCommandPickerHandle, SlashComm
         </Command>
 
         {/* Outside the scroll region, so the hint stays put while the list moves. */}
-        <div className="flex shrink-0 items-center gap-2 border-t bg-muted/40 px-3 py-2">
+        <div
+          className="flex shrink-0 items-center gap-2 border-t bg-muted/40 px-3 py-2"
+          aria-label={t('composer.picker.keyboardHint')}
+        >
           <Slash className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
-          <span className="truncate text-[11px] text-muted-foreground">
-            {t('composer.picker.keyboardHint')}
-          </span>
+          <KbdGroup>
+            <Kbd>↑</Kbd>
+            <Kbd>↓</Kbd>
+          </KbdGroup>
+          <Kbd>↵</Kbd>
+          <Kbd>Esc</Kbd>
         </div>
       </div>
     )

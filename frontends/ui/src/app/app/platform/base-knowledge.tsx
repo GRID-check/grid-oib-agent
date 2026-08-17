@@ -30,7 +30,6 @@ import {
   ChevronsUpDown,
   Eye,
   FileText,
-  Loader2,
   RefreshCw,
   Trash2,
   Upload,
@@ -39,19 +38,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { DataToolbar } from '@/components/ui/data-toolbar'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { Progress } from '@/components/ui/progress'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { StatCard } from '@/components/ui/stat-card'
 import {
   Select,
   SelectContent,
@@ -629,12 +623,12 @@ export function BaseKnowledge() {
           {/* Corpus summary — the four numbers that answer "is the base corpus
               healthy?", which the old surface never showed at all. */}
           {status && (
-            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="knowledge-summary">
-              <SummaryStat label={t('knowledgeAdmin.summaryDocuments')} value={status.summary.totalFiles} />
-              <SummaryStat label={t('knowledgeAdmin.summaryIndexed')} value={status.summary.ingested} />
-              <SummaryStat label={t('knowledgeAdmin.summaryPending')} value={status.summary.pending} />
-              <SummaryStat label={t('knowledgeAdmin.summaryChunks')} value={status.summary.totalChunks} />
-            </dl>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="knowledge-summary">
+              <StatCard label={t('knowledgeAdmin.summaryDocuments')} value={status.summary.totalFiles} />
+              <StatCard label={t('knowledgeAdmin.summaryIndexed')} value={status.summary.ingested} />
+              <StatCard label={t('knowledgeAdmin.summaryPending')} value={status.summary.pending} />
+              <StatCard label={t('knowledgeAdmin.summaryChunks')} value={status.summary.totalChunks} />
+            </div>
           )}
 
           {/* Drag-and-drop / click upload (PDF + ZIP), revealed on demand. */}
@@ -702,7 +696,7 @@ export function BaseKnowledge() {
               data-testid="knowledge-upload-progress"
             >
               <div className="flex items-center gap-2">
-                <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+                <Spinner size="sm" className="shrink-0 text-muted-foreground" />
                 <p className="text-sm font-medium text-foreground">
                   {t('knowledge.indexingProgress', { done: uploadProgress.done, total: uploadProgress.total })}
                 </p>
@@ -710,21 +704,23 @@ export function BaseKnowledge() {
               <Progress value={uploadProgress.pct} aria-label={t('knowledge.processing')} />
               <p className="text-xs text-muted-foreground">{t('knowledge.processingHint')}</p>
               {uploadProgress.total > 1 && (
-                <ul className="mt-0.5 flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
-                  {uploadProgress.items.map((item) => (
-                    <li key={item.name} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="truncate text-foreground">{item.name}</span>
-                      {item.finished ? (
-                        <Badge variant="success">{t('knowledge.indexingDone')}</Badge>
-                      ) : (
-                        <Badge variant="info" className="gap-1">
-                          <Loader2 className="size-3 animate-spin" aria-hidden />
-                          {t('knowledge.indexingPending')}
-                        </Badge>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                <ScrollArea className="mt-0.5 max-h-40 pr-1">
+                  <ul className="flex flex-col gap-1">
+                    {uploadProgress.items.map((item) => (
+                      <li key={item.name} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="truncate text-foreground">{item.name}</span>
+                        {item.finished ? (
+                          <Badge variant="success">{t('knowledge.indexingDone')}</Badge>
+                        ) : (
+                          <Badge variant="info" className="gap-1">
+                            <Spinner size="xs" />
+                            {t('knowledge.indexingPending')}
+                          </Badge>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </ScrollArea>
               )}
             </div>
           )}
@@ -1139,53 +1135,38 @@ export function BaseKnowledge() {
         <PdfViewerDialog open onOpenChange={(open) => !open && setViewerFile(null)} fileName={viewerFile} />
       )}
 
-      <Dialog
+      <ConfirmDialog
         open={pendingDelete.length > 0}
-        onOpenChange={(open) => !open && !isDeleting && setPendingDelete([])}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {deleteTargets.length > 1
-                ? t('knowledgeAdmin.bulkDeleteTitle', { count: deleteTargets.length })
-                : deleteTargets[0]?.origin === 'uploaded'
-                  ? t('knowledge.deleteTitle', { name: deleteTargets[0]?.fileName ?? '' })
-                  : t('knowledge.corpusDeleteTitle', { name: deleteTargets[0]?.fileName ?? '' })}
-            </DialogTitle>
-            <DialogDescription>
-              {deleteTargets.length > 1
-                ? t('knowledgeAdmin.bulkDeleteDescription')
-                : deleteTargets[0]?.origin === 'uploaded'
-                  ? t('knowledge.deleteDescription')
-                  : t('knowledge.corpusDeleteDescription')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingDelete([])} disabled={isDeleting}>
-              {t('knowledge.deleteCancel')}
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
-              {isDeleting ? <Spinner className="size-3.5" /> : <Trash2 className="size-3.5" aria-hidden />}
-              {deleteTargets.length > 1
-                ? t('knowledgeAdmin.bulkDeleteConfirm', { count: deleteTargets.length })
-                : deleteTargets[0]?.origin === 'uploaded'
-                  ? t('knowledge.deleteConfirm')
-                  : t('knowledge.corpusDeleteConfirm')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete([])
+        }}
+        title={
+          deleteTargets.length > 1
+            ? t('knowledgeAdmin.bulkDeleteTitle', { count: deleteTargets.length })
+            : deleteTargets[0]?.origin === 'uploaded'
+              ? t('knowledge.deleteTitle', { name: deleteTargets[0]?.fileName ?? '' })
+              : t('knowledge.corpusDeleteTitle', { name: deleteTargets[0]?.fileName ?? '' })
+        }
+        description={
+          deleteTargets.length > 1
+            ? t('knowledgeAdmin.bulkDeleteDescription')
+            : deleteTargets[0]?.origin === 'uploaded'
+              ? t('knowledge.deleteDescription')
+              : t('knowledge.corpusDeleteDescription')
+        }
+        confirmLabel={
+          deleteTargets.length > 1
+            ? t('knowledgeAdmin.bulkDeleteConfirm', { count: deleteTargets.length })
+            : deleteTargets[0]?.origin === 'uploaded'
+              ? t('knowledge.deleteConfirm')
+              : t('knowledge.corpusDeleteConfirm')
+        }
+        cancelLabel={t('knowledge.deleteCancel')}
+        tone="destructive"
+        pending={isDeleting}
+        onConfirm={handleDelete}
+      />
     </>
-  )
-}
-
-/** One number in the corpus summary strip. */
-function SummaryStat({ label, value }: { label: string; value: number }): JSX.Element {
-  return (
-    <div className="rounded-lg border border-border px-3 py-2">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-lg font-semibold tabular-nums text-foreground">{value}</dd>
-    </div>
   )
 }
 

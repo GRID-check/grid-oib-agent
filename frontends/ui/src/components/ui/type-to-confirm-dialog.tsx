@@ -3,6 +3,7 @@
 import { useId, useState, type FC, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Dialog,
@@ -70,20 +71,22 @@ export const TypeToConfirmDialog: FC<TypeToConfirmDialogProps> = ({
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <div className="text-sm">{description}</div>
-          <label htmlFor={inputId} className="text-sm">
-            {labelBefore}
-            <span className="font-semibold">{confirmName}</span>
-            {labelAfter}
-          </label>
-          <Input
-            id={inputId}
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            placeholder={confirmName}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={pending}
-          />
+          <Field>
+            <FieldLabel htmlFor={inputId} className="font-normal">
+              {labelBefore}
+              <span className="font-semibold">{confirmName}</span>
+              {labelAfter}
+            </FieldLabel>
+            <Input
+              id={inputId}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder={confirmName}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={pending}
+            />
+          </Field>
         </div>
         <DialogFooter>
           <DialogClose asChild>

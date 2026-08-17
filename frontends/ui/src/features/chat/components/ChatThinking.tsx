@@ -11,7 +11,7 @@
 'use client'
 
 import { type FC, useMemo, useState, useEffect, useRef } from 'react'
-import { ChevronDown, CheckCircle2, AlertTriangle, Clock, Loader2 } from 'lucide-react'
+import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { motion, AnimatePresence } from '@/components/motion'
 import { Spinner } from '@/components/ui/spinner'
@@ -194,9 +194,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : isInterrupted && isRecoveryPending ? (
                 <>
-                  <span className="text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  </span>
+                  <Spinner size="sm" className="text-muted-foreground" aria-hidden="true" />
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.recovering')}
                   </span>
@@ -336,8 +334,9 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           a resend. */}
       {isInterrupted && isRecoveryPending ? (
         <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
-          <Loader2
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
+          <Spinner
+            size="xs"
+            className="mt-0.5 shrink-0 text-muted-foreground"
             aria-hidden="true"
           />
           <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">

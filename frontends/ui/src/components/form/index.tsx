@@ -29,9 +29,9 @@
 import * as React from 'react'
 import { createFormHook, createFormHookContexts } from '@tanstack/react-form'
 
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -67,23 +67,17 @@ function FieldShell({ label, description, required, className, htmlFor, errors, 
     .filter((m): m is string => Boolean(m))
 
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
+    <Field className={className}>
       {label && (
-        <Label htmlFor={htmlFor} className="text-sm font-medium">
+        <FieldLabel htmlFor={htmlFor}>
           {label}
           {required && <span aria-hidden className="text-destructive"> *</span>}
-        </Label>
+        </FieldLabel>
       )}
       {children}
-      {description && messages.length === 0 && (
-        <p className="text-xs text-muted-foreground">{description}</p>
-      )}
-      {messages.length > 0 && (
-        <p role="alert" className="text-xs font-medium text-destructive">
-          {messages[0]}
-        </p>
-      )}
-    </div>
+      {description && messages.length === 0 && <FieldDescription>{description}</FieldDescription>}
+      {messages.length > 0 && <FieldError>{messages[0]}</FieldError>}
+    </Field>
   )
 }
 

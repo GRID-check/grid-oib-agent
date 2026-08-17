@@ -7,7 +7,8 @@
  */
 
 import { type FC, useState } from 'react'
-import { ExternalLink, Loader2, ScrollText } from 'lucide-react'
+import { ExternalLink, ScrollText } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 
@@ -46,7 +47,7 @@ export const AuditLogButton: FC<AuditLogButtonProps> = ({ endpoint, label, error
   return (
     <Button variant="outline" size="sm" onClick={open} disabled={loading}>
       {loading ? (
-        <Loader2 className="mr-1.5 size-3.5 animate-spin" aria-hidden />
+        <Spinner size="xs" className="mr-1.5" />
       ) : (
         <ScrollText className="mr-1.5 size-3.5" aria-hidden />
       )}

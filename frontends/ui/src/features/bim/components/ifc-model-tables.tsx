@@ -20,6 +20,15 @@ import { useMemo, useState } from 'react'
 import { AlertTriangle, Download, Ruler, Sparkles, Table2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldLabel } from '@/components/ui/field'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import type { BimProfileSuggestion } from '@/lib/bim/profile'
@@ -396,30 +405,33 @@ export function IfcQuantityTakeoff({
       <p className="text-xs text-muted-foreground">{t('takeoff.description')}</p>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-sm text-muted-foreground" htmlFor="bim-takeoff-quantity">
-          {t('takeoff.quantity')}
-        </label>
-        <select
-          id="bim-takeoff-quantity"
-          value={quantity}
-          onChange={(event) => onQuantityChange(event.target.value)}
-          className="h-8 rounded-md border bg-background px-2 text-sm"
-        >
-          {BIM_TAKEOFF_QUANTITIES.map((option) => (
-            <option key={option} value={option}>
-              {t(`takeoff.quantityName.${option}`)}
-            </option>
-          ))}
-        </select>
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
+        <Field orientation="horizontal" className="items-center gap-2">
+          <FieldLabel htmlFor="bim-takeoff-quantity" className="text-muted-foreground">
+            {t('takeoff.quantity')}
+          </FieldLabel>
+          <Select value={quantity} onValueChange={onQuantityChange}>
+            <SelectTrigger id="bim-takeoff-quantity" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BIM_TAKEOFF_QUANTITIES.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {t(`takeoff.quantityName.${option}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field orientation="horizontal" className="items-center gap-2">
+          <Checkbox
+            id="bim-takeoff-by-material"
             checked={byMaterial}
-            onChange={(event) => onByMaterialChange(event.target.checked)}
-            className="size-3.5"
+            onCheckedChange={(checked) => onByMaterialChange(checked === true)}
           />
-          {t('takeoff.byMaterial')}
-        </label>
+          <FieldLabel htmlFor="bim-takeoff-by-material" className="text-muted-foreground font-normal">
+            {t('takeoff.byMaterial')}
+          </FieldLabel>
+        </Field>
       </div>
 
       {isLoading && <Spinner className="size-4" />}

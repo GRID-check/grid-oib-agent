@@ -133,7 +133,7 @@ describe('ProjectFileWorkspace', () => {
 
   it('renders the file workspace with view controls and upload', () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
-    expect(screen.getByRole('group', { name: 'View' })).toBeDefined()
+    expect(screen.getByRole('radiogroup', { name: 'View' })).toBeDefined()
     expect(screen.getByTestId('project-upload-input')).toBeDefined()
     expect(screen.queryByRole('heading', { name: 'Test' })).toBeNull()
   })

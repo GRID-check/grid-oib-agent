@@ -31,6 +31,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -46,7 +47,6 @@ import {
   JobApiError,
   type Job,
 } from '@/adapters/api/jobs-client'
-import { ConfirmDeleteDialog } from '@/features/skills/components/confirm-delete-dialog'
 import { presetForCron } from '../lib/schedule'
 import { JobRunHistory } from './job-run-history'
 
@@ -336,9 +336,10 @@ function JobCard({
         </Collapsible>
       </RaisedCardFooter>
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
+        tone="destructive"
         title={t('deleteDialog.title')}
         description={t('deleteDialog.description', { name: job.name })}
         confirmLabel={t('deleteDialog.confirm')}

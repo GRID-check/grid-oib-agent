@@ -62,13 +62,14 @@ export default async function InboxPage(): Promise<JSX.Element> {
         <OrgTopbar
           user={{ name: session.name, email: session.email }}
           authRequired={isAuthRequired()}
+          heading={t('inbox.title')}
           canManageOrganization={navFlags.canManageOrganization}
           canViewOrganization={navFlags.canViewOrganization}
           canManagePlatform={navFlags.canManagePlatform}
           canAccessArchiv={navFlags.canAccessArchiv}
           canAccessInbox={navFlags.canAccessInbox}
         />
-        <main id="main-content" className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
+        <main id="main-content" className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-10">
           <BackLink
             className="mb-6"
             fallbackHref="/app/projects"

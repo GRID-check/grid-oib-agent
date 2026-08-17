@@ -21,8 +21,9 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SectionCard } from '@/features/platform/components/section-card'
 import { useTranslations } from '@/i18n'
 
@@ -182,24 +183,24 @@ export const PlatformRetrievalSettings: FC = () => {
                   </Badge>
                 )}
                 {definition.allowedValues ? (
-                  <select
+                  <Select
                     disabled={saving}
-                    // text-base below md keeps iOS Safari from zooming on focus,
-                    // and 36px is under the touch floor — the same two rules the
-                    // shared Input/Select primitives carry.
-                    className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-base focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none pointer-coarse:h-11 md:text-sm"
-                    aria-label={definition.label}
-                    value={value ?? definition.defaultValue}
-                    onChange={(event) =>
-                      setDraft((prev) => ({ ...prev, [definition.key]: Number(event.target.value) }))
+                    value={String(value ?? definition.defaultValue)}
+                    onValueChange={(next) =>
+                      setDraft((prev) => ({ ...prev, [definition.key]: Number(next) }))
                     }
                   >
-                    {definition.allowedValues.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger size="sm" className="w-24" aria-label={definition.label}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {definition.allowedValues.map((option) => (
+                        <SelectItem key={option} value={String(option)}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 ) : (
                   <Input
                     type="number"
@@ -238,8 +239,8 @@ export const PlatformRetrievalSettings: FC = () => {
       {dirty && (
         <div className="mt-4 flex flex-col gap-3 rounded-lg border bg-muted/40 p-4">
           <p className="text-sm text-muted-foreground">{t('retrieval.unsavedChanges')}</p>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="platform-retrieval-settings-note">{t('retrieval.note')}</Label>
+          <Field>
+            <FieldLabel htmlFor="platform-retrieval-settings-note">{t('retrieval.note')}</FieldLabel>
             <Input
               id="platform-retrieval-settings-note"
               disabled={saving}
@@ -248,7 +249,7 @@ export const PlatformRetrievalSettings: FC = () => {
               placeholder={t('retrieval.notePlaceholder')}
               maxLength={500}
             />
-          </div>
+          </Field>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button className="w-full sm:w-auto" onClick={() => setConfirmOpen(true)} disabled={saving}>
               {saving ? t('retrieval.saving') : t('retrieval.save')}

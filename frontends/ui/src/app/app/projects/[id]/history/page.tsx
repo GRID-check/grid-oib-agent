@@ -36,10 +36,6 @@ export default async function ProjectHistoryPage({ params }: ProjectHistoryPageP
       notFound()
     }
 
-    return (
-      <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-6 md:px-10">
-        <ProjectHistory projectId={id} projectCollection={project.collectionName} />
-      </div>
-    )
+    return <ProjectHistory projectId={id} projectCollection={project.collectionName} />
   })
 }

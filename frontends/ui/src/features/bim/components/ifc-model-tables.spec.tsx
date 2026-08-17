@@ -236,7 +236,8 @@ describe('IfcQuantityTakeoff', () => {
         onByMaterialChange={noop}
       />
     )
-    await userEvent.selectOptions(screen.getByLabelText('Quantity'), 'NetVolume')
+    await userEvent.click(screen.getByRole('combobox', { name: 'Quantity' }))
+    await userEvent.click(screen.getByRole('option', { name: 'Net volume' }))
     expect(onQuantityChange).toHaveBeenCalledWith('NetVolume')
   })
 

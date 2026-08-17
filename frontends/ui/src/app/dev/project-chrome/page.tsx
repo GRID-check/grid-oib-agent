@@ -11,7 +11,7 @@
 
 import type { ReactNode } from 'react'
 
-import { Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
 
 import {
   Breadcrumb,
@@ -21,8 +21,8 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/ui/page-header'
+import { SearchField } from '@/components/ui/search-field'
 import { SectionLabel } from '@/components/ui/section-label'
 
 const PROJECT = 'Stadthaus Wien'
@@ -69,24 +69,6 @@ function Group({ label, children }: { label: string; children: ReactNode }): JSX
   )
 }
 
-function SearchField({ placeholder, label }: { placeholder: string; label: string }): JSX.Element {
-  return (
-    <div className="relative w-full sm:w-64">
-      <Search
-        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-        aria-hidden
-      />
-      <Input
-        type="search"
-        readOnly
-        placeholder={placeholder}
-        aria-label={label}
-        className="h-9 rounded-md pl-9"
-      />
-    </div>
-  )
-}
-
 export default function ProjectChromePreviewPage(): JSX.Element {
   return (
     <main data-testid="project-chrome-preview" className="bg-background space-y-12 p-8 text-foreground">
@@ -101,7 +83,16 @@ export default function ProjectChromePreviewPage(): JSX.Element {
           section="History"
           title="History"
           subtitle="Every conversation and deep-research run in this project."
-          action={<SearchField placeholder="Search history…" label="Search conversations by title" />}
+          action={
+            <SearchField
+              type="text"
+              className="w-full sm:w-64"
+              value=""
+              onChange={() => undefined}
+              placeholder="Search history…"
+              label="Search conversations by title"
+            />
+          }
         />
       </Group>
 

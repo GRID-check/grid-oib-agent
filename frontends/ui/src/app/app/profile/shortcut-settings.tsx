@@ -13,7 +13,7 @@
 import { Keyboard } from 'lucide-react'
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Switch } from '@/components/ui/switch'
 import { useShortcutsPreference } from '@/hooks/use-shortcuts-preference'
 import { useTranslations } from '@/i18n'
@@ -32,12 +32,10 @@ export function ShortcutSettings() {
         <CardDescription>{t('description')}</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <Label htmlFor="keyboard-shortcuts-toggle" className="text-sm font-medium">
-              {t('label')}
-            </Label>
-            <p className="mt-1 text-xs text-muted-foreground">{t('hint')}</p>
+        <Field orientation="horizontal">
+          <div className="flex min-w-0 flex-col gap-1">
+            <FieldLabel htmlFor="keyboard-shortcuts-toggle">{t('label')}</FieldLabel>
+            <FieldDescription>{t('hint')}</FieldDescription>
           </div>
           <Switch
             id="keyboard-shortcuts-toggle"
@@ -45,7 +43,7 @@ export function ShortcutSettings() {
             onCheckedChange={setEnabled}
             aria-label={t('label')}
           />
-        </div>
+        </Field>
       </CardContent>
     </Card>
   )

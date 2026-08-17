@@ -42,9 +42,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
 import {
   composeDocumentName,
   documentDisplayName,
@@ -133,8 +132,8 @@ export function RenameDocumentDialog({
             <DialogDescription>{t('rename.description')}</DialogDescription>
           </DialogHeader>
 
-          <div className="mt-4 space-y-1.5">
-            <Label htmlFor="document-rename-input">{t('rename.label')}</Label>
+          <Field className="mt-4">
+            <FieldLabel htmlFor="document-rename-input">{t('rename.label')}</FieldLabel>
             <div className="flex items-center gap-2">
               <Input
                 id="document-rename-input"
@@ -162,14 +161,12 @@ export function RenameDocumentDialog({
                 </span>
               )}
             </div>
-            <p
-              id={error ? 'document-rename-error' : 'document-rename-hint'}
-              className={cn('text-xs', error ? 'text-destructive' : 'text-muted-foreground')}
-              role={error ? 'alert' : undefined}
-            >
-              {error ? t(`rename.errors.${error}`) : t('rename.hint')}
-            </p>
-          </div>
+            {error ? (
+              <FieldError id="document-rename-error">{t(`rename.errors.${error}`)}</FieldError>
+            ) : (
+              <FieldDescription id="document-rename-hint">{t('rename.hint')}</FieldDescription>
+            )}
+          </Field>
 
           <DialogFooter className="mt-5">
             {/* Recovery sits with the other controls rather than in a menu one

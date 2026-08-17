@@ -12,13 +12,15 @@
 
 import { type FC, useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { KeyRound, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
+import { KeyRound, ShieldCheck, Trash2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   Select,
   SelectContent,
@@ -187,7 +189,7 @@ export const LlmCredentialsCard: FC = () => {
     )
   }
   if (loadError) {
-    return <p className="text-sm text-muted-foreground">{t('byok.loadError')}</p>
+    return <EmptyState variant="bare" title={t('byok.loadError')} />
   }
 
   return (
@@ -207,12 +209,12 @@ export const LlmCredentialsCard: FC = () => {
           Only meaningful once a credential is stored — the key stays in the
           vault either way, so switching back is one toggle. */}
       {active && (
-        <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+        <Field orientation="horizontal" className="rounded-lg border p-4">
           <div className="flex flex-col gap-1">
-            <Label htmlFor="byok-mode">{t('byok.modeTitle')}</Label>
-            <p className="text-xs text-muted-foreground">
+            <FieldLabel htmlFor="byok-mode">{t('byok.modeTitle')}</FieldLabel>
+            <FieldDescription>
               {mode === 'byok' ? t('byok.modeByokHint') : t('byok.modePlatformHint')}
-            </p>
+            </FieldDescription>
           </div>
           <Switch
             id="byok-mode"
@@ -221,7 +223,7 @@ export const LlmCredentialsCard: FC = () => {
             disabled={busy}
             aria-label={t('byok.modeTitle')}
           />
-        </div>
+        </Field>
       )}
 
       {/* Active credential */}
@@ -254,48 +256,61 @@ export const LlmCredentialsCard: FC = () => {
           </div>
           <dl className="mt-3 grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
             <div>
-              <dt className="font-medium uppercase">{t('byok.keyLabel')}</dt>
+              <dt>
+                <SectionLabel>{t('byok.keyLabel')}</SectionLabel>
+              </dt>
               <dd className="mt-0.5 font-mono">
                 {active.keyHint} · {active.keyFingerprint}
               </dd>
             </div>
             <div>
-              <dt className="font-medium uppercase">{t('byok.storageLabel')}</dt>
+              <dt>
+                <SectionLabel>{t('byok.storageLabel')}</SectionLabel>
+              </dt>
               <dd className="mt-0.5">
                 {active.secretBackend === 'workos-vault' ? t('byok.storageVault') : t('byok.storageLocal')}
               </dd>
             </div>
             {active.baseUrl && (
               <div className="sm:col-span-2">
-                <dt className="font-medium uppercase">{t('byok.baseUrl')}</dt>
+                <dt>
+                  <SectionLabel>{t('byok.baseUrl')}</SectionLabel>
+                </dt>
                 <dd className="mt-0.5 truncate font-mono">{active.baseUrl}</dd>
               </div>
             )}
             <div>
-              <dt className="font-medium uppercase">{t('byok.lastVerified')}</dt>
+              <dt>
+                <SectionLabel>{t('byok.lastVerified')}</SectionLabel>
+              </dt>
               <dd className="mt-0.5">
                 {active.lastVerifiedAt ? new Date(active.lastVerifiedAt).toLocaleString() : '—'}
               </dd>
             </div>
             <div>
-              <dt className="font-medium uppercase">{t('byok.lastUsed')}</dt>
+              <dt>
+                <SectionLabel>{t('byok.lastUsed')}</SectionLabel>
+              </dt>
               <dd className="mt-0.5">{active.lastUsedAt ? new Date(active.lastUsedAt).toLocaleString() : '—'}</dd>
             </div>
           </dl>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          {t('byok.noCredential')}{' '}
-          {secretBackend === 'workos-vault' ? t('byok.storageVaultNote') : t('byok.storageLocalNote')}
-        </p>
+        <EmptyState
+          variant="bare"
+          title={t('byok.noCredential')}
+          description={
+            secretBackend === 'workos-vault' ? t('byok.storageVaultNote') : t('byok.storageLocalNote')
+          }
+        />
       )}
 
       {/* Connect / rotate form */}
       <div className="flex flex-col gap-4">
         <p className="text-sm font-medium">{active ? t('byok.rotateTitle') : t('byok.connectTitle')}</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label>{t('byok.provider')}</Label>
+          <Field>
+            <FieldLabel>{t('byok.provider')}</FieldLabel>
             <Select value={provider} onValueChange={(v) => setProvider(v as (typeof PROVIDERS)[number])}>
               <SelectTrigger aria-label={t('byok.provider')}>
                 <SelectValue />
@@ -308,31 +323,31 @@ export const LlmCredentialsCard: FC = () => {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="byok-label">{t('byok.label')}</Label>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="byok-label">{t('byok.label')}</FieldLabel>
             <Input
               id="byok-label"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder={t('byok.labelPlaceholder')}
             />
-          </div>
+          </Field>
         </div>
         {NEEDS_BASE_URL.has(provider) && (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="byok-base-url">{t('byok.baseUrl')}</Label>
+          <Field>
+            <FieldLabel htmlFor="byok-base-url">{t('byok.baseUrl')}</FieldLabel>
             <Input
               id="byok-base-url"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://…/v1"
             />
-            <p className="text-xs text-muted-foreground">{t('byok.baseUrlHint')}</p>
-          </div>
+            <FieldDescription>{t('byok.baseUrlHint')}</FieldDescription>
+          </Field>
         )}
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="byok-api-key">{t('byok.apiKey')}</Label>
+        <Field>
+          <FieldLabel htmlFor="byok-api-key">{t('byok.apiKey')}</FieldLabel>
           <Input
             id="byok-api-key"
             type="password"
@@ -341,13 +356,13 @@ export const LlmCredentialsCard: FC = () => {
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={t('byok.apiKeyPlaceholder')}
           />
-          <p className="text-xs text-muted-foreground">{t('byok.apiKeyHint')}</p>
-        </div>
+          <FieldDescription>{t('byok.apiKeyHint')}</FieldDescription>
+        </Field>
         <div>
           <Button onClick={handleConnect} disabled={busy || apiKey.trim().length < 8}>
             {busy ? (
               <>
-                <RefreshCcw className="size-3.5 animate-spin" aria-hidden /> {t('byok.saving')}
+                <Spinner size="xs" /> {t('byok.saving')}
               </>
             ) : active ? (
               t('byok.rotate')

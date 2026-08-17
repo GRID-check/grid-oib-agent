@@ -75,20 +75,26 @@ describe('InboxList — filters', () => {
   test('defaults to "needs me", which asks the hook for pending items only', () => {
     render(<InboxList />)
     expect(useInboxListMock).toHaveBeenCalledWith(true, true)
-    expect(screen.getByRole('button', { name: /Needs me/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false')
+    const needsMe = screen.getByRole('radio', { name: /Needs me/ })
+    const all = screen.getByRole('radio', { name: 'All' })
+    expect(needsMe).toHaveAttribute('data-state', 'on')
+    expect(needsMe).toHaveAttribute('aria-checked', 'true')
+    expect(all).toHaveAttribute('data-state', 'off')
+    expect(all).toHaveAttribute('aria-checked', 'false')
   })
 
-  test('the toggles are a labelled group, not two loose buttons', () => {
+  test('the toggles are a labelled radiogroup, not two loose buttons', () => {
     render(<InboxList />)
-    expect(screen.getByRole('group', { name: 'Filter inbox' })).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: 'Filter inbox' })).toBeInTheDocument()
   })
 
   test('switching to "all" re-reads without the pending-only filter', () => {
     render(<InboxList />)
-    fireEvent.click(screen.getByRole('button', { name: 'All' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'All' }))
     expect(useInboxListMock).toHaveBeenLastCalledWith(true, false)
-    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
+    const all = screen.getByRole('radio', { name: 'All' })
+    expect(all).toHaveAttribute('data-state', 'on')
+    expect(all).toHaveAttribute('aria-checked', 'true')
   })
 
   test('passes the disabled flag through, so a gated org issues no request', () => {
@@ -123,7 +129,7 @@ describe('InboxList — states', () => {
       screen.getByText('When a colleague asks for your input, it shows up here.'),
     ).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'All' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'All' }))
     expect(screen.getByText('Your inbox is empty')).toBeInTheDocument()
     expect(
       screen.getByText('Requests, answers and shared conversations appear here.'),

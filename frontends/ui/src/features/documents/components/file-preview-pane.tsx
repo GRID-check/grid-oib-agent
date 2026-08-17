@@ -25,6 +25,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { SectionLabel } from '@/components/ui/section-label'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { documentFileUrl } from '@/lib/documents/urls'
 import { useLocale, useTranslations } from '@/i18n'
@@ -587,7 +588,9 @@ export function FilePreviewPane({
               read at the same weight as the MIME type. */}
           {showMetadataPanel && (
             <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
-              <SectionLabel icon={Sparkles}>{t('preview.indexed.title')}</SectionLabel>
+              <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
+                {t('preview.indexed.title')}
+              </SectionLabel>
               {/* Keyed by file so a newly-selected document always starts
                   collapsed and re-measures against its own text. */}
               {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
@@ -601,7 +604,9 @@ export function FilePreviewPane({
               was not. The flag now gates ROWS, which is what it was always
               about; the group is whole either way. */}
           <section className={cn('space-y-2', showMetadataPanel && 'mt-4')}>
-            <SectionLabel icon={FileCode2}>{t('preview.properties')}</SectionLabel>
+            <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
+              {t('preview.properties')}
+            </SectionLabel>
             <div className="space-y-2">
               {showMetadataPanel && detectedType && (
                 <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
@@ -823,24 +828,6 @@ function IndexedSummary({ summary }: { summary: string }) {
         </button>
       )}
     </div>
-  )
-}
-
-/**
- * A rail section's eyebrow.
- *
- * The rail is three different KINDS of information stacked in one column — what
- * the agent understood, what the file is, what the user has labelled it — and
- * without a heading per kind they read as one undifferentiated list of small
- * grey text. The icon carries the same weight rule as {@link MetaRow}'s: it is
- * a scan target, not decoration.
- */
-function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
-  return (
-    <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-      <Icon className="size-3.5 shrink-0" aria-hidden />
-      {children}
-    </p>
   )
 }
 

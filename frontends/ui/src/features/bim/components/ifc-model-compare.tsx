@@ -19,6 +19,14 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, GitCompare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Field, FieldLabel } from '@/components/ui/field'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import type { BimComparison } from '@/lib/bim/compare'
@@ -188,21 +196,23 @@ export function IfcModelCompare({
         <p className="text-sm text-muted-foreground">{t('compare.none')}</p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm text-muted-foreground" htmlFor="bim-compare-base">
-            {t('compare.against')}
-          </label>
-          <select
-            id="bim-compare-base"
-            value={baseModelId}
-            onChange={(event) => setBaseModelId(event.target.value)}
-            className="h-8 max-w-64 rounded-md border bg-background px-2 text-sm"
-          >
-            {candidates.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.filename}
-              </option>
-            ))}
-          </select>
+          <Field orientation="horizontal" className="items-center gap-2">
+            <FieldLabel htmlFor="bim-compare-base" className="text-muted-foreground">
+              {t('compare.against')}
+            </FieldLabel>
+            <Select value={baseModelId} onValueChange={setBaseModelId}>
+              <SelectTrigger id="bim-compare-base" size="sm" className="max-w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map((candidate) => (
+                  <SelectItem key={candidate.id} value={candidate.id}>
+                    {candidate.filename}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
           <Button
             type="button"
             size="sm"

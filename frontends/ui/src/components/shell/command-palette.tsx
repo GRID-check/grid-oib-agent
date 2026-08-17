@@ -24,10 +24,13 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
+  CommandShortcut,
 } from '@/components/ui/command'
 import { useLayoutStore } from '@/features/layout/store'
 import { useTranslations } from '@/i18n'
 import { paletteSections } from './project-sections'
+import { ShortcutKeys } from './shortcut-keys'
+import { LEADER_KEY } from './shortcuts'
 
 interface PaletteProject {
   id: string
@@ -38,6 +41,21 @@ interface PaletteProject {
 export function projectIdFromPathname(pathname: string): string | null {
   const match = /^\/app\/projects\/([^/]+)/.exec(pathname)
   return match ? match[1] : null
+}
+
+/** Leader jump keycaps — `g` then the destination's `shortcutKey` / jump target. */
+function JumpShortcut({ jumpKey }: { jumpKey: string }) {
+  return (
+    <CommandShortcut>
+      <ShortcutKeys
+        segments={[
+          { kind: 'chord', caps: [LEADER_KEY.toUpperCase()] },
+          { kind: 'then' },
+          { kind: 'chord', caps: [jumpKey.toUpperCase()] },
+        ]}
+      />
+    </CommandShortcut>
+  )
 }
 
 export interface CommandPaletteProps {
@@ -123,6 +141,12 @@ export function CommandPalette({
       onOpenChange={onOpenChange}
       title={t('title')}
       description={t('description')}
+      showHints
+      hintLabels={{
+        move: t('hints.move'),
+        open: t('hints.open'),
+        close: t('hints.close'),
+      }}
     >
       <CommandInput placeholder={t('placeholder')} />
       <CommandList>
@@ -162,7 +186,8 @@ export function CommandPalette({
                     onSelect={() => runCommand(() => router.push(href))}
                   >
                     <Icon className="text-muted-foreground" aria-hidden />
-                    {label}
+                    <span className="min-w-0 flex-1 truncate">{label}</span>
+                    {item.shortcutKey ? <JumpShortcut jumpKey={item.shortcutKey} /> : null}
                   </CommandItem>
                 )
               })}
@@ -184,7 +209,8 @@ export function CommandPalette({
             onSelect={() => runCommand(() => router.push('/app/projects'))}
           >
             <FolderKanban className="text-muted-foreground" aria-hidden />
-            {tNav('projectSwitcher.allProjects')}
+            <span className="min-w-0 flex-1 truncate">{tNav('projectSwitcher.allProjects')}</span>
+            <JumpShortcut jumpKey="p" />
           </CommandItem>
           {canViewOrganization && (
             <CommandItem
@@ -192,7 +218,8 @@ export function CommandPalette({
               onSelect={() => runCommand(() => router.push('/app/organization'))}
             >
               <Building2 className="text-muted-foreground" aria-hidden />
-              {tNav('userMenu.organization')}
+              <span className="min-w-0 flex-1 truncate">{tNav('userMenu.organization')}</span>
+              <JumpShortcut jumpKey="o" />
             </CommandItem>
           )}
           <CommandItem

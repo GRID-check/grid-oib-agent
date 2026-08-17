@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from 'react'
 import type { FolderItem } from './project-file-workspace'
-import { Folder, FolderOpen, Loader2, Plus } from 'lucide-react'
+import { Folder, FolderOpen, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
+import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 
 interface FolderTreePaneProps {
@@ -75,7 +78,7 @@ export function FolderTreePane({
 
   const renderCreateInput = (depth: number) => (
     <div key={`create-${createTarget ?? 'root'}`} className="px-1 pt-1" style={{ paddingLeft: `${8 + depth * 14}px` }}>
-      <div className="relative">
+      <InputGroup>
         <Input
           autoFocus
           value={newFolderName}
@@ -94,13 +97,11 @@ export function FolderTreePane({
           className="h-8 pr-8"
         />
         {isCreating && (
-          <Loader2
-            className="absolute right-2 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground"
-            aria-label={t('folders.creating')}
-            role="status"
-          />
+          <InputGroupAddon align="end">
+            <Spinner size="sm" label={t('folders.creating')} />
+          </InputGroupAddon>
         )}
-      </div>
+      </InputGroup>
     </div>
   )
 
@@ -140,7 +141,9 @@ export function FolderTreePane({
 
   return (
     <div className="flex h-full flex-col gap-1 p-2">
-      <p className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">{t('folders.heading')}</p>
+      <SectionLabel as="p" className="px-2 pb-1 pt-1 tracking-widest">
+        {t('folders.heading')}
+      </SectionLabel>
 
       {/* All Files root */}
       <button

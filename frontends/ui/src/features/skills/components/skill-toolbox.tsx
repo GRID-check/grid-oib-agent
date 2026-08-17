@@ -36,6 +36,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
@@ -48,7 +49,6 @@ import {
   type SkillListItem,
 } from '@/adapters/api/skills-client'
 import { agentScopeLabelKey } from '../lib/agent-scope'
-import { ConfirmDeleteDialog } from './confirm-delete-dialog'
 import { CuratedSkills } from './curated-skills'
 
 interface SkillToolboxProps {
@@ -319,9 +319,10 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
         </div>
       )}
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={confirmation !== null}
         onOpenChange={(open) => !open && setConfirmId(null)}
+        tone="destructive"
         title={t('editor.deleteTitle')}
         description={t('editor.deleteDescription', { name: confirmation?.name ?? '' })}
         confirmLabel={t('editor.deleteConfirm')}

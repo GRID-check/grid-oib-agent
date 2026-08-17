@@ -32,15 +32,19 @@
  */
 
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, RotateCcw, Search, ShieldAlert } from 'lucide-react'
+import { ChevronDown, RotateCcw, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Item, ItemContent, ItemDescription, ItemList, ItemTitle } from '@/components/ui/item'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { SearchField } from '@/components/ui/search-field'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { SectionCard } from '@/features/platform/components/section-card'
 import { useTranslations } from '@/i18n'
@@ -86,7 +90,7 @@ interface EffortPayloadDto {
 }
 
 /** Sentinel for "no platform level — follow the workflow config". */
-const INHERIT = ''
+const INHERIT = 'inherit'
 
 const formatContext = (tokens: number): string =>
   tokens >= 1024 ? `${Math.round(tokens / 1024)}k` : String(tokens)
@@ -100,6 +104,7 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
   const [models, setModels] = useState<ModelDto[] | null>(null)
   const [loading, setLoading] = useState(true)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Only the newest search may write state: a slow earlier request resolving
   // after a later one would otherwise leave the list showing results for a
@@ -128,6 +133,7 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
 
   useEffect(() => {
     search('')
+    searchInputRef.current?.focus()
   }, [search])
 
   // Clear the pending debounce on unmount — the popover closes as soon as a
@@ -143,47 +149,54 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
   }
 
   return (
-    <div className="flex w-80 max-w-[calc(100vw-3rem)] flex-col">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" aria-hidden />
-        <Input
-          autoFocus
-          className="pl-8"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder={t('models.searchPlaceholder')}
-          aria-label={t('models.searchPlaceholder')}
-        />
-      </div>
-      <div className="mt-2 max-h-64 overflow-y-auto" role="listbox">
+    <div className="flex w-80 max-w-[calc(100vw-3rem)] flex-col gap-2">
+      <SearchField
+        value={query}
+        onChange={onQueryChange}
+        placeholder={t('models.searchPlaceholder')}
+        label={t('models.searchPlaceholder')}
+        type="text"
+        inputRef={searchInputRef}
+      />
+      <ScrollArea className="max-h-64" role="listbox">
         {loading && <Spinner className="mx-auto my-6" />}
         {!loading && models === null && <p className="px-2 py-4 text-sm text-destructive">{t('models.loadError')}</p>}
         {!loading && models?.length === 0 && (
           <p className="px-2 py-4 text-sm text-muted-foreground">{t('models.noResults')}</p>
         )}
-        {!loading &&
-          models?.map((model) => (
-            <button
-              key={model.id}
-              type="button"
-              role="option"
-              aria-selected="false"
-              className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-              onClick={() => onPick(model.id)}
-            >
-              <span className="flex items-center gap-1.5">
-                <span className="truncate font-mono text-sm">{model.id}</span>
-                {model.zdrSafe === false && (
-                  <ShieldAlert className="size-3.5 shrink-0 text-muted-foreground" aria-label={t('models.noZdr')} />
-                )}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {t('models.contextWindow')} {formatContext(model.contextLength)} · {perMillion(model.promptPrice)} in ·{' '}
-                {perMillion(model.completionPrice)} out / M tokens
-              </span>
-            </button>
-          ))}
-      </div>
+        {!loading && models && models.length > 0 && (
+          <ItemList>
+            {models.map((model) => (
+              <Item
+                key={model.id}
+                role="option"
+                tabIndex={0}
+                aria-selected="false"
+                onClick={() => onPick(model.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onPick(model.id)
+                  }
+                }}
+              >
+                <ItemContent>
+                  <ItemTitle className="flex items-center gap-1.5 font-mono">
+                    {model.id}
+                    {model.zdrSafe === false && (
+                      <ShieldAlert className="size-3.5 shrink-0 text-muted-foreground" aria-label={t('models.noZdr')} />
+                    )}
+                  </ItemTitle>
+                  <ItemDescription>
+                    {t('models.contextWindow')} {formatContext(model.contextLength)} · {perMillion(model.promptPrice)} in
+                    · {perMillion(model.completionPrice)} out / M tokens
+                  </ItemDescription>
+                </ItemContent>
+              </Item>
+            ))}
+          </ItemList>
+        )}
+      </ScrollArea>
     </div>
   )
 }
@@ -423,18 +436,9 @@ export const PlatformModelDefaults: FC = () => {
                     />
                   </PopoverContent>
                 </Popover>
-                {/* Thinking level — the second lever of the same decision. A
-                    native select: six fixed options with nothing to search, and
-                    it stays keyboard- and screen-reader-native for free. */}
-                <select
-                  // text-base below md keeps iOS Safari from zooming on focus,
-                  // and 32px is under the touch floor — the same two rules the
-                  // shared Input/Select primitives carry.
-                  className="h-8 w-full min-w-0 rounded-md border bg-background px-2 text-base pointer-coarse:h-11 md:text-xs sm:w-48"
-                  aria-label={t('models.effortSelectLabel', { group: group.label })}
+                <Select
                   value={pinnedEffort ?? INHERIT}
-                  onChange={(event) => {
-                    const value = event.target.value
+                  onValueChange={(value) => {
                     setEffortDraft((prev) => {
                       const next = { ...prev }
                       if (value === INHERIT) delete next[group.id]
@@ -443,19 +447,26 @@ export const PlatformModelDefaults: FC = () => {
                     })
                   }}
                 >
-                  <option value={INHERIT}>
-                    {/* Naming the concrete config level makes "inherit" a fact
-                        rather than an abstraction. */}
-                    {effortFallback
-                      ? `${t('models.effortInherit')} (${effortFallback})`
-                      : t('models.effortInherit')}
-                  </option>
-                  {REASONING_EFFORTS.map((effort) => (
-                    <option key={effort} value={effort}>
-                      {t(`models.levels.${effort}.label`)}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    size="sm"
+                    className="w-full min-w-0 sm:w-48"
+                    aria-label={t('models.effortSelectLabel', { group: group.label })}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={INHERIT}>
+                      {effortFallback
+                        ? `${t('models.effortInherit')} (${effortFallback})`
+                        : t('models.effortInherit')}
+                    </SelectItem>
+                    {REASONING_EFFORTS.map((effort) => (
+                      <SelectItem key={effort} value={effort}>
+                        {t(`models.levels.${effort}.label`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </li>
           )
@@ -465,8 +476,8 @@ export const PlatformModelDefaults: FC = () => {
       {(dirty || effortDirty) && (
         <div className="mt-4 flex flex-col gap-3 rounded-lg border bg-muted/40 p-4">
           <p className="text-sm text-muted-foreground">{t('models.unsavedChanges')}</p>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="platform-model-defaults-note">{t('models.note')}</Label>
+          <Field>
+            <FieldLabel htmlFor="platform-model-defaults-note">{t('models.note')}</FieldLabel>
             <Input
               id="platform-model-defaults-note"
               value={note}
@@ -474,7 +485,7 @@ export const PlatformModelDefaults: FC = () => {
               placeholder={t('models.notePlaceholder')}
               maxLength={500}
             />
-          </div>
+          </Field>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button className="w-full sm:w-auto" onClick={() => setConfirmOpen(true)} disabled={saving}>
               {saving ? t('models.saving') : t('models.save')}

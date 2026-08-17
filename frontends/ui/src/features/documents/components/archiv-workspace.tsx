@@ -18,6 +18,7 @@ import { UploadTray } from './upload-tray'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 
@@ -316,25 +317,27 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
             treatment (design language, "Scroll boundaries"). */}
         <div className="scroll-fade-bottom flex-1 overflow-y-auto">
           {loadError ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
-              <AlertCircle className="text-destructive size-5" aria-hidden />
-              <p className="text-muted-foreground text-balance text-sm">
-                {t('workspace.loadError')}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                // Not `onClick={loadDocuments}`: the click event would arrive as
-                // the `quiet` flag, so a retry would hide its own skeleton and
-                // swallow a second failure.
-                onClick={() => void loadDocuments()}
-              >
-                <RotateCcw className="size-3.5" aria-hidden />
-                {t('workspace.tryAgain')}
-              </Button>
-            </div>
+            <EmptyState
+              variant="bare"
+              icon={AlertCircle}
+              title={t('workspace.loadError')}
+              className="h-full justify-center"
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  // Not `onClick={loadDocuments}`: the click event would arrive as
+                  // the `quiet` flag, so a retry would hide its own skeleton and
+                  // swallow a second failure.
+                  onClick={() => void loadDocuments()}
+                >
+                  <RotateCcw className="size-3.5" aria-hidden />
+                  {t('workspace.tryAgain')}
+                </Button>
+              }
+            />
           ) : (
             <ArchivLibraryPane
               files={files}

@@ -1,4 +1,5 @@
 import * as React from 'react'
+import type { LucideIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -16,18 +17,28 @@ import { cn } from '@/lib/utils'
 export interface SectionLabelProps extends React.HTMLAttributes<HTMLElement> {
   /** Element to render. Defaults to `span`. */
   as?: 'span' | 'h2' | 'h3' | 'p' | 'div'
+  /** Optional scan-target icon (preview rails, inspector sections). */
+  icon?: LucideIcon
   children: React.ReactNode
 }
 
-export function SectionLabel({ as: Comp = 'span', className, children, ...props }: SectionLabelProps): JSX.Element {
+export function SectionLabel({
+  as: Comp = 'span',
+  icon: Icon,
+  className,
+  children,
+  ...props
+}: SectionLabelProps): JSX.Element {
   return (
     <Comp
       className={cn(
         'text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground',
+        Icon && 'flex items-center gap-1.5',
         className,
       )}
       {...props}
     >
+      {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden /> : null}
       {children}
     </Comp>
   )

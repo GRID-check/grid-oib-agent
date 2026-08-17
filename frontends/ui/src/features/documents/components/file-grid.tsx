@@ -2,6 +2,7 @@
 
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { RaisedCard, RaisedCardBody, RaisedCardFooter, RaisedCardMedia } from '@/components/ui/raised-card'
 import { Skeleton } from '@/components/ui/skeleton'
 
 /**
@@ -30,18 +31,20 @@ export function FileGrid({ children, className }: { children: ReactNode; classNa
  */
 export function FileCardSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border bg-muted/50">
-      <div className="overflow-hidden rounded-b-[10px] bg-card shadow-2xs">
-        <Skeleton className="h-[124px] w-full rounded-none" />
+    <RaisedCard>
+      <RaisedCardBody className="p-0">
+        <RaisedCardMedia className="h-[124px]">
+          <Skeleton className="h-[124px] w-full rounded-none" />
+        </RaisedCardMedia>
         <div className="space-y-2 px-3.5 pb-3 pt-[11px]">
           <Skeleton className="h-4 w-20" />
           <Skeleton className="h-3.5 w-2/3" />
           <Skeleton className="h-3 w-full" />
         </div>
-      </div>
-      <div className="px-3.5 pb-2.5 pt-[9px]">
+      </RaisedCardBody>
+      <RaisedCardFooter className="px-3.5 pb-2.5 pt-[9px]">
         <Skeleton className="ml-auto h-3 w-24" />
-      </div>
-    </div>
+      </RaisedCardFooter>
+    </RaisedCard>
   )
 }

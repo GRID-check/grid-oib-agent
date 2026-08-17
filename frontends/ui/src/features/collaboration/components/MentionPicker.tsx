@@ -46,6 +46,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
+import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
 import type { MentionCandidate } from '@/lib/mentions/types'
@@ -495,11 +496,17 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
 
         {/* Footer: outside the scroll container on purpose — the hint has to stay
             visible while the list scrolls. */}
-        <div className="flex shrink-0 items-center gap-2 border-t bg-muted/40 px-3 py-2">
+        <div
+          className="flex shrink-0 items-center gap-2 border-t bg-muted/40 px-3 py-2"
+          aria-label={t('mentions.picker.keyboardHint')}
+        >
           <AtSign className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
-          <span className="truncate text-[11px] text-muted-foreground">
-            {t('mentions.picker.keyboardHint')}
-          </span>
+          <KbdGroup>
+            <Kbd>↑</Kbd>
+            <Kbd>↓</Kbd>
+          </KbdGroup>
+          <Kbd>↵</Kbd>
+          <Kbd>Esc</Kbd>
         </div>
       </div>
     )

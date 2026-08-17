@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ArrowRight, Telescope } from 'lucide-react'
-import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { EmptyState } from '@/components/ui/empty-state'
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemList,
+  ItemTitle,
+} from '@/components/ui/item'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
 import { conversationsClient } from '@/adapters/api/conversations-client'
 import { useLocale, useTranslations } from '@/i18n'
@@ -129,7 +136,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
 
   if (error) {
     return (
-      <Alert variant="destructive" className="mt-8">
+      <Alert variant="destructive">
         <AlertCircle />
         <AlertTitle>{t('researchRuns.errorTitle')}</AlertTitle>
         <AlertDescription className="flex flex-col items-start gap-3">
@@ -144,26 +151,27 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
 
   if (jobs === null) {
     return (
-      <div className="mt-8 overflow-hidden rounded-2xl border bg-card shadow-xs">
-        <div className="divide-y divide-border">
-          {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="flex items-center justify-between gap-4 px-6 py-3.5">
+      <ItemList as="ul" className="list-none">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <Item as="li" key={index}>
+            <ItemContent>
               <div className="flex items-center gap-3">
                 <Skeleton className="h-5 w-20 rounded-full" />
                 <Skeleton className="h-4 w-24" />
               </div>
+            </ItemContent>
+            <ItemActions>
               <Skeleton className="h-8 w-28 rounded-full" />
-            </div>
-          ))}
-        </div>
-      </div>
+            </ItemActions>
+          </Item>
+        ))}
+      </ItemList>
     )
   }
 
   if (jobs.length === 0) {
     return (
       <EmptyState
-        className="mt-8"
         icon={Telescope}
         title={t('researchRuns.emptyTitle')}
         description={t('researchRuns.emptyDescription')}
@@ -177,46 +185,38 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
   }
 
   return (
-    <div className="mt-8 overflow-hidden rounded-2xl border bg-card shadow-xs">
-      <Stagger className="divide-y divide-border">
-        {jobs.map((job) => {
-          const isCompleted = job.status === 'completed'
-          const isFailed = job.status === 'failed'
-          // A run still in flight is watchable: the research panel attaches to
-          // its live stream, which matters most for runs started outside chat
-          // (workflow runs) that have no thread to follow.
-          const isActive =
-            job.status === 'running' || job.status === 'submitted' || job.status === 'pending'
-          const label = runLabel(job)
-          return (
-            <StaggerItem
-              key={job.job_id}
-              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40 sm:gap-4 sm:px-6"
-            >
-              <div className="flex min-w-0 items-center gap-4">
-                <Badge variant={STATUS_BADGE_VARIANT[job.status] ?? 'secondary'}>
-                  {statusLabel(job.status)}
-                </Badge>
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate text-sm font-medium" title={label}>
-                    {label}
-                  </span>
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span className="font-mono">{shortJobId(job.job_id)}</span>
-                    <span aria-hidden>·</span>
-                    <span title={formatAbsoluteTime(job.created_at, locale)}>
-                      {formatRelativeTime(job.created_at, locale)}
-                    </span>
-                  </span>
-                </div>
-              </div>
+    <ItemList as="ul" className="list-none">
+      {jobs.map((job) => {
+        const isCompleted = job.status === 'completed'
+        const isFailed = job.status === 'failed'
+        // A run still in flight is watchable: the research panel attaches to
+        // its live stream, which matters most for runs started outside chat
+        // (workflow runs) that have no thread to follow.
+        const isActive =
+          job.status === 'running' || job.status === 'submitted' || job.status === 'pending'
+        const label = runLabel(job)
+        return (
+          <Item as="li" key={job.job_id} className="flex-wrap">
+            <Badge variant={STATUS_BADGE_VARIANT[job.status] ?? 'secondary'}>
+              {statusLabel(job.status)}
+            </Badge>
+            <ItemContent>
+              <ItemTitle title={label}>{label}</ItemTitle>
+              <ItemDescription className="flex items-center gap-1.5 overflow-visible whitespace-normal">
+                <span className="font-mono">{shortJobId(job.job_id)}</span>
+                <span aria-hidden>·</span>
+                <span title={formatAbsoluteTime(job.created_at, locale)}>
+                  {formatRelativeTime(job.created_at, locale)}
+                </span>
+              </ItemDescription>
+            </ItemContent>
 
+            <ItemActions>
               {isCompleted || isFailed || isActive ? (
                 <Button
                   asChild
                   size="sm"
                   variant={isCompleted ? 'default' : 'outline'}
-                  className="shrink-0"
                 >
                   <Link
                     href={
@@ -236,14 +236,14 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                   </Link>
                 </Button>
               ) : (
-                <span className="shrink-0 text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {statusHint(job.status)}
                 </span>
               )}
-            </StaggerItem>
-          )
-        })}
-      </Stagger>
-    </div>
+            </ItemActions>
+          </Item>
+        )
+      })}
+    </ItemList>
   )
 }

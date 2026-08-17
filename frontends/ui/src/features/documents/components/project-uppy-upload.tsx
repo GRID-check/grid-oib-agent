@@ -1,8 +1,9 @@
 'use client'
 
 import { useRef } from 'react'
-import { Loader2, Upload } from 'lucide-react'
+import { Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { useAppConfig } from '@/shared/context'
 import { DEFAULT_ACCEPTED_FILE_TYPES, DEFAULT_MAX_FILE_SIZE } from '../constants'
@@ -84,7 +85,7 @@ export function ProjectUppyUpload({
           className="flex min-h-[132px] w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-card/50 p-4 text-center transition-colors duration-200 ease-out hover:border-ring hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isUploading ? (
-            <Loader2 className="size-5 animate-spin text-muted-foreground" aria-hidden />
+            <Spinner size="default" className="text-muted-foreground" />
           ) : (
             <Upload className="size-5 text-muted-foreground" aria-hidden />
           )}
@@ -110,7 +111,7 @@ export function ProjectUppyUpload({
         variant={variant}
         className="gap-2"
       >
-        {isUploading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Upload className="size-4" aria-hidden />}
+        {isUploading ? <Spinner size="sm" /> : <Upload className="size-4" aria-hidden />}
         {isUploading ? t('upload.uploading') : buttonLabel}
       </Button>
     </>

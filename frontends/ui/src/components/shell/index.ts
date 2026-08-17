@@ -3,6 +3,7 @@ export { BackLink, type BackLinkProps } from './back-link'
 export { NavigationTrail, NavigationTrailLabel } from './navigation-trail'
 export { CommandPalette, type CommandPaletteProps } from './command-palette'
 export { KeyboardShortcuts, type KeyboardShortcutsProps } from './keyboard-shortcuts'
+export { ShortcutKeys, useModifierLabel } from './shortcut-keys'
 export { ShortcutsCheatsheet, type ShortcutsCheatsheetProps } from './shortcuts-cheatsheet'
 export {
   jumpTargets,
