@@ -1,15 +1,17 @@
 /**
  * Dev preview for the shared project-section chrome: breadcrumb + title +
- * subtitle + actions. Three stacked fixtures so one screenshot proves the
- * rhythm is the same on Files (primary action), History (search), and
- * Settings (no action). Chat is the documented exception and is not shown.
+ * subtitle + actions, one fixture per section that uses it.
+ *
+ * Chat is the documented exception and is not shown. Archiv and Inbox are
+ * org-scoped (OrgTopbar, not the project rail) but they share the same
+ * PageHeader molecule, so they sit in their own group at the bottom.
  *
  * Not linked from anywhere; the `/dev` layout 404s this outside development.
  */
 
 import type { ReactNode } from 'react'
 
-import { Search } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 
 import {
   Breadcrumb,
@@ -21,6 +23,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/ui/page-header'
+import { SectionLabel } from '@/components/ui/section-label'
 
 const PROJECT = 'Stadthaus Wien'
 
@@ -57,40 +60,106 @@ function Chrome({
   )
 }
 
+function Group({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+  return (
+    <section className="space-y-6">
+      <SectionLabel>{label}</SectionLabel>
+      <div className="space-y-10">{children}</div>
+    </section>
+  )
+}
+
+function SearchField({ placeholder, label }: { placeholder: string; label: string }): JSX.Element {
+  return (
+    <div className="relative w-full sm:w-64">
+      <Search
+        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden
+      />
+      <Input
+        type="search"
+        readOnly
+        placeholder={placeholder}
+        aria-label={label}
+        className="h-9 rounded-md pl-9"
+      />
+    </div>
+  )
+}
+
 export default function ProjectChromePreviewPage(): JSX.Element {
   return (
-    <main data-testid="project-chrome-preview" className="bg-background space-y-10 p-8 text-foreground">
-      <Chrome
-        section="Files"
-        title="Files"
-        subtitle="Project corpus — these documents ground Piloti’s answers"
-        action={<Button type="button">Upload</Button>}
-      />
-      <Chrome
-        section="History"
-        title="History"
-        subtitle="Every conversation and deep-research run in this project."
-        action={
-          <div className="relative w-full sm:w-64">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              type="search"
-              readOnly
-              placeholder="Search history…"
-              aria-label="Search conversations by title"
-              className="h-9 rounded-md pl-9"
-            />
-          </div>
-        }
-      />
-      <Chrome
-        section="Settings"
-        title="Settings"
-        subtitle="Project parameters, members, memory, and the danger zone."
-      />
+    <main data-testid="project-chrome-preview" className="bg-background space-y-12 p-8 text-foreground">
+      <Group label="Work">
+        <Chrome
+          section="Files"
+          title="Files"
+          subtitle="Documents that ground Piloti’s answers in this project."
+          action={<Button type="button">Upload</Button>}
+        />
+        <Chrome
+          section="History"
+          title="History"
+          subtitle="Every conversation and deep-research run in this project."
+          action={<SearchField placeholder="Search history…" label="Search conversations by title" />}
+        />
+      </Group>
+
+      <Group label="Automate">
+        <Chrome
+          section="Jobs"
+          title="Jobs"
+          subtitle="Prompts this project runs on a timer."
+          action={
+            <Button type="button" size="sm">
+              <Plus className="size-4" aria-hidden />
+              New job
+            </Button>
+          }
+        />
+        <Chrome
+          section="Skills"
+          title="Skills"
+          subtitle="Reusable instructions the organization writes once."
+          action={
+            <Button type="button" size="sm">
+              <Plus className="size-4" aria-hidden />
+              New skill
+            </Button>
+          }
+        />
+      </Group>
+
+      <Group label="Project">
+        <Chrome
+          section="Knowledge"
+          title="Knowledge"
+          subtitle="What the knowledge base currently contains."
+        />
+        <Chrome
+          section="Settings"
+          title="Settings"
+          subtitle="Project profile, members, memory, and danger zone."
+        />
+        <Chrome
+          section="Setup"
+          title="Setup"
+          subtitle="Guided briefing for this project."
+        />
+      </Group>
+
+      <Group label="Organization">
+        <Chrome
+          section="Archiv"
+          title="Archiv"
+          subtitle="Shared documents available to every project in your organization"
+        />
+        <Chrome
+          section="Inbox"
+          title="Inbox"
+          subtitle="Requests and updates from your team."
+        />
+      </Group>
     </main>
   )
 }
