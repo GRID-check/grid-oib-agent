@@ -31,7 +31,7 @@ import {
   type ConversationTagKey,
 } from '@/lib/conversations/tags'
 import { conversationsClient } from '@/adapters/api/conversations-client'
-import { ProjectSectionActions } from '@/components/shell'
+import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'

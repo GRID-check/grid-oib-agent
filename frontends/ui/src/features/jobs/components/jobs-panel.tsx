@@ -17,7 +17,7 @@
 
 import { useState } from 'react'
 import { ArrowLeft, Plus } from 'lucide-react'
-import { ProjectSectionActions } from '@/components/shell'
+import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import type { Job } from '@/adapters/api/jobs-client'

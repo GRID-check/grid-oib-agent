@@ -15,7 +15,7 @@
 
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
-import { ProjectSectionActions } from '@/components/shell'
+import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { SkillEditorDialog } from './skill-editor-dialog'

@@ -19,7 +19,12 @@ export {
   type ShortcutSection,
 } from './shortcuts'
 export { OrgTopbar, type OrgTopbarProps } from './org-topbar'
-export { ProjectSectionFrame, ProjectSectionActions } from './project-section-frame'
+// ProjectSectionFrame is a client module; re-exporting it next to OrgTopbar
+// (server-only, `@/i18n/server`) is fine for server layouts. Client pages
+// must import ProjectSectionActions from `./project-section-frame` directly —
+// a barrel import would pull OrgTopbar into the client graph and next build
+// dies on `server-only`.
+export { ProjectSectionFrame } from './project-section-frame'
 export {
   ProjectSwitcher,
   type ProjectSwitcherProject,
