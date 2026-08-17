@@ -246,11 +246,14 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
 
   // Opening at a page is the answer when there is no passage to find, and the
   // starting point while the target page's text layer is still being read. A
-  // located passage supersedes it.
+  // located passage supersedes it. Re-apply once `defaultAspect` lands: the
+  // first scroll runs while unrendered pages still have no height, so it
+  // leaves the reader at the top of a document that then grows underneath
+  // them (#430).
   useEffect(() => {
     if (!doc || !page || hit) return
     pageRefs.current.get(page)?.scrollIntoView({ block: 'start' })
-  }, [doc, page, hit])
+  }, [doc, page, hit, defaultAspect])
 
   const pages = useMemo(
     () => (doc ? Array.from({ length: doc.numPages }, (_, index) => index + 1) : []),
