@@ -50,12 +50,27 @@ SurfaceMode = Literal["one", "many"]
 
 
 def _source_for_collection(collection: str) -> Literal["projekt", "buero"] | None:
-    """Map a RAG collection name to its coarse corpus label, or ``None``."""
+    """LEGACY: guess a card label from a collection-id prefix.
+
+    Live retrieval must not call this when a signed shelf map is present
+    (ADR-0047). Kept for names-only / pre-shelf callers.
+    """
     if collection.startswith("proj_"):
         return "projekt"
     if collection.startswith("archiv_"):
         return "buero"
     return None
+
+
+def _source_for_target(
+    collection: str,
+    source_by_collection: dict[str, str],
+) -> Literal["projekt", "buero"] | None:
+    """Label a retrieve target. A signed map is exclusive — no prefix guess."""
+    if source_by_collection:
+        raw = source_by_collection.get(collection)
+        return raw if raw in ("projekt", "buero") else None
+    return _source_for_collection(collection)
 
 
 def _target_collections(
@@ -474,7 +489,7 @@ async def _retrieve_all(
         logger.debug("surface_documents: no scoped shelves for retrieve", exc_info=True)
 
     async def _retrieve(collection: str) -> list[tuple[object, str]]:
-        source = source_by_collection.get(collection) or _source_for_collection(collection)
+        source = _source_for_target(collection, source_by_collection)
         if source is None:
             return []
         try:

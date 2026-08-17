@@ -157,6 +157,20 @@ class TestRenderInventoryBlock:
     def test_nothing_to_show_when_no_docs_and_no_scope(self):
         assert render_inventory_block([]) == ""
 
+    def test_project_docs_without_scope_still_show_empty_archiv(self):
+        """A missing envelope must not hide an empty Büroarchiv once we
+        already know this is a project turn (project files are present)."""
+        docs = [_doc("Lacknergasse.pdf", collection="proj_1", shelf="project")]
+        text = render_inventory_block(docs)
+        assert "### Büroarchiv" in text
+        archiv = text.split("### Büroarchiv", 1)[1].split("### ", 1)[0]
+        assert "empty" in archiv.lower()
+        assert "Lacknergasse.pdf" not in archiv
+
+    def test_base_only_does_not_invent_an_empty_archiv(self):
+        text = render_inventory_block([_doc("oib-rl_2.pdf", collection="oib_knowledge", shelf="base")])
+        assert "### Büroarchiv" not in text
+
     def test_listing_focus_hides_other_shelves(self):
         """A Büroarchiv listing must not put OIB filenames in the prompt."""
         docs = [
@@ -186,6 +200,13 @@ class TestShelfHintFromQuery:
     def test_content_question_is_not_a_shelf_listing(self):
         assert shelf_hint_from_query("was sagt OIB-RL 2 zum Brandschutz") is None
         assert shelf_hint_from_query("zeig mir den Schnitt Lacknergasse") is None
+
+    def test_nearby_german_listings_are_not_research(self):
+        """The two quoted utterances are not the whole language."""
+        assert shelf_hint_from_query("zeig mir die dateien im archiv") == Shelf.ARCHIV
+        assert shelf_hint_from_query("liste das büroarchiv") == Shelf.ARCHIV
+        assert shelf_hint_from_query("hast du was im archiv") == Shelf.ARCHIV
+        assert shelf_hint_from_query("und im archiv?") == Shelf.ARCHIV
 
 
 class TestListingIntentOverride:

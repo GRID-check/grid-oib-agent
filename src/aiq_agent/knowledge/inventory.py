@@ -48,12 +48,37 @@ _LISTING_CUES = (
     "was hast du",
     "was liegt",
     "was ist im",
+    "hast du was",
+    "zeig mir die datei",
+    "zeig die datei",
+    "zeig mir die unterlagen",
+    "liste das",
+    "liste die",
+    "liste ",
+    "und im",
     "what files",
     "which files",
     "what's in",
     "whats in",
     "what do you have",
     "what have you",
+)
+
+# Short follow-ups that name a shelf and nothing else ("und im archiv?").
+_SHELF_ONLY_FOLLOWUPS = frozenset(
+    {
+        "im archiv",
+        "ins archiv",
+        "das archiv",
+        "bueroarchiv",
+        "buroarchiv",
+        "bro archiv",
+        "und im archiv",
+        "und das archiv",
+        "im bueroarchiv",
+        "im buroarchiv",
+        "im bro archiv",
+    }
 )
 
 _SHELF_HINTS: tuple[tuple[Shelf, tuple[str, ...]], ...] = (
@@ -236,7 +261,10 @@ def shelf_hint_from_query(query: str) -> Shelf | None:
     """
     raw, folded = _query_variants(query)
     haystacks = (raw, folded)
-    if not any(cue in text for text in haystacks for cue in _LISTING_CUES):
+    cleaned = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in folded)
+    cleaned = " ".join(cleaned.split())
+    is_listing = any(cue in text for text in haystacks for cue in _LISTING_CUES) or (cleaned in _SHELF_ONLY_FOLLOWUPS)
+    if not is_listing:
         return None
     for shelf, tokens in _SHELF_HINTS:
         for token in tokens:
@@ -286,6 +314,27 @@ def _heading(shelf: Shelf) -> str:
     return SHELF_QUALIFIERS[shelf]
 
 
+def _implied_shelves(groups: dict[Shelf, list[Any]]) -> list[Shelf]:
+    """Shelves that must exist given the ones we already have files for.
+
+    Every request has Basiswissen. Every project has a Büroarchiv. A turn
+    that already listed project or session files is therefore a project
+    turn, even if the signed envelope did not arrive and the archive is
+    empty — omitting the empty group is how the model fills it with OIB.
+    """
+    present = {shelf for shelf, rows in groups.items() if rows}
+    if not present:
+        return []
+    implied: set[Shelf] = set(present)
+    implied.add(Shelf.BASE)
+    if present & {Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION}:
+        implied.add(Shelf.ARCHIV)
+        implied.add(Shelf.BASE)
+    if present & {Shelf.PROJECT, Shelf.SESSION}:
+        implied.add(Shelf.PROJECT)
+    return [shelf for shelf in _INVENTORY_ORDER if shelf in implied]
+
+
 def render_inventory_block(
     docs: Sequence[Any],
     *,
@@ -312,6 +361,8 @@ def render_inventory_block(
             groups.setdefault(shelf, []).append(doc)
 
     scoped = _parse_scope_shelves(in_scope_shelves)
+    if not scoped:
+        scoped = _implied_shelves(groups)
     focused = parse_shelf(focus_shelf)
 
     show: list[Shelf] = []

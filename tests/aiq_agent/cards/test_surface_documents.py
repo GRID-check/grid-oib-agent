@@ -15,6 +15,7 @@ from aiq_agent.cards.surface_documents import _briefing_for_agent
 from aiq_agent.cards.surface_documents import _filename_mentioned_in_query
 from aiq_agent.cards.surface_documents import _match_known_filename
 from aiq_agent.cards.surface_documents import _source_for_collection
+from aiq_agent.cards.surface_documents import _source_for_target
 from aiq_agent.cards.surface_documents import _target_collections
 from aiq_agent.cards.surface_documents import surface_documents
 
@@ -29,6 +30,16 @@ class TestSourceForCollection:
         assert _source_for_collection("archiv_org1") == "buero"
         assert _source_for_collection("oib_knowledge") is None
         assert _source_for_collection("s_conversation") is None
+
+    def test_signed_shelf_map_does_not_fall_back_to_prefix(self):
+        """A custom project collection the BFF already labeled must retrieve."""
+        signed = {"custom_project_store": "projekt"}
+        assert _source_for_target("custom_project_store", signed) == "projekt"
+        assert _source_for_target("proj_abc", signed) is None
+
+    def test_names_only_scope_still_uses_the_legacy_prefix(self):
+        assert _source_for_target("proj_abc", {}) == "projekt"
+        assert _source_for_target("custom_project_store", {}) is None
 
 
 class TestTargetCollections:
