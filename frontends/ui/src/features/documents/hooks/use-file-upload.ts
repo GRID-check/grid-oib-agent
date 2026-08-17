@@ -131,8 +131,9 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       existingTotalSize: sessionFiles.reduce((sum, f) => sum + f.fileSize, 0),
       existingFileCount: sessionFiles.length,
       existingFileNames: new Set(sessionFiles.map((f) => f.fileName)),
+      durableCorpus: Boolean(projectId || archiv),
     }),
-    [sessionFiles]
+    [sessionFiles, projectId, archiv]
   )
 
   useEffect(() => {
