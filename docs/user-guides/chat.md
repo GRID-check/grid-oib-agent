@@ -44,7 +44,7 @@ The whole header is hidden on an empty chat that has not started yet, apart from
 
 The composer is a white card with the message field on top and a control row below, separated by a hairline:
 
-- **Asking about … bar**: when this turn is about a project file (Ask Piloti, a surfaced card, or a cited drawing), a bar at the top of the composer names that file. Hiding the peek beside the chat does not drop it — **Show file** brings the viewer back, and the **×** stops asking about the file. The next send follows whatever the bar names.
+- **Asking about … bar**: when this turn is about a project file (**Piloti dazu fragen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Piloti dazu fragen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
 - **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.

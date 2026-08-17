@@ -2,6 +2,7 @@
 
 import logging
 
+from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from pydantic import Field
 
@@ -16,6 +17,7 @@ from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
+from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -174,8 +176,6 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 error_msg = format_user_facing_tool_error("shallow research", unavailable_tools)
 
                 # Return error state with error message - this prevents the agent from running
-                from langchain_core.messages import AIMessage
-
                 error_state = ShallowResearchAgentState(messages=state.messages + [AIMessage(content=error_msg)])
                 return error_state
 
@@ -187,6 +187,16 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             if skill_runtime is not None:
                 result.skills_activated = list(skill_runtime.activated)
             return result
+        except EmptySourceRegistryError:
+            # A scoped miss (this-file / this-shelf) is a valid empty
+            # answer, not an unhandled NAT error. Raising here became
+            # err2issue #447 and left the user with no reply.
+            logger.warning("Shallow research captured no sources; returning an empty-result answer.")
+            empty_msg = (
+                "I searched the available sources but couldn't retrieve anything usable. "
+                "Try a broader question, or ask without limiting to one file."
+            )
+            return ShallowResearchAgentState(messages=state.messages + [AIMessage(content=empty_msg)])
         except Exception:
             logger.exception("Error in shallow research execution.")
             raise
