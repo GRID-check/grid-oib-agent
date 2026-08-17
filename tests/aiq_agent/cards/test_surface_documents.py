@@ -42,6 +42,27 @@ class TestTargetCollections:
     def test_base_only_scope_yields_nothing(self):
         assert _target_collections(["oib_knowledge"]) == []
 
+    def test_shelf_archiv_drops_project(self):
+        scope = ["proj_a", "archiv_o", "oib_knowledge"]
+        assert _target_collections(scope, shelf="archiv") == ["archiv_o"]
+
+    def test_shelf_project_drops_archiv(self):
+        scope = ["proj_a", "archiv_o"]
+        assert _target_collections(scope, shelf="project") == ["proj_a"]
+
+    def test_scoped_entries_use_the_stated_shelf_not_the_name(self):
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.scoping import ScopedCollection
+
+        scoped = [
+            ScopedCollection("custom_project_store", Shelf.PROJECT),
+            ScopedCollection("custom_office_store", Shelf.ARCHIV),
+            ScopedCollection("oib_knowledge", Shelf.BASE),
+        ]
+        assert _target_collections([], shelf="archiv", scoped=scoped) == ["custom_office_store"]
+        assert _target_collections([], shelf="project", scoped=scoped) == ["custom_project_store"]
+        assert _target_collections([], scoped=scoped) == ["custom_project_store", "custom_office_store"]
+
 
 class TestNameResolution:
     def test_exact_and_casefold(self):

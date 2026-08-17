@@ -105,11 +105,8 @@ When the query references "me", "myself", or "my work", search for this person.
 {% for tool in tools %}- **{{ tool.name }}**: {{ tool.description }}
 {% endfor %}
 
-{% if available_documents and available_documents | length > 0 %}
-## Knowledge-base inventory (index — NOT sources)
-The following documents exist and are retrievable via knowledge_search. This list is an index, not evidence: a filename here is not a citable source and its summary is not quotable until a knowledge_search result has returned the passage. Citations to documents you did not retrieve are dropped by verification, leaving the answer unsourced.
-{% for doc in available_documents %}- **{{ doc.file_name }}**{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
-{% endfor %}
+{% if document_inventory %}
+{{ document_inventory }}
 {% endif %}
 
 {% if parcel_note is defined and parcel_note %}

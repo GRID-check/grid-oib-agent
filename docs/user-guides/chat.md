@@ -52,6 +52,15 @@ The composer is a white card with the message field on top and a control row bel
 
 Under the composer a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (base corpus + RIS), *Projektunterlagen* (this project's files, not the Büroarchiv), and *Büroarchiv* (office archive, not project files). They stay available after the first message. A pressed preset also tells retrieval which knowledge shelves to keep; it is not only an external-source toggle. Any manual change in the Data Sources panel takes you off the preset again. Uploading a file into the chat binds the next send to that file — "Fass den Inhalt zusammen" does not walk the rest of the project or the Archiv.
 
+Documents sit on four nested shelves. Asking **which files** sit where is answered from that shelf only:
+
+- **Basiswissen** — always on the request (OIB / law corpus).
+- **Büroarchiv** — on every project in the organization. Not OIB, not this project's files.
+- **Projektwissen** — on every session of this project.
+- **This chat** — only the current session.
+
+An empty shelf is empty. A question *about the content* of a file is research and searches that file.
+
 ## Invoking a skill (`/name`)
 
 When Agent Skills are enabled (ADR-0046), typing `/` **as the first character

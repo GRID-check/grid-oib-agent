@@ -112,7 +112,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_RETRIEVER_TOP_K` | No | `10` | Default number of chunks a retrieval returns when a caller names no `top_k`. |
 | `AIQ_VERBOSE` | No | `false` | Verbose agent/callback logging (`1`/`true`/`yes` enable). Diagnostic only. |
 | `AIQ_ENABLE_DEBUG` | No | `true` | Mounts the debug console at `/debug`. Set to `0`/`false`/`no`/`off` to disable it — worth doing on any deployment where that surface should not be reachable. |
-| `GRID_AVAILABLE_DOCUMENTS_MAX` | No | `50` | Caps how many documents are listed in the agent's `available_documents` prompt block; the set is sorted before capping so the cut is deterministic. `0`/negative disables the cap. |
+| `GRID_AVAILABLE_DOCUMENTS_MAX` | No | `50` | Caps how many documents are listed in the agent's `available_documents` prompt block. User-shelf files (Büroarchiv / Projekt / session) are kept first so the OIB corpus cannot evict them; within a shelf the cut is filename-sorted and deterministic. `0`/negative disables the cap. |
 | `AIQ_EXTRACT_TABLES` | No | `false` | Enable table extraction from documents. |
 | `AIQ_EXTRACT_IMAGES` | No | `false` | Enable extraction of **embedded raster images** (image XObjects) from PDFs for VLM captioning. Does NOT capture vector CAD drawings — see `AIQ_RENDER_VISUAL_PAGES`. |
 | `AIQ_EXTRACT_CHARTS` | No | `false` | Enable chart extraction from documents. |

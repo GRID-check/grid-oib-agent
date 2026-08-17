@@ -353,7 +353,7 @@ Other file types are ingested normally but do not receive summaries.
 
 1. **Ingestion**: Backend extracts text from the document and generates a one-sentence summary using an LLM call
 2. **Registry**: Summary is stored in a centralized, backend-agnostic registry (`aiq_agent.knowledge.factory`)
-3. **Agent prompts**: Summaries appear in the agent's system prompt under "Uploaded Documents"
+3. **Agent prompts**: Summaries appear in the agent's system prompt under the shelf-grouped knowledge-base inventory (Büroarchiv / Projektwissen / Private Sitzung / Basiswissen)
 4. **Tool calling**: Agents can make informed decisions about when to call `knowledge_search`
 
 ### Agent Prompt Example
