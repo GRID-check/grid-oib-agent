@@ -48,7 +48,7 @@ The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default
 The maximum upload size is configured via `FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**). This limit applies per **batch** (total of all files in a single upload operation), not per individual file.
 
 Additional limits:
-- **Maximum file count per batch**: `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**)
+- **Chat-session attachments**: `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**) caps how many files one chat session can hold. Project Dateiablage and the Büroarchiv are **not** under this cap — they are bounded by the organization's storage quota.
 - **Duplicate filenames** within a session are rejected
 - Files already tracked in the current session are skipped on re-upload
 

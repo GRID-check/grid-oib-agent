@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { CITATION_FORMATS, renderCitations, type CitationFormat } from '../lib/citation-export'
-import { toFachtext } from '../lib/source-citation'
+import { toFachtext, toQuoteList } from '../lib/source-citation'
 import type { CitationRef } from '../lib/citations'
 
 /** Write to the clipboard, reporting failure instead of swallowing it. */
@@ -52,7 +52,9 @@ export const CopySourceCitationButton: FC<{ citation: CitationRef }> = ({ citati
 
   const handleCopy = async (): Promise<void> => {
     await copyText(
-      toFachtext(citation, new Date()),
+      citation.locus?.snippet
+        ? toQuoteList([citation], new Date())
+        : toFachtext(citation, new Date()),
       () => {
         setCopied(true)
         window.setTimeout(() => setCopied(false), 1500)

@@ -136,7 +136,8 @@ export const chat: typeof en.chat = {
     citeAll: 'Zitieren',
     citeAsLabel: 'Alle Quellen kopieren als',
     formats: {
-      fachtext: { label: 'Zitiertext', hint: 'Für Befund, Gutachten, Einreichung' },
+      quotes: { label: 'Zitiertext', hint: 'Die belegten Sätze, als Liste' },
+      fachtext: { label: 'Quellenangabe', hint: 'Für Befund, Gutachten, Einreichung' },
       apa: { label: 'APA', hint: 'Formatiertes Literaturverzeichnis' },
       bibtex: { label: 'BibTeX (.bib)', hint: 'LaTeX, JabRef' },
       ris: { label: 'EndNote/Zotero (.ris)', hint: 'Literaturverwaltung' },

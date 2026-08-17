@@ -430,11 +430,23 @@ subfolder" `+` on each folder row and makes root creation explicit.
 ### Collection scoping (multitenancy)
 
 Every backend call carries a base64url `X-Grid-Collection-Scope` header =
-`[oib_knowledge, proj_<id>, s_<conversation>]`, built in
+`[oib_knowledge, archiv_<org>, proj_<id>, s_<conversation>]`, built in
 `src/lib/collection-scope-request.ts` and validated backend-side. This is the core
 RAG multi-tenant boundary. Note `resolveProjectCollectionName` short-circuits to
 no project scope when `session.organizationId` is falsy (anonymous /
 `REQUIRE_AUTH=false`).
+
+The signed header is the **authorization ceiling**, not the turn's search set.
+The client states **intent** on the user message — `focus_file_name`,
+`focus_shelf` (the composer subject's shelf), `source_preset` (the shortcut
+chip) — never an expanded collection list. `shelves_for_turn`
+(`src/aiq_agent/common/focus_file.py`) is the one mapping from that intent
+to the shelves retrieval may keep; the knowledge layer **subtracts** other
+shelves from the ceiling at the retrieve site and, when the focused file has
+hits, does not pad the merge with Archiv/project leftovers (#429, #436).
+A subject shelf wins over a preset. Absence of both leaves the signed scope
+intact (ADR-0024: Archiv stays in every unscoped project turn). The TS twin
+is `includeShelvesForTurn` in `frontends/ui/src/features/layout/lib/retrieval-scope.ts`.
 
 ### Document summaries & `available_documents` (SQL side-table, distinct from the vector index)
 

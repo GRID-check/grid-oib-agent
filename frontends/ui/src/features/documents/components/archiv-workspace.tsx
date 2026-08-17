@@ -10,6 +10,7 @@ import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { ArchivLibraryPane } from './archiv-library-pane'
+import { DocumentActionsMenu } from './document-actions'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
@@ -341,6 +342,15 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
               onSelectFile={setSelectedFileId}
               isLoading={isLoading}
               uploadControl={uploadButton}
+              renderActions={(file) => (
+                <DocumentActionsMenu
+                  document={file}
+                  scope="archiv"
+                  canManage={canManage}
+                  onRenamed={handleRenamed}
+                  onDeleted={handleDeleted}
+                />
+              )}
             />
           )}
         </div>

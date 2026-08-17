@@ -46,6 +46,8 @@ interface ArchivLibraryPaneProps {
   isLoading: boolean
   /** Upload control rendered inside the first-run empty state (managers only). */
   uploadControl?: ReactNode
+  /** Per-file rename / delete / download on the card. */
+  renderActions?: (file: FileItem) => ReactNode
 }
 
 export function ArchivLibraryPane({
@@ -54,6 +56,7 @@ export function ArchivLibraryPane({
   onSelectFile,
   isLoading,
   uploadControl,
+  renderActions,
 }: ArchivLibraryPaneProps) {
   const t = useTranslations('archiv')
   const { locale } = useLocale()
@@ -275,6 +278,7 @@ export function ArchivLibraryPane({
                   onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
                   locale={locale}
                   match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
+                  actions={renderActions?.(hit)}
                 />
               ))}
             </FileGrid>
@@ -304,6 +308,7 @@ export function ArchivLibraryPane({
                   isSelected={selectedFileId === file.id}
                   onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
                   locale={locale}
+                  actions={renderActions?.(file)}
                 />
               ))}
             </FileGrid>
@@ -327,12 +332,14 @@ function ArchivDocumentCard({
   onSelect,
   locale,
   match,
+  actions,
 }: {
   file: FileItem
   isSelected: boolean
   onSelect: () => void
   locale: string
   match?: { snippet: string; page: number | null; score: number }
+  actions?: ReactNode
 }) {
   const t = useTranslations('archiv')
   const kind = inferDocumentKind(file)
@@ -349,6 +356,7 @@ function ArchivDocumentCard({
       testId="archiv-document-card"
       source="buero"
       sourceLabel={kindLabel}
+      actions={actions}
       footerLead={
         provenance !== '' ? (
           <span

@@ -280,6 +280,28 @@ export const toFachtextList = (refs: CitationRef[], now: Date): string =>
     .map((ref, index) => `[${refNumber(ref) ?? index + 1}] ${toFachtext(ref, now)}`)
     .join('\n')
 
+/**
+ * The quoted passages the answer actually leaned on — what an architect means
+ * by "Zitiertext". Bibliographic formats (APA, filename-only titles) are not
+ * this; this is the list of Fundstellen.
+ *
+ * A locus with no snippet is skipped rather than padded with a title, so the
+ * list is only real quotes. If none of the refs carry a passage, the Fachtext
+ * bibliography is the honest fallback.
+ */
+export const toQuoteList = (refs: CitationRef[], now: Date): string => {
+  const lines = refs.flatMap((ref) => {
+    const snippet = ref.locus?.snippet?.trim()
+    if (!snippet) return []
+    const page = refPage(ref)
+    const source = [displayTitle(ref), page != null ? `S. ${page}` : null]
+      .filter((part): part is string => Boolean(part))
+      .join(', ')
+    return [`„${snippet}“ — ${source}`]
+  })
+  return lines.length > 0 ? lines.join('\n\n') : toFachtextList(refs, now)
+}
+
 /** CSL-JSON for a whole answer, ready for Zotero / Word / pandoc import. */
 export const toCslJson = (refs: CitationRef[], now: Date): string =>
   JSON.stringify(

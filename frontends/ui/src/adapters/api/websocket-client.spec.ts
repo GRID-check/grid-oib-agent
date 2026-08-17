@@ -509,6 +509,25 @@ describe('NATWebSocketClient — the ingest-only user_message payload', () => {
     })
   })
 
+  test('a focused send carries intent, never an expanded shelf list', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Fass den Inhalt zusammen', ['source-1'], {
+      focusFileName: 'Protokoll.pdf',
+      focusShelf: 'session',
+      sourcePreset: 'project',
+    })
+
+    expect(sentPayload(ws)).toEqual({
+      query: 'Fass den Inhalt zusammen',
+      data_sources: ['source-1'],
+      focus_file_name: 'Protokoll.pdf',
+      focus_shelf: 'session',
+      source_preset: 'project',
+    })
+    expect(sentPayload(ws)).not.toHaveProperty('include_shelves')
+  })
+
   test('an ordinary send is byte-for-byte what it always was — no new keys', async () => {
     const { client, ws } = await openClient()
 

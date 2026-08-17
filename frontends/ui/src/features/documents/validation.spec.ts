@@ -238,6 +238,21 @@ describe('validation', () => {
         expect(result.batchErrors[0].code).toBe('MAX_FILES_EXCEEDED')
       })
 
+      test('does not apply the session file cap to a durable project or Archiv corpus', () => {
+        const files = [createFile('new.pdf')]
+        const context: ValidationContext = {
+          existingTotalSize: 1024,
+          existingFileCount: MAX_FILE_COUNT,
+          existingFileNames: new Set(),
+          durableCorpus: true,
+        }
+
+        const result = validateFileUpload(files, context)
+
+        expect(result.valid).toBe(true)
+        expect(result.batchErrors).toHaveLength(0)
+      })
+
       test('blocks all files when max count exceeded including existing', () => {
         const files = [createFile('new.pdf')]
         const context: ValidationContext = {

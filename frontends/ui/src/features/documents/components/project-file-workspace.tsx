@@ -13,6 +13,7 @@ import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
+import { DocumentActionsMenu } from './document-actions'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
@@ -658,6 +659,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               projectId={projectId}
               view={view === 'list' ? 'list' : 'cards'}
               showAssignment={canCollaborate}
+              renderActions={(file) => (
+                <DocumentActionsMenu
+                  document={file}
+                  scope="files"
+                  onRenamed={handleRenamed}
+                  onDeleted={handleDeleted}
+                />
+              )}
               {...(view !== 'tree'
                 ? {
                     folders,

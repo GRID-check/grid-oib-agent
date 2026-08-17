@@ -10,7 +10,9 @@
  *
  * A rail on `lg` and up (labels always visible — an admin surface visited
  * rarely should not ask you to decode icons), a horizontally scrolling tab
- * strip below that.
+ * strip below that. Section switches `replace` the URL: the tabs are a
+ * switcher, not a stack, so Back leaves the platform shell in one step
+ * instead of walking Overview → Models → Knowledge.
  */
 
 import Link from 'next/link'
@@ -78,6 +80,7 @@ export function PlatformNav(): JSX.Element {
             <li key={key} className="shrink-0">
               <Link
                 href={href}
+                replace
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
@@ -100,6 +103,7 @@ export function PlatformNav(): JSX.Element {
             <li key={key}>
               <Link
                 href={href}
+                replace
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',

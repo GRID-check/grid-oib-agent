@@ -96,6 +96,17 @@ export interface SendMessageWireOptions {
    * user does not have to type the name. Omitted when there is no subject.
    */
   focusFileName?: string | null
+  /**
+   * Shelf of that file, when known. The agent maps this to the shelves it
+   * may keep (`shelves_for_turn`); the client never sends an expanded list.
+   */
+  focusShelf?: 'project' | 'archiv' | 'session' | null
+  /**
+   * Composer shortcut chip (`law` / `project` / `office`). Intent only —
+   * the backend expands it. A focused file's shelf wins over this.
+   * Omitted when no chip is pressed.
+   */
+  sourcePreset?: 'law' | 'project' | 'office' | null
 }
 
 /** Context passed with connection status changes */
@@ -418,6 +429,8 @@ export class NATWebSocketClient {
       // does for data_sources.
       ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
       ...(options?.focusFileName?.trim() ? { focus_file_name: options.focusFileName.trim() } : {}),
+      ...(options?.focusShelf ? { focus_shelf: options.focusShelf } : {}),
+      ...(options?.sourcePreset ? { source_preset: options.sourcePreset } : {}),
       ...(options?.contextOnly ? { context_only: true } : {}),
       ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
     })

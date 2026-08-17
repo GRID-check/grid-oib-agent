@@ -92,6 +92,10 @@ const ProjectChatContent = ({
     if (!newParam || !isAuthenticated || consumedNewRef.current) return
     consumedNewRef.current = true
     startNewSessionDraft()
+    // Frag Piloti is a new chat, not a continuation. The toolbar's "New chat"
+    // already closes the peek; this entry point has to do the same or the
+    // previous file stays parked over the empty draft (#441).
+    useFilePreviewStore.getState().close()
 
     if (pathname) {
       const params = new URLSearchParams(searchParams?.toString() ?? '')
@@ -167,6 +171,7 @@ const ProjectChatContent = ({
             ...subject,
             title: subject.title || item.filename,
             filename: item.filename,
+            shelf: subject.shelf ?? 'project',
           })
         }
       })

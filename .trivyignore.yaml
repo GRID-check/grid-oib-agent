@@ -17,6 +17,10 @@
 # The SECOND aspire-dashboard entry (CVE-2026-62901) is boxed shorter than all
 # of them, for the opposite reason: it waits on Microsoft rebuilding an image
 # on a runtime that already exists, which is a matter of days.
+#
+# The OpenTelemetry Collector block is boxed SHORT because contrib ships every
+# ~two weeks. 0.157.0 (the pin) and even 0.158.0 (2026-08-04) were built on
+# Go 1.26.5; 1.26.6 landed 2026-08-13. The next collector tag is the real fix.
 vulnerabilities:
   - id: CVE-2026-49451
     expired_at: 2026-10-31
@@ -68,6 +72,131 @@ vulnerabilities:
       why the box is one month and not the usual two. If it is still here in
       September, the assumption that Microsoft rebuilds promptly was wrong and
       this deserves re-arguing, not extending.
+
+  # ── OpenTelemetry Collector contrib (ADR-0029) ────────────────────────────
+  #
+  # All eight are the Go 1.26.5 STANDARD LIBRARY compiled into
+  # `otelcol-contrib` inside
+  # otel/opentelemetry-collector-contrib@sha256:f2f0… (0.157.0). They are not
+  # packages this repo references. Every one is marked `fixed` upstream
+  # (Go 1.26.6 / 1.25.13, released 2026-08-13), so `--ignore-unfixed` does
+  # not skip them, and no digest bump can currently clear them: 0.158.0
+  # (newest tag, built 2026-08-04) is still 1.26.5. Verified against the
+  # registry, not assumed.
+  #
+  # Shared reachability: the collector is the cluster's single OTLP
+  # ingestion point. It is not on the public internet. Producers are our
+  # own pods; the only other peer is the Aspire dashboard, itself
+  # cluster-internal and OIDC-gated. A NetworkPolicy admits that path.
+  # So an attacker has to already be inside the cluster or be an
+  # authenticated platform operator. The prize is a denial of service
+  # (or, for the idna/template entries, a defect whose attack surface
+  # this binary does not expose — stated per entry).
+  #
+  # Drop the whole block the moment a collector-contrib image ships a
+  # binary built with Go >= 1.26.6. That is expected on the next minor
+  # (~0.159), which is why the box is one month.
+
+  - id: CVE-2026-33818
+    expired_at: 2026-09-17
+    statement: |
+      encoding/asn1 — denial of service via excessive recursion in Unmarshal.
+      Compiled into otelcol-contrib (Go 1.26.5). ASN.1 shows up on the TLS
+      certificate path, not as a caller-supplied document parser.
+
+      Not exploitable here: the collector's TLS peers are the Aspire
+      dashboard and our own pods, all operator-configured. There is no
+      path from an unauthenticated internet client to Unmarshal of
+      attacker-chosen ASN.1.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-39821
+    expired_at: 2026-09-17
+    statement: |
+      golang.org/x/net/idna / net/http — privilege escalation via incorrect
+      Punycode label processing. Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: the collector does not make security decisions
+      (allowlists, origin checks) from a caller-supplied hostname. It
+      forwards OTLP to destinations named in its own config. A Punycode
+      confusion cannot change where this binary sends telemetry.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-46600
+    expired_at: 2026-09-17
+    statement: |
+      golang.org/x/net/dns/dnsmessage — denial of service via invalid DNS
+      record parsing. Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: DNS answers come from the cluster's resolver
+      for destinations we named (the Aspire dashboard). An attacker who
+      can poison that resolver is already past a more serious boundary
+      than this DoS.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56853
+    expired_at: 2026-09-17
+    statement: |
+      net/http — unencrypted HTTP/2 connections vulnerable to denial of
+      service. Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: OTLP peers are cluster-internal pods under a
+      NetworkPolicy. An unencrypted HTTP/2 DoS from the public internet
+      has no route to this process.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56858
+    expired_at: 2026-09-17
+    statement: |
+      html/template — cross-site scripting via pathological input.
+      Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here, and this one is structural: the collector is
+      not an HTML server. It does not render templates for a browser.
+      There is no document to inject into.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56859
+    expired_at: 2026-09-17
+    statement: |
+      encoding/xml — denial of service via XML decoding recursion depth.
+      Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: the collector's request path is OTLP
+      (protobuf / JSON), not XML. Nothing on the ingestion path decodes
+      caller-supplied XML.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56860
+    expired_at: 2026-09-17
+    statement: |
+      net/url — denial of service from quadratic complexity in path
+      parsing. Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: URLs the collector parses are exporter
+      endpoints from its own config, not caller-supplied request paths
+      from the public internet.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56862
+    expired_at: 2026-09-17
+    statement: |
+      crypto/tls — denial of service via indefinite KeyUpdate messages.
+      Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: TLS peers are the Aspire dashboard and our
+      own pods. An attacker who can hold open a TLS session to the
+      collector is already inside the cluster. The prize is a DoS of
+      the telemetry pipeline, not the product.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
 
   # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
   #

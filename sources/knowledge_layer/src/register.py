@@ -422,6 +422,34 @@ def _resolve_scoped_collections(
     return ordered
 
 
+def _shelf_name(entry) -> str | None:
+    shelf = getattr(entry, "shelf", None)
+    if shelf is None:
+        return None
+    return getattr(shelf, "value", None) or str(shelf)
+
+
+def _restrict_scope_to_turn(entries):
+    """Subtract corpora the composer did not ask for.
+
+    The signed header is the authorization ceiling. Turn intent
+    (``focus_shelf`` / ``source_preset``, mapped by ``shelves_for_turn``)
+    may only drop entries from it, so a "summarize this upload" turn cannot
+    be padded with Archiv hits (#429) and a Projektunterlagen chip cannot
+    keep searching the Büroarchiv (#436).
+    """
+    try:
+        from aiq_agent.common.focus_file import get_turn_shelves
+
+        allowed = get_turn_shelves()
+    except Exception:
+        allowed = None
+    if not allowed:
+        return entries
+    filtered = [entry for entry in entries if _shelf_name(entry) in allowed or _shelf_name(entry) is None]
+    return filtered if filtered else entries
+
+
 def _resolve_target_collections(
     config: KnowledgeRetrievalConfig, session_id: str | None, base_collection: str | None = None
 ) -> list[str]:
@@ -502,14 +530,26 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
 
     try:
         from aiq_agent.common.focus_file import get_focused_file_name
+        from aiq_agent.common.focus_file import get_focused_shelf
 
         focused = get_focused_file_name()
+        focused_shelf = get_focused_shelf()
     except Exception:
         focused = None
+        focused_shelf = None
     if focused:
-        matching = [chunk for chunk in merged_chunks if (chunk.file_name or "") == focused]
-        others = [chunk for chunk in merged_chunks if (chunk.file_name or "") != focused]
-        merged_chunks = matching + others
+
+        def _is_focus(chunk) -> bool:
+            if (chunk.file_name or "") != focused:
+                return False
+            if not focused_shelf:
+                return True
+            return (chunk.metadata or {}).get("shelf") == focused_shelf
+
+        matching = [chunk for chunk in merged_chunks if _is_focus(chunk)]
+        # Matches are the turn. Filling the rest from Archiv/project is how
+        # "summarize this PDF" grew a Büro plan (#429).
+        merged_chunks = matching if matching else merged_chunks
 
     if max_per_document > 0:
         selected = []
@@ -1072,8 +1112,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         # Austria; the seam that points retrieval at country #2's corpus).
         base_collection = _resolve_base_collection(config)
 
-        # Build the ordered, de-duplicated layered search set (with shelves).
-        target_collections = _resolve_scoped_collections(config, session_collection, base_collection)
+        # Authorized set first, then subtract the shelves this turn did not
+        # ask for. Resolve stays a ceiling; restriction is one call site.
+        target_collections = _restrict_scope_to_turn(
+            _resolve_scoped_collections(config, session_collection, base_collection)
+        )
 
         logger.info(
             "Knowledge search: query='%s...' collections=%s",
