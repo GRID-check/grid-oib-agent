@@ -13,6 +13,11 @@ export const shortcuts = {
     /** The intake wizard section (labelled "Setup" in the product). */
     intake: 'Setup',
     toggleTheme: 'Toggle theme',
+    hints: {
+      move: 'to move',
+      open: 'to open',
+      close: 'to close',
+    },
   },
   cheatsheet: {
     title: 'Keyboard shortcuts',

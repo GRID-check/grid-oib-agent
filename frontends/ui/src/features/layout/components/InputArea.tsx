@@ -32,7 +32,6 @@ import {
   Eye,
   FileText,
   Layers,
-  Loader2,
   Paperclip,
   RotateCw,
   Sparkles,
@@ -370,7 +369,7 @@ const FileChip: FC<{
       : t('inputArea.fileReadyStatus')
 
   const statusIcon = isPending ? (
-    <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
+    <Spinner size="xs" className="text-muted-foreground" />
   ) : isFailed ? (
     // A distinct glyph (not a bare red dot) so the failure carries a shape, not
     // color alone — plus an sr-only label so it isn't inferred only from color.
