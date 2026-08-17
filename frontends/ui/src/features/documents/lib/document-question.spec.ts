@@ -27,6 +27,16 @@ describe('documentQuestionHref', () => {
     expect(href.searchParams.get('file')).toBe('Brandschutz.pdf')
     expect(href.searchParams.get('ask')).toBeNull()
   })
+
+  it('keeps the filename when a starter question is also set', () => {
+    const href = new URL(
+      documentQuestionHref('proj-1', 'doc-9', { ask: 'Fass den Inhalt zusammen.', filename: 'Brandschutz.pdf' }),
+      'https://grid.test',
+    )
+    expect(href.searchParams.get('doc')).toBe('doc-9')
+    expect(href.searchParams.get('file')).toBe('Brandschutz.pdf')
+    expect(href.searchParams.get('ask')).toBe('Fass den Inhalt zusammen.')
+  })
 })
 
 describe('documentFilesHref', () => {

@@ -6,6 +6,7 @@ import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
 import { useChatStore, useLoadJobData, useDeepResearchTitle } from '@/features/chat'
 import type { ResearchPanelTab } from '@/features/layout/types'
+import { newChatDropsFilePreview } from '@/features/documents/lib/ask-arrival'
 import { fileItemFromStatus } from '@/features/documents/lib/document-question'
 import { useCitationPeek } from '@/features/documents/hooks/use-citation-peek'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
@@ -92,10 +93,13 @@ const ProjectChatContent = ({
     if (!newParam || !isAuthenticated || consumedNewRef.current) return
     consumedNewRef.current = true
     startNewSessionDraft()
-    // Frag Piloti is a new chat, not a continuation. The toolbar's "New chat"
-    // already closes the peek; this entry point has to do the same or the
-    // previous file stays parked over the empty draft (#441).
-    useFilePreviewStore.getState().close()
+    // Sidebar Frag Piloti (`?new=1` alone) is an empty draft — drop the
+    // previous peek (#441). `?new=1&doc=` is "new chat ABOUT this file"
+    // from Piloti dazu fragen; closing the peek there leaves no visual
+    // of the subject.
+    if (newChatDropsFilePreview(searchParams?.get('doc'))) {
+      useFilePreviewStore.getState().close()
+    }
 
     if (pathname) {
       const params = new URLSearchParams(searchParams?.toString() ?? '')
@@ -125,7 +129,13 @@ const ProjectChatContent = ({
       askPrefill ?? '',
       undefined,
       docPrefill
-        ? { resourceType: 'document', resourceId: docPrefill, filename: filePrefill }
+        ? {
+            resourceType: 'document',
+            resourceId: docPrefill,
+            filename: filePrefill,
+            title: filePrefill,
+            shelf: 'project',
+          }
         : undefined,
     )
 
