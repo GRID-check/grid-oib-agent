@@ -24,13 +24,14 @@
  */
 
 import type { CitationRef } from './citations'
-import { toCslItem, toCslJson, toFachtextList } from './source-citation'
+import { toCslItem, toCslJson, toFachtextList, toQuoteList } from './source-citation'
 
 /** The formats the source block can hand out. */
-export type CitationFormat = 'fachtext' | 'apa' | 'bibtex' | 'ris' | 'csl-json'
+export type CitationFormat = 'quotes' | 'fachtext' | 'apa' | 'bibtex' | 'ris' | 'csl-json'
 
 /** Formats offered in the copy menu, in the order they are shown. */
 export const CITATION_FORMATS: readonly CitationFormat[] = [
+  'quotes',
   'fachtext',
   'apa',
   'bibtex',
@@ -40,6 +41,7 @@ export const CITATION_FORMATS: readonly CitationFormat[] = [
 
 /** File extension per format, for a future "download" affordance. */
 export const CITATION_FILE_EXTENSION: Record<CitationFormat, string> = {
+  quotes: 'txt',
   fachtext: 'txt',
   apa: 'txt',
   bibtex: 'bib',
@@ -60,6 +62,7 @@ export const renderCitations = async (
   now: Date
 ): Promise<string> => {
   if (refs.length === 0) return ''
+  if (format === 'quotes') return toQuoteList(refs, now)
   if (format === 'csl-json') return toCslJson(refs, now)
   if (!SERVER_RENDERED.has(format)) return toFachtextList(refs, now)
 

@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest'
-import { toCslItem, toFachtext, toFachtextList } from './source-citation'
+import { toCslItem, toFachtext, toFachtextList, toQuoteList } from './source-citation'
 import { renderCitations } from './citation-export'
 import { renderCitations as renderOnServer } from '@/lib/citations/render'
 import { buildCitationModel, type CitationRef } from './citations'
@@ -133,6 +133,34 @@ describe('toFachtext', () => {
 
   test('numbers the bibliography the way the answer cites it', () => {
     expect(toFachtextList([oib, law], NOW).split('\n')[1]).toMatch(/^\[2\] Bauordnung/)
+  })
+})
+
+describe('toQuoteList', () => {
+  test('lists the cited sentences, not just the document name', () => {
+    const quoted = refFor({
+      id: 'c3',
+      content: 'Die maximale Fluchtweglänge beträgt 40 m.',
+      timestamp: NOW,
+      title: 'OIB-Richtlinie 2 – Brandschutz, Ausgabe Mai 2023',
+      fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+      citationKey: 'oib-rl_2_ausgabe_mai_2023.pdf, p.18',
+      collection: 'oib_knowledge',
+      kind: 'baurecht',
+      lane: 'baurecht_oib',
+      origin: 'kb',
+      page: 18,
+      number: 1,
+      isCited: true,
+    })
+    const text = toQuoteList([quoted], NOW)
+    expect(text).toContain('Die maximale Fluchtweglänge beträgt 40 m.')
+    expect(text).toContain('OIB-Richtlinie 2')
+    expect(text).toContain('S. 18')
+  })
+
+  test('falls back to Fachtext when no passage was retrieved', () => {
+    expect(toQuoteList([oib], NOW)).toBe(toFachtextList([oib], NOW))
   })
 })
 
