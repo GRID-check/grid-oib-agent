@@ -13,6 +13,7 @@ function Field({ className, orientation = 'vertical', ...props }: FieldProps): R
       data-slot="field"
       data-orientation={orientation}
       className={cn(
+        'w-full has-[[data-slot=field-error]]:[&>[data-slot=field-label]]:text-destructive',
         orientation === 'horizontal'
           ? 'flex items-start justify-between gap-4'
           : 'flex flex-col gap-1.5',
@@ -31,7 +32,7 @@ function FieldDescription({ className, ...props }: React.ComponentProps<'p'>): R
   return (
     <p
       data-slot="field-description"
-      className={cn('text-xs text-muted-foreground', className)}
+      className={cn('text-pretty text-xs text-muted-foreground', className)}
       {...props}
     />
   )
@@ -42,14 +43,16 @@ function FieldError({ className, ...props }: React.ComponentProps<'p'>): React.J
     <p
       data-slot="field-error"
       role="alert"
-      className={cn('text-xs font-medium text-destructive', className)}
+      className={cn('min-h-[1lh] text-pretty text-xs font-medium text-destructive', className)}
       {...props}
     />
   )
 }
 
 function FieldGroup({ className, ...props }: React.ComponentProps<'div'>): React.JSX.Element {
-  return <div data-slot="field-group" className={cn('flex flex-col gap-4', className)} {...props} />
+  return (
+    <div data-slot="field-group" className={cn('flex w-full flex-col gap-4', className)} {...props} />
+  )
 }
 
 export { Field, FieldLabel, FieldDescription, FieldError, FieldGroup }

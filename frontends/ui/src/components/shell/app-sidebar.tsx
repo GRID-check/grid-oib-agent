@@ -216,7 +216,9 @@ function AppSidebarFrame({
       </header>
 
       <Sidebar collapsible="icon" aria-label={t('projectNavigation')}>
-        <SidebarHeader className="gap-0 p-0 px-3 pt-[18px]">
+        <SidebarHeader
+          className={cn('gap-0 p-0 pt-[18px]', iconRail ? 'overflow-hidden px-0' : 'px-3')}
+        >
           <SidebarBrand iconRail={iconRail} />
           {!iconRail && (
             <div className="mt-[18px]">
@@ -225,13 +227,21 @@ function AppSidebarFrame({
           )}
         </SidebarHeader>
 
-        <SidebarContent className="mt-5 gap-4 overflow-y-auto px-3">
+        <SidebarContent
+          className={cn(
+            'mt-5 gap-4',
+            // overflow-y-auto here used to replace the primitive's
+            // group-data-[collapsible=icon]:overflow-hidden, so labels kept
+            // painting past the 64px rail.
+            iconRail ? 'overflow-hidden px-0' : 'overflow-y-auto px-3',
+          )}
+        >
           <nav aria-label={t('projectSections')}>
             {groups.map((group) => {
               const label = t(`sectionGroups.${group.group}`)
               return (
                 <SidebarGroup key={group.group} className="p-0">
-                  {label ? <SidebarGroupLabel>{label}</SidebarGroupLabel> : null}
+                  {label && !iconRail ? <SidebarGroupLabel>{label}</SidebarGroupLabel> : null}
                   <SidebarGroupContent>
                     <SidebarMenu className="gap-0.5" aria-label={label}>
                       {group.items.map((item) => (
@@ -253,7 +263,9 @@ function AppSidebarFrame({
           </nav>
         </SidebarContent>
 
-        <SidebarFooter className="gap-0 p-0 px-3 pb-[14px]">
+        <SidebarFooter
+          className={cn('gap-0 p-0 pb-[14px]', iconRail ? 'overflow-hidden px-0' : 'px-3')}
+        >
           <div className={cn('mb-2.5', iconRail && 'flex justify-center')}>
             <SidebarMenu className="gap-0.5">
               <RailNavItem
@@ -400,7 +412,7 @@ function RailNavItem({
             aria-hidden
             className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')}
           />
-          <span className="truncate">{label}</span>
+          <span className={cn('truncate', tooltip && 'sr-only')}>{label}</span>
           <InboxBadge
             pending={badgeCount}
             className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:ml-0"

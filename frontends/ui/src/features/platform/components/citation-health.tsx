@@ -376,7 +376,7 @@ export function CitationHealth(): JSX.Element {
             title={t('citations.loadError')}
             action={
               <Button variant="outline" size="sm" onClick={() => load(days)} disabled={loading}>
-                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden />
                 {t('retry')}
               </Button>
             }
@@ -403,7 +403,7 @@ export function CitationHealth(): JSX.Element {
           <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {Array.from({ length: 4 }, (_, i) => (
-                <Skeleton key={i} className="h-[74px] w-full" />
+                <Skeleton key={i} className="h-[7.25rem] w-full" />
               ))}
             </div>
             <Skeleton className="h-32 w-full" />
@@ -416,10 +416,11 @@ export function CitationHealth(): JSX.Element {
             description={t('citations.empty.description')}
           />
         ) : (
-          <>
+          <div className="animate-in fade-in-0 flex flex-col gap-6 duration-200 ease-out motion-reduce:animate-none">
             {/* Headline: the clean rate first, then what went wrong. */}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <StatCard
+                className="min-h-[7.25rem]"
                 icon={<ShieldCheck className="size-4" aria-hidden />}
                 label={t('citations.stats.cleanRate')}
                 value={
@@ -433,18 +434,21 @@ export function CitationHealth(): JSX.Element {
                 })}
               />
               <StatCard
+                className="min-h-[7.25rem]"
                 icon={<SearchX className="size-4" aria-hidden />}
                 label={t('citations.stats.ungrounded')}
                 value={snapshot.totals.ungroundedAnswers}
                 hint={t('citations.stats.ungroundedHint')}
               />
               <StatCard
+                className="min-h-[7.25rem]"
                 icon={<FileWarning className="size-4" aria-hidden />}
                 label={t('citations.stats.removed')}
                 value={snapshot.totals.citationsRemoved}
                 hint={t('citations.stats.removedHint')}
               />
               <StatCard
+                className="min-h-[7.25rem]"
                 icon={<Quote className="size-4" aria-hidden />}
                 label={t('citations.stats.quotes')}
                 value={snapshot.totals.unverifiedQuotes}
@@ -649,7 +653,7 @@ export function CitationHealth(): JSX.Element {
                 </ul>
               )}
             </section>
-          </>
+          </div>
         )}
       </CardContent>
     </Card>

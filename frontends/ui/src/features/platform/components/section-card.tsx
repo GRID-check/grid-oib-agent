@@ -72,7 +72,7 @@ export function SectionCard({
           <p className="text-sm font-medium">{errorMessage ?? t('loadError')}</p>
           {onRetry ? (
             <Button variant="outline" size="sm" onClick={onRetry} disabled={loading}>
-              <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+              <RefreshCw className={`size-3.5 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden />
               {t('retry')}
             </Button>
           ) : null}
@@ -98,7 +98,11 @@ export function SectionCard({
         />
       )
     }
-    return children
+    return (
+      <div className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+        {children}
+      </div>
+    )
   }
 
   return (

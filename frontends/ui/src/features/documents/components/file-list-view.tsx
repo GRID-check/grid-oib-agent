@@ -139,12 +139,13 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                 onKeyDown={(event) => handleKeyDown(event, index)}
                 className={cn(
                   'cursor-pointer focus-visible:outline-none',
+                  'transition-colors duration-150 ease-out motion-reduce:transition-none',
                   isSelected ? 'bg-accent hover:bg-accent data-[state=selected]:bg-accent' : 'hover:bg-muted/60',
                   'focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
                 )}
               >
                 <TableCell className={CELL}>
-                  <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="flex min-h-8 min-w-0 items-center gap-2.5">
                     <span
                       aria-hidden
                       className="flex size-6 shrink-0 items-center justify-center rounded text-[8.5px] font-bold uppercase leading-none"
@@ -154,7 +155,7 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                     </span>
                     <span className="min-w-0 flex-1">
                       <span
-                        className="block truncate text-[12.5px] font-medium text-foreground"
+                        className="block truncate text-[12.5px] font-medium leading-[1.4] text-foreground"
                         title={documentDisplayName(file)}
                       >
                         {documentDisplayName(file)}
@@ -256,7 +257,7 @@ function SortHeader({
         type="button"
         onClick={() => onSort(nextSort(sort, column))}
         className={cn(
-          'flex w-full items-center gap-1 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+          'flex w-full items-center gap-1 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 motion-reduce:transition-none',
           align === 'right' && 'justify-end',
           isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
         )}
@@ -264,7 +265,13 @@ function SortHeader({
         {label}
         {/* The arrow is reserved space on every header, so activating a sort
             does not shift the row it lives in. */}
-        <Arrow className={cn('size-3 shrink-0', isActive ? 'opacity-100' : 'opacity-0')} aria-hidden />
+        <Arrow
+          className={cn(
+            'size-3 shrink-0 transition-opacity duration-150 ease-out motion-reduce:transition-none',
+            isActive ? 'opacity-100' : 'opacity-0'
+          )}
+          aria-hidden
+        />
       </button>
     </TableHead>
   )

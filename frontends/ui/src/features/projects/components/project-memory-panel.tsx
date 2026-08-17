@@ -263,16 +263,21 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{t('memory.description')}</p>
         </div>
-        {!adding && (
-          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
-            <Plus className="size-4" aria-hidden />
-            {t('memory.addMemory')}
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setAdding(true)}
+          className={adding ? 'invisible pointer-events-none' : undefined}
+          tabIndex={adding ? -1 : undefined}
+          aria-hidden={adding || undefined}
+        >
+          <Plus className="size-4" aria-hidden />
+          {t('memory.addMemory')}
+        </Button>
       </div>
 
       {adding && (
-        <RaisedCard>
+        <RaisedCard className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
           <RaisedCardBody className="space-y-3 p-4">
             <div className="flex flex-wrap items-start gap-3">
               <Field>
@@ -465,7 +470,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                     </ItemContent>
 
                     {!isEditing && (
-                      <ItemActions className="gap-1 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+                      <ItemActions className="gap-1 opacity-0 transition-opacity duration-200 ease-out focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
                         <Button
                           variant="ghost"
                           size="icon"

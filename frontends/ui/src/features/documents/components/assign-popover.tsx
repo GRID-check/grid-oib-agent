@@ -124,7 +124,10 @@ export function AssignPopover({
           </Button>
         )}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 space-y-2 p-3">
+      <PopoverContent
+        align="start"
+        className="w-72 space-y-2 p-3 duration-200 ease-out motion-reduce:animate-none"
+      >
         {!pickOnly &&
           assignees.map((person) => {
             const label = person.name || person.email || person.userId
@@ -164,9 +167,9 @@ export function AssignPopover({
           clearLabel={t('browser.clearSearch')}
           inputClassName="h-8"
         />
-        <ScrollArea className="h-52">
+        <ScrollArea className="h-52 min-h-52">
           {loading && people.length === 0 ? (
-            <div className="flex items-center justify-center py-6">
+            <div className="flex h-full min-h-52 items-center justify-center py-6">
               <Spinner size="sm" label={t('assignment.loadingPeople')} />
             </div>
           ) : loadError ? (
@@ -191,7 +194,7 @@ export function AssignPopover({
                 <Item
                   key={person.userId}
                   asChild
-                  className="w-full rounded-md px-2 py-1.5 disabled:opacity-50"
+                  className="w-full rounded-md px-2 py-1.5 transition-opacity duration-150 ease-out disabled:opacity-50 motion-reduce:transition-none"
                 >
                   <button
                     type="button"

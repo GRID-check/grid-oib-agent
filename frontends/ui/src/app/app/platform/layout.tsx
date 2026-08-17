@@ -85,7 +85,9 @@ export default async function PlatformLayout({
         <div className="lg:w-52 lg:shrink-0">
           <PlatformNav />
         </div>
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="animate-in fade-in-0 slide-in-from-bottom-1 min-w-0 flex-1 duration-200 ease-out motion-reduce:animate-none">
+          {children}
+        </div>
       </div>
     )
   })

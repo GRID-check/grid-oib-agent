@@ -91,7 +91,9 @@ export function InboxList({
   return (
     <div className={cn('space-y-4', className)}>
       {/* ---- Filter + bulk action ---- */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* `min-h-8` holds the toolbar's line even if the filter wraps, so a
+          count arriving cannot lift the list. */}
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
         <ToggleGroup
           type="single"
           variant="outline"
@@ -107,7 +109,18 @@ export function InboxList({
           {FILTERS.map((key) => (
             <ToggleGroupItem key={key} value={key}>
               {t(`inbox.filters.${key}`)}
-              {key === 'needsMe' && pending > 0 && <CountPill>{pending}</CountPill>}
+              {key === 'needsMe' && (
+                // Always mounted: appearing only when `pending > 0` grew the
+                // "needs me" segment and shoved "All" sideways. Invisible at
+                // zero keeps the slot; `aria-hidden` so the radio does not
+                // read "Needs me 0".
+                <CountPill
+                  className={cn(pending === 0 && 'invisible')}
+                  aria-hidden={pending === 0 || undefined}
+                >
+                  {pending}
+                </CountPill>
+              )}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
@@ -127,7 +140,10 @@ export function InboxList({
           "your inbox could not be loaded" made a working inbox look broken and
           stated something that had not happened. */}
       {mutationError && (
-        <Alert variant="destructive">
+        <Alert
+          variant="destructive"
+          className="animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none"
+        >
           <AlertCircle />
           <AlertTitle className="line-clamp-none">{t('inbox.errors.actionFailed')}</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-3 pt-1">

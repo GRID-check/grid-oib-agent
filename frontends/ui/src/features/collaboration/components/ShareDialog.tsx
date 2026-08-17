@@ -323,7 +323,7 @@ export function ShareDialog({
           <Button
             variant="ghost"
             size="icon"
-            className="size-8 text-muted-foreground hover:text-foreground"
+            className="size-8 text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground motion-reduce:transition-none"
             disabled={saving}
             // Several of these live in one list, so "button, more" alone would not
             // say whose access it governs.
@@ -429,7 +429,11 @@ export function ShareDialog({
           <div className="scroll-fade-bottom max-h-[min(72vh,42rem)] space-y-5 overflow-y-auto pr-1 pb-6">
             {/* A refused mutation must never look like it worked. */}
             {failure && (
-              <Alert variant="destructive" data-testid="share-failure">
+              <Alert
+                variant="destructive"
+                data-testid="share-failure"
+                className="animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none"
+              >
                 <AlertTriangle className="size-4" aria-hidden />
                 <AlertDescription>{failureMessage(failure)}</AlertDescription>
                 <Button
@@ -555,7 +559,7 @@ export function ShareDialog({
                           key={candidate.person.userId}
                           data-testid="share-candidate"
                           data-blocked={candidate.needsProjectAccess || undefined}
-                          className="flex items-center gap-3 rounded-lg px-2 py-2"
+                          className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors duration-150 ease-out hover:bg-accent/40 motion-reduce:transition-none"
                         >
                           <PersonAvatar person={candidate.person} size="md" />
                           {/* Identity is a COLUMN, and the right-hand slot is its

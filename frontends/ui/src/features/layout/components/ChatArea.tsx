@@ -51,7 +51,7 @@ import { useSpectatedTurn } from '@/features/collaboration/hooks/use-spectated-t
 import { SpectatedTurn } from '@/features/collaboration/components/SpectatedTurn'
 import { TypingPresence } from '@/features/collaboration/components/TypingPresence'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
-import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
+import { AnimatePresence, motion, fadeRise } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useProjectBimModels } from '@/features/bim/hooks/use-bim-model'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
@@ -86,6 +86,9 @@ interface ChatAreaProps {
    */
   canCollaborate?: boolean
 }
+
+/** Chat chrome: opacity/transform only, 180ms ease-out, no spring. */
+const EASE_OUT = { duration: 0.18, ease: 'easeOut' } as const
 
 /**
  * Main chat area container with scrollable message list.
@@ -774,14 +777,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         // fades. A ring rather than a background, so it reads on the
                         // user bubble and the answer card alike.
                         highlightedMessageId === message.id &&
-                          'ring-warning/50 ring-offset-background rounded-xl ring-2 ring-offset-4 transition-shadow duration-500'
+                          'ring-warning/50 ring-offset-background rounded-xl ring-2 ring-offset-4 transition-shadow duration-200 ease-out motion-reduce:transition-none'
                       )}
                       variants={fadeRise}
                       // Animate only genuinely new messages; hydrated ones render in place.
                       initial={hydratedIds.has(message.id) ? false : 'hidden'}
                       animate="visible"
-                      exit={{ opacity: 0, transition: { duration: 0.15 } }}
-                      transition={springGentle}
+                      exit={{ opacity: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
+                      transition={EASE_OUT}
                     >
                       {/* Where the reader left off, in a shared thread (spec CC-19). */}
                       {unreadDividerBeforeId === message.id && (
@@ -962,13 +965,13 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
-              transition={{ duration: 0.15 }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
             >
               <button
                 type="button"
                 onClick={handleScrollToLatest}
                 aria-label={t('chatArea.scrollToLatest')}
-                className="bg-card text-muted-foreground hover:text-foreground active:scale-press pointer-events-auto flex h-9 w-9 items-center justify-center rounded-lg border shadow-md transition"
+                className="bg-card text-muted-foreground hover:text-foreground pointer-events-auto flex h-9 w-9 items-center justify-center rounded-lg border shadow-md transition-colors duration-150 ease-out motion-reduce:transition-none"
               >
                 <ArrowDown className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -1242,12 +1245,12 @@ const UnreadDivider: FC<{ label: string }> = ({ label }) => (
  */
 const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
   <div
-    className="bg-card shadow-xs flex w-fit items-center gap-2 rounded-lg border px-3.5 py-2"
+    className="bg-card shadow-xs flex min-h-9 w-fit items-center gap-2 rounded-lg border px-3.5 py-2"
     role="status"
     data-testid="turn-in-flight"
   >
     <Sparkles className="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
-    <span className="animate-text-shimmer text-foreground text-xs font-medium">{label}</span>
+    <span className="animate-text-shimmer text-foreground text-xs font-medium motion-reduce:animate-none">{label}</span>
   </div>
 )
 
@@ -1275,18 +1278,18 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
   const elapsed = useElapsedSeconds(true)
   return (
     <div
-      className="animate-in fade-in-0 bg-muted/60 flex w-fit items-center gap-2 rounded-2xl px-3.5 py-2.5 duration-200"
+      className="animate-in fade-in-0 bg-muted/60 flex min-h-9 w-fit items-center gap-2 rounded-2xl px-3.5 py-2.5 duration-200 ease-out motion-reduce:animate-none"
       role="status"
       aria-label={label}
     >
       <span className="flex items-center gap-1" aria-hidden="true">
-        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-bounce rounded-full [animation-delay:-0.3s]" />
-        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-bounce rounded-full [animation-delay:-0.15s]" />
-        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-bounce rounded-full" />
+        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-pulse rounded-full motion-reduce:animate-none [animation-delay:-0.3s]" />
+        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-pulse rounded-full motion-reduce:animate-none [animation-delay:-0.15s]" />
+        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-pulse rounded-full motion-reduce:animate-none" />
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
-      <span className="animate-text-shimmer text-xs font-medium">{label}</span>
+      <span className="animate-text-shimmer text-xs font-medium motion-reduce:animate-none">{label}</span>
       {elapsed > 2 && (
         <span className="text-muted-foreground/80 text-[11px] tabular-nums">
           {formatElapsed(elapsed)}
@@ -1305,7 +1308,7 @@ const MessageListSkeleton: FC = () => {
   const t = useTranslations('research')
   return (
     <div
-      className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-16"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-20 sm:pt-16"
       style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
       role="status"
       aria-label={t('chatArea.loading')}
@@ -1390,7 +1393,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
   if (!isAuthenticated) {
     return (
       <div
-        className="flex flex-1 items-center justify-center px-4 pt-6"
+        className="flex flex-1 items-center justify-center px-4 pt-20 sm:pt-16"
         style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
       >
         <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
@@ -1419,7 +1422,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
   return (
     <div
-      className="flex flex-1 flex-col items-center justify-center px-6 pt-6"
+      className="flex flex-1 flex-col items-center justify-center px-6 pt-20 sm:pt-16"
       style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
     >
       {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
@@ -1469,7 +1472,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
                 key={key}
                 type="button"
                 onClick={() => setComposerPrefill(question, undefined, composerSubject)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
+                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-[12.5px] font-medium transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
               >
                 <FileText className="size-3.5 shrink-0" style={{ color: 'var(--source-project)' }} aria-hidden="true" />
                 {question}
@@ -1484,7 +1487,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
                 key={key}
                 type="button"
                 onClick={() => setComposerPrefill(question)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
+                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-[12.5px] font-medium transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
               >
                 <Boxes className="text-subtle size-3.5 shrink-0" aria-hidden="true" />
                 {question}
@@ -1498,7 +1501,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
               key={key}
               type="button"
               onClick={() => setComposerPrefill(question)}
-              className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center rounded-md border px-[13px] text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
+              className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center rounded-md border px-[13px] text-[12.5px] font-medium transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
             >
               {question}
             </button>

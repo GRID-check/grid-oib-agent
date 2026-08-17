@@ -399,7 +399,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             without spending a word on it. */}
         {isNavigationBlocked && (
           <p
-            className="border-border/70 bg-muted/40 text-muted-foreground flex items-start gap-2 rounded-lg border px-3 py-2 text-xs"
+            className="border-border/70 bg-muted/40 text-muted-foreground flex min-h-11 items-start gap-2 rounded-lg border px-3 py-2 text-xs"
             role="status"
           >
             {/* Spinner injects its own role=status; hide it so this region
@@ -480,7 +480,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-4"
         initial={false}
         animate={{ opacity: isSessionsPanelOpen ? 1 : 0 }}
-        transition={{ duration: 0.15, ease: 'easeOut' }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
       >
         {/* Deep Research (FB-10) — server-truth runs for this project, collapsed
             by default with a count badge. Includes headless/CLI jobs that have
@@ -492,11 +492,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
               onClick={() => setIsDeepResearchOpen((open) => !open)}
               aria-expanded={isDeepResearchOpen}
               data-testid="deep-research-toggle"
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold outline-none transition-colors focus-visible:ring-2 pointer-coarse:min-h-11"
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex min-h-11 w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold outline-none transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:ring-2 pointer-coarse:min-h-11"
             >
               <ChevronRight
                 className={cn(
-                  'h-4 w-4 shrink-0 transition-transform duration-200',
+                  'h-4 w-4 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
                   isDeepResearchOpen && 'rotate-90'
                 )}
                 aria-hidden="true"
@@ -508,7 +508,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             </button>
 
             {isDeepResearchOpen && (
-              <ItemList className="mt-1 flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0">
+              <ItemList className="mt-1 flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0 animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none">
                 {(deepResearchRuns ?? []).map((run) => (
                   <Item
                     key={run.job_id}
@@ -879,7 +879,7 @@ const SessionItem: FC<SessionItemProps> = ({
           // Fade the row out beneath the buttons so a long title slides under
           // them instead of colliding with them. Both the hovered and the
           // selected row sit on --accent, so one ramp covers both.
-          className="absolute inset-y-0 right-2 flex items-center gap-1 rounded-r-lg pl-6 [background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)]"
+          className="absolute inset-y-0 right-2 flex items-center gap-1 rounded-r-lg pl-6 [background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)] animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none"
         >
           <Button
             variant="ghost"

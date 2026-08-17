@@ -39,6 +39,7 @@ export interface UpsertAnswerFeedbackValues {
   userId: string
   verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
+  comment: string | null
 }
 
 /** Insert or update the caller's vote on one answer (re-vote semantics). */
@@ -52,6 +53,7 @@ export async function upsertAnswerFeedback(values: UpsertAnswerFeedbackValues): 
       set: {
         verdict: values.verdict,
         reason: values.reason,
+        comment: values.comment,
         conversationId: values.conversationId,
         projectId: values.projectId,
         organizationId: values.organizationId,

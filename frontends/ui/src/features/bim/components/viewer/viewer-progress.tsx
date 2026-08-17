@@ -37,6 +37,7 @@ export function ViewerProgress({ label, percent, className }: ViewerProgressProp
     <div
       className={cn(
         'pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-3',
+        'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
         className
       )}
     >
@@ -55,17 +56,22 @@ export function ViewerProgress({ label, percent, className }: ViewerProgressProp
           className={cn(
             'h-full rounded-full bg-foreground/70',
             determinate
-              ? 'transition-[width] duration-300 ease-out motion-reduce:transition-none'
+              ? // `scaleX`, not width: a width tween is a layout animation.
+                'w-full origin-left transition-transform duration-200 ease-out motion-reduce:transition-none'
               : // A slow sweep, not a spinner: it says "still working" without
                 // claiming a position it does not know.
-                'w-1/3 animate-progress-sweep'
+                'w-1/3 animate-progress-sweep motion-reduce:animate-none'
           )}
-          {...(determinate ? { style: { width: `${clamped}%` } } : {})}
+          {...(determinate ? { style: { transform: `scaleX(${clamped / 100})` } } : {})}
         />
       </div>
-      {determinate && (
-        <p className="text-xs tabular-nums text-muted-foreground">{Math.round(clamped)}%</p>
-      )}
+      {/*
+        Always occupies the readout line. Download → parse used to unmount the
+        percentage and lift the bar by a line; the number is gone, the gap stays.
+      */}
+      <p className="h-4 text-xs tabular-nums text-muted-foreground">
+        {determinate ? `${Math.round(clamped)}%` : null}
+      </p>
     </div>
   )
 }

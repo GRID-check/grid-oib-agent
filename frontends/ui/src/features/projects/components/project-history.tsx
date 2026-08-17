@@ -284,7 +284,7 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                   const title = conversation.title || t('history.untitledConversation')
                   return (
                     <li key={conversation.id}>
-                      <Item asChild className="w-full">
+                      <Item asChild className="group w-full">
                         <Link
                           href={`${chatHref}?session=${encodeURIComponent(conversation.id)}`}
                           aria-label={t('history.openConversation', { title })}
@@ -317,7 +317,10 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                             >
                               {formatRelativeTime(conversation.updatedAt, locale)}
                             </span>
-                            <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden />
+                            <ChevronRight
+                              className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                              aria-hidden
+                            />
                           </ItemActions>
                         </Link>
                       </Item>

@@ -54,8 +54,11 @@ import {
   ItemMedia,
   ItemTitle,
 } from '@/components/ui/item'
-import { easeQuiet, motion } from '@/components/motion'
+import { motion } from '@/components/motion'
 import { cn } from '@/lib/utils'
+
+/** Exit + layout only — transform/opacity, 180ms ease-out. */
+const ROW_MOTION = { duration: 0.18, ease: 'easeOut' } as const
 
 /**
  * The ONE place the registry's icon names become components. Keeping the map here
@@ -187,7 +190,7 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
         ref={ref}
         layout
         exit={{ opacity: 0, x: 12 }}
-        transition={easeQuiet}
+        transition={ROW_MOTION}
         data-testid="inbox-item"
         data-state={item.state}
         data-type={item.type}
@@ -216,10 +219,17 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
               unread ? 'font-semibold' : 'font-normal',
             )}
           >
-            {/* Unread marker — the row is also heavier, so this is decoration. */}
-            {unread && (
-              <span aria-hidden className="mt-[7px] size-1.5 shrink-0 rounded-full bg-foreground" />
-            )}
+            {/* Unread marker — reserved always so marking read does not shove
+                the title. Opacity only; the row is also heavier, so this is
+                decoration. */}
+            <span
+              aria-hidden
+              className={cn(
+                'mt-[7px] size-1.5 shrink-0 rounded-full bg-foreground',
+                'transition-opacity duration-150 ease-out motion-reduce:transition-none',
+                unread ? 'opacity-100' : 'opacity-0',
+              )}
+            />
             {item.href && !inert ? (
               // Stretched link: the whole row is the target without nesting the
               // archive button inside the anchor (that button is lifted above the

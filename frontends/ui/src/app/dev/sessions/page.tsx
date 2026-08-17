@@ -7,14 +7,9 @@
  * (visual/registry.mjs → `sessions*`). Not linked anywhere and 404s outside
  * development.
  *
- * Why the real rail. The panel is a `fixed left-0` overlay that lands ON TOP of
- * the sidebar, so how it meets the rail's top edge is only visible with the rail
- * actually there. A previous version of this preview rendered a *fake* top bar
- * instead, to "explain" the panel's top offset — which hid a real bug: the panel
- * started below a header that does not exist on the chat route, leaving the
- * rail's "Piloti" wordmark and collapse chevron stranded in a sliver above it.
- * Preview chrome must be the product's chrome, never a stand-in that argues the
- * layout is fine.
+ * Why the real rail. The panel docks to `--sidebar-current-width` (beside the
+ * rail, not over it), so the meeting edge is only visible with the real
+ * sidebar. Preview chrome must be the product's chrome.
  *
  * The rail is wrapped in `hidden md:contents` because the chat route (the only
  * host of this panel) hides the mobile top bar and has no rail below `md` — its
@@ -192,10 +187,10 @@ export default function SessionsPreviewPage() {
         />
       </div>
 
-      {/* Chat-plane stand-in: the panel docks over the left of this surface. */}
+      {/* Chat-plane stand-in: the panel docks beside the rail, over this surface. */}
       <main className="min-w-0 flex-1 overflow-hidden">
         <p className="text-muted-foreground p-6 pl-[26rem] font-mono text-xs">
-          /dev/sessions — chat plane stand-in (the panel docks over the rail)
+          /dev/sessions — chat plane stand-in (the panel docks beside the rail)
         </p>
       </main>
 

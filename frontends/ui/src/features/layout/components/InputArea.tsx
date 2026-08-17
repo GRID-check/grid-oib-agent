@@ -545,6 +545,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
+  const hasHadAChat = useChatStore((state) =>
+    state.conversations.some((conversation) => conversation.messages.length > 0),
+  )
   const ensureSession = useChatStore((state) => state.ensureSession)
   // The real "new session" action — the same one the logo / new-session path in
   // MainLayout uses (startNewSessionDraft). Wired to the post-research
@@ -1394,8 +1397,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const enabledSourcesCount = enabledDataSourceIds.length
   const totalSourcesCount = availableDataSources?.length ?? 0
 
-  // Empty thread → the shortcut preset chips render under the composer.
+  // Empty thread → the shortcut preset chips render under the composer,
+  // and only until the project has had its first real chat. After that
+  // they are onboarding noise on every new draft.
   const isEmptyThread = !currentConversation || currentConversation.messages.length === 0
+  const showSourcePresets = !cannotContribute && isEmptyThread && !hasHadAChat
 
   // Scope chip label: the active project (display-only scope; cross-project
   // search does not exist yet — spec §2.3, honest disabled option).
@@ -2128,7 +2134,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           and the one the user guide claims is closed. "Empty thread" is not the
           protection it looks like either: `isEmptyThread` is also true on any
           shared thread for as long as its messages are still loading. */}
-      {!cannotContribute && (
+      {showSourcePresets && (
         <div
           // Shortcuts are a desktop affordance — hidden on mobile, where they
           // only add vertical bulk under an already space-constrained composer.

@@ -259,7 +259,7 @@ function ModelInspectorDetails({
         `<summary>`'s display has a history of costing it its toggle in Safari,
         and padding needs no display change at all.
       */}
-      <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 marker:content-none pointer-coarse:min-h-11 pointer-coarse:py-3.5 cursor-pointer rounded text-[11px] font-semibold tracking-wide outline-none focus-visible:ring-2">
+      <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 marker:content-none pointer-coarse:min-h-11 pointer-coarse:py-3.5 cursor-pointer rounded text-[11px] font-semibold tracking-wide outline-none transition-colors duration-200 ease-out focus-visible:ring-2">
         {label}
       </summary>
 

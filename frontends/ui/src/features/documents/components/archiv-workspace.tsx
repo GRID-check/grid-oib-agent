@@ -257,7 +257,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
           much is in it. The count sits with the title rather than in the grid:
           it is a property of the Archiv, and it is the one number a reader wants
           before they start filtering. */}
-      <div className="flex items-center justify-between gap-4 border-b px-4 py-3.5">
+      <div className="flex min-h-[4rem] items-center justify-between gap-4 border-b px-4 py-3.5">
         <div className="flex min-w-0 items-center gap-3">
           <span
             className="shadow-2xs flex size-9 shrink-0 items-center justify-center rounded-xl"
@@ -271,9 +271,11 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
               <h2 className="text-foreground truncate text-[15px] font-semibold tracking-tight">
                 {t('title')}
               </h2>
-              {!isLoading && !loadError && files.length > 0 && (
-                <CountPill data-testid="archiv-document-count">{files.length}</CountPill>
-              )}
+              <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center">
+                {!isLoading && !loadError && files.length > 0 && (
+                  <CountPill data-testid="archiv-document-count">{files.length}</CountPill>
+                )}
+              </span>
             </div>
             <p className="text-muted-foreground truncate text-xs">{t('subtitle')}</p>
           </div>
@@ -283,7 +285,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
 
       {/* Error banner */}
       {error && (
-        <div className="border-b px-4 py-3">
+        <div className="border-b px-4 py-3 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
             <AlertTitle>{t('workspace.uploadProblem')}</AlertTitle>
@@ -311,11 +313,11 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       />
 
       {/* Library grid; the preview opens in the shared centered-modal dialog. */}
-      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* The last row of cards dissolves at the bottom edge instead of being
             clipped through the middle of a filename — the shared scroll-boundary
             treatment (design language, "Scroll boundaries"). */}
-        <div className="scroll-fade-bottom flex-1 overflow-y-auto">
+        <div className="scroll-fade-bottom min-h-0 min-w-0 flex-1 overflow-y-auto">
           {loadError ? (
             <EmptyState
               variant="bare"

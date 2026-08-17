@@ -55,6 +55,9 @@ export async function submitAnswerFeedback(
   if (input.verdict === 'up' && input.reason != null) {
     throw new BadRequestError('A reason is only valid with a down verdict.')
   }
+  if (input.verdict === 'up' && input.comment) {
+    throw new BadRequestError('A comment is only valid with a down verdict.')
+  }
 
   if (input.projectId) {
     // Also verifies the project belongs to the caller's org (404 otherwise).
@@ -67,6 +70,7 @@ export async function submitAnswerFeedback(
     messageId: input.messageId,
     verdict: input.verdict,
     reason: input.verdict === 'down' ? (input.reason ?? null) : null,
+    comment: input.verdict === 'down' ? (input.comment || null) : null,
     conversationId: input.conversationId ?? null,
     projectId: input.projectId ?? null,
   })
@@ -95,7 +99,12 @@ export async function getOwnConversationFeedback(
 }
 
 function toView(row: AnswerFeedback): AnswerFeedbackView {
-  return { messageId: row.messageId, verdict: row.verdict, reason: row.reason ?? null }
+  return {
+    messageId: row.messageId,
+    verdict: row.verdict,
+    reason: row.reason ?? null,
+    comment: row.comment ?? null,
+  }
 }
 
 /**

@@ -25,7 +25,11 @@ export function useModifierLabel(): string {
 }
 
 function Joiner({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <span className="px-0.5 text-[10.5px] text-muted-foreground">{children}</span>
+  return (
+    <span className="inline-flex h-6 shrink-0 items-center px-0.5 text-[10.5px] leading-none text-muted-foreground">
+      {children}
+    </span>
+  )
 }
 
 export function ShortcutKeys({
@@ -40,7 +44,7 @@ export function ShortcutKeys({
   const resolvedMod = modProp ?? platformMod
 
   return (
-    <KbdGroup>
+    <KbdGroup className="shrink-0 whitespace-nowrap">
       {segments.map((segment, index) => {
         if (segment.kind === 'then') return <Joiner key={index}>{t('thenSeparator')}</Joiner>
         if (segment.kind === 'or') return <Joiner key={index}>{t('orSeparator')}</Joiner>

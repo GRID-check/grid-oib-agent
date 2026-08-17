@@ -108,13 +108,20 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  <div data-slot="command-input-wrapper" cmdk-input-wrapper="" className="flex h-11 items-center gap-2 border-b border-border px-3">
+  <div
+    data-slot="command-input-wrapper"
+    cmdk-input-wrapper=""
+    className="flex h-11 items-center gap-2 border-b border-border px-3 transition-colors duration-200 ease-out has-[:focus-visible]:bg-muted/40"
+  >
     <SearchIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     <CommandPrimitive.Input
       ref={ref}
       data-slot="command-input"
       className={cn(
-        'placeholder:text-muted-foreground flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50',
+        // Ring-less: a focus ring on this field sits on the wrapper's
+        // border-b and reads as a broken top edge. The wrapper wash is
+        // the focus signal instead.
+        'placeholder:text-muted-foreground flex h-10 w-full bg-transparent py-3 text-sm outline-none ring-0 focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}
       {...props}

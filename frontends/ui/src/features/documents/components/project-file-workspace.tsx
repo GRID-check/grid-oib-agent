@@ -583,7 +583,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
       {/* Error banner */}
       {error && (
-        <div className="border-b px-4 py-3">
+        <div className="border-b px-4 py-3 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
             <AlertTitle>{t('workspace.uploadProblem')}</AlertTitle>
@@ -612,12 +612,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
       {/* Three-pane layout — stacks on mobile: folders on top, files below,
           preview as a full-screen overlay. */}
-      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* Folder tree — only in the tree view; the card view navigates folders
             through the chip row instead. All tree functionality (expand/collapse,
             selection, drill-in, create) is preserved. */}
         {view === 'tree' && (
-          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
+          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none md:max-h-none md:w-60 md:border-b-0 md:border-r">
             {foldersError ? (
               <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
             ) : (
@@ -633,7 +633,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         )}
 
         {/* File browser */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {filesError ? (
             <PaneLoadError message={t('workspace.documentsLoadError')} onRetry={loadFiles} />
           ) : (

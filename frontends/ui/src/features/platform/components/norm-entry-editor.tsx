@@ -611,7 +611,7 @@ export function NormEntryEditor({
                   key={value}
                   htmlFor={itemId}
                   className={cn(
-                    'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors focus-within:ring-2 focus-within:ring-ring/60',
+                    'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/60',
                     selected ? 'border-primary bg-accent/40' : 'hover:bg-accent/20',
                   )}
                 >
@@ -675,7 +675,7 @@ export function NormEntryEditor({
                               type="button"
                               onClick={() => applyCandidate(candidate)}
                               aria-label={t('norms.verify.candidate', { title: candidate.title })}
-                              className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+                              className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors duration-200 ease-out hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
                             >
                               <span className="text-sm">{candidate.title}</span>
                               <span className="font-mono text-xs text-muted-foreground">
@@ -848,7 +848,10 @@ export function NormEntryEditor({
               <CollapsibleTrigger asChild>
                 <Button type="button" variant="ghost" size="sm" className="w-fit px-2 text-muted-foreground">
                   <ChevronDown
-                    className={cn('size-3.5 transition-transform', advancedOpen && 'rotate-180')}
+                    className={cn(
+                      'size-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                      advancedOpen && 'rotate-180',
+                    )}
                     aria-hidden
                   />
                   {t('norms.steps.advanced')}

@@ -1,5 +1,6 @@
 import { forwardRef, type AnchorHTMLAttributes, type ReactNode } from 'react'
-import { render, screen, act } from '@/test-utils'
+import { render, screen, act, within } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, afterEach } from 'vitest'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLayoutStore } from '@/features/layout/store'
@@ -157,6 +158,25 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     // per `project-sections.ts`. Skills and Jobs are absent here because
     // `showSkills` is off.
     expect(labels).toEqual(['Ask Piloti', 'Files', 'History', 'Archiv', 'Inbox'])
+  })
+})
+
+describe('AppSidebar - collapsed icon rail', () => {
+  test('keeps nav labels in the a11y tree but does not paint them', async () => {
+    const user = userEvent.setup()
+    render(<AppSidebar {...baseProps} />)
+
+    const sections = screen.getByLabelText('Project sections')
+    expect(within(sections).getByText('Ask Piloti')).toBeVisible()
+    expect(within(sections).getByText('Work')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+
+    // Named for AT (sr-only), not painted in the 64px rail. Happy-dom treats
+    // sr-only as visible, so we assert the class rather than toBeVisible.
+    expect(within(sections).getByText('Ask Piloti')).toHaveClass('sr-only')
+    expect(within(sections).getByText('Files')).toHaveClass('sr-only')
+    expect(within(sections).queryByText('Work')).not.toBeInTheDocument()
   })
 })
 
