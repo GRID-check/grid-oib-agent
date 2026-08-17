@@ -91,8 +91,14 @@
   border-radius: calc(var(--radius) - 6px);
   color: var(--text-color-secondary);
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color 180ms ease-out,
+    color 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-md-editor.grid-md-editor .w-md-editor-toolbar li > button {
+    transition: none;
+  }
 }
 
 @media (pointer: coarse) {

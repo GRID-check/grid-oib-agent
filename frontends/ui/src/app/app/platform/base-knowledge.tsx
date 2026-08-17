@@ -583,7 +583,7 @@ export function BaseKnowledge() {
           aria-label={t('knowledgeAdmin.sortBy', { column: label })}
           // A column header is text-height by design; `touch-target` makes it
           // tappable without turning the header row into a row of buttons.
-          className="inline-flex items-center gap-1 rounded-sm uppercase tracking-wide transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 touch-target"
+          className="inline-flex items-center gap-1 rounded-sm uppercase tracking-wide transition-colors duration-200 ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 touch-target"
         >
           {label}
           <Icon className="size-3" aria-hidden />
@@ -624,10 +624,10 @@ export function BaseKnowledge() {
               healthy?", which the old surface never showed at all. */}
           {status && (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="knowledge-summary">
-              <StatCard label={t('knowledgeAdmin.summaryDocuments')} value={status.summary.totalFiles} />
-              <StatCard label={t('knowledgeAdmin.summaryIndexed')} value={status.summary.ingested} />
-              <StatCard label={t('knowledgeAdmin.summaryPending')} value={status.summary.pending} />
-              <StatCard label={t('knowledgeAdmin.summaryChunks')} value={status.summary.totalChunks} />
+              <StatCard className="min-h-24" label={t('knowledgeAdmin.summaryDocuments')} value={status.summary.totalFiles} />
+              <StatCard className="min-h-24" label={t('knowledgeAdmin.summaryIndexed')} value={status.summary.ingested} />
+              <StatCard className="min-h-24" label={t('knowledgeAdmin.summaryPending')} value={status.summary.pending} />
+              <StatCard className="min-h-24" label={t('knowledgeAdmin.summaryChunks')} value={status.summary.totalChunks} />
             </div>
           )}
 
@@ -652,7 +652,8 @@ export function BaseKnowledge() {
               onDragLeave={() => setIsDragActive(false)}
               onDrop={onDrop}
               className={cn(
-                'flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+                'flex min-h-[7.5rem] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+                'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
                 isDragActive ? 'border-primary bg-accent' : 'border-border hover:border-primary/60 hover:bg-accent/40',
                 (isUploading || isSyncing) && 'pointer-events-none opacity-60',
               )}

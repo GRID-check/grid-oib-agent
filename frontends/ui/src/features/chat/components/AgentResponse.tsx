@@ -123,7 +123,7 @@ export interface AgentResponseProps {
 const StreamingCaret: FC = () => (
   <span
     aria-hidden="true"
-    className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full bg-foreground/70 align-baseline"
+    className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full bg-foreground/70 align-baseline motion-reduce:animate-none"
   />
 )
 
@@ -322,6 +322,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     (answerConfidence === 'low' || answerConfidence === 'medium' || answerConfidence === 'high')
   const hasFeedback = showAnswerFeedback && Boolean(messageId)
   const hasMetaRow = hasConfidence || hasFeedback || Boolean(timestamp) || memoryItems.length > 0
+  // Streaming still has no chips/thumbs, but the row is reserved at chip
+  // height so the footer does not jump when they land. An idle answer with
+  // nothing to hold still omits the row (no empty band).
+  const reserveMetaRow = hasMetaRow || isStreaming
 
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
@@ -429,7 +433,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const isMeta = routingDecision === 'meta'
   return (
     <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-200">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-200 ease-out motion-reduce:animate-none">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta reply: quiet secondary fill + conversation icon. */}
       {isMeta ? (
@@ -523,8 +527,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           <SkillsUsedDisclosure skillsActivated={skillsActivated} />
-          {hasMetaRow && (
-            <div className="animate-in fade-in-0 flex flex-wrap items-center gap-2 duration-300 [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none">
+          {reserveMetaRow && (
+            <div
+              className={
+                hasMetaRow
+                  ? 'animate-in fade-in-0 flex min-h-6 flex-wrap items-center gap-2 duration-200 ease-out [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none'
+                  : 'min-h-6'
+              }
+              aria-hidden={hasMetaRow ? undefined : true}
+            >
               {hasConfidence && (
                 <ConfidenceChip
                   confidence={answerConfidence}
@@ -533,7 +544,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 />
               )}
               <MemoryNotedChip items={memoryItems} />
-              <span className="flex-1" aria-hidden="true" />
+              {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
               {hasFeedback && messageId && (
                 <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
               )}

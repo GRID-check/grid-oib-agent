@@ -7,7 +7,7 @@ function InputGroup({ className, ...props }: React.ComponentProps<'div'>): React
     <div
       data-slot="input-group"
       role="group"
-      className={cn('relative flex min-w-0 flex-1 items-center', className)}
+      className={cn('group/input-group relative flex min-w-0 w-full flex-1 items-center', className)}
       {...props}
     />
   )
@@ -22,7 +22,7 @@ function InputGroupAddon({
     <span
       data-slot="input-group-addon"
       className={cn(
-        'pointer-events-none absolute top-1/2 z-10 -translate-y-1/2 text-muted-foreground [&_svg]:size-4',
+        'pointer-events-none absolute top-1/2 z-10 -translate-y-1/2 shrink-0 select-none text-muted-foreground group-focus-within/input-group:text-foreground [&_svg]:size-4',
         align === 'start' ? 'left-2.5' : 'right-1',
         className,
       )}
@@ -35,7 +35,7 @@ function InputGroupText({ className, ...props }: React.ComponentProps<'span'>): 
   return (
     <span
       data-slot="input-group-text"
-      className={cn('text-xs text-muted-foreground', className)}
+      className={cn('select-none text-xs text-muted-foreground', className)}
       {...props}
     />
   )

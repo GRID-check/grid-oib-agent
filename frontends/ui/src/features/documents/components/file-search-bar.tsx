@@ -53,7 +53,7 @@ export function FileSearchBar({
     <>
       <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
         <form
-          className="flex items-center gap-2"
+          className="flex min-h-9 items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault()
             onSubmit()
@@ -79,11 +79,13 @@ export function FileSearchBar({
               className="shrink-0 gap-1.5"
               disabled={value.trim() === '' || isSearching}
             >
-              {isSearching ? (
-                <Spinner size="xs" label={runLabel} className="text-current" />
-              ) : (
-                <Sparkles className="size-3.5" aria-hidden />
-              )}
+              <span className="flex size-3.5 shrink-0 items-center justify-center">
+                {isSearching ? (
+                  <Spinner size="xs" label={runLabel} className="text-current" />
+                ) : (
+                  <Sparkles className="size-3.5" aria-hidden />
+                )}
+              </span>
               {runLabel}
             </Button>
           )}
@@ -92,21 +94,23 @@ export function FileSearchBar({
 
       {semanticActive && (
         <div
-          className="flex items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs"
+          className="flex min-h-9 items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
           role="status"
           data-testid={bannerTestId}
         >
-          {isSearching ? (
-            <Spinner size="xs" className="shrink-0 text-primary" />
-          ) : (
-            <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
-          )}
+          <span className="flex size-3.5 shrink-0 items-center justify-center">
+            {isSearching ? (
+              <Spinner size="xs" className="text-primary" />
+            ) : (
+              <Sparkles className="size-3.5 text-primary" aria-hidden />
+            )}
+          </span>
           <span className="min-w-0 flex-1 truncate text-foreground">{bannerText}</span>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+            className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground motion-reduce:transition-none"
             onClick={onResetSemantic}
           >
             <X className="size-3.5" aria-hidden />

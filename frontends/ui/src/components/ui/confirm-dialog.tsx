@@ -121,21 +121,24 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
+      <DialogContent aria-busy={pending || undefined}>
         <DialogHeader>
           <div className="flex items-start gap-3.5">
             {Icon && (
               <span
-                className={cn('mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full', tintClass)}
+                className={cn(
+                  'mt-0.5 flex size-9 shrink-0 select-none items-center justify-center rounded-full',
+                  tintClass,
+                )}
                 aria-hidden="true"
               >
                 <Icon className="size-[18px]" />
               </span>
             )}
             <div className="min-w-0 flex-1 space-y-1.5">
-              <DialogTitle className="text-base leading-snug">{title}</DialogTitle>
+              <DialogTitle className="text-balance text-base leading-snug">{title}</DialogTitle>
               {description && <DialogDescription>{description}</DialogDescription>}
-              {children && <div className="text-sm text-muted-foreground">{children}</div>}
+              {children && <div className="text-pretty text-sm text-muted-foreground">{children}</div>}
             </div>
           </div>
         </DialogHeader>

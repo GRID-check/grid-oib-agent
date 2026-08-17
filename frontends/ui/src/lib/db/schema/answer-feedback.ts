@@ -40,6 +40,8 @@ export const answerFeedback = pgTable(
     userId: text('user_id').notNull(),
     verdict: text('verdict').$type<AnswerFeedbackVerdict>().notNull(),
     reason: text('reason').$type<AnswerFeedbackReason>(),
+    /** Optional free-text from a down-vote — the chips are not the whole story. */
+    comment: text('comment'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -525,6 +525,9 @@ export const chat: typeof en.chat = {
       other: 'Sonstiges',
     },
     thanks: 'Danke für Ihr Feedback.',
+    commentLabel: 'Noch etwas?',
+    commentPlaceholder: 'Optional — was ist schiefgelaufen?',
+    commentSubmit: 'Hinweis senden',
   },
   // Schaltfläche „Nachricht kopieren" auf den Nutzernachrichtenblasen
   copyMessage: {

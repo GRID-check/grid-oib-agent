@@ -360,6 +360,15 @@ describe('AgentResponse', () => {
       expect(container.querySelector('[class*="animation-delay"]')).toBeNull()
     })
 
+    test('reserves meta-row height while streaming so late chips do not jump the footer', () => {
+      const { container } = render(<AgentResponse content="Answer" isStreaming />)
+
+      const reserved = container.querySelector('.min-h-6')
+      expect(reserved).not.toBeNull()
+      // Empty reserve only — the delayed fade starts once there is content.
+      expect(reserved?.className).not.toContain('animation-delay')
+    })
+
     test('holds confidence, memory, the thumbs row and the timestamp in ONE row', () => {
       memory.items = [memoryItem]
 

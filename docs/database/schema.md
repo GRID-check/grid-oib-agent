@@ -552,6 +552,7 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   persisted as `messages` rows, so no FK), `user_id`, `verdict`
   (`up`/`down`), `reason` (nullable, fixed keys
   `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
+  `comment` (nullable free-text on a down-vote; migration 0052),
   `created_at`/`updated_at`.
 - Voting model (the simplest honest one): **re-vote = upsert** on the unique
   `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);

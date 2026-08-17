@@ -234,7 +234,7 @@ export function FileCard({
     >
       {actions && (
         <div
-          className="absolute left-1.5 top-1.5 z-10"
+          className="absolute left-1.5 top-1.5 z-[1]"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >

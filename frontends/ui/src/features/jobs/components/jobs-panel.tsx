@@ -87,22 +87,27 @@ export function JobsPanel({
       </ProjectSectionActions>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-        {isList ? (
-          <JobList
-            projectId={projectId}
-            projectCollection={projectCollection}
-            canManage={canManage}
-            onCreate={openCreate}
-            onEdit={openEdit}
-          />
-        ) : (
-          <JobBuilder
-            projectId={projectId}
-            job={editJob}
-            onSaved={backToList}
-            onCancel={backToList}
-          />
-        )}
+        <div
+          key={isList ? 'list' : 'builder'}
+          className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+        >
+          {isList ? (
+            <JobList
+              projectId={projectId}
+              projectCollection={projectCollection}
+              canManage={canManage}
+              onCreate={openCreate}
+              onEdit={openEdit}
+            />
+          ) : (
+            <JobBuilder
+              projectId={projectId}
+              job={editJob}
+              onSaved={backToList}
+              onCancel={backToList}
+            />
+          )}
+        </div>
       </div>
     </div>
   )

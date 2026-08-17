@@ -111,7 +111,9 @@ export function BackLink({ fallbackHref, fallbackLabel, className }: BackLinkPro
       onClick={handleClick}
       data-testid="back-link"
       className={cn(
-        'text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:ring-ring/60 group inline-flex w-fit items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
+        'text-muted-foreground hover:bg-accent/60 hover:text-foreground group inline-flex w-fit items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm',
+        'transition-[color,background-color,transform] duration-200 ease-out active:scale-[0.98] motion-reduce:transition-none',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         className
       )}
     >

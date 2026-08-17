@@ -270,7 +270,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
         </CardDescription>
         <CardAction className="flex items-center gap-1.5">
           <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} aria-hidden />
+            <RefreshCw className={cn('size-3.5', loading && 'animate-spin motion-reduce:animate-none')} aria-hidden />
             {t('answerFeedback.refresh')}
           </Button>
           {/* A plain link, not a fetch: the route sets Content-Disposition, so the
@@ -326,9 +326,10 @@ export function AnswerFeedbackHealth(): JSX.Element {
         </div>
 
         {loading && !data ? (
-          <div className="space-y-3">
+          <div className="min-h-[20rem] space-y-3">
             <Skeleton className="h-16 w-full" />
             <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-32 w-full" />
           </div>
         ) : failed ? (
           <EmptyState
@@ -345,7 +346,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
             description={t('answerFeedback.emptyBody')}
           />
         ) : (
-          <>
+          <div className="animate-in fade-in-0 min-h-[20rem] space-y-6 duration-200 ease-out motion-reduce:animate-none">
             {/* ---- The window in sentences, above the figures it is made of.
                  Its own fetch, so a slow model never delays the numbers. ---- */}
             <FeedbackDigest search={search} />
@@ -431,7 +432,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         }}
                         aria-pressed={reason === reasonKey}
                         className={cn(
-                          'w-32 shrink-0 truncate rounded text-left text-xs transition-colors',
+                          'w-32 shrink-0 truncate rounded text-left text-xs transition-colors duration-200 ease-out',
                           'underline decoration-dotted decoration-from-font underline-offset-[3px]',
                           // Truncation clips a `touch-target` overlay, so these
                           // text-height filters buy their 44px with padding instead.
@@ -482,7 +483,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                       data-testid="feedback-topic"
                       data-selected={topic === topicKey || undefined}
                       className={cn(
-                        'flex items-center gap-3 px-3 py-2 text-xs transition-colors',
+                        'flex items-center gap-3 px-3 py-2 text-xs transition-colors duration-200 ease-out',
                         topic === topicKey && 'bg-accent/40',
                       )}
                     >
@@ -548,7 +549,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         data-testid="feedback-org"
                         data-selected={org === o.organizationId || undefined}
                         className={cn(
-                          'flex items-center gap-3 px-3 py-2 text-xs transition-colors',
+                          'flex items-center gap-3 px-3 py-2 text-xs transition-colors duration-200 ease-out',
                           org === o.organizationId && 'bg-accent/40',
                         )}
                       >
@@ -699,7 +700,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                 </ul>
               )}
             </div>
-          </>
+          </div>
         )}
       </CardContent>
     </Card>

@@ -34,7 +34,13 @@ export function ViewerLegend({ entries, className }: ViewerLegendProps): JSX.Ele
   if (entries.length === 0) return null
 
   return (
-    <ul className={cn('pointer-events-none flex max-w-[70%] flex-wrap gap-1.5', className)}>
+    <ul
+      className={cn(
+        'pointer-events-none flex max-w-[70%] flex-wrap gap-1.5',
+        'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
+        className
+      )}
+    >
       {entries.map((entry, position) => (
         <li
           // Position, not label. The URL form groups by STATUS, so

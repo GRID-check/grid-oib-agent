@@ -106,13 +106,22 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
     // Honest "Lücke" treatment (design language §Domain-specific): a substantive
     // answer that cites nothing must say so in the neutral `--source-auto` gray
     // family, never hide its lack of grounding. Skipped for meta/error turns
-    // (no source claim) and while still streaming.
+    // (no source claim). While streaming, reserve the chip-row height so the
+    // late-arriving chips (or the gap row) do not grow the footer.
     const isSubstantive = routingDecision !== 'meta' && routingDecision !== 'error'
-    if (!isSubstantive || isStreaming) return null
+    if (!isSubstantive) return null
+    if (isStreaming) {
+      return (
+        <div
+          className={cn('min-h-6', withDivider && 'border-t pt-2')}
+          aria-hidden="true"
+        />
+      )
+    }
 
     return (
       <div
-        className={cn('flex flex-wrap items-center gap-1.5', withDivider && 'border-t pt-2')}
+        className={cn('flex min-h-6 flex-wrap items-center gap-1.5', withDivider && 'border-t pt-2')}
         role="note"
         aria-label={t('answerSources.gapAria')}
       >
@@ -128,7 +137,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
 
   return (
     <div
-      className={cn('flex flex-wrap items-center gap-1.5', withDivider && 'border-t pt-2')}
+      className={cn('flex min-h-6 flex-wrap items-center gap-1.5', withDivider && 'border-t pt-2')}
       role="list"
       aria-label={t('answerSources.ariaLabel')}
     >
@@ -161,7 +170,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
             // belongs to an already-rendered message the reader jumped to, and
             // a delay there would stall the citation pulse that must fire now.
             !isFocused &&
-              'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 [animation-fill-mode:backwards] motion-reduce:animate-none',
+              'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out [animation-fill-mode:backwards] motion-reduce:animate-none',
             isFocused && 'animate-citation-pulse motion-reduce:animate-none'
           )}
           style={{

@@ -66,6 +66,9 @@ function mockChatState() {
     currentConversation: mockCurrentSessionId
       ? { id: mockCurrentSessionId, messages: mockConversationMessages }
       : null,
+    conversations: mockCurrentSessionId
+      ? [{ id: mockCurrentSessionId, messages: mockConversationMessages ?? [] }]
+      : [],
     saveDataSourcesToConversation: mockSaveDataSourcesToConversation,
     isStreaming: mockIsStreaming,
     stopStreaming: mockStopStreaming,
@@ -1219,17 +1222,17 @@ describe('InputArea', () => {
       )
     })
 
-    test('shortcut chips stay available after the first message so a project question can drop the Archiv', () => {
+    test('hides shortcut chips after the first chat, so they stay onboarding-only', () => {
       mockConversationMessages = [
         { id: 'msg-1', role: 'user', content: 'Hello', messageType: 'user' },
       ]
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
+      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
       expect(
-        screen.getByRole('button', { name: /building law & guidelines/i })
-      ).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /project documents/i })).toBeInTheDocument()
+        screen.queryByRole('button', { name: /building law & guidelines/i })
+      ).not.toBeInTheDocument()
     })
   })
 
@@ -1869,6 +1872,12 @@ describe('InputArea', () => {
       expect(screen.getByRole('button', { name: /^manage \d/i })).toBeInTheDocument()
       expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
       expect(screen.getByRole('group', { name: /shortcuts/i })).toBeInTheDocument()
+    })
+
+    test('hides shortcut presets once the project has had a first chat', () => {
+      mockConversationMessages = [{ id: 'm1', role: 'user', content: 'hello' }]
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
     })
   })
 

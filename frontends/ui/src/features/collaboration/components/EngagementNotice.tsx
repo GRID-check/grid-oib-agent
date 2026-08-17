@@ -31,7 +31,7 @@ import { useState } from 'react'
 import { AtSign } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 
-import { easeQuiet, motion } from '@/components/motion'
+import { motion } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import type { ConversationEngagement } from '@/lib/db/schema'
@@ -94,7 +94,7 @@ export function EngagementNotice({
     <motion.div
       initial={{ opacity: 0, y: 2 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={easeQuiet}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
       data-testid="engagement-notice"
       data-engagement={mode}
       // `items-start`, and the icon is a sibling of a text COLUMN rather than one
@@ -128,12 +128,13 @@ export function EngagementNotice({
           className={cn(
             'h-6 px-1.5 text-xs font-medium',
             'text-foreground/90 underline decoration-dotted decoration-from-font underline-offset-[3px]',
-            'hover:decoration-solid hover:text-foreground',
+            'transition-colors duration-150 ease-out hover:decoration-solid hover:text-foreground',
+            'motion-reduce:transition-none',
           )}
           disabled={saving}
           onClick={() => void change(offering)}
         >
-          {saving && <Spinner size="xs" className="mr-1" />}
+          {saving && <Spinner size="xs" aria-hidden className="mr-1" />}
           {offering === 'ask'
             ? t('mentions.engagement.switchToAsk')
             : t('mentions.engagement.switchToMention')}
@@ -141,7 +142,10 @@ export function EngagementNotice({
       )}
 
       {failed && (
-        <span role="alert" className="text-error">
+        <span
+          role="alert"
+          className="text-error animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none"
+        >
           {t('mentions.engagement.failed')}
         </span>
       )}

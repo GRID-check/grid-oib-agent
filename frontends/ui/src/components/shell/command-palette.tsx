@@ -43,6 +43,8 @@ export function projectIdFromPathname(pathname: string): string | null {
   return match ? match[1] : null
 }
 
+const PALETTE_ITEM_CLASS = 'transition-colors duration-200 ease-out motion-reduce:transition-none'
+
 /** Leader jump keycaps — `g` then the destination's `shortcutKey` / jump target. */
 function JumpShortcut({ jumpKey }: { jumpKey: string }) {
   return (
@@ -142,6 +144,7 @@ export function CommandPalette({
       title={t('title')}
       description={t('description')}
       showHints
+      className="motion-reduce:animate-none"
       hintLabels={{
         move: t('hints.move'),
         open: t('hints.open'),
@@ -159,6 +162,7 @@ export function CommandPalette({
                 key={project.id}
                 value={`project-${project.id} ${project.name}`}
                 onSelect={() => runCommand(() => router.push(`/app/projects/${project.id}`))}
+                className={PALETTE_ITEM_CLASS}
               >
                 <FolderKanban className="text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
@@ -184,6 +188,7 @@ export function CommandPalette({
                     key={item.key}
                     value={`section-${item.key} ${label}`}
                     onSelect={() => runCommand(() => router.push(href))}
+                    className={PALETTE_ITEM_CLASS}
                   >
                     <Icon className="text-muted-foreground" aria-hidden />
                     <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -200,13 +205,15 @@ export function CommandPalette({
           <CommandItem
             value={`new-project ${tNav('projectSwitcher.newProject')}`}
             onSelect={() => runCommand(() => router.push('/app/projects?new=1'))}
+            className={PALETTE_ITEM_CLASS}
           >
             <Plus className="text-muted-foreground" aria-hidden />
-            {tNav('projectSwitcher.newProject')}
+            <span className="min-w-0 flex-1 truncate">{tNav('projectSwitcher.newProject')}</span>
           </CommandItem>
           <CommandItem
             value={`all-projects ${tNav('projectSwitcher.allProjects')}`}
             onSelect={() => runCommand(() => router.push('/app/projects'))}
+            className={PALETTE_ITEM_CLASS}
           >
             <FolderKanban className="text-muted-foreground" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{tNav('projectSwitcher.allProjects')}</span>
@@ -216,6 +223,7 @@ export function CommandPalette({
             <CommandItem
               value={`organization ${tNav('userMenu.organization')}`}
               onSelect={() => runCommand(() => router.push('/app/organization'))}
+              className={PALETTE_ITEM_CLASS}
             >
               <Building2 className="text-muted-foreground" aria-hidden />
               <span className="min-w-0 flex-1 truncate">{tNav('userMenu.organization')}</span>
@@ -225,28 +233,31 @@ export function CommandPalette({
           <CommandItem
             value={`profile ${tNav('userMenu.profile')}`}
             onSelect={() => runCommand(() => router.push('/app/profile'))}
+            className={PALETTE_ITEM_CLASS}
           >
             <UserRound className="text-muted-foreground" aria-hidden />
-            {tNav('userMenu.profile')}
+            <span className="min-w-0 flex-1 truncate">{tNav('userMenu.profile')}</span>
           </CommandItem>
           <CommandItem
             value={`toggle-theme ${t('toggleTheme')}`}
             onSelect={() => runCommand(toggleTheme)}
+            className={PALETTE_ITEM_CLASS}
           >
             {theme === 'dark' ? (
               <Sun className="text-muted-foreground" aria-hidden />
             ) : (
               <Moon className="text-muted-foreground" aria-hidden />
             )}
-            {t('toggleTheme')}
+            <span className="min-w-0 flex-1 truncate">{t('toggleTheme')}</span>
           </CommandItem>
           {authRequired && (
             <CommandItem
               value={`sign-out ${tCommon('actions.signOut')}`}
               onSelect={() => runCommand(() => void signOut())}
+              className={PALETTE_ITEM_CLASS}
             >
               <LogOut className="text-muted-foreground" aria-hidden />
-              {tCommon('actions.signOut')}
+              <span className="min-w-0 flex-1 truncate">{tCommon('actions.signOut')}</span>
             </CommandItem>
           )}
         </CommandGroup>

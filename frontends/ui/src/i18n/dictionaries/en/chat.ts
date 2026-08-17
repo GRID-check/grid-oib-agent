@@ -539,6 +539,9 @@ export const chat = {
       other: 'Other',
     },
     thanks: 'Thanks for your feedback.',
+    commentLabel: 'Anything else?',
+    commentPlaceholder: 'Optional — tell us what went wrong',
+    commentSubmit: 'Send note',
   },
   // Copy message button on user message bubbles
   copyMessage: {

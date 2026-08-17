@@ -42,6 +42,7 @@ export function ViewerRail({ children, className }: ViewerRailProps): JSX.Elemen
         // The fade says "there is more" without a scrollbar. A hard cut across
         // a half-height row reads as a rendering fault; a fade reads as a list.
         'scroll-fade-bottom flex max-h-[calc(100%-1.5rem)] w-52 flex-col overflow-y-auto overscroll-contain',
+        'animate-in fade-in-0 slide-in-from-left-2 duration-200 ease-out motion-reduce:animate-none',
         className
       )}
     >
@@ -139,14 +140,17 @@ export function ViewerRailItem({
       title={label}
       data-testid={rest['data-testid']}
       className={cn(
-        'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors',
+        'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] font-medium',
+        // Weight is stable: toggling `font-medium` on the selected row reflows
+        // the truncated name. Colour + fill already say which row is on.
+        'transition-colors duration-200 ease-out',
         'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
         // `min-h-11` as well as the padding: 20 px of padding on a 13 px line
         // comes to ~38 px, six short of the floor the repo asserts in
         // `touch-target.spec.ts`. A level list on a forty-storey model is
         // exactly where a mis-tap costs the reader the wrong isolation.
         'pointer-coarse:min-h-11 pointer-coarse:py-2.5',
-        selected ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+        selected ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
         disabled && 'pointer-events-none opacity-50'
       )}
     >

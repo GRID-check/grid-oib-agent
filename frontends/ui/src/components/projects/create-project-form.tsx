@@ -87,7 +87,7 @@ export function CreateProjectForm(): JSX.Element {
                       type="button"
                       disabled={isSubmitting}
                       onClick={() => form.setFieldValue('name', name)}
-                      className="rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/40 hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
+                      className="rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/40 hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50 motion-reduce:transition-none"
                     >
                       {label}
                     </button>

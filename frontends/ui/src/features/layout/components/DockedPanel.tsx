@@ -144,23 +144,14 @@ export const DockedPanel: FC<DockedPanelProps> = ({
         aria-hidden={!open}
         data-state={open ? 'open' : 'closed'}
         className={cn(
-          // FULL viewport height, flush with the top edge, on BOTH breakpoints.
-          //
-          // This used to start below a header (`top-[var(--header-height)]`,
-          // `md:top-12`) — and neither header exists on the chat route, the only
-          // route that opens these panels. Desktop chat has no top band at all
-          // (its toolbar floats as pills inside the centre column), and the
-          // mobile top bar is explicitly suppressed there. So the offset bought
-          // nothing and cost a defect: the panel overlays the app rail from
-          // `left-0`, so starting 48px down left the rail's "Piloti" wordmark
-          // and collapse chevron stranded in a sliver above the panel — a strip
-          // of a *different* surface (`bg-surface-sunken`) wedged above the
-          // heading, which read as a stray gap.
-          //
-          // Flush to the top, the panel simply replaces the rail while it is
-          // open: one surface, one top edge, nothing peeking over it.
+          // Full viewport height. On mobile it is a modal drawer from the
+          // screen edge. On desktop a left panel docks BESIDE the global
+          // sidebar (`--sidebar-current-width` from SidebarProvider) so chat
+          // history does not cover project navigation. 0px when no rail.
           'bg-background fixed inset-y-0 z-40 flex w-full max-w-[400px] flex-col shadow-lg md:shadow-none',
-          side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
+          side === 'left'
+            ? 'left-0 md:left-[var(--sidebar-current-width,0px)] border-r'
+            : 'right-0 border-l',
           // Slide transition; reduced-motion users get an instant swap
           'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
           open ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full',

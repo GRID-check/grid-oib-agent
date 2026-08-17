@@ -70,9 +70,9 @@ export function RaisedCard({
   if (!interactive) return card
   return (
     <motion.div
-      className="h-full min-w-0"
-      whileHover={{ y: -3 }}
-      whileTap={{ scale: 0.985 }}
+      className="h-full min-w-0 will-change-transform"
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.99 }}
       transition={springSnappy}
     >
       {card}

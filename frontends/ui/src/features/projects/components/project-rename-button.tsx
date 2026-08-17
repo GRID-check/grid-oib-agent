@@ -112,8 +112,16 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
               >
                 {t('overview.rename.cancel')}
               </Button>
-              <Button type="submit" disabled={!canSave}>
-                {pending && <Spinner size="sm" />}
+              <Button type="submit" disabled={!canSave} className="min-w-24">
+                <Spinner
+                  size="sm"
+                  aria-hidden={!pending}
+                  className={
+                    pending
+                      ? 'transition-opacity duration-150 ease-out motion-reduce:transition-none'
+                      : 'opacity-0'
+                  }
+                />
                 {pending ? t('overview.rename.saving') : t('overview.rename.save')}
               </Button>
             </DialogFooter>
