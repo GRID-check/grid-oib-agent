@@ -19,6 +19,7 @@ export {
   type ShortcutSection,
 } from './shortcuts'
 export { OrgTopbar, type OrgTopbarProps } from './org-topbar'
+export { ProjectSectionFrame, ProjectSectionActions } from './project-section-frame'
 export {
   ProjectSwitcher,
   type ProjectSwitcherProject,

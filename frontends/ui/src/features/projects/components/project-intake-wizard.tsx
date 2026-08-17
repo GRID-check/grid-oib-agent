@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   Select,
   SelectContent,
@@ -567,15 +568,10 @@ export function ProjectIntakeWizard({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 md:py-12">
-      <header className="mb-8">
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          {isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          {projectName ?? t('intake.titleFallback')}
-        </h1>
+      <div className="mb-8">
+        <SectionLabel>{isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}</SectionLabel>
         <p className="mt-1 text-sm text-muted-foreground">{t('intake.subtitle')}</p>
-      </header>
+      </div>
 
       {salvageNotice && (
         <Alert variant="warning" className="mb-6">
@@ -866,14 +862,16 @@ function BauwerkStage({
               <span className="flex-1 truncate text-sm font-medium">{bw.name}</span>
             )}
             {canManage && bauwerke.length > 1 && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => onRemoveBauwerk(bw.id)}
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
+                className="h-auto gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-destructive"
               >
                 <Trash2 className="size-3.5" aria-hidden />
                 {t('intake.bauwerk.remove')}
-              </button>
+              </Button>
             )}
           </div>
 

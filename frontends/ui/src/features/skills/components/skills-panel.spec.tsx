@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@/test-utils'
 
@@ -16,6 +17,11 @@ vi.mock('@/adapters/api/skills-client', async (importActual) => {
 // Toasts are asserted through the mock (no <Toaster /> in these renders).
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+}))
+
+// The real portal lands in the layout header; unit tests have no slot.
+vi.mock('@/components/shell', () => ({
+  ProjectSectionActions: ({ children }: { children: ReactNode }) => children,
 }))
 
 import * as client from '@/adapters/api/skills-client'
@@ -257,8 +263,8 @@ describe('SkillsPanel', () => {
     listSkillsMock.mockResolvedValue([orgSkill])
     render(<SkillsPanel canManageOrgSkills />)
 
-    // ONE heading. The page used to say "Skills" and then "Skill toolbox".
-    expect(screen.getByRole('heading', { level: 1, name: 'Skills' })).toBeInTheDocument()
+    // Title lives in the shared layout chrome — this panel must not ship a second h1.
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     expect(screen.queryByText('Skill toolbox')).not.toBeInTheDocument()
     expect(await screen.findByText('acoustic-report')).toBeInTheDocument()
     // Jobs live on their own tab; this one must not grow a second copy.

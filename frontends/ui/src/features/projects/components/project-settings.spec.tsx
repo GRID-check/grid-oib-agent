@@ -35,6 +35,11 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// The real portal lands in the layout header; unit tests have no slot.
+vi.mock('@/components/shell', () => ({
+  ProjectSectionActions: ({ children }: { children: ReactNode }) => children,
+}))
+
 const data: ProjectOverviewData = {
   id: 'p1',
   name: 'Alpine Tower',
@@ -53,8 +58,9 @@ describe('ProjectSettings', () => {
   test('composes parameters, members, memory and the honest insights empty state', () => {
     render(<ProjectSettings data={data} />)
 
-    // The name shows in the header.
-    expect(screen.getByRole('heading', { level: 1, name: 'Alpine Tower' })).toBeInTheDocument()
+    // The name is a content identity line, not a second page title.
+    expect(screen.getByText('Alpine Tower')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     // The single project-profile surface is the brief (facts, summary, gaps),
     // not a duplicate parameters card.
     expect(screen.getByTestId('project-brief')).toBeInTheDocument()

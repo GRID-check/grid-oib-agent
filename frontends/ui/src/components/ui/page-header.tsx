@@ -20,16 +20,35 @@ export interface PageHeaderProps extends Omit<React.HTMLAttributes<HTMLElement>,
   subtitle?: React.ReactNode
   /** Optional primary action rendered on the right of the header row. */
   action?: React.ReactNode
+  /** Optional trail rendered above the title row. Absent = today's DOM. */
+  breadcrumb?: React.ReactNode
 }
 
-export function PageHeader({ title, subtitle, action, className, ...props }: PageHeaderProps): JSX.Element {
-  return (
-    <header className={cn('flex items-end justify-between gap-4', className)} {...props}>
+export function PageHeader({
+  title,
+  subtitle,
+  action,
+  breadcrumb,
+  className,
+  ...props
+}: PageHeaderProps): JSX.Element {
+  const titleRow = (
+    <>
       <div>
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {action}
+    </>
+  )
+
+  return (
+    <header
+      className={cn(breadcrumb ? 'flex flex-col gap-3' : 'flex items-end justify-between gap-4', className)}
+      {...props}
+    >
+      {breadcrumb}
+      {breadcrumb ? <div className="flex items-end justify-between gap-4">{titleRow}</div> : titleRow}
     </header>
   )
 }

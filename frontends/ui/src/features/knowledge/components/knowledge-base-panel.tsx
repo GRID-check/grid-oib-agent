@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, BookOpenCheck, Eye, FileSearch, FileText, FolderOpen, Layers, RotateCcw } from 'lucide-react'
+import { AlertCircle, Eye, FileSearch, FileText, FolderOpen, Layers, RotateCcw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -205,15 +205,7 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
   const indexed = status ? status.summary.ingested + status.summary.snapshot + readyProjectDocs : 0
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8 md:py-10">
-      <header className="space-y-1.5">
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-foreground">
-          <BookOpenCheck className="size-5 text-muted-foreground" aria-hidden />
-          {t('title')}
-        </h1>
-        <p className="max-w-3xl text-sm text-muted-foreground">{t('subtitle')}</p>
-      </header>
-
+    <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8">
       {isLoading && <LoadingSkeleton />}
 
       {!isLoading && hasError && (

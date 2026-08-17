@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
-import { type ReactElement } from 'react'
+import { type ReactElement, type ReactNode } from 'react'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -95,6 +95,11 @@ vi.mock('../hooks/use-project-documents', () => ({
   })),
 }))
 
+// The real portal lands in the layout header; unit tests have no slot.
+vi.mock('@/components/shell', () => ({
+  ProjectSectionActions: ({ children }: { children: ReactNode }) => children,
+}))
+
 // useFileDragDrop reads accepted MIME types from AppConfig for its drag affordance.
 vi.mock('@/shared/context', () => ({
   useAppConfig: () => ({
@@ -126,10 +131,11 @@ describe('ProjectFileWorkspace', () => {
     resetPreviewStore()
   })
 
-  it('renders the file workspace with its project name and corpus context', () => {
+  it('renders the file workspace with view controls and upload', () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
-    expect(screen.getByText('Test')).toBeDefined()
-    expect(screen.getByText(/ground Piloti’s answers/i)).toBeDefined()
+    expect(screen.getByRole('group', { name: 'View' })).toBeDefined()
+    expect(screen.getByTestId('project-upload-input')).toBeDefined()
+    expect(screen.queryByRole('heading', { name: 'Test' })).toBeNull()
   })
 
   it('shows the drop overlay on dragover of a supported file', () => {

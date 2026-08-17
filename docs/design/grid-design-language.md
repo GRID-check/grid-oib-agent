@@ -119,7 +119,9 @@ Never hand-roll a lookalike — two of them drift on the first token retune. The
 inventory, the honesty constraints on status and timestamps, and the decision
 procedure are in **`docs/design/project-surfaces.md`**.
 
-**Page header** — every content page opens with:
+**Page header** — every content page opens with `PageHeader`
+(`components/ui/page-header.tsx`), so the title stays on-spec (`text-xl`)
+instead of drifting:
 ```tsx
 <header className="flex items-end justify-between gap-4">
   <div>
@@ -129,6 +131,16 @@ procedure are in **`docs/design/project-surfaces.md`**.
   {primaryAction}
 </header>
 ```
+
+**Project section chrome** — every project section except **Ask Piloti**
+(chat) opens with the same block: a muted `{project} / {section}` breadcrumb
+trail, then the `PageHeader` title + one-line subtitle, then optional actions
+on the right. The three shapes are an action button (Files, Jobs, Skills),
+a search field (History), and title-only (Settings). The intake wizard is a
+content page too — `PageHeader` plus a `SectionLabel` eyebrow, never a second
+`text-2xl` title. Projects home (above a project) uses the same `PageHeader`.
+Chat is the documented exception: it is a full-bleed conversation surface with
+its own toolbar, not a content page. Evidence: `/dev/project-chrome`.
 
 **Section** — eyebrow label + content, no heavy chrome:
 ```tsx

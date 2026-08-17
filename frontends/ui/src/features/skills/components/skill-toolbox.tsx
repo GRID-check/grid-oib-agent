@@ -134,7 +134,7 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
   const curated = skills?.filter((skill) => skill.origin === 'platform') ?? []
 
   return (
-    <section className="space-y-4" aria-labelledby="skills-heading">
+    <section className="space-y-4" aria-label={t('title')}>
       {skills === null && !error && (
         <div className="space-y-3" data-testid="skills-toolbox-loading">
           <Skeleton className="h-24 w-full rounded-xl" />

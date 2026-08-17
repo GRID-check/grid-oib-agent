@@ -3,8 +3,8 @@
 /**
  * Project History body (spec §5, FB-10) — a client list over the existing
  * conversations BFF domain plus the server-truth research-runs list, styled to
- * the click-dummy's Historie screen (title + search pill, provenance-shaped
- * filter chips, one white card of divided rows).
+ * the click-dummy's Historie screen (search in the shared section header,
+ * provenance-shaped filter chips, one white card of divided rows).
  *
  * Conversations deep-link into chat via `?session=` (the same query param
  * `useSessionUrl` already reads on the chat page); research rows reuse
@@ -31,11 +31,12 @@ import {
   type ConversationTagKey,
 } from '@/lib/conversations/tags'
 import { conversationsClient } from '@/adapters/api/conversations-client'
+import { ProjectSectionActions } from '@/components/shell'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { PageHeader } from '@/components/ui/page-header'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -161,27 +162,21 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
 
   return (
     <div>
-      {/* ---- Title + search pill (dummy: one row, justify-between) ---- */}
-      <PageHeader
-        className="mb-7 min-h-9 flex-wrap items-center"
-        title={t('sections.history')}
-        action={
-          <div className="relative w-full sm:w-64">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-[15px] -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('history.searchPlaceholder')}
-              aria-label={t('history.searchAria')}
-              className="h-9 w-full rounded-md border-[0.5px] border-border bg-card pl-9 pr-3 text-[13px] shadow-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-            />
-          </div>
-        }
-      />
+      <ProjectSectionActions>
+        <div className="relative w-full sm:w-64">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={t('history.searchPlaceholder')}
+            aria-label={t('history.searchAria')}
+            className="h-9 rounded-md pl-9"
+          />
+        </div>
+      </ProjectSectionActions>
 
       {/* ---- Filter chips (dummy shape; real item-type signal, no faked source dots) ---- */}
       <div className="mb-4 flex flex-wrap gap-[7px]" role="group" aria-label={t('history.filterAria')}>

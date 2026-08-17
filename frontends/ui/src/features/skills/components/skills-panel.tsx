@@ -9,13 +9,13 @@
  *
  * Authoring is gated on org:skills:manage; without it the page is read-only.
  *
- * ONE heading. The page used to carry "Skills" with a paragraph and then
- * "Skill toolbox" with a second paragraph saying much the same thing, which is
- * two titles for one list.
+ * The page title lives in the shared project-section chrome. "New skill"
+ * portals into that header; this file is the toolbox and the editor only.
  */
 
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
+import { ProjectSectionActions } from '@/components/shell'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { SkillEditorDialog } from './skill-editor-dialog'
@@ -53,24 +53,15 @@ export function SkillsPanel({ canManageOrgSkills }: SkillsPanelProps): JSX.Eleme
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-6 md:px-10 md:pt-[34px]">
-      <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-3xl space-y-1.5">
-          <h1
-            id="skills-heading"
-            className="text-foreground text-[20px] font-medium tracking-[-0.01em]"
-          >
-            {t('title')}
-          </h1>
-          <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
-        </div>
-        {canManageOrgSkills && (
-          <Button size="sm" className="mt-0.5 shrink-0" onClick={() => openSkillEditor(null)}>
+    <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-6 md:px-10">
+      {canManageOrgSkills && (
+        <ProjectSectionActions>
+          <Button size="sm" className="shrink-0" onClick={() => openSkillEditor(null)}>
             <Plus className="size-4" aria-hidden />
             {t('toolbox.newSkill')}
           </Button>
-        )}
-      </header>
+        </ProjectSectionActions>
+      )}
       <SkillToolbox
         canManage={canManageOrgSkills}
         onEdit={openSkillEditor}

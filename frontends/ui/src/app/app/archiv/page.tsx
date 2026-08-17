@@ -6,6 +6,7 @@
  */
 
 import { type Metadata } from 'next'
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { getNavFlags } from '@/lib/authz/nav'
@@ -15,10 +16,20 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { resolveActiveProjectId } from '@/lib/collection-scope-request'
 import { BackLink, OrgTopbar } from '@/components/shell'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb'
+import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { ArchivWorkspace } from '@/features/documents/components/archiv-workspace'
 import { resolveArchivBackLink } from '@/features/documents/archiv-back-link'
 import { isAuthRequired } from '@/lib/auth/auth-required'
+import { PRODUCT_NAME } from '@/lib/brand'
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('archiv')
@@ -74,24 +85,43 @@ export default async function ArchivPage(): Promise<JSX.Element> {
         />
         {/* Wider than the org settings column: the library card grid needs room. */}
         <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col overflow-hidden px-4 pb-4 md:px-8 md:pb-6">
-          <div className="my-3">
-            <BackLink
-              fallbackHref={backLink.href}
-              fallbackLabel={t(
-                backLink.labelKey,
-                backLink.name ? { name: backLink.name } : undefined
-              )}
-            />
-          </div>
-          {/* The library reads as one sheet lifted off the page: hairline border,
-              soft elevation, and the same fade-and-rise entrance the rest of the
-              app opens surfaces with, so arriving here settles instead of
-              snapping. */}
-          <main
-            id="main-content"
-            className="animate-in fade-in-0 slide-in-from-bottom-1 shadow-xs flex-1 overflow-hidden rounded-xl border duration-300 ease-out motion-reduce:animate-none"
-          >
-            <ArchivWorkspace canManage={canManage} showMetadataPanel={showMetadataPanel} />
+          <main id="main-content" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0 pt-3 pb-4">
+              <BackLink
+                className="mb-4"
+                fallbackHref={backLink.href}
+                fallbackLabel={t(
+                  backLink.labelKey,
+                  backLink.name ? { name: backLink.name } : undefined
+                )}
+              />
+              <PageHeader
+                title={t('title')}
+                subtitle={t('subtitle')}
+                breadcrumb={
+                  <Breadcrumb>
+                    <BreadcrumbList>
+                      <BreadcrumbItem>
+                        <BreadcrumbLink asChild>
+                          <Link href="/app/projects">{PRODUCT_NAME}</Link>
+                        </BreadcrumbLink>
+                      </BreadcrumbItem>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        <BreadcrumbPage>{t('title')}</BreadcrumbPage>
+                      </BreadcrumbItem>
+                    </BreadcrumbList>
+                  </Breadcrumb>
+                }
+              />
+            </div>
+            {/* The library reads as one sheet lifted off the page: hairline border,
+                soft elevation, and the same fade-and-rise entrance the rest of the
+                app opens surfaces with, so arriving here settles instead of
+                snapping. */}
+            <div className="animate-in fade-in-0 slide-in-from-bottom-1 shadow-xs min-h-0 flex-1 overflow-hidden rounded-xl border duration-300 ease-out motion-reduce:animate-none">
+              <ArchivWorkspace canManage={canManage} showMetadataPanel={showMetadataPanel} />
+            </div>
           </main>
         </div>
       </div>

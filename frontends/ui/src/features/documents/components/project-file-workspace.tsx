@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, X } from 'lucide-react'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
@@ -18,6 +18,7 @@ import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
+import { ProjectSectionActions } from '@/components/shell'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
@@ -525,19 +526,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         />
       )}
 
-      {/* Top action bar */}
-      <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-foreground">{projectName}</h2>
-          {/* The corpus subtitle is helpful context but costs 2–3 wrapped lines
-              on a phone; hide it below sm to keep the action bar to one row. */}
-          <p className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-            <ShieldCheck className="size-3.5 shrink-0" aria-hidden />
-            {t('workspace.corpusSubtitle')}
-          </p>
-        </div>
+      <ProjectSectionActions>
         <div className="flex shrink-0 items-center gap-2">
-          {/* Card grid (dummy default) ⟷ folder-tree workspace toggle. */}
           <div
             role="group"
             aria-label={t('workspace.view.label')}
@@ -592,7 +582,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             isUploading={isUploading}
           />
         </div>
-      </div>
+      </ProjectSectionActions>
 
       {/* Error banner */}
       {error && (

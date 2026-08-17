@@ -37,7 +37,7 @@ export default async function ProjectHistoryPage({ params }: ProjectHistoryPageP
     }
 
     return (
-      <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-8 md:px-10 md:pt-[34px]">
+      <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-6 md:px-10">
         <ProjectHistory projectId={id} projectCollection={project.collectionName} />
       </div>
     )
