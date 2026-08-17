@@ -213,6 +213,41 @@ pathological paste cannot bloat the checkpoint every later turn reads.
   either way. The observable cost of a version skew is one unwanted answer in a thread
   the sender can already read; the cost is never a dropped frame or a lost message.
 
+##### Turn retrieval intent (`focus_file_name` / `focus_shelf` / `source_preset`)
+
+The signed `X-Grid-Collection-Scope` header is the **authorization ceiling**
+(which corpora this caller may read). What a *turn* actually searches is a
+subtractive subset of that ceiling. The client states **intent**, never an
+expanded collection list:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `focus_file_name` | `string` | Filename of the file this send is about (the composer "Asking about …" subject). Retrieval prefers it. |
+| `focus_shelf` | `"session"` \| `"project"` \| `"archiv"` | Shelf that file sits on. Wins over `source_preset`. |
+| `source_preset` | `"law"` \| `"project"` \| `"office"` | Composer shortcut chip. Used only when no subject shelf is set. |
+
+```typescript
+text: JSON.stringify({
+  query: "Fass den Inhalt zusammen",
+  data_sources: [],
+  focus_file_name: "Protokoll.pdf",
+  focus_shelf: "session"        // omitted when there is no subject file
+  // source_preset: "project"   // omitted when no chip is pressed
+})
+```
+
+The backend maps that intent via `shelves_for_turn`
+(`src/aiq_agent/common/focus_file.py`) and subtracts other shelves at the
+knowledge-layer retrieve site. A client-supplied `include_shelves` list is
+**ignored** — the mapping owns the expansion so a client cannot ask for
+Archiv while claiming a project file. Absence of both shelf and preset
+leaves the signed scope intact (ADR-0024). See
+`docs/architecture/backend-deep-dive.md` § Collection scoping.
+
+Absence of every field is the unscoped project turn: the signed header stands
+as-is. An old backend ignores the unknown keys and searches the full authorized
+scope — the pre-#429 behaviour, never a dropped frame.
+
 #### user_interaction_message
 
 Sent when the user responds to a human prompt (clarification, approval, choice).

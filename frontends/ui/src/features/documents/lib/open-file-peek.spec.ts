@@ -51,6 +51,7 @@ describe('openFilePeek', () => {
       resourceId: 'doc-1',
       title: 'plan.pdf',
       filename: 'plan.pdf',
+      shelf: 'project',
     })
   })
 

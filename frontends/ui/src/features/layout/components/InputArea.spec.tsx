@@ -1205,7 +1205,7 @@ describe('InputArea', () => {
       )
     })
 
-    test('shortcut chips are hidden once the thread has messages', () => {
+    test('shortcut chips stay available after the first message so a project question can drop the Archiv', () => {
       mockConversationMessages = [
         { id: 'msg-1', role: 'user', content: 'Hello', messageType: 'user' },
       ]
@@ -1213,19 +1213,9 @@ describe('InputArea', () => {
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
       expect(
-        screen.queryByRole('button', { name: /building law & guidelines/i })
-      ).not.toBeInTheDocument()
-    })
-
-    test('an active preset does not linger as a label after the shortcuts go away', () => {
-      mockActiveSourcePreset = 'project'
-      mockConversationMessages = [
-        { id: 'msg-1', role: 'user', content: 'Show me the plan', messageType: 'user' },
-      ]
-
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-
-      expect(screen.queryByText('Project documents')).not.toBeInTheDocument()
+        screen.getByRole('button', { name: /building law & guidelines/i })
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /project documents/i })).toBeInTheDocument()
     })
   })
 

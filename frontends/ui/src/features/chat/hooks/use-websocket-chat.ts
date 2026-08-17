@@ -44,6 +44,7 @@ import {
 import { registerStopStreamingHandler } from '../stores/messages-store'
 import { useConnectionRecovery } from './use-connection-recovery'
 import { useLayoutStore } from '@/features/layout/store'
+
 import { useDocumentsStore } from '@/features/documents/store'
 import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals'
 import { validateGridCards } from '@/shared/cards/schemas'
@@ -220,6 +221,8 @@ type PendingOutgoing =
        *  is queued through a reconnect is replayed with its invocation intact. */
       skills?: string[]
       focusFileName?: string
+      focusShelf?: 'project' | 'archiv' | 'session'
+      sourcePreset?: 'law' | 'project' | 'office'
       deliveryRetryCount?: number
     }
   | { kind: 'interaction'; interactionId: string; parentId: string; response: string; deliveryRetryCount?: number }
@@ -1039,6 +1042,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         const extras = {
           ...(payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : {}),
           ...(payload.focusFileName ? { focusFileName: payload.focusFileName } : {}),
+          ...(payload.focusShelf ? { focusShelf: payload.focusShelf } : {}),
+          ...(payload.sourcePreset ? { sourcePreset: payload.sourcePreset } : {}),
         }
         return Object.keys(extras).length > 0
           ? client.sendMessage(payload.content, payload.dataSources, extras)
@@ -2000,12 +2005,16 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const subjectName = subject?.filename?.trim() || subject?.title?.trim() || undefined
       const peekName = isFilePeekVisible(preview) ? preview.file?.filename.trim() || undefined : undefined
       const focusFileName = subjectName || peekName
+      const focusShelf = subject?.shelf
+      const sourcePreset = useLayoutStore.getState().activeSourcePreset
       const outgoingPayload: PendingOutgoing = {
         kind: 'message',
         content,
         dataSources: dataSourcesForMessage,
         ...(skills && skills.length > 0 ? { skills } : {}),
         ...(focusFileName ? { focusFileName } : {}),
+        ...(focusShelf ? { focusShelf } : {}),
+        ...(sourcePreset ? { sourcePreset } : {}),
       }
 
       // Helper to actually send the message
