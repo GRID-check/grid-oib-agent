@@ -3,7 +3,10 @@
  * needs me?" (spec IB-1, IB-18).
  *
  * Lives above projects, like the org Archiv: an inbox spans every project the
- * user can see, so it gets the org top bar rather than a project rail.
+ * user can see, so it gets the org top bar rather than a project rail. The
+ * way out is the same `BackLink` Organisation and Platform use — the tab's
+ * return trail, not a guessed project — so leaving the inbox restores where
+ * the reader actually came from.
  *
  * The gate is a `notFound()`, not a polite empty card — but it is no longer the
  * collaboration flag. It is `inboxIsReachable`, derived from the item-type
@@ -22,7 +25,7 @@ import { withPageSession } from '@/lib/auth/require-auth'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { inboxIsReachable } from '@/lib/inbox/registry'
 import { getNavFlags } from '@/lib/authz/nav'
-import { OrgTopbar } from '@/components/shell'
+import { BackLink, OrgTopbar } from '@/components/shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { InboxList } from '@/features/collaboration/components'
@@ -42,6 +45,7 @@ export default async function InboxPage(): Promise<JSX.Element> {
 
     const navFlags = await getNavFlags(session)
     const t = await getTranslations('collaboration')
+    const tOrg = await getTranslations('organization')
 
     return (
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
@@ -55,6 +59,11 @@ export default async function InboxPage(): Promise<JSX.Element> {
           canAccessInbox={navFlags.canAccessInbox}
         />
         <main id="main-content" className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
+          <BackLink
+            className="mb-6"
+            fallbackHref="/app/projects"
+            fallbackLabel={tOrg('backToApp')}
+          />
           <PageHeader title={t('inbox.title')} subtitle={t('inbox.subtitle')} />
           <div className="mt-7">
             <InboxList />

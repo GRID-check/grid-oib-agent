@@ -108,6 +108,20 @@ describe('BackLink — how it navigates', () => {
     expect(back).not.toHaveBeenCalled()
   })
 
+  test('does not walk a settings tab when the destination is the project', async () => {
+    // Older trails stacked every org tab. Back must leave the shell, not land
+    // on the previous submenu — so this click follows the href, not history.
+    pathname = '/app/organization/models'
+    writeTrail(visits('/app/projects/p1/chat', '/app/organization', '/app/organization/models'))
+    const user = userEvent.setup()
+    renderBackLink()
+    await waitFor(() => expect(screen.getByTestId('back-link')).toHaveTextContent('Back to Chat'))
+
+    await user.click(screen.getByTestId('back-link'))
+    expect(back).not.toHaveBeenCalled()
+    expect(screen.getByTestId('back-link')).toHaveAttribute('href', '/app/projects/p1/chat')
+  })
+
   test('does not call history.back when there is no history to go back to', async () => {
     // A link opened in a new tab: the browser copies session storage, so the
     // trail is there, but the history behind it is not.
