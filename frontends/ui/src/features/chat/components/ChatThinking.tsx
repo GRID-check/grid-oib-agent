@@ -194,7 +194,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : isInterrupted && isRecoveryPending ? (
                 <>
-                  <Spinner size="sm" className="text-muted-foreground" label={t('thinking.recovering')} />
+                  <Spinner size="sm" className="text-muted-foreground" aria-hidden="true" />
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.recovering')}
                   </span>

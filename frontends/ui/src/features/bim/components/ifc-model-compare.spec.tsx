@@ -98,7 +98,8 @@ describe('IfcModelCompare', () => {
     await user.click(screen.getByRole('button', { name: /compare/i }))
     await waitFor(() => expect(screen.getByText(/Compared against Haus-A_v2.ifc/)).toBeInTheDocument())
 
-    await user.selectOptions(screen.getByLabelText(/compare against/i), 'm-v1')
+    await user.click(screen.getByRole('combobox', { name: /compare against/i }))
+    await user.click(screen.getByRole('option', { name: 'Haus-A_v1.ifc' }))
 
     expect(screen.getByText(/Compared against Haus-A_v2.ifc/)).toBeInTheDocument()
     expect(screen.queryByText(/Compared against Haus-A_v1.ifc/)).not.toBeInTheDocument()
