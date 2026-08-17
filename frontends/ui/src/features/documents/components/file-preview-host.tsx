@@ -10,14 +10,16 @@
 
 import { useEffect, useRef, type PointerEvent } from 'react'
 import { usePathname } from 'next/navigation'
-import { Maximize2, X } from 'lucide-react'
+import { Download, Maximize2, X } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { cn } from '@/lib/utils'
 import { useLayoutStore } from '@/features/layout/store'
+import { useDocumentActions, type DocumentScope } from './document-actions'
 import { FilePreviewPane } from './file-preview-pane'
+import type { FileItem } from './project-file-workspace'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 
 export function FilePreviewHost(): JSX.Element | null {
@@ -143,28 +145,13 @@ export function FilePreviewHost(): JSX.Element | null {
           />
         )}
         {peeking && (
-          <div className="flex h-9 shrink-0 items-center gap-1 px-2.5">
-            <p className="text-foreground min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
-              {name}
-            </p>
-            <button
-              type="button"
-              onClick={expand}
-              aria-label={t('assignment.expandFile')}
-              title={t('assignment.expandFile')}
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100"
-            >
-              <Maximize2 className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={hide}
-              aria-label={t('preview.closePreview')}
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
+          <PeekToolbar
+            file={file}
+            scope={context.scope ?? 'files'}
+            name={name}
+            onExpand={expand}
+            onHide={hide}
+          />
         )}
         <FilePreviewPane
           file={file}
@@ -205,5 +192,59 @@ export function FilePreviewBridge({ children }: { children: React.ReactNode }): 
       {children}
       <FilePreviewHost />
     </>
+  )
+}
+
+const peekIconButtonClass =
+  'text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100'
+
+function PeekToolbar({
+  file,
+  scope,
+  name,
+  onExpand,
+  onHide,
+}: {
+  file: FileItem
+  scope: DocumentScope
+  name: string
+  onExpand: () => void
+  onHide: () => void
+}): JSX.Element {
+  const t = useTranslations('files')
+  const actions = useDocumentActions({ document: file, scope })
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-1 px-2.5">
+      <p className="text-foreground min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
+        {name}
+      </p>
+      <button
+        type="button"
+        onClick={() => void actions.download()}
+        disabled={actions.isDownloading}
+        aria-label={t('preview.download')}
+        title={t('preview.download')}
+        className={`${peekIconButtonClass} disabled:opacity-40`}
+      >
+        <Download className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onExpand}
+        aria-label={t('assignment.expandFile')}
+        title={t('assignment.expandFile')}
+        className={peekIconButtonClass}
+      >
+        <Maximize2 className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onHide}
+        aria-label={t('preview.closePreview')}
+        className={peekIconButtonClass}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
   )
 }

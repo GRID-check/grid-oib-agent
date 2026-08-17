@@ -25,6 +25,7 @@
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
+import { startBrowserDownload } from '@/lib/browser-download'
 import { documentDisplayName, type NamedDocument } from '@/lib/documents/display-name'
 
 /** Which corpus the document belongs to — and so which words and which route. */
@@ -134,9 +135,9 @@ export function useDocumentActions({
 
   /**
    * The download route answers with JSON (`{ downloadUrl }`), not with bytes —
-   * so this fetches the link and then navigates to it. The presigned URL's
-   * `Content-Disposition` is `attachment`, so the browser saves the file
-   * without leaving the page.
+   * so this fetches the link and then starts a browser download. Do not
+   * `location.assign` the presigned URL: if the object store ignores
+   * `Content-Disposition` the whole SPA is replaced by the file (#434).
    */
   const download = useCallback(async (): Promise<void> => {
     setDownloadFailed(false)
@@ -144,14 +145,18 @@ export function useDocumentActions({
     try {
       const res = await fetch(`/api/documents/${document.id}/download`)
       const data = res.ok ? await res.json() : null
-      if (data?.downloadUrl) window.location.assign(data.downloadUrl)
-      else setDownloadFailed(true)
+      if (typeof data?.downloadUrl === 'string' && data.downloadUrl !== '') {
+        startBrowserDownload(
+          data.downloadUrl,
+          typeof data.filename === 'string' && data.filename !== '' ? data.filename : name,
+        )
+      } else setDownloadFailed(true)
     } catch {
       setDownloadFailed(true)
     } finally {
       setIsDownloading(false)
     }
-  }, [document.id])
+  }, [document.id, name])
 
   return {
     name,
