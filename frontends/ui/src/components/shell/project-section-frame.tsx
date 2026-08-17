@@ -101,7 +101,7 @@ export function ProjectSectionFrame({
   projectName: string
   children: ReactNode
 }): JSX.Element {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
   const t = useTranslations('nav')
   const [actions, setActions] = useState<ReactNode>(null)
 
