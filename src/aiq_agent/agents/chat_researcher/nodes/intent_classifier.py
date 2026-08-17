@@ -188,6 +188,9 @@ class IntentClassifier:
         """
         messages = state.messages
         if not messages:
+            from aiq_agent.knowledge.inventory import set_listing_shelf
+
+            set_listing_shelf(None)
             return {
                 "user_intent": IntentResult(intent="research", raw=None),
                 "depth_decision": DepthDecision(decision="deep", raw_reasoning="No query"),
@@ -199,6 +202,18 @@ class IntentClassifier:
         current_datetime = datetime.now().strftime("%Y-%m-%d")
         last_content = messages[-1].content
         query = last_content if isinstance(last_content, str) else str(last_content or "")
+
+        from aiq_agent.knowledge.inventory import listing_intent_override
+        from aiq_agent.knowledge.inventory import set_listing_shelf
+        from aiq_agent.knowledge.inventory import shelf_hint_from_query
+
+        listing_shelf = shelf_hint_from_query(query)
+        set_listing_shelf(listing_shelf)
+        if listing_intent_override(query) == "meta":
+            return {
+                "user_intent": IntentResult(intent="meta", raw={"reason": "shelf-listing"}),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="Shelf listing"),
+            }
 
         system_content = render_prompt_template(
             self.prompt,

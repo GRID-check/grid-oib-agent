@@ -18,27 +18,25 @@ from aiq_agent.common import _create_chat_response
 
 
 class _Doc:
-    """Minimal stand-in for a document summary (only file_name is used)."""
+    """Minimal stand-in for a document summary."""
 
-    def __init__(self, file_name):
+    def __init__(self, file_name, collection=None, shelf=None):
         self.file_name = file_name
+        self.collection = collection
+        self.shelf = shelf
 
     def __eq__(self, other):
-        return isinstance(other, _Doc) and other.file_name == self.file_name
+        return isinstance(other, _Doc) and other.file_name == self.file_name and other.collection == self.collection
 
     def __hash__(self):
-        return hash(self.file_name)
+        return hash((self.collection, self.file_name))
 
     def __repr__(self):
-        return f"_Doc({self.file_name!r})"
+        return f"_Doc({self.file_name!r}, collection={self.collection!r})"
 
 
 def _sequential_reference(collections, per_collection):
-    """The old sequential loop, kept as an oracle for the concurrent version.
-
-    Dedup (first-seen wins) matches the helper; the final result is sorted by
-    file_name to match the helper's stable-across-turns cap ordering.
-    """
+    """Oracle: stamp collection, keep ``(collection, file_name)`` (ADR-0047)."""
     aggregated = []
     seen = set()
     for coll in collections:
@@ -46,11 +44,12 @@ def _sequential_reference(collections, per_collection):
         if docs is None:  # a raising collection contributed nothing
             continue
         for doc in docs:
-            if doc.file_name in seen:
+            key = (coll, doc.file_name)
+            if key in seen:
                 continue
-            seen.add(doc.file_name)
-            aggregated.append(doc)
-    aggregated.sort(key=lambda d: d.file_name)
+            seen.add(key)
+            aggregated.append(_Doc(doc.file_name, collection=coll, shelf=getattr(doc, "shelf", None)))
+    aggregated.sort(key=lambda d: (d.file_name.lower(), d.collection or ""))
     return aggregated
 
 
@@ -86,7 +85,7 @@ class TestAggregateDocumentsAcrossCollections:
         assert result == _sequential_reference(collections, per_collection)
         assert [d.file_name for d in result] == ["a.pdf", "b.pdf", "c.pdf"]
 
-    def test_dedup_first_seen_wins_across_collections(self):
+    def test_same_filename_on_two_collections_is_kept_twice(self):
         collections = ["base", "session"]
         per_collection = {
             "base": [_Doc("dup.pdf"), _Doc("a.pdf")],
@@ -94,8 +93,12 @@ class TestAggregateDocumentsAcrossCollections:
         }
         result, _ = self._run(collections, per_collection)
         assert result == _sequential_reference(collections, per_collection)
-        # dup.pdf appears once (first-seen dedup); final order is file_name-sorted.
-        assert [d.file_name for d in result] == ["a.pdf", "b.pdf", "dup.pdf"]
+        assert [(d.collection, d.file_name) for d in result] == [
+            ("base", "a.pdf"),
+            ("session", "b.pdf"),
+            ("base", "dup.pdf"),
+            ("session", "dup.pdf"),
+        ]
 
     def test_dedup_within_a_single_collection(self):
         collections = ["base"]
@@ -160,6 +163,28 @@ class TestAggregateDocumentsAcrossCollections:
 
         result = asyncio.run(_aggregate_documents_across_collections(["base"], fetch_one))
         assert [d.file_name for d in result] == ["a.pdf", "m.pdf", "z.pdf"]
+        assert all(d.collection == "base" for d in result)
+
+    def test_user_shelf_survives_a_cap_that_would_have_been_all_oib(self):
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.scoping import ScopedCollection
+
+        async def fetch_one(coll):
+            if coll == "oib_knowledge":
+                return [_Doc(f"oib-{i:02d}.pdf") for i in range(20)]
+            return [_Doc("Buero-Standard.pdf")]
+
+        result = asyncio.run(
+            _aggregate_documents_across_collections(
+                [
+                    ScopedCollection("oib_knowledge", Shelf.BASE),
+                    ScopedCollection("archiv_org", Shelf.ARCHIV),
+                ],
+                fetch_one,
+                max_documents=5,
+            )
+        )
+        assert any(d.file_name == "Buero-Standard.pdf" and d.shelf == "archiv" for d in result)
 
     def test_caps_to_max_documents_keeping_lowest_sorted(self):
         async def fetch_one(coll):

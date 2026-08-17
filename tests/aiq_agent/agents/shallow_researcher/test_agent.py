@@ -863,6 +863,11 @@ class TestShallowResearcherSourceRegistryGating:
             assert _is_search_tool("mcp__emit_card") is False
             # A genuine evidence tool under the same group → search.
             assert _is_search_tool("mcp__web_fetch") is True
+            # File-discovery tools are not in the data-source registry but they
+            # still mix shelves on a listing turn — drop them on meta.
+            assert _is_search_tool("surface_documents") is True
+            assert _is_search_tool("ifc_query") is True
+            assert _is_search_tool("ifc_measure") is True
         finally:
             reset_registry()
 
@@ -2077,9 +2082,33 @@ class TestKnowledgeInventoryIsNotCitable:
             "shallow_researcher/prompts/researcher.j2",
             "deep_researcher/prompts/researcher.j2",
             "deep_researcher/prompts/orchestrator.j2",
+            "deep_researcher/prompts/planner.j2",
+            "deep_researcher/prompts/source_router.j2",
         ):
             source = self._prompt(path)
             assert "Uploaded Documents" not in source, path
+
+    def test_shallow_prompt_teaches_the_four_shelves(self):
+        source = self._prompt("shallow_researcher/prompts/researcher.j2")
+        assert "<knowledge_shelves>" in source
+        assert "Büroarchiv" in source
+        assert "NEVER the OIB corpus" in source
+        assert "which files sit on which shelf" in source
+
+    def test_grouped_inventory_does_not_mix_oib_into_archiv(self):
+        documents = [
+            {"file_name": "oib-rl_2.pdf", "summary": "Brandschutz.", "shelf": "base", "collection": "oib_knowledge"},
+            {
+                "file_name": "Buero-Standard.pdf",
+                "summary": "Detail.",
+                "shelf": "archiv",
+                "collection": "archiv_org",
+            },
+        ]
+        rendered = self._render(self._prompt("shallow_researcher/prompts/researcher.j2"), documents)
+        archiv = rendered.split("### Büroarchiv", 1)[1].split("### ", 1)[0]
+        assert "Buero-Standard.pdf" in archiv
+        assert "oib-rl_2.pdf" not in archiv
 
 
 class TestTheModelCardsAreActuallyAskedFor:

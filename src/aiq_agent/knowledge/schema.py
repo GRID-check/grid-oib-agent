@@ -243,10 +243,13 @@ class IngestionJobStatus(BaseModel):
 
 
 class AvailableDocument(BaseModel):
-    """Represents a user-uploaded document with optional summary.
+    """One searchable document the agent may list in this turn.
 
-    This model provides context about available documents to research agents
-    so they can prioritize internal document searches.
+    Identity is ``(collection, file_name)`` (ADR-0047): the same filename can
+    sit on the Büroarchiv and in a project as two different documents. ``shelf``
+    is where it sits (``archiv`` / ``project`` / ``session`` / ``base``) and is
+    stamped at aggregation from the signed scope — never guessed back from the
+    filename. Missing shelf is unknown, not ``base``.
 
     Attributes:
         file_name: The name of the uploaded file.
@@ -258,6 +261,9 @@ class AvailableDocument(BaseModel):
         display_title: Optional user-facing document name shown on citation chips
             and in the base-corpus admin UI. When unset, callers fall back to the
             derived default (``guess_display_title``); the filename is never shown.
+        collection: The RAG collection this row was loaded from.
+        shelf: Wire shelf (ADR-0047). Rendering-only labels live on
+            ``SHELF_QUALIFIERS``; do not infer this from ``collection``.
     """
 
     file_name: str
@@ -265,3 +271,5 @@ class AvailableDocument(BaseModel):
     tags: list[str] | None = None
     doc_class: str | None = None
     display_title: str | None = None
+    collection: str | None = None
+    shelf: str | None = None

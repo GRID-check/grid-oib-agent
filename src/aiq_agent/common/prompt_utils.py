@@ -58,6 +58,10 @@ def render_prompt_template(template: str, **kwargs: Any) -> str:
     """
     Render a Jinja2 template with the given variables.
 
+    When the caller passes ``available_documents`` and does not already supply
+    ``document_inventory``, the shelf-grouped inventory block is injected so
+    every agent prompt that lists files uses the same grouping (ADR-0047).
+
     Args:
         template: The template string.
         **kwargs: Variables to substitute in the template.
@@ -68,6 +72,18 @@ def render_prompt_template(template: str, **kwargs: Any) -> str:
     Raises:
         PromptError: If template rendering fails.
     """
+    if "document_inventory" not in kwargs:
+        from aiq_agent.knowledge.inventory import get_listing_shelf
+        from aiq_agent.knowledge.inventory import in_scope_shelves_from_context
+        from aiq_agent.knowledge.inventory import render_inventory_block
+
+        docs = kwargs.get("available_documents") or []
+        scoped = in_scope_shelves_from_context()
+        kwargs["document_inventory"] = render_inventory_block(
+            docs,
+            in_scope_shelves=scoped or None,
+            focus_shelf=get_listing_shelf(),
+        )
     try:
         return _compile_template(template).render(**kwargs)
     except jinja2.TemplateError as e:

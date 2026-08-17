@@ -458,7 +458,8 @@ side-table** (`DocumentMetadataStore`,
 get_available_documents_async`; formerly the `document_metadata` table / `SummaryStore`,
 renamed because it now holds summary + tags + `doc_class` + `display_title`) that
 is the **sole source** of the `available_documents` list (file name + summary,
-optionally tags, doc_class, and the user-facing `display_title`) rendered into
+optionally tags, doc_class, the user-facing `display_title`, plus the
+`collection` and ADR-0047 `shelf` stamped at aggregation) rendered into
 agent prompts and shown in the Data Sources panel. A document could
 previously end up fully ingested and retrievable via `knowledge_search` yet
 **absent** from `available_documents` — see "Silent summary-row loss on
@@ -466,11 +467,18 @@ double LLM failure" below for the fix that closed the practical case of
 this.
 
 `available_documents` is fetched **once per turn**, in
-`chat_researcher/register.py` (~lines 530–581), aggregated across the
-collections in the request's header-based scope (or the base + session
-collection fallback when no scope header is present) and deduplicated by file
-name. The same list is then shared by the shallow, clarifier, and deep-research
-paths for that turn — it is not re-fetched per node.
+`chat_researcher/register.py`, aggregated across the collections in the
+request's header-based scope (or the base + session collection fallback when
+no scope header is present). Identity is `(collection, file_name)` — the same
+filename on the Büroarchiv and in a project is two documents (ADR-0047). The
+cap (`GRID_AVAILABLE_DOCUMENTS_MAX`) keeps user-shelf files (archiv / project
+/ session) first so the OIB corpus cannot evict them; a previous
+sort-then-slice let ~40 OIB filenames eat the window and made "welche Dateien
+hast du im Büroarchiv" answer from Basiswissen. The prompt block is grouped
+by shelf (`aiq_agent.knowledge.inventory.render_inventory_block`) and empty
+in-scope shelves render as empty rather than being omitted. The same list is
+then shared by the shallow, clarifier, and deep-research paths for that turn
+— it is not re-fetched per node.
 
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
 prompts (`agents/deep_researcher/prompts/planner.j2`,

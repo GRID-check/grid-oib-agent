@@ -71,6 +71,11 @@ AGENT_DIR = Path(__file__).parent
 # never loses the tool it was routed here to use.
 _INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card"})
 
+# File-discovery tools that are NOT data-source registry entries, but still
+# mix shelves if they stay bound on a listing/meta turn (the IFC models in
+# "was hast du im Archiv" never came from available_documents).
+_FILE_DISCOVERY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_measure"})
+
 # Function-group separators used by NAT-qualified tool names, mirroring
 # ``data_source_registry._GROUP_SEPARATORS``.
 _TOOL_NAME_SEPARATORS = ("__", ".")
@@ -96,6 +101,8 @@ def _is_search_tool(tool_name: str) -> bool:
     """
     if _tool_basename(tool_name) in _INTERACTION_TOOL_BASENAMES:
         return False
+    if _tool_basename(tool_name) in _FILE_DISCOVERY_BASENAMES:
+        return True
     return get_source_id_for_tool(tool_name) is not None
 
 
