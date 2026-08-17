@@ -35,7 +35,7 @@ vi.mock('./file-preview-pane', async () => {
   }
 })
 
-import { FilePreviewHost } from './file-preview-host'
+import { FilePreviewBridge, FilePreviewHost } from './file-preview-host'
 
 const FILE: FileItem = {
   id: 'doc-1',
@@ -90,15 +90,40 @@ describe('FilePreviewHost', () => {
 
   it('does not remount the pane when the chat route lands', () => {
     useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
-    const { rerender } = render(<FilePreviewHost />)
+    const { rerender } = render(
+      <FilePreviewBridge>
+        <div>chat transcript</div>
+      </FilePreviewBridge>,
+    )
     expect(pane.mounts).toBe(1)
+    expect(screen.getByTestId('file-preview-host')).toHaveAttribute('data-mode', 'parked')
 
     nav.pathname = '/app/projects/p1/chat'
-    rerender(<FilePreviewHost />)
+    rerender(
+      <FilePreviewBridge>
+        <div>chat transcript</div>
+      </FilePreviewBridge>,
+    )
 
     expect(pane.mounts).toBe(1)
     expect(screen.getByTestId('file-preview-host')).toHaveAttribute('data-mode', 'peek')
     expect(screen.getByRole('complementary')).toBeInTheDocument()
+    expect(screen.getByText('chat transcript')).toBeVisible()
+  })
+
+  it('peeks as a split pane so chat children stay visible', () => {
+    nav.pathname = '/app/projects/p1/chat'
+    useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+    render(
+      <FilePreviewBridge>
+        <div>chat transcript</div>
+      </FilePreviewBridge>,
+    )
+
+    expect(screen.getByTestId('file-preview-host')).toHaveAttribute('data-mode', 'peek')
+    expect(screen.getByRole('complementary')).toBeInTheDocument()
+    expect(screen.getByText('chat transcript')).toBeVisible()
+    expect(screen.getByRole('separator')).toBeInTheDocument()
   })
 
   it('still shows the Files modal and unmounts only when the file is closed', () => {
@@ -122,5 +147,45 @@ describe('FilePreviewHost', () => {
     expect(screen.getByTestId('file-preview-host')).toHaveAttribute('data-mode', 'parked')
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
     expect(screen.getByTestId('file-preview-pane')).toBeInTheDocument()
+  })
+
+  it('hides the split and parks the pane without dropping the file', () => {
+    nav.pathname = '/app/projects/p1/chat'
+    useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+    const { rerender } = render(
+      <FilePreviewBridge>
+        <div>chat transcript</div>
+      </FilePreviewBridge>,
+    )
+    expect(screen.getByRole('complementary')).toBeInTheDocument()
+
+    useFilePreviewStore.getState().hide()
+    rerender(
+      <FilePreviewBridge>
+        <div>chat transcript</div>
+      </FilePreviewBridge>,
+    )
+
+    expect(screen.getByTestId('file-preview-host')).toHaveAttribute('data-mode', 'parked')
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+    expect(screen.getByText('chat transcript')).toBeVisible()
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    expect(pane.mounts).toBe(1)
+  })
+
+  it('expands on chat as a dialog overlay, not a split', () => {
+    nav.pathname = '/app/projects/p1/chat'
+    useFilePreviewStore.getState().open(FILE, 'expanded', { projectId: 'p1' })
+    render(
+      <FilePreviewBridge>
+        <div>chat transcript</div>
+      </FilePreviewBridge>,
+    )
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByTestId('file-preview-host')).toHaveAttribute('data-mode', 'expanded')
+    expect(screen.getByText('chat transcript')).toBeVisible()
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
   })
 })

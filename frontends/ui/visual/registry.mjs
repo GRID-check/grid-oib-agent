@@ -271,6 +271,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'h1',
   },
   {
+    id: 'project-chrome',
+    mobile: true,
+    path: '/dev/project-chrome',
+    description:
+      'Shared project section chrome — breadcrumb + title + subtitle + actions — every section that uses it, grouped as Work (Files, History), Automate (Jobs, Skills), Project (Knowledge, Settings, Setup) and Organization (Archiv, Inbox). Chat is the documented exception and is not shown.',
+    waitFor: '[data-testid="project-chrome-preview"]',
+  },
+  {
     id: 'shortcuts',
     mobile: true,
     path: '/dev/shortcuts',

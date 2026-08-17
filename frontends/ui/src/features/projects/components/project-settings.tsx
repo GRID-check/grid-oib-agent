@@ -34,6 +34,7 @@ import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectMemoryPanel } from './project-memory-panel'
 import { ProjectRenameButton } from './project-rename-button'
 import { ProjectMembersForm } from '@/components/projects/project-members-form'
+import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -79,35 +80,37 @@ export function ProjectSettings({
   }
 
   return (
-    <Stagger className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:space-y-10 md:px-8 md:py-10">
-      {/* Header: eyebrow + name + rename. Soft-deleted projects 404 in the
-          layout, so a project rendered here is by definition active. */}
+    <Stagger className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:space-y-10 md:px-8">
+      {showKnowledgeLink && (
+        <ProjectSectionActions>
+          <Link
+            href={`/app/projects/${data.id}/knowledge`}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground touch-target"
+          >
+            <BookOpenCheck className="size-4" aria-hidden />
+            {t('project.knowledgeLink')}
+          </Link>
+        </ProjectSectionActions>
+      )}
+
+      {/* Identity row: name + rename + created date. The page title is
+          "Settings" in the shared layout chrome; the project name already
+          lives in the sidebar switcher and the breadcrumb. */}
       <StaggerItem>
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <SectionLabel>{t('project.eyebrow')}</SectionLabel>
-            <div className="mt-1 flex min-w-0 items-center gap-2">
-              <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">{data.name}</h1>
-              {canManageProject && (
-                <ProjectRenameButton projectId={data.id} projectName={data.name} />
-              )}
-            </div>
-            {createdLabel && (
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t('project.createdOn', { date: createdLabel })}
-              </p>
+        <div className="min-w-0">
+          <SectionLabel>{t('project.eyebrow')}</SectionLabel>
+          <div className="mt-1 flex min-w-0 items-center gap-2">
+            <p className="min-w-0 truncate text-lg font-semibold tracking-tight">{data.name}</p>
+            {canManageProject && (
+              <ProjectRenameButton projectId={data.id} projectName={data.name} />
             )}
           </div>
-          {showKnowledgeLink && (
-            <Link
-              href={`/app/projects/${data.id}/knowledge`}
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground touch-target"
-            >
-              <BookOpenCheck className="size-4" aria-hidden />
-              {t('project.knowledgeLink')}
-            </Link>
+          {createdLabel && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('project.createdOn', { date: createdLabel })}
+            </p>
           )}
-        </header>
+        </div>
       </StaggerItem>
 
       {/* Top grid, the dummy's card chrome: the single project-profile card

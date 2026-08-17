@@ -6,7 +6,7 @@ import { getNavFlags } from '@/lib/authz/nav'
 import { isIfcModelsEnabled, isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { listProjects } from '@/lib/projects/service'
-import { AppSidebar, NavigationTrailLabel } from '@/components/shell'
+import { AppSidebar, NavigationTrailLabel, ProjectSectionFrame } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { RouteFocus } from '@/shared/components/route-focus'
 import { isAuthRequired } from '@/lib/auth/auth-required'
@@ -108,10 +108,14 @@ export default async function ProjectLayout({
         <main
           id="main-content"
           tabIndex={-1}
-          className="bg-background relative min-w-0 flex-1 overflow-y-auto outline-none"
+          className="bg-background relative flex min-w-0 flex-1 flex-col overflow-hidden outline-none"
         >
           <RouteFocus />
-          <FilePreviewBridge>{children}</FilePreviewBridge>
+          <FilePreviewBridge>
+            <ProjectSectionFrame projectId={id} projectName={current.name}>
+              {children}
+            </ProjectSectionFrame>
+          </FilePreviewBridge>
         </main>
       </div>
     )

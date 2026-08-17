@@ -30,6 +30,11 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// The real portal lands in the layout header; unit tests have no slot.
+vi.mock('@/components/shell/project-section-frame', () => ({
+  ProjectSectionActions: ({ children }: { children: ReactNode }) => children,
+}))
+
 const conversation = (id: string, title: string | null, updatedAt: string) => ({
   id,
   title,

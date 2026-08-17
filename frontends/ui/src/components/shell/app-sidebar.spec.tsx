@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react'
-import { render, screen } from '@/test-utils'
-import { vi, describe, test, expect } from 'vitest'
+import { forwardRef, type AnchorHTMLAttributes, type ReactNode } from 'react'
+import { render, screen, act } from '@/test-utils'
+import { vi, describe, test, expect, afterEach } from 'vitest'
+import { useIsMobile } from '@/hooks/use-is-mobile'
+import { useLayoutStore } from '@/features/layout/store'
 import { AppSidebar } from './app-sidebar'
 
 // Isolate the nav-filtering logic from routing and the shell's sibling widgets.
@@ -9,11 +11,16 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('next/link', () => ({
-  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
+  default: forwardRef<
+    HTMLAnchorElement,
+    { href: string; children: ReactNode } & AnchorHTMLAttributes<HTMLAnchorElement>
+  >(function MockLink({ href, children, ...rest }, ref) {
+    return (
+      <a ref={ref} href={href} {...rest}>
+        {children}
+      </a>
+    )
+  }),
 }))
 
 vi.mock('@/hooks/use-last-project-section', () => ({
@@ -28,6 +35,10 @@ vi.mock('./connection-presence-indicator', () => ({
 }))
 vi.mock('@/components/brand/logo', () => ({ Logo: () => <div /> }))
 
+vi.mock('@/hooks/use-is-mobile', () => ({
+  useIsMobile: vi.fn(() => false),
+}))
+
 const baseProps = {
   projectId: 'p1',
   projects: [{ id: 'p1', name: 'Project One' }],
@@ -38,6 +49,11 @@ const baseProps = {
   // no signed-in member of an org is in.
   canAccessInbox: true,
 }
+
+afterEach(() => {
+  vi.mocked(useIsMobile).mockReturnValue(false)
+  useLayoutStore.setState({ isMobileNavOpen: false })
+})
 
 describe('the Inbox entry follows canAccessInbox, in both directions', () => {
   // Both states, because the prop was optional and defaulting to `false` meant
@@ -131,20 +147,16 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     expect(screen.queryByText('Archiv')).not.toBeInTheDocument()
   })
 
-  test('orders Archiv last in the section nav (after History, above Settings)', () => {
+  test('orders Ask Piloti first and Inbox last in the section nav', () => {
     const { container } = render(<AppSidebar {...baseProps} canAccessArchiv />)
-    // Scope to the desktop rail's section nav to avoid the mobile drawer copy.
-    const nav = container.querySelector('aside nav')
+    // Scope to the rail's section nav so the wordmark / Settings footer stay out.
+    const nav = container.querySelector('[data-sidebar="content"] nav')
     expect(nav).not.toBeNull()
     const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
-    // Inbox last, per the documented rail order in `project-sections.ts`
-    // ("Files · Ask Piloti · History · Skills* · Jobs* · Archiv* · Inbox*").
-    // This expectation omitted Inbox because the fixture omitted
-    // `canAccessInbox` and the prop defaulted to `false` — the test was pinning
-    // the hidden state. Skills and Jobs are absent here for the same reason
-    // (`showSkills` off), which is exactly why Files leads: they are the two
-    // sections most orgs never switch on, and they used to outrank it.
-    expect(labels).toEqual(['Files', 'Ask Piloti', 'History', 'Archiv', 'Inbox'])
+    // Ask Piloti · Files · History · Jobs* · Skills* · Archiv* · Inbox*,
+    // per `project-sections.ts`. Skills and Jobs are absent here because
+    // `showSkills` is off.
+    expect(labels).toEqual(['Ask Piloti', 'Files', 'History', 'Archiv', 'Inbox'])
   })
 })
 
@@ -168,5 +180,20 @@ describe('AppSidebar - active state', () => {
     for (const link of settingsLinks) {
       expect(link).not.toHaveAttribute('aria-current')
     }
+  })
+})
+
+describe('AppSidebar - layout store mobile nav sync', () => {
+  test('opens the primitive sheet when the chat toolbar sets the store', async () => {
+    vi.mocked(useIsMobile).mockReturnValue(true)
+    render(<AppSidebar {...baseProps} />)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await act(async () => {
+      useLayoutStore.getState().setMobileNavOpen(true)
+    })
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getAllByText('Ask Piloti').length).toBeGreaterThan(0)
   })
 })

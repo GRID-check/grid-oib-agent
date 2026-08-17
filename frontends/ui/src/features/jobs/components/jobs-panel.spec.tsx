@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@/test-utils'
 
@@ -19,6 +20,11 @@ vi.mock('@/adapters/api/jobs-client', async (importActual) => {
 // Toasts are asserted through the mock (no <Toaster /> in these renders).
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+}))
+
+// The real portal lands in the layout header; unit tests have no slot.
+vi.mock('@/components/shell/project-section-frame', () => ({
+  ProjectSectionActions: ({ children }: { children: ReactNode }) => children,
 }))
 
 // "Run now" offers a toast action that navigates into the running job.
@@ -396,11 +402,11 @@ describe('JobsPanel', () => {
     listAttachableSkillsMock.mockResolvedValue([chatSkill])
   })
 
-  test('list mode renders the header and the jobs', async () => {
+  test('list mode renders the jobs', async () => {
     listJobsMock.mockResolvedValue([sampleJob])
     render(<JobsPanel projectId="p1" projectCollection="proj_1" canManage />)
 
-    expect(screen.getByRole('heading', { name: 'Jobs', level: 1 })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Jobs', level: 1 })).not.toBeInTheDocument()
     expect(await screen.findByText('Weekly OIB scan')).toBeInTheDocument()
   })
 
@@ -409,7 +415,7 @@ describe('JobsPanel', () => {
     render(<JobsPanel projectId="p1" projectCollection="proj_1" canManage />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'New job' }))
-    expect(await screen.findByText('New job')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Back to jobs' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(await screen.findByText('No jobs yet')).toBeInTheDocument()
   })

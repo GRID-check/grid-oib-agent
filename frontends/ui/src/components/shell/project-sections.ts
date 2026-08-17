@@ -25,24 +25,20 @@ import {
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Files · Ask Piloti · History · Skills* · Jobs* · Archiv* ·
+ * separately): Ask Piloti · Files · History · Jobs* · Skills* · Archiv* ·
  * Inbox*.
  *
- * The order is a claim about importance, and it was wrong. Skills and Jobs sat
- * second and third — above the project's documents — because they were built
- * last and got appended after the thing they were near in the code. They are
- * the two sections a project can go months without opening: a skill is a
- * convenience for people who write skills, and a job is a timer. Files is what
- * a project IS. So Files leads, the work surfaces follow, and the two
- * configuration-shaped sections sit at the bottom, just above the cross-project
- * doorways (Archiv, Inbox) that have always hugged the pinned Settings.
+ * Ask Piloti is the primary job-to-be-done and leads. Files and History are
+ * the other work surfaces. Jobs then Skills are setup you rarely open (Jobs is
+ * project work; Skills is the org toolbox). Archiv then Inbox are
+ * cross-project doorways; Inbox is last because the badge already draws the
+ * eye. Settings stays pinned at the bottom.
  *
  * There is deliberately no Model entry: an IFC is a file, it opens
  * from the Files grid, and a second rail item for one file type was a
- * destination nobody navigated to. The palette additionally surfaces the palette-only destinations
- * Knowledge* and Setup (intake). A `*` marks a flag-gated section.
- *
- * deployment never sees both sections.
+ * destination nobody navigated to. The palette additionally surfaces the
+ * palette-only destinations Knowledge* and Setup (intake). A `*` marks a
+ * flag-gated section.
  */
 
 export type ProjectSectionKey =
@@ -56,6 +52,9 @@ export type ProjectSectionKey =
   | 'inbox'
   | 'intake'
   | 'settings'
+
+/** How the rail groups consecutive visible items. Palette-only destinations omit this. */
+export type ProjectNavGroup = 'work' | 'automate' | 'org'
 
 /** The feature flags that gate individual project sections. */
 export interface ProjectSectionFlags {
@@ -118,22 +117,13 @@ export interface ProjectSection {
    * shell, not from muscle memory).
    */
   shortcutKey?: string
+  /** Rail group. Omit on palette-only destinations (Knowledge, Setup). */
+  group?: ProjectNavGroup
 }
 
 // Ordered once; both surfaces derive their lists by filtering this array, so
 // the shared order (and any future insertion) stays consistent everywhere.
 const PROJECT_SECTIONS: readonly ProjectSection[] = [
-  {
-    // First, because it is what a project is: its documents. This used to be
-    // fourth, behind two flag-gated sections most orgs never switch on.
-    key: 'files',
-    segment: 'files',
-    icon: Folder,
-    i18nKey: 'files',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'f',
-  },
   {
     key: 'chat',
     segment: 'chat',
@@ -142,6 +132,17 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'c',
+    group: 'work',
+  },
+  {
+    key: 'files',
+    segment: 'files',
+    icon: Folder,
+    i18nKey: 'files',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'f',
+    group: 'work',
   },
   {
     key: 'knowledge',
@@ -162,25 +163,12 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'h',
+    group: 'work',
   },
   {
-    // Skills and Jobs are the bottom of the project sections, and they are
-    // there on purpose: both are things you set up once and then rarely look
-    // at again. Neither is where the work happens.
-    key: 'skills',
-    segment: 'skills',
-    icon: Sparkles,
-    i18nKey: 'skills',
-    gate: 'showSkills',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'w',
-  },
-  {
-    // Jobs sit next to Skills because that is the relationship: a job is a
-    // prompt on a timer that MAY attach a skill. Same `showSkills` gate —
-    // the two ship together, and a job builder whose skill picker resolves
-    // nothing is not worth having on its own.
+    // Jobs sit before Skills: a job is a prompt this project runs on a timer.
+    // Same `showSkills` gate — the two ship together, and a job builder whose
+    // skill picker resolves nothing is not worth having on its own.
     key: 'jobs',
     segment: 'jobs',
     icon: Repeat,
@@ -189,11 +177,23 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'j',
+    group: 'automate',
+  },
+  {
+    // The org toolbox: reusable instructions written once, used from any project.
+    key: 'skills',
+    segment: 'skills',
+    icon: Sparkles,
+    i18nKey: 'skills',
+    gate: 'showSkills',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'w',
+    group: 'automate',
   },
   {
     // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the entry is a
-    // cross-project doorway, not a project subpage. Kept last so it hugs the
-    // bottom of the rail's section nav, just above the pinned Settings.
+    // cross-project doorway, not a project subpage.
     key: 'archiv',
     segment: null,
     href: '/app/archiv',
@@ -203,12 +203,14 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'a',
+    group: 'org',
   },
   {
     // The inbox (ADR-0035): one per user per organization, so — like the Archiv —
     // it keeps an org-scoped route and reads as a cross-project doorway rather
     // than a project subpage. IB-18 wants it reachable from anywhere in the app,
-    // which is what a standing rail entry (plus its badge) delivers.
+    // which is what a standing rail entry (plus its badge) delivers. Last in the
+    // section nav because the badge already draws the eye.
     //
     // Rail-only for now: the ⌘K palette labels every command from
     // `nav.sections.*`, and the inbox's copy lives in the collaboration
@@ -223,6 +225,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: false,
     shortcutKey: 'i',
+    group: 'org',
   },
   {
     // The intake wizard ("Setup"). Palette-only — the rail reaches it via the
@@ -263,6 +266,25 @@ function isVisible(section: ProjectSection, flags: ProjectSectionFlags): boolean
  */
 export function railSections(flags: ProjectSectionFlags): ProjectSection[] {
   return PROJECT_SECTIONS.filter((section) => section.inRail && isVisible(section, flags))
+}
+
+/**
+ * The rail's scrollable section nav, bucketed into consecutive groups.
+ * Empty groups (every member gated off) are omitted.
+ */
+export function railGroups(flags: ProjectSectionFlags): { group: ProjectNavGroup; items: ProjectSection[] }[] {
+  const groups: { group: ProjectNavGroup; items: ProjectSection[] }[] = []
+  for (const item of railSections(flags)) {
+    const { group } = item
+    if (!group) continue
+    const last = groups.at(-1)
+    if (last?.group === group) {
+      last.items.push(item)
+    } else {
+      groups.push({ group, items: [item] })
+    }
+  }
+  return groups
 }
 
 /**

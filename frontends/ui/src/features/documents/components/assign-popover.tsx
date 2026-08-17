@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useChatStore } from '@/features/chat'
 import { useTranslations } from '@/i18n'
@@ -133,11 +134,12 @@ export function AssignPopover({
             {t('assignment.assignToMe')}
           </Button>
         )}
-        <input
+        <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t('assignment.to')}
-          className="h-8 w-full rounded-md border bg-background px-2 text-sm"
+          aria-label={t('assignment.to')}
+          className="h-8"
           disabled={busy}
         />
         <div className="max-h-52 space-y-0.5 overflow-y-auto">
