@@ -407,6 +407,13 @@ export async function parseFormData(request: Request): Promise<FormData> {
   try {
     return await request.formData()
   } catch (error) {
+    // Next throws TypeError for a missing/wrong Content-Type as well as for
+    // a body past the transport ceiling. A 413 is only honest for the
+    // latter; anything else is a bad request, not "file too large" (#368).
+    const message = error instanceof Error ? error.message : ''
+    if (/formdata/i.test(message) && !/size|limit|large/i.test(message)) {
+      throw new BadRequestError('Request body is not multipart form data')
+    }
     if (error instanceof TypeError) {
       throw new PayloadTooLargeError(requestBodyLimitBytes())
     }
