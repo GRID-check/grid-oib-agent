@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { DocumentStatusBadge } from './document-status'
@@ -31,11 +31,13 @@ interface FileListViewProps {
   files: FileItem[]
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
+  /** Per-row file operations. Clicks here must not select the row. */
+  renderActions?: (file: FileItem) => ReactNode
 }
 
 const DEFAULT_SORT: FileSort = { key: 'added', direction: 'desc' }
 
-export function FileListView({ files, selectedFileId, onSelectFile }: FileListViewProps) {
+export function FileListView({ files, selectedFileId, onSelectFile, renderActions }: FileListViewProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [sort, setSort] = useState<FileSort>(DEFAULT_SORT)
@@ -109,6 +111,7 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
               align="right"
               className="hidden w-[120px] md:table-cell"
             />
+            {renderActions && <th scope="col" className="w-10 border-b" />}
           </tr>
         </thead>
         <tbody ref={bodyRef}>
@@ -177,6 +180,15 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
                     {formatRelativeTime(file.createdAt, locale)}
                   </time>
                 </td>
+                {renderActions && (
+                  <td
+                    className="border-b px-1 py-1.5 text-right"
+                    onClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    {renderActions(file)}
+                  </td>
+                )}
               </tr>
             )
           })}

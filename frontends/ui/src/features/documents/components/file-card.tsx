@@ -183,6 +183,12 @@ export interface FileCardProps {
   hideFooter?: boolean
   /** Override the card's test id (e.g. the Archiv surface keeps its own). */
   testId?: string
+  /**
+   * Rename / delete / download, rendered on the card so the reader does not
+   * have to open the preview to act on a file (#435). Must be a control of
+   * its own — this card is a `<button>`, so the slot sits beside it.
+   */
+  actions?: ReactNode
 }
 
 /**
@@ -207,6 +213,7 @@ export function FileCard({
   footerLead,
   hideFooter,
   testId = 'file-card',
+  actions,
 }: FileCardProps) {
   const t = useTranslations('files')
   const name = documentDisplayName(file)
@@ -222,11 +229,20 @@ export function FileCard({
 
   return (
     <motion.div
-      className="h-full min-w-0"
+      className="group/card relative h-full min-w-0"
       whileHover={{ y: -3 }}
       whileTap={{ scale: 0.985 }}
       transition={springSnappy}
     >
+      {actions && (
+        <div
+          className="absolute left-1.5 top-1.5 z-10"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {actions}
+        </div>
+      )}
       <button
         type="button"
         onClick={onSelect}

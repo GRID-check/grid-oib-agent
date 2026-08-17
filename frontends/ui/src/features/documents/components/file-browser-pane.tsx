@@ -51,6 +51,8 @@ interface FileBrowserPaneProps {
    */
   view?: 'cards' | 'list'
   showAssignment?: boolean
+  /** Per-file rename / delete / download — shown on the card and the list row. */
+  renderActions?: (file: FileItem) => ReactNode
 }
 
 export function FileBrowserPane({
@@ -67,6 +69,7 @@ export function FileBrowserPane({
   projectId,
   view = 'cards',
   showAssignment = false,
+  renderActions,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -242,6 +245,7 @@ export function FileBrowserPane({
                   locale={locale}
                   match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
                   footerLead={showAssignment ? <AssignmentFaces assignees={hit.assignees} /> : undefined}
+                  actions={renderActions?.(hit)}
                 />
               ))}
             </FileGrid>
@@ -268,6 +272,7 @@ export function FileBrowserPane({
             files={filteredFiles}
             selectedFileId={selectedFileId}
             onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+            renderActions={renderActions}
           />
         ) : (
           <div className="p-4">
@@ -288,6 +293,7 @@ export function FileBrowserPane({
                   onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
                   locale={locale}
                   footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
+                  actions={renderActions?.(file)}
                 />
               ))}
               {uploadCard}
