@@ -17,16 +17,20 @@
  */
 
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, History, RotateCcw, Search, ShieldCheck } from 'lucide-react'
+import { ChevronDown, History, RotateCcw, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Item } from '@/components/ui/item'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { SearchField } from '@/components/ui/search-field'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -74,6 +78,7 @@ const ModelPicker: FC<{
   const [models, setModels] = useState<ModelDto[] | null>(null)
   const [loading, setLoading] = useState(true)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const search = useCallback(
     (q: string) => {
@@ -95,6 +100,10 @@ const ModelPicker: FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.id, epoch])
 
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
   const onQueryChange = (value: string): void => {
     setQuery(value)
     if (debounce.current) clearTimeout(debounce.current)
@@ -103,43 +112,43 @@ const ModelPicker: FC<{
 
   return (
     <div className="flex w-80 max-w-[calc(100vw-3rem)] flex-col">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" aria-hidden />
-        <Input
-          autoFocus
-          className="pl-8"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder={t('models.searchPlaceholder')}
-          aria-label={t('models.searchPlaceholder')}
-        />
-      </div>
-      <div className="mt-2 max-h-64 overflow-y-auto" role="listbox">
-        {loading && <Spinner className="mx-auto my-6" />}
-        {!loading && models === null && (
-          <p className="px-2 py-4 text-sm text-destructive">{t('models.loadError')}</p>
-        )}
-        {!loading && models?.length === 0 && (
-          <p className="px-2 py-4 text-sm text-muted-foreground">{t('models.noResults')}</p>
-        )}
-        {!loading &&
-          models?.map((model) => (
-            <button
-              key={model.id}
-              type="button"
-              role="option"
-              aria-selected="false"
-              className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-              onClick={() => onPick(model.id)}
-            >
-              <span className="truncate font-mono text-sm">{model.id}</span>
-              <span className="text-xs text-muted-foreground">
-                {t('models.contextWindow')} {formatContext(model.contextLength)} · {perMillion(model.promptPrice)} in
-                · {perMillion(model.completionPrice)} out / M tokens
-              </span>
-            </button>
-          ))}
-      </div>
+      <SearchField
+        type="text"
+        value={query}
+        onChange={onQueryChange}
+        placeholder={t('models.searchPlaceholder')}
+        label={t('models.searchPlaceholder')}
+        inputRef={inputRef}
+      />
+      <ScrollArea className="mt-2 h-64">
+        <div role="listbox">
+          {loading && <Spinner className="mx-auto my-6" />}
+          {!loading && models === null && (
+            <p className="px-2 py-4 text-sm text-destructive">{t('models.loadError')}</p>
+          )}
+          {!loading && models?.length === 0 && (
+            <EmptyState variant="bare" title={t('models.noResults')} />
+          )}
+          {!loading &&
+            models?.map((model) => (
+              <Item asChild key={model.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  className="w-full flex-col items-start gap-0.5 px-2 py-1.5"
+                  onClick={() => onPick(model.id)}
+                >
+                  <span className="truncate font-mono text-sm">{model.id}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t('models.contextWindow')} {formatContext(model.contextLength)} · {perMillion(model.promptPrice)}{' '}
+                    in · {perMillion(model.completionPrice)} out / M tokens
+                  </span>
+                </button>
+              </Item>
+            ))}
+        </div>
+      </ScrollArea>
     </div>
   )
 }
@@ -354,14 +363,12 @@ export const ModelConfigCard: FC = () => {
       />
       {/* Zero-Data-Retention policy — filters the picker to ZDR models and
           makes the backend pin every request to ZDR endpoints. */}
-      <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+      <Field orientation="horizontal" className="rounded-lg border p-4">
         <div className="flex min-w-0 gap-3">
           <ShieldCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
           <div className="min-w-0">
-            <Label htmlFor="zdr-only-toggle" className="text-sm font-medium">
-              {t('models.zdrTitle')}
-            </Label>
-            <p className="mt-0.5 text-xs text-muted-foreground">{t('models.zdrHint')}</p>
+            <FieldLabel htmlFor="zdr-only-toggle">{t('models.zdrTitle')}</FieldLabel>
+            <FieldDescription className="mt-0.5">{t('models.zdrHint')}</FieldDescription>
           </div>
         </div>
         <Switch
@@ -371,7 +378,7 @@ export const ModelConfigCard: FC = () => {
           onCheckedChange={handleZdrToggle}
           aria-label={t('models.zdrTitle')}
         />
-      </div>
+      </Field>
 
       {/* BYOK (ADR-0022): the picker lists the org's own provider models. */}
       {catalogSource?.source === 'byok' && (
@@ -452,8 +459,8 @@ export const ModelConfigCard: FC = () => {
       {dirty && (
         <div className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4">
           <p className="text-sm text-muted-foreground">{t('models.unsavedChanges')}</p>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="model-config-comment">{t('models.comment')}</Label>
+          <Field>
+            <FieldLabel htmlFor="model-config-comment">{t('models.comment')}</FieldLabel>
             <Input
               id="model-config-comment"
               value={comment}
@@ -461,7 +468,7 @@ export const ModelConfigCard: FC = () => {
               placeholder={t('models.commentPlaceholder')}
               maxLength={500}
             />
-          </div>
+          </Field>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button className="w-full sm:w-auto" onClick={handleSave} disabled={saving}>
               {saving ? t('models.saving') : t('models.save')}
@@ -491,7 +498,7 @@ export const ModelConfigCard: FC = () => {
           <div className="mt-3 flex flex-col gap-2">
             {versions === null && <Spinner className="mx-auto my-4" />}
             {versions !== null && versions.length === 0 && (
-              <p className="text-sm text-muted-foreground">{t('models.historyEmpty')}</p>
+              <EmptyState variant="bare" title={t('models.historyEmpty')} />
             )}
             {versions !== null && versions.length > 0 && activeVersionId !== null && (
               <Button variant="outline" size="sm" className="self-start" onClick={() => setPendingActivate('none')}>

@@ -11,8 +11,8 @@ import { type FC, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -77,23 +77,22 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
   }, [displayName, defaultLocaleValue, webSearchEnabled, t])
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="org-display-name">{t('settings.displayName')}</Label>
+    <FieldGroup>
+      <Field className="sm:max-w-md">
+        <FieldLabel htmlFor="org-display-name">{t('settings.displayName')}</FieldLabel>
         <Input
           id="org-display-name"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           placeholder={t('settings.displayNamePlaceholder')}
-          className="w-full sm:max-w-md"
         />
-        <p className="text-xs text-muted-foreground">{t('settings.displayNameHint')}</p>
-      </div>
+        <FieldDescription>{t('settings.displayNameHint')}</FieldDescription>
+      </Field>
 
-      <div className="flex flex-col gap-2">
-        <Label>{t('settings.defaultLocale')}</Label>
+      <Field className="sm:max-w-md">
+        <FieldLabel>{t('settings.defaultLocale')}</FieldLabel>
         <Select value={defaultLocaleValue} onValueChange={(v) => setDefaultLocaleValue(v as Locale)}>
-          <SelectTrigger className="w-full sm:max-w-md" aria-label={t('settings.defaultLocale')}>
+          <SelectTrigger className="w-full" aria-label={t('settings.defaultLocale')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -104,13 +103,13 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-xs text-muted-foreground">{t('settings.defaultLocaleHint')}</p>
-      </div>
+        <FieldDescription>{t('settings.defaultLocaleHint')}</FieldDescription>
+      </Field>
 
-      <div className="flex items-start justify-between gap-4 sm:max-w-md">
+      <Field orientation="horizontal" className="sm:max-w-md">
         <div className="flex flex-col gap-1">
-          <Label htmlFor="org-web-search">{t('settings.webSearch')}</Label>
-          <p className="text-xs text-muted-foreground">{t('settings.webSearchHint')}</p>
+          <FieldLabel htmlFor="org-web-search">{t('settings.webSearch')}</FieldLabel>
+          <FieldDescription>{t('settings.webSearchHint')}</FieldDescription>
         </div>
         <Switch
           id="org-web-search"
@@ -118,13 +117,13 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
           onCheckedChange={setWebSearchEnabled}
           aria-label={t('settings.webSearch')}
         />
-      </div>
+      </Field>
 
       <div>
         <Button onClick={handleSave} disabled={saving || !isDirty}>
           {saving ? t('settings.saving') : t('settings.save')}
         </Button>
       </div>
-    </div>
+    </FieldGroup>
   )
 }

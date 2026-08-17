@@ -81,9 +81,12 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Item, ItemList } from '@/components/ui/item'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   Select,
   SelectContent,
@@ -429,9 +432,7 @@ const SpendTable: FC<{
  * lost when rows stack on mobile. */
 const Stat: FC<{ label: string; children: ReactNode }> = ({ label, children }) => (
   <div className="flex min-w-14 flex-col items-end">
-    <span className="text-muted-foreground text-[10px] font-medium uppercase leading-4">
-      {label}
-    </span>
+    <SectionLabel>{label}</SectionLabel>
     <span className="text-sm tabular-nums">{children}</span>
   </div>
 )
@@ -520,8 +521,8 @@ const LimitEditor: FC<{
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent align="end" className="w-64">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`limit-daily-${subjectId}`}>{t('budgets.dailyLimit')}</Label>
+          <Field>
+            <FieldLabel htmlFor={`limit-daily-${subjectId}`}>{t('budgets.dailyLimit')}</FieldLabel>
             <Input
               id={`limit-daily-${subjectId}`}
               inputMode="decimal"
@@ -529,9 +530,9 @@ const LimitEditor: FC<{
               onChange={(e) => setDaily(e.target.value)}
               placeholder={t('budgets.noLimitPlaceholder')}
             />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`limit-monthly-${subjectId}`}>{t('budgets.monthlyLimit')}</Label>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`limit-monthly-${subjectId}`}>{t('budgets.monthlyLimit')}</FieldLabel>
             <Input
               id={`limit-monthly-${subjectId}`}
               inputMode="decimal"
@@ -539,7 +540,7 @@ const LimitEditor: FC<{
               onChange={(e) => setMonthly(e.target.value)}
               placeholder={t('budgets.noLimitPlaceholder')}
             />
-          </div>
+          </Field>
           <div className="flex items-center justify-between gap-2">
             <Button size="sm" onClick={save} disabled={busy}>
               {tCommon('actions.save')}
@@ -720,9 +721,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         {/* Job 3 — change over time (budget admins get the series from the API). */}
         {usage.dailyTrend && usage.dailyTrend.length > 0 && (
           <div>
-            <p className="text-muted-foreground text-xs font-medium uppercase">
-              {t('budgets.trendTitle')}
-            </p>
+            <SectionLabel>{t('budgets.trendTitle')}</SectionLabel>
             <div className="mt-1.5">
               <SpendTrendChart
                 points={usage.dailyTrend}
@@ -737,9 +736,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         {/* Job 2 — part-to-whole by model, and its always-open table twin. */}
         <div>
           <div className="flex items-baseline justify-between gap-2">
-            <p className="text-muted-foreground text-xs font-medium uppercase">
-              {t('budgets.legendTitle')}
-            </p>
+            <SectionLabel>{t('budgets.legendTitle')}</SectionLabel>
             {monthSeries.length > 0 && (
               <p className="text-muted-foreground text-xs tabular-nums">
                 {eur(monthTotalEur, locale)}
@@ -747,7 +744,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             )}
           </div>
           {monthSeries.length === 0 ? (
-            <p className="text-muted-foreground mt-1 text-sm">{t('budgets.legendEmpty')}</p>
+            <EmptyState variant="bare" title={t('budgets.legendEmpty')} />
           ) : (
             <>
               <div className="mt-1.5">
@@ -782,8 +779,8 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                 {t('budgets.limitsDescription')}
               </p>
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex flex-1 flex-col gap-1.5 sm:max-w-40">
-                  <Label htmlFor="budget-daily">{t('budgets.dailyLimit')}</Label>
+                <Field className="flex-1 sm:max-w-40">
+                  <FieldLabel htmlFor="budget-daily">{t('budgets.dailyLimit')}</FieldLabel>
                   <Input
                     id="budget-daily"
                     inputMode="decimal"
@@ -791,9 +788,9 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                     onChange={(e) => setDailyLimit(e.target.value)}
                     placeholder={t('budgets.noLimitPlaceholder')}
                   />
-                </div>
-                <div className="flex flex-1 flex-col gap-1.5 sm:max-w-40">
-                  <Label htmlFor="budget-monthly">{t('budgets.monthlyLimit')}</Label>
+                </Field>
+                <Field className="flex-1 sm:max-w-40">
+                  <FieldLabel htmlFor="budget-monthly">{t('budgets.monthlyLimit')}</FieldLabel>
                   <Input
                     id="budget-monthly"
                     inputMode="decimal"
@@ -801,7 +798,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                     onChange={(e) => setMonthlyLimit(e.target.value)}
                     placeholder={t('budgets.noLimitPlaceholder')}
                   />
-                </div>
+                </Field>
                 <Button
                   className="w-full sm:w-auto"
                   onClick={saveOrgLimits}
@@ -819,13 +816,14 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
               <p className="text-muted-foreground mt-0.5 text-xs">
                 {t('budgets.membersDescription')}
               </p>
-              <ul className="mt-3 flex flex-col divide-y rounded-lg border">
+              <ItemList as="ul" className="mt-3">
                 {memberRows.map(({ member, spend }) => {
                   const policy = memberPolicies.get(member.id)
                   return (
-                    <li
+                    <Item
+                      as="li"
                       key={member.id}
-                      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 sm:flex-nowrap"
+                      className="flex-wrap gap-x-4 gap-y-2 px-3 py-2.5 sm:flex-nowrap"
                     >
                       <div className="min-w-0 flex-1 basis-full sm:basis-0">
                         <p className="truncate text-sm">{member.name ?? member.email}</p>
@@ -880,10 +878,10 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                           }
                         />
                       </div>
-                    </li>
+                    </Item>
                   )
                 })}
-              </ul>
+              </ItemList>
             </div>
 
             <Separator />
@@ -921,11 +919,12 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                 )}
               </div>
               {projectPolicies.length > 0 && (
-                <ul className="mt-3 flex flex-col divide-y rounded-lg border">
+                <ItemList as="ul" className="mt-3">
                   {projectPolicies.map((policy) => (
-                    <li
+                    <Item
+                      as="li"
                       key={policy.id}
-                      className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5"
+                      className="flex-wrap gap-x-4 gap-y-1 px-3 py-2.5"
                     >
                       <span className="min-w-0 flex-1 truncate text-sm">
                         {projectName(policy.subjectId)}
@@ -954,9 +953,9 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                           </Button>
                         }
                       />
-                    </li>
+                    </Item>
                   ))}
-                </ul>
+                </ItemList>
               )}
             </div>
           </>

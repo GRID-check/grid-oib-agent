@@ -11,17 +11,21 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemList,
+  ItemMedia,
+  ItemTitle,
+} from '@/components/ui/item'
+import { SearchField } from '@/components/ui/search-field'
 import {
   Select,
   SelectContent,
@@ -64,6 +68,7 @@ interface PendingRoleConfirm {
   title: string
   description: string
   confirmLabel: string
+  tone: 'warning' | 'destructive'
   run: () => Promise<void>
 }
 
@@ -407,6 +412,7 @@ export function ProjectMembersForm({
         title: t('confirm.selfChangeTitle'),
         description: t('confirm.selfChangeDescription', { role: roleLabel(nextRole) }),
         confirmLabel: t('confirm.selfChangeConfirm'),
+        tone: 'warning',
         run: async () => {
           await assignRole(member.organizationMembershipId, nextRole)
         },
@@ -416,6 +422,7 @@ export function ProjectMembersForm({
         title: t('confirm.selfRemoveTitle'),
         description: t('confirm.selfRemoveDescription'),
         confirmLabel: t('confirm.selfRemoveConfirm'),
+        tone: 'destructive',
         run: async () => {
           await assignRole(member.organizationMembershipId, nextRole)
         },
@@ -470,6 +477,7 @@ export function ProjectMembersForm({
           to: roleLabel(value.roleSlug),
         }),
         confirmLabel: t('confirm.roleChangeConfirm', { role: roleLabel(value.roleSlug) }),
+        tone: 'warning',
         run: grantAndAnnounce,
       })
     },
@@ -484,11 +492,13 @@ export function ProjectMembersForm({
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-3 rounded-2xl border bg-card p-6 shadow-xs">
-        {[0, 1, 2].map((item) => (
-          <Skeleton key={item} className="h-14 rounded-xl" />
-        ))}
-      </div>
+      <Card>
+        <CardContent className="flex flex-col gap-3">
+          {[0, 1, 2].map((item) => (
+            <Skeleton key={item} className="h-14 rounded-xl" />
+          ))}
+        </CardContent>
+      </Card>
     )
   }
 
@@ -510,59 +520,56 @@ export function ProjectMembersForm({
     <>
       <div className="flex flex-col gap-8">
       {canManage ? (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            void inviteForm.handleSubmit()
-          }}
-          className="flex flex-col gap-4 rounded-2xl border bg-card p-6 shadow-xs"
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
-              <UserPlus className="h-4 w-4" aria-hidden />
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-semibold">{t('invite.title')}</h2>
-              <p className="text-sm text-muted-foreground">{t('invite.description')}</p>
-            </div>
-          </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <UserPlus className="size-4 text-muted-foreground" aria-hidden />
+              {t('invite.title')}
+            </CardTitle>
+            <CardDescription>{t('invite.description')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                void inviteForm.handleSubmit()
+              }}
+              className="flex flex-col gap-4"
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <inviteForm.AppField name="email">
+                  {() => (
+                    <MemberSuggestField
+                      label={t('invite.memberLabel')}
+                      placeholder={t('invite.searchPlaceholder')}
+                      members={members}
+                      roleLabel={roleLabel}
+                      containerClassName="flex-1"
+                    />
+                  )}
+                </inviteForm.AppField>
+                <inviteForm.AppField name="roleSlug">
+                  {() => (
+                    <RoleSelectField
+                      label={t('invite.roleLabel')}
+                      options={roleOptions}
+                      containerClassName="sm:w-56"
+                    />
+                  )}
+                </inviteForm.AppField>
+              </div>
 
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-            <inviteForm.AppField name="email">
-              {() => (
-                <MemberSuggestField
-                  label={t('invite.memberLabel')}
-                  placeholder={t('invite.searchPlaceholder')}
-                  members={members}
-                  roleLabel={roleLabel}
-                  containerClassName="flex-1"
-                />
-              )}
-            </inviteForm.AppField>
-            <inviteForm.AppField name="roleSlug">
-              {() => (
-                <RoleSelectField
-                  label={t('invite.roleLabel')}
-                  options={roleOptions}
-                  containerClassName="sm:w-56"
-                />
-              )}
-            </inviteForm.AppField>
-          </div>
+              {inviteError && <FieldError>{inviteError}</FieldError>}
 
-          {inviteError && (
-            <p role="alert" className="text-sm text-destructive">
-              {inviteError}
-            </p>
-          )}
-
-          <div className="flex justify-end">
-            <inviteForm.AppForm>
-              <inviteForm.SubmitButton>{t('invite.submit')}</inviteForm.SubmitButton>
-            </inviteForm.AppForm>
-          </div>
-        </form>
+              <div className="flex justify-end">
+                <inviteForm.AppForm>
+                  <inviteForm.SubmitButton>{t('invite.submit')}</inviteForm.SubmitButton>
+                </inviteForm.AppForm>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       ) : (
         <Alert>
           <Lock className="h-4 w-4" />
@@ -578,178 +585,163 @@ export function ProjectMembersForm({
         </Alert>
       )}
 
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-xs">
-        <div className="flex flex-col gap-3 border-b border-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
-              <Users className="h-4 w-4" aria-hidden />
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-semibold">{t('roster.title')}</h2>
-              <p className="text-xs text-muted-foreground">
+      <Card className="gap-0 overflow-hidden py-0">
+        <CardHeader className="gap-3 border-b py-4 [.border-b]:pb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <CardTitle className="flex items-center gap-2">
+                <Users className="size-4 text-muted-foreground" aria-hidden />
+                {t('roster.title')}
+              </CardTitle>
+              <CardDescription>
                 {t('roster.counts', { active: activeCount, total: members.length })}
-              </p>
+              </CardDescription>
             </div>
-          </div>
 
-          <searchForm.AppField name="query">
-            {(field) => (
-              <div className="relative w-full sm:max-w-xs">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
+            <searchForm.AppField name="query">
+              {(field) => (
+                <SearchField
+                  type="text"
+                  className="w-full sm:max-w-xs"
                   value={field.state.value}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
+                  onChange={(value) => field.handleChange(value)}
                   placeholder={t('roster.searchPlaceholder')}
-                  aria-label={t('roster.searchAria')}
-                  className="pl-9"
+                  label={t('roster.searchAria')}
+                  clearLabel={t('roster.clearSearch')}
+                  onClear={() => searchForm.setFieldValue('query', '')}
                 />
-              </div>
-            )}
-          </searchForm.AppField>
-        </div>
+              )}
+            </searchForm.AppField>
+          </div>
+        </CardHeader>
 
-        {members.length === 0 ? (
-          <EmptyState
-            variant="bare"
-            icon={Users}
-            title={t('roster.emptyTitle')}
-            description={t('roster.emptyDescription')}
-          />
-        ) : filteredMembers.length === 0 ? (
-          <EmptyState
-            variant="bare"
-            icon={Search}
-            title={t('roster.noMatchTitle')}
-            description={t('roster.noMatchDescription')}
-            action={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => searchForm.setFieldValue('query', '')}
-              >
-                {t('roster.clearSearch')}
-              </Button>
-            }
-          />
-        ) : (
-          <div className="divide-y divide-border">
-            {filteredMembers.map((member) => {
-              const isUpdating = updatingId === member.organizationMembershipId
-              const isSelf =
-                currentMembershipId != null && member.organizationMembershipId === currentMembershipId
-              return (
-                <div
-                  key={member.organizationMembershipId}
-                  className="flex flex-col gap-3 px-4 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6"
+        <CardContent className="p-0">
+          {members.length === 0 ? (
+            <EmptyState
+              variant="bare"
+              icon={Users}
+              title={t('roster.emptyTitle')}
+              description={t('roster.emptyDescription')}
+            />
+          ) : filteredMembers.length === 0 ? (
+            <EmptyState
+              variant="bare"
+              icon={Search}
+              title={t('roster.noMatchTitle')}
+              description={t('roster.noMatchDescription')}
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => searchForm.setFieldValue('query', '')}
                 >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <MemberAvatar member={member} className="size-9" />
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium">
+                  {t('roster.clearSearch')}
+                </Button>
+              }
+            />
+          ) : (
+            <ItemList className="rounded-none border-0">
+              {filteredMembers.map((member) => {
+                const isUpdating = updatingId === member.organizationMembershipId
+                const isSelf =
+                  currentMembershipId != null && member.organizationMembershipId === currentMembershipId
+                return (
+                  <Item
+                    key={member.organizationMembershipId}
+                    className="flex-col items-stretch sm:flex-row sm:items-center"
+                  >
+                    <ItemMedia className="size-9">
+                      <MemberAvatar member={member} className="size-9" />
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate">{member.name}</span>
                         {isSelf && (
                           <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[10px] font-normal">
                             {t('roster.youBadge')}
                           </Badge>
                         )}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {member.email ?? member.userId}
-                      </p>
-                    </div>
-                  </div>
-
-                  {canManage ? (
-                    <div className="flex items-center justify-end gap-3 sm:min-w-[220px]">
-                      {isUpdating && (
-                        <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                          {t('roster.saving')}
-                        </span>
+                      </ItemTitle>
+                      <ItemDescription>{member.email ?? member.userId}</ItemDescription>
+                    </ItemContent>
+                    <ItemActions className="ml-0 w-full justify-end sm:ml-auto sm:w-auto sm:min-w-[220px]">
+                      {canManage ? (
+                        <>
+                          {isUpdating && (
+                            <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                              {t('roster.saving')}
+                            </span>
+                          )}
+                          <Select
+                            value={member.role || NO_ACCESS}
+                            onValueChange={(value) =>
+                              handleRosterRoleChange(member, value === NO_ACCESS ? '' : (value as ProjectRole))
+                            }
+                            disabled={isUpdating}
+                          >
+                            <SelectTrigger
+                              className="w-full sm:w-[180px]"
+                              aria-label={t('roster.roleForMember', { name: member.name })}
+                            >
+                              <SelectValue>
+                                {member.role ? roleLabel(member.role) : t('roster.noAccessOption')}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NO_ACCESS}>{t('roster.noAccessOption')}</SelectItem>
+                              {roleOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  <div className="flex flex-col gap-0.5 py-0.5 text-left">
+                                    <span>{option.label}</span>
+                                    <span className="text-xs font-normal text-muted-foreground">
+                                      {option.description}
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </>
+                      ) : member.role ? (
+                        <Badge variant="secondary" className="shrink-0">
+                          {roleLabel(member.role)}
+                        </Badge>
+                      ) : (
+                        <span className="shrink-0 text-xs text-muted-foreground">{t('roster.noAccess')}</span>
                       )}
-                      <Select
-                        value={member.role || NO_ACCESS}
-                        onValueChange={(value) =>
-                          handleRosterRoleChange(member, value === NO_ACCESS ? '' : (value as ProjectRole))
-                        }
-                        disabled={isUpdating}
-                      >
-                        <SelectTrigger
-                          className="w-full sm:w-[180px]"
-                          aria-label={t('roster.roleForMember', { name: member.name })}
-                        >
-                          <SelectValue>
-                            {member.role ? roleLabel(member.role) : t('roster.noAccessOption')}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NO_ACCESS}>{t('roster.noAccessOption')}</SelectItem>
-                          {roleOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              <div className="flex flex-col gap-0.5 py-0.5 text-left">
-                                <span>{option.label}</span>
-                                <span className="text-xs font-normal text-muted-foreground">
-                                  {option.description}
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : member.role ? (
-                    <Badge variant="secondary" className="shrink-0">
-                      {roleLabel(member.role)}
-                    </Badge>
-                  ) : (
-                    <span className="shrink-0 text-xs text-muted-foreground">{t('roster.noAccess')}</span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+                    </ItemActions>
+                  </Item>
+                )
+              })}
+            </ItemList>
+          )}
+        </CardContent>
+      </Card>
       </div>
 
-      <Dialog
+      <ConfirmDialog
         open={pendingConfirm != null}
         onOpenChange={(open) => {
-          if (!open && !isConfirming) setPendingConfirm(null)
+          if (!open) setPendingConfirm(null)
         }}
-      >
-        {pendingConfirm && (
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{pendingConfirm.title}</DialogTitle>
-              <DialogDescription>{pendingConfirm.description}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button variant="ghost" disabled={isConfirming}>
-                  {tCommon('actions.cancel')}
-                </Button>
-              </DialogClose>
-              <Button
-                variant="destructive"
-                disabled={isConfirming}
-                onClick={() => {
-                  const confirm = pendingConfirm
-                  setIsConfirming(true)
-                  void confirm
-                    .run()
-                    .finally(() => {
-                      setIsConfirming(false)
-                      setPendingConfirm(null)
-                    })
-                }}
-              >
-                {pendingConfirm.confirmLabel}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-      </Dialog>
+        title={pendingConfirm?.title ?? ''}
+        description={pendingConfirm?.description}
+        confirmLabel={pendingConfirm?.confirmLabel ?? ''}
+        cancelLabel={tCommon('actions.cancel')}
+        tone={pendingConfirm?.tone ?? 'warning'}
+        pending={isConfirming}
+        onConfirm={async () => {
+          const confirm = pendingConfirm
+          if (!confirm) return
+          setIsConfirming(true)
+          try {
+            await confirm.run()
+          } finally {
+            setIsConfirming(false)
+            setPendingConfirm(null)
+          }
+        }}
+      />
     </>
   )
 }

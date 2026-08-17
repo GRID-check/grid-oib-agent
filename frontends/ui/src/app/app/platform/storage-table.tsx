@@ -18,10 +18,13 @@
  */
 
 import { useCallback, useEffect, useState, type FC, type FormEvent } from 'react'
-import { AlertTriangle, Check, Loader2, Pencil, X } from 'lucide-react'
+import { AlertTriangle, Check, Pencil, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { formatBytes } from '@/lib/format'
 import { formatQuotaDraft, parseQuotaDraft } from '@/lib/storage/contract'
 import { useLocale, useTranslations } from '@/i18n'
@@ -149,18 +152,18 @@ export const PlatformStorageTable: FC = () => {
     return (
       <div className="flex flex-col gap-3" data-testid="platform-storage-loading">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="bg-muted h-10 w-full animate-pulse rounded" />
+          <Skeleton key={i} className="h-10 w-full" />
         ))}
       </div>
     )
   }
 
   if (!data) {
-    return <p className="text-muted-foreground text-sm">{t('storage.loadError')}</p>
+    return <EmptyState variant="bare" title={t('storage.loadError')} />
   }
 
   if (data.organizations.length === 0) {
-    return <p className="text-muted-foreground text-sm">{t('storage.empty')}</p>
+    return <EmptyState variant="bare" title={t('storage.empty')} />
   }
 
   return (
@@ -241,7 +244,7 @@ export const PlatformStorageTable: FC = () => {
                         <span className="text-muted-foreground text-xs">GB</span>
                         <Button type="submit" size="sm" variant="ghost" disabled={saving}>
                           {saving ? (
-                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                            <Spinner size="sm" />
                           ) : (
                             <Check className="size-4" aria-hidden />
                           )}

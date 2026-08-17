@@ -37,6 +37,7 @@ import { ProjectMembersForm } from '@/components/projects/project-members-form'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { EmptyState } from '@/components/ui/empty-state'
+import { RaisedCard, RaisedCardBody } from '@/components/ui/raised-card'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useLocale, useTranslations } from '@/i18n'
 
@@ -134,21 +135,20 @@ export function ProjectSettings({
               aggregation does not exist yet (spec §2.3), so this promises
               nothing and shows nothing fake. The card chrome + heading match the
               dummy, ready for the source-mix layout once telemetry exists. */}
-          <section
-            aria-label={t('project.sections.insights')}
-            className="rounded-2xl border bg-card p-6 shadow-sm"
-          >
-            <h2 className="text-sm font-semibold text-foreground">
-              {t('project.sections.insights')}
-            </h2>
-            <EmptyState
-              variant="bare"
-              icon={BarChart3}
-              title={t('project.insights.emptyTitle')}
-              description={t('project.insights.emptyDescription')}
-              className="py-8"
-            />
-          </section>
+          <RaisedCard aria-label={t('project.sections.insights')}>
+            <RaisedCardBody className="p-6">
+              <h2 className="text-sm font-semibold text-foreground">
+                {t('project.sections.insights')}
+              </h2>
+              <EmptyState
+                variant="bare"
+                icon={BarChart3}
+                title={t('project.insights.emptyTitle')}
+                description={t('project.insights.emptyDescription')}
+                className="py-8"
+              />
+            </RaisedCardBody>
+          </RaisedCard>
         </div>
       </StaggerItem>
 

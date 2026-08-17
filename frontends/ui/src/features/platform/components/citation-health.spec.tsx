@@ -123,7 +123,7 @@ describe('CitationHealth', () => {
     await screen.findByText('88%')
     expect(fetchSpy).toHaveBeenCalledWith('/api/platform/citation-health?days=30')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Last 7 days' }))
+    await userEvent.click(screen.getByRole('radio', { name: 'Last 7 days' }))
     expect(fetchSpy).toHaveBeenLastCalledWith('/api/platform/citation-health?days=7')
   })
 

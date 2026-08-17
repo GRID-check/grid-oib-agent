@@ -21,6 +21,8 @@ import { AlertCircle, ArrowRight, CalendarClock, Hand } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Item, ItemActions, ItemContent, ItemList } from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -171,11 +173,11 @@ export function JobRunHistory({
   }
 
   if (runs.length === 0) {
-    return <p className="py-3 text-sm text-muted-foreground">{t('history.empty')}</p>
+    return <EmptyState variant="bare" title={t('history.empty')} />
   }
 
   return (
-    <ul className="divide-y divide-border">
+    <ItemList as="ul">
       {runs.map((run) => {
         const TriggerIcon = run.trigger === 'schedule' ? CalendarClock : Hand
         const jobStatus = run.jobId ? jobStatuses[run.jobId] : undefined
@@ -207,8 +209,8 @@ export function JobRunHistory({
               : t('history.viewThinking')
 
         return (
-          <li key={run.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-            <div className="flex min-w-0 items-center gap-3">
+          <Item as="li" key={run.id} className="flex-wrap justify-between py-2.5">
+            <ItemContent className="flex min-w-0 items-center gap-3">
               <Badge variant="secondary" className="gap-1">
                 <TriggerIcon className="size-3" aria-hidden />
                 {t(`history.trigger.${run.trigger}`)}
@@ -230,18 +232,20 @@ export function JobRunHistory({
               >
                 {formatRelativeTime(run.createdAt, locale)}
               </span>
-            </div>
+            </ItemContent>
             {hasJob && (
-              <Button asChild size="sm" variant="ghost" className="shrink-0">
-                <Link href={link}>
-                  {linkLabel}
-                  <ArrowRight className="size-3.5" aria-hidden />
-                </Link>
-              </Button>
+              <ItemActions>
+                <Button asChild size="sm" variant="ghost" className="shrink-0">
+                  <Link href={link}>
+                    {linkLabel}
+                    <ArrowRight className="size-3.5" aria-hidden />
+                  </Link>
+                </Button>
+              </ItemActions>
             )}
-          </li>
+          </Item>
         )
       })}
-    </ul>
+    </ItemList>
   )
 }

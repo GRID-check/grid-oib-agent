@@ -13,13 +13,15 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Clock, RefreshCw, Search } from 'lucide-react'
+import { AlertTriangle, Clock, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Input } from '@/components/ui/input'
+import { Item, ItemContent, ItemDescription, ItemList, ItemTitle } from '@/components/ui/item'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { SearchField } from '@/components/ui/search-field'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
 
@@ -197,26 +199,27 @@ export function AgentProfiler(): JSX.Element {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {error ? (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <AlertTriangle className="size-6 text-muted-foreground" aria-hidden />
-            <p className="text-sm text-muted-foreground">{t('profiler.loadError')}</p>
-            <Button variant="outline" size="sm" onClick={() => load(search)} disabled={loading}>
-              <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
-              {t('profiler.retry')}
-            </Button>
-          </div>
+          <EmptyState
+            variant="bare"
+            icon={AlertTriangle}
+            title={t('profiler.loadError')}
+            action={
+              <Button variant="outline" size="sm" onClick={() => load(search)} disabled={loading}>
+                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+                {t('profiler.retry')}
+              </Button>
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
             <div className="flex flex-col gap-2 lg:col-span-2">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t('profiler.search')}
-                  className="pl-8"
-                />
-              </div>
+              <SearchField
+                value={search}
+                onChange={setSearch}
+                placeholder={t('profiler.search')}
+                label={t('profiler.search')}
+                type="text"
+              />
 
               {loading ? (
                 <div className="flex flex-col gap-2">
@@ -228,30 +231,33 @@ export function AgentProfiler(): JSX.Element {
                 <EmptyState variant="bare" icon={Clock} title={t('profiler.empty')} />
               ) : (
                 <>
-                  <ul className="flex max-h-[28rem] flex-col divide-y overflow-y-auto rounded-lg border">
-                    {conversations.map((conversation) => (
-                      <li key={conversation.conversationId}>
-                        <button
-                          type="button"
+                  <ScrollArea className="max-h-[28rem]">
+                    <ItemList>
+                      {conversations.map((conversation) => (
+                        <Item
+                          key={conversation.conversationId}
+                          role="button"
+                          tabIndex={0}
+                          className={selectedId === conversation.conversationId ? 'bg-accent/60' : undefined}
                           onClick={() => selectConversation(conversation.conversationId)}
-                          className={`flex w-full flex-col gap-1 px-3 py-2.5 text-left transition-colors hover:bg-accent/40 ${
-                            selectedId === conversation.conversationId ? 'bg-accent/60' : ''
-                          }`}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              selectConversation(conversation.conversationId)
+                            }
+                          }}
                         >
-                          <span className="truncate text-sm font-medium">
-                            {conversation.title || conversation.conversationId}
-                          </span>
-                          <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="truncate">{conversation.organizationId ?? '—'}</span>
-                            <span>·</span>
-                            <span>{conversation.turnCount}</span>
-                            <span>·</span>
-                            <span className="tabular-nums">{formatMs(conversation.totalDurationMs)}</span>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                          <ItemContent>
+                            <ItemTitle>{conversation.title || conversation.conversationId}</ItemTitle>
+                            <ItemDescription>
+                              {conversation.organizationId ?? '—'} · {conversation.turnCount} ·{' '}
+                              {formatMs(conversation.totalDurationMs)}
+                            </ItemDescription>
+                          </ItemContent>
+                        </Item>
+                      ))}
+                    </ItemList>
+                  </ScrollArea>
                   {capped && (
                     <p className="text-xs text-muted-foreground">
                       {t('profiler.capped', { count: conversations.length })}
@@ -270,14 +276,17 @@ export function AgentProfiler(): JSX.Element {
                   <Skeleton className="h-24 w-full" />
                 </div>
               ) : timelineError ? (
-                <div className="flex flex-col items-center gap-3 py-8 text-center">
-                  <AlertTriangle className="size-6 text-muted-foreground" aria-hidden />
-                  <p className="text-sm text-muted-foreground">{t('profiler.detailLoadError')}</p>
-                  <Button variant="outline" size="sm" onClick={() => selectConversation(selectedId)}>
-                    <RefreshCw className="size-3.5" aria-hidden />
-                    {t('profiler.retry')}
-                  </Button>
-                </div>
+                <EmptyState
+                  variant="bare"
+                  icon={AlertTriangle}
+                  title={t('profiler.detailLoadError')}
+                  action={
+                    <Button variant="outline" size="sm" onClick={() => selectConversation(selectedId)}>
+                      <RefreshCw className="size-3.5" aria-hidden />
+                      {t('profiler.retry')}
+                    </Button>
+                  }
+                />
               ) : timeline && timeline.turns.length > 0 ? (
                 <div className="flex flex-col gap-4">
                   {timeline.turns.map((turn, index) => (

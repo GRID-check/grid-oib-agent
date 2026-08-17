@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const spinnerSizeMap = {
+  xs: 'size-3.5',
   sm: 'size-4',
   default: 'size-6',
   lg: 'size-8',

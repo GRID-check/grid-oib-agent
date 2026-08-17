@@ -156,7 +156,13 @@ Tabbed shells (Organisation, Platform, and the same pattern on Inbox) are **one 
 
 **Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
 
-**List container** — one `rounded-lg border bg-card`, rows `divide-y`, each row `flex items-center justify-between gap-4 px-5 py-3`.
+**Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Files and Archiv compose it inside `FileSearchBar` (sticky band + semantic run). Admin lists compose it inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
+
+**Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row.
+
+**Form field** — `Field` + `FieldLabel` + `FieldDescription` + `FieldError`. TanStack-backed forms wrap the same anatomy through `FieldShell`. Raw `<label>` next to an `Input` is a leftover.
+
+**List container** — `ItemList` (`rounded-lg border divide-y`) with `Item` / `ItemMedia` / `ItemContent` / `ItemTitle` / `ItemDescription` / `ItemActions`. That is the list molecule for History, Inbox, Settings rosters, and admin pickers. Do not hand-roll a second `rounded-lg border` + `divide-y` row. The raised product card (Files tiles, project cards) is `RaisedCard`, not `Item`.
 
 **Empty state** — crafted, never bare text:
 ```tsx

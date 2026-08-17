@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { useLocale, useTranslations } from '@/i18n'
@@ -155,9 +156,7 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
                 onClick={() => void handleRestore(entry)}
                 disabled={restoringId === entry.id}
               >
-                {restoringId === entry.id && (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                )}
+                {restoringId === entry.id && <Spinner size="xs" />}
                 {t('recentlyDeleted.restore')}
               </Button>
             )}

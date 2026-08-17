@@ -26,7 +26,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, FileText, Lock } from 'lucide-react'
+import { FileText, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { useAppForm } from '@/components/form'
@@ -35,8 +35,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   Select,
   SelectContent,
@@ -366,43 +368,43 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                 <CardDescription>{t('builder.outputHint')}</CardDescription>
               </CardHeader>
               <CardContent>
-                <div
-                  role="radiogroup"
-                  aria-label={t('builder.outputLabel')}
-                  className="grid gap-2 sm:grid-cols-2"
-                >
-                  {JOB_OUTPUTS.map((kind) => {
-                    const active = output === kind
-                    return (
-                      <button
-                        key={kind}
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        onClick={() => changeOutput(kind)}
-                        className={cn(
-                          'flex flex-col items-start gap-1 rounded-lg border px-3 py-2.5 text-left transition-colors',
-                          'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
-                          active
-                            ? 'border-primary bg-primary/5'
-                            : 'border-border hover:border-foreground/30',
-                        )}
-                      >
-                        <span className="flex w-full items-center justify-between gap-2">
-                          <span className="text-sm font-medium text-foreground">
-                            {outputLabel(kind)}
-                          </span>
-                          {active && <Check className="size-4 text-primary" aria-hidden />}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {kind === 'chat'
-                            ? t('builder.output.chatHint')
-                            : t('builder.output.deepResearchHint')}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
+                <Field>
+                  <FieldLabel id="job-output-label">{t('builder.outputLabel')}</FieldLabel>
+                  <RadioGroup
+                    value={output}
+                    onValueChange={(value) => changeOutput(value as JobOutput)}
+                    aria-labelledby="job-output-label"
+                    className="grid gap-2 sm:grid-cols-2"
+                  >
+                    {JOB_OUTPUTS.map((kind) => {
+                      const active = output === kind
+                      return (
+                        <Field
+                          key={kind}
+                          className={cn(
+                            'cursor-pointer rounded-lg border px-3 py-2.5',
+                            active
+                              ? 'border-primary bg-primary/5'
+                              : 'border-border hover:border-foreground/30',
+                          )}
+                          onClick={() => changeOutput(kind)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <RadioGroupItem value={kind} id={`job-output-${kind}`} />
+                            <FieldLabel htmlFor={`job-output-${kind}`} className="font-medium">
+                              {outputLabel(kind)}
+                            </FieldLabel>
+                          </div>
+                          <FieldDescription>
+                            {kind === 'chat'
+                              ? t('builder.output.chatHint')
+                              : t('builder.output.deepResearchHint')}
+                          </FieldDescription>
+                        </Field>
+                      )
+                    })}
+                  </RadioGroup>
+                </Field>
               </CardContent>
             </Card>
 
@@ -419,8 +421,8 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                 <CardDescription>{t('builder.skillHint')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-sm font-medium">{t('builder.skillLabel')}</Label>
+                <Field>
+                  <FieldLabel>{t('builder.skillLabel')}</FieldLabel>
                   {attachable === null && !skillsError ? (
                     <p className="text-sm text-muted-foreground">{t('builder.skillsLoading')}</p>
                   ) : skillsError ? (
@@ -452,15 +454,13 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                       </SelectContent>
                     </Select>
                   )}
-                </div>
-                {skill !== null ? (
-                  <p className="text-xs text-muted-foreground">{skill.description}</p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">{t('builder.skillNoneHint')}</p>
-                )}
-                {attachable !== null && attachable.length === 0 && !skillsError && (
-                  <p className="text-xs text-muted-foreground">{t('builder.skillsEmpty')}</p>
-                )}
+                  <FieldDescription>
+                    {skill !== null ? skill.description : t('builder.skillNoneHint')}
+                  </FieldDescription>
+                  {attachable !== null && attachable.length === 0 && !skillsError && (
+                    <FieldDescription>{t('builder.skillsEmpty')}</FieldDescription>
+                  )}
+                </Field>
                 {detached && (
                   <p role="status" className="text-xs font-medium text-foreground">
                     {t('builder.skillDetached', {
@@ -486,12 +486,10 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                   <span className="text-sm text-foreground">{t('builder.knowledgeAlways')}</span>
                 </div>
 
-                <div className="space-y-1 border-t border-border pt-3">
-                  <p className="text-sm font-medium text-foreground">
-                    {t('builder.additionalSourcesLabel')}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{t('builder.sourcesHint')}</p>
-                </div>
+                <Field className="border-t border-border pt-3">
+                  <FieldLabel>{t('builder.additionalSourcesLabel')}</FieldLabel>
+                  <FieldDescription>{t('builder.sourcesHint')}</FieldDescription>
+                </Field>
                 {sources === null && !sourcesError && (
                   <p className="text-sm text-muted-foreground">{t('builder.sourcesLoading')}</p>
                 )}
@@ -503,29 +501,31 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                     {additionalSources.map((source) => {
                       const checked = selectedSources.has(source.id)
                       return (
-                        <label
+                        <Field
                           key={source.id}
-                          className="flex items-start gap-2.5 rounded-lg border border-transparent px-1 py-1.5 hover:border-border"
+                          orientation="horizontal"
+                          className="justify-start rounded-lg border border-transparent px-1 py-1.5 hover:border-border"
                         >
                           <Checkbox
+                            id={`job-source-${source.id}`}
                             checked={checked}
                             onCheckedChange={(value) => toggleSource(source.id, value === true)}
                             className="mt-0.5"
                           />
-                          <span className="flex flex-col gap-0.5">
-                            <span className="text-sm font-medium text-foreground">{source.name}</span>
+                          <div className="flex flex-col gap-0.5">
+                            <FieldLabel htmlFor={`job-source-${source.id}`} className="font-medium">
+                              {source.name}
+                            </FieldLabel>
                             {source.description && (
-                              <span className="text-xs text-muted-foreground">
-                                {source.description}
-                              </span>
+                              <FieldDescription>{source.description}</FieldDescription>
                             )}
-                          </span>
-                        </label>
+                          </div>
+                        </Field>
                       )
                     })}
-                    <p className="pt-1 text-xs text-muted-foreground">
-                      {selectedSources.size === 0 && t('builder.sourcesAll')}
-                    </p>
+                    {selectedSources.size === 0 && (
+                      <FieldDescription>{t('builder.sourcesAll')}</FieldDescription>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -537,12 +537,12 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                 <CardTitle className="text-base">{t('builder.scheduleSection')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between gap-4">
+                <Field orientation="horizontal">
                   <div className="flex flex-col gap-0.5">
-                    <Label htmlFor="job-schedule-enabled" className="text-sm font-medium">
+                    <FieldLabel htmlFor="job-schedule-enabled">
                       {t('builder.enableScheduleLabel')}
-                    </Label>
-                    <p className="text-xs text-muted-foreground">{t('builder.enableScheduleHint')}</p>
+                    </FieldLabel>
+                    <FieldDescription>{t('builder.enableScheduleHint')}</FieldDescription>
                   </div>
                   <Switch
                     id="job-schedule-enabled"
@@ -552,12 +552,12 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                       setScheduleError(null)
                     }}
                   />
-                </div>
+                </Field>
 
                 {scheduleEnabled && (
                   <div className="space-y-4 border-t border-border pt-4">
-                    <div className="flex flex-col gap-1.5">
-                      <Label className="text-sm font-medium">{t('builder.presetLabel')}</Label>
+                    <Field>
+                      <FieldLabel>{t('builder.presetLabel')}</FieldLabel>
                       <Select
                         value={preset}
                         onValueChange={(value) => changePreset(value as SchedulePreset)}
@@ -573,13 +573,11 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
+                    </Field>
 
                     {preset === 'custom' && (
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="job-cron" className="text-sm font-medium">
-                          {t('builder.cronLabel')}
-                        </Label>
+                      <Field>
+                        <FieldLabel htmlFor="job-cron">{t('builder.cronLabel')}</FieldLabel>
                         <Input
                           id="job-cron"
                           value={cron}
@@ -593,12 +591,12 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                           }}
                           aria-invalid={scheduleError ? true : undefined}
                         />
-                        <p className="text-xs text-muted-foreground">{t('builder.cronHint')}</p>
-                      </div>
+                        <FieldDescription>{t('builder.cronHint')}</FieldDescription>
+                      </Field>
                     )}
 
-                    <div className="flex flex-col gap-1.5">
-                      <Label className="text-sm font-medium">{t('builder.timezoneLabel')}</Label>
+                    <Field>
+                      <FieldLabel>{t('builder.timezoneLabel')}</FieldLabel>
                       <Select value={timezone} onValueChange={setTimezone}>
                         <SelectTrigger>
                           <SelectValue />
@@ -611,13 +609,9 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
+                    </Field>
 
-                    {scheduleError && (
-                      <p role="alert" className="text-xs font-medium text-destructive">
-                        {scheduleError}
-                      </p>
-                    )}
+                    {scheduleError && <FieldError>{scheduleError}</FieldError>}
                   </div>
                 )}
               </CardContent>
@@ -625,14 +619,14 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
 
             {/* Master enabled switch */}
             <Card>
-              <CardContent className="flex items-center justify-between gap-4 p-4">
-                <div className="flex flex-col gap-0.5">
-                  <Label htmlFor="job-enabled" className="text-sm font-medium">
-                    {t('builder.enabledLabel')}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">{t('builder.enabledHint')}</p>
-                </div>
-                <Switch id="job-enabled" checked={enabled} onCheckedChange={setEnabled} />
+              <CardContent className="p-4">
+                <Field orientation="horizontal">
+                  <div className="flex flex-col gap-0.5">
+                    <FieldLabel htmlFor="job-enabled">{t('builder.enabledLabel')}</FieldLabel>
+                    <FieldDescription>{t('builder.enabledHint')}</FieldDescription>
+                  </div>
+                  <Switch id="job-enabled" checked={enabled} onCheckedChange={setEnabled} />
+                </Field>
               </CardContent>
             </Card>
           </div>
@@ -708,9 +702,7 @@ function FirePromptPreview({
             {compiled}
           </pre>
         ) : (
-          <p className="rounded-lg border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-            {t('builder.preview.empty')}
-          </p>
+          <EmptyState variant="bare" title={t('builder.preview.empty')} />
         )}
       </CardContent>
     </Card>

@@ -1,10 +1,10 @@
 'use client'
 
 import { type ReactNode } from 'react'
-import { Search, X } from 'lucide-react'
+import { X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { SearchField } from '@/components/ui/search-field'
 import { cn } from '@/lib/utils'
 
 /**
@@ -80,30 +80,14 @@ export function DataToolbar({
 
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)} data-testid="data-toolbar">
-      <div className="relative min-w-[12rem] flex-1">
-        <Search
-          className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          value={searchValue}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder={searchPlaceholder}
-          aria-label={searchLabel}
-          className="h-9 pl-8 pr-8"
-        />
-        {searchValue ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-0.5 top-1/2 size-8 -translate-y-1/2 text-muted-foreground"
-            aria-label={clearLabel}
-            onClick={() => onSearchChange('')}
-          >
-            <X className="size-3.5" aria-hidden />
-          </Button>
-        ) : null}
-      </div>
+      <SearchField
+        className="min-w-[12rem] flex-1"
+        value={searchValue}
+        onChange={onSearchChange}
+        placeholder={searchPlaceholder}
+        label={searchLabel}
+        clearLabel={clearLabel}
+      />
       {filters}
       {actions ? <div className="flex items-center gap-1.5">{actions}</div> : null}
     </div>

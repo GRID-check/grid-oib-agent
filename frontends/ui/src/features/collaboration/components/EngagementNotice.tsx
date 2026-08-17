@@ -28,7 +28,8 @@
  */
 
 import { useState } from 'react'
-import { AtSign, Loader2 } from 'lucide-react'
+import { AtSign } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 
 import { easeQuiet, motion } from '@/components/motion'
 import { Button } from '@/components/ui/button'
@@ -132,7 +133,7 @@ export function EngagementNotice({
           disabled={saving}
           onClick={() => void change(offering)}
         >
-          {saving && <Loader2 className="mr-1 size-3 animate-spin" aria-hidden />}
+          {saving && <Spinner size="xs" className="mr-1" />}
           {offering === 'ask'
             ? t('mentions.engagement.switchToAsk')
             : t('mentions.engagement.switchToMention')}

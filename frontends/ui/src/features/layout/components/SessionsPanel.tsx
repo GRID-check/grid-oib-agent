@@ -45,11 +45,15 @@ import {
   Plus,
   Search,
   Trash2,
-  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Chip } from '@/components/ui/chip'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
+import { Item, ItemList } from '@/components/ui/item'
+import { SearchField } from '@/components/ui/search-field'
+import { SectionLabel } from '@/components/ui/section-label'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { formatAbsoluteTime, formatRelativeTime, formatTimeOfDay } from '@/lib/format'
 import { motion } from '@/components/motion'
@@ -398,7 +402,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             className="border-border/70 bg-muted/40 text-muted-foreground flex items-start gap-2 rounded-lg border px-3 py-2 text-xs"
             role="status"
           >
-            <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+            {/* Spinner injects its own role=status; hide it so this region
+                announces the message once rather than "Loading" + the copy. */}
+            <span aria-hidden="true">
+              <Spinner size="sm" className="mt-0.5 shrink-0" />
+            </span>
             <span>{t('sessionsPanel.navigationBlocked')}</span>
           </p>
         )}
@@ -427,37 +435,19 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             only ever return nothing. */}
         {hasSessions && (
           <div className="flex flex-col gap-1.5">
-            {/* Same anatomy as every other search in the product (see
-                `DataToolbar`): leading magnifier, trailing clear. */}
-            <div className="relative">
-              <Search
-                className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2"
-                aria-hidden
-              />
-              <Input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t('sessionsPanel.searchPlaceholder')}
-                className="h-9 pl-8 pr-8"
-                aria-label={t('sessionsPanel.searchAria')}
-              />
-              {/* A filter you cannot see how to switch off is a trap: once a
-                  query is in, the way back to the full list must be visible. */}
-              {isSearching && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground absolute right-0.5 top-1/2 size-8 -translate-y-1/2"
-                  onClick={handleClearSearch}
-                  aria-label={t('sessionsPanel.clearSearch')}
-                  title={t('sessionsPanel.clearSearch')}
-                >
-                  <X className="size-3.5" aria-hidden />
-                </Button>
-              )}
-            </div>
+            {/* Same molecule as every other search in the product (`DataToolbar`,
+                file search). `type="text"` so specs still query a textbox;
+                `inputRef` keeps DockedPanel's autofocus on this field. */}
+            <SearchField
+              type="text"
+              inputRef={searchInputRef}
+              value={searchQuery}
+              onChange={setSearchQuery}
+              onClear={handleClearSearch}
+              placeholder={t('sessionsPanel.searchPlaceholder')}
+              label={t('sessionsPanel.searchAria')}
+              clearLabel={t('sessionsPanel.clearSearch')}
+            />
             {/* Says how much of the list the query is hiding — announced, so a
                 screen-reader user learns it without scanning the list. */}
             {isSearching && (
@@ -518,51 +508,51 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             </button>
 
             {isDeepResearchOpen && (
-              <div className="mt-1 flex flex-col gap-1">
+              <ItemList className="mt-1 flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0">
                 {(deepResearchRuns ?? []).map((run) => (
-                  <Link
+                  <Item
                     key={run.job_id}
-                    href={runHref(run)}
-                    onClick={handleClose}
+                    asChild
                     // Same geometry and hover weight as a chat row (including the
                     // transparent border), so the two lists share one left edge.
-                    className="hover:bg-accent/60 focus-visible:ring-ring/50 flex min-h-11 items-start gap-2.5 rounded-lg border border-transparent py-2.5 pl-2.5 pr-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset"
-                    aria-label={t('sessionsPanel.deepResearchRunLabel', {
-                      label: runLabel(run),
-                      status: t(runStatusKey(run.status)),
-                    })}
+                    className="hover:bg-accent/60 focus-visible:ring-ring/50 min-h-11 items-start gap-2.5 rounded-lg border border-transparent py-2.5 pl-2.5 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:bg-transparent"
                   >
-                    <RunStatusIcon status={run.status} className="mt-0.5" />
-                    {/* Same two-line anatomy as a chat row, for the same reason:
-                        the state goes on its own line instead of competing with
-                        the title for width. Stating it in WORDS is the point —
-                        a failed run and a finished one differed only by icon. */}
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate text-sm" title={runLabel(run)}>
-                          {runLabel(run)}
+                    <Link
+                      href={runHref(run)}
+                      onClick={handleClose}
+                      aria-label={t('sessionsPanel.deepResearchRunLabel', {
+                        label: runLabel(run),
+                        status: t(runStatusKey(run.status)),
+                      })}
+                    >
+                      <RunStatusIcon status={run.status} className="mt-0.5" />
+                      {/* Same two-line anatomy as a chat row, for the same reason:
+                          the state goes on its own line instead of competing with
+                          the title for width. Stating it in WORDS is the point —
+                          a failed run and a finished one differed only by icon. */}
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 flex-1 truncate text-sm" title={runLabel(run)}>
+                            {runLabel(run)}
+                          </span>
+                          <span
+                            className="text-muted-foreground shrink-0 text-xs"
+                            title={formatAbsoluteTime(run.created_at, locale)}
+                          >
+                            {formatRelativeTime(run.created_at, locale)}
+                          </span>
                         </span>
-                        <span
-                          className="text-muted-foreground shrink-0 text-xs"
-                          title={formatAbsoluteTime(run.created_at, locale)}
+                        <Chip
+                          size="sm"
+                          variant={run.status === 'failed' ? 'destructive' : 'muted'}
                         >
-                          {formatRelativeTime(run.created_at, locale)}
-                        </span>
+                          {t(runStatusKey(run.status))}
+                        </Chip>
                       </span>
-                      <span
-                        className={cn(
-                          'w-fit rounded-full px-2 py-0.5 text-xs font-medium',
-                          run.status === 'failed'
-                            ? 'bg-destructive/10 text-destructive'
-                            : 'bg-secondary text-muted-foreground'
-                        )}
-                      >
-                        {t(runStatusKey(run.status))}
-                      </span>
-                    </span>
-                  </Link>
+                    </Link>
+                  </Item>
                 ))}
-              </div>
+              </ItemList>
             )}
           </div>
         )}
@@ -575,26 +565,28 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 element is the scroll container, hence `top-0`; `-mx-4 px-4`
                 widens the opaque backing to the panel's full width so rows
                 pass UNDER it rather than beside it. */}
-            <span className="bg-background text-muted-foreground sticky top-0 z-10 -mx-4 px-4 pb-1.5 pt-1 text-xs font-semibold uppercase tracking-[0.04em]">
+            <SectionLabel className="bg-background sticky top-0 z-10 -mx-4 px-4 pb-1.5 pt-1">
               {dateLabel}
-            </span>
-            {dateSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                isSelected={selectedSessionId === session.id}
-                isBusy={isNavigationBlocked}
-                isSessionActive={isSessionBusy(session.id)}
-                showResearchLabel={showDeepResearchSection}
-                // The day is already on the group heading, so the row carries
-                // the part it does not: the time. Except under "Today", where
-                // "12 minutes ago" is the more useful reading of recency.
-                showRelativeTime={dateLabel === todayLabel}
-                onSelect={handleSessionClick}
-                onDelete={handleDeleteClick}
-                onRename={onRenameSession}
-              />
-            ))}
+            </SectionLabel>
+            <ItemList className="flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0">
+              {dateSessions.map((session) => (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  isSelected={selectedSessionId === session.id}
+                  isBusy={isNavigationBlocked}
+                  isSessionActive={isSessionBusy(session.id)}
+                  showResearchLabel={showDeepResearchSection}
+                  // The day is already on the group heading, so the row carries
+                  // the part it does not: the time. Except under "Today", where
+                  // "12 minutes ago" is the more useful reading of recency.
+                  showRelativeTime={dateLabel === todayLabel}
+                  onSelect={handleSessionClick}
+                  onDelete={handleDeleteClick}
+                  onRename={onRenameSession}
+                />
+              ))}
+            </ItemList>
           </div>
         ))}
 
@@ -815,13 +807,10 @@ const SessionItem: FC<SessionItemProps> = ({
           />
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={handleClick}
-          disabled={isBusy}
-          aria-current={isSelected ? 'true' : undefined}
+        <Item
+          asChild
           className={cn(
-            'focus-visible:ring-ring/50 flex min-h-11 w-full gap-2.5 rounded-lg border py-2 pl-2.5 pr-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset',
+            'focus-visible:ring-ring/50 min-h-11 w-full gap-2.5 rounded-lg border py-2 pl-2.5 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:bg-transparent',
             // A one-line row centres; a row with the research chip must align
             // its icon to the TITLE, not float to the middle of two lines.
             showResearchChip ? 'items-start py-2.5' : 'items-center',
@@ -829,46 +818,53 @@ const SessionItem: FC<SessionItemProps> = ({
             // Selected reads as a raised card (border + fill + subtle shadow) rather
             // than the near-identical bg-accent/60 hover tint used for the rest.
             isSelected
-              ? 'border-border bg-accent text-foreground shadow-sm'
+              ? 'border-border bg-accent text-foreground shadow-sm hover:bg-accent'
               : 'hover:bg-accent/60 border-transparent'
           )}
-          aria-label={rowLabel}
         >
-          <SessionStatusIcon
-            session={session}
-            isSessionActive={isSessionActive}
-            className={showResearchChip ? 'mt-0.5' : undefined}
-          />
+          <button
+            type="button"
+            onClick={handleClick}
+            disabled={isBusy}
+            aria-current={isSelected ? 'true' : undefined}
+            aria-label={rowLabel}
+          >
+            <SessionStatusIcon
+              session={session}
+              isSessionActive={isSessionActive}
+              className={showResearchChip ? 'mt-0.5' : undefined}
+            />
 
-          {/* Two-line content block: title + persistent time on line 1, the
-              calm Deep Research chip on line 2. */}
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-sm" title={displayTitle}>
-                {displayTitle}
-              </span>
-              {sessionIso && (
-                <span
-                  className="text-muted-foreground shrink-0 text-xs tabular-nums"
-                  title={formatAbsoluteTime(sessionIso, locale)}
-                >
-                  {showRelativeTime
-                    ? formatRelativeTime(sessionIso, locale)
-                    : formatTimeOfDay(sessionIso, locale)}
+            {/* Two-line content block: title + persistent time on line 1, the
+                calm Deep Research chip on line 2. */}
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm" title={displayTitle}>
+                  {displayTitle}
                 </span>
+                {sessionIso && (
+                  <span
+                    className="text-muted-foreground shrink-0 text-xs tabular-nums"
+                    title={formatAbsoluteTime(sessionIso, locale)}
+                  >
+                    {showRelativeTime
+                      ? formatRelativeTime(sessionIso, locale)
+                      : formatTimeOfDay(sessionIso, locale)}
+                  </span>
+                )}
+              </span>
+
+              {/* FB-10: a calm "Deep Research" chip marks sessions that carry a
+                  research run. It lives on its own line so it never swaps with
+                  the trailing actions. */}
+              {showResearchChip && (
+                <Chip size="sm" variant="muted">
+                  {t('sessionsPanel.deepResearchChip')}
+                </Chip>
               )}
             </span>
-
-            {/* FB-10: a calm "Deep Research" chip marks sessions that carry a
-                research run. It lives on its own line so it never swaps with
-                the trailing actions. */}
-            {showResearchChip && (
-              <span className="bg-secondary text-muted-foreground w-fit rounded-full px-2 py-0.5 text-xs font-medium">
-                {t('sessionsPanel.deepResearchChip')}
-              </span>
-            )}
-          </span>
-        </button>
+          </button>
+        </Item>
       )}
 
       {/* The actions OVERLAY the row on hover/focus instead of holding a

@@ -17,8 +17,8 @@
  *     already on screen as the empty state and is not worth interrupting for;
  *     an arrival that leaves the count unchanged is likewise not announced,
  *     which is a known narrowing of NF-3 rather than the intent;
- *   - the filter is a `role="group"` of `aria-pressed` toggles rather than two
- *     unlabelled buttons;
+ *   - the filter is a single-select `ToggleGroup` (`role="radiogroup"`) rather
+ *     than two unlabelled buttons;
  *   - the empty state differs per filter, because "nothing needs you" and "your
  *     inbox is empty" are different facts and collapsing them misleads.
  */
@@ -33,7 +33,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Item, ItemContent, ItemList, ItemMedia } from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { AnimatePresence } from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { InboxItemRow } from './InboxItemRow'
@@ -90,30 +92,25 @@ export function InboxList({
     <div className={cn('space-y-4', className)}>
       {/* ---- Filter + bulk action ---- */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-[7px]" role="group" aria-label={t('inbox.filters.ariaLabel')}>
-          {FILTERS.map((key) => {
-            const active = filter === key
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setFilter(key)}
-                aria-pressed={active}
-                className={cn(
-                  // 28px filter pills — small on purpose, so widen the catchment
-                  // rather than the pill.
-                  'inline-flex h-7 items-center gap-1.5 rounded-md border-[0.5px] px-3 text-[12.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 touch-target',
-                  active
-                    ? 'border-border bg-card font-medium text-foreground shadow-xs'
-                    : 'border-transparent text-muted-foreground hover:bg-accent',
-                )}
-              >
-                {t(`inbox.filters.${key}`)}
-                {key === 'needsMe' && pending > 0 && <CountPill>{pending}</CountPill>}
-              </button>
-            )
-          })}
-        </div>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          value={filter}
+          onValueChange={(value) => {
+            // type=single can emit "" when the pressed item is clicked again;
+            // the inbox always has a filter, so ignore a clear.
+            if (value === 'needsMe' || value === 'all') setFilter(value)
+          }}
+          aria-label={t('inbox.filters.ariaLabel')}
+        >
+          {FILTERS.map((key) => (
+            <ToggleGroupItem key={key} value={key}>
+              {t(`inbox.filters.${key}`)}
+              {key === 'needsMe' && pending > 0 && <CountPill>{pending}</CountPill>}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
 
         <Button
           variant="outline"
@@ -160,25 +157,20 @@ export function InboxList({
             </AlertDescription>
           </Alert>
         ) : loading ? (
-          <div
-            data-testid="inbox-skeleton"
-            aria-busy="true"
-            className="overflow-hidden rounded-lg border-[0.5px] border-border bg-card shadow-xs"
-          >
+          <ItemList as="ul" data-testid="inbox-skeleton" aria-busy="true" className="bg-card shadow-xs">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div
-                key={index}
-                className="flex items-start gap-3 border-b-[0.5px] border-border px-4 py-3.5 last:border-b-0 md:px-5"
-              >
-                <Skeleton className="size-8 shrink-0 rounded-full" />
-                <div className="flex flex-1 flex-col gap-2">
+              <Item as="li" key={index} className="items-start py-3.5">
+                <ItemMedia>
+                  <Skeleton className="size-8 shrink-0 rounded-full" />
+                </ItemMedia>
+                <ItemContent className="flex flex-col gap-2">
                   <Skeleton className="h-3.5 w-3/5" />
                   <Skeleton className="h-2.5 w-1/3" />
                   <Skeleton className="h-2.5 w-20" />
-                </div>
-              </div>
+                </ItemContent>
+              </Item>
             ))}
-          </div>
+          </ItemList>
         ) : items.length === 0 ? (
           <EmptyState
             icon={filter === 'needsMe' ? CheckCircle2 : InboxIcon}
@@ -188,7 +180,7 @@ export function InboxList({
             )}
           />
         ) : (
-          <ul className="divide-y divide-border overflow-hidden rounded-lg border-[0.5px] border-border bg-card shadow-xs">
+          <ItemList as="ul" className="bg-card shadow-xs">
             {/* Archiving a row is the one action here, and it removes that row —
                 so the list needs an exit, which CSS cannot give it, and `layout`
                 so the rows below close the gap instead of jumping.
@@ -207,7 +199,7 @@ export function InboxList({
                 />
               ))}
             </AnimatePresence>
-          </ul>
+          </ItemList>
         )}
       </div>
 

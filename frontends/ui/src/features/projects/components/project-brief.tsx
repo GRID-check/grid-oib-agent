@@ -4,14 +4,17 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { CircleHelp, ClipboardList, Loader2, PencilLine, Sparkles } from 'lucide-react'
+import { CircleHelp, ClipboardList, PencilLine, Sparkles } from 'lucide-react'
 import { buildProjectBriefView } from '@/lib/project-profile/brief-view'
 import type { BriefAssumption } from '@/lib/project-profile/brief-view'
 import type { ProjectProfile } from '@/lib/project-profile/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Chip } from '@/components/ui/chip'
 import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
+import { RaisedCard, RaisedCardBody } from '@/components/ui/raised-card'
+import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import { sourceTint } from '@/lib/ui/source-tint'
 
@@ -78,131 +81,129 @@ export function ProjectBrief({
   const hasFacts = brief.answeredCount > 0
 
   return (
-    <section className="rounded-2xl border bg-card p-6 shadow-sm">
-      {/* Header: icon tile + title + completeness + edit */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg"
-            style={sourceTint('project')}
-            aria-hidden
-          >
-            <ClipboardList className="size-[17px]" />
-          </span>
-          <h2 className="text-sm font-semibold text-foreground">{t('overview.brief.heading')}</h2>
-          {brief.totalCount > 0 && (
-            <CountPill>
-              {t('overview.brief.captured', {
-                answered: String(brief.answeredCount),
-                total: String(brief.totalCount),
-              })}
-            </CountPill>
-          )}
-        </div>
-        {canEdit && (
-          <Link
-            href={intakeHref}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground touch-target"
-          >
-            <PencilLine className="size-3.5" aria-hidden />
-            {t('overview.brief.edit')}
-          </Link>
-        )}
-      </div>
-
-      {/* AI summary prose. When the brief has facts but no prose yet (a wizard
-          save just reset it), generation starts automatically WITH a visible
-          "writing…" state — the old fire-and-forget from the wizard finished
-          after this page rendered, so the summary never appeared without a
-          manual reload. The manual control remains for retry/regenerate. */}
-      {prose ? (
-        <div className="mt-3">
-          <p className="text-sm leading-relaxed text-muted-foreground">{prose}</p>
-          <SummaryControl projectId={projectId} hasSummary summaryLocale={summaryLocale} />
-        </div>
-      ) : (
-        <div className="mt-3">
-          <SummaryControl projectId={projectId} hasSummary={false} autoStart={hasFacts} />
-        </div>
-      )}
-
-      {/* Focus areas the architect selected for Piloti */}
-      {brief.focusAreas.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-xs text-muted-foreground">{t('overview.brief.focus')}</span>
-          {brief.focusAreas.map((area) => (
-            <Badge key={area} variant="secondary">
-              {area}
-            </Badge>
-          ))}
-          {brief.goalDetails && (
-            <span className="basis-full text-xs text-muted-foreground">{brief.goalDetails}</span>
-          )}
-        </div>
-      )}
-
-      {/* Fact sheet, grouped by intake stage */}
-      {hasFacts ? (
-        <div className="mt-5 space-y-5">
-          {brief.groups.map((group) => (
-            <div key={group.id}>
-              <h3 className="text-xs font-medium text-muted-foreground/80">{group.title}</h3>
-              <dl className="mt-2 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
-                {group.facts.map((fact) => (
-                  <div key={fact.key}>
-                    <dt className="text-xs text-muted-foreground">{fact.label}</dt>
-                    <dd
-                      className="mt-0.5 text-sm font-medium"
-                      title={
-                        PROVENANCE_SOURCES.has(fact.source)
-                          ? t(`overview.brief.provenance.${fact.source}`)
-                          : fact.source
-                      }
-                    >
-                      {fact.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-3 text-sm text-muted-foreground">
-          {t('overview.brief.startedNoDetailsBefore')}
-          <Link href={intakeHref} className="font-medium text-foreground underline-offset-4 hover:underline">
-            {t('overview.brief.completeBrief')}
-          </Link>
-          {t('overview.brief.startedNoDetailsAfter')}
-        </p>
-      )}
-
-      {/* Piloti-suggested assumptions awaiting the architect's confirmation */}
-      {brief.assumptions.length > 0 && (
-        <AssumptionsBlock projectId={projectId} assumptions={brief.assumptions} />
-      )}
-
-      {/* What Piloti still doesn't know — each gap links back into the wizard */}
-      {brief.missing.length > 0 && (
-        <div className="mt-5 border-t pt-4">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
-              <CircleHelp className="size-3.5" aria-hidden />
-              {t('overview.brief.missingHeading')}
+    <RaisedCard>
+      <RaisedCardBody className="p-6">
+        {/* Header: icon tile + title + completeness + edit */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2.5">
+            <span
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+              style={sourceTint('project')}
+              aria-hidden
+            >
+              <ClipboardList className="size-[17px]" />
             </span>
-            {brief.missing.map((item) => (
-              <Link
-                key={item.key}
-                href={intakeHref}
-                className="rounded-md border border-dashed px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-solid hover:text-foreground"
-              >
-                {item.label}
-              </Link>
+            <h2 className="text-sm font-semibold text-foreground">{t('overview.brief.heading')}</h2>
+            {brief.totalCount > 0 && (
+              <CountPill>
+                {t('overview.brief.captured', {
+                  answered: String(brief.answeredCount),
+                  total: String(brief.totalCount),
+                })}
+              </CountPill>
+            )}
+          </div>
+          {canEdit && (
+            <Link
+              href={intakeHref}
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground touch-target"
+            >
+              <PencilLine className="size-3.5" aria-hidden />
+              {t('overview.brief.edit')}
+            </Link>
+          )}
+        </div>
+
+        {/* AI summary prose. When the brief has facts but no prose yet (a wizard
+            save just reset it), generation starts automatically WITH a visible
+            "writing…" state — the old fire-and-forget from the wizard finished
+            after this page rendered, so the summary never appeared without a
+            manual reload. The manual control remains for retry/regenerate. */}
+        {prose ? (
+          <div className="mt-3">
+            <p className="text-sm leading-relaxed text-muted-foreground">{prose}</p>
+            <SummaryControl projectId={projectId} hasSummary summaryLocale={summaryLocale} />
+          </div>
+        ) : (
+          <div className="mt-3">
+            <SummaryControl projectId={projectId} hasSummary={false} autoStart={hasFacts} />
+          </div>
+        )}
+
+        {/* Focus areas the architect selected for Piloti */}
+        {brief.focusAreas.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-xs text-muted-foreground">{t('overview.brief.focus')}</span>
+            {brief.focusAreas.map((area) => (
+              <Badge key={area} variant="secondary">
+                {area}
+              </Badge>
+            ))}
+            {brief.goalDetails && (
+              <span className="basis-full text-xs text-muted-foreground">{brief.goalDetails}</span>
+            )}
+          </div>
+        )}
+
+        {/* Fact sheet, grouped by intake stage */}
+        {hasFacts ? (
+          <div className="mt-5 space-y-5">
+            {brief.groups.map((group) => (
+              <div key={group.id}>
+                <h3 className="text-xs font-medium text-muted-foreground/80">{group.title}</h3>
+                <dl className="mt-2 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
+                  {group.facts.map((fact) => (
+                    <div key={fact.key}>
+                      <dt className="text-xs text-muted-foreground">{fact.label}</dt>
+                      <dd
+                        className="mt-0.5 text-sm font-medium"
+                        title={
+                          PROVENANCE_SOURCES.has(fact.source)
+                            ? t(`overview.brief.provenance.${fact.source}`)
+                            : fact.source
+                        }
+                      >
+                        {fact.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
             ))}
           </div>
-        </div>
-      )}
-    </section>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">
+            {t('overview.brief.startedNoDetailsBefore')}
+            <Link href={intakeHref} className="font-medium text-foreground underline-offset-4 hover:underline">
+              {t('overview.brief.completeBrief')}
+            </Link>
+            {t('overview.brief.startedNoDetailsAfter')}
+          </p>
+        )}
+
+        {/* Piloti-suggested assumptions awaiting the architect's confirmation */}
+        {brief.assumptions.length > 0 && (
+          <AssumptionsBlock projectId={projectId} assumptions={brief.assumptions} />
+        )}
+
+        {/* What Piloti still doesn't know — each gap links back into the wizard */}
+        {brief.missing.length > 0 && (
+          <div className="mt-5 border-t pt-4">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <CircleHelp className="size-3.5" aria-hidden />
+                {t('overview.brief.missingHeading')}
+              </span>
+              {brief.missing.map((item) => (
+                <Chip key={item.key} asChild interactive variant="outline" size="sm">
+                  <Link href={intakeHref}>{item.label}</Link>
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
+      </RaisedCardBody>
+    </RaisedCard>
   )
 }
 
@@ -318,7 +319,7 @@ function SummaryControl({
         className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60 touch-target"
       >
         {pending ? (
-          <Loader2 className="size-3 animate-spin" aria-hidden />
+          <Spinner size="xs" />
         ) : (
           <Sparkles className="size-3" aria-hidden />
         )}
@@ -333,7 +334,7 @@ function SummaryControl({
     // start a duplicate LLM call.
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
+        <Spinner size="sm" />
         {t('overview.brief.summaryWriting')}
       </p>
     )

@@ -28,6 +28,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatRelativeTime } from '@/lib/format'
@@ -122,16 +123,16 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
   // reason to look at the logs.
   if (!digest) {
     return (
-      <p
-        className={cn('rounded-lg border border-dashed px-4 py-3 text-xs text-muted-foreground', className)}
+      <EmptyState
+        variant="bare"
+        className={className}
         data-testid="feedback-digest-empty"
-      >
-        {t(
+        title={t(
           error && BENIGN.has(error)
             ? `answerFeedback.digest.${error === 'no_feedback' ? 'emptyNoFeedback' : 'emptyTooFew'}`
             : 'answerFeedback.digest.unavailable',
         )}
-      </p>
+      />
     )
   }
 

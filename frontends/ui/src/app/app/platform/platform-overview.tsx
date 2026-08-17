@@ -15,7 +15,7 @@
  * reading org spend, and sharing a card implied otherwise.
  */
 
-import { type FC, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
 import { WorkOsWidgets, UsersManagement } from '@workos-inc/widgets'
 import '@radix-ui/themes/styles.css'
 import {
@@ -35,6 +35,7 @@ import { DataToolbar } from '@/components/ui/data-toolbar'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Pagination } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
+import { StatCard } from '@/components/ui/stat-card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SectionCard } from '@/features/platform/components/section-card'
@@ -101,24 +102,6 @@ const compareBy = (
       return Date.parse(a.createdAt) - Date.parse(b.createdAt)
   }
 }
-
-const StatTile: FC<{ icon: ReactNode; label: string; value: ReactNode; hint?: string }> = ({
-  icon,
-  label,
-  value,
-  hint,
-}) => (
-  <div className="flex items-center gap-3 rounded-lg border p-4">
-    <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-      {icon}
-    </div>
-    <div className="min-w-0">
-      <p className="truncate text-xs font-medium uppercase text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold tabular-nums tracking-tight">{value}</p>
-      {hint ? <p className="text-xs leading-tight text-muted-foreground">{hint}</p> : null}
-    </div>
-  </div>
-)
 
 const SortableHead: FC<{
   label: string
@@ -256,7 +239,7 @@ export const PlatformOverview: FC = () => {
       <div className="flex flex-col gap-6">
         {/* Headline stats */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile
+          <StatCard
             icon={<Building2 className="size-4" aria-hidden />}
             label={t('stats.organizations')}
             value={totals.organizations}
@@ -268,17 +251,17 @@ export const PlatformOverview: FC = () => {
                 : undefined
             }
           />
-          <StatTile
+          <StatCard
             icon={<FolderKanban className="size-4" aria-hidden />}
             label={t('stats.projects')}
             value={totals.projects}
           />
-          <StatTile
+          <StatCard
             icon={<Gauge className="size-4" aria-hidden />}
             label={t('stats.spendToday')}
             value={eur(totals.dayUsd * overview.eurPerUsd, locale)}
           />
-          <StatTile
+          <StatCard
             icon={<ReceiptEuro className="size-4" aria-hidden />}
             label={t('stats.spendMonth')}
             value={

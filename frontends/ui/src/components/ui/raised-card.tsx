@@ -81,6 +81,25 @@ export function RaisedCard({
 }
 
 /**
+ * Flush media well at the top of the raised block (file thumbnails). Sits
+ * inside {@link RaisedCardBody} with the body's padding stripped.
+ */
+export function RaisedCardMedia({
+  className,
+  children,
+  ...rest
+}: ComponentProps<'div'>): JSX.Element {
+  return (
+    <div
+      className={cn('relative w-full overflow-hidden border-b bg-card', className)}
+      {...rest}
+    >
+      {children}
+    </div>
+  )
+}
+
+/**
  * The raised white block. Rounded at the bottom only — the top edge is flush
  * with the tray, which is what makes it read as laid in rather than floating.
  */
