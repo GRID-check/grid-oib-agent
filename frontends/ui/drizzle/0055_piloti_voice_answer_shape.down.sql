@@ -1,42 +1,18 @@
--- Piloti's writing voice, as fleet standard equipment.
+-- Puts `piloti-voice` back to the body 0053 seeded.
 --
--- Seeded as a `platform_skills` row rather than shipped as a builtin file under
--- `src/aiq_agent/skills/builtin/**`, because a voice is edited far more often
--- than the pipeline machinery those files hold, and every edit there is a code
--- review and a deploy. As a published `delivery: 'standard'` row it is owned by
--- the platform dashboard: an edit reaches every organization immediately, with
--- nothing to re-take and no release to wait for.
+-- Guarded on the body 0055 wrote (ad2b4b9546cb0f0a9138273a63402f9a), so a
+-- row the platform owner has edited since is left alone: a rollback that
+-- overwrites somebody's writing is not a rollback. `created_by = 'system'` is
+-- kept as a second gate for consistency with the other seed rollbacks, but the
+-- hash is the gate that actually distinguishes an untouched row from an edited
+-- one.
 --
--- This migration is a SEED, not a source of truth. The row is the source of
--- truth the moment it exists; the ON CONFLICT clause below therefore leaves an
--- edited body alone, so re-running migrations against a live database cannot
--- silently revert whatever the platform owner has since written.
---
--- Which is also why the body below is NOT the current text: it is what this
--- migration seeded, and editing it here would change nothing in any database
--- that has already run. The answer-shape craft that moved out of
--- `<answer_shape>` in the researcher prompt arrives in
--- `0055_piloti_voice_answer_shape.sql`, which updates the row and is guarded on
--- the md5 of exactly this literal — so this text is load-bearing history and
--- must not be edited in place.
---
--- `delivery: 'standard'` is load-bearing rather than descriptive: `SkillRuntime`
--- forces every resolved standard skill for the run, so its body is loaded before
--- the answer is written instead of sitting in the catalog as a one-line
--- description the model may never open. Making it an 'offer' would leave the
--- product with a voice that applies only where an org happened to switch it on.
---
--- `grid-agents` names both answering agents. The voice governs REGISTER, which
--- is the one thing the deep researcher's own writer skills never specify — they
--- own the structure of a genre, this owns how a sentence lands, and they compose.
--- (That last sentence is aspirational, and 0055 records why: nothing resolves a
--- platform skill for the deep researcher today, so naming it here is inert.)
-
-INSERT INTO "platform_skills" ("name", "description", "body", "metadata", "published", "delivery", "created_by", "created_by_email")
-VALUES (
-  'piloti-voice',
-  'Vor dem Schreiben der Antwort laden: wie eine Piloti-Antwort gebaut ist — Antwort zuerst, Vorbehalte danach, Unsicherheit einmal und konkret, objektive Einschätzung statt Empfehlung. Gilt für jede fachliche Antwort, nicht nur für lange.',
-  '# Wie eine Antwort gebaut ist
+-- The description reverts with the body. They are one instruction: the L1 line
+-- names what the body teaches, and a description promising a rule the body no
+-- longer states is worse than either half alone.
+UPDATE "platform_skills"
+   SET "description" = 'Vor dem Schreiben der Antwort laden: wie eine Piloti-Antwort gebaut ist — Antwort zuerst, Vorbehalte danach, Unsicherheit einmal und konkret, objektive Einschätzung statt Empfehlung. Gilt für jede fachliche Antwort, nicht nur für lange.',
+       "body" = '# Wie eine Antwort gebaut ist
 
 Diese Anleitung ist auf Deutsch, weil sie deutsche Prosa beschreibt und der Ton
 eines Prompts sich auf den Ton der Antwort überträgt. Eine Anleitung für knappes
@@ -162,14 +138,7 @@ vorgeschrieben, und eine Frage, die in einen Satz passt, bekommt einen Satz.
 
 Eine lange Antwort auf eine kurze Frage ist kein Service, sondern Arbeit, die an
 den Leser weitergegeben wird.',
-  -- grid-hidden: the voice runs on EVERY answer, so "piloti-voice ran" is
-  -- noise on the live line. Hidden routes its activation event to the technical
-  -- channel — still fired, still recorded, still named in the reasoning view
-  -- when the reader opens it — rather than announcing itself every turn.
-  '{"grid-agents": "shallow_researcher,deep_researcher", "grid-hidden": "true"}'::jsonb,
-  true,
-  'standard',
-  'system',
-  NULL
-)
-ON CONFLICT ("name") DO NOTHING;
+       "updated_at" = now()
+ WHERE "name" = 'piloti-voice'
+   AND "created_by" = 'system'
+   AND md5("body") = 'ad2b4b9546cb0f0a9138273a63402f9a';

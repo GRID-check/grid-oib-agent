@@ -386,6 +386,13 @@
       "when": 1787184000005,
       "tag": "0054_piloti_cards_standard_skill",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1787270400005,
+      "tag": "0055_piloti_voice_answer_shape",
+      "breakpoints": true
     }
   ]
 }

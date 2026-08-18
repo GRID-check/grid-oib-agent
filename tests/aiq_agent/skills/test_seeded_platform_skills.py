@@ -25,6 +25,7 @@ is a bookkeeping mismatch, visible long before anything connects.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -302,3 +303,142 @@ def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
     # And the description is no longer carrying them.
     assert "GENERIC ones" not in _CARD_DOCTRINE
     assert "NAME something" not in _CARD_DOCTRINE
+
+
+#: Prompt surfaces the seeds are asserted against. Answer shape is taught on
+#: three of them and the split between them is what these last tests pin.
+SHALLOW_PROMPT = REPO_ROOT / "src/aiq_agent/agents/shallow_researcher/prompts/researcher.j2"
+DEEP_WRITER_PROMPT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/prompts/writer.j2"
+SHALLOW_REGISTER = REPO_ROOT / "src/aiq_agent/agents/shallow_researcher/register.py"
+
+
+def _effective_row(name: str) -> dict[str, str]:
+    """The row a database ENDS UP with, not the one it was first given.
+
+    ``SEEDS`` is every ``INSERT`` on disk in migration order, and a skill may be
+    seeded once and updated later (``0053`` then ``0055`` for ``piloti-voice``).
+    Asserting against the first match would test text no live database has held
+    since the update shipped, which is the precise failure the update migration
+    exists to avoid.
+    """
+    rows = [row for _, row in SEEDS if row["name"] == name]
+    assert rows, f"no seed inserts {name!r}"
+    return rows[-1]
+
+
+def _answer_shape_section() -> str:
+    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    match = re.search(r"<answer_shape>.*?</answer_shape>", prompt, re.DOTALL)
+    assert match is not None, "the researcher prompt no longer has an <answer_shape> section"
+    return match.group(0)
+
+
+def _guard_hashes(tag: str) -> list[str]:
+    """The md5 literals a migration guards on, in the order they appear."""
+    sql = (DRIZZLE_DIR / f"{tag}.sql").read_text(encoding="utf-8")
+    return re.findall(r"md5\([^)]*\)\s*=\s*'([0-9a-f]{32})'", sql)
+
+
+def test_the_voice_seed_carries_the_answer_shape_craft_the_prompt_no_longer_states():
+    """The craft moved OUT of ``<answer_shape>`` and has to have landed here.
+
+    Same split as the cards (3f8c8e4a), for the same reason: the researcher
+    prompt is paid on every turn and holds what must be true for the answer to
+    be usable — the three turn types, the prose, the sources section, the one
+    confidence line. How the answer READS is judgement, and it belongs in a row
+    a platform owner rewrites without a deploy.
+
+    Asserted against each other rather than separately. Deleting a paragraph
+    from the prompt and forgetting to write its replacement into the seed costs
+    nothing visible in review and would quietly take the craft out of the
+    product; so would writing it into the seed and leaving the English standing
+    in the prompt, which is the duplication this split removed.
+    """
+    section = _answer_shape_section()
+    body = _effective_row("piloti-voice")["body"]
+
+    # The order the reasoning is checked in, and where a caveat may NOT sit.
+    assert "Danach der Nachweis, zuletzt die Vorbehalte" in body
+    assert "Ein Vorbehalt" in body and "mitten im Absatz" in body
+    # A class is named the way the Richtlinie names it, because it gets copied.
+    assert "REI 90" in body and "GK 4" in body
+    assert "Einreichung ab" in body
+    # Headings are earned, and never open the answer.
+    assert "Überschriften erst" in body
+    assert "nie als erste Zeile" in body
+
+    # And the prompt is no longer carrying any of it.
+    assert "Lead with the answer" not in section
+    assert "Length follows the question" not in section
+    assert "Ziviltechniker" not in section
+    assert "REI 90" not in section
+    assert "never open with one" not in section
+
+    # What the prompt keeps is the routing — which turn type this applies to —
+    # and a pointer, in the `<cards>` idiom: read it there, not here.
+    assert "RESEARCH turn" in section
+    assert "conversational or off-topic turn" in section
+    assert "writing skill active for this turn" in section
+
+
+def test_the_voice_update_is_guarded_on_the_body_it_replaces():
+    """``0055`` may only overwrite a row still identical to what ``0053`` seeded.
+
+    ``0053`` is a SEED: its ``ON CONFLICT DO NOTHING`` protects a platform
+    owner's edits from a re-run, which also means editing the text inside it
+    changes nothing in any database that has already applied it. So the new body
+    ships as its own migration, and the guard is the only test that actually
+    separates an untouched seed from an edited row — ``created_by`` does not,
+    because the dashboard's update path patches ``body`` and never touches it.
+
+    Pinning the hashes here is what keeps the chain honest: editing ``0053``'s
+    literal in place, or editing ``0055``'s, silently turns the guard into a
+    condition that matches nothing and the update into a no-op that ships green.
+    """
+    seeded = next(row for tag, row in SEEDS if tag.startswith("0053_"))["body"]
+    updated = _effective_row("piloti-voice")["body"]
+    assert seeded != updated, "0055 must actually change the body it inherits"
+
+    forward = _guard_hashes("0055_piloti_voice_answer_shape")
+    assert forward == [hashlib.md5(seeded.encode("utf-8")).hexdigest()]
+
+    down = (DRIZZLE_DIR / "0055_piloti_voice_answer_shape.down.sql").read_text(encoding="utf-8")
+    assert re.findall(r"md5\([^)]*\)\s*=\s*'([0-9a-f]{32})'", down) == [
+        hashlib.md5(updated.encode("utf-8")).hexdigest()
+    ]
+    # A rollback that restores a body but leaves the L1 line promising rules the
+    # body no longer states has only half-rolled back.
+    assert seeded in down
+    assert next(row for tag, row in SEEDS if tag.startswith("0053_"))["description"] in down
+
+
+def test_the_deep_writer_keeps_its_own_lead_because_no_platform_skill_reaches_it():
+    """The THIRD copy of "answer first" is load-bearing, and this says why.
+
+    ``piloti-voice``'s ``grid-agents`` names ``deep_researcher``, which reads
+    like the deep writer is covered and its own lead paragraph is redundant. It
+    is not: a platform skill only reaches an agent that builds a
+    ``SkillRuntime``, and exactly one agent does. The deep pipeline resolves
+    builtin skill FILES out of its sandbox instead, so deleting the writer's
+    paragraph would leave the longest answers the product writes with no shape
+    guidance at all.
+
+    Both halves are pinned. If a second agent ever constructs a resolver, this
+    fails — which is the moment to ask whether the writer's paragraph should
+    become a pointer like the shallow prompt's did.
+    """
+    resolved_for = set(re.findall(r'SkillResolver\(agent="([a-z_]+)"\)', SHALLOW_REGISTER.read_text(encoding="utf-8")))
+    agents_with_a_runtime = {
+        agent
+        for path in (REPO_ROOT / "src").rglob("*.py")
+        for agent in re.findall(r'SkillResolver\(agent="([a-z_]+)"\)', path.read_text(encoding="utf-8"))
+    }
+    assert resolved_for == {"shallow_researcher"}
+    assert agents_with_a_runtime == {"shallow_researcher"}
+
+    writer = DEEP_WRITER_PROMPT.read_text(encoding="utf-8")
+    assert "- Open with the answer." in writer
+    assert "must still leave with the right answer" in writer
+    # And the reason is recorded next to it, so the next reader deduplicating
+    # these three surfaces does not delete the one that cannot be replaced.
+    assert "no platform skill reaches it" in writer

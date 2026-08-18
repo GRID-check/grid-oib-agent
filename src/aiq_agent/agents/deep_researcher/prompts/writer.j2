@@ -57,6 +57,16 @@ Before drafting, use `think` to make a compact synthesis map:
 - Identify conflicts, stale evidence, weak evidence, missing components, or places where sources disagree.
 - Decide where dense tables, matrices, timelines, ranked lists, or comparison grids would communicate the evidence better than prose.
 
+{# The lead rule below is the THIRD statement of "answer first" in this repo, and
+     the only one this agent ever sees. `<answer_shape>` in the shallow prompt handed
+     answer-shape craft to the `piloti-voice` platform skill; that skill's
+     `grid-agents` names this agent too, but no platform skill reaches it — only
+     `shallow_researcher/register.py` builds a `SkillRuntime`, and the deep pipeline
+     resolves builtin skill FILES out of the sandbox instead. So this paragraph is not
+     a duplicate to be tidied away: delete it and the longest answers the product
+     writes lose their lede. If the deep path ever gains a platform-skill runtime, this
+     is the paragraph to reconsider, and `0055_piloti_voice_answer_shape.sql` is where
+     the other half lives. -#}
 When synthesizing:
 - Open with the answer. Before the first heading, write a short lead — two to five sentences — that states the conclusion, the governing rule and the number or ruling it produces. A reader who stops there must still leave with the right answer; the sections after it are the audit trail they read when they have to defend it. Do not open with what was researched, how it was researched, or a restatement of the question.
 - Retain useful detail. Do not flatten rich research notes into generic themes when concrete evidence, numbers, examples, mechanisms, or caveats are available.
