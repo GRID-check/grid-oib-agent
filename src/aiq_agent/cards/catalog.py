@@ -64,6 +64,73 @@ INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
 # their model is broken when it is not.
 MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_compliance", "ifc_schedule", "ifc_diff"})
 
+# The shared card DOCTRINE: which trigger takes which card, and when to emit none.
+#
+# It lives here, with the shapes, because BOTH surfaces that ask a model for a card need it and
+# neither may hold its own copy. "Emit a card only when it adds real value" was the whole
+# instruction once, and fifteen working diagram renderers sat unused behind it, because a
+# disclaimer is not an instruction. A second copy of the cure is a second thing to keep in sync,
+# and the copy that stops being maintained is the one that goes back to being a disclaimer.
+#
+# Only what is true on BOTH surfaces belongs here. The `[[card:N]]` placement contract is tool
+# mechanics and stays in `register.py`: post-hoc generation is handed a finished report, so it has
+# no answer to place a marker into. The CRAFT — which of the generic cards actually improves an
+# ordinary answer — lives in the `piloti-cards` platform skill for the answering agents, and in a
+# post-hoc-truthful short form in `prompt.py` for the batch generator, which has no skill runtime.
+_CARD_TRIGGER_TABLE = """\
+WHEN TO EMIT ONE. An answer that turns on a dimension gets its card by default, not on request.
+A measurement written as a sentence makes the reader re-draw it in their head; the card is the
+drawing they would have made. The trigger, then the card:
+  a riser, tread or stair width            -> stair_diagram
+  a clear width, ramp or turning circle    -> dimension_diagram
+  an escape route with segments            -> egress_diagram
+  a fall height, railing or opening        -> guardrail_check
+  a U-value, HWB or energy class           -> thermal_envelope / energy_performance
+  a fire compartment area                  -> fire_compartment
+  the Richtlinie or norm the answer rests on -> legal_basis
+  a chain of norms, one binding, the rest interpreting -> norm_chain
+  three or more pass/fail criteria         -> requirement_checklist
+  two or more options weighed against each other -> comparison_table
+  the answer's single headline number or ruling, at the top -> verdict_header
+  an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
+  a tabular answer no purpose-built card covers -> typed_table
+  the two to five points the reader must leave with -> key_takeaways
+  one caveat, deadline or tip that changes what the reader DOES -> callout
+  an answer this reader will have a next question about -> follow_ups"""
+
+# The picker's trigger, not its shape. The shape stays in the catalog on every surface — the card
+# carries a heading and nothing else, so there is no id to invent (which is why it is not, and must
+# not become, a member of MODEL_BACKED_CARD_TYPES). What does not transfer is the instruction: it
+# fires on a live intent in the turn being answered, and it tells the model to emit the card
+# INSTEAD of writing the file names in prose. On the post-hoc path the prose is already written and
+# cannot be unwritten, so that trade is not on offer.
+_MODEL_PICKER_TRIGGER = """
+  the user wants to SEE or OPEN the building and the project may hold several models
+                                           -> ifc_model_picker"""
+
+_FOLLOW_UPS_RULE = """\
+At most one follow_ups per answer, and put it LAST — it is what the reader leaves on. Not on a
+conversational or off-topic turn, where there is no subject to go deeper into, and not on an answer
+that already ends by asking the user something: two questions competing for the same reply is how
+you get neither."""
+
+_MODEL_PICKER_NOTE = """\
+The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
+emit it INSTEAD of writing the file names as a prose bullet list. It renders the project's models
+as tiles the user clicks to open the viewer directly — you supply only the heading, never the file
+names, so there is nothing to get wrong. You do not need to call ifc_query first to list them."""
+
+# The negative default, and the anti-fabrication rule that is the reason a card can be worse than
+# no card at all. Both surfaces pay for this one; the post-hoc path states it a second time, in
+# stronger terms, because there it is the only thing standing between a report and an invented
+# limit (see `prompt.py`).
+_CARD_RESTRAINT = """\
+WHEN NOT TO. A one-line factual answer gets no card: one that repeats the sentence above it costs
+the reader a second pass over the same fact. Never fabricate a field, a reference or a number to
+fill a card out — a card with an invented limit in it is worse than the prose alone, because it is
+the part that gets screenshotted into a submission. Two cards in a turn is plenty; more than that
+and the written answer stops being the answer."""
+
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
@@ -666,6 +733,30 @@ def _measured_note() -> str:
         "  is what the architect changes in their CAD. A blank slot instead of it reads as a fact\n"
         "  about the building, when it is a finding about the export."
     )
+
+
+def render_card_doctrine(*, include_ifc_triggers: bool = True) -> str:
+    """The trigger table and the negative default, shared by both card surfaces.
+
+    Framing-free in the same sense as :func:`render_card_catalog`: it says which
+    content takes which card and when to emit none, and leaves each surface to
+    add what only it can promise — where a marker puts a card, or what a batch
+    of them may be built out of.
+
+    Args:
+        include_ifc_triggers: Whether to carry the ``ifc_model_picker`` trigger.
+            The ``emit_card`` tool leaves this on. Post-hoc generation turns it
+            off: that trigger is a live "show me the model" intent in the turn
+            being answered, and it directs the model to emit the card instead of
+            writing the file names as prose — a trade only a surface that is
+            still writing the answer can make. The picker's SHAPE is not
+            withheld anywhere, because it names no file and invents nothing.
+    """
+    parts = [_CARD_TRIGGER_TABLE + (_MODEL_PICKER_TRIGGER if include_ifc_triggers else ""), _FOLLOW_UPS_RULE]
+    if include_ifc_triggers:
+        parts.append(_MODEL_PICKER_NOTE)
+    parts.append(_CARD_RESTRAINT)
+    return "\n\n".join(parts)
 
 
 def render_card_index(*, include_model_backed: bool = True) -> str:

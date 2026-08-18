@@ -12,7 +12,8 @@ context, as a visible tool step, on the shallow chat path. The async
 deep-research job runner has no card registry bound in its Dask worker, so it
 still derives cards post-hoc from the finished report via
 :func:`aiq_agent.cards.generate.generate_cards`. Both surfaces describe the same
-schema to the model through the shared :mod:`aiq_agent.cards.catalog`.
+schema AND the same trigger doctrine to the model through the shared
+:mod:`aiq_agent.cards.catalog`; each adds only what is true of itself.
 """
 
 import json
@@ -29,6 +30,7 @@ from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F40
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
+from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for
 from nat.builder.builder import Builder
@@ -39,56 +41,26 @@ from nat.data_models.function import FunctionBaseConfig
 logger = logging.getLogger(__name__)
 
 
-# The CONTRACT of the tool, and only that: which trigger takes which card, when to emit none,
-# and where a card lands. Every line here is paid on every turn whether or not a card is emitted,
-# so the CRAFT — which of the generic cards actually improves an ordinary answer, and how to tell
-# the three table-shaped cards apart — lives in the `piloti-cards` platform skill instead. That
-# skill is applied on every answering turn anyway, and being a database row it can be edited
-# without a deploy. A new card type earns a trigger line here; its paragraph belongs in the skill.
-_CARD_DOCTRINE = """\
-WHEN TO EMIT ONE. An answer that turns on a dimension gets its card by default, not on request.
-A measurement written as a sentence makes the reader re-draw it in their head; the card is the
-drawing they would have made. The trigger, then the card:
-  a riser, tread or stair width            -> stair_diagram
-  a clear width, ramp or turning circle    -> dimension_diagram
-  an escape route with segments            -> egress_diagram
-  a fall height, railing or opening        -> guardrail_check
-  a U-value, HWB or energy class           -> thermal_envelope / energy_performance
-  a fire compartment area                  -> fire_compartment
-  the Richtlinie or norm the answer rests on -> legal_basis
-  a chain of norms, one binding, the rest interpreting -> norm_chain
-  three or more pass/fail criteria         -> requirement_checklist
-  two or more options weighed against each other -> comparison_table
-  the answer's single headline number or ruling, at the top -> verdict_header
-  an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
-  a tabular answer no purpose-built card covers -> typed_table
-  the two to five points the reader must leave with -> key_takeaways
-  one caveat, deadline or tip that changes what the reader DOES -> callout
-  an answer this reader will have a next question about -> follow_ups
-  the user wants to SEE or OPEN the building and the project may hold several models
-                                           -> ifc_model_picker
-
-At most one follow_ups per answer, and put it LAST — it is what the reader leaves on. Not on a
-conversational or off-topic turn, where there is no subject to go deeper into, and not on an answer
-that already ends by asking the user something: two questions competing for the same reply is how
-you get neither.
-
-The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
-emit it INSTEAD of writing the file names as a prose bullet list. It renders the project's models
-as tiles the user clicks to open the viewer directly — you supply only the heading, never the file
-names, so there is nothing to get wrong. You do not need to call ifc_query first to list them.
-
-WHEN NOT TO. A one-line factual answer gets no card: one that repeats the sentence above it costs
-the reader a second pass over the same fact. Never fabricate a field, a reference or a number to
-fill a card out — a card with an invented limit in it is worse than the prose alone, because it is
-the part that gets screenshotted into a submission. Two cards in a turn is plenty; more than that
-and the written answer stops being the answer.
-
+# What only THIS surface can promise: a marker comes back from the tool call, and writing it into
+# the answer puts the card at that point in the text. Post-hoc generation is handed a report that
+# is already written, so it has nothing to place into — which is why this paragraph stays here and
+# the trigger table it follows does not (see `catalog.render_card_doctrine`).
+_PLACEMENT_CONTRACT = """\
 WHERE IT GOES. Every emit_card call hands you back a marker like [[card:2]]. Put that marker on a
 line of its own at the point in your answer the card belongs to, and the card is drawn there —
 the stair diagram beside the paragraph about the stair, not three screens above it. A marker you
 never write puts its card after the whole answer, which is also where every card lands if you
 place none: the reader scrolls past the drawings to reach the answer they asked for."""
+
+# The CONTRACT of the tool, and only that: which trigger takes which card, when to emit none, and
+# where a card lands. Every line here is paid on every turn whether or not a card is emitted, so
+# the CRAFT — which of the generic cards actually improves an ordinary answer, and how to tell the
+# three table-shaped cards apart — lives in the `piloti-cards` platform skill instead. That skill
+# is applied on every answering turn anyway, and being a database row it can be edited without a
+# deploy. A new card type earns a trigger line in the shared doctrine; its paragraph belongs in the
+# skill. The doctrine itself moved to `catalog.py` when the post-hoc generator started rendering it
+# too — a trigger table that exists twice is a trigger table that will disagree with itself.
+_CARD_DOCTRINE = render_card_doctrine() + "\n\n" + _PLACEMENT_CONTRACT
 
 
 def _build_tool_description() -> str:

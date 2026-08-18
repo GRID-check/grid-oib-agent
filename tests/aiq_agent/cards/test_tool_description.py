@@ -160,9 +160,18 @@ class TestTheDescriptionStaysAffordable:
     The ceiling is the guard against that specific failure. It is deliberately
     slack: it does not pin today's number, it fails only when the description
     has grown by roughly a third, which is far too much to arrive by accident.
-    A new card type is expected to add its trigger line here and put its
-    paragraph in the `piloti-cards` skill, which is applied on every answering
-    turn anyway and is a database row rather than a deploy.
+    A new card type is expected to add its trigger line to the shared doctrine
+    and put its paragraph in the `piloti-cards` skill, which is applied on every
+    answering turn anyway and is a database row rather than a deploy.
+
+    That doctrine now lives in `cards.catalog` and is rendered by the post-hoc
+    card prompt as well, so it is no longer only this description's to spend —
+    but it is still PAID here, on every turn, which is why the ceiling still
+    measures `_build_tool_description()` end to end rather than the framing
+    around it. Text added to the shared doctrine for the benefit of the batch
+    generator shows up in this number, and that is the point: the per-turn cost
+    is the scarce one. `test_prompt.py` caps what the post-hoc side adds on its
+    own account.
 
     Raising this number is a decision, not a fix. It should come with a
     measurement of what the turn now costs in total.
@@ -180,6 +189,6 @@ class TestTheDescriptionStaysAffordable:
         assert cost <= self.MAX_TOKENS, (
             f"emit_card's description is {cost} tokens, over the {self.MAX_TOKENS} ceiling. "
             "Every turn pays this whether or not a card is emitted. If you added a card type, "
-            "its trigger line belongs here and its craft paragraph belongs in the `piloti-cards` "
-            "platform skill."
+            "its trigger line belongs in `cards.catalog`'s shared doctrine and its craft paragraph "
+            "belongs in the `piloti-cards` platform skill."
         )
