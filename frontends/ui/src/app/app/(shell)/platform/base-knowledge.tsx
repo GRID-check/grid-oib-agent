@@ -126,6 +126,7 @@ export function BaseKnowledge() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<string[]>([])
+  const [isReingesting, setIsReingesting] = useState(false)
 
   // The dropzone is opt-in now: an always-open 8-row target is the loudest
   // thing on a page whose actual job is reviewing what is already in the corpus.
@@ -310,6 +311,45 @@ export function BaseKnowledge() {
         void load()
       })
   }, [load, t])
+
+  /**
+   * Rebuild the chunks of the selected documents.
+   *
+   * Distinct from Sync, which is incremental and gates on each PDF's sha256 — it does
+   * nothing for a document whose file has not changed. This forces the rebuild, which is
+   * what is needed after a change to how chunks are BUILT rather than to what they are
+   * built from: a chunking change, a new embedding model, a half-failed ingest.
+   *
+   * The backend queues and returns immediately; each document then reads `pending` until
+   * its chunks exist again, which is exactly what `startPolling` already watches for.
+   */
+  const handleReingest = useCallback(() => {
+    const names = [...selected]
+    if (names.length === 0) return
+    setIsReingesting(true)
+    fetch('/api/platform/knowledge/reingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileNames: names }),
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Re-ingest failed (${r.status})`)
+        const body = await r.json()
+        const queued: string[] = Array.isArray(body.queued) ? body.queued : []
+        if (queued.length === 0) {
+          toast.error(t('knowledgeAdmin.bulkReingestNothing'))
+          return
+        }
+        toast.success(t('knowledgeAdmin.bulkReingestDone', { count: queued.length }))
+        setSelected([])
+        startPolling(queued)
+      })
+      .catch(() => toast.error(t('knowledgeAdmin.bulkReingestFailed')))
+      .finally(() => {
+        setIsReingesting(false)
+        void load()
+      })
+  }, [load, selected, startPolling, t])
 
   /**
    * PATCH one document's Dokumentart, optimistically. Shared by the detail
@@ -799,6 +839,10 @@ export function BaseKnowledge() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <Button variant="outline" size="sm" onClick={handleReingest} disabled={isReingesting}>
+                      <RefreshCw className={`size-3.5 ${isReingesting ? 'animate-spin' : ''}`} aria-hidden />
+                      {isReingesting ? t('knowledgeAdmin.bulkReingestBusy') : t('knowledgeAdmin.bulkReingest')}
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"

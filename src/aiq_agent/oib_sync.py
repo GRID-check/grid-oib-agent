@@ -464,6 +464,48 @@ def remove_document(name: str) -> str | None:
     return None
 
 
+def mark_for_reingest(name: str) -> Path | None:
+    """Resolve a corpus document for a forced re-ingest, and forget its indexed state.
+
+    Returns the ``Path`` the caller should hand to :func:`ingest_single`, or ``None`` when
+    no such corpus document exists (route → 404). Basename-only, ``.pdf``-only, and
+    resolved through :func:`discover_pdfs`, so an excluded file cannot be revived this way
+    and a path cannot traverse out of the corpus.
+
+    Dropping the registry hash is NOT what makes the re-ingest happen -- ``ingest_single``
+    deletes and re-uploads regardless of what the registry says. It is what makes the
+    re-ingest *visible*: ``oib_status`` reports a file with no registry entry as PENDING,
+    which is the state the admin UI already polls on. Without it a re-ingest of an
+    already-ingested document would read as INGESTED for its whole duration and the
+    progress panel would show a job that appeared to finish before it started.
+
+    Every entry for the basename is dropped, not just the exact path, because the same
+    document can be registered under both the repo corpus and the uploads directory and a
+    single leftover hash would restore the INGESTED reading.
+
+    If the ingestion then fails, the entry simply stays dropped: the file reads as PENDING
+    and the next ``sync()`` picks it up, which is the same self-healing path a genuinely
+    new file takes.
+    """
+    base = Path(name).name
+    if not base or base != name or not base.lower().endswith(".pdf"):
+        return None
+
+    target = next((pdf for pdf in discover_pdfs() if pdf.name == base), None)
+    if target is None:
+        return None
+
+    with _REGISTRY_LOCK:
+        registry = _load_registry()
+        stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
+        if stale_keys:
+            for key in stale_keys:
+                registry.pop(key, None)
+            _save_registry(registry)
+
+    return target
+
+
 def sync() -> tuple[int, int]:
     """Incrementally ingest new/changed OIB PDFs into the persistent collection.
 

@@ -51,6 +51,11 @@ export const platform: typeof en.platform = {
     bulkReclassify: 'Dokumentart ändern',
     bulkReclassifyDone: 'Dokumentart von {count} Dokument(en) auf „{label}“ gesetzt',
     bulkReclassifyFailed: 'Dokumentart von {count} Dokument(en) konnte nicht geändert werden',
+    bulkReingest: 'Neu indizieren',
+    bulkReingestBusy: 'Wird neu indiziert…',
+    bulkReingestDone: '{count} Dokument(e) werden neu indiziert. Der Status aktualisiert sich laufend.',
+    bulkReingestNothing: 'Keines der gewählten Dokumente ist noch im Korpus',
+    bulkReingestFailed: 'Neuindizierung konnte nicht gestartet werden',
     bulkDelete: 'Entfernen',
     bulkDeleteTitle: '{count} Dokumente entfernen?',
     bulkDeleteDescription:

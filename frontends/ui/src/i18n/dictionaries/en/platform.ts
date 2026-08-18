@@ -52,6 +52,11 @@ export const platform = {
     bulkReclassify: 'Change document type',
     bulkReclassifyDone: 'Document type of {count} document(s) set to “{label}”',
     bulkReclassifyFailed: 'Document type of {count} document(s) could not be changed',
+    bulkReingest: 'Re-index',
+    bulkReingestBusy: 'Re-indexing…',
+    bulkReingestDone: 'Re-indexing {count} document(s). The status updates as each one finishes.',
+    bulkReingestNothing: 'None of the selected documents are in the corpus any more',
+    bulkReingestFailed: 'Re-indexing could not be started',
     bulkDelete: 'Remove',
     bulkDeleteTitle: 'Remove {count} documents?',
     bulkDeleteDescription:
