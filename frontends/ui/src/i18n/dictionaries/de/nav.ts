@@ -25,6 +25,16 @@ export const nav: typeof en.nav = {
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
     intake: 'Einrichtung',
   },
+  /** Org-scope group headings. Deliberately NOT shared with `sectionGroups`:
+   * the same word must not head two different sets of destinations. */
+  orgSectionGroups: {
+    work: 'Organisationsweit',
+    account: 'Verwaltung',
+  },
+  scope: {
+    /** Stated inside the org region, so the scope survives grayscale. */
+    orgEyebrow: 'Organisationsweit — nicht dieses Projekt',
+  },
   sectionGroups: {
     work: 'Arbeit',
     automate: 'Automatisieren',

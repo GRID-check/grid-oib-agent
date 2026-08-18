@@ -33,7 +33,6 @@ const SIDEBAR_WIDTH_ICON = '64px'
 type SidebarStyle = React.CSSProperties & {
   '--sidebar-width'?: string
   '--sidebar-width-icon'?: string
-  '--sidebar-current-width'?: string
   '--skeleton-width'?: string
 }
 
@@ -127,22 +126,17 @@ function SidebarProvider({
     [state, open, setOpen, isMobile, openMobile, toggleSidebar],
   )
 
-  const currentWidth = isMobile ? '0px' : open ? SIDEBAR_WIDTH : SIDEBAR_WIDTH_ICON
-
-  // Docked chat panels (Sessions) are `position: fixed` inside <main>, a sibling
-  // of this wrapper, so they cannot inherit the var. Publish it on :root.
-  React.useEffect(() => {
-    const root = document.documentElement
-    root.style.setProperty('--sidebar-current-width', currentWidth)
-    return () => {
-      root.style.removeProperty('--sidebar-current-width')
-    }
-  }, [currentWidth])
-
+  // `--sidebar-current-width` used to be published here, and on `:root` as
+  // well, because the docked chat panels were `position: fixed` against the
+  // VIEWPORT and so had to be told where the rail ended. They are now
+  // `absolute` inside the shell's `relative` <main>, which begins at that
+  // edge — so the offset is structural and the variable had no readers left.
+  // A width published as a global custom property is also a width that can be
+  // wrong: two mounted providers raced over it, and the unmounting one deleted
+  // it out from under the other.
   const wrapperStyle: SidebarStyle = {
     '--sidebar-width': SIDEBAR_WIDTH,
     '--sidebar-width-icon': SIDEBAR_WIDTH_ICON,
-    '--sidebar-current-width': currentWidth,
     ...style,
   }
 

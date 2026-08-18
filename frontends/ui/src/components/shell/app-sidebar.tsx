@@ -259,7 +259,12 @@ function AppSidebarFrame({
         canManagePlatform,
       }).map((group) => ({
         key: group.group,
-        label: t(`sectionGroups.${group.group}`),
+        // Org scope has its OWN group labels. It used to borrow
+        // `sectionGroups.*`, so "Work" headed Ask Piloti/Files/History in one
+        // scope and Projects/Archiv/Inbox in the other — one word meaning two
+        // things in the same 236px column, which is the exact confusion this
+        // whole change exists to remove.
+        label: t(`orgSectionGroups.${group.group}`),
         items: group.items.map((item) => ({
           key: item.key,
           href: item.href,
@@ -394,11 +399,31 @@ function AppSidebarFrame({
               )}
             </div>
           )}
+          {/* The scope, said in words. The surface tint alone carries the
+              distinction on ONE channel — colour — so it disappears in
+              grayscale, for a reader with low vision, and for anyone who never
+              sees the two rails side by side. This line is the channel that
+              always survives: it names the scope outright, and it sits inside
+              the region it describes rather than over the content pane.
+              Project scope needs no such line — the switcher above already
+              names the project, and stating "PROJEKT" under it would be the
+              kind of emphasis that stops meaning anything when it is
+              everywhere. */}
+          {!inProject && !iconRail && (
+            <p className="text-muted-foreground/80 mt-3 text-[10px] font-medium tracking-wide uppercase">
+              {t('scope.orgEyebrow')}
+            </p>
+          )}
         </SidebarHeader>
 
         <SidebarContent
           className={cn(
             'mt-5 gap-4',
+            // A hairline under the header in org scope, so the return control
+            // reads as the way OUT rather than as the first destination in the
+            // list. In project scope the switcher is visibly a control and
+            // needs no such seam.
+            !inProject && !iconRail && 'border-border/70 border-t pt-4',
             // overflow-y-auto here used to replace the primitive's
             // group-data-[collapsible=icon]:overflow-hidden, so labels kept
             // painting past the 64px rail.

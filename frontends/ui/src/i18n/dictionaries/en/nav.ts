@@ -28,6 +28,16 @@ export const nav = {
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).
     intake: 'Setup',
   },
+  /** Org-scope group headings. Deliberately NOT shared with `sectionGroups`:
+   * the same word must not head two different sets of destinations. */
+  orgSectionGroups: {
+    work: 'Organization-wide',
+    account: 'Administration',
+  },
+  scope: {
+    /** Stated inside the org region, so the scope survives grayscale. */
+    orgEyebrow: 'Organization-wide — not this project',
+  },
   sectionGroups: {
     work: 'Work',
     automate: 'Automate',
