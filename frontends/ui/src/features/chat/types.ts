@@ -8,6 +8,8 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
+import type { SourceSignal } from '@/features/layout/lib/source-presets'
+
 import type { Shelf, SourceKind } from './lib/source-kinds'
 
 /** Message role types */
@@ -380,8 +382,8 @@ export interface ThinkingTraceLane {
    * Optional: lanes persisted before the `## Trace-Lanes` block carried it have
    * only `signal`, which stays the field consumers read.
    */
-  kind?: 'baurecht' | 'buero' | 'projekt' | 'web'
-  signal: 'law' | 'project' | 'office' | 'auto'
+  kind?: SourceKind
+  signal: SourceSignal
 }
 
 /** Thinking step for the Details Panel Thinking tab */

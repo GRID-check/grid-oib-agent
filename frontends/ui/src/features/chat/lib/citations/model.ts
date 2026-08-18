@@ -71,6 +71,47 @@ export interface CitationLocus {
   citationKey?: string
 }
 
+/** One element a measured value was derived from. */
+export interface MeasuredElement {
+  globalId: string
+  name?: string
+  ifcType?: string
+}
+
+/**
+ * What a MEASUREMENT knows about itself — the audit trail a citation cannot have.
+ *
+ * A citation says "this passage exists in this document"; a measurement says
+ * "this number came from these elements by this method, ±this much". The second
+ * is reproducible, and every field here comes off one
+ * `ifc_spatial.envelope.Answer` rather than from prose about it.
+ *
+ * The German is the backend renderer's, not this file's: `provenanceLabel` is
+ * the same verb `measure_register._provenance_line` puts in front of the value
+ * and `valueText` is rounded by the same rule, so the card and the sentence the
+ * answer makes about it cannot drift apart.
+ */
+export interface MeasurementFacts {
+  /** `declared` | `computed` | `inferred`, raw off the envelope. */
+  provenance: string
+  /** That provenance in German: deklariert / gemessen / vermutlich. */
+  provenanceLabel: string
+  /** The value with its unit, rounded to its tolerance band ("2.703 m"). */
+  valueText: string
+  /** "±0.005 m". Absent for a declared value, which has no measurement error. */
+  toleranceText?: string
+  /** The operator expression, as text a reviewer can read back. */
+  method: string
+  /** The full German provenance sentence the answer quotes. */
+  statement: string
+  /** GlobalIds the value was derived from, in the order they were used. */
+  elements: MeasuredElement[]
+  /** Which file was measured ("Institut.ifc (IFC4, 12043 Bauteile)"). */
+  model?: string
+  /** A qualification the value is not valid without. */
+  caveat?: string
+}
+
 /**
  * WHAT was cited — one document, with every place in it this turn touched.
  *
@@ -438,7 +479,7 @@ export const refKey = (ref: CitationRef): string =>
  * `[N]` the document carries, then by title. Documents the prose numbered
  * always precede unnumbered ones within their family.
  */
-const KIND_ORDER: Record<SourceKind, number> = { baurecht: 0, buero: 1, projekt: 2, web: 3 }
+const KIND_ORDER: Record<SourceKind, number> = { baurecht: 0, buero: 1, projekt: 2, messung: 3, web: 4 }
 
 export const compareDocuments = (a: CitedDocument, b: CitedDocument): number => {
   const numbersA = citationNumbers(a)

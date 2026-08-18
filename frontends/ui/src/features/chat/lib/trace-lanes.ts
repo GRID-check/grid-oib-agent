@@ -396,8 +396,9 @@ export const deriveTraceLanes = (
   const signalOrder: Record<SourceSignal, number> = {
     law: 0,
     project: 1,
-    office: 2,
-    auto: 3,
+    model: 2,
+    office: 3,
+    auto: 4,
   }
   return Array.from(buckets.values()).sort((a, b) => {
     const sig = signalOrder[a.signal] - signalOrder[b.signal]

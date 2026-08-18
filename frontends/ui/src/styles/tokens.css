@@ -73,6 +73,14 @@
   --source-auto: oklch(0.609 0.006 106.6); /* #83837f — Automatisch / Lücke (knowledge gap) */
   --source-auto-tint: oklch(0.939 0.004 106.5); /* #ebebe8 */
   --source-auto-text: oklch(0.47 0.006 106.6); /* #5b5b57 */
+  /* Modellmessung — a value measured off the BIM model. Its OWN family, not an
+     accent inside another: the other four signals are retrieved documents and
+     this one is the building itself, so it must not read as a sibling of the
+     PDF it was measured against. Teal sits between the project green and the
+     law blue and is the only remaining hue with the separation both need. */
+  --source-model: oklch(0.556 0.098 202); /* teal — am Modell gemessen, Lineal-Icon */
+  --source-model-tint: oklch(0.945 0.023 203);
+  --source-model-text: oklch(0.474 0.086 202);
   --status-active: var(--source-project); /* "Aktiv" doubles the project green */
   --status-active-tint: var(--source-project-tint);
   --status-done: var(--source-auto-text); /* "Abgeschlossen" — quiet warm gray */
@@ -195,6 +203,9 @@
   --source-auto: oklch(0.72 0.008 97.4);
   --source-auto-tint: oklch(0.315 0.007 91.6);
   --source-auto-text: oklch(0.833 0.008 97.4);
+  --source-model: oklch(0.735 0.096 203); /* teal, lifted for charcoal — see light block */
+  --source-model-tint: oklch(0.32 0.045 203);
+  --source-model-text: oklch(0.851 0.069 203);
   --status-active: var(--source-project);
   --status-active-tint: var(--source-project-tint);
   --status-done: var(--source-auto-text);
@@ -454,6 +465,9 @@
   --color-source-auto: var(--source-auto);
   --color-source-auto-tint: var(--source-auto-tint);
   --color-source-auto-text: var(--source-auto-text);
+  --color-source-model: var(--source-model);
+  --color-source-model-tint: var(--source-model-tint);
+  --color-source-model-text: var(--source-model-text);
   --color-status-active: var(--status-active);
   --color-status-active-tint: var(--status-active-tint);
   --color-status-done: var(--status-done);

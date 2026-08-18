@@ -35,6 +35,7 @@ import {
   isCited,
   type CitedDocument,
 } from '../../lib/citations'
+import { Ruler } from 'lucide-react'
 import { SourcePreviewChip } from '../SourcePreview'
 
 /** Provenance icon per signal — mirrors SourceSignalChip so they never drift. */
@@ -43,6 +44,10 @@ const SIGNAL_ICON: Record<SourceSignal, LucideIcon> = {
   project: FileText,
   office: Archive,
   auto: Globe,
+  // Ruler, matching SourceSignalChip: the measurement lane is the one source
+  // that was MEASURED rather than retrieved, and the comment above promises
+  // these two never drift.
+  model: Ruler,
 }
 
 export const SourceCard: FC<{

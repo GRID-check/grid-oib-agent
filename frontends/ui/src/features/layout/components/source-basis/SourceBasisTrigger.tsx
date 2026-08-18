@@ -62,6 +62,7 @@ const SIGNAL_TEXT: Record<SourceSignal, string> = {
   law: 'text-source-law-text',
   office: 'text-source-office-text',
   project: 'text-source-project-text',
+  model: 'text-source-model-text',
   auto: 'text-source-auto-text',
 }
 
