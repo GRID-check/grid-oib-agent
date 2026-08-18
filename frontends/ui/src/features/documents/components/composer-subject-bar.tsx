@@ -9,7 +9,7 @@
  * thread: the next send is a normal project question again.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { FileText, X } from 'lucide-react'
 import { AnimatePresence, motion, easeQuiet } from '@/components/motion'
@@ -63,25 +63,42 @@ export function ComposerSubjectBar({
     The guard is "anything missing", not "no title": a subject restored with a
     title but no filename used to skip this fetch entirely and send the title
     as the filename.
+
+    It is keyed on the SUBJECT and nothing else. The caller's handler is held in
+    a ref rather than a dependency because a composer re-renders on every
+    keystroke, and it is attempted once per resource because a document that
+    404s (deleted, or no longer readable) never completes the subject — between
+    them, the widened guard above would otherwise mean one request per
+    keystroke for as long as the bar is mounted.
   */
+  const onResolvedRef = useRef(onResolved)
   useEffect(() => {
-    if (!subject) return
-    if (subject.title && subject.filename && subject.shelf) return
+    onResolvedRef.current = onResolved
+  }, [onResolved])
+
+  const attemptedRef = useRef<string | null>(null)
+  const resourceId = subject?.resourceId ?? null
+  const isComplete = Boolean(subject?.title && subject?.filename && subject?.shelf)
+
+  useEffect(() => {
+    if (!resourceId || isComplete) return
+    if (attemptedRef.current === resourceId) return
+    attemptedRef.current = resourceId
     let cancelled = false
-    fetch(`/api/documents/${encodeURIComponent(subject.resourceId)}/status`)
+    fetch(`/api/documents/${encodeURIComponent(resourceId)}/status`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: DocumentSubjectStatus | null) => {
         if (cancelled || !body) return
         const filename = body.filename?.trim() || null
         const title = body.displayName?.trim() || filename
         const shelf = SUBJECT_SHELVES.find((value) => value === body.scope)
-        if (title || filename || shelf) onResolved({ title, filename, shelf })
+        if (title || filename || shelf) onResolvedRef.current({ title, filename, shelf })
       })
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [subject, onResolved])
+  }, [resourceId, isComplete])
 
   const name = subject?.title?.trim() || t('assignment.thisFile')
   const href = subject && projectId ? documentFilesHref(projectId, subject.resourceId) : null

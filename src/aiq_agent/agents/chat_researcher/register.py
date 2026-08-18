@@ -44,7 +44,7 @@ from nat.data_models.function import FunctionBaseConfig
 from nat.data_models.streaming import Streaming
 
 from .models import ChatResearcherState
-from .utils import _extract_query_and_sources
+from .utils import extract_turn_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -906,20 +906,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 pass
         logger.info("skip_clarifier=%s", skip_clarifier)
 
-        query_text, data_sources, force_skills = _extract_query_and_sources(query)
-        # The extraction above is what SETS the turn intent ContextVars, so the
-        # focus is read after it, not before. Retrieval reads the same vars;
-        # lifting them onto the state is what puts the subject in front of the
-        # classifier and the answering model as well.
-        try:
-            from aiq_agent.common.focus_file import get_focused_file_name
-            from aiq_agent.common.focus_file import get_focused_shelf
-
-            _focus_file_name = get_focused_file_name()
-            _focus_shelf = get_focused_shelf()
-        except Exception:
-            _focus_file_name = None
-            _focus_shelf = None
+        # Retrieval reads the turn's focus from the ContextVars this parse sets;
+        # taking it from the same call is what also puts the subject in front of
+        # the classifier and the answering model.
+        query_text, data_sources, force_skills, _focus_file_name, _focus_shelf = extract_turn_inputs(query)
         logger.info("ChatDeepResearcherAgent: %s", query_text)
         logger.info("ChatDeepResearcherAgent: Data sources: %s", data_sources)
 
