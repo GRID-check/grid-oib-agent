@@ -42,9 +42,12 @@ import { AnswerActions } from './AnswerActions'
 /**
  * The first paragraph of a long answer, typeset as a lede.
  *
- * The agent is asked to lead with the ruling or the number (see `<answer_shape>`
- * in the researcher prompt) — but a conclusion set at exactly the weight of the
- * reasoning beneath it is a conclusion the reader still has to go looking for.
+ * The agent is asked to lead with the ruling or the number. That rule lives in
+ * the `piloti-voice` platform skill („Der erste Satz ist die Antwort"), which is
+ * applied on every answering turn; `<answer_shape>` in the researcher prompt now
+ * only routes to it. Either way the answer arrives with its conclusion first —
+ * but a conclusion set at exactly the weight of the reasoning beneath it is a
+ * conclusion the reader still has to go looking for.
  * One notch of size and air is enough to make the answer legible before the
  * audit trail is read, without turning the reply into a document with a title.
  *
