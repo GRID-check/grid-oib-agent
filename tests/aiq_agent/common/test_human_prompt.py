@@ -1,5 +1,7 @@
 """Tests for the shared NAT human-prompt helpers."""
 
+import pytest
+
 from aiq_agent.common import build_human_prompt
 from aiq_agent.common import extract_user_response
 from nat.data_models.interactive import HumanPromptRadio
@@ -97,3 +99,60 @@ class TestExtractUserResponse:
     def test_unknown_shape_falls_back_to_str(self):
         """Never raise inside a live turn over an unrecognised response."""
         assert extract_user_response(42) == "42"
+
+
+class TestSharedConversationAnswerPath:
+    """The picker must not bypass the multi-user answer path (ADR-0032/0037)."""
+
+    @pytest.mark.asyncio
+    async def test_picked_option_normalises_through_the_real_nat_validator(self):
+        """End to end: an option label typed or clicked comes back as that label.
+
+        The transport resolves the pending future with a plain string and NAT
+        re-wraps it using the *prompt* type, so a radio prompt turns the answer
+        into `HumanResponseRadio`. If the two halves disagreed the clarifier
+        would reason over `str(<pydantic model>)`.
+        """
+        from nat.data_models.api_server import TextContent
+        from nat.front_ends.fastapi.message_validator import MessageValidator
+
+        prompt = build_human_prompt("Which model?", ["Castle.ifc", "Institute.ifc"])
+        response = await MessageValidator().convert_text_content_to_human_response(
+            TextContent(text="Castle.ifc"), prompt
+        )
+
+        assert extract_user_response(response) == "Castle.ifc"
+
+    @pytest.mark.asyncio
+    async def test_free_text_answer_to_a_picker_survives(self):
+        """The question still says the user may type instead of picking."""
+        from nat.data_models.api_server import TextContent
+        from nat.front_ends.fastapi.message_validator import MessageValidator
+
+        prompt = build_human_prompt("Which model?", ["Castle.ifc", "Institute.ifc"])
+        response = await MessageValidator().convert_text_content_to_human_response(TextContent(text="skip"), prompt)
+
+        assert extract_user_response(response) == "skip"
+
+    @pytest.mark.asyncio
+    async def test_a_colleague_still_cannot_answer_a_picker(self):
+        """A picker is answered through the same guarded registry as prose.
+
+        Spectators in a shared conversation are not the addressee; nothing about
+        offering options may turn their answer into an accepted one.
+        """
+        import asyncio
+
+        from aiq_api.websocket_reconnect import WebSocketSessionRegistry
+        from nat.data_models.api_server import TextContent
+
+        registry = WebSocketSessionRegistry()
+        future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+        await registry.register_pending_interaction("conv-1", future, "user_matthias")
+
+        answer = TextContent(text="Castle.ifc")
+        assert await registry.resolve_pending_interaction("conv-1", answer, "user_anna") is False
+        assert not future.done()
+
+        assert await registry.resolve_pending_interaction("conv-1", answer, "user_matthias") is True
+        assert future.result().text == "Castle.ifc"
