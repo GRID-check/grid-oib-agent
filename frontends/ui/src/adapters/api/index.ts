@@ -46,6 +46,10 @@ export type {
   ApiError,
 } from './schemas'
 
+// Skill-activity intermediate-step payloads (`skill:<name>` / `skill_selection`)
+export { SkillActivityPayloadSchema, SkillActivityPhaseSchema } from './skill-activity-schemas'
+export type { SkillActivityPayload, SkillActivityPhaseWire } from './skill-activity-schemas'
+
 // Documents Client
 export { createDocumentsClient } from './documents-client'
 export type {

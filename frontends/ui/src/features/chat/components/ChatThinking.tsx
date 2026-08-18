@@ -21,6 +21,7 @@ import { deriveTraceLanes } from '../lib/trace-lanes'
 import { buildCitationModel } from '../lib/citations'
 import { deriveLiveActivity } from '../lib/live-activity'
 import { deriveExecutedSteps } from '../lib/executed-steps'
+import { isSkillStepName, isUseSkillStepName } from '@/features/skills/lib/skill-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
 import { ReasoningFlow } from './reasoning/ReasoningFlow'
 import { type ChoicePrompt } from './reasoning'
@@ -141,7 +142,20 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
   // "What actually ran" — one compact chip per executed agent/tool, so the
   // Herleitung names its steps without the technical-steps opt-in.
-  const executedSteps = useMemo(() => deriveExecutedSteps(steps, t), [steps, t])
+  //
+  // Skill chips are LIVE-ONLY. While the turn is open they are the only place
+  // the reader can see that three skills were applied, because the header line
+  // replaces rather than accumulates. Once the answer lands, `SkillsUsedDisclosure`
+  // sits directly beneath it and reports the same activations WITH their
+  // descriptions — so keeping the chips would give one fact two owners, and the
+  // one with less to say would be making the claim twice. Same label authority
+  // either way (`features/skills/lib/skill-activity`), so the two can never
+  // word it differently.
+  const executedSteps = useMemo(() => {
+    const derived = deriveExecutedSteps(steps, t)
+    if (isThinking) return derived
+    return derived.filter((s) => !isSkillStepName(s.key) && !isUseSkillStepName(s.key))
+  }, [steps, t, isThinking])
 
   // Availability alone must never conjure a Herleitung: `enabledDataSources` is
   // non-empty on essentially every turn, so including it here made the panel

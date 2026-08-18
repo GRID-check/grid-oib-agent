@@ -40,12 +40,17 @@ describe('deriveExecutedSteps', () => {
     expect(deriveExecutedSteps([step({ functionName })], t)[0].label).toBe(expected)
   })
 
-  test('unknown functions fall back to the step display name', () => {
-    const [chip] = deriveExecutedSteps(
-      [step({ functionName: 'acme_custom_tool', displayName: 'Acme Custom Tool' })],
-      t
-    )
-    expect(chip).toEqual({ key: 'acme_custom_tool', label: 'Acme Custom Tool', running: false })
+  test('an unlabelled internal function gets no chip — it is not title-cased into work', () => {
+    // The display-name fallback is what manufactured the noise: it took any
+    // internal name, title-cased it, and presented an identifier as a step the
+    // reader could learn something from. The technical steps panel still shows
+    // it verbatim for anyone who opts in.
+    expect(
+      deriveExecutedSteps(
+        [step({ functionName: 'acme_custom_tool', displayName: 'Acme Custom Tool' })],
+        t
+      )
+    ).toEqual([])
   })
 
   test('skips graph scaffolding, LLM model names, and deep-research steps', () => {
@@ -95,5 +100,118 @@ describe('deriveExecutedSteps', () => {
     )
     expect(chips).toHaveLength(1)
     expect(chips[0].running).toBe(false)
+  })
+})
+
+/**
+ * Skill chips.
+ *
+ * `use_skill` is an ordinary LangChain tool, so before the `skill:` steps
+ * existed the chip row said "Use Skill" — English, in a German UI, naming the
+ * mechanism rather than the skill — and three activated skills collapsed into
+ * one entry because the raw tool name is the same every time. The per-skill
+ * steps give each activation its own identity; the label comes from the single
+ * authority in `features/skills/lib/skill-activity`.
+ */
+describe('deriveExecutedSteps — skills', () => {
+  const skillStep = (name: string, payload: Record<string, unknown>, over = {}) =>
+    step({
+      id: `skill-${name}`,
+      functionName: `skill:${name}`,
+      displayName: name,
+      content: JSON.stringify(payload),
+      ...over,
+    })
+
+  test('an activated skill with a title reads as the title, in proportional text', () => {
+    const [chip] = deriveExecutedSteps(
+      [skillStep('oib-brandschutz', { phase: 'activated', name: 'oib-brandschutz', title: 'Brandschutznachweis' })],
+      t
+    )
+    expect(chip.label).toBe('thinking.stepName.skill')
+    expect(chip.mono).toBeUndefined()
+    expect(chip.prefix).toBeUndefined()
+  })
+
+  test('an activated skill without a title keeps its bare identifier, in mono', () => {
+    const [chip] = deriveExecutedSteps(
+      [skillStep('oib-brandschutz', { phase: 'activated', name: 'oib-brandschutz' })],
+      t
+    )
+    expect(chip.mono).toBe('oib-brandschutz')
+    // Never title-cased into "Oib Brandschutz".
+    expect(chip.mono).not.toMatch(/Oib/)
+  })
+
+  test('three activated skills produce three chips, not one', () => {
+    const chips = deriveExecutedSteps(
+      [
+        skillStep('a', { phase: 'activated', name: 'a' }),
+        skillStep('b', { phase: 'loaded', name: 'b' }),
+        skillStep('c', { phase: 'activated', name: 'c' }),
+      ],
+      t
+    )
+    expect(chips.map((c) => c.key)).toEqual(['skill:a', 'skill:b', 'skill:c'])
+  })
+
+  test('an OFFERED skill is availability and gets no chip', () => {
+    // The same rule that killed the phantom "Websuche": a skill being in the
+    // catalogue is not something this turn did.
+    expect(
+      deriveExecutedSteps([skillStep('a', { phase: 'offered', name: 'a', description: 'x' })], t)
+    ).toEqual([])
+  })
+
+  test('the round-level skill_selection bookkeeping gets no chip', () => {
+    expect(
+      deriveExecutedSteps(
+        [
+          step({
+            functionName: 'skill_selection',
+            content: JSON.stringify({ phase: 'offered', offered_count: 6, forced_names: [] }),
+          }),
+        ],
+        t
+      )
+    ).toEqual([])
+  })
+
+  test('a skill step with an unreadable payload is dropped rather than guessed at', () => {
+    // Without a phase we cannot tell an offer from an activation, and guessing
+    // in the direction that overclaims is the bug this whole change removes.
+    expect(deriveExecutedSteps([skillStep('a', {} as Record<string, unknown>)], t)).toEqual([])
+  })
+
+  test('the phases of one skill arrive under one step name and stay one chip', () => {
+    // The store appends each phase's payload to the same step, so `content`
+    // holds several JSON objects; the newest phase wins.
+    const chips = deriveExecutedSteps(
+      [
+        step({
+          functionName: 'skill:a',
+          content:
+            JSON.stringify({ phase: 'offered', name: 'a' }) +
+            '\n' +
+            JSON.stringify({ phase: 'loaded', name: 'a', body_chars: 4096 }),
+        }),
+      ],
+      t
+    )
+    expect(chips).toHaveLength(1)
+    expect(chips[0].mono).toBe('a')
+  })
+
+  test('bare use_skill is labelled honestly and unnamed, never "Use Skill"', () => {
+    const [chip] = deriveExecutedSteps([step({ functionName: 'use_skill' })], t)
+    expect(chip.label).toBe('thinking.stepName.skillUnnamed')
+  })
+
+  test('named skill chips supersede the bare use_skill chip — one fact, one chip', () => {
+    const chips = deriveExecutedSteps(
+      [step({ functionName: 'use_skill' }), skillStep('a', { phase: 'activated', name: 'a' })],
+      t
+    )
+    expect(chips.map((c) => c.key)).toEqual(['skill:a'])
   })
 })

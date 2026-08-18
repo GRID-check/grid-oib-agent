@@ -984,6 +984,7 @@ async def run_agent_job(
                         prompt=input_text,
                         answer=report,
                         cards=cards,
+                        skills_activated=_extract_skills_activated(result),
                     )
                     logger.info(
                         "Job %s completed (report: %d chars, cards: %d)",
@@ -1382,6 +1383,25 @@ async def _run_deep_research_reflection(
             )
     except Exception:
         logger.warning("Job %s: deep-research memory reflection failed (non-fatal)", job_id, exc_info=True)
+
+
+def _extract_skills_activated(result: Any) -> list[str] | None:
+    """The skill names a job run activated, or ``None``.
+
+    The socket path lifts this off the agent state onto the terminal frame and
+    persists it as message metadata; a job run had the same field on the same
+    state and dropped it on the floor, so a thread written by a job showed no
+    transparency where an interactive turn showed some. Read defensively (state
+    object OR dict, list-of-str or nothing) because the runner is agent-agnostic
+    by design — an agent whose state has no such field simply has none.
+    """
+    value = getattr(result, "skills_activated", None)
+    if value is None and isinstance(result, dict):
+        value = result.get("skills_activated")
+    if not isinstance(value, list):
+        return None
+    names = [name for name in value if isinstance(name, str) and name]
+    return names or None
 
 
 def _extract_result(result: Any) -> str:

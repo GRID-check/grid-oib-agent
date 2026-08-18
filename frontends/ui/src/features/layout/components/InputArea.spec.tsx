@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@/test-utils'
+import { render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { toast } from 'sonner'
@@ -132,9 +132,12 @@ const mockApplySourcePreset = vi.fn()
 let mockDeepResearchIntent = false
 let mockActiveSourcePreset: string | null = null
 let mockAvailableDataSources: Array<{ id: string; name?: string }> = [
-  { id: 'source-1' },
-  { id: 'source-2' },
+  { id: 'source-1', name: 'Quelle eins' },
+  { id: 'source-2', name: 'Quelle zwei' },
 ]
+// Which of those the Datenbasis currently allows. Mutable, because the trigger's
+// whole job is to say something different for different mixes.
+let mockEnabledDataSourceIds: string[] = ['source-1', 'source-2']
 
 const mockToggleDataSource = vi.fn()
 const mockSetEnabledDataSources = vi.fn()
@@ -145,7 +148,7 @@ const mockLayoutState = () => ({
   closeRightPanel: mockCloseRightPanel,
   setDataSourcesPanelTab: mockSetDataSourcesPanelTab,
   setDataSourcePanelTab: mockSetDataSourcePanelTab,
-  enabledDataSourceIds: ['source-1', 'source-2'],
+  enabledDataSourceIds: mockEnabledDataSourceIds,
   knowledgeLayerAvailable: true,
   availableDataSources: mockAvailableDataSources,
   rightPanel: null as string | null,
@@ -318,7 +321,11 @@ describe('InputArea', () => {
     mockDeepResearchIntent = false
     mockActiveSourcePreset = null
     mockIsStreaming = false
-    mockAvailableDataSources = [{ id: 'source-1' }, { id: 'source-2' }]
+    mockAvailableDataSources = [
+      { id: 'source-1', name: 'Quelle eins' },
+      { id: 'source-2', name: 'Quelle zwei' },
+    ]
+    mockEnabledDataSourceIds = ['source-1', 'source-2']
     mockMentionData = {
       candidates: [AGENT_CANDIDATE, ANNA_CANDIDATE, MARKUS_CANDIDATE],
       canInvite: true,
@@ -1093,31 +1100,135 @@ describe('InputArea', () => {
   })
 
   describe('composer control row (WS-3)', () => {
-    test('sources summary chip shows the enabled count and opens the sources popover', async () => {
+    /**
+     * The Datenbasis trigger. These tests used to assert `toHaveTextContent('2')`
+     * and `getByText('Disable / Enable All')` — both of which encoded the
+     * defects rather than the behaviour: the "2" was a count that omitted the
+     * knowledge layer the wire always carries, and "Disable / Enable All" was a
+     * `role="button"` div wrapping a Switch. They assert the summary now.
+     */
+    test('the trigger names the mix rather than counting it, and opens the picker', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
-      const chip = screen.getByRole('button', { name: /data basis/i })
-      expect(chip).toHaveTextContent('2')
+      const trigger = screen.getByRole('button', { name: /data basis/i })
+      // Everything on: a named state, not an integer.
+      expect(trigger).toHaveTextContent('All sources')
+      expect(trigger).not.toHaveTextContent('2')
 
-      await user.click(chip)
+      await user.click(trigger)
 
-      // The chip now opens an in-composer popover (no right panel) hosting the
-      // connection toggles + an enable/disable-all control.
-      expect(screen.getByText('Disable / Enable All')).toBeInTheDocument()
+      // The honest sentence is the first thing in the picker, not a footnote.
+      expect(
+        screen.getByText(/what it actually used is in the derivation/i)
+      ).toBeInTheDocument()
       expect(mockOpenRightPanel).not.toHaveBeenCalled()
     })
 
-    test('the sources popover enable/disable-all toggles every source and persists', async () => {
+    /**
+     * THE REGRESSION THAT MATTERS. `computePresetSourceIds('office', …)`
+     * legitimately returns [] — the office archive is retrieved through the
+     * knowledge layer, which is not a toggleable source — so the old trigger
+     * answered "Büroarchiv" with "Datengrundlage 0".
+     */
+    test('the office preset reads "Büroarchiv" on the trigger, never "0"', () => {
+      mockActiveSourcePreset = 'office'
+      mockEnabledDataSourceIds = []
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      const trigger = screen.getByRole('button', { name: /data basis/i })
+      expect(trigger).toHaveTextContent('Office archive')
+      expect(trigger).not.toHaveTextContent('0')
+    })
+
+    test('with every external source off the trigger says project knowledge only', () => {
+      mockEnabledDataSourceIds = []
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      expect(screen.getByRole('button', { name: /data basis/i })).toHaveTextContent(
+        'Project knowledge only'
+      )
+    })
+
+    test('the always-on knowledge layer is listed in the picker instead of hidden', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
       await user.click(screen.getByRole('button', { name: /data basis/i }))
-      // All sources enabled by default → the control disables all (empty set).
-      await user.click(screen.getByText('Disable / Enable All'))
 
-      expect(mockSetEnabledDataSources).toHaveBeenCalledWith([])
-      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith([])
+      // It rides on every turn (`use-websocket-chat` appends `knowledge_layer`),
+      // so it is drawn — with a chip where a Switch would lie about agency.
+      const alwaysOn = screen.getByRole('list', { name: /always included/i })
+      expect(within(alwaysOn).getByText('Project knowledge')).toBeInTheDocument()
+      expect(within(alwaysOn).getByText('Office archive')).toBeInTheDocument()
+      // A Chip, not a Switch: there is nothing here for the reader to decide.
+      expect(within(alwaysOn).getAllByText('Always on')).toHaveLength(2)
+      expect(within(alwaysOn).queryAllByRole('switch')).toHaveLength(0)
+    })
+
+    test('switching a source off in the picker persists the new basis', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(screen.getByRole('button', { name: /data basis/i }))
+      await user.click(screen.getByRole('switch', { name: /allow quelle eins/i }))
+
+      expect(mockToggleDataSource).toHaveBeenCalledWith('source-1')
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['source-2'])
+    })
+
+    test('turning the last external source off warns, where the banner stays silent', async () => {
+      const user = userEvent.setup()
+      mockEnabledDataSourceIds = []
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      await user.click(screen.getByRole('button', { name: /data basis/i }))
+
+      // `NoSourcesBanner` short-circuits on `knowledgeLayerAvailable`, so this
+      // case is completely silent in the transcript.
+      expect(
+        screen.getByText(/search only your project documents/i)
+      ).toBeInTheDocument()
+    })
+
+    test('the presets live in the picker permanently and apply the mapped subset', async () => {
+      const user = userEvent.setup()
+      mockAvailableDataSources = [
+        { id: 'web_search', name: 'Web Search' },
+        { id: 'ris', name: 'RIS – Österreichisches Recht' },
+      ]
+      mockEnabledDataSourceIds = ['web_search', 'ris']
+      // The chips used to be onboarding-only (empty thread, no prior chat), so
+      // the informative control expired and the naked integer outlived it.
+      mockConversationMessages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', messageType: 'user' },
+      ]
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      await user.click(screen.getByRole('button', { name: /data basis/i }))
+      await user.click(screen.getByRole('radio', { name: /building law & guidelines/i }))
+
+      expect(mockApplySourcePreset).toHaveBeenCalledWith('law', ['ris'])
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['ris'])
+    })
+
+    test('"All sources" makes the default all-on state a named choice', async () => {
+      const user = userEvent.setup()
+      mockActiveSourcePreset = 'law'
+      mockAvailableDataSources = [
+        { id: 'web_search', name: 'Web Search' },
+        { id: 'ris', name: 'RIS – Österreichisches Recht' },
+      ]
+      mockEnabledDataSourceIds = ['ris']
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      await user.click(screen.getByRole('button', { name: /data basis/i }))
+      await user.click(screen.getByRole('radio', { name: /^all sources$/i }))
+
+      expect(mockApplySourcePreset).toHaveBeenCalledWith(null, ['web_search', 'ris'])
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['web_search', 'ris'])
     })
 
     test('shows a stop button while streaming and cancels via stopStreaming (C1)', async () => {
@@ -1172,68 +1283,6 @@ describe('InputArea', () => {
       expect(allProjects).toBeDisabled()
     })
 
-    test('shortcut preset chip applies the mapped source subset and persists it', async () => {
-      const user = userEvent.setup()
-      mockAvailableDataSources = [
-        { id: 'web_search', name: 'Web Search' },
-        { id: 'ris', name: 'RIS – Österreichisches Recht' },
-      ]
-
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-
-      await user.click(screen.getByRole('button', { name: /building law & guidelines/i }))
-
-      // Law preset maps onto the REAL sources: only `ris` matches.
-      expect(mockApplySourcePreset).toHaveBeenCalledWith('law', ['ris'])
-      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['ris'])
-    })
-
-    test('clicking the active preset restores all sources and clears the preset', async () => {
-      const user = userEvent.setup()
-      mockActiveSourcePreset = 'law'
-      mockAvailableDataSources = [
-        { id: 'web_search', name: 'Web Search' },
-        { id: 'ris', name: 'RIS – Österreichisches Recht' },
-      ]
-
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-
-      const lawChip = screen.getByRole('button', { name: /building law & guidelines/i })
-      expect(lawChip).toHaveAttribute('aria-pressed', 'true')
-
-      await user.click(lawChip)
-
-      expect(mockApplySourcePreset).toHaveBeenCalledWith(null, ['web_search', 'ris'])
-      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['web_search', 'ris'])
-    })
-
-    test('active preset does not add a second inert chip inside the composer', () => {
-      mockActiveSourcePreset = 'project'
-
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-
-      // The shortcut row still shows the pressed preset. The control row
-      // used to repeat it as a dead "Project documents" span — that label
-      // is not a control, so it stays off the composer.
-      expect(screen.getAllByText('Project documents')).toHaveLength(1)
-      expect(screen.getByRole('button', { name: /project documents/i })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      )
-    })
-
-    test('hides shortcut chips after the first chat, so they stay onboarding-only', () => {
-      mockConversationMessages = [
-        { id: 'msg-1', role: 'user', content: 'Hello', messageType: 'user' },
-      ]
-
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-
-      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
-      expect(
-        screen.queryByRole('button', { name: /building law & guidelines/i })
-      ).not.toBeInTheDocument()
-    })
   })
 
   /**
@@ -1810,16 +1859,23 @@ describe('InputArea', () => {
       expect(screen.getByRole('button', { name: /data basis/i })).toBeDisabled()
     })
 
-    test('cannot apply a shortcut preset either, which also writes the Datengrundlage', () => {
-      // The gap the control-row gate left. `handlePresetClick` calls
-      // `saveDataSourcesToConversation`, so these chips rewrite which sources the
-      // next person's turn will use — and they were gated on the auth flag alone.
-      // "Empty thread only" is not the protection it looks like: `isEmptyThread`
-      // is also true on any shared thread while its messages are still loading.
+    test('cannot apply a preset either, which also writes the Datenbasis', async () => {
+      // The gap the control-row gate left. Applying a preset calls
+      // `saveDataSourcesToConversation`, so it rewrites which sources the next
+      // person's turn will use. The presets used to live on a chip row gated
+      // only on the auth flag; they now live inside the picker, behind the one
+      // disabled trigger — there is no second door.
+      const user = userEvent.setup()
       asViewer()
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
-      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
+      const trigger = screen.getByRole('button', { name: /data basis/i })
+      expect(trigger).toBeDisabled()
+      await user.click(trigger)
+      expect(
+        screen.queryByRole('radio', { name: /building law & guidelines/i })
+      ).not.toBeInTheDocument()
+      expect(mockApplySourcePreset).not.toHaveBeenCalled()
     })
 
     test('cannot remove or retry a file off somebody else’s thread', () => {
@@ -1871,13 +1927,19 @@ describe('InputArea', () => {
       // of those checks cannot pass because the query itself stopped matching.
       expect(screen.getByRole('button', { name: /^manage \d/i })).toBeInTheDocument()
       expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
-      expect(screen.getByRole('group', { name: /shortcuts/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /data basis/i })).not.toBeDisabled()
     })
 
-    test('hides shortcut presets once the project has had a first chat', () => {
+    test('the presets outlive onboarding — they are in the picker, not on a chip row', async () => {
+      // They used to render only while `isEmptyThread && !hasHadAChat`, so the
+      // one informative, colour-coded source control expired after the first
+      // chat while the naked integer lasted forever. Backwards.
+      const user = userEvent.setup()
       mockConversationMessages = [{ id: 'm1', role: 'user', content: 'hello' }]
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
-      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /data basis/i }))
+      expect(screen.getByRole('radio', { name: /building law & guidelines/i })).toBeInTheDocument()
     })
   })
 
@@ -1971,7 +2033,11 @@ describe('InputArea — intent to send opens the agent socket', () => {
     mockComposerSubject = null
     mockAwaitingPending = []
     mockIsStreaming = false
-    mockAvailableDataSources = [{ id: 'source-1' }, { id: 'source-2' }]
+    mockAvailableDataSources = [
+      { id: 'source-1', name: 'Quelle eins' },
+      { id: 'source-2', name: 'Quelle zwei' },
+    ]
+    mockEnabledDataSourceIds = ['source-1', 'source-2']
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
     vi.mocked(useWebSocketChat).mockReturnValue({
       sendMessage: mockSendMessage,

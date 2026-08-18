@@ -259,23 +259,38 @@ def _query_text(args: Any) -> str | None:
     return None
 
 
-def emit_documents_loading(*, shelves: list[str] | None = None, count: int | None = None) -> None:
+#: Where the reader's own documents live, named the way they are named in the
+#: product (ADR-0047's shelves). ``base`` is absent on purpose: the OIB corpus
+#: is read on every research turn, so announcing it would be announcing a
+#: constant — and it is not "your documents" in any case.
+_SHELF_PHRASES = {
+    "archiv": "dem Büroarchiv",
+    "project": "dem Projekt",
+    "session": "dieser Unterhaltung",
+}
+
+
+def emit_documents_loading(shelves: list[str] | None = None) -> None:
     """The pre-graph I/O phase — but ONLY when the reader's own files are in it.
 
     The first hole in the turn, and until now a total one: no frame of any kind
     existed before the intent classifier's LLM call, so the user watched a
     generic label through every one of these round-trips.
 
-    Gated on there actually being a document scope, which is what makes this an
-    event rather than a constant. "Unterlagen werden geladen" on a turn that
-    loads no documents is the availability-as-activity mistake this product has
-    already paid for once.
+    Gated on the turn actually being scoped to a shelf of theirs, which is what
+    makes this an event rather than a constant. "Unterlagen werden geladen" on
+    every turn is the availability-as-activity mistake this product has already
+    paid for once.
     """
-    named = [shelf for shelf in (shelves or []) if shelf]
+    named: list[str] = []
+    for shelf in shelves or ():
+        phrase = _SHELF_PHRASES.get(str(shelf))
+        if phrase and phrase not in named:
+            named.append(phrase)
     if not named:
         return
     where = named[0] if len(named) == 1 else "Ihren Ablagen"
-    emit_status("documents", f"Unterlagen aus {where} werden gesichtet …", shelves=named, count=count)
+    emit_status("documents", f"Unterlagen aus {where} werden gesichtet …", shelves=list(shelves or ()))
 
 
 def emit_routing(*, intent: str, depth: str | None, reason: str | None) -> None:
@@ -358,13 +373,19 @@ def emit_citation_check(*, source_count: int | None = None) -> None:
     emit_status("citations", STATUS_CITATIONS, source_count=source_count)
 
 
+#: Shallow → deep. Fixed copy, and deliberately NOT the internal
+#: ``escalation_reason`` ("Shallow agent emitted insufficiency marker"), which
+#: names a marker in a message and tells an architect nothing. The internal
+#: string still travels as the ``reason`` field for the details panel.
+STATUS_ESCALATION = "Kurzrecherche reicht nicht — Tiefenrecherche startet"
+
+
 def emit_escalation(reason: str | None = None) -> None:
     """Shallow → deep, announced at the moment the router decides it.
 
-    Deep research is minutes, not seconds. A reader who is told why the turn
-    just got long is waiting; one who is not is wondering whether it broke.
+    Deep research is minutes, not seconds. A reader who is told the short
+    answer was not good enough is waiting; one who is not is wondering whether
+    the turn broke.
     """
     reason_text = " ".join(str(reason).split()) if reason else ""
-    lead = "Eskalation zur Tiefenrecherche"
-    text = f"{lead}: {reason_text}" if reason_text else f"{lead} …"
-    emit_status("escalation", text, reason=clip(reason_text, MAX_REASON_CHARS) or None)
+    emit_status("escalation", STATUS_ESCALATION, reason=clip(reason_text, MAX_REASON_CHARS) or None)

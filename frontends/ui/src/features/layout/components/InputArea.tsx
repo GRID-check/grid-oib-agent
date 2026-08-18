@@ -54,7 +54,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
-import { useAuth } from '@/adapters/auth'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
@@ -546,9 +545,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     const sources = useLayoutStore.getState().availableDataSources ?? []
     applySourcePreset('project', computePresetSourceIds('project', sources))
   }, [composerSubject?.resourceId, composerSubject?.shelf, applySourcePreset])
-
-  // Persist source selection per conversation, exactly like the panel does.
-  const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
 
   // Streaming state + cancel action for the composer stop button (C1).
   // stopStreaming is added by the STREAMING agent in messages-store; selecting

@@ -7,6 +7,10 @@ shared agent instance): it owns the ordered activation list that surfaces as
 ``skills_activated`` on the terminal frame, and records which skills were
 FORCED for a turn vs. invoked by the model.
 
+Activation is also ANNOUNCED as it happens (``skills.events``) rather than only
+reported at the end of the turn -- a skill rewrites how the answer is made, so
+the reader learns which working method is being applied while it still matters.
+
 German UI strings follow the knowledge-layer block conventions
 (``## Verfügbare Skills``), matching the agent's German-facing instructions.
 """
@@ -76,11 +80,15 @@ class SkillRuntime:
         self._forced: list[str] = []
         self._activated: list[str] = []
         self._activated_seen: set[str] = set()
+        # Forced skills go through the SAME activation site as model-invoked
+        # ones. They used to be appended here directly, which meant a second
+        # place that knew what "activated" means -- and would have meant a
+        # second place to remember to announce it from. The `forced` flag is
+        # the only difference, and it is a fact about who decided, not about
+        # what runs.
         for name in force_names or ():
-            if name in self._by_name and name not in self._activated_seen:
-                self._forced.append(name)
-                self._activated.append(name)
-                self._activated_seen.add(name)
+            if name in self._by_name:
+                self._record_activation(name, forced=True)
 
     @property
     def skills(self) -> tuple[Skill, ...]:
@@ -94,10 +102,26 @@ class SkillRuntime:
     def activated(self) -> tuple[str, ...]:
         return tuple(self._activated)
 
-    def _record_activation(self, name: str) -> None:
-        if name not in self._activated_seen:
-            self._activated.append(name)
-            self._activated_seen.add(name)
+    def _record_activation(self, name: str, *, forced: bool = False) -> None:
+        """Record ONE activation, first-wins, and announce it.
+
+        The single place a skill becomes active this run, for both entry
+        points: the user's ``/name`` (``forced=True``, at construction) and the
+        model's ``use_skill`` call. Re-activation is a no-op -- including the
+        announcement, so a model that calls ``use_skill`` three times for the
+        same skill does not say so three times.
+        """
+        if name in self._activated_seen:
+            return
+        if forced:
+            self._forced.append(name)
+        self._activated.append(name)
+        self._activated_seen.add(name)
+        skill = self._by_name.get(name)
+        if skill is not None:
+            from .events import emit_skill_activated
+
+            emit_skill_activated(skill, forced=forced)
 
     def prompt_block(self) -> str | None:
         """L1: the progressive-disclosure catalog section, or None when empty.
@@ -144,7 +168,11 @@ class SkillRuntime:
                 )
             runtime._record_activation(skill_name)
             cards_block = _preferred_cards_block(skill)
-            return f"{skill.body}\n\n{cards_block}" if cards_block else skill.body
+            body = f"{skill.body}\n\n{cards_block}" if cards_block else skill.body
+            from .events import emit_skill_loaded
+
+            emit_skill_loaded(skill, body_chars=len(body))
+            return body
 
         use_skill.description = _TOOL_DESCRIPTION
         return [use_skill]

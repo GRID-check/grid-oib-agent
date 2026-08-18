@@ -102,8 +102,11 @@ describe('ChatThinking', () => {
       render(<ChatThinking steps={steps} isThinking={true} />)
 
       expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
-      // An unclassified step surfaces its own display name (honest fallback).
-      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+      // An unclassifiable step gets NO phrase of its own: its display name is an
+      // internal identifier, and dressing one up as a status is the noise this
+      // line exists to avoid. The calm generic stands in.
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
+      expect(screen.queryByText('Test Function …')).not.toBeInTheDocument()
     })
 
     test('shows a friendly activity phrase derived from the current step', () => {
@@ -134,12 +137,11 @@ describe('ChatThinking', () => {
       render(<ChatThinking steps={steps} />)
 
       expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
-      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
     })
 
-    test('falls back to the generic working copy when there is no step yet', () => {
-      // No steps, but data-source signal keeps the panel mounted while thinking.
-      render(<ChatThinking steps={[]} isThinking={true} enabledDataSources={['web_search']} />)
+    test('falls back to the generic working copy when the open step cannot be phrased', () => {
+      render(<ChatThinking steps={[createStep({ functionName: 'acme_internal' })]} isThinking />)
 
       expect(screen.getByText('Working on a response …')).toBeInTheDocument()
     })
@@ -159,7 +161,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={true} isInterrupted={true} />)
 
-      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
       expect(screen.queryByText('Interrupted')).not.toBeInTheDocument()
     })
 
@@ -231,7 +233,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={true} isWaiting={true} />)
 
-      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
       expect(screen.queryByText('Waiting for response')).not.toBeInTheDocument()
     })
   })
@@ -515,6 +517,82 @@ describe('ChatThinking', () => {
       )
 
       expect(container).toBeEmptyDOMElement()
+    })
+  })
+
+  /**
+   * Skill activation, rendered.
+   *
+   * The chip row is where a reader finds out a skill shaped this answer while
+   * the turn is still open; the post-hoc `SkillsUsedDisclosure` says the same
+   * thing under the finished answer. They never coexist (this panel only shows
+   * while thinking), and they use the same label authority so they cannot
+   * disagree.
+   */
+  describe('skill activity', () => {
+    const skillStep = (name: string, payload: Record<string, unknown>) =>
+      createStep({
+        id: `skill-${name}`,
+        functionName: `skill:${name}`,
+        displayName: name,
+        content: JSON.stringify(payload),
+        isComplete: true,
+      })
+
+    test('each activated skill gets its own chip, named by its title', () => {
+      render(
+        <ChatThinking
+          isThinking
+          defaultOpen
+          steps={[
+            skillStep('oib-brandschutz', {
+              phase: 'loaded',
+              name: 'oib-brandschutz',
+              title: 'Brandschutznachweis',
+            }),
+            skillStep('schallschutz', { phase: 'activated', name: 'schallschutz' }),
+          ]}
+        />
+      )
+
+      expect(screen.getByText('Skill: Brandschutznachweis')).toBeVisible()
+      // No authored title: the bare identifier, verbatim and in mono.
+      const bare = screen.getByText('schallschutz')
+      expect(bare).toBeVisible()
+      expect(bare).toHaveClass('font-mono')
+      expect(screen.queryByText(/Use Skill/i)).not.toBeInTheDocument()
+    })
+
+    test('an offered-but-unused skill claims nothing', () => {
+      const { container } = render(
+        <ChatThinking
+          isThinking
+          defaultOpen
+          steps={[skillStep('a', { phase: 'offered', name: 'a', description: 'available' })]}
+        />
+      )
+
+      expect(container.textContent).not.toContain('Skill')
+    })
+
+    test('the chips stand down once the answer lands — the disclosure owns the post-hoc claim', () => {
+      // `SkillsUsedDisclosure` sits under the finished answer and reports the
+      // same activations with their descriptions. One fact, one owner.
+      render(
+        <ChatThinking
+          isThinking={false}
+          defaultOpen
+          steps={[
+            skillStep('oib-brandschutz', {
+              phase: 'loaded',
+              name: 'oib-brandschutz',
+              title: 'Brandschutznachweis',
+            }),
+          ]}
+        />
+      )
+
+      expect(screen.queryByText('Skill: Brandschutznachweis')).not.toBeInTheDocument()
     })
   })
 

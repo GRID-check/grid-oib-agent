@@ -180,7 +180,7 @@ export const SourceBasisPicker: FC = () => {
             {basis.always.length > 0 && (
               <section className="space-y-2">
                 <SectionLabel>{t('sourceBasis.alwaysOn')}</SectionLabel>
-                <ItemList as="ul">
+                <ItemList as="ul" aria-label={t('sourceBasis.alwaysOn')}>
                   {basis.always.map((entry) => (
                     <SourceBasisRow key={entry.id} entry={entry} />
                   ))}
@@ -197,7 +197,7 @@ export const SourceBasisPicker: FC = () => {
                   <p className="mt-1 text-xs text-muted-foreground">{t('sourceBasis.emptyBody')}</p>
                 </div>
               ) : (
-                <ItemList as="ul">
+                <ItemList as="ul" aria-label={t('sourceBasis.external')}>
                   {basis.external.map((entry) => (
                     <SourceBasisRow
                       key={entry.id}

@@ -669,6 +669,17 @@ class ChatResearcherAgent:
             # escalate_to_deep.
             if state.shallow_result is not None:
                 if state.shallow_result.escalate_to_deep:
+                    # Deep research is minutes, not seconds, and this is the
+                    # instant that becomes true. Told now, the reader is
+                    # waiting; told on the terminal frame -- where the reason
+                    # used to live -- they spent those minutes wondering
+                    # whether the turn had broken.
+                    try:
+                        from aiq_agent.common.turn_status import emit_escalation
+
+                        emit_escalation(state.shallow_result.escalation_reason)
+                    except Exception:  # noqa: BLE001 — transparency must never take a turn down
+                        logger.debug("Escalation status not emitted", exc_info=True)
                     return "deep_research"
                 return "END"
 

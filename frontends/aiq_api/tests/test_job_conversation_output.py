@@ -7,6 +7,9 @@ The contract these pin, in order of how badly each would hurt:
    ties on a random uuid, so insertion order guarantees nothing.
 3. A run that produced nothing says so, rather than leaving an empty thread.
 4. No conversation means no HTTP call at all.
+5. Whatever transparency an interactive turn carries, the job's thread message
+   carries too — a reader must not learn less from a scheduled answer than from
+   one they typed.
 """
 
 from __future__ import annotations
@@ -124,3 +127,47 @@ async def test_no_organization_id_skips_rather_than_posting_a_doomed_write() -> 
     ) as post:
         await write_job_turn(conversation_id="s_abc", job_id="job-1", usage_context={}, prompt="q", answer="a")
     post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_job_that_ran_under_a_skill_says_so_in_the_thread() -> None:
+    """The transparency the socket path already writes, on the job path too.
+
+    ``persist_assistant_message`` puts ``skills_activated`` in the metadata of
+    an interactive turn. A job run had the same field on the same agent state
+    and dropped it, so a thread written BY a job looked identical whether or
+    not the office's own working method had shaped the answer.
+    """
+    with mock.patch(
+        "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+        new_callable=mock.AsyncMock,
+    ) as post:
+        await write_job_turn(
+            conversation_id="s_abc",
+            job_id="job-1",
+            usage_context=USAGE,
+            prompt="q",
+            answer="a",
+            skills_activated=["oib-brandschutznachweis"],
+        )
+
+    assert _posts(post.await_args_list)[1]["metadata"]["skills_activated"] == ["oib-brandschutznachweis"]
+
+
+@pytest.mark.asyncio
+async def test_a_job_without_skills_writes_no_skills_key() -> None:
+    """Absent means absent — an empty list would render as a claim of nothing."""
+    with mock.patch(
+        "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+        new_callable=mock.AsyncMock,
+    ) as post:
+        await write_job_turn(
+            conversation_id="s_abc",
+            job_id="job-1",
+            usage_context=USAGE,
+            prompt="q",
+            answer="a",
+            skills_activated=[],
+        )
+
+    assert "skills_activated" not in _posts(post.await_args_list)[1]["metadata"]

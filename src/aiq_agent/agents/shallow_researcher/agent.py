@@ -436,6 +436,17 @@ class ShallowResearcherAgent:
                     added_calls = len(response.tool_calls)
                     new_iterations += added_calls
                     logger.info("Added %d tool calls to budget. Total: %d", added_calls, new_iterations)
+                    # The same fact, said to the USER instead of the log: which
+                    # corpus is about to be read, and with what wording. One
+                    # line per ROUND, not per call -- the model emits its calls
+                    # in a parallel batch, and three lines in the same instant
+                    # is a log stream, not a status.
+                    try:
+                        from aiq_agent.common.turn_status import emit_retrieval
+
+                        emit_retrieval(response.tool_calls, round_index=iterations)
+                    except Exception:  # noqa: BLE001 — transparency must never take a turn down
+                        logger.debug("Retrieval status not emitted", exc_info=True)
 
                 return {
                     "messages": [response],
@@ -664,6 +675,17 @@ class ShallowResearcherAgent:
 
                 # Step 1: verify citations against registry
                 if registry.all_sources():
+                    # The blankest stretch of the turn: the answer text exists
+                    # but nothing may be shown until every citation in it has
+                    # been checked against what was actually retrieved. Saying
+                    # so is not filler -- it is the product's trust proposition
+                    # stated at the moment it is being honoured.
+                    try:
+                        from aiq_agent.common.turn_status import emit_citation_check
+
+                        emit_citation_check(source_count=len(registry.all_sources()))
+                    except Exception:  # noqa: BLE001 — transparency must never take a turn down
+                        logger.debug("Citation-check status not emitted", exc_info=True)
                     # Pass the writer-facing source list (ordered as the model
                     # saw them, mirroring the deep researcher's call) so that an
                     # answer with inline [N] citations but no Sources section can

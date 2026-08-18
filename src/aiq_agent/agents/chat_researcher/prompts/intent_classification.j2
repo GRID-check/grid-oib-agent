@@ -25,6 +25,12 @@ Respond with ONLY the raw JSON object below — no markdown code fences, no expl
   "depth_reasoning": "One sentence explanation for depth if research, otherwise null"
 }
 
+`depth_reasoning` is READ BY THE USER, not only by the graph: it is shown as the
+routing explanation while the turn runs and again on the finished answer. Write
+it in GERMAN, in one short plain sentence addressed to an architect ("Einzelne
+Fachfrage, eine Rechercherunde genügt."), never in English and never naming
+internals like nodes, tools or depth literals.
+
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
 ### CONTEXT

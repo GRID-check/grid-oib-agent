@@ -288,6 +288,19 @@ class IntentClassifier:
             research_depth = (parsed.get("research_depth") or "shallow").strip().lower()
             depth_reasoning = parsed.get("depth_reasoning") or ""
 
+            # Say which way the turn is going, NOW. This decision is settled
+            # about a second into the turn, and until this line it only ever
+            # reached the client on the TERMINAL frame -- i.e. the explanation
+            # for a three-minute deep research arrived with the report. The
+            # model's own reason travels with it, because that is the part a
+            # reader can disagree with while disagreeing is still cheap.
+            try:
+                from aiq_agent.common.turn_status import emit_routing
+
+                emit_routing(intent=intent, depth=research_depth, reason=str(depth_reasoning) or None)
+            except Exception:  # noqa: BLE001 — transparency must never take a turn down
+                logger.debug("Routing status not emitted", exc_info=True)
+
             # Out-of-scope: short-circuit with the fixed redirect and end the turn.
             # No answering agent runs — this is the "predefined text, no research
             # agent" path. The message is emitted here (like the error path) and

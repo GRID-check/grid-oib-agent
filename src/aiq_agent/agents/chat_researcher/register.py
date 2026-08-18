@@ -988,6 +988,25 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # lose the others' results. The registry hydration's blocking Dragonfly
         # GET (cold-cache, ~0.5s socket timeout) is offloaded via asyncio.to_thread
         # so it overlaps the gather instead of blocking the loop serially after it.
+        # Say what is happening in the FIRST hole of the turn. Nothing at all
+        # reached the client before the intent classifier's LLM call, so a turn
+        # scoped to an archive or a project sat silent through every one of
+        # these round-trips. Only emitted when one of the reader's OWN shelves
+        # is in scope -- the base OIB corpus is read on every research turn,
+        # and announcing a constant says nothing.
+        try:
+            from aiq_agent.common.turn_status import emit_documents_loading
+
+            emit_documents_loading(
+                [
+                    str(shelf)
+                    for entry in (_scoped_collections or ())
+                    if (shelf := getattr(entry, "shelf", None)) is not None
+                ]
+            )
+        except Exception:  # noqa: BLE001 — transparency must never take a turn down
+            logger.debug("Document-loading status not emitted", exc_info=True)
+
         (
             (
                 _project_context,

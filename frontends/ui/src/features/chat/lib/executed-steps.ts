@@ -3,15 +3,21 @@
  *
  * Derives "what actually ran" from the turn's thinking steps — one compact chip
  * per executed agent/tool (Einordnung · Websuche · OIB-Korpus · RIS …), in run
- * order, without the technical-steps opt-in. Known functions get a localized
- * noun label; unknown functions honestly fall back to the step's own display
- * name. A chip marked `running` belongs to the step still in progress, so the
- * row doubles as a quiet "this is the active one" cue while streaming.
+ * order, without the technical-steps opt-in. A chip marked `running` belongs to
+ * the step still in progress, so the row doubles as a quiet "this is the active
+ * one" cue while streaming.
  *
- * This row is the turn's ACTIVITY record, and only activity belongs in it. That
- * is why a skill step is admitted only once it reports `activated` or `loaded`:
- * a skill that was merely `offered` is availability, and rendering availability
- * here is precisely the bug that had every turn claiming a web search.
+ * Two rules decide what gets a chip, and both are about the reader:
+ *
+ * 1. Only ACTIVITY. A skill step is admitted once it reports `activated` or
+ *    `loaded`; a skill that was merely `offered`, and the round-level
+ *    `skill_selection` bookkeeping, are availability. Rendering availability
+ *    here is precisely the bug that had every turn claiming a web search.
+ * 2. Only steps we can NAME in the reader's own nouns. A function with no
+ *    reader-facing label is dropped rather than title-cased into a plausible
+ *    English phrase — "Use Skill", "Workflow: Chat Researcher" and the like are
+ *    identifiers dressed up as work. They remain visible verbatim in the opt-in
+ *    technical steps panel, which is where a log stream belongs.
  */
 
 import {
@@ -44,8 +50,8 @@ export interface ExecutedStep {
 }
 
 /** The subset of a thinking step this derivation reads. */
-export type ExecutedStepInput = Pick<ThinkingStep, 'functionName' | 'displayName' | 'isComplete'> &
-  Partial<Pick<ThinkingStep, 'isDeepResearch' | 'content' | 'rawPayload'>>
+export type ExecutedStepInput = Pick<ThinkingStep, 'functionName' | 'isComplete'> &
+  Partial<Pick<ThinkingStep, 'displayName' | 'isDeepResearch' | 'content' | 'rawPayload'>>
 
 /** i18n keys under `chat.thinking.stepName.*`, matched on the lowercased function name. */
 const STEP_NAME_RULES: Array<{ match: RegExp; key: string }> = [
@@ -124,18 +130,29 @@ export const deriveExecutedSteps = (
       continue
     }
 
-    seen.add(name)
-    const rule = STEP_NAME_RULES.find((r) => r.match.test(name.toLowerCase()))
     // `use_skill` is the MECHANISM, not the skill: title-cased it reads "Use
     // Skill", which is English, and names the machinery rather than what was
     // applied. Label it honestly and unnamed; the richer `skill:` chips
     // supersede it below when the backend emits them.
-    const label = isUseSkillStepName(name)
-      ? t('thinking.stepName.skillUnnamed')
-      : rule
-        ? t(`thinking.stepName.${rule.key}`)
-        : step.displayName?.trim() || name
-    out.push({ key: name, label, running: !step.isComplete })
+    if (isUseSkillStepName(name)) {
+      seen.add(name)
+      out.push({
+        key: name,
+        label: t('thinking.stepName.skillUnnamed'),
+        running: !step.isComplete,
+      })
+      continue
+    }
+
+    const rule = STEP_NAME_RULES.find((r) => r.match.test(name.toLowerCase()))
+    // No reader-facing label — an internal name. It is NOT title-cased into a
+    // chip here; the technical steps panel already shows it verbatim for anyone
+    // who opts in, and a fabricated English noun phrase would only look like
+    // work that was done.
+    if (!rule) continue
+
+    seen.add(name)
+    out.push({ key: name, label: t(`thinking.stepName.${rule.key}`), running: !step.isComplete })
   }
 
   // One fact, one chip: when named skill steps are present they say everything

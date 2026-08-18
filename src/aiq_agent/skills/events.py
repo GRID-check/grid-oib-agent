@@ -101,8 +101,10 @@ class SkillEvent(BaseModel):
             the surface decides how to degrade, and no title is invented here.
         description: Truncated excerpt of the model-facing description.
         origin: ``platform`` (ships with Grid) or ``org`` (the tenant's own).
-        forced: Whether the USER named this skill (``/name`` in the composer)
-            rather than the model choosing it.
+        forced: ``activated`` only — whether the USER named this skill
+            (``/name`` in the composer) rather than the model choosing it.
+            ``None`` on the phases where the question does not arise, so a
+            reader never has to interpret a default.
         offered_count: ``offered`` only — how many skills were in the catalog.
         forced_names: ``offered`` only — the ids the user forced.
         body_chars: ``loaded`` only — characters of instruction pulled in.
@@ -115,7 +117,7 @@ class SkillEvent(BaseModel):
     title: str | None = None
     description: str | None = None
     origin: str | None = None
-    forced: bool = False
+    forced: bool | None = None
     offered_count: int | None = None
     forced_names: list[str] | None = None
     body_chars: int | None = None
