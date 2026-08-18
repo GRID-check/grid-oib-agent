@@ -200,20 +200,55 @@ vulnerabilities:
 
   # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
   #
-  # All six are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
+  # All seven are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
   # packages this repo references — nothing here appears in any lockfile we own.
   # Every one is marked `fixed` upstream, so `--ignore-unfixed` does not skip
-  # them, and no digest bump can currently clear them: the `3` tag still
-  # resolves to the pinned digest (3.225.1), so there is no newer image to move
-  # to. Verified against the registry, not assumed.
+  # them, and no digest bump can currently clear them. The `3` tag HAS moved
+  # since these were written — it now resolves to 3.225.2 (built 2026-08-11) —
+  # but 3.225.2 ships byte-identical versions of all seven packages
+  # (fast-uri 3.1.4, js-yaml 3.15.0/4.3.0, nanoid 3.3.12, sharp 0.34.5,
+  # undici 7.28.0, deepmerge-ts 7.1.5), so moving the pin buys nothing.
+  # Verified against the registry and against langfuse's own `pnpm-lock.yaml`
+  # at the revision each image is labelled with, not assumed.
   #
-  # Shared context for every entry below, so it is not repeated six times:
+  # Shared context for every entry below, so it is not repeated seven times:
   # the Langfuse UI is reachable only through the Envoy Gateway behind an OIDC
   # flow gated on `platform:organizations:view`, and its OTLP receiver is
   # cluster-internal with a NetworkPolicy admitting only otel-collector. There
   # is no unauthenticated surface. The `langfuseEnabled` flag now defaults to
   # true, but the capability half of the gate still needs the tier's
   # credentials, so a stack that has not adopted it runs none of this code.
+
+  - id: CVE-2026-40345
+    expired_at: 2026-10-09
+    statement: |
+      deepmerge-ts 7.1.5 — stack exhaustion when merging recursive object
+      graphs. A denial of service that requires the attacker to control the
+      objects being merged.
+
+      Reached by exactly ONE dependent in langfuse's lockfile: `@prisma/config`
+      6.19.3, which merges `prisma.config.ts` with the CLI's defaults when the
+      Prisma CLI and migration engine start. Confirmed by reading the lockfile
+      at the revision each image is labelled with, not inferred from the
+      package name — deepmerge-ts appears nowhere else in the tree.
+
+      Not exploitable here, and this one is structural: the object graph fed to
+      `@prisma/config` is the config file baked into the Langfuse image,
+      resolved against the environment `deploy/pulumi/src/platform/langfuse.ts`
+      sets. It is assembled at container start, before any request is served.
+      Nothing on the trace-ingestion or UI path calls deepmerge-ts at all, so no
+      caller — authenticated or not — can supply the recursive graph the defect
+      needs.
+
+      This entry is boxed to the same date as the rest of the block even though
+      it waits on a longer chain than they do: the fix is deepmerge-ts 8.0.0
+      (2026-08-16), a MAJOR bump, so Prisma has to take it into
+      `@prisma/config` before Langfuse can pick it up. 7.1.6 (2026-08-11) is
+      not the fix. As of 2026-08-18 langfuse `main` — and the `latest` 4.12.0
+      image built that morning — still resolve deepmerge-ts 7.1.5, so this is
+      not a case of the pin lagging behind an available fix.
+
+      Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
 
   - id: CVE-2026-18446
     expired_at: 2026-10-09
