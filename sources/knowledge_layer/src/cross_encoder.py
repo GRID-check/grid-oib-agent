@@ -224,6 +224,7 @@ def _resolve_api_key(spec: _ProviderSpec, base_url: str, organization_id: str | 
         # exception text can carry the key itself, a signed URL or a request body from
         # whatever backend resolved it — none of which belongs in a log line that exists
         # only to say "that route did not work, trying the environment".
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         logger.warning("Reranker credential resolution failed (%s); trying the env directly", type(e).__name__)
 
     return os.environ.get("AIQ_RERANKER_API_KEY", "") or os.environ.get(spec.key_env, "")
