@@ -18,6 +18,8 @@ from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
+from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
+from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -35,6 +37,7 @@ from nat.data_models.function import FunctionBaseConfig
 from . import ask_user as _ask_user  # noqa: F401
 from .agent import ShallowResearcherAgent
 from .models import ShallowResearchAgentState
+from .tool_search import ToolSearchSettings
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +64,27 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
     skill_allowlist: list[str] = Field(
         default_factory=list,
         description="Optional skill-name allowlist; empty = every resolved skill is offered.",
+    )
+    tool_search: ToolSearchSettings = Field(
+        default_factory=ToolSearchSettings,
+        description=(
+            "Retrieval-based tool narrowing (default OFF). When enabled, a local lexical ranking over "
+            "tool name + description picks the tools bound for a research turn, BEFORE the LLM call — "
+            "never as a tool the model has to call first, which would spend one of the five tool "
+            "iterations on discovery. Absent from the YAML this validates to enabled=false and the "
+            "agent binds every tool exactly as it always has."
+        ),
+    )
+    deferred_tool_loading: DeferredToolLoadingSettings = Field(
+        default_factory=DeferredToolLoadingSettings,
+        description=(
+            "OpenRouter server-side tool search (default OFF). When enabled, the tool "
+            "schemas are declared deferred and held by the provider instead of being sent "
+            "on every request; the model searches, loads and calls one inside a single "
+            "response, so no tool iteration is spent on discovery. Requires an OpenRouter "
+            "LLM with `api_type: responses` — enabling it against anything else fails the "
+            "workflow build rather than silently sending the schemas anyway."
+        ),
     )
 
 
@@ -94,6 +118,15 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             "All queries will fail until at least one tool is properly configured.",
         )
 
+    # Deferred tool loading is verified HERE, at build time, against the live
+    # endpoint — before a user turn exists to lose. The failure it guards is a
+    # request that looks configured and defers nothing (OpenRouter silently
+    # drops `defer_loading` from a top-level function tool), which is invisible
+    # from the inside: the agent still answers, and the only symptom is the
+    # token bill. A deployment that asked for deferral and cannot have it
+    # therefore fails to start instead.
+    await verify_deferred_tool_loading(llm, settings=config.deferred_tool_loading)
+
     provider = LLMProvider()
     provider.set_default(llm, group=AgentGroup.SHALLOW_RESEARCH)
 
@@ -106,6 +139,8 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
         max_llm_turns=config.max_llm_turns,
         max_tool_iterations=config.max_tool_iterations,
         callbacks=callbacks,
+        tool_search=config.tool_search,
+        deferred_tool_loading=config.deferred_tool_loading,
     )
 
     async def _run(state: ShallowResearchAgentState) -> ShallowResearchAgentState:
@@ -168,6 +203,16 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                     max_llm_turns=config.max_llm_turns,
                     max_tool_iterations=config.max_tool_iterations,
                     callbacks=callbacks,
+                    # The per-run agent is narrowed by data_sources/skills, so
+                    # it indexes a DIFFERENT tool set — it has to carry the
+                    # setting or tool search would silently stop applying on
+                    # exactly the requests that select sources.
+                    tool_search=config.tool_search,
+                    # Same reason as tool_search: the per-run agent binds a
+                    # DIFFERENT tool set, so without carrying this the deferral
+                    # would silently stop applying on exactly the requests that
+                    # select sources or activate a skill.
+                    deferred_tool_loading=config.deferred_tool_loading,
                 )
 
             if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):

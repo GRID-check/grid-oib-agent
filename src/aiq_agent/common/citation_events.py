@@ -87,7 +87,12 @@ SEVERITY_BY_KIND: dict[str, EventSeverity] = {
     # Nothing the model cited survived, but exactly one registry source existed
     # and was appended as a minimal citation. Grounded, but not by the model.
     "citation_fallback": "info",
-    # The overconfidence guard capped the surfaced confidence to "low".
+    # The overconfidence guard downgraded the surfaced confidence. `reasons`
+    # carries which gate closed — including `normative_claim_uncited`, the mixed
+    # answer whose numbers were measured but whose legal claim was not cited.
+    # That row is the only place the normative-claim heuristic's hit rate becomes
+    # observable, so it is worth counting even though the level is unchanged from
+    # what the answer would have got before measurement grounding existed.
     "confidence_capped": "info",
     # Per-turn retrieval feedback: how many retrieved sources the answer
     # actually cited vs ignored. An observation, not a defect.

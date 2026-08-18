@@ -123,6 +123,11 @@ class TestConfidenceEndToEnd:
             result = MagicMock()
             result.messages = list(messages) + [AIMessage(content=answer)]
             result.answer_citation_grounded = grounded
+            # A real state always carries this, and ``MagicMock`` would
+            # auto-vivify it truthy — which the chat node reads as "the citation
+            # came from the single-source fallback" and caps for. Set to the
+            # boolean a model-cited answer actually has.
+            result.answer_citation_fallback_used = False
             result.escalation_requested = None
             return result
 
@@ -148,6 +153,7 @@ class TestConfidenceEndToEnd:
             result = MagicMock()
             result.messages = list(messages) + [AIMessage(content=answer)]
             result.answer_citation_grounded = grounded
+            result.answer_citation_fallback_used = False
             result.escalation_requested = escalation_requested
             result.answer_confidence_marker = confidence_marker
             result.answer_confidence_marker_reason = confidence_reason

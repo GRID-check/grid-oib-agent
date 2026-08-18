@@ -611,6 +611,18 @@ export const chat = {
     cappedReasons: {
       ungrounded: 'Low confidence: answer not backed by sources.',
       quoteUnverified: 'Low confidence: a quote could not be verified verbatim against the source.',
+      // The measurement backs the number, not the legal statement beside it —
+      // so the mixed answer stays at "low" and the tooltip says why.
+      normativeClaimUncited:
+        'Low confidence: the measurements come from the model, but the normative claim about them is not backed by a source.',
+      // Measured is not cited: the number is reproducible, but "high" stays
+      // reserved for an answer with a verified citation.
+      measurementOnly:
+        'Medium confidence: the figure was measured on the model (with tolerance and method), but is not backed by a source.',
+      // The source came from the conversation, not from this answer — so it
+      // backs no more than a measurement does.
+      citationFallback:
+        'Medium confidence: the source shown was attached by the assistant, not cited by the answer itself.',
     },
   },
   // Per-answer thumbs feedback (WS-7, `answer-feedback` flag).

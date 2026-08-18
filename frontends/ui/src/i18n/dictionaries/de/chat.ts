@@ -598,6 +598,18 @@ export const chat: typeof en.chat = {
       ungrounded: 'Geringe Sicherheit: Antwort nicht durch Quellen belegt.',
       quoteUnverified:
         'Geringe Sicherheit: ein Zitat konnte nicht wörtlich in der Quelle bestätigt werden.',
+      // Die Messung belegt die Zahl, nicht die Rechtsaussage daneben — deshalb
+      // bleibt die gemischte Antwort auf „gering", und der Tooltip sagt warum.
+      normativeClaimUncited:
+        'Geringe Sicherheit: die Maße stammen aus dem Modell, die normative Aussage dazu ist aber nicht durch eine Quelle belegt.',
+      // Gemessen ist nicht zitiert: die Zahl ist nachvollziehbar, „hoch" bleibt
+      // aber der Antwort mit geprüfter Quellenangabe vorbehalten.
+      measurementOnly:
+        'Mittlere Sicherheit: die Angabe ist am Modell gemessen (mit Toleranz und Methode), aber nicht durch eine Quelle belegt.',
+      // Die Quelle stammt aus dem Gespräch, nicht aus dieser Antwort — sie
+      // belegt daher nur so viel wie eine Messung.
+      citationFallback:
+        'Mittlere Sicherheit: die angeführte Quelle wurde ergänzt, nicht von der Antwort selbst zitiert.',
     },
   },
   // Antwort-Feedback per Daumen (WS-7, Feature-Flag `answer-feedback`).

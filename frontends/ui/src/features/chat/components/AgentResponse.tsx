@@ -25,6 +25,7 @@ import { remarkCardMarkers, unplacedCardIndices } from '@/features/grid-cards/ca
 import { MarkdownSlotProvider } from '@/shared/components/MarkdownRenderer/slot-context'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
+import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
 import { useConversationMemory } from '../hooks/use-conversation-memory'
@@ -73,7 +74,7 @@ export interface AgentResponseProps {
    * `'ungrounded'` or `'quote_unverified'` add the matching cap explanation to
    * the ConfidenceChip tooltip (PB-9).
    */
-  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /**
    * The model's own one-clause justification for its confidence level, shown
    * verbatim in the ConfidenceChip tooltip.

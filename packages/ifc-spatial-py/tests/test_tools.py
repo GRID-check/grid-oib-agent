@@ -159,7 +159,7 @@ def test_open_and_briefing_do_not_run_geometry() -> None:
 
 
 def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: list) -> None:
-    """Ten tools ported from `tools.ts`, and eight the port added.
+    """Ten tools ported from `tools.ts`, and ten the port added.
 
     `view` sits BEFORE `draw` deliberately. They look like duplicates and are
     not: `draw` writes an SVG file for a human, `view` returns a raster the
@@ -187,6 +187,15 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
     partition, `distance('min')` reports 0.000 m where the clear dimension is
     0.995 m. `sun_position` sits after `light_incidence` because it is the other
     half of a shading question and composes with nothing else.
+
+    `survey` and `profile` are the two additions that reach no new operator at
+    all — they are the two ways `measure` gets composed, and they sit on either
+    side of it because a model reading down the list should meet the plural
+    form („alle Räume dieses Geschoßes") immediately after the singular. They
+    exist because the caller's budget is five tool calls: the capability to
+    answer „wie hoch ist der Keller" was present and correct for months, and the
+    agent still answered it from the declared storey pitch, because reaching the
+    measurement one room at a time did not fit.
     """
     assert [tool.name for tool in tools] == [
         "open_model",
@@ -195,6 +204,8 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
         "element",
         "relations",
         "measure",
+        "survey",
+        "element_profile",
         "distance",
         "clearance",
         "fire",
@@ -780,3 +791,274 @@ def test_the_deliberate_omissions_are_still_real_functions() -> None:
     for qualified in NOT_ON_THE_SURFACE:
         module, _, name = qualified.rpartition(".")
         assert hasattr(importlib.import_module(f"ifc_spatial.{module}"), name), qualified
+
+
+# ── survey and profile: the two composition shapes ──────────────────────────
+#
+# Both exist because of the same arithmetic. The agent gets five tool calls
+# before it is forced to synthesise, and the question people actually ask
+# („wie hoch ist der Keller") is one question about seventeen rooms. Composed
+# from find_elements + one measure per room it does not fit in the budget, and
+# the failure mode is not an error — it is a confident answer built from the
+# declared storey pitch, because that fits in one call and the measurement did
+# not.
+#
+# So these tests guard the properties that make the composition trustworthy
+# rather than merely shorter: that a survey measures the SAME set find_elements
+# lists, that it returns the SAME per-element answers `measure` would, and that
+# a room it could not measure comes back named instead of quietly missing.
+
+
+def test_survey_measures_every_room_and_reports_the_spread(tools: list, house: str) -> None:
+    """The spread is the finding, not a summary statistic.
+
+    The sample house has three rooms at 2.20 m and a roof space at 0.30 m. A
+    reviewer who measured one room and generalised would be wrong about the
+    house no matter WHICH room they picked, and that is exactly the mistake a
+    per-element tool invites when the question is plural.
+    """
+    result = call(tools, "survey", {"model": house, "measure": "clearHeight", "ifcType": "IfcSpace"})
+    summary = result["summary"]
+
+    assert summary["measured"] == summary["of"] == 4
+    assert summary["undecidable"] == []
+    # Not a hardcoded spread — the relationship, so the test survives a
+    # geometry improvement that shifts the numbers without weakening the claim.
+    assert summary["spread"] == pytest.approx(summary["max"] - summary["min"])
+    assert summary["spread"] > 1.0, "the roof space differs from the rooms by more than a tolerance"
+    assert summary["provenance"] == {"computed": 4}
+
+
+def test_survey_names_the_elements_so_the_outlier_can_be_reported(tools: list, house: str) -> None:
+    """A GlobalId is not an answer.
+
+    Surveying without names would leave the caller holding „one of these four
+    22-character strings is 0.30 m" and spending another turn on find_elements
+    to say which room. The join is free here and costs a turn there.
+    """
+    result = call(tools, "survey", {"model": house, "measure": "clearHeight", "ifcType": "IfcSpace"})
+    lowest = min(result["results"], key=lambda row: row["answer"]["value"])
+
+    assert lowest["name"], "every surveyed element carries its own name"
+    assert lowest["storey"], "and the storey it belongs to"
+    assert all(row["globalId"] and row["name"] is not None for row in result["results"])
+
+
+def test_survey_returns_exactly_what_measure_returns_element_by_element(tools: list, house: str) -> None:
+    """Pure composition, or the shortcut is a second implementation.
+
+    If `survey` ever computed its numbers differently from `measure` — a
+    different sampling density, a skipped triangulation — then the cheap path
+    and the careful path would disagree, and a reviewer checking one room by
+    hand would find the survey wrong. This is the test that keeps them one
+    code path.
+    """
+    surveyed = call(tools, "survey", {"model": house, "measure": "floorArea", "ifcType": "IfcSpace"})
+
+    for row in surveyed["results"]:
+        alone = call(tools, "measure", {"model": house, "globalId": row["globalId"], "measure": "floorArea"})
+        assert row["answer"] == alone, f"{row['name']} measured differently in a survey than alone"
+
+
+def test_survey_names_the_rooms_it_could_not_measure(tools: list) -> None:
+    """An undecidable room is a finding about the EXPORT, and it needs a name.
+
+    This fixture writes spaces whose clear height no operator can establish. The
+    dangerous rendering is silence — four rooms measured, seven asked for, and a
+    summary that reads like a complete answer. Every one of them comes back
+    listed, with the name a CAD operator would search for.
+    """
+    galerie = call(tools, "open_model", {"path": str(FIXTURES / "dachgeschoss-galerie.ifc")})["model"]
+    surveyed = call(tools, "survey", {"model": galerie, "measure": "clearHeight", "ifcType": "IfcSpace"})
+    summary = surveyed["summary"]
+
+    assert summary["measured"] == 0 and summary["of"] == 7
+    assert len(summary["undecidable"]) == 7
+    assert all(entry["name"] for entry in summary["undecidable"])
+    # No spread over an empty set: min/max/spread are absent rather than zero,
+    # because 0.0 would read as „all the rooms agree".
+    assert "spread" not in summary and "min" not in summary
+
+
+def test_survey_of_nothing_says_so_instead_of_measuring_nothing(tools: list, house: str) -> None:
+    """An empty selection is a question that missed, not a building without rooms."""
+    result = call(tools, "survey", {"model": house, "measure": "clearHeight", "storey": "Kellergeschoß"})
+
+    assert result["results"] == [] and result["summary"]["of"] == 0
+    assert "Briefing" in result["hint"], "and it points at where the real storey names are"
+
+
+def test_survey_selects_exactly_what_find_elements_lists(tools: list, house: str) -> None:
+    """Same selector, same set — or the names beside the numbers describe a
+    different question than the numbers do."""
+    selector = {"ifcType": "IfcSpace", "storey": "Ground Floor"}
+    listed = call(tools, "find_elements", {"model": house, **selector, "limit": 500})
+    surveyed = call(tools, "survey", {"model": house, "measure": "floorArea", **selector})
+
+    assert [element["globalId"] for element in listed["elements"]] == [row["globalId"] for row in surveyed["results"]]
+
+
+def test_survey_says_out_loud_when_it_measured_only_a_slice(tools: list, house: str) -> None:
+    """A spread over 2 of 4 rooms reported as „the rooms" is the one error this
+    package exists to prevent, so truncation is stated rather than inferred."""
+    result = call(tools, "survey", {"model": house, "measure": "floorArea", "ifcType": "IfcSpace", "limit": 2})
+
+    assert result["truncated"] is True
+    assert result["summary"]["of"] == 2 and result["summary"]["selected"] == 4
+    assert "4" in result["hint"] and "2" in result["hint"]
+
+
+def test_profile_measures_only_what_the_type_is_about(tools: list, house: str) -> None:
+    """A door has no lichte Raumhöhe and a room has no Schwellenhöhe.
+
+    Running all twenty kinds and letting the inapplicable ones refuse would
+    „work", and it would spend the caller's context on sixteen refusals that say
+    nothing about the building — the noise pushing the real numbers out.
+    """
+    room = call(tools, "element_profile", {"model": house, "globalId": BEDROOM})
+    door_id = call(tools, "find_elements", {"model": house, "ifcType": "IfcDoor"})["elements"][0]["globalId"]
+    door = call(tools, "element_profile", {"model": house, "globalId": door_id})
+
+    assert "clearHeight" in room["measures"] and "clearHeight" not in door["measures"]
+    assert "thresholdHeight" in door["measures"] and "thresholdHeight" not in room["measures"]
+    assert room["element"]["name"] and room["storey"]
+    # What was skipped is stated — a caller must be able to tell „not measured"
+    # from „measured and found nothing".
+    assert "clearHeight" in door["notMeasured"]["kinds"] and door["notMeasured"]["why"]
+
+
+def test_profile_leaves_the_expensive_walks_out_unless_asked(tools: list, house: str) -> None:
+    """The cheap profile has to stay cheap or nobody can afford the first one."""
+    quick = call(tools, "element_profile", {"model": house, "globalId": BEDROOM})
+    full = call(tools, "element_profile", {"model": house, "globalId": BEDROOM, "include": "expensive"})
+
+    assert "egressPath" not in quick["measures"]
+    assert "egressPath" in full["measures"]
+    assert set(quick["measures"]) < set(full["measures"])
+
+
+def test_profile_of_an_unknown_id_is_an_error_not_an_empty_profile(tools: list, house: str) -> None:
+    """The caller could not look — that is their bug, and it is not a fact about
+    the building. Same rule the rest of the surface keeps."""
+    with pytest.raises(ToolError) as raised:
+        call(tools, "element_profile", {"model": house, "globalId": "0" * 22})
+    assert "find_elements" in str(raised.value)
+
+
+def test_every_measure_subject_names_a_real_measure_and_a_real_type(tools: list) -> None:
+    """The applicability table decides what `profile` measures, so a typo in it
+    silently drops a measurement rather than failing loudly."""
+    from ifc_spatial.tools import MEASURE_EXPENSIVE
+    from ifc_spatial.tools import MEASURE_SUBJECT
+
+    assert set(MEASURE_SUBJECT) == set(MEASURES), "every measure declares what it is about"
+    assert MEASURE_EXPENSIVE <= set(MEASURES)
+    for name, subjects in MEASURE_SUBJECT.items():
+        for subject in subjects:
+            assert subject.startswith("Ifc"), f"{name} names {subject}, which is not an IFC type"
+
+
+# ── what a corpus sweep found, and what now cannot happen again ─────────────
+#
+# 1 960 survey calls across 17 models: 48.7 % of them DIED. Not refused —
+# died, returning nothing about any element because one element in the
+# selection was of a type the measure does not accept. The call that died most
+# reliably was the one this tool's own description invites, „wie hoch ist der
+# Keller", because a storey holds annotations and walls beside its rooms.
+#
+# The other two were quieter and worse. A spread computed over one element
+# printed `spread: 0.0`, which reads as „they all agree" — the strongest claim
+# the tool can make, manufactured from a single sample. And eighteen of the
+# twenty measures return a dict, so they could produce no spread at all while
+# the description promised „die Spanne ist der Befund".
+
+
+def test_a_wrong_type_in_the_selection_does_not_kill_the_survey(tools: list, house: str) -> None:
+    """One annotation used to cost the caller all seventeen rooms.
+
+    The turn is the scarce resource. A survey that raises returns NOTHING — not
+    a partial answer, not a refusal per element — and at a budget of five calls
+    that is most of the question gone, for a reason the caller could not have
+    predicted from the selection they wrote.
+    """
+    surveyed = call(tools, "survey", {"model": house, "measure": "clearHeight", "storey": "Ground Floor"})
+
+    assert surveyed["summary"]["measured"] >= 1
+    assert surveyed["scopedTo"] == ["IfcSpace"], "the measure narrowed the selection to its own subject"
+
+
+def test_the_measure_scopes_the_selection_when_the_caller_did_not(tools: list, house: str) -> None:
+    """`clearHeight` already knows it is about rooms.
+
+    Requiring `ifcType` would work and would be exactly the ambiguity this tool
+    exists to remove — and it fails silently rather than loudly, because the
+    unwanted types sort ahead of the rooms and eat the limit.
+    """
+    scoped = call(tools, "survey", {"model": house, "measure": "clearHeight", "storey": "Ground Floor"})
+    pinned = call(
+        tools,
+        "survey",
+        {"model": house, "measure": "clearHeight", "storey": "Ground Floor", "ifcType": "IfcSpace"},
+    )
+
+    assert [row["globalId"] for row in scoped["results"]] == [row["globalId"] for row in pinned["results"]]
+    # Pinned explicitly, the caller owns the selection and gets no narrowing.
+    assert "scopedTo" not in pinned
+
+
+def test_a_spread_is_never_derived_from_a_single_measurement(tools: list, house: str) -> None:
+    """`spread: 0.0` off one element is not a weak claim, it is a false one.
+
+    It reads as „alle Räume gleich", which is the one sentence this tool exists
+    to make impossible — and it was reachable with `limit` set to anything the
+    clamp could not parse.
+    """
+    one = call(tools, "survey", {"model": house, "measure": "floorArea", "ifcType": "IfcSpace", "limit": 1})
+
+    assert one["summary"]["measured"] == 1
+    assert "spread" not in one["summary"] and "min" not in one["summary"]
+    assert "keine Spanne" in one["summary"]["note"]
+
+
+def test_an_unreadable_limit_is_refused_rather_than_floored_to_one(tools: list, house: str) -> None:
+    """The clamp floors to its low bound, and the low bound is 1.
+
+    So `limit: 0` surveyed ONE room out of eighty-two and reported a spread of
+    zero. A caller who typed a bad limit gets told; a caller who is silently
+    given one room gets a false finding.
+    """
+    for bad in (0, -5, "abc"):
+        with pytest.raises(ToolError) as raised:
+            call(tools, "survey", {"model": house, "measure": "floorArea", "ifcType": "IfcSpace", "limit": bad})
+        assert str(bad) in str(raised.value)
+
+
+def test_measures_that_answer_with_a_dict_still_produce_a_spread(tools: list, house: str) -> None:
+    """Eighteen of twenty measures return a structure, not a number.
+
+    Surveying fifty doors for their clear width and getting back „measured: 50"
+    and no range is the tool failing at the one thing it advertises. The scalar
+    the summary disperses over is NAMED, so „Spanne 0.13" cannot be read as
+    being about the height when it is about the width.
+    """
+    doors = call(tools, "survey", {"model": house, "measure": "clearWidth", "ifcType": "IfcDoor"})
+    summary = doors["summary"]
+
+    assert summary["measured"] >= 2
+    assert summary["spreadOf"] == "width"
+    assert summary["spread"] == pytest.approx(summary["max"] - summary["min"])
+    assert summary["spreadOver"] == summary["measured"]
+
+
+def test_every_headline_key_exists_on_the_measure_it_names(tools: list, house: str) -> None:
+    """A headline naming a key the operator does not return would silently drop
+    the whole set out of the summary — the same invisible failure as before,
+    one layer down."""
+    from ifc_spatial.tools import MEASURE_HEADLINE
+
+    assert set(MEASURE_HEADLINE) <= set(MEASURES)
+    room = call(tools, "element_profile", {"model": house, "globalId": BEDROOM, "include": "expensive"})
+    for name, answer in room["measures"].items():
+        key = MEASURE_HEADLINE.get(name)
+        if key and answer.get("decidable") and isinstance(answer.get("value"), dict):
+            assert key in answer["value"], f"{name} declares headline {key!r} and does not return it"

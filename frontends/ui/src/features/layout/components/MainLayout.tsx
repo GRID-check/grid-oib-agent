@@ -122,10 +122,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
 
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const isMobile = useIsMobile()
-  const filePeeking = useFilePreviewStore(
-    (s) => s.mode === 'peek' && s.file !== null && !s.hidden,
-  )
-  const peekWidth = useFilePreviewStore((s) => s.peekWidth)
   const peekedFile = useFilePreviewStore((s) => s.file)
   const previewHidden = useFilePreviewStore((s) => s.hidden)
   const previewMode = useFilePreviewStore((s) => s.mode)
@@ -237,26 +233,28 @@ export const MainLayout: FC<MainLayoutProps> = ({
         <div
           className="relative flex min-w-0 flex-col overflow-hidden"
           style={{
-            // Chat stays the home column. A peeked file sits to the right
-            // as a companion (~22rem), not a 50/50 split. Research still
-            // shares the row 50/50 and the peek yields to it.
+            // Research shares the row 50/50, and this column yields half.
+            //
+            // The FILE PEEK IS NOT LISTED HERE, deliberately. It used to be:
+            // when the peek was a floating pane, this column subtracted the
+            // pane's width to clear a lane for it. `FilePreviewSplit` replaced
+            // that pane with a real resizable panel BESIDE this whole subtree,
+            // so the room is already made one level up — and subtracting it
+            // again here took it out a second time, out of a panel that had
+            // already shrunk. At 1440px that left the chat 539px wide inside an
+            // 883px panel: a 344px dead band between the conversation and the
+            // file it is about, with the resize handle stranded on the far side
+            // of it. `/dev/file-ask-split/chat` is the regression evidence.
             //
             // Set in ONE pass, never tweened. This used to run `width 300ms`,
             // which re-laid-out and repainted the ENTIRE chat transcript on
-            // every frame for the whole 300ms each time the research panel or
-            // a file peek opened — the exact thing
-            // `grid-design-language.md` §"Binding constraints" forbids. The
-            // companion panel beside it carries the arrival on a transform
-            // (see `ResearchPanel`), which is where that motion belongs: the
-            // reader needs to see where the PANEL came from, not watch their
-            // own text re-wrap sixty times.
-            width: isResearchPanelOpen
-              ? isMobile
-                ? '0%'
-                : '50%'
-              : filePeeking && !isMobile
-                ? `calc(100% - ${peekWidth + 24}px)`
-                : '100%',
+            // every frame for the whole 300ms each time the research panel
+            // opened — the exact thing `grid-design-language.md` §"Binding
+            // constraints" forbids. The companion panel beside it carries the
+            // arrival on a transform (see `ResearchPanel`), which is where that
+            // motion belongs: the reader needs to see where the PANEL came
+            // from, not watch their own text re-wrap sixty times.
+            width: isResearchPanelOpen ? (isMobile ? '0%' : '50%') : '100%',
             // Published from the ResizeObserver above; inherits into ChatArea
             // (a descendant), which reads it via calc(). undefined pre-measure.
             ...(composerHeight != null

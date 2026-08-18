@@ -141,6 +141,35 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
     expect(quoteUnverified.answer_confidence_capped_reason).toBe('quote_unverified')
   })
 
+  test('answer_confidence_capped_reason parses the two measurement-grounding causes', () => {
+    // An IFC measurement cannot satisfy the citation gate — it has no passage to
+    // quote — so it grounds the answer separately and reports itself two ways:
+    // `measurement_only` when a measured, descriptive answer was reduced from
+    // 'high' to 'medium', and `normative_claim_uncited` for the mixed answer
+    // whose numbers were measured but whose legal claim was never cited. The
+    // second must reach the tooltip: silently dropping it is how a capped legal
+    // claim looks identical to an un-capped one.
+    const mixed = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_capped_reason: 'normative_claim_uncited',
+    })
+    expect(mixed.answer_confidence_capped_reason).toBe('normative_claim_uncited')
+
+    const measured = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_capped_reason: 'measurement_only',
+    })
+    expect(measured.answer_confidence_capped_reason).toBe('measurement_only')
+
+    // And the third cause on the same footing as a measurement: the source was
+    // attached by the fallback, not cited by the answer, so 'high' was reduced.
+    const attached = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_capped_reason: 'citation_fallback',
+    })
+    expect(attached.answer_confidence_capped_reason).toBe('citation_fallback')
+  })
+
   test('an unknown answer_confidence_capped_reason degrades to undefined (catch)', () => {
     const parsed = NATSystemResponseMessageSchema.parse({
       ...base,

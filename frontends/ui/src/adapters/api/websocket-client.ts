@@ -8,6 +8,7 @@
 
 import { backoffWithJitter } from '@/shared/utils/backoff'
 import { trackAuthEvent } from '@/shared/utils/rum'
+import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import { getWebSocketUrl } from './config'
 import {
   // NAT protocol types
@@ -39,11 +40,10 @@ export interface ResponseTransparency {
   /** Present only when a shallow→deep escalation happened this turn. */
   escalationReason?: string
   /**
-   * Present only when confidence was downgraded. `'ungrounded'` = the answer
-   * lost its citation grounding; `'quote_unverified'` = a quoted span did not
-   * match any source passage.
+   * Present only when confidence was downgraded. See
+   * {@link AnswerConfidenceCappedReason} for the causes it can carry.
    */
-  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /** The model's own one-clause justification for its self-assessment, shown verbatim. */
   answerConfidenceReason?: string
   /** Present only when citation verification removed ≥1 citation. */
