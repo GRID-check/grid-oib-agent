@@ -389,13 +389,26 @@ describe('AgentResponse', () => {
       expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
     })
 
-    test('renders no empty meta row when the flags are on but nothing has content', () => {
-      // Flags default to on, but there is no confidence level, no messageId for
-      // the thumbs row, no timestamp and no memory — the row would be a bare
-      // spacer plus its own gap, so it must not mount.
-      const { container } = render(<AgentResponse content="Answer" />)
+    test('the meta row of a bare answer holds the copy action and nothing else', () => {
+      // No confidence level, no messageId for the thumbs row, no timestamp and
+      // no memory. The row used to be a bare spacer here and therefore did not
+      // mount at all; a completed answer can always be copied, so the copy
+      // action is now what keeps it from being empty — and it is alone in it.
+      render(<AgentResponse content="Answer" />)
+
+      expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
+      expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
+      expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
+      expect(screen.queryByText(/\d{1,2}:\d{2}/)).not.toBeInTheDocument()
+    })
+
+    test('renders no meta row at all while the answer is still streaming', () => {
+      // Streaming reserves the row's height but must not mount its content —
+      // an answer that is still arriving cannot be copied or rated.
+      const { container } = render(<AgentResponse content="Answer" isStreaming />)
 
       expect(container.querySelector('[class*="animation-delay"]')).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
     })
 
     test('reserves meta-row height while streaming so late chips do not jump the footer', () => {
@@ -635,6 +648,51 @@ describe('AgentResponse', () => {
       const { container } = render(<AgentResponse content={longAnswer} isStreaming />)
 
       expect(hasLede(container)).toBe(false)
+    })
+  })
+  // Getting the answer OUT: the copy actions live in the merged footer's meta
+  // row, next to the feedback thumbs — never in a band of their own.
+  describe('answer copy actions', () => {
+    const citations = [
+      {
+        id: 'copy-c1',
+        content: '',
+        timestamp: new Date('2026-08-18T09:00:00Z'),
+        title: 'OIB-Richtlinie 2',
+        fileName: 'oib-rl_2.pdf',
+        collection: 'oib_knowledge',
+        kind: 'baurecht' as const,
+        origin: 'kb' as const,
+        page: 18,
+        number: 1,
+        isCited: true,
+      },
+    ]
+
+    test('a completed answer offers a copy button', () => {
+      render(<AgentResponse content="Die Antwort." />)
+
+      expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
+    })
+
+    test('the citations-resolved action appears only when the answer has sources', () => {
+      const { rerender } = render(<AgentResponse content="Die Antwort." />)
+      expect(screen.queryByRole('button', { name: /source references/i })).not.toBeInTheDocument()
+
+      rerender(<AgentResponse content="Die Antwort [1]." citations={citations} />)
+      expect(screen.getByRole('button', { name: /source references/i })).toBeInTheDocument()
+    })
+
+    test('an answer that is still arriving cannot be copied', () => {
+      render(<AgentResponse content="Die Antwort" isStreaming />)
+
+      expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
+    })
+
+    test('the inline variant carries no copy actions', () => {
+      render(<AgentResponse content="Die Antwort." variant="inline" citations={citations} />)
+
+      expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
     })
   })
 })

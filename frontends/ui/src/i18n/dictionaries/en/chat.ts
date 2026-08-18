@@ -166,6 +166,20 @@ export const chat = {
     citationsRemoved: '{count} citation(s) removed (not verifiable)',
     citationsRemovedReasonsLabel: 'Reasons',
   },
+  // Getting the answer OUT of the app — the paste into a report, a mail, a
+  // submission. Two icon buttons in the answer's meta row; the second one only
+  // exists when the turn actually resolved sources to write out.
+  answerActions: {
+    copy: 'Copy answer',
+    copyWithSources: 'Copy answer with full source references',
+    copied: 'Copied',
+    copyFailed: 'The answer could not be copied.',
+    // The heading the written-out source list is filed under. Mirrors the
+    // heading answers write themselves, so a pasted answer reads the same way
+    // whichever button produced it.
+    sourcesHeading: 'Sources',
+    untitledSource: 'Untitled source',
+  },
   // Thread-header breadcrumb (project / session title) with inline rename.
   // The citation peek: what a Fundstelle IS, before you open it.
   citationPeek: {

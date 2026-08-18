@@ -37,6 +37,7 @@ import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
+import { AnswerActions } from './AnswerActions'
 
 /**
  * The first paragraph of a long answer, typeset as a lede.
@@ -417,7 +418,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     showConfidenceChip &&
     (answerConfidence === 'low' || answerConfidence === 'medium' || answerConfidence === 'high')
   const hasFeedback = showAnswerFeedback && Boolean(messageId)
-  const hasMetaRow = hasConfidence || hasFeedback || Boolean(timestamp) || memoryItems.length > 0
+  // The copy actions. A still-arriving answer cannot be copied — half a
+  // Prüfvermerk is worse than none — and a cards-only turn has no markdown to
+  // hand over, so both are excluded rather than given a button that copies ''.
+  const hasAnswerActions =
+    !isStreaming && Boolean(content) && content.trim().length > 0 && content !== 'null'
+  const hasMetaRow =
+    hasConfidence ||
+    hasFeedback ||
+    hasAnswerActions ||
+    Boolean(timestamp) ||
+    memoryItems.length > 0
   // Streaming still has no chips/thumbs, but the row is reserved at chip
   // height so the footer does not jump when they land. An idle answer with
   // nothing to hold still omits the row (no empty band).
@@ -505,6 +516,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
+        {/* No copy actions here, deliberately. This variant is the box-less
+            rendering used INSIDE another container (the thinking process, the
+            dev turn surfaces) — it has no consolidated meta row, so the buttons
+            would land as one more loose element in a stack that already ends in
+            chips, thumbs and a timestamp. And it never renders a delivered
+            answer in the thread: ChatArea always uses the default variant, so
+            every answer a reader would paste has its buttons on its own card.
+            If that changes, <AnswerActions /> drops into the row below. */}
         <div className="flex flex-wrap items-center gap-2">
           {showConfidenceChip && (
             <ConfidenceChip
@@ -671,6 +690,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               )}
               <MemoryNotedChip items={memoryItems} />
               {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
+              {/* Copy the answer out — markdown, with or without its sources
+                  written out. Before the thumbs: "take this with you" is what
+                  the reader wants first; rating it is the afterthought. */}
+              {hasAnswerActions && (
+                <AnswerActions content={content} body={body} documents={documents} />
+              )}
               {hasFeedback && messageId && (
                 <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
               )}

@@ -155,6 +155,20 @@ export const chat: typeof en.chat = {
     citationsRemoved: '{count} Quellenangabe(n) entfernt (nicht verifizierbar)',
     citationsRemovedReasonsLabel: 'Gründe',
   },
+  // Die Antwort aus Piloti herausbekommen — für Prüfvermerk, Mail, Einreichung.
+  // Zwei Icon-Schaltflächen in der Metazeile der Antwort; die zweite gibt es nur,
+  // wenn die Antwort überhaupt Quellen aufgelöst hat.
+  answerActions: {
+    copy: 'Antwort kopieren',
+    copyWithSources: 'Antwort mit ausgeschriebenen Quellenangaben kopieren',
+    copied: 'Kopiert',
+    copyFailed: 'Die Antwort konnte nicht kopiert werden.',
+    // Überschrift, unter der die ausgeschriebene Quellenliste steht — dieselbe,
+    // die die Antworten selbst schreiben, damit eine eingefügte Antwort gleich
+    // aussieht, egal über welche Schaltfläche sie kopiert wurde.
+    sourcesHeading: 'Quellen',
+    untitledSource: 'Quelle ohne Titel',
+  },
   // Der Zitat-Peek: was diese Fundstelle IST, bevor man sie öffnet.
   citationPeek: {
     wholeDocument: 'Gesamtes Dokument',
