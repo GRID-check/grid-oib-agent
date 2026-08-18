@@ -14,7 +14,8 @@ meant to grow.
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **27 types**, in four families. The families are not decoration: each answers
+— **33 model-facing types plus 2 system types**, in four families. The families
+are not decoration: each answers
 "where does a number on this card come from?" differently, and that answer is
 what decides whether the model may emit the card at all, on which surface, and
 what it is allowed to write into it.
@@ -29,6 +30,13 @@ answer it has just written.
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `comparison_table` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
+| `verdict_header` | The answer's single headline ruling, set at the top — the value the reader came for | `verdict`, `subject`, `reference`, `confidence`, `confidence_reason` |
+| `condition_tree` | An answer that forks on one factor (typically the Gebäudeklasse): the question, each branch's condition and outcome, the branch this project sits on marked `active` | `title`, `question`, `branches[]` (`condition`, `outcome`, `active`, `reference`), `reference` |
+| `typed_table` | A tabular answer no purpose-built card covers. Columns are TYPED (`mass`, `norm`, `verdict`, `date`, `text`) so the renderer can align, format and colour them instead of printing five strings | `title`, `columns[]` (`label`, `type`), `rows[]`, `reference`, `note` |
+| `norm_chain` | A chain of norms with what binds and what only interprets: each link carries its `rank` (`bundesgesetz` → `leitfaden`), which is the whole point of the card | `title`, `links[]` (`label`, `rank`, `note`) |
+| `key_takeaways` | „Das Wichtigste" — the 2–5 points the reader must leave with. The generic card for an answer with no dimension and no fork in it; a row with a `detail` expands, a row without one is not a button | `title`, `items[]` (`text`, `detail`) |
+| `callout` | ONE remark that changes what the reader does — a `hinweis`, `achtung`, `frist` or `tipp`. Deliberately small; at most one per answer, because a second puts both back at the weight of the prose around them | `kind`, `text`, `title`, `detail` |
+| `follow_ups` | 2–4 next questions, each anchored to something this answer introduced. Clicking one PREFILLS the composer — the user still presses send, and nothing reaches the backend on click | `title`, `items[]` (`question`, `hint`) |
 
 **Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
 in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
@@ -67,6 +75,13 @@ Every identifying field has to be **copied from an `ifc_query` row in the same
 turn**; the model supplies no figures at all (`MODEL_BACKED_CARD_TYPES` in
 `cards/catalog.py`).
 
+`ifc_model_picker` sits beside them and is deliberately NOT one of the five: it
+carries a heading and nothing else. The project's models are enumerated by the
+frontend, so there is no file name for the agent to get wrong and no `ifc_query`
+call to make first. It exists because "zeig mir das Modell" was being answered
+with a prose bullet list of file names for the user to retype — the tiles open
+the viewer on click instead.
+
 | `type` | Shows | Key fields |
 |---|---|---|
 | `ifc_viewer` | the project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids` **XOR** `match`, plus `label`, `status`), `storey`, `note` |
@@ -74,6 +89,7 @@ turn**; the model supplies no figures at all (`MODEL_BACKED_CARD_TYPES` in
 | `ifc_element` | one element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
 | `ifc_diff` | what changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |
 | `ifc_compliance` | the Prüfbuch: OIB requirements with their verdict | `title`, `model_file`, `rule_ids[]` (≤ 20), `note` |
+| `ifc_model_picker` | the project's IFC models as tiles that open the viewer — the answer to "which model do you mean?" | `title`, `note` |
 
 **System cards** — emitted by a specific tool on a sanctioned path, never by the
 model (`SYSTEM_CARD_TYPES`; `emit_card` refuses them and the model-facing
@@ -186,7 +202,7 @@ stale name in a tenant's skill must not take down the turn that mentioned it.
 The skills runtime is that third consumer. When a skill declaring `grid-cards`
 is loaded, `_preferred_cards_block` (`skills/runtime.py`) appends the **shapes**
 of the types it names, not just their names. A skill naming its cards is the
-moment we know which of the 27 shapes this turn could possibly need, so it is
+moment we know which of the shapes this turn could possibly need, so it is
 the moment to spend context on them — and it saves the activated turn a
 `describe_card` round-trip it would otherwise always pay.
 
@@ -301,6 +317,27 @@ lines of prose.
 
 The frontend validates the wire cards (`validateGridCards`) and renders them
 through the `features/grid-cards/` component set — one renderer per card type.
+
+### Where a card lands: `[[card:N]]`
+
+Cards used to be drawn as a block, all of them, after the whole answer — so the
+stair diagram sat three screens below the paragraph about the stair, and a reader
+had to scroll past every drawing to reach the sentence they asked for.
+
+Each `emit_card` call now returns a marker naming the card by its POSITION in
+this turn's registry (`[[card:2]]` for the second card emitted). A marker written
+on a line of its own in the answer body is consumed by a remark plugin
+(`grid-cards/card-markers.ts`) and the card is spliced in at that point; the
+cards no marker claimed still follow the prose as a block, which is also what
+happens when the answer places none. Position is used rather than an id because
+an id would have to survive validation, persistence AND the deep-research path,
+which builds its cards post-hoc from a finished report and has no emission order
+to refer back to.
+
+The contract is stated in `researcher.j2` as well as in the tool return, and
+deliberately so: a marker the model only learns about from the tool result
+arrives after it has already committed to the paragraph the card belongs to, so
+placement could only ever be retrofitted. Named up front, it can be planned.
 
 ## Interactive cards: the answer MUST be persisted
 
