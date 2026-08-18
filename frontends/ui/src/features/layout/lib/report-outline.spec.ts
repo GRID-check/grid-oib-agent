@@ -69,15 +69,51 @@ describe('extractReportOutline', () => {
     expect(outline.map((entry) => entry.text)).toEqual(['Danach'])
   })
 
-  test('duplicate heading text keeps the id the renderer assigns, with distinct keys', () => {
-    const outline = extractReportOutline(['## Bewertung', 'Text.', '## Bewertung'].join('\n'))
+  test('a repeated heading gets its own id, and the first one keeps the id it had', () => {
+    const outline = extractReportOutline(
+      ['## Bewertung', 'Text.', '## Bewertung', 'Text.', '## Bewertung'].join('\n')
+    )
 
-    expect(outline).toHaveLength(2)
-    expect(outline[0].id).toBe('bewertung')
-    // The renderer derives the id from the text alone, so both headings really
-    // do carry `#bewertung` and an anchor lands on the first.
-    expect(outline[1].id).toBe('bewertung')
-    expect(outline[0].key).not.toBe(outline[1].key)
+    expect(outline.map((entry) => entry.id)).toEqual([
+      // Unsuffixed, so every link already published against the first
+      // occurrence still lands where it landed.
+      'bewertung',
+      'bewertung-2',
+      'bewertung-3',
+    ])
+    expect(new Set(outline.map((entry) => entry.key)).size).toBe(3)
+  })
+
+  test('a heading whose text already spells a suffix does not steal it', () => {
+    // Without the collision check, the second „Bewertung" and „Bewertung 2"
+    // would both be `#bewertung-2` — the bug moved one heading along, not gone.
+    const outline = extractReportOutline(
+      ['## Bewertung 2', '## Bewertung', '## Bewertung'].join('\n')
+    )
+
+    expect(outline.map((entry) => entry.id)).toEqual([
+      'bewertung-2',
+      'bewertung',
+      'bewertung-3',
+    ])
+  })
+
+  test('a heading of a level the outline does not list still takes its id', () => {
+    // The `#` title and the `####` detail are rendered with ids too, so they
+    // are counted; the outline just does not offer them.
+    const outline = extractReportOutline(
+      ['# Bewertung', '#### Bewertung', '## Bewertung'].join('\n')
+    )
+
+    expect(outline.map((entry) => [entry.text, entry.id])).toEqual([['Bewertung', 'bewertung-3']])
+  })
+
+  test('a duplicate inside fenced code is sample text and claims no id', () => {
+    const outline = extractReportOutline(
+      ['## Bewertung', '```markdown', '## Bewertung', '```', '## Bewertung'].join('\n')
+    )
+
+    expect(outline.map((entry) => entry.id)).toEqual(['bewertung', 'bewertung-2'])
   })
 
   test('keeps a citation marker in the heading, and in the id it produces', () => {
@@ -85,6 +121,15 @@ describe('extractReportOutline', () => {
 
     expect(entry.text).toBe('Wärmedurchgangskoeffizient [1]')
     expect(entry.id).toBe('waermedurchgangskoeffizient-1')
+  })
+
+  test('an inline HTML tag reaches neither the label nor the id', () => {
+    // Without `rehype-raw` the renderer drops the tags and shows "Kennwerte",
+    // so an id built from `<b>Kennwerte</b>` would be an id no element carries.
+    const [entry] = extractReportOutline('## <b>Kennwerte</b>')
+
+    expect(entry.text).toBe('Kennwerte')
+    expect(entry.id).toBe('kennwerte')
   })
 
   test('resolves inline markdown to what the reader sees', () => {
@@ -174,6 +219,11 @@ describe('the ids the outline links to exist in the rendered report', () => {
     '### Außenwände und Gebäudehülle',
     '### Kennwert OIB_2 im Vergleich',
     '## Siehe [OIB 2](https://www.oib.or.at/de/oib-2)',
+    // The same section title twice, which is the ordinary shape of a report
+    // that assesses several variants — and the case that used to give two
+    // headings one id.
+    '## Bewertung [1]',
+    '### Außenwände und Gebäudehülle',
     '## Bewertung [1]',
     '',
     '```markdown',
@@ -194,6 +244,33 @@ describe('the ids the outline links to exist in the rendered report', () => {
       expect(heading, `no rendered heading for #${entry.id} ("${entry.text}")`).not.toBeNull()
       expect(heading?.tagName.toLowerCase()).toBe(`h${entry.level}`)
       expect(heading?.textContent).toBe(entry.text)
+    }
+  })
+
+  test('each entry resolves to its OWN heading, in document order', () => {
+    // The half of the contract the duplicate case breaks. Every entry
+    // resolving is not enough: two entries can both resolve to the SAME
+    // element, which is what „## Bewertung" twice used to produce — the second
+    // outline row scrolled the reader to the first section and nothing failed.
+    const outline = extractReportOutline(REPORT)
+    const { container } = render(createElement(MarkdownRenderer, { content: REPORT }))
+
+    const resolved = outline.map((entry) => container.querySelector(`#${CSS.escape(entry.id)}`))
+    expect(new Set(resolved).size).toBe(outline.length)
+
+    const rendered = Array.from(container.querySelectorAll('h2, h3'))
+    expect(resolved.map((heading) => rendered.indexOf(heading as Element))).toEqual(
+      resolved.map((_, index) => index)
+    )
+  })
+
+  test('the repeated section is offered twice, under two ids', () => {
+    const bewertung = extractReportOutline(REPORT).filter((entry) => entry.text === 'Bewertung [1]')
+    const { container } = render(createElement(MarkdownRenderer, { content: REPORT }))
+
+    expect(bewertung.map((entry) => entry.id)).toEqual(['bewertung-1', 'bewertung-1-2'])
+    for (const entry of bewertung) {
+      expect(container.querySelector(`#${CSS.escape(entry.id)}`)).not.toBeNull()
     }
   })
 

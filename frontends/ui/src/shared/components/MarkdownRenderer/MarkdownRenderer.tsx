@@ -1,6 +1,6 @@
 'use client'
 
-import { type FC, type ReactNode, memo, useMemo } from 'react'
+import { type FC, type ReactNode, memo, useCallback, useMemo } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import type { PluggableList } from 'unified'
 import rehypeKatex from 'rehype-katex'
@@ -11,6 +11,7 @@ import type { MarkdownRendererProps } from './types'
 import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
 import { MARKDOWN_SLOT_TAG, useMarkdownSlotRenderer } from './slot-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
+import { markdownHeadings } from './headings'
 import { getLanguageFromClassName, headingAnchorId } from './utils'
 
 function getTextFromChildren(node: ReactNode): string {
@@ -101,6 +102,44 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       () => (isStreaming ? stabilizeStreamingMarkdown(content) : content),
       [isStreaming, content]
     )
+    /**
+     * The id of every heading in this document, keyed by the source line it was
+     * written on.
+     *
+     * Ids are unique per document — two „Bewertung" sections are `bewertung`
+     * and `bewertung-2` — and that uniqueness cannot be established from inside
+     * a per-heading callback, which knows nothing about the headings before it
+     * and runs whenever React decides to run it. So it is settled here, by a
+     * pure pass over the same string `ReactMarkdown` is handed, and the
+     * callbacks only look their answer up. See {@link markdownHeadings} for why
+     * every counting variant of this fails, and `report-outline` for the other
+     * caller — the outline offers exactly the ids this map assigns.
+     */
+    const headingIds = useMemo(() => {
+      const byLine = new Map<number, string>()
+      for (const heading of markdownHeadings(renderedContent)) byLine.set(heading.line, heading.id)
+      return byLine
+    }, [renderedContent])
+
+    /**
+     * The id for one heading element. The line the heading was written on is a
+     * property of the text, not of the render, so it survives a render React
+     * restarts or interleaves with another instance's.
+     *
+     * The fallback is the id this heading carried before ids were made unique:
+     * a setext heading (which the scan deliberately does not read) and a
+     * heading a remark plugin invented (which has no source line) still get an
+     * anchor, just not a disambiguated one.
+     */
+    const headingId = useCallback(
+      (node: ExtraProps['node'], children: ReactNode): string => {
+        const line = node?.position?.start.line
+        const assigned = line === undefined ? undefined : headingIds.get(line)
+        return assigned ?? headingAnchorId(getTextFromChildren(children))
+      },
+      [headingIds]
+    )
+
     // Custom component mappings
     const components: Components = useMemo(
       () => ({
@@ -152,32 +191,32 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         pre: ({ children }) => <>{children}</>,
 
         // Headings — include id for in-page anchor navigation
-        h1: ({ children }) => {
-          const id = headingAnchorId(getTextFromChildren(children))
+        h1: ({ children, node }: React.ComponentPropsWithoutRef<'h1'> & ExtraProps) => {
+          const id = headingId(node, children)
           return (
             <h1 id={id} className="mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight text-foreground">
               {children}
             </h1>
           )
         },
-        h2: ({ children }) => {
-          const id = headingAnchorId(getTextFromChildren(children))
+        h2: ({ children, node }: React.ComponentPropsWithoutRef<'h2'> & ExtraProps) => {
+          const id = headingId(node, children)
           return (
             <h2 id={id} className="mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight text-foreground">
               {children}
             </h2>
           )
         },
-        h3: ({ children }) => {
-          const id = headingAnchorId(getTextFromChildren(children))
+        h3: ({ children, node }: React.ComponentPropsWithoutRef<'h3'> & ExtraProps) => {
+          const id = headingId(node, children)
           return (
             <h3 id={id} className="mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight text-foreground">
               {children}
             </h3>
           )
         },
-        h4: ({ children }) => {
-          const id = headingAnchorId(getTextFromChildren(children))
+        h4: ({ children, node }: React.ComponentPropsWithoutRef<'h4'> & ExtraProps) => {
+          const id = headingId(node, children)
           return (
             <h4 id={id} className="mb-1 mt-3 block scroll-mt-4 text-sm font-semibold text-foreground">
               {children}
@@ -283,7 +322,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           <td className="px-3 py-2 text-sm text-foreground">{children}</td>
         ),
       }) as Components,
-      [compact, renderInPageAnchor, renderInternalLink, renderSlot]
+      [compact, headingId, renderInPageAnchor, renderInternalLink, renderSlot]
     )
 
     return (

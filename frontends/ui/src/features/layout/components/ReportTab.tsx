@@ -28,7 +28,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { PluggableList } from 'unified'
 import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
-import { headingAnchorId } from '@/shared/components/MarkdownRenderer/utils'
+import { markdownHeadings, uniqueHeadingId } from '@/shared/components/MarkdownRenderer/headings'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { useChatStore } from '@/features/chat'
 import { ReportSourcePreviewChip, SourcePreviewChip } from '@/features/chat/components/SourcePreview'
@@ -232,6 +232,23 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
         : null
 
   /**
+   * The DOM id of the sources heading.
+   *
+   * This component renders that heading itself — react-markdown never sees the
+   * sources section, which is why the heading needed an explicit id at all —
+   * so it is the one heading whose id is not assigned by the pass that numbers
+   * all the others. It is settled here, once, against the ids that pass already
+   * spoke for, and then used BOTH for the rendered `<h2>` and for the outline
+   * entry that links to it. Spelling it twice is how the outline's most-used
+   * entry would become its one dead link.
+   */
+  const sourcesHeadingId = useMemo((): string | null => {
+    if (!sourcesSectionHeading) return null
+    const taken = markdownHeadings(body).map((heading) => heading.id)
+    return uniqueHeadingId(sourcesSectionHeading, taken) || null
+  }, [sourcesSectionHeading, body])
+
+  /**
    * The outline of the finished report.
    *
    * WHILE WRITING, THERE IS NO OUTLINE. Headings are still arriving, the last
@@ -256,12 +273,13 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
   const outline = useMemo((): ReportOutlineEntry[] => {
     if (isResearchNotes || isGeneratingReport || !body.trim()) return []
     const entries = extractReportOutline(body)
-    const sources = sourcesSectionHeading
-      ? reportOutlineEntry(sourcesSectionHeading, 2, entries.length)
-      : null
+    const sources =
+      sourcesSectionHeading && sourcesHeadingId
+        ? reportOutlineEntry(sourcesSectionHeading, 2, entries.length, sourcesHeadingId)
+        : null
     if (sources) entries.push(sources)
     return entries.length >= MIN_REPORT_OUTLINE_ENTRIES ? entries : []
-  }, [isResearchNotes, isGeneratingReport, body, sourcesSectionHeading])
+  }, [isResearchNotes, isGeneratingReport, body, sourcesSectionHeading, sourcesHeadingId])
 
   // The outline observes headings against the panel's own scroll box, not the
   // window: a heading in the middle of a scrolled-away panel is not in view.
@@ -327,7 +345,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
             {sourceEntries.length > 0 && (
               <ReportSourcesList
                 heading={sourcesSectionHeading ?? t('reportTab.sourcesTitle')}
-                headingId={headingAnchorId(sourcesSectionHeading ?? t('reportTab.sourcesTitle'))}
+                headingId={sourcesHeadingId ?? ''}
                 entries={sourceEntries}
                 sourceBadgeLabel={(kind) => t(`reportTab.sourceBadge.${kind}`)}
                 showSourceBadges={showSourceBadges}
@@ -336,7 +354,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
             {citedFallbackSources.length > 0 && (
               <section aria-label={t('reportTab.sourcesTitle')}>
                 <h2
-                  id={headingAnchorId(t('reportTab.sourcesTitle'))}
+                  id={sourcesHeadingId ?? undefined}
                   className="mb-2 mt-5 scroll-mt-12 text-xl font-semibold tracking-tight text-foreground"
                 >
                   {t('reportTab.sourcesTitle')}

@@ -395,6 +395,44 @@ describe('ReportTab report outline', () => {
     expect(document.getElementById('quellen')).toHaveTextContent('Quellen')
   })
 
+  test('the sources heading it renders cannot land on an id the report already used', async () => {
+    // The body discusses „Quellen" in a section of its own before the
+    // bibliography at the foot. The markdown's heading owns `#quellen`; the
+    // heading THIS component renders has to take the next free id, and the
+    // outline entry has to link to that one — not to a slug it spelled itself.
+    const user = userEvent.setup()
+    showReport({
+      reportContent: [
+        '# Brandschutz in Gebäudeklasse 4',
+        '',
+        '## Ausgangslage',
+        'Text.',
+        '',
+        '## Quellen',
+        'Diese Bewertung stützt sich auf mehrere Quellen.',
+        '',
+        '## Bewertung',
+        'Text.',
+        '',
+        '## Quellen',
+        '1. OIB Richtlinie 2 — https://oib.or.at',
+      ].join('\n'),
+    })
+
+    render(<ReportTab />)
+    await user.click(screen.getByRole('button', { name: /outline/i }))
+
+    const hrefs = within(screen.getByTestId('report-outline'))
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('href'))
+    expect(hrefs).toEqual(['#ausgangslage', '#quellen', '#bewertung', '#quellen-2'])
+
+    // …and the heading this component renders carries exactly that id.
+    // (The body's own `#quellen` belongs to the renderer, which is mocked
+    // here; `report-outline.spec` asserts that half against the real one.)
+    expect(document.getElementById('quellen-2')).toHaveTextContent('Quellen')
+  })
+
   test('the sources section is listed once, not once per rendering of it', async () => {
     const user = userEvent.setup()
     showReport({ reportContent: LONG_REPORT })

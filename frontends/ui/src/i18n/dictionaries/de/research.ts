@@ -451,10 +451,27 @@ export const research: typeof en.research = {
     noRead: 'Keine gelesenen Quellen verfügbar.',
   },
 
+  /**
+   * Der Abschnitt eines Recherchedurchlaufs, aus dem eine Karte stammt.
+   *
+   * Die Karten gaben bisher die rohe Kennung des Backends aus („über
+   * researcher-agent“) — eine Kennung mitten im Satz, die niemand gelernt hat.
+   * Hier steht stattdessen die Arbeit, in denselben Worten wie auf der übrigen
+   * Recherchefläche. Eine Herkunft, für die dieser Build keinen Namen hat,
+   * liest „intern“ — nie die Kennung. Siehe `features/layout/lib/workflow-names`.
+   */
+  workflowName: {
+    planning: 'Planung',
+    research: 'Recherche',
+    sourceSelection: 'Quellenauswahl',
+    writing: 'Berichtstext',
+    internal: 'intern',
+  },
+
   thoughtCard: {
     detailsWhenComplete: 'Details verfügbar, sobald die Generierung abgeschlossen ist',
     generating: 'Generiert',
-    via: 'über {workflow}',
+    step: 'Schritt: {name}',
     tokens: 'Textmenge: {prompt} Eingabe / {completion} Ausgabe',
     output: 'Ausgabe',
   },
@@ -469,7 +486,7 @@ export const research: typeof en.research = {
   toolCallCard: {
     detailsWhenComplete: 'Details verfügbar, sobald der Werkzeugaufruf abgeschlossen ist',
     isRunning: '{name} läuft',
-    via: 'über {workflow}',
+    step: 'Schritt: {name}',
     arguments: 'Argumente',
     result: 'Ergebnis',
     error: 'Fehler',

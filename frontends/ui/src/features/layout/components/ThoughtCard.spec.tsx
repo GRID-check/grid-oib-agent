@@ -31,20 +31,30 @@ describe('ThoughtCard', () => {
       expect(screen.getByText('claude-3')).toBeInTheDocument()
     })
 
-    test('renders workflow name when provided', () => {
+    test('names the part of the run in words, not by its identifier', () => {
       render(
         <ThoughtCard
           thought={createThought({ workflow: 'researcher-agent' })}
         />
       )
 
-      expect(screen.getByText('via researcher-agent')).toBeInTheDocument()
+      expect(screen.getByText('Step: Research')).toBeInTheDocument()
+      expect(screen.queryByText(/researcher-agent/)).not.toBeInTheDocument()
     })
 
-    test('does not render workflow when not provided', () => {
+    test('an origin this build cannot name reads neutrally, never verbatim', () => {
+      // The backend attributes a card to any enclosing chain whose name merely
+      // contains "agent", so a name no map can hold really does arrive here.
+      render(<ThoughtCard thought={createThought({ workflow: 'ClassificationAssistant' })} />)
+
+      expect(screen.getByText('Step: internal')).toBeInTheDocument()
+      expect(screen.queryByText(/ClassificationAssistant/)).not.toBeInTheDocument()
+    })
+
+    test('does not render the origin line when there is no origin', () => {
       render(<ThoughtCard thought={createThought({ workflow: undefined })} />)
 
-      expect(screen.queryByText(/via/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Step:/)).not.toBeInTheDocument()
     })
   })
 

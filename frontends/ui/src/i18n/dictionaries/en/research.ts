@@ -438,10 +438,26 @@ export const research = {
     noRead: 'No read sources available.',
   },
 
+  /**
+   * The part of a research run a thought or tool-call card came from.
+   *
+   * The cards used to print the backend's raw role id ("via researcher-agent").
+   * These name the work instead, in the same words the rest of the research
+   * surface uses. An origin this build cannot name reads `internal` — never the
+   * identifier. See `features/layout/lib/workflow-names`.
+   */
+  workflowName: {
+    planning: 'Planning',
+    research: 'Research',
+    sourceSelection: 'Source selection',
+    writing: 'Report writing',
+    internal: 'internal',
+  },
+
   thoughtCard: {
     detailsWhenComplete: 'Details available when generation completes',
     generating: 'Generating',
-    via: 'via {workflow}',
+    step: 'Step: {name}',
     tokens: 'Text volume: {prompt} in / {completion} out',
     output: 'Output',
   },
@@ -456,7 +472,7 @@ export const research = {
   toolCallCard: {
     detailsWhenComplete: 'Details available when the tool call completes',
     isRunning: '{name} is running',
-    via: 'via {workflow}',
+    step: 'Step: {name}',
     arguments: 'Arguments',
     result: 'Result',
     error: 'Error',

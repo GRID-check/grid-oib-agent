@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
+import { getWorkflowLabel } from '../lib/workflow-names'
 
 /** Thought trace information from SSE events */
 export interface ThoughtInfo {
@@ -30,7 +31,11 @@ export interface ThoughtInfo {
   content: string
   /** Chain-of-thought reasoning (from metadata.thinking) */
   thinking?: string
-  /** Parent agent */
+  /**
+   * Which part of the run this inference belongs to — the backend's raw role
+   * id ("researcher-agent"). Named for the reader by `getWorkflowLabel`; it is
+   * an identifier, never something to print.
+   */
   workflow?: string
   /** Whether currently receiving chunks */
   isStreaming: boolean
@@ -105,7 +110,7 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
             </span>
             {thought.workflow && (
               <span className="truncate text-sm text-muted-foreground">
-                {t('thoughtCard.via', { workflow: thought.workflow })}
+                {t('thoughtCard.step', { name: getWorkflowLabel(thought.workflow, t) })}
               </span>
             )}
           </div>

@@ -16,6 +16,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
+import { getWorkflowLabel } from '../lib/workflow-names'
 
 /** Tool call information from SSE events */
 export interface ToolCallInfo {
@@ -31,7 +32,11 @@ export interface ToolCallInfo {
   status: 'pending' | 'running' | 'complete' | 'error'
   /** When tool was called */
   timestamp?: Date | string
-  /** Parent agent that invoked the tool */
+  /**
+   * Which part of the run invoked the tool — the backend's raw role id
+   * ("researcher-agent"). Named for the reader by `getWorkflowLabel`; it is an
+   * identifier, never something to print.
+   */
   workflow?: string
   /** Error message if status is error */
   error?: string
@@ -129,7 +134,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
             <span className={cn('text-sm font-semibold', statusTextClass)}>{toolCall.name}</span>
             {toolCall.workflow && (
               <span className="truncate text-xs text-muted-foreground">
-                {t('toolCallCard.via', { workflow: toolCall.workflow })}
+                {t('toolCallCard.step', { name: getWorkflowLabel(toolCall.workflow, t) })}
               </span>
             )}
           </div>

@@ -62,6 +62,84 @@ describe('MarkdownRenderer', () => {
       expect(screen.getByRole('heading', { level: 2 })).toHaveAttribute('id', 'key-findings')
       expect(screen.getByRole('heading', { level: 3 })).toHaveAttribute('id', 'next-steps')
     })
+
+    /*
+      A report that assesses two variants writes „## Bewertung" twice. Both
+      headings used to get `id="bewertung"`, so `getElementById` found the first
+      and every link to the second — an outline row, an in-page citation anchor
+      — scrolled to the wrong section without ever failing.
+    */
+    test('a repeated heading gets an id of its own', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'## Bewertung\n\nText.\n\n## Bewertung\n\n## Bewertung'} />
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2', 'bewertung-3'])
+    })
+
+    test('the first occurrence keeps the id it has always had', () => {
+      // Links published against `#zusammenfassung` — stored citation anchors,
+      // an address somebody pasted — must not move because a later section
+      // repeats the title.
+      const { container } = render(
+        <MarkdownRenderer content={'## Zusammenfassung\n\n## Zusammenfassung'} />
+      )
+
+      expect(container.querySelector('h2')?.id).toBe('zusammenfassung')
+    })
+
+    test('two renderers on one page do not number each other', () => {
+      // A chat thread mounts one of these per answer, and a module-level or
+      // ref-held counter would carry the first document's tally into the
+      // second: its lone „Bewertung" would come out as `bewertung-2`.
+      const { container } = render(
+        <>
+          <MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} />
+          <MarkdownRenderer content={'## Bewertung'} />
+        </>
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2', 'bewertung'])
+    })
+
+    test('re-rendering the same document does not renumber it', () => {
+      // The ids come from a pure pass over the markdown, not from counting the
+      // callbacks as they fire, so a second render — which React may perform
+      // whenever it likes — cannot move an anchor.
+      const { container, rerender } = render(
+        <MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} />
+      )
+      rerender(<MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} className="x" />)
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2'])
+    })
+
+    test('a heading inside fenced code is sample text and takes no id', () => {
+      const { container } = render(
+        <MarkdownRenderer
+          content={'## Bewertung\n\n```markdown\n## Bewertung\n```\n\n## Bewertung'}
+        />
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2'])
+    })
+
+    test('the anchor scroll target of a repeated heading is the second one', () => {
+      const scrollIntoView = vi.fn()
+      const { container } = render(
+        <MarkdownRenderer content={'## Bewertung\n\n## Bewertung\n\n[Zur zweiten](#bewertung-2)'} />
+      )
+      const second = container.querySelectorAll('h2')[1]
+      second.scrollIntoView = scrollIntoView
+
+      fireEvent.click(screen.getByRole('link', { name: 'Zur zweiten' }))
+
+      expect(scrollIntoView).toHaveBeenCalled()
+    })
   })
 
   describe('paragraphs', () => {
