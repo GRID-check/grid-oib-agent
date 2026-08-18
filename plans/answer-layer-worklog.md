@@ -162,7 +162,7 @@ what they found. I plan and verify; the agents implement.
   SHAPE to look for, not a one-off. See the follow-ups-direction backlog.
 - `5bd4a04c` answer actions — the answer can leave the app.
 
-## Sprint 4 — S4-A landed, S4-B in flight
+## Sprint 4 — landed
 **S4-A · the hidden presentation skill.** `piloti-cards`: DB-owned like
 `piloti-voice` (migration, `delivery: 'standard'` so it is always applied,
 `grid-hidden: "true"` so it never shows in the skills disclosure but still emits
@@ -251,3 +251,37 @@ a single added trigger line.
 LINE to `_CARD_DOCTRINE` and its PARAGRAPH to `piloti-cards`. The two halves are
 asserted against each other, because deleting a paragraph and forgetting to
 write its replacement is invisible in review.
+
+## Sprint 4 — result
+- `55d53e5f` `piloti-cards` seeded. Settles verdict_header vs the lede as a
+  SPLIT: the card carries the VALUE (copyable — a number, a class, „Nicht
+  geregelt"), the prose carries the SENTENCE that qualifies it. Cover one, the
+  other must still be incomplete. Same words in both → the card goes, not the
+  sentence. Five inlined types, not seven (`norm_chain` 375 tok and
+  `typed_table` 269 tok are the most expensive AND the narrowest).
+- `3f8c8e4a` craft moved out of `_CARD_DOCTRINE`; ceiling test added.
+- `600ea144` de-jargon sweep — far wider than the one line: the knowledge page
+  told a Ziviltechniker about a Korpus, an Ingestion, chunks and a Backend; 15
+  schematic cards wore an English "Schematic" eyebrow above German titles; the
+  deep-research panel enumerated our planner/researcher/writer tiers and offered
+  „Gedankenkette und Inferenzaktivität des LLM". 12 specs updated with it.
+
+## Sprint 5 — in flight
+- S5-A: `condition_tree` branch switching + a reusable "ask about this" chip on
+  `needs_input` rows (the generalised `follow_ups` mechanism).
+- S5-B: report outline for deep-research reports.
+
+## Sprint 6 — candidates (found by the sweep, not yet scheduled)
+- **`{workflow}` renders a raw kebab-case id** in `research.thoughtCard.via` /
+  `toolCallCard.via` — "über researcher-agent". Same class as the CamelCase span
+  names fixed in `8878f678`; needs a name map like `chat.thinking.nodeName`, so
+  it is a component change, not a string change.
+- **`thinking.activity.usingSkillUnnamed`** („Skill wird angewendet …") fires
+  when no skill can be named, so it names the mechanism to a reader who may
+  never have opened the Skills page. Weakest surviving case of "Skill" as
+  product vocabulary.
+- **`en/skills.ts` says "toolbox" where `de` says „Bibliothek"** — locale
+  mismatch, not a leak.
+- **`deepResearch.stats.tokens`** is described („Textmenge {count}") rather than
+  renamed because there is no honest reader-facing unit. The real fix is
+  probably to drop the stat.
