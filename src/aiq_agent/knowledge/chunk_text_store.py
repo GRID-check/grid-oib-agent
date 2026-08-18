@@ -391,16 +391,22 @@ class ChunkTextStore:
         self._ensure_schema()
         is_postgres = self._is_postgres()
         if is_postgres:
+            # Interpolates only TABLE_NAME, a module constant — never caller input. Every
+            # value is a bound parameter. The suppression sits on the `text(` line because
+            # that is the line semgrep reports; inside the call it is not seen.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             statement = text(
-                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 f"INSERT INTO {TABLE_NAME} (collection, chunk_id, file_name, page_label, body) "
                 "VALUES (:collection, :chunk_id, :file_name, :page_label, :body) "
                 "ON CONFLICT (collection, chunk_id) DO UPDATE SET "
                 "file_name = EXCLUDED.file_name, page_label = EXCLUDED.page_label, body = EXCLUDED.body"
             )
         else:
+            # Interpolates only TABLE_NAME, a module constant — never caller input. Every
+            # value is a bound parameter. The suppression sits on the `text(` line because
+            # that is the line semgrep reports; inside the call it is not seen.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             statement = text(
-                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 f"INSERT OR REPLACE INTO {TABLE_NAME} (collection, chunk_id, file_name, page_label, body, tsv) "
                 "VALUES (:collection, :chunk_id, :file_name, :page_label, :body, :tsv)"
             )

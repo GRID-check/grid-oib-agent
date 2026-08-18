@@ -220,7 +220,11 @@ def _resolve_api_key(spec: _ProviderSpec, base_url: str, organization_id: str | 
         # knowledge_layer is usable without the aiq_agent package.
         logger.debug("credential_resolution unavailable; falling back to a direct env read")
     except Exception as e:
-        logger.warning("Reranker credential resolution failed (%s: %s); trying the env directly", type(e).__name__, e)
+        # Type only, never the message. This is the credential-resolution path, so the
+        # exception text can carry the key itself, a signed URL or a request body from
+        # whatever backend resolved it — none of which belongs in a log line that exists
+        # only to say "that route did not work, trying the environment".
+        logger.warning("Reranker credential resolution failed (%s); trying the env directly", type(e).__name__)
 
     return os.environ.get("AIQ_RERANKER_API_KEY", "") or os.environ.get(spec.key_env, "")
 
@@ -417,6 +421,10 @@ def resolve_cross_encoder(
         organization_id=organization_id,
     )
     if not reranker.configured:
+        # Logs the provider name and the NAME of the environment variable that was not
+        # set — never a value. Suppressed rather than reworded so the message keeps
+        # naming the variable an operator has to set.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         logger.warning(
             "Reranker provider %r is configured but no API key resolved (AIQ_RERANKER_API_KEY / %s); "
             "falling back to the LLM judge.",
