@@ -335,3 +335,32 @@ write its replacement is invisible in review.
   section (flagged by S5-B, belongs in the renderer for every surface at once).
   And `research.thoughtCard.via` prints a raw `researcher-agent` — the same
   class as the CamelCase span names fixed in `8878f678`.
+
+## Sprint 7
+- **S7-B landed `cc7a860f`.** The plural bug was not one string, it was a
+  MISSING MECHANISM. The i18n layer supported interpolation only, and the
+  convention — hand-written `…One`/`…Other` pairs picked in the component — is
+  exactly why ~33 counted strings nobody thought about never got a pair.
+  `interpolate` now understands `{count, plural, one {# Schritt} other
+  {# Schritte}}`, ICU cut to the two categories de and en distinguish (CLDR
+  gives both the same cardinal rule, so selection is `n === 1` with no per-locale
+  table). That turned every fix into a one-line dictionary edit instead of ~66
+  new keys plus ternaries in ~25 components. „0 Quellen" now DROPS the clause: an
+  answer grounded in a measurement is entitled to no citations, and a true zero
+  that reads as failure is worse than silence. The token stat is gone, key and
+  all — no unit a reader was ever shown, and a measure of OUR cost inside a
+  sentence about THEIR report. `usingSkillUnnamed` removed: the line named the
+  mechanism and could not name the skill.
+  Full suite run in seven non-overlapping batches: 6,984 passed, 82 skipped.
+- S7-A: visual evidence refresh + design QA — in flight.
+
+## Sprint 8 — candidates
+- **`research.thoughtCard.tokens`** — „Textmenge: {prompt} Eingabe /
+  {completion} Ausgabe" is the same euphemism `cc7a860f` deleted from the
+  banner, one surface away in `ThoughtCard.tsx`. Same verdict should apply.
+- **`platform*.ts` plurals** — ~33 strings still on the „Turn(s)" parenthetical.
+  Administrator surface, deliberately out of scope twice now; each is a one-line
+  fix under the new mechanism whenever someone wants it.
+- **Duplicate-heading ids in the RENDERER are fixed; `AgentCard` was the last
+  raw identifier found.** If another appears, the pattern is settled: a map to
+  an i18n key, a neutral fallback, and never drop the row.
