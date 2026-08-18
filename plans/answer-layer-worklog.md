@@ -266,10 +266,18 @@ write its replacement is invisible in review.
   deep-research panel enumerated our planner/researcher/writer tiers and offered
   „Gedankenkette und Inferenzaktivität des LLM". 12 specs updated with it.
 
-## Sprint 5 — in flight
-- S5-A: `condition_tree` branch switching + a reusable "ask about this" chip on
-  `needs_input` rows (the generalised `follow_ups` mechanism).
-- S5-B: report outline for deep-research reports.
+## Sprint 5
+- **S5-A landed `21d2de45`.** Branch switching is a SELECTION model (one open at
+  a time, active open by default). The screenshot hazard — a reader capturing
+  the wrong case — is defended in four independent layers, and the two that
+  matter survive cropping and greyscale: the active row keeps „trifft zu" and
+  `aria-current` no matter what else is open, and the GRAMMAR carries it
+  („Für dieses Projekt gilt:" indicative vs „Bei GK 5 würde gelten:" Konjunktiv
+  II). A previewed panel also names the case that actually holds, inside its own
+  rectangle. `AskAboutChip` is the reusable form of the `follow_ups` mechanism —
+  one component, two call sites (`RequirementChecklistCard`, `DimChecksList`),
+  building the sentence itself so the two cannot drift into two phrasings.
+- S5-B: report outline for deep-research reports — in flight.
 
 ## Sprint 6 — candidates (found by the sweep, not yet scheduled)
 - **`{workflow}` renders a raw kebab-case id** in `research.thoughtCard.via` /
