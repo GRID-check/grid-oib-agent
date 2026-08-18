@@ -27,12 +27,22 @@
  */
 
 import type { FC } from 'react'
+import type { PluggableList } from 'unified'
 import { Sparkles } from 'lucide-react'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
+import { remarkCardMarkers } from '@/features/grid-cards/card-markers'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { SpectatedTurnState } from '../lib/spectator-frames'
+
+/**
+ * A spectator sees the answer's prose, never its cards — this view carries no
+ * `cards` array to draw. Running the marker plugin with a count of zero strips
+ * every `[[card:N]]` the asker's answer placed, so the spectator reads the
+ * answer instead of its wiring.
+ */
+const STRIP_CARD_MARKERS: PluggableList = [[remarkCardMarkers, { count: 0 }]]
 
 export interface SpectatedTurnProps {
   /** The turn so far. */
@@ -91,7 +101,12 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
 
       {turn.answer && (
         <div className="text-foreground text-sm">
-          <MarkdownRenderer content={turn.answer} isStreaming={!turn.done} compact />
+          <MarkdownRenderer
+            content={turn.answer}
+            isStreaming={!turn.done}
+            compact
+            remarkPlugins={STRIP_CARD_MARKERS}
+          />
           {/* A caret, so a pause between tokens reads as "still writing" rather
           than as a finished — and oddly truncated — answer. */}
           {!turn.done && (

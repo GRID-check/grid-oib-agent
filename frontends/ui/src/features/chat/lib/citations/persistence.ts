@@ -64,6 +64,7 @@ const wireSourceSchema = z
     lane: z.string().nullish(),
     lane_label: z.string().nullish(),
     binding_note: z.string().nullish(),
+    binding_status: z.string().nullish(),
     /** Whether the answer cited this source, as opposed to merely retrieving it. */
     is_cited: z.boolean().nullish(),
   })
@@ -110,6 +111,7 @@ export const encodeCitations = (
       lane: citation.lane,
       lane_label: citation.laneLabel,
       binding_note: citation.bindingNote,
+      binding_status: citation.bindingStatus,
       is_cited: citation.isCited,
     })),
   }
@@ -164,6 +166,7 @@ const readSources = (value: unknown): Array<z.infer<typeof wireSourceSchema>> | 
     file_name: pickString(row.file_name ?? row.fileName),
     lane_label: pickString(row.lane_label ?? row.laneLabel),
     binding_note: pickString(row.binding_note ?? row.bindingNote),
+    binding_status: pickString(row.binding_status ?? row.bindingStatus),
     source_type: pickString(row.source_type ?? row.sourceType),
     is_cited: typeof row.isCited === 'boolean' ? row.isCited : undefined,
     content: pickString(row.content) ?? '',

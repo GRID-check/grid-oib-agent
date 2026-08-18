@@ -413,7 +413,9 @@ _TRANSPARENCY_EXTRA_FIELDS = (
 
 # Agent Skills extra (the chat agent records which skills it force-activated
 # this turn; surfaced only when present — same lift as the transparency extras).
-_SKILLS_EXTRA_FIELDS = ("skills_activated",)
+# ``skills_hidden`` is the subset the disclosure de-emphasises; it rides the same
+# lift so the frontend can mute a house-voice row without dropping it.
+_SKILLS_EXTRA_FIELDS = ("skills_activated", "skills_hidden")
 
 
 def latest_user_text(message: WebSocketUserMessage) -> str | None:

@@ -957,3 +957,112 @@ class TestClarifierAgentPlanApprovalInit:
         )
 
         assert agent.planner_llm == planner_llm
+
+
+class TestClarifierAgentOptions:
+    """Tests for threading structured answer options to the prompt callback."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Create a mock LLM."""
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        """Create a mock LLM provider."""
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=mock_llm)
+        return provider
+
+    @staticmethod
+    def _clarification(options: list[str] | None = None) -> str:
+        """Build the JSON envelope the clarifier LLM is expected to return."""
+        return ClarificationResponse(
+            needs_clarification=True,
+            clarification_question="**Focus**: which area?\n\n1. Alpha: about alpha\n2. Beta: about beta",
+            options=options or [],
+        ).model_dump_json()
+
+    @pytest.mark.asyncio
+    async def test_options_are_passed_to_the_callback(self, mock_llm_provider, mock_llm):
+        """The picker is starved unless the labels reach the callback as data."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._clarification(["Alpha", "Beta"])))
+        seen: list[tuple[str, list[str] | None]] = []
+
+        async def callback(question: str, options: list[str] | None = None) -> str:
+            seen.append((question, options))
+            return "skip"
+
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=callback)
+        await agent.run(ClarifierAgentState(messages=[HumanMessage(content="Research AI")]))
+
+        assert len(seen) == 1
+        question, options = seen[0]
+        assert options == ["Alpha", "Beta"]
+        # The prose question still carries the framing sentence and the numbered
+        # list; the options add the picker, they do not replace it.
+        assert "**Focus**" in question
+
+    @pytest.mark.asyncio
+    async def test_no_options_calls_callback_with_question_only(self, mock_llm_provider, mock_llm):
+        """A clarification without options must behave exactly as before."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._clarification()))
+        seen: list[tuple] = []
+
+        async def callback(*args) -> str:
+            seen.append(args)
+            return "skip"
+
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=callback)
+        await agent.run(ClarifierAgentState(messages=[HumanMessage(content="Research AI")]))
+
+        assert len(seen) == 1
+        assert len(seen[0]) == 1
+
+    @pytest.mark.asyncio
+    async def test_legacy_single_argument_callback_still_works(self, mock_llm_provider, mock_llm):
+        """A caller that supplied the old one-argument callback must keep working."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._clarification(["Alpha", "Beta"])))
+        seen: list[str] = []
+
+        async def legacy_callback(question: str) -> str:
+            seen.append(question)
+            return "skip"
+
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=legacy_callback)
+        result = await agent.run(ClarifierAgentState(messages=[HumanMessage(content="Research AI")]))
+
+        assert result is not None
+        assert len(seen) == 1
+
+    @pytest.mark.asyncio
+    async def test_free_text_answer_is_still_accepted(self, mock_llm_provider, mock_llm):
+        """The user may type instead of picking; that reply drives the next turn."""
+        mock_llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content=self._clarification(["Alpha", "Beta"])),
+                AIMessage(
+                    content=ClarificationResponse(
+                        needs_clarification=False, clarification_question=None
+                    ).model_dump_json()
+                ),
+            ]
+        )
+
+        async def callback(question: str, options: list[str] | None = None) -> str:
+            return "Something I typed myself"
+
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=callback)
+        result = await agent.run(ClarifierAgentState(messages=[HumanMessage(content="Research AI")]))
+
+        assert "Something I typed myself" in result.clarifier_log
+
+    def test_options_are_never_parsed_out_of_the_question(self, mock_llm_provider):
+        """Regex-parsing the prose back into options is the bug being fixed."""
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=AsyncMock())
+
+        assert agent._get_clarification_options(self._clarification()) == []
+        assert agent._get_clarification_options("not json at all") == []

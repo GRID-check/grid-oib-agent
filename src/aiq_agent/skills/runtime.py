@@ -11,8 +11,13 @@ Activation is also ANNOUNCED as it happens (``skills.events``) rather than only
 reported at the end of the turn -- a skill rewrites how the answer is made, so
 the reader learns which working method is being applied while it still matters.
 
-German UI strings follow the knowledge-layer block conventions
-(``## Verfügbare Skills``), matching the agent's German-facing instructions.
+All scaffolding here is ENGLISH. The agent answers in the user's language —
+that is decided per turn from the question, not baked into the machinery — and a
+prompt that mixes German block headings into English instructions is neither
+localised nor language-agnostic. Country-specific text belongs in
+``CountryProfile`` or in an authored skill body, not in string constants here
+(see docs/architecture/country-extensibility.md). The event payloads follow the
+same rule for the same reason: they carry keys, not sentences.
 """
 
 from __future__ import annotations
@@ -24,13 +29,13 @@ from .models import preferred_cards
 
 logger = logging.getLogger(__name__)
 
-_L1_HEADING = "## Verfügbare Skills"
-_L1_DOCTRINE = "Rufe `use_skill` auf, um die vollständigen Anweisungen eines Skills zu laden, bevor du sie befolgst."
-_FORCED_HEADING = "## Aktive Skills (vom Nutzer erzwungen)"
+_L1_HEADING = "## Available skills"
+_L1_DOCTRINE = "Call `use_skill` to load a skill's full instructions before following them."
+_FORCED_HEADING = "## Active skills (required for this turn)"
 _FORCED_DOCTRINE = (
-    "Die folgenden Skills sind für diese Anfrage AKTIVIERT und müssen unbedingt "
-    "angewendet werden. Rufe `use_skill` für jeden davon auf, sobald seine "
-    "Anweisungen relevant werden."
+    "The following skills are ACTIVE for this request and must be applied. Call "
+    "`use_skill` for each of them as soon as its instructions become relevant — "
+    "for a skill that governs how you WRITE, that is before you write the answer."
 )
 
 _TOOL_NAME = "use_skill"
@@ -39,12 +44,13 @@ _TOOL_DESCRIPTION = (
     "Call this once per skill you intend to use; it returns the complete skill body."
 )
 
-_CARDS_HEADING = "## Bevorzugte Cards"
+_CARDS_HEADING = "## Preferred cards"
 _CARDS_DOCTRINE = (
-    "Wenn der Inhalt es hergibt, gib das Ergebnis als eine dieser Cards aus: {types}. "
-    "Das ist eine Präferenz des Skill-Autors, keine Vorgabe — passt keine davon zum "
-    "Ergebnis, wähle die passende Card oder antworte in Prosa. Erfinde nie Inhalte, "
-    "nur damit eine dieser Cards ausgefüllt werden kann."
+    "Where the content supports it, present the result as one of these cards: {types}. "
+    "This is the skill author's preference, not a requirement — if none of them fits the "
+    "result, pick the card that does or answer in prose. Never invent content just to fill "
+    "one of these cards. Their exact shapes follow, so you can call `emit_card` directly "
+    "without looking them up."
 )
 
 
@@ -56,12 +62,24 @@ def _preferred_cards_block(skill: Skill) -> str | None:
     nothing until the skill is actually in play. The phrasing stays a preference
     on purpose — an author naming three cards must not be able to force a
     ``comparison_table`` onto an answer that has nothing to compare.
+
+    That same reasoning is why the full SHAPES ride along here rather than in the
+    always-on ``emit_card`` catalog. A skill that names its cards is the moment we
+    know which of the 27 shapes this turn could possibly need, so it is the moment
+    to spend context on them — and it saves the activated turn a `describe_card`
+    round-trip it would otherwise always pay.
     """
     cards = preferred_cards(skill.metadata)
     if not cards:
         return None
     types = ", ".join(f"`{card}`" for card in cards)
-    return f"{_CARDS_HEADING}\n{_CARDS_DOCTRINE.format(types=types)}"
+    block = f"{_CARDS_HEADING}\n{_CARDS_DOCTRINE.format(types=types)}"
+    # Imported lazily: the skills runtime is imported on paths that never touch
+    # the card catalog, and this keeps that direction of the dependency optional.
+    from aiq_agent.cards.catalog import render_card_details
+
+    details = render_card_details(cards)
+    return f"{block}\n\n{details}" if details else block
 
 
 class SkillRuntime:
@@ -80,13 +98,29 @@ class SkillRuntime:
         self._forced: list[str] = []
         self._activated: list[str] = []
         self._activated_seen: set[str] = set()
-        # Forced skills go through the SAME activation site as model-invoked
-        # ones. They used to be appended here directly, which meant a second
-        # place that knew what "activated" means -- and would have meant a
-        # second place to remember to announce it from. The `forced` flag is
-        # the only difference, and it is a fact about who decided, not about
-        # what runs.
-        for name in force_names or ():
+        # A STANDARD skill is applied, not offered. `delivery: standard` already
+        # means "resolved for every organization, no decision to make" — but
+        # resolving it only put its one-line description in the catalog, and a
+        # description the model may or may not open is not fleet policy. Forcing
+        # it is what makes the tier mean what it says.
+        #
+        # This is a property of the skill, deliberately not a list of names in
+        # this file: the platform owner publishes a standard skill in the
+        # dashboard and it takes effect, with no deploy and nothing here to keep
+        # in sync with a row somebody can rename.
+        #
+        # The user's own `/name` forces come first, so the forced block reads in
+        # the order they asked for; standard skills follow, because they are the
+        # floor rather than the request.
+        #
+        # Both go through the SAME activation site as a model-invoked skill.
+        # Appending here directly would be a second place that knows what
+        # "activated" means -- and a second place to remember to ANNOUNCE it
+        # from, which would leave a standard skill shaping every answer without
+        # ever saying so. The `forced` flag is the only difference, and it is a
+        # fact about who decided, not about what runs.
+        standard = [s.name for s in skills if s.standard and s.name not in (force_names or ())]
+        for name in list(force_names or ()) + standard:
             if name in self._by_name:
                 self._record_activation(name, forced=True)
 
@@ -101,6 +135,26 @@ class SkillRuntime:
     @property
     def activated(self) -> tuple[str, ...]:
         return tuple(self._activated)
+
+    @property
+    def hidden_activated(self) -> tuple[str, ...]:
+        """Activated skills whose `grid-hidden` metadata is set.
+
+        The disclosure names every activated skill (the transparency doctrine),
+        but a skill that runs on EVERY answer — the house voice — is noise there
+        as much as on the live line. This is the subset the frontend de-emphasises
+        until the reader opens the reasoning view, so the panel is not dominated
+        by an instruction the reader cannot act on. Resolved HERE rather than
+        client-side because only the runtime holds each skill's metadata; a
+        standard skill is excluded from the invocable list the disclosure reads.
+        """
+        from .models import skill_hidden
+
+        return tuple(
+            name
+            for name in self._activated
+            if (skill := self._by_name.get(name)) is not None and skill_hidden(skill.metadata)
+        )
 
     def _record_activation(self, name: str, *, forced: bool = False) -> None:
         """Record ONE activation, first-wins, and announce it.
@@ -163,8 +217,8 @@ class SkillRuntime:
             if skill is None:
                 available = ", ".join(sorted(runtime._by_name))
                 return (
-                    f"Unbekannter Skill '{skill_name}'. Verfügbare Skills: {available}. "
-                    f"Rufe `{_TOOL_NAME}` mit einem dieser Namen auf."
+                    f"Unknown skill '{skill_name}'. Available skills: {available}. "
+                    f"Call `{_TOOL_NAME}` with one of those names."
                 )
             runtime._record_activation(skill_name)
             cards_block = _preferred_cards_block(skill)

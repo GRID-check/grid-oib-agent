@@ -162,8 +162,38 @@ export const NATHumanPromptSchema = z.object({
     HumanPromptType.APPROVAL,
   ]),
   text: z.string(),
-  /** Options for multiple choice prompts */
-  options: z.array(z.string()).optional(),
+  /**
+   * Options for multiple choice prompts, normalised to the strings the UI sends back.
+   *
+   * NAT serialises a picker's choices as OBJECTS — `{id, label, value, description}`
+   * on `HumanPromptRadio`/`Checkbox`/`Dropdown` — while older/simpler producers send
+   * bare strings. Declaring only `z.array(z.string())` made the object form fail the
+   * whole `NATIncomingMessageSchema` discriminated union, and `websocket-client`
+   * `safeParse`s that: the entire `system_interaction` frame was dropped as an
+   * unrecognised message, leaving the turn parked on its HITL future until the
+   * 30-minute timeout. A silently discarded prompt is the worst failure this frame
+   * has, because nothing surfaces — the answer simply never arrives.
+   *
+   * Normalised on `value`, not `label`: `value` is what the agent tier expects back
+   * (NAT re-wraps the reply into `HumanResponse*.selected_option.value`), so if a
+   * producer ever makes the two differ, the round-trip stays correct and only the
+   * label shown degrades. That is the safe direction to fail in.
+   */
+  options: z
+    .array(
+      z.union([
+        z.string(),
+        z
+          .object({
+            id: z.string().optional(),
+            label: z.string().optional(),
+            value: z.string(),
+            description: z.string().optional(),
+          })
+          .transform((option) => option.value),
+      ])
+    )
+    .optional(),
   /** Default value for text input */
   default_value: z.string().optional(),
 })
@@ -325,6 +355,9 @@ export const NATSystemResponseMessageSchema = z.object({
   // Absent when the turn loaded none, which is the common case: a skill being
   // *available* costs a line of catalogue and is not reported.
   skills_activated: z.array(z.string()).optional().catch(undefined),
+  // The subset of skills_activated marked grid-hidden — de-emphasised in the
+  // disclosure, never dropped (the transparency doctrine).
+  skills_hidden: z.array(z.string()).optional().catch(undefined),
   // Marks the answer text as a queue-rejection notice (NOT a research answer).
   job_admission_rejected: z.literal(true).optional().catch(undefined),
   // Retry hint (seconds) — only alongside job_admission_rejected.

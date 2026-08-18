@@ -126,7 +126,7 @@
       "type": "object"
     },
     "BuildingSectionCard": {
-      "description": "A to-scale building cross-section (schematic) drawn from storey heights.\n\nEmit for height/Geb\u00e4udeklasse/Fluchtniveau questions where seeing the\nbuilding against threshold lines helps (e.g. 'liege ich unter der GK4-Grenze?\nFluchtniveau bei 9,8 m'). Draws stacked storeys, the ground line, and dashed\nmarker lines (Fluchtniveau, GK/Hochhaus limits) with labels.",
+      "description": "A to-scale building cross-section (schematic) drawn from storey heights.\n\nEmit for height/Geb\u00e4udeklasse/Fluchtniveau questions where seeing the\nbuilding against threshold lines helps (e.g. 'am I below the GK4 limit with\na Fluchtniveau of 9.8 m?'). Draws stacked storeys, the ground line, and\ndashed marker lines (Fluchtniveau, GK/Hochhaus limits) with labels.",
       "properties": {
         "markers": {
           "anyOf": [
@@ -363,6 +363,105 @@
       "title": "ComparisonTableCard",
       "type": "object"
     },
+    "ConditionBranch": {
+      "description": "One branch of a condition tree: a case and the answer that holds under it.",
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True for the branch that matches the CURRENT project; omit when it is not known which applies",
+          "title": "Active"
+        },
+        "condition": {
+          "description": "The case this branch covers, e.g. 'GK 1\u20133'",
+          "minLength": 1,
+          "title": "Condition",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "The answer that applies when the condition holds",
+          "minLength": 1,
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The norm grounding this branch's outcome, when branches cite different sources"
+        }
+      },
+      "required": [
+        "condition",
+        "outcome"
+      ],
+      "title": "ConditionBranch",
+      "type": "object"
+    },
+    "ConditionTreeCard": {
+      "description": "A decision tree (Bedingungsbaum) for an answer that turns on one factor.\n\nEmit for the domain's most common answer shape \u2014 'it depends on the\nGeb\u00e4udeklasse'. `question` names the deciding factor; each branch pairs a\ncase with its outcome, and the branch matching the current project is\nmarked `active`. Exactly the structure that otherwise becomes nested prose\nthe reader has to re-collapse into a table in their head.",
+      "properties": {
+        "branches": {
+          "description": "The cases and their outcomes, in reading order",
+          "items": {
+            "$ref": "#/$defs/ConditionBranch"
+          },
+          "minItems": 1,
+          "title": "Branches",
+          "type": "array"
+        },
+        "question": {
+          "description": "The factor the answer depends on, e.g. 'Geb\u00e4udeklasse'",
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overall source when the branches share one"
+        },
+        "title": {
+          "description": "Title, e.g. 'Erforderliche Feuerwiderstandsklasse'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "condition_tree",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "question",
+        "branches"
+      ],
+      "title": "ConditionTreeCard",
+      "type": "object"
+    },
     "DaylightIncidenceCard": {
       "description": "A daylight (Belichtung) schematic: the 45\u00b0 free-light line vs obstructions.\n\nEmit for daylight/Belichtung questions (OIB 3). Draws a window section, the\n45\u00b0 free-light-incidence line from the window's lower edge, any obstruction,\nand a glass-area-vs-floor-area check. The renderer does the 45\u00b0 geometry \u2014\nthe model supplies distances/heights only.",
       "properties": {
@@ -543,7 +642,7 @@
       "type": "object"
     },
     "DimensionCheck": {
-      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nThis block used to be `label / value / required / unit / comparator /\nstatus` and nothing else, and that made the card the least honest surface in\nthe product. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so the surface that dropped the\nqualifier was the surface most likely to be forwarded without it.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \u201enot stated\", never \u201edeclared\".",
+      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nThis block used to be `label / value / required / unit / comparator /\nstatus` and nothing else, and that made the card the least honest surface in\nthe product. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so the surface that dropped the\nqualifier was the surface most likely to be forwarded without it.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \"not stated\", never \"declared\".",
       "properties": {
         "comparator": {
           "anyOf": [
@@ -773,7 +872,7 @@
       "type": "object"
     },
     "EgressDiagramCard": {
-      "description": "A schematic escape-route (Fluchtweg) path with the total length checked.\n\nEmit for escape-route-length questions ('ist der Fluchtweg mit 12 m + 26 m\nzul\u00e4ssig?'). Draws the path segment-by-segment from the worst-case point to\nthe exit and checks the total against the OIB 2 limit (typically 40 m).",
+      "description": "A schematic escape-route (Fluchtweg) path with the total length checked.\n\nEmit for escape-route-length questions ('is a Fluchtweg of 12 m + 26 m\npermitted?'). Draws the path segment-by-segment from the worst-case point to\nthe exit and checks the total against the OIB 2 limit (typically 40 m).",
       "properties": {
         "exit_label": {
           "anyOf": [
@@ -1410,7 +1509,7 @@
       "type": "object"
     },
     "IfcComplianceCard": {
-      "description": "The Pr\u00fcfbuch: OIB requirements with their verdict against this model.\n\nCarries only WHICH requirements to show; the frontend runs the catalogue and\nrenders the counts, the thresholds and the failing elements itself. The\nmodel therefore cannot state that a building complies, because it never\nsupplies a verdict \u2014 the same reason the schedule card carries no areas.\n\nUse when the user asks whether the model meets a requirement, what is still\nopen, or what they have to add to the model. Prefer it over prose whenever\nthe answer is a list of requirements: the card stays correct after the model\nchanges, and a sentence does not.\n\nNEVER present this as a Nachweis. The catalogue reads only published\nproperty values, it reads no geometry, and Fluchtwegl\u00e4ngen, Gel\u00e4nderh\u00f6hen\nund Brandabschnittsgr\u00f6\u00dfen are not in it at all.",
+      "description": "The Pr\u00fcfbuch: OIB requirements with their verdict against this model.\n\nCarries only WHICH requirements to show; the frontend runs the catalogue and\nrenders the counts, the thresholds and the failing elements itself. The\nmodel therefore cannot state that a building complies, because it never\nsupplies a verdict \u2014 the same reason the schedule card carries no areas.\n\nUse when the user asks whether the model meets a requirement, what is still\nopen, or what they have to add to the model. Prefer it over prose whenever\nthe answer is a list of requirements: the card stays correct after the model\nchanges, and a sentence does not.\n\nNEVER present this as a Nachweis. The catalogue reads only published\nproperty values, it reads no geometry, and Fluchtwegl\u00e4ngen, Gel\u00e4nderh\u00f6hen\nand Brandabschnittsgr\u00f6\u00dfen are not in it at all.",
       "properties": {
         "model_file": {
           "anyOf": [
@@ -2065,6 +2164,81 @@
       "title": "MemoryProposalCard",
       "type": "object"
     },
+    "NormChainCard": {
+      "description": "The norm hierarchy (Normenkette) for this answer, binding vs interpretive.\n\nEmit when the answer rests on a CHAIN of norms rather than a single one \u2014 a\nLandesgesetz that declares an OIB-Richtlinie that points at an \u00d6NORM. Drawn\ntop-to-bottom with a visible weight difference between what binds\n(Bundes-/Landesgesetz, Verordnung, a declared OIB-Richtlinie) and what\ninterprets (\u00d6NORM, Leitfaden) \u2014 a trust artifact prose cannot show at a\nglance.",
+      "properties": {
+        "links": {
+          "description": "The chain top-to-bottom, most binding first",
+          "items": {
+            "$ref": "#/$defs/NormChainLink"
+          },
+          "minItems": 1,
+          "title": "Links",
+          "type": "array"
+        },
+        "title": {
+          "description": "Title, e.g. 'Normenkette \u2013 Absturzsicherung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "norm_chain",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "links"
+      ],
+      "title": "NormChainCard",
+      "type": "object"
+    },
+    "NormChainLink": {
+      "description": "One link in a norm hierarchy, with the rank that sets its visual weight.",
+      "properties": {
+        "label": {
+          "description": "The norm's name, e.g. 'OIB-Richtlinie 2', '\u00d6NORM B 1600'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What this link contributes to the chain, e.g. 'verweist auf die \u00d6NORM B 1600'",
+          "title": "Note"
+        },
+        "rank": {
+          "description": "The link's classification for display: 'bundesgesetz', 'landesgesetz' and 'verordnung' bind; 'oib_richtlinie' binds where a Land has declared it; 'oenorm' and 'leitfaden' interpret. Drives the binding-vs-interpretive weight in the render \u2014 the agent's own classification, not a lookup",
+          "enum": [
+            "bundesgesetz",
+            "landesgesetz",
+            "verordnung",
+            "oib_richtlinie",
+            "oenorm",
+            "leitfaden"
+          ],
+          "title": "Rank",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "rank"
+      ],
+      "title": "NormChainLink",
+      "type": "object"
+    },
     "NormReference": {
       "description": "A verifiable pointer into a regulation (the atom of grounding).\n\nEvery required value MUST carry one so the architect can verify it against\nthe source. Never fabricate a reference.",
       "properties": {
@@ -2317,7 +2491,7 @@
       "type": "object"
     },
     "RequirementChecklistCard": {
-      "description": "A requirement checklist: several pass/fail criteria for one question.\n\nEmit when an answer boils down to a list of criteria read against the\nproject ('Was muss ich f\u00fcr GK 4 erf\u00fcllen?', 'Ist das Bauansuchen\nvollst\u00e4ndig?'). Each item carries its own verdict and, where possible, its\nown norm reference; unknown items use status 'needs_input' \u2014 never a guess.",
+      "description": "A requirement checklist: several pass/fail criteria for one question.\n\nEmit when an answer boils down to a list of criteria read against the\nproject ('what do I have to meet for GK 4?', 'is the Bauansuchen\ncomplete?'). Each item carries its own verdict and, where possible, its own\nnorm reference; unknown items use status 'needs_input' \u2014 never a guess.",
       "properties": {
         "items": {
           "description": "The requirements, in reading order",
@@ -2436,7 +2610,7 @@
       "type": "object"
     },
     "SetbackPlanCard": {
-      "description": "A top-down site plan (schematic): parcel, footprint, and setback envelopes.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('h\u00e4lt das Geb\u00e4ude die Abst\u00e4nde\nein?'). Draws the parcel, the required-setback envelope, and the building\nfootprint, with a distance arrow per side coloured by status.",
+      "description": "A top-down site plan (schematic): parcel, footprint, and setback envelopes.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('does the building keep the\nrequired Abst\u00e4nde?'). Draws the parcel, the required-setback envelope, and\nthe building footprint, with a distance arrow per side coloured by status.",
       "properties": {
         "building_depth_m": {
           "description": "Building footprint depth in metres",
@@ -2552,7 +2726,7 @@
       "type": "object"
     },
     "StairDiagramCard": {
-      "description": "A staircase drawn to scale (schematic section) with step-geometry checks.\n\nEmit for stair questions (e.g. 'passt eine Treppe mit 17 Stufen, 18 cm\nSteigung, 27 cm Auftritt, 100 cm breit?'). Draws the step profile to scale\nand checks riser/going/width and the comfort rule (2\u00d7Steigung + Auftritt \u2248\n59\u201365 cm) against OIB 4.",
+      "description": "A staircase drawn to scale (schematic section) with step-geometry checks.\n\nEmit for stair questions (e.g. 'does a flight of 17 steps with 18 cm\nSteigung, 27 cm Auftritt and 100 cm width fit?'). Draws the step profile to\nscale and checks riser/going/width and the comfort rule (2\u00d7Steigung +\nAuftritt \u2248 59\u201365 cm) against OIB 4.",
       "properties": {
         "comfort_note": {
           "anyOf": [
@@ -2797,6 +2971,176 @@
       ],
       "title": "ThermalEnvelopeCard",
       "type": "object"
+    },
+    "TypedColumn": {
+      "description": "One column of a typed table, declaring how its cells are rendered.",
+      "properties": {
+        "label": {
+          "description": "Column header, e.g. 'Bauteil', 'Mindestma\u00df'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "type": {
+          "description": "How the frontend renders this column's cells: 'mass' (a dimension \u2014 right-aligned, tabular-nums), 'date' (right-aligned, tabular-nums), 'verdict' (a pass/fail-style status \u2014 a chip), 'norm' (a norm reference \u2014 emphasised), or 'text' (plain left-aligned prose)",
+          "enum": [
+            "mass",
+            "norm",
+            "verdict",
+            "date",
+            "text"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "type"
+      ],
+      "title": "TypedColumn",
+      "type": "object"
+    },
+    "TypedTableCard": {
+      "description": "A generic table whose columns declare their type so cells render right.\n\nEmit for a tabular answer no purpose-built card covers \u2014 one card for the\nlong tail instead of a bespoke type per table. Each column names its `type`\nso the frontend right-aligns measurements and dates, renders a verdict as a\nstatus chip and a norm as emphasised, rather than every cell as flat text.",
+      "properties": {
+        "columns": {
+          "description": "Column definitions, left-to-right",
+          "items": {
+            "$ref": "#/$defs/TypedColumn"
+          },
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source grounding the table's values"
+        },
+        "rows": {
+          "description": "Each row is one cell value per column, as strings, in the same order as `columns`",
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "title": {
+          "description": "Title, e.g. 'Mindestma\u00dfe barrierefreie Erschlie\u00dfung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "typed_table",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "columns",
+        "rows"
+      ],
+      "title": "TypedTableCard",
+      "type": "object"
+    },
+    "VerdictHeaderCard": {
+      "description": "The answer's verdict (TL;DR) rendered as a structural header on top.\n\nEmit at the very TOP of an answer whose core is a single headline result \u2014\na number, a rating or a ruling ('1,10 m', 'REI 90', 'Nicht geregelt'). It\nis the lede rendered rather than written, so it cannot drift from the answer\nthe way a hand-typed TL;DR can. Use at most one, and only when the answer\nresolves to one headline; a nuanced answer belongs in prose or a\ncondition_tree.",
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How firm the verdict is; omit for a plain, uncontested fact",
+          "title": "Confidence"
+        },
+        "confidence_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why confidence is not high, e.g. a Land-specific deviation or a missing input \u2014 omit when confidence is high or absent",
+          "title": "Confidence Reason"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The norm the verdict rests on, when a single one grounds it"
+        },
+        "subject": {
+          "description": "What the verdict answers, e.g. 'Erforderliche Gel\u00e4nderh\u00f6he'",
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        },
+        "type": {
+          "const": "verdict_header",
+          "title": "Type",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "The headline result itself \u2014 the number or ruling, e.g. '1,10 m', 'REI 90', 'Nicht geregelt'",
+          "minLength": 1,
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "verdict",
+        "subject"
+      ],
+      "title": "VerdictHeaderCard",
+      "type": "object"
     }
   },
   "discriminator": {
@@ -2804,6 +3148,7 @@
       "acoustic_check": "#/$defs/AcousticCheckCard",
       "building_section": "#/$defs/BuildingSectionCard",
       "comparison_table": "#/$defs/ComparisonTableCard",
+      "condition_tree": "#/$defs/ConditionTreeCard",
       "daylight_incidence": "#/$defs/DaylightIncidenceCard",
       "density_check": "#/$defs/DensityCheckCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
@@ -2821,13 +3166,16 @@
       "ifc_viewer": "#/$defs/IfcViewerCard",
       "legal_basis": "#/$defs/LegalBasisCard",
       "memory_proposal": "#/$defs/MemoryProposalCard",
+      "norm_chain": "#/$defs/NormChainCard",
       "parking_requirement": "#/$defs/ParkingRequirementCard",
       "project_profile_patch": "#/$defs/ProjectProfilePatchCard",
       "requirement_checklist": "#/$defs/RequirementChecklistCard",
       "setback_plan": "#/$defs/SetbackPlanCard",
       "stair_diagram": "#/$defs/StairDiagramCard",
       "summary": "#/$defs/SummaryCard",
-      "thermal_envelope": "#/$defs/ThermalEnvelopeCard"
+      "thermal_envelope": "#/$defs/ThermalEnvelopeCard",
+      "typed_table": "#/$defs/TypedTableCard",
+      "verdict_header": "#/$defs/VerdictHeaderCard"
     },
     "propertyName": "type"
   },
@@ -2846,6 +3194,18 @@
     },
     {
       "$ref": "#/$defs/ComparisonTableCard"
+    },
+    {
+      "$ref": "#/$defs/VerdictHeaderCard"
+    },
+    {
+      "$ref": "#/$defs/ConditionTreeCard"
+    },
+    {
+      "$ref": "#/$defs/TypedTableCard"
+    },
+    {
+      "$ref": "#/$defs/NormChainCard"
     },
     {
       "$ref": "#/$defs/BuildingSectionCard"

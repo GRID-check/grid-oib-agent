@@ -118,6 +118,7 @@ import {
   listConversationMessages,
   listConversations,
   markConversationRead,
+  persistInternalConversationMessages,
   updateConversationTitle,
 } from './service'
 
@@ -999,5 +1000,64 @@ describe('generating a conversation title — severity of a handled failure', ()
       title: 'Brandschutz Stiegenhaus',
       tags: ['brandschutz'],
     })
+  })
+})
+
+describe("the backend's own persist path speaks a different dialect", () => {
+  /**
+   * The turn whose client dropped is the one whose only copy is the server row,
+   * so this path is where an answer's trust signals are most easily lost. The
+   * backend posts them in wire spelling; every reader of a message row looks for
+   * the browser's stored contract. What this pins is that the service translates
+   * — the module's own rules are in `agent-answer-metadata.spec.ts`.
+   */
+  it('stores the backend answer metadata as citations + provenance', async () => {
+    stubConversation()
+
+    await persistInternalConversationMessages('org_1', CONVERSATION_ID, [
+      {
+        id: 'msg_agent',
+        role: 'assistant',
+        content: 'Die erforderliche Stiegenlaufbreite beträgt 1,20 m.',
+        messageType: 'agent_response',
+        metadata: {
+          sources: [
+            {
+              document_id: 'oib-rl-4:2019',
+              file_name: 'OIB-RL-4.pdf',
+              page: 12,
+              source_type: 'knowledge_layer',
+              origin: 'kb',
+            },
+          ],
+          answer_confidence: 'medium',
+          answer_confidence_reason: 'Direkt aus OIB-RL 4 belegt.',
+        },
+      },
+    ])
+
+    const [row] = vi.mocked(insertMessages).mock.calls[0][0]
+    expect(row.metadata).toMatchObject({
+      citations: {
+        v: 1,
+        sources: [
+          {
+            document_id: 'oib-rl-4:2019',
+            file_name: 'OIB-RL-4.pdf',
+            page: 12,
+            source_type: 'knowledge_layer',
+            origin: 'kb',
+          },
+        ],
+      },
+      provenance: {
+        answerConfidence: 'medium',
+        answerConfidenceReason: 'Direkt aus OIB-RL 4 belegt.',
+      },
+    })
+    // The wire spelling does not survive alongside the translation: one column,
+    // one dialect.
+    expect(row.metadata).not.toHaveProperty('sources')
+    expect(row.metadata).not.toHaveProperty('answer_confidence')
   })
 })

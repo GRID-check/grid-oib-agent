@@ -38,6 +38,13 @@ class TestCardRegistry:
         reg.add({"type": "legal_basis", "law": "OIB-2"})
         assert [c["type"] for c in reg.snapshot()] == ["summary", "legal_basis"]
 
+    def test_len_is_the_position_of_the_next_card(self):
+        # emit_card hands the model `[[card:N]]` with N read off this count.
+        reg = CardRegistry()
+        assert len(reg) == 0
+        reg.add({"type": "summary", "title": "A"})
+        assert len(reg) == 1
+
     def test_clear(self):
         reg = CardRegistry()
         reg.add({"type": "summary", "title": "A"})
@@ -153,3 +160,62 @@ class TestEmitCardRejectsSystemCards:
         assert "system-emitted" in msg
         # Nothing was added to the registry.
         assert reg.snapshot() == []
+
+
+class TestEmitCardPlacementMarker:
+    """The marker is how a card reaches the paragraph it belongs to.
+
+    Without it every card renders as a block after the answer, which is where a
+    stair diagram helps least — so ``emit_card`` must hand the agent the exact
+    marker to write, and it must name the card's own position.
+    """
+
+    @staticmethod
+    async def _emit_real(registry, payload: dict) -> str:
+        from unittest.mock import MagicMock
+
+        from aiq_agent.cards.register import EmitCardConfig
+        from aiq_agent.cards.register import emit_card
+
+        token = set_card_registry(registry)
+        try:
+            async with emit_card(EmitCardConfig(), MagicMock()) as info:
+                return await info.single_fn(card_json=json.dumps(payload))
+        finally:
+            reset_card_registry(token)
+
+    @pytest.mark.asyncio
+    async def test_first_card_is_card_one(self):
+        reg = get_or_create_card_registry("conv-marker-1")
+        reg.clear()
+        msg = await self._emit_real(reg, {"type": "summary", "title": "Treppe"})
+        assert "[[card:1]]" in msg
+        # The agent has to be told what to DO with it, not just handed it.
+        assert "line of its own" in msg
+
+    @pytest.mark.asyncio
+    async def test_marker_counts_with_the_registry(self):
+        reg = get_or_create_card_registry("conv-marker-2")
+        reg.clear()
+        first = await self._emit_real(reg, {"type": "summary", "title": "Eins"})
+        second = await self._emit_real(reg, {"type": "summary", "title": "Zwei"})
+        assert "[[card:1]]" in first
+        assert "[[card:2]]" in second
+        # The number IS the position in the array the frontend receives; the two
+        # drifting apart would draw the wrong card at the marker.
+        assert [c["title"] for c in reg.snapshot()] == ["Eins", "Zwei"]
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_card_does_not_consume_a_number(self):
+        reg = get_or_create_card_registry("conv-marker-3")
+        reg.clear()
+        await self._emit_real(reg, {"type": "summary", "title": "Eins"})
+        rejected = await self._emit_real(reg, {"type": "summary"})
+        assert rejected.startswith("Error")
+        assert "[[card:2]]" in await self._emit_real(reg, {"type": "summary", "title": "Zwei"})
+
+    def test_doctrine_tells_the_agent_where_to_put_the_marker(self):
+        from aiq_agent.cards.register import _CARD_DOCTRINE
+
+        assert "[[card:" in _CARD_DOCTRINE
+        assert "line of its own" in _CARD_DOCTRINE

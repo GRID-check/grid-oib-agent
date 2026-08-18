@@ -27,7 +27,9 @@ from aiq_agent.cards import surface_documents as _surface_documents  # noqa: F40
 # here; the definitions live in the framing-free catalog module.
 from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
-from aiq_agent.cards.catalog import render_card_catalog
+from aiq_agent.cards.catalog import model_facing_card_types
+from aiq_agent.cards.catalog import render_card_details
+from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
@@ -37,22 +39,65 @@ from nat.data_models.function import FunctionBaseConfig
 logger = logging.getLogger(__name__)
 
 
+_CARD_DOCTRINE = """\
+WHEN TO EMIT ONE. An answer that turns on a dimension gets its card by default, not on request.
+A measurement written as a sentence makes the reader re-draw it in their head; the card is the
+drawing they would have made. The trigger, then the card:
+  a riser, tread or stair width            -> stair_diagram
+  a clear width, ramp or turning circle    -> dimension_diagram
+  an escape route with segments            -> egress_diagram
+  a fall height, railing or opening        -> guardrail_check
+  a U-value, HWB or energy class           -> thermal_envelope / energy_performance
+  a fire compartment area                  -> fire_compartment
+  the Richtlinie or norm the answer rests on -> legal_basis
+  a chain of norms, one binding, the rest interpreting -> norm_chain
+  three or more pass/fail criteria         -> requirement_checklist
+  two or more options weighed against each other -> comparison_table
+  the answer's single headline number or ruling, at the top -> verdict_header
+  an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
+  a tabular answer no purpose-built card covers -> typed_table
+
+WHEN NOT TO. A one-line factual answer gets no card: one that repeats the sentence above it costs
+the reader a second pass over the same fact. Never fabricate a field, a reference or a number to
+fill a card out — a card with an invented limit in it is worse than the prose alone, because it is
+the part that gets screenshotted into a submission. Two cards in a turn is plenty; more than that
+and the written answer stops being the answer.
+
+WHERE IT GOES. Every emit_card call hands you back a marker like [[card:2]]. Put that marker on a
+line of its own at the point in your answer the card belongs to, and the card is drawn there —
+the stair diagram beside the paragraph about the stair, not three screens above it. A marker you
+never write puts its card after the whole answer, which is also where every card lands if you
+place none: the reader scrolls past the drawings to reach the answer they asked for."""
+
+
 def _build_tool_description() -> str:
-    """Describe every card type, its exact nested shape, and worked examples."""
+    """Frame ``emit_card`` with the card INDEX; shapes are fetched on demand.
+
+    Rendering every shape and worked example here costs ~5,200 tokens on every
+    turn whether or not a card is emitted, and grows ~190 per card type we add.
+    The index plus ``describe_card`` costs ~700 and ~23 respectively, which is
+    what makes a growing vocabulary affordable on a cost-optimised model tier.
+    """
     return (
-        "Render a rich UI card alongside your answer. Call this when a STRUCTURED element "
-        "communicates better than prose — e.g. the legal basis grounding an answer, a "
-        "dimension/stair/egress diagram, or a concise summary of a longer reply. Emit a card "
-        "only when it adds real value; never fabricate fields or references. You may call this "
-        "multiple times to attach several cards. The card renders in addition to your normal "
-        "written answer, so still write your prose reply.\n\n"
-        "Pass `card_json`: a JSON object with a `type` field plus that type's fields. Fields "
-        "marked * are required; every other field is optional and may be omitted (do NOT pass "
-        "null for optional objects — omit them). Numbers are plain JSON numbers. For schematic "
-        "cards, supply measured/actual values from the question or project profile and the OIB "
-        "limit in `required`; if a value is unknown, omit it and set that check's status to "
-        '"needs_input" — never estimate.\n\n' + render_card_catalog()
+        "Render a rich UI card alongside your answer, in addition to your written reply — always "
+        "write the prose too. You may call this several times to attach several cards.\n\n"
+        + _CARD_DOCTRINE
+        + "\n\nHOW. Pass `card_json`: a JSON object with a `type` field plus that type's fields. "
+        "Unless a card's exact shape is already in this conversation, call `describe_card` with the "
+        "type first — guessing the nesting wastes a turn on a validation error. Fields marked * are "
+        "required; omit optional ones rather than passing null. Numbers are plain JSON numbers. For "
+        "schematic cards, supply the measured/actual value from the question or project profile and "
+        "the OIB limit in `required`; if a value is unknown, omit it and set that check's status to "
+        '"needs_input" — never estimate.\n\n' + render_card_index()
     )
+
+
+_DESCRIBE_DESCRIPTION = (
+    "Return the exact JSON shape, the shared building blocks and a worked example for one or more "
+    "card types, so you can fill `emit_card` in correctly on the first attempt. Pass `card_types`: "
+    "one type name, or several separated by commas. Call this once for the types you intend to "
+    "emit; the shapes stay in context afterwards."
+)
 
 
 class EmitCardConfig(FunctionBaseConfig, name="emit_card"):
@@ -101,7 +146,47 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             return "Noted, but no card channel is available in this context; continue with your written answer."
 
         registry.add(validated)
-        logger.info("emit_card registered a '%s' card", validated["type"])
-        return f"Card '{validated['type']}' will be shown with your answer."
+        # The marker names the card by its POSITION in this turn's registry, which
+        # is the same 1-based index the frontend counts with — the registry keeps
+        # emission order, and the response carries the cards in that order. Cards
+        # gained no id field for this: an id would have to survive validation,
+        # persistence and the deep-research path that builds cards post-hoc.
+        position = len(registry)
+        logger.info("emit_card registered a '%s' card as card %d", validated["type"], position)
+        return (
+            f"Card '{validated['type']}' will be shown with your answer, as card {position}. "
+            f"Write [[card:{position}]] on a line of its own at the point in your answer where the "
+            "card belongs, and it is drawn there instead of after the whole answer. Leave the marker "
+            "out and the card lands at the end."
+        )
 
     yield FunctionInfo.from_fn(_emit, description=_build_tool_description())
+
+
+class DescribeCardConfig(FunctionBaseConfig, name="describe_card"):
+    """Configuration for the ``describe_card`` tool."""
+
+
+@register_function(config_type=DescribeCardConfig)
+async def describe_card(tool_config: DescribeCardConfig, builder: Builder):
+    """L2 of the card vocabulary: shapes on demand, so L1 can stay one line each."""
+
+    async def _describe(card_types: str) -> str:
+        requested = [t.strip() for t in str(card_types).replace(" ", ",").split(",") if t.strip()]
+        if not requested:
+            return "Error: pass at least one card type name, e.g. 'stair_diagram'."
+
+        known = model_facing_card_types()
+        # Report the unknown names rather than rendering only what resolved: a
+        # silently shorter answer reads as "that card does not exist", and the
+        # model's next move would be to invent a shape for it.
+        unknown = [t for t in requested if t not in known]
+        detail = render_card_details(requested)
+
+        if not detail:
+            return f"No such card type: {', '.join(unknown)}. Available types: {', '.join(sorted(known))}."
+        if unknown:
+            detail += f"\n\nNot a card type, ignored: {', '.join(unknown)}."
+        return detail
+
+    yield FunctionInfo.from_fn(_describe, description=_DESCRIBE_DESCRIPTION)

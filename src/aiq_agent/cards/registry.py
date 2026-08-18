@@ -26,6 +26,16 @@ class CardRegistry:
         """Append one validated card dict."""
         self._cards.append(card)
 
+    def __len__(self) -> int:
+        """How many cards this turn has emitted so far.
+
+        This is what makes a card addressable from the prose: ``emit_card``
+        hands the model back ``[[card:N]]`` where N is this count after the
+        add, and the frontend resolves N against the same ordered array. A
+        count read off ``snapshot()`` would copy the whole list to do it.
+        """
+        return len(self._cards)
+
     def snapshot(self) -> list[dict[str, Any]]:
         """Return a shallow copy of the accumulated cards."""
         return list(self._cards)

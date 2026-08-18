@@ -147,8 +147,14 @@ def _build_org_skills(payload: Any) -> list[Skill]:
             "compatibility": row.get("compatibility"),
             "allowed_tools": row.get("allowed_tools"),
         }
+        # `standard` is the platform's own fleet instruction, not an org row —
+        # the BFF marks it because only the BFF can see `platform_skills`, and
+        # the backend needs it to decide whether the skill is applied or merely
+        # offered. A row that omits the flag is an ordinary skill, which is the
+        # safe direction: forgetting it under-applies rather than imposing a
+        # tenant's instruction on a run that never agreed to it.
         try:
-            skill = build_skill_from_payload(payload_flat, origin="org")
+            skill = build_skill_from_payload(payload_flat, origin="org", standard=bool(row.get("standard")))
         except SkillValidationError as exc:
             logger.warning("Dropping invalid org skill row: %s", exc)
             continue

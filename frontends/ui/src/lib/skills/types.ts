@@ -93,6 +93,39 @@ export function isCuratedPlatformSkill(metadata: Record<string, string>): boolea
 }
 
 /**
+ * `grid-hidden` — keep a skill's activation OUT OF THE NOISY LIVE LINE.
+ *
+ * A boolean-ish flag mirroring the Python `GRID_HIDDEN_KEY`. Some skills apply
+ * on every single answer (a house voice is the type case), so announcing them
+ * live under every turn is pure noise. A hidden skill's activation is routed to
+ * the technical channel instead of the live one (backend `events.py`), so it
+ * stays out of the running line but STILL fires and STILL records.
+ *
+ * Hidden means "not in the live one-liner by default", NEVER "concealed": the
+ * `SkillsUsedDisclosure` still names it, and a reader who turns on the
+ * `showReasoningSkills` preference surfaces it in the reasoning view. Doctrine,
+ * not a nicety — a product built on traceable sourcing must not have a class of
+ * instruction it declines to admit ran (agent-skills.md, activation
+ * transparency).
+ */
+export const METADATA_HIDDEN = 'grid-hidden'
+
+/** Case-insensitive truthy tokens marking a skill hidden; anything else visible. */
+const HIDDEN_TRUE: ReadonlySet<string> = new Set(['true', '1', 'yes'])
+
+/**
+ * Whether a skill's live activation line is suppressed by default.
+ *
+ * Fail-open like every other reserved-metadata reader: an absent or
+ * unrecognised value reads as visible, because visible is the safe default —
+ * forgetting the flag shows a line too many rather than silently swallowing a
+ * skill's activation from the live line without anyone asking.
+ */
+export function isHiddenSkill(metadata: Record<string, string>): boolean {
+  return HIDDEN_TRUE.has((metadata[METADATA_HIDDEN] ?? '').trim().toLowerCase())
+}
+
+/**
  * The agents a skill may name in `grid-agents`.
  *
  * These are the backend `AGENT_REGISTRY` identifiers — the same strings a

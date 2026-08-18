@@ -16,6 +16,7 @@ import functools
 import json
 import types
 import typing
+from collections.abc import Iterable
 from typing import Any
 from typing import Literal
 
@@ -257,6 +258,52 @@ CARD_EXAMPLES: dict[str, dict] = {
             },
         ],
         "reference": {"document": "OIB-Richtlinie 2", "edition": "Ausgabe Mai 2023"},
+    },
+    "verdict_header": {
+        "type": "verdict_header",
+        "verdict": "1,10 m",
+        "subject": "Erforderliche Geländerhöhe",
+        "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 4.3", "edition": "Ausgabe Mai 2023"},
+        "confidence": "high",
+    },
+    "condition_tree": {
+        "type": "condition_tree",
+        "title": "Erforderliche Feuerwiderstandsklasse tragender Bauteile",
+        "question": "Gebäudeklasse",
+        "branches": [
+            {"condition": "GK 1–3", "outcome": "REI 30 (bzw. R 30)"},
+            {"condition": "GK 4", "outcome": "REI 60", "active": True},
+            {"condition": "GK 5", "outcome": "REI 90"},
+        ],
+        "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
+    },
+    "typed_table": {
+        "type": "typed_table",
+        "title": "Mindestmaße barrierefreie Erschließung",
+        "columns": [
+            {"label": "Bauteil", "type": "text"},
+            {"label": "Mindestmaß", "type": "mass"},
+            {"label": "Grundlage", "type": "norm"},
+            {"label": "Erfüllt", "type": "verdict"},
+        ],
+        "rows": [
+            ["Türdurchgangsbreite", "90 cm", "ÖNORM B 1600 Pkt. 5.1", "erfüllt"],
+            ["Rampenneigung", "6 %", "OIB-Richtlinie 4 Pkt. 3.2", "nicht erfüllt"],
+        ],
+        "reference": {"document": "ÖNORM B 1600", "edition": "Ausgabe 2020"},
+    },
+    "norm_chain": {
+        "type": "norm_chain",
+        "title": "Normenkette – Absturzsicherung",
+        "links": [
+            {
+                "label": "Wiener Bautechnikverordnung",
+                "rank": "verordnung",
+                "note": "erklärt die OIB-Richtlinien für verbindlich",
+            },
+            {"label": "OIB-Richtlinie 4", "rank": "oib_richtlinie", "note": "regelt die erforderliche Geländerhöhe"},
+            {"label": "ÖNORM B 1600", "rank": "oenorm", "note": "konkretisiert die barrierefreie Ausführung"},
+        ],
     },
     "comparison_table": {
         "type": "comparison_table",
@@ -514,6 +561,17 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
         if type_value not in withheld
     )
 
+    interactive_note = _interactive_note()
+    measured_note = _measured_note()
+
+    return (
+        "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
+        "Card types:\n" + "\n".join(card_lines) + interactive_note + measured_note + "\n\n"
+        "Worked examples (copy the nesting exactly):\n" + examples
+    )
+
+
+def _interactive_note() -> str:
     # Interactive cards ASK THE USER TO AUTHORIZE A REAL WRITE, so they cost the
     # user a decision rather than just screen space. Say so explicitly: without
     # it the model treats them like any other presentational card and emits them
@@ -521,7 +579,7 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
     # System cards are excluded here for the same reason they are excluded above
     # — the model must not learn they exist.
     interactive = sorted(INTERACTIVE_CARD_TYPES - SYSTEM_CARD_TYPES)
-    interactive_note = (
+    return (
         "\n\nCards that ask the user to CONFIRM something (" + ", ".join(f'"{t}"' for t in interactive) + "):\n"
         "  These are not presentation — they ask the user to authorize a real, persisted change, and\n"
         "  their answer is remembered. Emit one only when you have a SPECIFIC change worth interrupting\n"
@@ -532,18 +590,20 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
         else ""
     )
 
+
+def _measured_note() -> str:
     # A number on a card outlives the sentence next to it. The card is what gets
     # screenshotted into a submission, so it is the surface most likely to be
     # forwarded without the qualifier that made it true — which is why the rule
     # is stated here rather than left to the field descriptions alone.
-    measured_note = (
+    return (
         "\n\nNumbers that came from a MEASUREMENT (`ifc_measure`):\n"
         "  Every ifc_measure answer says HOW it was obtained. When you put one of its numbers on a\n"
         "  card, carry that with it — on DimensionCheck, set `provenance` to the answer's own\n"
         "  provenance, and for a 'computed' one set `tolerance` to the ± band in the SAME unit.\n"
         "  Copy them; never infer them. Marking our own measurement 'declared' turns our tolerance\n"
         "  into the architect's claim, and a measured dimension shown without its band reads as\n"
-        "  exact — which is what decides whether 2,47 m clears a 2,50 m minimum.\n"
+        "  exact — which is what decides whether 2.47 m clears a 2.50 m minimum.\n"
         "  Leave both null for a number that did not come from the model: a figure the user typed,\n"
         "  or a limit read out of the Bestimmung. Null means 'not stated', never 'declared'.\n"
         "  When the answer came back `decidable: false`, the dimension is status 'needs_input' with\n"
@@ -552,8 +612,76 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
         "  about the building, when it is a finding about the export."
     )
 
-    return (
-        "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
-        "Card types:\n" + "\n".join(card_lines) + interactive_note + measured_note + "\n\n"
-        "Worked examples (copy the nesting exactly):\n" + examples
+
+def render_card_index(*, include_model_backed: bool = True) -> str:
+    """L1: one line per card type — name and purpose, no shapes, no examples.
+
+    The always-on half of the card vocabulary. Rendering every shape and worked
+    example costs ~5,200 tokens on EVERY turn whether or not a card is ever
+    emitted, and each new card type adds ~190 to that permanently — the exact
+    "load everything upfront" failure that dilutes attention on a long turn and
+    scales linearly with a vocabulary we intend to keep growing.
+
+    An index plus :func:`render_card_details` on demand costs ~580 tokens and
+    ~23 per new type. The reasoning is already written down one module over, on
+    ``_preferred_cards_block``: a card description is worth nothing until the
+    card is actually in play.
+    """
+    from aiq_agent.cards.models import GridCard
+
+    withheld = SYSTEM_CARD_TYPES if include_model_backed else SYSTEM_CARD_TYPES | MODEL_BACKED_CARD_TYPES
+
+    lines: list[str] = []
+    for card_cls in GridCard.__args__:
+        type_value = _card_type_of(card_cls)
+        if type_value in withheld:
+            continue
+        doc = (card_cls.__doc__ or "").strip().split("\n")[0]
+        lines.append(f'  - "{type_value}": {doc}')
+
+    return "Card types:\n" + "\n".join(lines) + _interactive_note()
+
+
+def render_card_details(card_types: Iterable[str]) -> str:
+    """L2: the exact shape, building blocks and worked example for named types.
+
+    Unknown and system types are skipped rather than raising: this is fed from a
+    model-supplied name and from skill metadata, and a stale name must not take
+    down the turn that mentioned it.
+    """
+    from aiq_agent.cards.models import GridCard
+
+    by_type = {_card_type_of(c): c for c in GridCard.__args__}
+    wanted = [t for t in dict.fromkeys(card_types) if t in by_type and t not in SYSTEM_CARD_TYPES]
+    if not wanted:
+        return ""
+
+    nested: list[type] = []
+    card_lines = [f'  - "{t}"\n      shape: {_card_shape(by_type[t], nested)}' for t in wanted]
+
+    seen: set[type] = set()
+    block_lines: list[str] = []
+    i = 0
+    while i < len(nested):
+        model_cls = nested[i]
+        i += 1
+        if model_cls in seen:
+            continue
+        seen.add(model_cls)
+        block_lines.append(f"  {model_cls.__name__} = {_shape(model_cls, nested, with_desc=True)}")
+
+    examples = "\n".join(
+        f"  {t}:\n    {json.dumps(CARD_EXAMPLES[t], ensure_ascii=False)}" for t in wanted if t in CARD_EXAMPLES
     )
+
+    out = ""
+    if block_lines:
+        out += "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
+    out += "Card types:\n" + "\n".join(card_lines)
+    # The provenance rule only applies where a DimensionCheck can carry one, so
+    # it rides with the shapes that have the field rather than with every card.
+    if any("DimensionCheck" in line for line in block_lines + card_lines):
+        out += _measured_note()
+    if examples:
+        out += "\n\nWorked examples (copy the nesting exactly):\n" + examples
+    return out

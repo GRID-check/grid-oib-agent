@@ -26,6 +26,7 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import apply_model_override
 from aiq_agent.common import apply_org_credential
+from aiq_agent.common import build_human_prompt
 from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
@@ -41,7 +42,6 @@ from nat.data_models.component_ref import FunctionGroupRef
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
-from nat.data_models.interactive import HumanPromptText
 
 from .agent import ClarifierAgent
 from .models import ClarifierAgentState
@@ -150,7 +150,7 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback(log_reasoning=True, max_chars=config.log_response_max_chars)] if verbose else []
 
-    async def user_prompt_callback(question: str) -> str:
+    async def user_prompt_callback(question: str, options: list[str] | None = None) -> str:
         """
         NAT-specific callback for prompting user input.
 
@@ -159,18 +159,20 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
 
         Args:
             question: The clarification question to display to the user.
+            options: Short labels of the answers the question offers. When
+                present the prompt becomes a multiple-choice one so the client
+                can render a picker; the question text is unchanged either way,
+                and the user may still type a free-text answer or "skip".
 
         Returns:
-            The user's response text, extracted from the NAT response object.
+            The user's response text, extracted from the NAT response object —
+            a typed answer and a picked option arrive as different response
+            models, and `extract_user_response` normalizes both.
         """
         nat_context = Context.get()
         user_input_manager = nat_context.user_interaction_manager
 
-        prompt = HumanPromptText(
-            text=question,
-            required=True,
-            placeholder="Please provide more details...",
-        )
+        prompt = build_human_prompt(question, options)
         response = await user_input_manager.prompt_user_input(prompt)
         return extract_user_response(response)
 

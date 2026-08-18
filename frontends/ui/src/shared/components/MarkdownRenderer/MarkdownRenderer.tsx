@@ -10,6 +10,7 @@ import { CodeBlock } from '@/shared/components/CodeBlock'
 import { transliterateGerman } from '@/lib/text/latinize'
 import type { MarkdownRendererProps } from './types'
 import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
+import { MARKDOWN_SLOT_TAG, useMarkdownSlotRenderer } from './slot-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
 import { getLanguageFromClassName } from './utils'
 
@@ -113,6 +114,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
   ({ content, className = '', compact = false, isStreaming = false, remarkPlugins }) => {
     const renderInPageAnchor = useInPageAnchorRenderer()
     const renderInternalLink = useInternalLinkRenderer()
+    const renderSlot = useMarkdownSlotRenderer()
     const plugins = useMemo(
       (): PluggableList => [remarkGfm, remarkMath, ...(remarkPlugins ?? [])],
       [remarkPlugins]
@@ -127,6 +129,16 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     // Custom component mappings
     const components: Components = useMemo(
       () => ({
+        // A position a remark plugin marked for the surface to fill (see
+        // `slot-context`). Cast because `Components` is keyed by intrinsic
+        // elements and this tag is deliberately not one of them — that is what
+        // guarantees the markdown itself can never produce it.
+        [MARKDOWN_SLOT_TAG]: ({ index }: { index?: string }) => {
+          const position = Number(index)
+          if (!renderSlot || !Number.isInteger(position)) return null
+          return <>{renderSlot(position)}</>
+        },
+
         code: ({
           children,
           className: codeClassName,
@@ -295,8 +307,8 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         td: ({ children }) => (
           <td className="px-3 py-2 text-sm text-foreground">{children}</td>
         ),
-      }),
-      [compact, renderInPageAnchor, renderInternalLink]
+      }) as Components,
+      [compact, renderInPageAnchor, renderInternalLink, renderSlot]
     )
 
     return (

@@ -136,6 +136,8 @@ export interface AnswerTransparency {
    * reportable, only the decision to load one is.
    */
   skillsActivated?: string[]
+  /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
+  skillsHidden?: string[]
 }
 
 /** File card data for file messages */
@@ -348,6 +350,8 @@ export interface ChatMessage {
    * the turn activated none.
    */
   skillsActivated?: string[]
+  /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
+  skillsHidden?: string[]
 }
 
 /** Intermediate thinking step from agent */
@@ -529,6 +533,15 @@ export interface CitationSource {
    * architect can see whether the source actually binds their project.
    */
   bindingNote?: string
+  /**
+   * Coarse binding classification the backend derived from the norm registry
+   * (`bindend` / `verbindlich_erklaert` / `auslegend` / `unbekannt`). Distinct
+   * from `authority`, which names the TIER (OIB / RIS); this names whether the
+   * source BINDS. `unbekannt` is dropped to undefined at the wire boundary so a
+   * missing classification reads as "not known", never as "not binding" — the
+   * one direction a legal signal must not fail in.
+   */
+  bindingStatus?: string
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */
@@ -553,6 +566,16 @@ export interface WireCitationSource {
   lane?: string | null
   lane_label?: string | null
   binding_note?: string | null
+  /**
+   * Coarse binding status the backend classified this source as:
+   * `bindend` (statute/ordinance) | `verbindlich_erklaert` (OIB-Richtlinie /
+   * the lane a Land declares binding) | `auslegend` (Leitfaden/ÖNORM,
+   * interpretive) | `unbekannt` (matched no catalogued norm — the honest
+   * default, never a guess). Rides the `sources` schema's `.passthrough()`;
+   * declared here so the renderer can badge it. Structured companion to the
+   * prose `binding_note`.
+   */
+  binding_status?: string | null
 }
 
 /** Plan message for chat/HITL display and restore flows */

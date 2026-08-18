@@ -261,6 +261,61 @@ describe('NATIncomingMessageSchema variant tolerance', () => {
   })
 })
 
+describe('NATHumanPromptSchema option shapes', () => {
+  /**
+   * The regression this exists to prevent: NAT serialises a picker's choices as
+   * objects, the schema demanded strings, and because `NATIncomingMessageSchema`
+   * is a discriminated union that `websocket-client` safeParses, the WHOLE
+   * system_interaction frame was discarded as unrecognised. The prompt never
+   * rendered and the turn sat on its HITL future until the 30-minute timeout —
+   * a failure with no error anywhere, which is why it needs a test and not a
+   * comment.
+   */
+  test('accepts the object options a HumanPromptRadio actually emits', () => {
+    const parsed = NATHumanPromptSchema.parse({
+      input_type: 'radio',
+      text: 'Welches Modell?',
+      options: [
+        { id: '1', label: 'AC20-Institute-Var-2.ifc', value: 'AC20-Institute-Var-2.ifc', description: '' },
+        { id: '2', label: 'Ifc2x3_SampleCastle.ifc', value: 'Ifc2x3_SampleCastle.ifc', description: '' },
+      ],
+    })
+    expect(parsed.options).toEqual(['AC20-Institute-Var-2.ifc', 'Ifc2x3_SampleCastle.ifc'])
+  })
+
+  test('still accepts bare string options', () => {
+    const parsed = NATHumanPromptSchema.parse({
+      input_type: 'radio',
+      text: 'pick one',
+      options: ['Alpha', 'Beta'],
+    })
+    expect(parsed.options).toEqual(['Alpha', 'Beta'])
+  })
+
+  /**
+   * `value` is what the agent tier expects back — NAT re-wraps the reply into
+   * `HumanResponse*.selected_option.value`. Normalising on `label` would send a
+   * string the backend does not recognise.
+   */
+  test('normalises on value, so the answer round-trips even when the label differs', () => {
+    const parsed = NATHumanPromptSchema.parse({
+      input_type: 'dropdown',
+      text: 'pick one',
+      options: [{ label: 'Gebäudeklasse 4', value: 'GK4' }],
+    })
+    expect(parsed.options).toEqual(['GK4'])
+  })
+
+  test('rejects an option with no value rather than inventing one', () => {
+    const result = NATHumanPromptSchema.safeParse({
+      input_type: 'radio',
+      text: 'pick one',
+      options: [{ label: 'no value here' }],
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
 describe('NATHumanPromptSchema.input_type enum alignment', () => {
   test.each([
     HumanPromptType.TEXT,

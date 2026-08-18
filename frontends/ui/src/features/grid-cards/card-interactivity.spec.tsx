@@ -17,7 +17,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GridCard } from '@/shared/cards/schemas'
 import { INTERACTIVE_CARD_TYPES } from './card-decision'
-import { GridCards } from './components/GridCards'
+import { GridCardItem, GridCards } from './components/GridCards'
 
 const setCardDecision = vi.fn()
 
@@ -100,6 +100,41 @@ describe('interactive card wiring', () => {
       // The key GridCards hands down must be the positional card identity, so a
       // decision and the card it belongs to cannot drift apart.
       expect(cardKey).toBe(`${type}-0`)
+    })
+
+    // The same card is drawn ALONE when the answer placed it inline with a
+    // `[[card:N]]` marker, and inside a FILTERED block when it did not. Its
+    // identity has to be the original array index in both cases: renumber it
+    // and every decision already recorded on this message names another card.
+    it(`keys ${type} on its original index when drawn inline`, async () => {
+      const user = userEvent.setup()
+      render(
+        <GridCardItem card={testCase.card} index={2} projectId="proj-1" messageId="msg-1" />,
+      )
+
+      await user.click(screen.getByRole('button', { name: testCase.action }))
+
+      await waitFor(() => expect(setCardDecision).toHaveBeenCalled())
+      expect(setCardDecision.mock.calls[0][1]).toBe(`${type}-2`)
+    })
+
+    it(`keys ${type} on its original index in the fallback block`, async () => {
+      const user = userEvent.setup()
+      const filler: GridCard = { type: 'summary', title: 'Platzhalter', content: 'x' } as GridCard
+      render(
+        <GridCards
+          cards={[filler, testCase.card]}
+          indices={[1]}
+          projectId="proj-1"
+          messageId="msg-1"
+        />,
+      )
+
+      expect(screen.queryByText('Platzhalter')).toBeNull()
+      await user.click(screen.getByRole('button', { name: testCase.action }))
+
+      await waitFor(() => expect(setCardDecision).toHaveBeenCalled())
+      expect(setCardDecision.mock.calls[0][1]).toBe(`${type}-1`)
     })
   }
 })

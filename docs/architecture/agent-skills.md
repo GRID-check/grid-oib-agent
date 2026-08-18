@@ -41,6 +41,13 @@ validated strictly by `src/aiq_agent/skills/models.py`:
 | `metadata` | String-map; exactly two reserved GRID keys are validated — `grid-agents` (who may use it) and `grid-cards` (preferred output card types). Every other key is opaque |
 | `license` / `compatibility` / `allowed_tools` | Optional free-form strings |
 
+`Skill` carries two more fields that are **not** frontmatter and cannot be
+written by a skill author: `origin` (where the document came from) and
+`standard` (whether the platform publishes it as fleet standard equipment).
+Both are set by the resolver from the source it read, never parsed out of a
+`SKILL.md` — a document that could declare itself standard would be a tenant
+promoting their own instruction to platform policy by typing a word.
+
 Unlike deepagents' warn-and-continue scan, GRID's substrate validates
 **strictly**: an invalid builtin SKILL.md is a deployment error
 (`builtin.py` raises), an invalid org row is dropped individually with a
@@ -61,8 +68,16 @@ the toolbox to punish a key that costs nothing to ignore.
 generated card `type`s (SYSTEM cards excluded — those are emitted by tools on
 sanctioned paths, and asking the model for one would invite it to fabricate a
 card the product treats as trustworthy). It costs nothing until the skill is
-activated, at which point `SkillRuntime` appends a short block naming those
-types to the loaded body. Unknown names are a parse error for a builtin
+activated, at which point `SkillRuntime._preferred_cards_block` appends a short
+block naming those types to the loaded body — **and their full shapes with it**,
+by calling the card catalog's `render_card_details()`. A skill that names its
+cards is the moment we know which of the 27 card shapes this turn could possibly
+need, so it is the moment to spend context on them, and it saves the activated
+turn the `describe_card` round-trip it would otherwise always pay (see
+`cards.md` § The vocabulary is two levels). The block stays phrased as a
+*preference* either way: an author naming three cards must not be able to force a
+`comparison_table` onto an answer that has nothing to compare. Unknown names
+are a parse error for a builtin
 (authored in this repo, reviewed) and are logged-and-dropped for an org row
 (tenant data over the wire, where one stale name must not delete the skill).
 
@@ -89,7 +104,7 @@ types to the loaded body. Unknown names are a parse error for a builtin
 |---|---|---|
 | `src/aiq_agent/skills/builtin/**` (files) | this repository | **nobody.** Pipeline machinery: never listed, never switchable, always resolved. |
 | `platform_skills` rows, `delivery: 'offer'` | the platform owner, in **Platform → Skills** | every organization, as an OFFER it may switch on. |
-| `platform_skills` rows, `delivery: 'standard'` | the platform owner, in **Platform → Skills** | **nobody.** Fleet standard equipment: resolved for every organization, never listed, not switchable, not shadowable. |
+| `platform_skills` rows, `delivery: 'standard'` | the platform owner, in **Platform → Skills** | **nobody.** Fleet standard equipment: applied on every run for every organization, never listed, not switchable, not shadowable. |
 | `skills` (rows) | an organization | that organization. |
 
 Three sources but four audiences, because one table carries two of them. The
@@ -105,7 +120,8 @@ maintain a decision on. Before it existed the only always-on tier was the
 builtin FILES, which means a code review and a deploy, and which are the
 deep-research pipeline's own machinery rather than a place to put fleet policy.
 A standard skill is that same "machinery" property — never listed, never
-switchable, always resolved — made available one tier up, to a dashboard.
+switchable, always resolved *and* always applied — made available one tier up,
+to a dashboard.
 
 It is deliberately a column on `platform_skills` rather than a fourth table. The
 document is identical either way (same agentskills.io contract, same editor, same
@@ -136,7 +152,7 @@ left over from when the skill was an offer is kept but not read, so a promotion
 followed by a demotion returns the fleet to where it started rather than to a
 blank slate.
 
-### Standard skills: the five properties, and where each is enforced
+### Standard skills: the six properties, and where each is enforced
 
 Each is a separate line, because each one failing on its own would hand an
 organization a grip on platform policy.
@@ -145,6 +161,7 @@ organization a grip on platform policy.
 |---|---|
 | **invisible** | not in `curatedOffers()`, so absent from `listSkills` (the Skills tab); `resolveSelectableSkills` strips it from the `/` picker and the job builder's skill picker |
 | **default-on** | merged into `resolveAll` unconditionally — no activation row consulted, no decision to make |
+| **applied** | `SkillRuntime` FORCES every resolved standard skill for the run, so its body is loaded rather than waiting to be chosen. The one property enforced on the backend rather than in the BFF |
 | **non-targetable** | `setCuratedSkillEnabled` resolves against `curatedOffers()` only, so a hand-crafted `PATCH /api/skills/curated/{name}` gets a 404 |
 | **non-shadowable** | merged LAST in `resolveAll`, after the org's own rows, as a `delete` **then** a put. The one place the ordering is load-bearing rather than defensive |
 | **platform-owned** | `assertNameNotStandardised` refuses the name at the org write boundary — on create, on rename, and on every edit of a row already wearing it; `grid_secure_platform_table` means a tenant role has SELECT on `platform_skills` and nothing else |
@@ -152,7 +169,51 @@ organization a grip on platform policy.
 And one property it deliberately does NOT have: a standard skill does not
 outrank the pipeline machinery (see below).
 
-Two of those need their reasoning stated rather than just their location.
+Three of those need their reasoning stated rather than just their location.
+
+**Why default-on was not enough on its own.** `delivery: standard` claimed to be
+fleet standard equipment — "resolved for every organization, never listed, not
+switchable". Resolving it only put its one-line **description** in the L1
+catalogue, though, and a description the model may or may not open through
+`use_skill` is not fleet policy. The tier resolved everywhere and bound nowhere:
+the platform owner published a house instruction, every org's runs carried it,
+and whether it shaped an answer was left to the model's judgement on the turn.
+So **applied** is a distinct property, and it is the one that makes the tier mean
+what its name says. `SkillRuntime` forces every resolved standard skill, after
+the user's own `/name` forces so the forced block reads in the order they asked
+for; standard skills follow, because they are the floor rather than the request.
+
+That forcing is deliberately keyed off a **property of the skill** rather than a
+list of names in the runtime. The platform owner publishes a standard skill in
+the dashboard and it takes effect — no deploy, and nothing in code to keep in
+sync with a row somebody can rename.
+
+Which means the property has to survive the wire, and it does, in two places:
+
+- `ResolvedSkill.standard` (`frontends/ui/src/lib/skills/service.ts`) on the
+  internal resolve payload. Only the BFF can see `platform_skills`, so only the
+  BFF can mark it — and it is **not derivable from `origin`**, which is also
+  `'platform'` for the pipeline machinery and for offers an org took up, neither
+  of which imposes anything. `resolveAll` sets it on the standard merge pass
+  alone.
+- `Skill.standard` (`src/aiq_agent/skills/models.py`), **defaulting false**. A
+  row that omits the flag is an ordinary skill, which is the safe direction:
+  forgetting it under-applies rather than imposing a tenant's instruction on a
+  run that never agreed to it. `_build_org_skills` reads it off the payload
+  (`resolver.py`); nothing else in the backend sets it, and no `SKILL.md` can.
+
+The first standard skill is `piloti-voice`, seeded by
+`0053_piloti_voice_standard_skill.sql`. It is a `platform_skills` row rather
+than a builtin file because a voice is edited far more often than the pipeline
+machinery those files hold, and every edit there is a code review and a deploy.
+It is delivered as a forced skill rather than inlined in the system prompt for
+the same reason skills exist at all: inlined, it would sit in context from the
+first token, shaping tool selection and retrieval judgements it has nothing to do
+with. Forced, its body arrives when the model reaches the instruction that calls
+for it — which for a writing skill is when it starts writing, and the forced
+block's doctrine says so in as many words.
+
+Two more need their reasoning stated rather than just their location.
 
 **Why the org write boundary refuses the name at all.** Everywhere else, an org
 row of the same name *shadows* the platform's — the tenant's version wins,
@@ -179,7 +240,10 @@ reads for descriptions, so an activated standard skill is named in the
 disclosure with no description rather than hidden from it. That is deliberate.
 Administrative invisibility is not concealment: the disclosure reports what
 shaped the answer, and a product built on traceable sourcing must not have a
-class of instruction it declines to admit ran.
+class of instruction it declines to admit ran. Now that standard skills are
+forced rather than merely resolved, this is the ordinary case rather than the
+corner one — a fleet with a standard skill published names it under every
+research answer, which is the honest reading of "this instruction shaped it".
 
 **And what they inherit: `grid-agents` still applies.** That gate answers "which
 agent CAN run this", which is a different question from "who decides that it
@@ -360,7 +424,9 @@ filter applies to platform rows as well as org rows.
 
 ## Selection & progressive disclosure
 
-Skill selection is **user-request-driven, never model-chosen**:
+Skill selection is **never model-chosen**. Two things can force a skill onto a
+turn, and neither of them is the model: the user's own request, and the
+platform's standard tier.
 
 - Chat turns: `_extract_query_and_sources` / `_extract_query_from_text` in
   `src/aiq_agent/agents/chat_researcher/utils.py` parse `data_sources` and
@@ -376,19 +442,41 @@ Skill selection is **user-request-driven, never model-chosen**:
   skill is attached and the prompt runs alone. Agent selection follows the
   JOB's `output`, never anything read off the skill. Deep-research runs get
   their skills the deepagents-native way (see Config).
+- Standard skills: no request at all. `SkillRuntime` forces every resolved
+  skill carrying `standard`, appended after the user's own forces so the block
+  reads in the order they asked for. This is platform policy, not selection —
+  see [the six properties](#standard-skills-the-six-properties-and-where-each-is-enforced).
 
 Progressive disclosure has exactly two levels:
 
-- **L1 — the catalog.** One line per skill (`name: description`) in the
-  system prompt's `## Verfügbare Skills` section, plus a `## Aktive Skills
-  (vom Nutzer erzwungen)` block listing skills forced for this turn. Both
-  blocks are pre-collated by the register layer (`ShallowAgentFlat` /
+- **L1 — the catalog.** One line per skill (`name: description`) under the
+  system prompt's `## Available skills` heading, plus an `## Active skills
+  (required for this turn)` block listing the skills forced for this turn.
+  Both blocks are pre-collated by the register layer (`ShallowAgentFlat` /
   `DeepAgentFlat`) and render via the runtime's `prompt_block()` /
   `forced_block()`; `None` renders no section.
 - **L2 — the body.** The model must call the `use_skill` tool to load a
   body before following it. A failed lookup returns an error listing the
   available names, so a hallucinated skill name is self-correcting rather
   than a fatal turn.
+
+The forced block does not merely name its skills; it tells the model to call
+`use_skill` for each of them **as soon as its instructions become relevant —
+for a skill that governs how you WRITE, that is before you write the answer**.
+Naming a skill and leaving the timing open is how a forced writing skill gets
+loaded after the answer is already composed, which is the same nothing that
+resolving alone bought.
+
+**Every scaffolding string in the runtime is English**, and that is a decision
+rather than an oversight. These headings used to be German (`## Verfügbare
+Skills`, `## Aktive Skills (vom Nutzer erzwungen)`). The agent answers in the
+user's language, and that is decided per turn from the question — not baked into
+the machinery — so a prompt that mixes German block headings into English
+instructions is neither localised nor language-agnostic. It is also a country
+coupling of exactly the kind `country-extensibility.md` exists to remove: text
+that assumes Austria in a mechanism that has nothing to do with Austria.
+Country- or language-specific wording belongs in `CountryProfile` or in an
+authored skill body, never in string constants in `runtime.py`.
 
 `SkillRuntime` (`src/aiq_agent/skills/runtime.py`) is **per run**
 (ADR-0018 — never cached on a shared agent instance): it owns the forced/
@@ -500,9 +588,12 @@ Five tables. `skills`/`jobs`/`job_runs` live in
 `skill_runs` and reshaped by `0043_jobs.sql`; `0044_conversation_job_provenance.sql`
 adds the link from a conversation back to the job that produced it, and
 `0046_curated_skill_activations.sql` adds `curated_skill_activations`,
-`0047_platform_skills.sql` adds `platform_skills` and
-`0050_platform_skill_delivery.sql` adds its `delivery` column. Each tenant table
-joins the tenant boundary with a `grid_secure_table()` line (ADR-0041) —
+`0047_platform_skills.sql` adds `platform_skills`,
+`0050_platform_skill_delivery.sql` adds its `delivery` column and
+`0053_piloti_voice_standard_skill.sql` seeds the first `delivery: standard` row
+(a seed, not a source of truth: `ON CONFLICT DO NOTHING`, so re-running
+migrations cannot revert what the platform owner has since written). Each
+tenant table joins the tenant boundary with a `grid_secure_table()` line (ADR-0041) —
 re-emitted by 0043 under the new names, because a rename carries the policy
 along but leaves its stored predicate written against the old table name.
 
@@ -1024,15 +1115,21 @@ history surfaces, and the run-history link and job-glyph rendering that
 
 - `tests/aiq_agent/skills/` — model validation, builtin discovery, resolver
   caching/shadowing/fail-open (including the resolve query contract: URL,
-  token header, both param cases), runtime prompt/tool wiring.
+  token header, both param cases), runtime prompt/tool wiring, and the
+  **applied** half of the standard tier — `test_runtime.py` pins that a
+  `standard` skill is forced without being asked for, that the user's own
+  forces are listed before it, and that a user forcing a standard skill by name
+  does not list it twice.
 - `tests/aiq_agent/agents/chat_researcher/` — the envelope parsing
   (`test_utils.py`, `test_register_helpers.py`) and per-turn skill forcing.
 - BFF vitest, toolbox: `lib/skills/service.spec.ts` (authz, tenant filters,
   snapshot and targeting semantics — pinned against the Python cases — plus the
-  `platform standard skills` block, which asserts each of the five properties
-  above independently, including the legacy-collision and unpublished-draft
-  cases), `lib/skills/platform-service.spec.ts` (the closed `delivery` default
-  and moving a row between deliveries without touching the document),
+  `platform standard skills` block, which asserts each of the standard-tier
+  properties the BFF owns independently, including the legacy-collision and
+  unpublished-draft cases, and that `standard` is marked on the wire for a
+  standard row and on nothing else), `lib/skills/platform-service.spec.ts`
+  (the closed `delivery` default and moving a row between deliveries without
+  touching the document),
   `lib/skills/types.spec.ts`, `lib/skills/platform-skills.spec.ts` (which
   asserts every builtin still declares `grid-agents`, now the only thing
   keeping them out of chat), `features/skills/lib/slash-command.spec.ts`,

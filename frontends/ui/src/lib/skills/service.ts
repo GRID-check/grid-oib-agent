@@ -552,6 +552,19 @@ export type ResolvedSkill = {
   body: string
   metadata: Record<string, string>
   origin: SkillOrigin | 'platform'
+  /**
+   * Fleet standard equipment — a published `delivery: standard` platform row.
+   *
+   * On the wire because only the BFF can see `platform_skills`, and the backend
+   * needs the distinction to APPLY the skill rather than merely offer it: a
+   * standard skill is forced for the run, so its body is loaded instead of
+   * sitting in the catalog as a one-line description the model may never open.
+   * Without this the tier resolved everywhere and bound nowhere.
+   *
+   * Not derivable from `origin`, which is also `'platform'` for the machinery
+   * and for offers an org took up — neither of which imposes anything.
+   */
+  standard?: boolean
 }
 
 /**
@@ -573,7 +586,7 @@ async function resolveAll(
     livePlatformSkills(),
   ])
   const byName = new Map<string, ResolvedSkill>()
-  const put = (skill: CuratedSkill, origin: SkillOrigin | 'platform') => {
+  const put = (skill: CuratedSkill, origin: SkillOrigin | 'platform', standard = false) => {
     // Platform metadata rides along VERBATIM. Sending `{}` here dropped the
     // reserved `grid-*` keys, and because the backend resolver merges this
     // payload OVER its own filesystem copy, the shipped
@@ -586,6 +599,7 @@ async function resolveAll(
       body: skill.body,
       metadata: { ...skill.metadata },
       origin,
+      ...(standard ? { standard: true } : {}),
     })
   }
 
@@ -640,7 +654,7 @@ async function resolveAll(
   // standard skill written for deep research is still not handed to a chat turn.)
   for (const platform of live.standard) {
     byName.delete(platform.name)
-    put(platform, 'platform')
+    put(platform, 'platform', true)
   }
 
   return { skills: [...byName.values()], standardNames: new Set(live.standard.map((s) => s.name)) }

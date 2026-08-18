@@ -52,6 +52,7 @@ import type { AddresseeSet, MentionInput, PersistedMessageResult } from '@/lib/m
 import { isShared, requireResourceAccess } from '@/lib/sharing/access'
 import { countGrantsForResource } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
+import { normalizeAgentAnswerMetadata } from './agent-answer-metadata'
 import {
   resolveEngagement,
   resolveEngagementFor,
@@ -1088,7 +1089,23 @@ export async function persistInternalConversationMessages(
   if (!conversation) throw new NotFoundError()
 
   const rows = await insertMessages(
-    inputs.map((input) => buildMessageRow(conversationId, { input, addressees: null, createdRequests: 0 }, null)),
+    inputs.map((input) =>
+      buildMessageRow(
+        conversationId,
+        // The backend posts its answer metadata in WIRE spelling (`sources`,
+        // `answer_confidence`, …) while every reader of a message row looks for
+        // the browser's stored contract (`citations`, `provenance`). Translated
+        // here, at the one point the foreign dialect enters, so a turn persisted
+        // because the client dropped reads back with its sources, its confidence
+        // and its passage locators intact — see `agent-answer-metadata`.
+        {
+          input: { ...input, metadata: normalizeAgentAnswerMetadata(input.metadata) },
+          addressees: null,
+          createdRequests: 0,
+        },
+        null,
+      ),
+    ),
   )
 
   await fanOutMessageActivity({

@@ -28,6 +28,7 @@ import { platform } from './platform'
 import { presence } from './presence'
 import { shortcuts } from './shortcuts'
 import { legal } from './legal'
+import { answerExport } from './answer-export'
 
 export const en = {
   common,
@@ -52,4 +53,5 @@ export const en = {
   organization,
   platform,
   legal,
+  answerExport,
 } as const

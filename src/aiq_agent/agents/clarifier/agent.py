@@ -23,6 +23,7 @@ Example:
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import re
@@ -122,6 +123,48 @@ JSON_REMINDER_AFTER_TOOLS = (
 """Reminder prompt added after tool results to reinforce JSON-only output."""
 
 
+UserPromptCallback = Callable[..., Awaitable[str]]
+"""Callback that asks the user a question and returns their answer.
+
+Accepts either ``(question)`` or ``(question, options)``. The one-argument form
+predates structured answer options and is still supported: every caller that
+supplied it keeps working unchanged, and a question without options is asked
+through it exactly as before.
+"""
+
+
+def _accepts_options_argument(callback: UserPromptCallback) -> bool:
+    """
+    Report whether ``callback`` can be handed the answer options.
+
+    We dispatch on the signature rather than calling with two arguments and
+    catching ``TypeError``, because a ``TypeError`` raised *inside* an
+    old-style callback would look identical to an arity mismatch and we would
+    silently retry a call that already had side effects.
+
+    Args:
+        callback: The user prompt callback to inspect.
+
+    Returns:
+        True if a second positional argument (or an ``options`` keyword) is
+        accepted. False when the signature cannot be read at all, which keeps
+        the safe single-argument call as the default.
+    """
+    try:
+        parameters = list(inspect.signature(callback).parameters.values())
+    except (TypeError, ValueError):
+        return False
+
+    positional = [
+        p for p in parameters if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    if len(positional) >= 2:
+        return True
+    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters):
+        return True
+    return any(p.name == "options" and p.kind is inspect.Parameter.KEYWORD_ONLY for p in parameters)
+
+
 class ClarifierAgent:
     """
     Clarifier agent for interactive clarification dialog.
@@ -164,7 +207,7 @@ class ClarifierAgent:
         llm_provider: LLMProvider,
         tools: Sequence[BaseTool] | None = None,
         *,
-        user_prompt_callback: Callable[[str], Awaitable[str]],
+        user_prompt_callback: UserPromptCallback,
         max_turns: int = 3,
         enable_plan_approval: bool = False,
         max_plan_iterations: int = 10,
@@ -181,7 +224,10 @@ class ClarifierAgent:
             tools: Optional sequence of LangChain tools for context gathering
                 (e.g., web search). Tools help the agent ask more informed questions.
             user_prompt_callback: Async callback function to prompt the user for input.
-                Takes a question string and returns the user's response string.
+                Takes a question string, optionally followed by the list of short
+                answer labels, and returns the user's response string. A callback
+                that only accepts the question still works — the options are then
+                simply not offered.
             max_turns: Maximum number of clarification Q&A turns before
                 automatically completing clarification. Defaults to 3.
             enable_plan_approval: Whether to enable plan preview and approval
@@ -199,6 +245,9 @@ class ClarifierAgent:
         self.llm_provider: LLMProvider = llm_provider
         self.tools = list(tools) if tools else []
         self.user_prompt_callback = user_prompt_callback
+        # Resolved once here rather than per prompt: the signature cannot change
+        # between turns, and inspect.signature is not free.
+        self._callback_accepts_options = _accepts_options_argument(user_prompt_callback)
         self.max_turns = max_turns
         self.enable_plan_approval = enable_plan_approval
         self.max_plan_iterations = max_plan_iterations
@@ -452,6 +501,44 @@ class ClarifierAgent:
         logger.warning("No clarification question found in response")
         return "Could you provide more details about your research needs?"
 
+    def _get_clarification_options(self, text: str) -> list[str]:
+        """
+        Extract the offered answer labels from the response.
+
+        Args:
+            text: Raw text response from LLM.
+
+        Returns:
+            The short labels the model offered, or an empty list. Never derived
+            from the question prose: parsing "1. ..." back out of the rendered
+            question is exactly the round-trip this field exists to remove, and
+            a mis-parse would put words in the user's mouth.
+        """
+        response = self._parse_response(text)
+        if response is None:
+            return []
+        return list(response.options)
+
+    async def _ask_user(self, question: str, options: Sequence[str] | None = None) -> str:
+        """
+        Ask the user a question through the configured callback.
+
+        Args:
+            question: The human-readable question, already localized.
+            options: Short labels for the offered answers, if any.
+
+        Returns:
+            The user's reply text.
+        """
+        # Without options this is the exact single-argument call the callback
+        # has always received, so prose-only clarifications and the plan
+        # approval prompt are unaffected by this feature.
+        if options and self._callback_accepts_options:
+            return await self.user_prompt_callback(question, list(options))
+        if options:
+            logger.debug("User prompt callback takes no options; asking %d-option question as prose", len(options))
+        return await self.user_prompt_callback(question)
+
     def _get_llm(self) -> BaseChatModel:
         """
         Get the LLM instance for the clarifier agent.
@@ -591,8 +678,9 @@ class ClarifierAgent:
                 text = self._get_fallback_clarification(query=original_query if original_query else None)
 
             question_text = self._get_clarification_question(text)
+            question_options = self._get_clarification_options(text)
             clarifier_log = f"{clarifier_log}\n**Turn {iteration + 1} - Assistant:**\n{question_text}"
-            user_reply = await self.user_prompt_callback(question_text)
+            user_reply = await self._ask_user(question_text, question_options)
 
             if self._is_skip_command(user_reply):
                 logger.info("Clarifier: User requested to skip clarification")
@@ -677,7 +765,7 @@ class ClarifierAgent:
 
                 # Present plan to user
                 plan_display = self._format_plan_for_user(title, sections)
-                user_response = await self.user_prompt_callback(plan_display)
+                user_response = await self._ask_user(plan_display)
 
                 approved, rejected, feedback = self._parse_approval(user_response)
 

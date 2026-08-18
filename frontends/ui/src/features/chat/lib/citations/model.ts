@@ -116,6 +116,13 @@ export interface CitedDocument {
   authority?: string
   /** Bindingness note from the norm registry, for the popover. */
   bindingNote?: string
+  /**
+   * Coarse binding classification (`bindend` / `verbindlich_erklaert` /
+   * `auslegend`). Orthogonal to `authority`: that names the tier, this names
+   * whether it binds. Never `unbekannt` here — the unknown case is dropped to
+   * undefined upstream so it renders as no badge.
+   */
+  bindingStatus?: string
   /** Backend origin token, when one was stamped. */
   origin?: CitationOrigin
   /** Tool that produced the hit. */
@@ -499,6 +506,7 @@ export class CitationAccumulator {
     lane?: string | null
     laneLabel?: string | null
     bindingNote?: string | null
+    bindingStatus?: string | null
     origin?: string | null
     tool?: string | null
     snippet?: string | null
@@ -569,6 +577,7 @@ export class CitationAccumulator {
     doc.url = doc.url ?? (observation.url?.trim() || undefined)
     doc.tool = doc.tool ?? (observation.tool?.trim() || undefined)
     doc.bindingNote = doc.bindingNote ?? (observation.bindingNote?.trim() || undefined)
+    doc.bindingStatus = doc.bindingStatus ?? (observation.bindingStatus?.trim() || undefined)
     doc.snippet = doc.snippet ?? (observation.snippet?.trim() || undefined)
     doc.laneLabel = doc.laneLabel ?? (observation.laneLabel?.trim() || undefined)
     const origin = observation.origin?.trim().toLowerCase()

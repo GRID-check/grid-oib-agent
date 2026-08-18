@@ -307,6 +307,130 @@ class TestAMeasuredNumberCarriesWhereItCameFrom:
         assert "im CAD" in (check.missing or "")
 
 
+class TestAnswerShapeCards:
+    """The four cards that render the answer's shape rather than a schematic:
+    verdict_header, condition_tree, typed_table and norm_chain.
+
+    Each is checked twice — a valid card the adapter routes to its model, and one
+    malformed variant the validator rejects — plus the worked example, which is
+    what the model actually copies, is confirmed to round-trip.
+    """
+
+    def test_verdict_header_validates_and_routes(self):
+        from aiq_agent.cards.models import VerdictHeaderCard
+
+        raw = {
+            "type": "verdict_header",
+            "verdict": "1,10 m",
+            "subject": "Erforderliche Geländerhöhe",
+            "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 4.3"},
+            "confidence": "high",
+        }
+        card = grid_card_adapter.validate_python(raw)
+        assert isinstance(card, VerdictHeaderCard)
+        assert card.verdict == "1,10 m"
+        assert card.confidence == "high"
+
+    def test_verdict_header_rejects_empty_verdict(self):
+        # The verdict IS the card — an empty one would render a header with no
+        # answer under it, worse than no card at all.
+        assert validate_cards([{"type": "verdict_header", "verdict": "", "subject": "Geländerhöhe"}]) == []
+
+    def test_condition_tree_validates_and_marks_the_active_branch(self):
+        from aiq_agent.cards.models import ConditionTreeCard
+
+        raw = {
+            "type": "condition_tree",
+            "title": "Erforderliche Feuerwiderstandsklasse",
+            "question": "Gebäudeklasse",
+            "branches": [
+                {"condition": "GK 1–3", "outcome": "REI 30"},
+                {"condition": "GK 4", "outcome": "REI 60", "active": True},
+            ],
+        }
+        card = grid_card_adapter.validate_python(raw)
+        assert isinstance(card, ConditionTreeCard)
+        assert card.branches[1].active is True
+
+    def test_condition_tree_requires_at_least_one_branch(self):
+        raw = {"type": "condition_tree", "title": "Leer", "question": "Gebäudeklasse", "branches": []}
+        assert validate_cards([raw]) == []
+
+    def test_typed_table_squares_rows_to_the_column_count(self):
+        # Mirrors ComparisonTableCard: a short row is padded, an overlong one
+        # truncated, so a row/column mismatch never drops the whole table.
+        raw = {
+            "type": "typed_table",
+            "title": "Mindestmaße",
+            "columns": [
+                {"label": "Bauteil", "type": "text"},
+                {"label": "Maß", "type": "mass"},
+                {"label": "Erfüllt", "type": "verdict"},
+            ],
+            "rows": [
+                ["Tür", "90 cm"],  # short -> padded with ""
+                ["Rampe", "6 %", "nicht erfüllt", "überzählig"],  # long -> truncated
+            ],
+        }
+        [card] = validate_cards([raw])
+        assert card["rows"][0] == ["Tür", "90 cm", ""]
+        assert card["rows"][1] == ["Rampe", "6 %", "nicht erfüllt"]
+
+    def test_typed_table_rejects_an_unknown_column_type(self):
+        raw = {
+            "type": "typed_table",
+            "title": "Mindestmaße",
+            "columns": [{"label": "Maß", "type": "distance"}],
+            "rows": [["90 cm"]],
+        }
+        assert validate_cards([raw]) == []
+
+    def test_norm_chain_validates_and_keeps_link_order(self):
+        from aiq_agent.cards.models import NormChainCard
+
+        raw = {
+            "type": "norm_chain",
+            "title": "Normenkette – Absturzsicherung",
+            "links": [
+                {"label": "Wiener Bautechnikverordnung", "rank": "verordnung"},
+                {"label": "OIB-Richtlinie 4", "rank": "oib_richtlinie"},
+                {"label": "ÖNORM B 1600", "rank": "oenorm"},
+            ],
+        }
+        card = grid_card_adapter.validate_python(raw)
+        assert isinstance(card, NormChainCard)
+        assert [link.rank for link in card.links] == ["verordnung", "oib_richtlinie", "oenorm"]
+
+    def test_norm_chain_rejects_a_rank_outside_the_vocabulary(self):
+        # The rank drives the binding-vs-interpretive weight in the render; a
+        # freeform string would render with no weight and no meaning.
+        raw = {
+            "type": "norm_chain",
+            "title": "Kette",
+            "links": [{"label": "EU-Verordnung", "rank": "eu_verordnung"}],
+        }
+        assert validate_cards([raw]) == []
+
+    def test_the_worked_examples_round_trip(self):
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+
+        for card_type in ("verdict_header", "condition_tree", "typed_table", "norm_chain"):
+            card = grid_card_adapter.validate_python(CARD_EXAMPLES[card_type])
+            assert card.type == card_type
+
+    def test_render_card_details_covers_each_new_type(self):
+        from aiq_agent.cards.catalog import render_card_details
+
+        detail = render_card_details(["verdict_header", "condition_tree", "typed_table", "norm_chain"])
+        for card_type in ("verdict_header", "condition_tree", "typed_table", "norm_chain"):
+            assert f'"{card_type}"' in detail
+        # The nested building blocks are spelled out, not hidden behind a name.
+        assert "ConditionBranch = {" in detail
+        assert "NormChainLink = {" in detail
+        # The worked examples ride along so the model copies the nesting exactly.
+        assert "Worked examples" in detail
+
+
 class TestTheCatalogTellsTheModelToCopyNotGuess:
     """The rule has to be stated where the model reads the catalog.
 

@@ -45,6 +45,8 @@ from .data_sources import get_disabled_sources_from_context
 from .data_sources import parse_data_sources
 from .data_sources import parse_disabled_sources
 from .db_utils import redact_db_url
+from .human_prompt import build_human_prompt
+from .human_prompt import extract_user_response
 from .json_utils import extract_json
 from .llm_credentials import OrgLLMCredential
 from .llm_credentials import apply_org_credential
@@ -128,7 +130,9 @@ __all__ = [
     "parse_model_overrides",
     "redact_db_url",
     "sanitize_model_overrides",
+    "build_human_prompt",
     "extract_json",
+    "extract_user_response",
     "extract_messages_and_sources",
     "filter_tools_by_sources",
     "format_data_source_tools",

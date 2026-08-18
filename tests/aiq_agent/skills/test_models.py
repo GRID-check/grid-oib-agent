@@ -11,6 +11,7 @@ from aiq_agent.skills.models import SkillValidationError
 from aiq_agent.skills.models import build_skill_from_payload
 from aiq_agent.skills.models import parse_skill_md
 from aiq_agent.skills.models import preferred_cards
+from aiq_agent.skills.models import skill_hidden
 from aiq_agent.skills.models import skill_title
 
 VALID_MD = """---
@@ -181,7 +182,7 @@ def test_reserved_key_registry() -> None:
     ``grid-execution`` and ``grid-schedulable`` were removed outright when
     scheduling became a property of the job.
     """
-    assert GRID_METADATA_KEYS == {"grid-agents", "grid-cards", "grid-title"}
+    assert GRID_METADATA_KEYS == {"grid-agents", "grid-cards", "grid-title", "grid-hidden"}
     assert "grid-execution" not in GRID_METADATA_KEYS
     assert "grid-schedulable" not in GRID_METADATA_KEYS
 
@@ -238,6 +239,67 @@ def test_org_row_keeps_a_good_title() -> None:
         origin="org",
     )
     assert skill_title(skill) == "Brandschutznachweis"
+
+
+def _with_hidden(value: str) -> str:
+    # Quoted: metadata values are strings everywhere (the BFF stores jsonb
+    # string→string and the migration writes ``grid-hidden: "true"``), and an
+    # unquoted ``true`` is a YAML boolean the string→string contract rejects.
+    return VALID_MD.replace("  grid-agents: shallow_researcher", f'  grid-hidden: "{value}"')
+
+
+def test_grid_hidden_truthy_tokens_mark_a_skill_hidden() -> None:
+    for token in ("true", "1", "yes", "TRUE", "  Yes  "):
+        skill = parse_skill_md(_with_hidden(token))
+        assert skill_hidden(skill.metadata) is True, token
+        # Normalised to the one canonical spelling, so every reader compares one word.
+        assert skill.metadata["grid-hidden"] == "true"
+
+
+def test_grid_hidden_falsy_tokens_drop_the_key_and_read_visible() -> None:
+    for token in ("false", "0", "no", ""):
+        skill = parse_skill_md(_with_hidden(token))
+        assert "grid-hidden" not in skill.metadata, token
+        assert skill_hidden(skill.metadata) is False, token
+
+
+def test_absent_grid_hidden_reads_visible() -> None:
+    skill = parse_skill_md(VALID_MD)
+    assert skill_hidden(skill.metadata) is False
+
+
+def test_garbage_grid_hidden_is_a_strict_error_for_a_file_skill() -> None:
+    with pytest.raises(SkillValidationError, match="grid-hidden"):
+        parse_skill_md(_with_hidden("maybe"))
+
+
+def test_org_row_drops_a_bad_hidden_flag_instead_of_dying() -> None:
+    """A tenant's garbage flag costs them the flag, never the whole skill."""
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-hidden": "sometimes", "grid-agents": "shallow_researcher"},
+        },
+        origin="org",
+    )
+    assert "grid-hidden" not in skill.metadata
+    assert skill.metadata["grid-agents"] == "shallow_researcher"
+    assert skill_hidden(skill.metadata) is False
+
+
+def test_org_row_keeps_a_truthy_hidden_flag() -> None:
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-hidden": "yes"},
+        },
+        origin="org",
+    )
+    assert skill_hidden(skill.metadata) is True
 
 
 def _with_cards(value: str) -> str:

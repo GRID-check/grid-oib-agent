@@ -40,6 +40,15 @@ TITLED_TWO = Skill(
     metadata={"grid-title": "Fluchtwegprüfung"},
     origin="org",
 )
+# A hidden skill WITH a title: proves hidden demotes the live line even when a
+# perfectly good title exists — the voice-skill case.
+HIDDEN = Skill(
+    name="piloti-voice",
+    description="Hausstimme, auf jeder Antwort.",
+    body="voice body",
+    metadata={"grid-title": "Piloti-Stimme", "grid-hidden": "true"},
+    origin="platform",
+)
 
 
 def _boom(*_args, **_kwargs):
@@ -83,7 +92,7 @@ def test_no_skills_yields_no_prompt_and_no_tools() -> None:
 def test_prompt_block_lists_descriptions_only() -> None:
     block = _runtime().prompt_block()
     assert block is not None
-    assert block.startswith("## Verfügbare Skills")
+    assert block.startswith("## Available skills")
     assert "use_skill" in block
     assert "`alpha`: Erster Skill." in block
     # Progressive disclosure: bodies NEVER leak into the prompt.
@@ -108,7 +117,7 @@ def test_forced_names_come_first_in_activation_order() -> None:
 def test_forced_block_names_only_forced_skills() -> None:
     block = _runtime(forced=["beta"]).forced_block()
     assert block is not None
-    assert block.startswith("## Aktive Skills (vom Nutzer erzwungen)")
+    assert block.startswith("## Active skills (required for this turn)")
     assert "`beta`" in block
     assert "`alpha`" not in block
 
@@ -117,7 +126,7 @@ def test_force_unknown_skill_is_ignored() -> None:
     runtime = SkillRuntime(skills=(S1,), force_names=["ghost", "alpha"])
     assert runtime.forced == ("alpha",)
     assert runtime.activated == ("alpha",)
-    assert runtime.forced_block().startswith("## Aktive Skills")
+    assert runtime.forced_block().startswith("## Active skills")
 
 
 def test_forced_block_none_when_nothing_forced() -> None:
@@ -128,7 +137,7 @@ def test_unknown_skill_message_lists_available_names() -> None:
     tools = _runtime().build_tools()
     tool = next(t for t in tools if t.name == "use_skill")
     result = tool.invoke({"skill_name": "nope"})
-    assert "Unbekannter Skill 'nope'" in result
+    assert "Unknown skill 'nope'" in result
     assert "alpha" in result and "beta" in result
     # A failed load never activates the skill.
     assert _runtime().activated == ()
@@ -138,14 +147,14 @@ def test_preferred_cards_are_appended_on_activation_only() -> None:
     runtime = SkillRuntime(skills=(S1, CARDS))
     body = _use_skill(runtime).invoke({"skill_name": "gamma"})
     assert body.startswith("gamma body")
-    assert "## Bevorzugte Cards" in body
+    assert "## Preferred cards" in body
     # Author order is preserved, and the types are named verbatim so the model
     # can copy them into `type` without translating a prose paraphrase.
     assert "`comparison_table`, `summary`" in body
     # A preference, not a command — the wording must leave an out.
-    assert "keine Vorgabe" in body
+    assert "not a requirement" in body
     # The whole point of the feature: it costs nothing until activation.
-    assert "Bevorzugte Cards" not in (runtime.prompt_block() or "")
+    assert "Preferred cards" not in (runtime.prompt_block() or "")
 
 
 def test_skill_without_preferred_cards_returns_the_bare_body() -> None:
@@ -256,6 +265,28 @@ class TestActivationEvents:
         assert "text" not in activation
         assert "title" not in activation
 
+    def test_a_hidden_skill_is_recorded_but_kept_off_the_live_line(self, context_state) -> None:
+        """Hidden = out of the noisy live line, never concealed.
+
+        The activation STILL fires and STILL records (name, title, forced) so
+        the disclosure names it and the reasoning view surfaces it — only the
+        channel changes to technical and the live ``key`` is withheld, which is
+        the one thing that would put it back in the running line.
+        """
+        events = self._sink(context_state)
+        _use_skill(SkillRuntime(skills=(HIDDEN,), force_names=["piloti-voice"])).invoke({"skill_name": "piloti-voice"})
+
+        activation = next(e for e in events if e["phase"] == "activated")
+        # Recorded, and honest about what it is…
+        assert activation["name"] == "piloti-voice"
+        assert activation["title"] == "Piloti-Stimme"
+        assert activation["forced"] is True
+        # …but never in the live line: technical channel, no live sentence.
+        assert activation["channel"] == "technical"
+        assert "key" not in activation
+        assert "values" not in activation
+        assert "text" not in activation
+
     def test_loading_a_body_is_technical_only(self, context_state) -> None:
         events = self._sink(context_state)
         body = _use_skill(SkillRuntime(skills=(TITLED,))).invoke({"skill_name": "titel"})
@@ -322,3 +353,75 @@ class TestActivationEvents:
         emit_skills_offered(runtime)
         assert _use_skill(runtime).invoke({"skill_name": "titel"}) == "titel body"
         assert runtime.activated == ("titel",)
+
+
+STANDARD = Skill(
+    name="haus-stil",
+    description="Fleet standard equipment.",
+    body="standard body",
+    origin="org",
+    standard=True,
+)
+
+
+def test_standard_skills_are_applied_without_being_asked_for() -> None:
+    # `delivery: standard` already means "resolved for every organization, no
+    # decision to make". Resolving it only put its description in the catalog,
+    # and a description the model may or may not open is not fleet policy.
+    runtime = SkillRuntime(skills=(S1, STANDARD))
+    assert "haus-stil" in runtime.forced
+    assert "haus-stil" in runtime.activated
+
+
+def test_an_ordinary_skill_is_not_forced() -> None:
+    # The flag is the whole gate: an offer the org took up, or a builtin, must
+    # stay opt-in or every resolved skill becomes mandatory.
+    runtime = SkillRuntime(skills=(S1, S2))
+    assert runtime.forced == ()
+    assert runtime.forced_block() is None
+
+
+def test_user_forces_are_listed_before_standard_skills() -> None:
+    # The forced block reads back to the model in order; what the user asked
+    # for should not sit underneath something they never mentioned.
+    runtime = SkillRuntime(skills=(S1, STANDARD), force_names=["alpha"])
+    assert runtime.forced == ("alpha", "haus-stil")
+
+
+def test_a_user_forced_standard_skill_is_not_listed_twice() -> None:
+    runtime = SkillRuntime(skills=(S1, STANDARD), force_names=["haus-stil"])
+    assert runtime.forced == ("haus-stil",)
+    assert runtime.activated.count("haus-stil") == 1
+
+
+def test_the_forced_doctrine_says_when_a_writing_skill_binds() -> None:
+    # Without "before you write", a skill that governs prose is loaded after the
+    # prose exists, which is the one moment it cannot affect anything.
+    runtime = SkillRuntime(skills=(STANDARD,))
+    assert "before you write" in (runtime.forced_block() or "")
+
+
+HIDDEN_STD = Skill(
+    name="haus-stimme",
+    description="Die Hausstimme.",
+    body="voice body",
+    metadata={"grid-hidden": "true"},
+    origin="org",
+    standard=True,
+)
+
+
+def test_hidden_activated_is_the_grid_hidden_subset() -> None:
+    # The disclosure NAMES every activated skill, but a skill that runs on every
+    # answer is noise there too — this subset is what the frontend mutes until
+    # the reasoning view is open. Resolved here because only the runtime holds a
+    # standard skill's metadata; the invocable list the disclosure reads excludes it.
+    runtime = SkillRuntime(skills=(S1, HIDDEN_STD))
+    assert "haus-stimme" in runtime.activated
+    assert runtime.hidden_activated == ("haus-stimme",)
+
+
+def test_an_ordinary_activated_skill_is_not_hidden() -> None:
+    runtime = SkillRuntime(skills=(S1, STANDARD))  # STANDARD carries no grid-hidden
+    assert "haus-stil" in runtime.activated
+    assert runtime.hidden_activated == ()

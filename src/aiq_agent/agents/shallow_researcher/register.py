@@ -30,6 +30,11 @@ from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 
+# Importing this module runs its ``@register_function`` so NAT discovers the
+# ``ask_user`` tool through the same ``aiq_shallow_researcher`` entry point
+# that imports this file — the pattern ``cards/register.py`` uses for
+# ``surface_documents``, and no extra plugin entry point to keep in sync.
+from . import ask_user as _ask_user  # noqa: F401
 from .agent import ShallowResearcherAgent
 from .models import ShallowResearchAgentState
 from .tool_search import ToolSearchSettings
@@ -239,6 +244,9 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             result = await active_agent.run(state)
             if skill_runtime is not None:
                 result.skills_activated = list(skill_runtime.activated)
+                hidden = list(skill_runtime.hidden_activated)
+                if hidden:
+                    result.skills_hidden = hidden
             return result
         except EmptySourceRegistryError:
             # A scoped miss (this-file / this-shelf) is a valid empty

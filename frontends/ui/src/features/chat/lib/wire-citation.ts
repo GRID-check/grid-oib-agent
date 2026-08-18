@@ -65,7 +65,18 @@ export const citationFromWire = (
     lane: trimmed(wire.lane),
     laneLabel: trimmed(wire.lane_label),
     bindingNote: trimmed(wire.binding_note),
+    // `unbekannt` is the backend's explicit "no registry entry matched", which
+    // on screen must be silence, not a badge — dropping it here means an
+    // unclassified source simply carries no binding chip rather than a
+    // misleading one. See WireCitationSource.bindingStatus.
+    bindingStatus: bindingStatusOrUndefined(wire.binding_status),
   }
+}
+
+/** `unbekannt`/empty → undefined; any real classification kept verbatim. */
+const bindingStatusOrUndefined = (value: string | null | undefined): string | undefined => {
+  const status = value?.trim()
+  return status && status !== 'unbekannt' ? status : undefined
 }
 
 /**

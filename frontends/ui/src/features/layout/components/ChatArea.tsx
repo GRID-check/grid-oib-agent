@@ -57,6 +57,7 @@ import { useProjectBimModels } from '@/features/bim/hooks/use-bim-model'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
+import { useShowReasoningSkills } from '@/lib/user-preferences/use-show-reasoning-skills'
 
 interface ChatAreaProps {
   /** Whether the user is authenticated */
@@ -126,6 +127,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const tCollaboration = useTranslations('collaboration')
   const { user } = useAuth()
   const currentUserId = user?.id ?? null
+  // Fetched ONCE for the whole transcript and passed down to each answer.
+  // Reading it inside AgentResponse would fire one GET per message and re-render
+  // every answer when it settled; the list renders once, so the preference does.
+  const { showReasoningSkills } = useShowReasoningSkills()
 
   // ── The ADR-0033 seam ───────────────────────────────────────────────────────
   // One hook owns "is this thread shared, load it from the server, keep it
@@ -799,6 +804,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         onErrorRetry={handleErrorRetry}
                         showConfidenceChip={showConfidenceChip}
                         showAnswerFeedback={showAnswerFeedback}
+                        showReasoning={showReasoningSkills}
                         author={messageAuthorship?.author}
                         grouped={messageAuthorship?.grouped}
                         currentUserId={currentUserId}
@@ -999,6 +1005,8 @@ interface MessageRendererProps {
   showConfidenceChip?: boolean
   /** Whether the AgentResponse thumbs feedback row renders (feature-flagged). */
   showAnswerFeedback?: boolean
+  /** The reader's showReasoningSkills preference (fetched once by ChatArea). */
+  showReasoning?: boolean
   /**
    * Who wrote this message. Present ONLY in a shared thread — absent means "render
    * exactly as before", which is what keeps a solo thread unchanged.
@@ -1023,6 +1031,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   onErrorRetry,
   showConfidenceChip = true,
   showAnswerFeedback = true,
+  showReasoning = false,
   author,
   grouped,
   currentUserId,
@@ -1086,6 +1095,8 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           answerConfidenceReason={message.answerConfidenceReason}
           citationsRemoved={message.citationsRemoved}
           skillsActivated={message.skillsActivated}
+          skillsHidden={message.skillsHidden}
+          showReasoning={showReasoning}
           showConfidenceChip={showConfidenceChip}
           messageId={message.id}
           showAnswerFeedback={showAnswerFeedback}
@@ -1176,6 +1187,7 @@ const areMessageRendererPropsEqual = (
   prev.conversationId === next.conversationId &&
   prev.showConfidenceChip === next.showConfidenceChip &&
   prev.showAnswerFeedback === next.showAnswerFeedback &&
+  prev.showReasoning === next.showReasoning &&
   // Authorship is derived per render (from the roster + the reader), so compare
   // its fields rather than the object — otherwise every roster refresh would
   // re-render every bubble in the thread.

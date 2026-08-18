@@ -53,6 +53,8 @@ export interface ResponseTransparency {
    * Absent when none were — availability is not activation.
    */
   skillsActivated?: string[]
+  /** The grid-hidden subset of skillsActivated — muted in the disclosure until the reader opens reasoning. */
+  skillsHidden?: string[]
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
@@ -636,6 +638,7 @@ export class NATWebSocketClient {
             answerConfidenceReason: message.answer_confidence_reason,
             citationsRemoved: message.citations_removed,
             skillsActivated: message.skills_activated,
+            skillsHidden: message.skills_hidden,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
           }

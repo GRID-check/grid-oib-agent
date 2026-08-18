@@ -13,24 +13,84 @@ meant to grow.
 
 ## Current card types
 
-Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`):
+Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
+— **27 types**, in four families. The families are not decoration: each answers
+"where does a number on this card come from?" differently, and that answer is
+what decides whether the model may emit the card at all, on which surface, and
+what it is allowed to write into it.
 
-| Type | Purpose | Key fields |
+**Structured cards.** The model writes the content itself, grounded in the
+answer it has just written.
+
+| `type` | Purpose | Key fields |
 |---|---|---|
-| `SummaryCard` | A short overview / key points | `title`, `content`, `key_points` |
-| `LegalBasisCard` | An OIB legal-basis citation | `law`, `article`, `section`, `summary`, `original_text` |
-| `ProjectProfilePatchCard` | A proposed change to the project profile | JSON-Patch `ops` (restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions`) + before/after preview |
-| `RequirementChecklistCard` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
-| `ComparisonTableCard` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
-| `IfcViewerCard` | The project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids` **XOR** `match`, plus `label`, `status`), `storey`, `note` |
-| `IfcScheduleCard` | The Raumbuch, optionally for one storey | `title`, `model_file`, `storey`, `note` |
-| `IfcElementCard` | One element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
-| `IfcDiffCard` | What changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |
-| `IfcComplianceCard` | The Prüfbuch: OIB requirements with their verdict | `title`, `model_file`, `rule_ids[]`, `note` |
+| `summary` | A short overview / key points | `title`, `content`, `key_points` |
+| `legal_basis` | An OIB/norm legal-basis citation | `law`, `article`, `section`, `summary`, `original_text` |
+| `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
+| `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
+| `comparison_table` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
+
+**Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
+in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
+**parameters only**; the renderer draws to scale and does every piece of
+geometry and ratio arithmetic itself, so a card cannot show a diagram that
+disagrees with its own numbers. Each measured dimension is a `DimensionCheck`
+(`value`, `required`, `unit`, `comparator`, `status`), every required limit
+carries a `NormReference`, and an unknown value is omitted with
+`status: "needs_input"` rather than estimated — the renderer prints "fehlende
+Angabe", never a guess. A `value` lifted off an `ifc_measure` answer additionally
+carries that answer's own `provenance` (`declared` / `computed` / `inferred`)
+and, when computed, its `tolerance` — the card is the part that gets
+screenshotted into a submission, so it is the surface least able to afford
+dropping the qualifier that made the number true.
+
+| `type` | Draws | Domain |
+|---|---|---|
+| `building_section` | storeys stacked to scale, the ground line, dashed Fluchtniveau/GK/Hochhaus marker lines | height / Gebäudeklasse |
+| `stair_diagram` | the step profile to scale, riser/going/width, and the 2×Steigung + Auftritt comfort rule | stairs (OIB 4) |
+| `dimension_diagram` | one of six templates — door, ramp, corridor, turning circle, threshold, parking space — with a dimension arrow drawn where each is measured | accessibility (OIB 4 / ÖNORM B 1600) |
+| `setback_plan` | the parcel, the footprint and the required-setback envelope, one distance arrow per edge | Abstandsflächen / Bauwich |
+| `egress_diagram` | the escape path run by run from the worst-case point, total length vs the OIB limit (typically 40 m) | fire / escape routes (OIB 2) |
+| `daylight_incidence` | a window section, the 45° free-light line, any obstruction, and the glass-vs-floor-area check | daylight (OIB 3) |
+| `guardrail_check` | a railing elevation with height, max opening and bottom-gap checks, and the no-climb band shaded | Absturzsicherung (OIB 4) |
+| `density_check` | parcel + shaded footprint with Bebauungsgrad and GFZ bars (the renderer derives both ratios) | zoning density |
+| `fire_access_plan` | a Feuerwehrzufahrt site plan: access route, Aufstellfläche beside the facade, reach to the farthest entrance | fire access (OIB 2 / TRVB) |
+| `acoustic_check` | direction-aware dB gauges — airborne (`DnTw`, higher is better) and impact (`LnTw`, lower is better) drawn opposite ways | Schallschutz (OIB 5) |
+| `fire_compartment` | a storey split into Brandabschnitte, width proportional to area, each read against the max Brandabschnittsfläche | fire compartments (OIB 2) |
+| `thermal_envelope` | a building-envelope section with one U-value bar per component | Wärmeschutz (OIB 6) |
+| `energy_performance` | the Heizwärmebedarf on the A++–G energy-class ladder, plus HWB and optional fGEE bars | Energieausweis (OIB 6) |
+| `elevator_requirement` | the served-storey stack with a lift shaft, the requirement verdict, and cabin/door clearances | barrier-free lift (OIB 4) |
+| `parking_requirement` | a slot grid (outline = required, filled = provided) with count bars for cars and bicycles | Stellplatznachweis (Bauordnung / StPl-VO) |
+
+**Model-backed cards** — the five that address the architect's actual IFC model.
+Every identifying field has to be **copied from an `ifc_query` row in the same
+turn**; the model supplies no figures at all (`MODEL_BACKED_CARD_TYPES` in
+`cards/catalog.py`).
+
+| `type` | Shows | Key fields |
+|---|---|---|
+| `ifc_viewer` | the project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids` **XOR** `match`, plus `label`, `status`), `storey`, `note` |
+| `ifc_schedule` | the Raumbuch, optionally for one storey | `title`, `model_file`, `storey`, `note` |
+| `ifc_element` | one element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
+| `ifc_diff` | what changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |
+| `ifc_compliance` | the Prüfbuch: OIB requirements with their verdict | `title`, `model_file`, `rule_ids[]` (≤ 20), `note` |
+
+**System cards** — emitted by a specific tool on a sanctioned path, never by the
+model (`SYSTEM_CARD_TYPES`; `emit_card` refuses them and the model-facing
+catalog omits them entirely).
+
+| `type` | Shows | Emitted by |
+|---|---|---|
+| `document_grid` | project/Büroarchiv files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
+| `memory_proposal` **(interactive)** | a finding to be written to org- or project-scoped memory, for the user to confirm | the `remember` tool |
+
+**(interactive)** marks a card whose answer is a commitment and is therefore
+persisted on the message; see
+[Interactive cards](#interactive-cards-the-answer-must-be-persisted).
 
 `validate_cards()` validates against the union and drops null fields.
 
-### The four IFC cards carry identifiers, not numbers
+### The five IFC cards carry identifiers, not numbers
 
 `IfcViewerCard` is the only card that points at data the model did not supply:
 `global_ids` must be IFC GlobalIds returned by `ifc_query` in the same turn. The
@@ -79,19 +139,100 @@ so there is nothing to persist on the message.
 
 Cards are emitted by the answering agent itself via the **`emit_card` tool**
 (`cards/register.py`): mid-turn, with full context, the agent calls the tool
-whenever a structured element communicates better than prose. The tool
-description is derived from the Pydantic union (including nested shapes and
-worked examples per hard-to-nest type — see `_CARD_EXAMPLES`), the card is
-validated against the shared schema, and pushed into the conversation-scoped
+whenever a structured element communicates better than prose. The card is
+validated against the shared schema and pushed into the conversation-scoped
 `CardRegistry`. The chat entrypoint snapshots that registry after the turn and
 attaches the cards to `ChatResponse.cards`, which the monkeypatched WS handler
 lifts onto the top-level message so the frontend reads it at `message.cards`.
 (The older post-hoc "re-derive cards from the finished prose" LLM call in
 `cards/generate.py` / `cards/prompt.py` remains as a fallback path.)
 
-**System cards** (`SYSTEM_CARD_TYPES` in `cards/catalog.py`) are a variant the
-**model must never fabricate**: `emit_card` refuses them and they are omitted
-from the model-facing catalog. They are emitted only by a specific tool on a
+### The vocabulary is two levels: an index, then shapes on demand
+
+The tool description used to be the whole catalog — every type's shape, every
+shared building block, and a worked example per hard-to-nest type, all rendered
+out of the Pydantic union by `render_card_catalog()`. That was right about the
+schema and wrong about the economics. It is ~5,200 tokens sitting in context on
+**every** turn whether or not a card is ever emitted, and it grows ~190 tokens
+for each type added — permanently, and linearly with a vocabulary we intend to
+keep growing. The fifteen schematic cards alone were carrying ~2,900 tokens of
+nesting into conversations that will never draw a stair.
+
+So the catalog is split the way the skills runtime already splits instructions
+(`agent-skills.md` § Selection & progressive disclosure):
+
+| level | what it is | where |
+|---|---|---|
+| **L1 — always on** | one line per model-facing type: the `type` value and the first line of the card model's docstring, plus the interactive-card note. No shapes, no building blocks, no examples. | `render_card_index()`, rendered into the `emit_card` description |
+| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)`, served by the **`describe_card`** tool |
+
+That took the `emit_card` description from ~5,209 to ~1,205 tokens per turn, and
+the marginal cost of a new card type from ~190 tokens on every turn to ~23. It is
+what makes a growing card vocabulary affordable on a cost-optimised model tier —
+and what stops the always-on half from diluting attention on a long turn.
+
+`render_card_catalog()` still exists and is still the one rendering both card
+surfaces share. Post-hoc generation keeps taking it whole
+(`build_card_generation_prompt()`): it is a single batch call with no tool loop,
+so there is nothing there that could fetch L2 later.
+
+`describe_card` **reports the names it did not recognise** rather than quietly
+rendering only what resolved — a silently shorter answer reads as "that card
+does not exist", and the model's next move would be to invent a shape for it.
+Inside `render_card_details` an unknown or system type is skipped rather than
+raised on, because the same function is also fed from skill metadata, and a
+stale name in a tenant's skill must not take down the turn that mentioned it.
+
+The skills runtime is that third consumer. When a skill declaring `grid-cards`
+is loaded, `_preferred_cards_block` (`skills/runtime.py`) appends the **shapes**
+of the types it names, not just their names. A skill naming its cards is the
+moment we know which of the 27 shapes this turn could possibly need, so it is
+the moment to spend context on them — and it saves the activated turn a
+`describe_card` round-trip it would otherwise always pay.
+
+### `emit_card` carries the doctrine, not a disclaimer
+
+The description used to say "emit a card only when it adds real value". That is
+a disclaimer, not an instruction, and fifteen diagram renderers sat behind it —
+while eight lines away in `researcher.j2` the IFC block named a trigger and gave
+a reason, which is exactly why the IFC cards were emitted and the schematics
+were not.
+
+`_CARD_DOCTRINE` now states the default positively and names the trigger for
+each card: a riser, tread or stair width → `stair_diagram`; a clear width, ramp
+or turning circle → `dimension_diagram`; an escape route with segments →
+`egress_diagram`; a fall height, railing or opening → `guardrail_check`; a
+U-value, HWB or energy class → `thermal_envelope` / `energy_performance`; a fire
+compartment area → `fire_compartment`; the Richtlinie the answer rests on →
+`legal_basis`; three or more pass/fail criteria → `requirement_checklist`; two
+or more options weighed against each other → `comparison_table`. The reason
+travels with the rule: an answer that turns on a dimension gets its card by
+default rather than on request, because a measurement written as a sentence
+makes the reader re-draw it in their head, and the card is the drawing they
+would have made.
+
+A positive trigger that strong needs an **explicit negative default** beside it
+or it produces card spam, so the doctrine states that too: a one-line factual
+answer gets no card; a card that repeats the sentence above it costs the reader
+a second pass over the same fact; two cards in a turn is plenty, and past that
+the written answer stops being the answer; and no field, reference or number may
+be fabricated to fill a card out — a card with an invented limit in it is worse
+than the prose alone, because it is the part that gets screenshotted into a
+submission.
+
+Because the doctrine lives on the tool, the shallow researcher's `<cards>` block
+no longer restates it. It points at the `emit_card` description and keeps only
+what is true of cards but not of the tool — cards are in addition to the written
+answer, so always write the prose too; and if asked whether Grid can render
+cards, say yes and demonstrate by emitting one. Two copies of a trigger list is
+two things to keep in step, and the prompt copy is the one that would silently
+fall behind the union.
+
+### System cards: never the model's to fabricate
+
+`SYSTEM_CARD_TYPES` (`cards/catalog.py`) marks the variant the **model must
+never fabricate**: `emit_card` refuses them and they are omitted from the
+model-facing catalog and from the index. They are emitted only by a specific tool on a
 sanctioned path, carrying **real** data:
 
 - `memory_proposal` — emitted by the `remember` tool when an org-scoped memory
@@ -113,14 +254,17 @@ sanctioned path, carrying **real** data:
   tool. Never invent names. See [ADR-0026](../adr/) for
   source-kind doctrine.
 
-**Model-backed cards** (`MODEL_BACKED_CARD_TYPES` in `cards/catalog.py`) —
-`ifc_viewer`, `ifc_element`, `ifc_compliance`, `ifc_schedule`, `ifc_diff` — are
-a second, softer restriction, and they cut the other way: the model *may* emit
-them, but only on the surface that can supply their contents. Every field that
+### Model-backed cards: copied from a tool result, never composed
+
+`MODEL_BACKED_CARD_TYPES` (`cards/catalog.py`) — `ifc_viewer`, `ifc_element`,
+`ifc_compliance`, `ifc_schedule`, `ifc_diff` — is a second, softer restriction,
+and it cuts the other way: the model *may* emit them, but only on the surface
+that can supply their contents. Every field that
 identifies something in them is an IFC GlobalId, a rule id or a model file name,
 all of which have to be **copied from an `ifc_query` row in the same turn**.
 
-- `emit_card` advertises them in full. Its caller has the tool rows in context.
+- `emit_card` advertises them — in the index, with their shapes one
+  `describe_card` call away. Its caller has the `ifc_query` rows in context.
 - **Post-hoc generation does not.** `cards/generate.py` is handed only the
   question and the finished answer TEXT, so the only ids available there are
   whatever survived into the prose — the rest would be invented, and an
@@ -143,9 +287,12 @@ silently discards half the request.
 
 Emitting one is not optional politeness: the shallow researcher's `<cards>`
 block asks for the matching card by default on any answer that came from
-`ifc_query`, and the tool description names which card goes with which
-operation. Before that existed, all five renderers were reachable only if the
-model happened to pick one unprompted out of the catalog — and the `ifc_query`
+`ifc_query`, and names which card goes with which operation. That is the one
+part of the trigger doctrine that stayed in the prompt rather than moving to the
+`emit_card` description, because it turns on what `ifc_query` returned this turn
+— which ids exist to copy — rather than on the card catalog. Before that
+existed, all five renderers were reachable only if the model happened to pick
+one unprompted out of the catalog — and the `ifc_query`
 description actively steered it the other way, toward markdown element links.
 The result was that a question about a 150 MB building was answered with three
 lines of prose.
@@ -240,7 +387,12 @@ without re-plumbing generation or transport.
 ### Checklist: adding a card type
 
 1. Define the Pydantic model in `src/aiq_agent/cards/models.py` and add it to the
-   `GridCard` union.
+   `GridCard` union. **The docstring's first line is the L1 index entry** the
+   model reads on every turn — write it as a trigger ("Emit for … questions"),
+   not as a label, because the index is all the model has to go on before it
+   spends a `describe_card` call. Nothing else is needed to advertise the type:
+   the index, the shapes, the human catalog endpoint and the gallery are all
+   derived from the union.
 2. Regenerate the schema: `uv run python scripts/generate_card_schema.py`, then
    `cd frontends/ui && npm run generate:cards`.
 3. **Classify it in `CARD_INTERACTIVITY`** (`features/grid-cards/card-decision.ts`).
@@ -250,50 +402,37 @@ without re-plumbing generation or transport.
    dispatcher (interactive cards get `messageId={messageId} cardKey={key}`).
 5. Add a fixture to the `/dev/cards` gallery and a `visual/registry.mjs` target,
    then capture screenshot evidence (`npm run screenshots`).
-6. For a **system** card (tool-emitted, never model-emitted): add it to
+6. **Give it a trigger in `_CARD_DOCTRINE`** (`cards/register.py`) — which
+   question calls for it, in the same "trigger → card" form as the rest. A type
+   that is only listed in the index is a renderer nobody is asked for, which is
+   a renderer nobody sees; that is exactly how fifteen schematic cards sat
+   behind a disclaimer.
+7. For a **system** card (tool-emitted, never model-emitted): add it to
    `SYSTEM_CARD_TYPES` and register the emitting tool in the agent's `tools:`
    list in the config.
 
 ## Card catalog
 
-Five structured cards plus fifteen **schematic** cards — programmatically-drawn technical
-diagrams (SVG kit in `features/grid-cards/schematics/`, Rough.js sketch stroke).
-The schematic cards emit **parameters only**; the renderer draws to scale and does
-any geometry/ratio math. Every required limit carries a `NormReference`; unknown
-values render "fehlende Angabe", never a guess. See
+The catalog is the twenty-seven types tabulated under
+[Current card types](#current-card-types) — five structured, fifteen schematic,
+five model-backed and two system — and that is the only place in this document
+where they are listed, on purpose: a card type appearing in two tables means one
+of them is already wrong. See
 [ADR-0012](../adr/0012-cards-as-rich-ui-layer.md).
 
-| `type` | Shows | Domain |
-|---|---|---|
-| `summary` | prose overview / key points | any |
-| `legal_basis` | a cited OIB/norm excerpt | any |
-| `project_profile_patch` **(interactive)** | a proposed Project Brief update (hard facts / assumptions) — Accept applies it via `POST /api/projects/{id}/profile/patches`, which wraps bare values with `user_confirmed` provenance and retires answered unknowns | intake / brief |
-| `requirement_checklist` | pass/fail criteria list, per-item verdict + reference | any |
-| `comparison_table` | options as columns, criteria as rows, optional per-row highlight + recommendation | any |
-| `building_section` | to-scale cross-section: storeys, ground line, Fluchtniveau/GK/Hochhaus markers | height / GK |
-| `stair_diagram` | stair drawn to scale + 2R+G comfort + OIB 4 limits | stairs |
-| `dimension_diagram` | door/ramp/corridor/turning-circle/threshold/parking schematic w/ dimension arrows | accessibility |
-| `setback_plan` | top-down parcel + footprint + setback envelopes | site / Abstandsflächen |
-| `egress_diagram` | traced Fluchtweg path, total length vs 40 m | fire / escape |
-| `daylight_incidence` | window section + 45° free-light line + obstruction + glass-area ratio | daylight (OIB 3) |
-| `guardrail_check` | railing elevation, height/opening/gap checks, Kletterschutz band | Absturzsicherung (OIB 4) |
-| `density_check` | parcel + footprint, Bebauungsgrad/GFZ bars | zoning density |
-| `fire_access_plan` | Feuerwehrzufahrt site plan, route/Aufstellfläche/80 m reach | fire access (OIB 2) |
-| `acoustic_check` | direction-aware dB gauges (airborne ↑ / impact ↓) | Schallschutz (OIB 5) |
-| `fire_compartment` | storey plan split into Brandabschnitte, each area vs the max Brandabschnittsfläche | fire compartments (OIB 2) |
-| `thermal_envelope` | building-envelope section + per-component U-value bars | Wärmeschutz (OIB 6) |
-| `energy_performance` | Heizwärmebedarf on the A++–G energy-class ladder + HWB/fGEE bars | Energieausweis (OIB 6) |
-| `elevator_requirement` | served-storey stack + lift shaft, requirement verdict + cabin/door checks | barrier-free lift (OIB 4) |
-| `parking_requirement` | slot grid (required vs provided) + count bars for cars/bikes | Stellplatznachweis (Bauordnung) |
-| `document_grid` *(system)* | files the user asked to see — FileCard preview + human summary (not retrieval snippet/score), one peeks, several is a short grid | document discovery |
-| `memory_proposal` *(system)* **(interactive)** | a finding the `remember` tool wants written to org- or project-scoped memory — the user completes the write through their own session | memory |
-
-**(interactive)** marks a card whose answer is a commitment and is therefore
-persisted on the message; see [Interactive cards](#interactive-cards-the-answer-must-be-persisted).
+Two details that belong with the catalog rather than with a row in it.
+`project_profile_patch`'s Accept applies the patch through
+`POST /api/projects/{id}/profile/patches`, which wraps bare values with
+`user_confirmed` provenance and retires the unknowns the patch answered — the
+model supplies the plain value and nothing about how it is recorded. And a
+system card's entry is a statement about who emits it, not about who may see it:
+`document_grid` and `memory_proposal` render exactly like any other card once
+they arrive.
 
 ### The live catalog: `GET /api/platform/cards`
 
-The table above is prose and goes stale between edits; the endpoint does not.
+The tables in this document are prose and go stale between edits; the
+endpoint does not.
 `GET /api/platform/cards` (platform owners; backend `GET /v1/platform/cards`,
 `routes/cards.py`) serves the catalog **derived from the `GridCard` union**:
 every type with its purpose, its fields (type, requiredness, description,
@@ -326,7 +465,7 @@ endpoint, and the request-a-card link sits in the header and again at the foot.
 | The page | `src/app/app/platform/cards/page.tsx` + `platform-cards.tsx` |
 | The sample cards | `features/grid-cards/preview-fixtures.ts` — authored in schema-INPUT shape, then run through `validateGridCards`, so a fixture that stops matching the union is dropped rather than rendered |
 | Coverage guard | `preview-fixtures.spec.ts` — every type in `CARD_INTERACTIVITY` needs a fixture or an entry in `PREVIEW_EXCLUDED` |
-| Not previewed | the four IFC cards + `document_grid`: they carry identifiers resolved against a loaded model or real document rows, and a fabricated preview would show a building that does not exist |
+| Not previewed | all five IFC cards + `document_grid`: they carry identifiers resolved against a loaded model or real document rows, and a fabricated preview would show a building that does not exist |
 | Preview evidence | `/dev/platform-cards` + the `platform-cards` screenshot target |
 
 **Previews are inert.** `memory_proposal`'s "Yes" writes an org-scoped memory and
@@ -367,8 +506,11 @@ instead. Next phases: a 3D massing card
 - **An async deep-research answer therefore carries no model card**, because
   post-hoc generation is not shown the IFC types (above) and the deep
   researcher's own prompts have no `<cards>` block at all — it holds `emit_card`
-  with nothing but the tool description to go on. A deep answer about the
-  building comes back as prose with element links. Closing this means giving
+  with nothing but the tool description to go on. That description is a much
+  better thing to hold since it gained the doctrine, but the doctrine names no
+  IFC trigger (that guidance stayed in the shallow prompt, above), so a deep
+  answer about the building still comes back as prose with element links.
+  Closing this means giving
   the deep researcher the same `<cards>` guidance the shallow one now has, not
   relaxing the post-hoc restriction, which would only license invented ids.
 - A silent card-generation failure is currently indistinguishable from "no cards";

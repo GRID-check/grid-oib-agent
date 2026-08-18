@@ -185,7 +185,7 @@ class DimensionCheck(BaseModel):
 
     Three fields close that, and all three are OPTIONAL: a card built from the
     Bestimmung alone (a limit with no model behind it) has nothing to put in
-    them, and a null here means „not stated", never „declared".
+    them, and a null here means "not stated", never "declared".
     """
 
     label: str = Field(min_length=1, description="What is measured, e.g. 'lichte Durchgangsbreite'")
@@ -265,9 +265,9 @@ class BuildingSectionCard(BaseModel):
     """A to-scale building cross-section (schematic) drawn from storey heights.
 
     Emit for height/Gebäudeklasse/Fluchtniveau questions where seeing the
-    building against threshold lines helps (e.g. 'liege ich unter der GK4-Grenze?
-    Fluchtniveau bei 9,8 m'). Draws stacked storeys, the ground line, and dashed
-    marker lines (Fluchtniveau, GK/Hochhaus limits) with labels.
+    building against threshold lines helps (e.g. 'am I below the GK4 limit with
+    a Fluchtniveau of 9.8 m?'). Draws stacked storeys, the ground line, and
+    dashed marker lines (Fluchtniveau, GK/Hochhaus limits) with labels.
     """
 
     type: Literal["building_section"]
@@ -281,10 +281,10 @@ class BuildingSectionCard(BaseModel):
 class StairDiagramCard(BaseModel):
     """A staircase drawn to scale (schematic section) with step-geometry checks.
 
-    Emit for stair questions (e.g. 'passt eine Treppe mit 17 Stufen, 18 cm
-    Steigung, 27 cm Auftritt, 100 cm breit?'). Draws the step profile to scale
-    and checks riser/going/width and the comfort rule (2×Steigung + Auftritt ≈
-    59–65 cm) against OIB 4.
+    Emit for stair questions (e.g. 'does a flight of 17 steps with 18 cm
+    Steigung, 27 cm Auftritt and 100 cm width fit?'). Draws the step profile to
+    scale and checks riser/going/width and the comfort rule (2×Steigung +
+    Auftritt ≈ 59–65 cm) against OIB 4.
     """
 
     type: Literal["stair_diagram"]
@@ -319,9 +319,9 @@ class DimensionDiagramCard(BaseModel):
 class SetbackPlanCard(BaseModel):
     """A top-down site plan (schematic): parcel, footprint, and setback envelopes.
 
-    Emit for Abstandsflächen/Bauwich questions ('hält das Gebäude die Abstände
-    ein?'). Draws the parcel, the required-setback envelope, and the building
-    footprint, with a distance arrow per side coloured by status.
+    Emit for Abstandsflächen/Bauwich questions ('does the building keep the
+    required Abstände?'). Draws the parcel, the required-setback envelope, and
+    the building footprint, with a distance arrow per side coloured by status.
     """
 
     type: Literal["setback_plan"]
@@ -337,8 +337,8 @@ class SetbackPlanCard(BaseModel):
 class EgressDiagramCard(BaseModel):
     """A schematic escape-route (Fluchtweg) path with the total length checked.
 
-    Emit for escape-route-length questions ('ist der Fluchtweg mit 12 m + 26 m
-    zulässig?'). Draws the path segment-by-segment from the worst-case point to
+    Emit for escape-route-length questions ('is a Fluchtweg of 12 m + 26 m
+    permitted?'). Draws the path segment-by-segment from the worst-case point to
     the exit and checks the total against the OIB 2 limit (typically 40 m).
     """
 
@@ -605,9 +605,9 @@ class RequirementChecklistCard(BaseModel):
     """A requirement checklist: several pass/fail criteria for one question.
 
     Emit when an answer boils down to a list of criteria read against the
-    project ('Was muss ich für GK 4 erfüllen?', 'Ist das Bauansuchen
-    vollständig?'). Each item carries its own verdict and, where possible, its
-    own norm reference; unknown items use status 'needs_input' — never a guess.
+    project ('what do I have to meet for GK 4?', 'is the Bauansuchen
+    complete?'). Each item carries its own verdict and, where possible, its own
+    norm reference; unknown items use status 'needs_input' — never a guess.
     """
 
     type: Literal["requirement_checklist"]
@@ -661,6 +661,158 @@ class ComparisonTableCard(BaseModel):
             if row.highlight_index is not None and row.highlight_index >= n:
                 row.highlight_index = None
         return self
+
+
+class VerdictHeaderCard(BaseModel):
+    """The answer's verdict (TL;DR) rendered as a structural header on top.
+
+    Emit at the very TOP of an answer whose core is a single headline result —
+    a number, a rating or a ruling ('1,10 m', 'REI 90', 'Nicht geregelt'). It
+    is the lede rendered rather than written, so it cannot drift from the answer
+    the way a hand-typed TL;DR can. Use at most one, and only when the answer
+    resolves to one headline; a nuanced answer belongs in prose or a
+    condition_tree.
+    """
+
+    type: Literal["verdict_header"]
+    verdict: str = Field(
+        min_length=1,
+        description="The headline result itself — the number or ruling, e.g. '1,10 m', 'REI 90', 'Nicht geregelt'",
+    )
+    subject: str = Field(min_length=1, description="What the verdict answers, e.g. 'Erforderliche Geländerhöhe'")
+    reference: NormReference | None = Field(
+        default=None, description="The norm the verdict rests on, when a single one grounds it"
+    )
+    confidence: Literal["low", "medium", "high"] | None = Field(
+        default=None, description="How firm the verdict is; omit for a plain, uncontested fact"
+    )
+    confidence_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why confidence is not high, e.g. a Land-specific deviation or a missing input — "
+            "omit when confidence is high or absent"
+        ),
+    )
+
+
+class ConditionBranch(BaseModel):
+    """One branch of a condition tree: a case and the answer that holds under it."""
+
+    condition: str = Field(min_length=1, description="The case this branch covers, e.g. 'GK 1–3'")
+    outcome: str = Field(min_length=1, description="The answer that applies when the condition holds")
+    active: bool | None = Field(
+        default=None,
+        description="True for the branch that matches the CURRENT project; omit when it is not known which applies",
+    )
+    reference: NormReference | None = Field(
+        default=None, description="The norm grounding this branch's outcome, when branches cite different sources"
+    )
+
+
+class ConditionTreeCard(BaseModel):
+    """A decision tree (Bedingungsbaum) for an answer that turns on one factor.
+
+    Emit for the domain's most common answer shape — 'it depends on the
+    Gebäudeklasse'. `question` names the deciding factor; each branch pairs a
+    case with its outcome, and the branch matching the current project is
+    marked `active`. Exactly the structure that otherwise becomes nested prose
+    the reader has to re-collapse into a table in their head.
+    """
+
+    type: Literal["condition_tree"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Erforderliche Feuerwiderstandsklasse'")
+    question: str = Field(min_length=1, description="The factor the answer depends on, e.g. 'Gebäudeklasse'")
+    branches: list[ConditionBranch] = Field(min_length=1, description="The cases and their outcomes, in reading order")
+    reference: NormReference | None = Field(default=None, description="Overall source when the branches share one")
+
+
+class TypedColumn(BaseModel):
+    """One column of a typed table, declaring how its cells are rendered."""
+
+    label: str = Field(min_length=1, description="Column header, e.g. 'Bauteil', 'Mindestmaß'")
+    # NOTE: named `type` per the card spec even though the catalog renderer skips
+    # a field called `type` (it is the union discriminator everywhere else). The
+    # worked example carries the full shape, so the model still sees the field;
+    # renaming it would diverge from the documented wire contract.
+    type: Literal["mass", "norm", "verdict", "date", "text"] = Field(
+        description=(
+            "How the frontend renders this column's cells: 'mass' (a dimension — right-aligned, tabular-nums), "
+            "'date' (right-aligned, tabular-nums), 'verdict' (a pass/fail-style status — a chip), 'norm' (a norm "
+            "reference — emphasised), or 'text' (plain left-aligned prose)"
+        )
+    )
+
+
+class TypedTableCard(BaseModel):
+    """A generic table whose columns declare their type so cells render right.
+
+    Emit for a tabular answer no purpose-built card covers — one card for the
+    long tail instead of a bespoke type per table. Each column names its `type`
+    so the frontend right-aligns measurements and dates, renders a verdict as a
+    status chip and a norm as emphasised, rather than every cell as flat text.
+    """
+
+    type: Literal["typed_table"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Mindestmaße barrierefreie Erschließung'")
+    columns: list[TypedColumn] = Field(min_length=1, description="Column definitions, left-to-right")
+    rows: list[list[str]] = Field(
+        description="Each row is one cell value per column, as strings, in the same order as `columns`"
+    )
+    reference: NormReference | None = Field(default=None, description="Source grounding the table's values")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+    @model_validator(mode="after")
+    def _square_rows(self) -> "TypedTableCard":
+        """Pad short rows with '' and truncate long ones to the column count.
+
+        Mirrors ComparisonTableCard: LLM output occasionally mismatches the
+        row/column count, and an empty cell is honest ('no value given') while
+        dropping the whole card would lose every other row with it.
+        """
+        n = len(self.columns)
+        for i, row in enumerate(self.rows):
+            if len(row) < n:
+                self.rows[i] = row + [""] * (n - len(row))
+            elif len(row) > n:
+                self.rows[i] = row[:n]
+        return self
+
+
+class NormChainLink(BaseModel):
+    """One link in a norm hierarchy, with the rank that sets its visual weight."""
+
+    label: str = Field(min_length=1, description="The norm's name, e.g. 'OIB-Richtlinie 2', 'ÖNORM B 1600'")
+    # The AGENT's declared classification FOR DISPLAY, not a norm_registry
+    # lookup: the first three ranks match NormRank in common/norm_registry.py,
+    # the last three are display distinctions the registry folds into
+    # 'norm_extern'/'behoerdliche_info'. The renderer weights binding ranks
+    # heavier than interpretive ones — the whole point of the card.
+    rank: Literal["bundesgesetz", "landesgesetz", "verordnung", "oib_richtlinie", "oenorm", "leitfaden"] = Field(
+        description=(
+            "The link's classification for display: 'bundesgesetz', 'landesgesetz' and 'verordnung' bind; "
+            "'oib_richtlinie' binds where a Land has declared it; 'oenorm' and 'leitfaden' interpret. Drives "
+            "the binding-vs-interpretive weight in the render — the agent's own classification, not a lookup"
+        )
+    )
+    note: str | None = Field(
+        default=None, description="What this link contributes to the chain, e.g. 'verweist auf die ÖNORM B 1600'"
+    )
+
+
+class NormChainCard(BaseModel):
+    """The norm hierarchy (Normenkette) for this answer, binding vs interpretive.
+
+    Emit when the answer rests on a CHAIN of norms rather than a single one — a
+    Landesgesetz that declares an OIB-Richtlinie that points at an ÖNORM. Drawn
+    top-to-bottom with a visible weight difference between what binds
+    (Bundes-/Landesgesetz, Verordnung, a declared OIB-Richtlinie) and what
+    interprets (ÖNORM, Leitfaden) — a trust artifact prose cannot show at a
+    glance.
+    """
+
+    type: Literal["norm_chain"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Normenkette – Absturzsicherung'")
+    links: list[NormChainLink] = Field(min_length=1, description="The chain top-to-bottom, most binding first")
 
 
 # ── Document-surfacing card (system-emitted) ─────────────────────────────────
@@ -899,7 +1051,7 @@ class IfcComplianceCard(BaseModel):
 
     NEVER present this as a Nachweis. The catalogue reads only published
     property values, it reads no geometry, and Fluchtweglängen, Geländerhöhen
-    und Brandabschnittsgrößen are not in it at all.
+    and Brandabschnittsgrößen are not in it at all.
     """
 
     type: Literal["ifc_compliance"]
@@ -963,6 +1115,10 @@ GridCard = (
     | ProjectProfilePatchCard
     | RequirementChecklistCard
     | ComparisonTableCard
+    | VerdictHeaderCard
+    | ConditionTreeCard
+    | TypedTableCard
+    | NormChainCard
     | BuildingSectionCard
     | StairDiagramCard
     | DimensionDiagramCard
@@ -994,6 +1150,8 @@ __all__ = [
     "ChecklistItem",
     "ComparisonRow",
     "ComparisonTableCard",
+    "ConditionBranch",
+    "ConditionTreeCard",
     "DocumentGridCard",
     "GridCard",
     "IfcHighlight",
@@ -1004,12 +1162,17 @@ __all__ = [
     "IfcDiffCard",
     "LegalBasisCard",
     "MemoryProposalCard",
+    "NormChainCard",
+    "NormChainLink",
     "SurfacedDocument",
     "ProjectProfilePatchCard",
     "ProjectProfilePatchOperation",
     "ProjectProfilePatchPreviewItem",
     "RequirementChecklistCard",
     "SummaryCard",
+    "TypedColumn",
+    "TypedTableCard",
+    "VerdictHeaderCard",
     "grid_card_adapter",
     "validate_cards",
 ]
