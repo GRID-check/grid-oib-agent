@@ -20,7 +20,9 @@ import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
-import { GridCards } from '@/features/grid-cards/components/GridCards'
+import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
+import { remarkCardMarkers, unplacedCardIndices } from '@/features/grid-cards/card-markers'
+import { MarkdownSlotProvider } from '@/shared/components/MarkdownRenderer/slot-context'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
@@ -50,7 +52,11 @@ export interface AgentResponseProps {
   isDeepResearchActive?: boolean
   /** Job status for determining button behavior */
   deepResearchJobStatus?: 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
-  /** Grid cards to render before the response content */
+  /**
+   * Grid cards attached to this answer. Each is drawn where the answer placed
+   * it with a `[[card:N]]` marker (N is 1-based over this array); the ones no
+   * marker claimed follow the prose as a block.
+   */
   cards?: GridCard[]
   /**
    * Citations already collected for this answer (deep-research path). Drives
@@ -233,9 +239,39 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // sources behind one claim, the shape the backend is told to write — is
   // indistinguishable from reference-link syntax in raw text, and used to reach
   // the reader as literal "[2][3]" beside neighbours that got their pill.
+  //
+  // Cards are placed the same way and for the same reason: the agent writes
+  // `[[card:2]]` on a line of its own, and the card is spliced in there rather
+  // than stacked above the answer it is supposed to illustrate.
+  const cardCount = cards?.length ?? 0
   const markerPlugins = useMemo(
-    (): PluggableList => [[remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }]],
-    [citationNumbers, anchorPrefix]
+    (): PluggableList => [
+      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }],
+      [remarkCardMarkers, { count: cardCount }],
+    ],
+    [citationNumbers, anchorPrefix, cardCount]
+  )
+  // The cards the prose did NOT claim. Read off the same body the renderer
+  // parses, because the block below has to be built before that parse happens.
+  const fallbackCardIndices = useMemo(() => unplacedCardIndices(body, cardCount), [body, cardCount])
+  // Renders nothing when the index has no card yet — while streaming a marker
+  // routinely arrives several frames before the card it names, and a hole is
+  // better than a crash or a raw `[[card:2]]`.
+  const renderCardSlot = useCallback(
+    (index: number) => {
+      const card = cards?.[index]
+      if (!card) return null
+      // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
+      // a paragraph, so it has to leave the same gap behind it. `block!` beats
+      // the streaming caret's `*:last-child]:inline` rule, which would collapse
+      // a card that ends the answer for as long as the answer is still arriving.
+      return (
+        <div className="mb-3 block!">
+          <GridCardItem card={card} index={index} projectId={projectId} messageId={messageId} />
+        </div>
+      )
+    },
+    [cards, projectId, messageId]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -313,7 +349,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     }
   }, [jobId, deepResearchJobId, reportContent, deepResearchStreamLoaded, isJobActive, isAnotherJobStreaming, isDeepResearchStreaming, loadResearchPanelTab, reconnectToActiveJob, setResearchPanelTab, openRightPanel])
 
-  const hasCards = cards && cards.length > 0
+  const hasCards = cardCount > 0
 
   // What the merged footer's meta row would actually hold. The flags alone are
   // not the answer: `showConfidenceChip` is on by default but the chip renders
@@ -341,22 +377,33 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     return (
       <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
-        {/* Optional Grid cards rendered before the markdown body */}
-        {hasCards && <GridCards cards={cards} projectId={projectId} messageId={messageId} />}
-
         {/* Response Content rendered as markdown (with streaming caret). While
             streaming, the markdown block + its last child are forced inline so
-            the caret trails the final glyph instead of dropping to a new line. */}
-        <div
-          className={
-            isStreaming
-              ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-              : undefined
-          }
-        >
-          <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
-          {isStreaming && <StreamingCaret />}
-        </div>
+            the caret trails the final glyph instead of dropping to a new line.
+            Cards the answer placed with a marker are spliced into this body. */}
+        <MarkdownSlotProvider render={renderCardSlot}>
+          <div
+            className={
+              isStreaming
+                ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
+                : undefined
+            }
+          >
+            <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
+            {isStreaming && <StreamingCaret />}
+          </div>
+        </MarkdownSlotProvider>
+
+        {/* Cards no marker claimed. AFTER the body, never before it: an answer
+            that opens with three diagrams has pushed itself below the fold. */}
+        {cards && fallbackCardIndices.length > 0 && (
+          <GridCards
+            cards={cards}
+            indices={fallbackCardIndices}
+            projectId={projectId}
+            messageId={messageId}
+          />
+        )}
 
         {/* Optional action button */}
         {shouldShowButton && (
@@ -467,20 +514,31 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             provenance footer by a single hairline, so the whole thing reads as
             one considered object with sections — not a card floating in a tray. */}
         <div className="flex flex-col gap-2 break-words border-b bg-card px-[22px] pb-[17px] pt-[18px]">
-          {/* Optional Grid cards rendered before the markdown body */}
-          {hasCards && <GridCards cards={cards} projectId={projectId} messageId={messageId} />}
+          {/* Response Content rendered as markdown (with streaming caret).
+              Cards the answer placed with a marker are spliced into this body. */}
+          <MarkdownSlotProvider render={renderCardSlot}>
+            <div
+              className={
+                isStreaming
+                  ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
+                  : undefined
+              }
+            >
+              <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
+              {isStreaming && <StreamingCaret />}
+            </div>
+          </MarkdownSlotProvider>
 
-          {/* Response Content rendered as markdown (with streaming caret) */}
-          <div
-            className={
-              isStreaming
-                ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                : undefined
-            }
-          >
-            <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
-            {isStreaming && <StreamingCaret />}
-          </div>
+          {/* Cards no marker claimed. AFTER the body, never before it: an answer
+              that opens with three diagrams has pushed itself below the fold. */}
+          {cards && fallbackCardIndices.length > 0 && (
+            <GridCards
+              cards={cards}
+              indices={fallbackCardIndices}
+              projectId={projectId}
+              messageId={messageId}
+            />
+          )}
 
           {/* Optional action button stays inside the block */}
           {shouldShowButton && (

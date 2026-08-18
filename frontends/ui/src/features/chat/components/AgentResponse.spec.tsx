@@ -236,6 +236,44 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Original legal text')).toBeInTheDocument()
   })
 
+  // Cards used to open the answer, which is the one place they cannot help: two
+  // of them push the written answer — the thing that was asked for — below the
+  // fold. A card the answer did not place itself now follows the prose.
+  // (`MarkdownRenderer` is stubbed above, so nothing is placed inline here.)
+  test('renders unplaced cards after the answer body, not before it', () => {
+    const cards = [
+      {
+        type: 'summary' as const,
+        title: 'Nachgestellte Karte',
+        content: 'Summary content',
+        key_points: null,
+      },
+    ]
+
+    const { container } = render(<AgentResponse content="Die Antwort." cards={cards} />)
+
+    const body = (container.textContent ?? '')
+    expect(body.indexOf('Die Antwort.')).toBeGreaterThanOrEqual(0)
+    expect(body.indexOf('Nachgestellte Karte')).toBeGreaterThan(body.indexOf('Die Antwort.'))
+  })
+
+  // A card the answer DID place is drawn by the marker plugin inside the
+  // markdown body, so the block after the prose must not draw it a second time.
+  test('leaves a card the answer placed inline out of the block', () => {
+    const cards = [
+      {
+        type: 'summary' as const,
+        title: 'Platzierte Karte',
+        content: 'Summary content',
+        key_points: null,
+      },
+    ]
+
+    render(<AgentResponse content={'Die Antwort.\n\n[[card:1]]'} cards={cards} />)
+
+    expect(screen.queryByText('Platzierte Karte')).not.toBeInTheDocument()
+  })
+
   describe('"Belegt durch" answer sources row (WS-3)', () => {
     const citations = [
       {

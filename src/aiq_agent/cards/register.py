@@ -57,7 +57,13 @@ WHEN NOT TO. A one-line factual answer gets no card: one that repeats the senten
 the reader a second pass over the same fact. Never fabricate a field, a reference or a number to
 fill a card out — a card with an invented limit in it is worse than the prose alone, because it is
 the part that gets screenshotted into a submission. Two cards in a turn is plenty; more than that
-and the written answer stops being the answer."""
+and the written answer stops being the answer.
+
+WHERE IT GOES. Every emit_card call hands you back a marker like [[card:2]]. Put that marker on a
+line of its own at the point in your answer the card belongs to, and the card is drawn there —
+the stair diagram beside the paragraph about the stair, not three screens above it. A marker you
+never write puts its card after the whole answer, which is also where every card lands if you
+place none: the reader scrolls past the drawings to reach the answer they asked for."""
 
 
 def _build_tool_description() -> str:
@@ -136,8 +142,19 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             return "Noted, but no card channel is available in this context; continue with your written answer."
 
         registry.add(validated)
-        logger.info("emit_card registered a '%s' card", validated["type"])
-        return f"Card '{validated['type']}' will be shown with your answer."
+        # The marker names the card by its POSITION in this turn's registry, which
+        # is the same 1-based index the frontend counts with — the registry keeps
+        # emission order, and the response carries the cards in that order. Cards
+        # gained no id field for this: an id would have to survive validation,
+        # persistence and the deep-research path that builds cards post-hoc.
+        position = len(registry)
+        logger.info("emit_card registered a '%s' card as card %d", validated["type"], position)
+        return (
+            f"Card '{validated['type']}' will be shown with your answer, as card {position}. "
+            f"Write [[card:{position}]] on a line of its own at the point in your answer where the "
+            "card belongs, and it is drawn there instead of after the whole answer. Leave the marker "
+            "out and the card lands at the end."
+        )
 
     yield FunctionInfo.from_fn(_emit, description=_build_tool_description())
 
