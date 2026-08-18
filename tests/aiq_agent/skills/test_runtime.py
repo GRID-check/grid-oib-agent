@@ -40,6 +40,15 @@ TITLED_TWO = Skill(
     metadata={"grid-title": "Fluchtwegprüfung"},
     origin="org",
 )
+# A hidden skill WITH a title: proves hidden demotes the live line even when a
+# perfectly good title exists — the voice-skill case.
+HIDDEN = Skill(
+    name="piloti-voice",
+    description="Hausstimme, auf jeder Antwort.",
+    body="voice body",
+    metadata={"grid-title": "Piloti-Stimme", "grid-hidden": "true"},
+    origin="platform",
+)
 
 
 def _boom(*_args, **_kwargs):
@@ -255,6 +264,28 @@ class TestActivationEvents:
         assert "values" not in activation
         assert "text" not in activation
         assert "title" not in activation
+
+    def test_a_hidden_skill_is_recorded_but_kept_off_the_live_line(self, context_state) -> None:
+        """Hidden = out of the noisy live line, never concealed.
+
+        The activation STILL fires and STILL records (name, title, forced) so
+        the disclosure names it and the reasoning view surfaces it — only the
+        channel changes to technical and the live ``key`` is withheld, which is
+        the one thing that would put it back in the running line.
+        """
+        events = self._sink(context_state)
+        _use_skill(SkillRuntime(skills=(HIDDEN,), force_names=["piloti-voice"])).invoke({"skill_name": "piloti-voice"})
+
+        activation = next(e for e in events if e["phase"] == "activated")
+        # Recorded, and honest about what it is…
+        assert activation["name"] == "piloti-voice"
+        assert activation["title"] == "Piloti-Stimme"
+        assert activation["forced"] is True
+        # …but never in the live line: technical channel, no live sentence.
+        assert activation["channel"] == "technical"
+        assert "key" not in activation
+        assert "values" not in activation
+        assert "text" not in activation
 
     def test_loading_a_body_is_technical_only(self, context_state) -> None:
         events = self._sink(context_state)

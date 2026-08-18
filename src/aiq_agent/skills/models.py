@@ -49,7 +49,7 @@ MAX_COMPATIBILITY_CHARS = 500
 #: all. Both keys are simply unreserved: a stored org row or an old SKILL.md
 #: still carrying one keeps it as an ordinary free-form metadata entry, and
 #: nothing reads it.
-GRID_METADATA_KEYS = frozenset({"grid-agents", "grid-cards", "grid-title"})
+GRID_METADATA_KEYS = frozenset({"grid-agents", "grid-cards", "grid-title", "grid-hidden"})
 
 #: ``grid-cards`` — the card types a skill would LIKE its answers rendered as.
 #:
@@ -83,6 +83,35 @@ GRID_TITLE_KEY = "grid-title"
 #: A title is a label, not a sentence. Long enough for "IFC-Raumanalyse
 #: (Fluchtwege)", short enough that no surface has to truncate it.
 MAX_TITLE_CHARS = 60
+
+#: ``grid-hidden`` — keep this skill's activation OUT OF THE NOISY LIVE LINE.
+#:
+#: A boolean-ish flag. Some skills apply on every single answer — a house voice
+#: is the type case — so announcing "„piloti-voice" wird angewendet" live under
+#: every turn is pure noise, the phantom "web search" mistake in a new costume.
+#:
+#: Hidden means "not in the live one-liner by default", NEVER "concealed". The
+#: activation event STILL fires and STILL records; it is merely routed to the
+#: technical channel instead of the live one (see :mod:`aiq_agent.skills.events`),
+#: so it stays out of the running line but remains in the recorded trace and in
+#: ``skills_activated`` — the disclosure names it like any other skill, and a
+#: reader who turns on the "reasoning" preference surfaces it. This is doctrine,
+#: not a nicety: a product built on traceable sourcing must not have a class of
+#: instruction it declines to admit ran (see agent-skills.md, activation
+#: transparency).
+#:
+#: A property of the SKILL, keyed off metadata rather than a name list in the
+#: runtime, for the same reason ``standard`` is: the platform owner sets it on a
+#: row and it takes effect with no deploy.
+GRID_HIDDEN_KEY = "grid-hidden"
+
+#: Case-insensitive truthy tokens that mark a skill hidden. Anything else —
+#: including the recognised falsy tokens, an empty string, and any unrecognised
+#: word — reads as visible, because visible is the safe default: forgetting the
+#: flag under-suppresses (a line too many) rather than swallowing a skill's
+#: activation from the live line without anyone asking.
+_HIDDEN_TRUE = frozenset({"true", "1", "yes"})
+_HIDDEN_FALSE = frozenset({"false", "0", "no"})
 
 #: Anything that looks like an XML/HTML tag.
 #:
@@ -271,6 +300,35 @@ def _validate_grid_title(value: str, *, strict: bool) -> str | None:
     return title
 
 
+def _validate_grid_hidden(value: str, *, strict: bool) -> str | None:
+    """Validate ``grid-hidden``; return canonical ``"true"`` to store, or ``None`` to drop.
+
+    Same two tolerances as :func:`_validate_grid_title`, for the same reason: a
+    SKILL.md is reviewed in this repo, so ``grid-hidden: maybe`` is an authoring
+    typo we want at parse time (``strict``); a BFF-served org row is tenant data
+    over the wire, where a garbage flag must cost the tenant the flag and not
+    the whole skill (``lenient``).
+
+    A truthy token normalises to the canonical ``"true"``. The recognised falsy
+    tokens and an empty string drop the key entirely, because visible is the
+    default and an absent key already reads as visible — storing ``"false"``
+    would be a second spelling of "nothing" for every reader to special-case.
+    A bad flag costs the flag, never the skill or the turn.
+    """
+    token = value.strip().lower()
+    if token in _HIDDEN_TRUE:
+        return "true"
+    if token in _HIDDEN_FALSE or not token:
+        return None
+    if strict:
+        raise SkillValidationError(
+            f"Skill metadata {GRID_HIDDEN_KEY} must be a boolean-ish value "
+            f"(one of {sorted(_HIDDEN_TRUE | _HIDDEN_FALSE)}); got {value!r}"
+        )
+    logger.warning("Dropping unrecognised %s value %r", GRID_HIDDEN_KEY, value)
+    return None
+
+
 def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
     if metadata is None:
         return {}
@@ -291,6 +349,12 @@ def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
             if title is None:
                 continue
             validated[key] = title
+            continue
+        if key == GRID_HIDDEN_KEY:
+            hidden = _validate_grid_hidden(value, strict=strict)
+            if hidden is None:
+                continue
+            validated[key] = hidden
             continue
         validated[key] = value
     return validated
@@ -320,6 +384,22 @@ def skill_title(skill: Skill) -> str | None:
     """
     title = skill.metadata.get(GRID_TITLE_KEY)
     return title if title else None
+
+
+def skill_hidden(metadata: dict[str, str]) -> bool:
+    """Whether this skill's live activation line is suppressed by default.
+
+    ``True`` routes the activation to the technical channel instead of the live
+    one (see :mod:`aiq_agent.skills.events`), keeping it out of the noisy live
+    line while the event still fires and still records. Hidden is never
+    concealed: the disclosure still names the skill and a reader who turns on
+    the "reasoning" preference surfaces it — see :data:`GRID_HIDDEN_KEY`.
+
+    Read as tolerantly as it is written: the value stored is the canonical
+    ``"true"``, but an un-revalidated snapshot may carry any truthy token, so an
+    absent or unrecognised value reads as visible — the fail-open default.
+    """
+    return metadata.get(GRID_HIDDEN_KEY, "").strip().lower() in _HIDDEN_TRUE
 
 
 def build_skill_from_payload(

@@ -91,6 +91,46 @@ describe('SkillsUsedDisclosure', () => {
     expect(await screen.findByText('Prüft Brandschutz nach OIB-RL 2.')).toBeInTheDocument()
   })
 
+  it('names a hidden skill that ran rather than dropping it, but de-emphasised', async () => {
+    // Doctrine: the disclosure is the RECORD, and a product built on traceable
+    // sourcing must not have a class of instruction it declines to admit ran.
+    // Hidden governs the live line, not this panel — so it is muted, not erased.
+    const user = userEvent.setup()
+    render(
+      <SkillsUsedDisclosure
+        skillsActivated={['oib-brandschutz', 'piloti-voice']}
+        hiddenSkills={['piloti-voice']}
+      />,
+    )
+    await user.click(screen.getByTestId('skills-used-trigger'))
+
+    const panel = await screen.findByTestId('skills-used-panel')
+    // Both are named…
+    expect(panel).toHaveTextContent('oib-brandschutz')
+    expect(panel).toHaveTextContent('piloti-voice')
+    // …and the hidden one is the de-emphasised row.
+    const hiddenRow = screen.getByTestId('skills-used-hidden-row')
+    expect(hiddenRow).toHaveTextContent('piloti-voice')
+    expect(hiddenRow.className).toContain('opacity-60')
+  })
+
+  it('surfaces a hidden skill at full weight once the reasoning view is on', async () => {
+    const user = userEvent.setup()
+    render(
+      <SkillsUsedDisclosure
+        skillsActivated={['piloti-voice']}
+        hiddenSkills={['piloti-voice']}
+        showReasoning
+      />,
+    )
+    await user.click(screen.getByTestId('skills-used-trigger'))
+
+    const hiddenRow = screen.getByTestId('skills-used-hidden-row')
+    // Present and named, and no longer muted — the toggle changes emphasis, not presence.
+    expect(hiddenRow).toHaveTextContent('piloti-voice')
+    expect(hiddenRow.className).not.toContain('opacity-60')
+  })
+
   it('keeps a row whose skill can no longer be described', async () => {
     // Deleted or renamed since the answer was written: the NAME is still true,
     // so the row stays rather than vanishing from the record.

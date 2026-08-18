@@ -20,6 +20,15 @@
  * frame; the descriptions are a separate org-scoped read, and paying for it on
  * every rendered answer to fill a panel almost nobody opens would be exactly the
  * eager loading the skills model is designed to avoid.
+ *
+ * HIDDEN skills (`grid-hidden`) are treated with care here, because this panel
+ * is the RECORD. A hidden skill is kept out of the noisy LIVE line, but the
+ * disclosure is not the live line — it is the honest answer to "what shaped
+ * this answer". So a hidden skill is NEVER dropped from it: doctrine is that a
+ * product built on traceable sourcing must not have a class of instruction it
+ * declines to admit ran. It is merely DE-EMPHASISED (muted) until the reader
+ * turns the reasoning view on (`showReasoning`), at which point it reads at full
+ * weight with everything else. Hidden governs the live line, not this record.
  */
 
 import { useState, type FC } from 'react'
@@ -33,11 +42,27 @@ import { skillLabel } from '../lib/skill-activity'
 export interface SkillsUsedDisclosureProps {
   /** Skill names the agent activated, in activation order. */
   skillsActivated?: string[]
+  /**
+   * The subset of `skillsActivated` that are HIDDEN (`grid-hidden`) — kept out
+   * of the live line, but never out of this record. Populated by the caller
+   * from the streamed technical-channel activations. Absent = none hidden, so
+   * an existing caller renders exactly as before.
+   */
+  hiddenSkills?: string[]
+  /**
+   * The reader's reasoning-view preference (`showReasoningSkills`). When true,
+   * hidden skills read at full weight alongside the rest; when false they are
+   * present but de-emphasised. Either way they are shown — the toggle changes
+   * emphasis, never presence.
+   */
+  showReasoning?: boolean
   className?: string
 }
 
 export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
   skillsActivated,
+  hiddenSkills,
+  showReasoning = false,
   className,
 }) => {
   const t = useTranslations('skills')
@@ -46,6 +71,7 @@ export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
 
   if (!skillsActivated || skillsActivated.length === 0) return null
 
+  const hiddenSet = new Set(hiddenSkills ?? [])
   const count = skillsActivated.length
   const summary = count === 1 ? t('composer.activated.one') : t('composer.activated.other', { count })
 
@@ -88,8 +114,21 @@ export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
               // cannot name its skill is dropped rather than shown blank.
               const label = skillLabel({ name })
               if (!label) return null
+              // A hidden skill stays in the record; it is only muted until the
+              // reasoning view is on. Never `return null` for one — dropping it
+              // would be the one thing the transparency doctrine forbids.
+              const hidden = hiddenSet.has(name)
+              const deEmphasised = hidden && !showReasoning
               return (
-                <li key={name} className="flex flex-col gap-0.5">
+                <li
+                  key={name}
+                  className={cn(
+                    'flex flex-col gap-0.5 transition-opacity duration-quick ease-out',
+                    deEmphasised && 'opacity-60',
+                  )}
+                  data-hidden={hidden ? 'true' : undefined}
+                  data-testid={hidden ? 'skills-used-hidden-row' : undefined}
+                >
                   <span
                     className={cn('text-foreground text-xs', label.mono && 'font-mono')}
                   >

@@ -71,6 +71,7 @@ from aiq_agent.common.turn_status import clip
 from aiq_agent.common.turn_status import push_custom_step
 
 from .models import Skill
+from .models import skill_hidden
 from .models import skill_title
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -203,15 +204,30 @@ def emit_skill_activated(skill: Skill, *, forced: bool) -> None:
     ``oib-brandschutznachweis-2024`` in a status line is worse than silence,
     and inventing a title from it would make a missing name indistinguishable
     from a real one. The event is still recorded on the technical channel.
+
+    A ``grid-hidden`` skill takes the SAME technical-channel-only shape even
+    when it has a title. Some skills apply on every answer (a house voice is the
+    type case), so their live line is noise on every turn — the reader asked for
+    it to live in the reasoning detail, not the running line. Only the CHANNEL
+    changes: the event still fires, still records, still carries its title and
+    name, so the disclosure names it and the reasoning view can surface it. What
+    it withholds is the live ``key`` — the one thing that would put it back in
+    the live line — exactly as the titleless case does. Hidden is never
+    concealed (see ``GRID_HIDDEN_KEY`` and agent-skills.md, activation
+    transparency).
     """
     try:
         title = skill_title(skill)
-        key = (KEY_SKILL_FORCED if forced else KEY_SKILL_ACTIVATED) if title else None
+        # WHY route on both: a live line needs a title to render, and a hidden
+        # skill needs to stay OUT of that line even when it has one. Either
+        # condition alone demotes the event to technical and withholds the key.
+        live = bool(title) and not skill_hidden(skill.metadata)
+        key = (KEY_SKILL_FORCED if forced else KEY_SKILL_ACTIVATED) if live else None
         event = SkillEvent(
             phase="activated",
-            channel=CHANNEL_LIVE if title else CHANNEL_TECHNICAL,
+            channel=CHANNEL_LIVE if live else CHANNEL_TECHNICAL,
             key=key,
-            values={"skill": title} if title else None,
+            values={"skill": title} if live else None,
             name=skill.name,
             title=title,
             description=_describe(skill),

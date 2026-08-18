@@ -4,7 +4,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   createSkillSchema,
+  isHiddenSkill,
   METADATA_CARDS,
+  METADATA_HIDDEN,
   patchSkillSchema,
   preferredCardsOf,
   skillNameSchema,
@@ -122,5 +124,20 @@ describe('snapshotOf', () => {
     expect(snapshot).toEqual(skill)
     snapshot.metadata['grid-agents'] = 'deep_researcher'
     expect(skill.metadata['grid-agents']).toBeUndefined()
+  })
+})
+
+describe('isHiddenSkill (grid-hidden)', () => {
+  it('reads the truthy tokens case- and whitespace-insensitively', () => {
+    for (const token of ['true', '1', 'yes', 'TRUE', '  Yes  ']) {
+      expect(isHiddenSkill({ [METADATA_HIDDEN]: token })).toBe(true)
+    }
+  })
+
+  it('reads absent, falsy and unrecognised values as visible (fail-open)', () => {
+    expect(isHiddenSkill({})).toBe(false)
+    for (const token of ['false', '0', 'no', '', 'maybe']) {
+      expect(isHiddenSkill({ [METADATA_HIDDEN]: token })).toBe(false)
+    }
   })
 })
