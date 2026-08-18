@@ -95,3 +95,59 @@ class TestUserPromptCallback:
 
         result = extract_user_response("Direct string response")
         assert result == "Direct string response"
+
+
+class TestClarificationPromptShape:
+    """The clarifier's prompt must carry options as structured data."""
+
+    def test_prompt_without_options_is_text(self):
+        """No options: byte-identical to the prompt the clarifier always sent."""
+        from aiq_agent.common import build_human_prompt
+        from nat.data_models.interactive import HumanPromptText
+
+        prompt = build_human_prompt("Which period?", None)
+
+        assert isinstance(prompt, HumanPromptText)
+        assert prompt.placeholder == "Please provide more details..."
+
+    def test_prompt_with_options_carries_them(self):
+        """The picker gets its data from the prompt, not from parsing the prose."""
+        from aiq_agent.common import build_human_prompt
+        from nat.data_models.interactive import HumanPromptRadio
+
+        prompt = build_human_prompt("**Focus**: which area?", ["Alpha", "Beta"])
+
+        assert isinstance(prompt, HumanPromptRadio)
+        assert [option.value for option in prompt.options] == ["Alpha", "Beta"]
+        assert prompt.text == "**Focus**: which area?"
+
+    @pytest.mark.asyncio
+    async def test_callback_reads_back_a_picked_option(self):
+        """A radio answer has no `.text`; reading it wrong would feed the LLM junk."""
+        from aiq_agent.agents.clarifier.utils import extract_user_response
+        from nat.data_models.interactive import HumanResponseRadio
+        from nat.data_models.interactive import InteractionResponse
+        from nat.data_models.interactive import MultipleChoiceOption
+
+        response = InteractionResponse(
+            id="1",
+            timestamp="2026-08-18T10:00:00Z",
+            content=HumanResponseRadio(selected_option=MultipleChoiceOption(value="Alpha", label="Alpha")),
+        )
+
+        assert extract_user_response(response) == "Alpha"
+
+    @pytest.mark.asyncio
+    async def test_callback_reads_back_a_typed_skip(self):
+        """The skip path is only ever typed, so it must survive the picker prompt."""
+        from aiq_agent.agents.clarifier.utils import extract_user_response
+        from nat.data_models.interactive import HumanResponseText
+        from nat.data_models.interactive import InteractionResponse
+
+        response = InteractionResponse(
+            id="1",
+            timestamp="2026-08-18T10:00:00Z",
+            content=HumanResponseText(text="skip"),
+        )
+
+        assert extract_user_response(response) == "skip"
