@@ -378,9 +378,15 @@ def select_terms(
 def build_tsquery(terms: list[str]) -> str:
     """OR the surviving lexemes into a ``to_tsquery`` string, or ``""``.
 
-    Each lexeme is single-quoted so Postgres treats it as a literal operand.
-    Quotes cannot appear inside a lexeme (``_TOKEN_RE`` yields alphanumerics
-    only), and the result is always passed to Postgres as a BOUND parameter of
-    ``to_tsquery('german', :tsquery)`` — never interpolated into SQL text.
+    Each lexeme is single-quoted so Postgres treats it as a literal operand, and an
+    embedded quote is doubled — the standard ``tsquery`` literal escape.
+
+    The doubling is not decoration. The docstring used to argue it was unnecessary
+    because ``_TOKEN_RE`` yields alphanumerics only, but this signature accepts any
+    ``list[str]`` and the module presents its term list as the seam that the glossary and
+    other callers inject into. One term carrying an apostrophe — which German legal text
+    and Austrian proper nouns both produce — closes the operand early and
+    ``to_tsquery('german', :tsquery)`` raises a syntax error at request time. Bound
+    parameters prevent SQL injection; they do not make a malformed tsquery well-formed.
     """
-    return " | ".join(f"'{term}'" for term in terms if term)
+    return " | ".join("'" + term.replace("'", "''") + "'" for term in terms if term)

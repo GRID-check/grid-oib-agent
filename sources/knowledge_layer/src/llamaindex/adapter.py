@@ -637,6 +637,39 @@ def embed_fingerprint_mismatch(collection_metadata: dict[str, Any] | None, model
     )
 
 
+def _cosine_distances(query_embedding: Any, embeddings: Any, count: int) -> list[float]:
+    """Cosine distances between the query vector and each fetched chunk vector.
+
+    The German sparse channel finds chunks by lexical match, so it has no distance of its
+    own, and it used to declare 1.0 for all of them. On this pipeline's scale that is a
+    cosine of EXACTLY 0.0 -- a positive claim that the chunk is orthogonal to the query,
+    not an absence of information. Three things then follow, all wrong: a relevance floor
+    above zero deletes every sparse-only hit while leaving overlapping vector hits alone,
+    `MIN_SURFACE_SCORE` does the same in the document grid, and the grounding block prints
+    `Relevance Score: 0.00` next to a chunk that may be the best answer in the corpus.
+
+    The real distance is computable for free. Chroma returns the stored vectors on the
+    same `get` that fetches the text, and the query vector is already in hand -- no extra
+    embedding call, no extra round trip.
+
+    Falls back to the neutral 1.0 per chunk if anything is missing or malformed: this is
+    the retrieval hot path and a scoring nicety must never break a search.
+    """
+    try:
+        import numpy as np
+
+        if embeddings is None or len(embeddings) != count:
+            return [1.0] * count
+        matrix = np.asarray(embeddings, dtype=float)
+        query = np.asarray(query_embedding, dtype=float)
+        norms = np.linalg.norm(matrix, axis=1) * np.linalg.norm(query)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cosine = np.where(norms > 0, (matrix @ query) / norms, 0.0)
+        return [float(1.0 - value) for value in np.nan_to_num(cosine, nan=0.0)]
+    except Exception:  # pragma: no cover - defensive; scoring must not break retrieval
+        return [1.0] * count
+
+
 def _to_chroma_where(filters: dict[str, Any] | None):
     """Translate a backend-neutral filter dict into a Chroma ``where`` expression.
 
@@ -3886,14 +3919,16 @@ class LlamaIndexRetriever(BaseRetriever):
                     collection_name, query, limit=top_k, extra_terms=expansion_terms(query)
                 )
                 if lexical_ids:
-                    fetched = collection.get(ids=lexical_ids, include=["documents", "metadatas"], where=where)
+                    fetched = collection.get(
+                        ids=lexical_ids, include=["documents", "metadatas", "embeddings"], where=where
+                    )
                     fetched_ids = fetched.get("ids") or []
                     german_channel = self._chunks_from_raw_query(
                         {
                             "ids": [fetched_ids],
                             "documents": [fetched.get("documents") or []],
                             "metadatas": [fetched.get("metadatas") or []],
-                            "distances": [[1.0] * len(fetched_ids)],
+                            "distances": [_cosine_distances(embedding, fetched.get("embeddings"), len(fetched_ids))],
                         }
                     )
                     # Restore the store's ranking: `collection.get` does not preserve it,

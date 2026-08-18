@@ -250,7 +250,14 @@ def _collect_lines(text_pages: list[dict[str, Any]]) -> list[tuple[int, str]]:
         text = page.get("text") or ""
         if _is_toc_page(text):
             continue
-        page_number = page.get("page_number")
+        # Coerced, not trusted. `_extract_text_from_pdf` always supplies this, but this
+        # function is documented as pure over page dicts and is called with caller-built
+        # lists; a missing key made `page_start` None and `page_label` the STRING "None",
+        # which breaks the citation contract silently rather than loudly.
+        try:
+            page_number = int(page.get("page_number"))
+        except (TypeError, ValueError):
+            page_number = 0
         for line in text.splitlines():
             stripped = line.strip()
             if stripped and not _is_furniture(stripped):

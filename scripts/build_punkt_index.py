@@ -431,7 +431,7 @@ def build_index(
     file_paths: list[str],
     *,
     page_reader: PageReader,
-) -> tuple[dict[str, Any], list[str], list[str], BuildStats]:
+) -> tuple[dict[str, Any], list[str], list[str], list[str], BuildStats]:
     """Read every file and assemble the index. Fail-soft per file.
 
     Returns ``(index, no_numbering, gap_reports, stats)``.
@@ -439,6 +439,8 @@ def build_index(
     index: dict[str, Any] = {}
     no_numbering: list[str] = []
     gap_reports: list[str] = []
+    collisions: list[str] = []
+    source_by_key: dict[str, str] = {}
     stats = BuildStats()
 
     for path in file_paths:
@@ -464,7 +466,21 @@ def build_index(
             logger.info("No usable Punkt numbering in %s (%d candidate line(s))", file_name, extraction.candidates)
             continue
 
+        # `richtlinie_key` is not injective — two Ausgaben of the same Richtlinie reduce
+        # to the same key — and assigning over the top silently discarded the first
+        # file's Punkte while `stats.punkte` still counted both, so the printed totals
+        # disagreed with the written index and nothing said why.
+        if key in index:
+            collisions.append(f"{key}: {source_by_key[key]} and {file_name} share a Richtlinie key")
+            logger.warning(
+                "Richtlinie key %r already written by %s; %s would overwrite it — keeping the first.",
+                key,
+                source_by_key[key],
+                file_name,
+            )
+            continue
         index[key] = extraction.entries
+        source_by_key[key] = file_name
         stats.punkte += len(extraction.entries)
         for previous, following in extraction.gaps:
             gap_reports.append(f"{key}: {previous} -> {following}")
@@ -477,7 +493,7 @@ def build_index(
             len(extraction.gaps),
         )
 
-    return index, no_numbering, gap_reports, stats
+    return index, no_numbering, gap_reports, collisions, stats
 
 
 def collect_pdfs(corpus_dir: str, prefix: str) -> list[str]:
@@ -522,12 +538,13 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("The production PDF extractor is unavailable; cannot build an index that matches the corpus.")
         return 2
 
-    index, no_numbering, gap_reports, stats = build_index(file_paths, page_reader=page_reader)
+    index, no_numbering, gap_reports, collisions, stats = build_index(file_paths, page_reader=page_reader)
 
     payload: dict[str, Any] = dict(sorted(index.items()))
     payload["_unresolved"] = {
         "no_usable_numbering": no_numbering,
         "sequence_gaps": gap_reports,
+        "richtlinie_key_collisions": collisions,
         "unreadable_files": stats.files_failed,
     }
 

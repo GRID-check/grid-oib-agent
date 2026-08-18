@@ -408,6 +408,17 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     settings = corpus.production_retrieval_settings()
+    # The assertion PARITY_K's comment promises, and did not make. Without it a top_k
+    # change in configs/config_oib_openrouter.yml leaves the language-parity headline
+    # quoted at a depth production no longer uses -- silently, and in the one number the
+    # report leads with.
+    if settings.top_k != PARITY_K:
+        print(
+            f"\nWARNING: PARITY_K={PARITY_K} but production top_k={settings.top_k}. "
+            f"The language-parity headline is quoted at a depth production does not use. "
+            f"Update PARITY_K in {__name__} to match, or state the discrepancy when citing it.",
+            file=stream,
+        )
     print(
         f"\nProduction settings read from configs/config_oib_openrouter.yml: top_k={settings.top_k}, "
         f"max_chunks_per_document={settings.max_chunks_per_document}, "
@@ -424,7 +435,8 @@ def main(argv: list[str] | None = None) -> int:
         if run.truncation_limit:
             print(
                 f"    embedder input limit {run.truncation_limit} tokens; "
-                f"{run.truncated_chunks} of {run.chunks} chunks ({100.0 * run.truncated_chunks / run.chunks:.1f}%) "
+                f"{run.truncated_chunks} of {run.chunks} chunks "
+                f"({100.0 * run.truncated_chunks / run.chunks if run.chunks else 0.0:.1f}%) "
                 "are truncated before embedding — a handicap this arm carries under THIS model only.",
                 file=stream,
             )

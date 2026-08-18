@@ -192,7 +192,7 @@ Verified against `llama-index-core==0.14.23`: `excluded_embed_metadata_keys`
 defaults to `[]`, and the embedding pipeline calls
 `get_content(MetadataMode.EMBED)`, which renders
 
-```
+```text
 {key}: {value}     ← every metadata key, "\n"-separated
                    ← DEFAULT_TEXT_NODE_TMPL
 {content}
@@ -447,7 +447,7 @@ deliberate and correct, and PDF text is watermark-stripped.
 `node_id` is a **read-only property** over the `id_` field, so pydantic silently
 discarded the kwarg and every lexical chunk was born with a fresh `uuid4`:
 
-```
+```text
 TextNode(text='t', node_id='REAL-ID').node_id -> 46c97123-a820-4706-bd8f-af550462c67d
 second construction                            -> 92a2a52d-c7ea-45a8-acca-6ac54e94e8e1
 TextNode(text='t', id_='REAL-ID').node_id      -> REAL-ID
@@ -531,18 +531,21 @@ was out of date.
 
 ## 10. Fixes landed
 
-All verified against a captured baseline of 2683 passed / 3 skipped; after the
-change 2707 / 3, ruff clean.
+All verified against a captured baseline of 2,683 passed / 3 skipped. That section's
+figure moved with every later pass and is not a running total — the current, post-rebase
+count is in §22.
 
 | Finding | Fix |
 |---|---|
 | §9.1 identity | `_chunks_from_raw_query` reconstructs via `metadata_dict_to_node` (the vector path's own helper), with an `id_=` fallback. Also stops the lexical channel carrying a JSON copy of each chunk's text in `_node_content`. |
 | F17 filter grammar | Both channels now translate through one `_to_chroma_where`; multi-key and single-element groups no longer raise and silently disable hybrid on filtered queries. |
-| F6 score scale | `cosine_similarity_from_store_score` recovers `cos = 1 + ln s` exactly (Chroma's cosine distance verified as `1 − cos` in the pinned source). Total on every input, because `normalize`'s except-branch substitutes a *citable* poison chunk rather than dropping one. |
+| F6 score scale | `cosine_similarity_from_store_score` recovers `cos = 1 + ln s` exactly (Chroma's cosine distance verified as `1 − cos` in the pinned source). Total on every input. `normalize`'s except-branch keeps a placeholder (`file_name="unknown"`, `display_citation="Unknown Result"`) rather than dropping the hit, so a scoring error cannot silently shorten a result set — it is a placeholder, not a citable chunk, and it is the reason the score function must never raise. |
 | F7 (corrected) | `MIN_SURFACE_SCORE = 0.35` now means what its comment always claimed. |
 | F5 embedding dilution | `EMBED_EXCLUDED_METADATA_KEYS` applied to every document; `file_size`, render geometry and the ingest temp path no longer reach the embedder. |
 | §9.3 reranker | Rewritten: renumbered/duplicate/non-finite replies rejected rather than absorbed; unscored candidates impute the mean instead of sinking below explicitly-rejected ones; excerpt 400 → 1200 chars under a whole-prompt budget; `ge=1`; trim is `max(top_k, rerank_candidates)`; pool 20 → 60; `max_tokens` 256 → 2048; timeouts made reachable. Optional cross-encoder (default off, fail-open to the judge). |
 | §9.4 silent empty | Failed layers log at WARNING. |
+| F1 rank fusion | `_hybrid_lexical_boost` returns the RRF-sorted order and `_merge_results` fuses per-collection ranks instead of re-sorting by raw similarity, so the "found by both channels" property now reaches the LLM. The F1 description above is the pre-fix state. |
+| F12 embedding fingerprint | Every collection records `aiq:embed_fingerprint` / `aiq:embed_model`; retrieval refuses a mismatched collection and ingestion refuses to write into one. Adopt-on-absent, so no deployed corpus breaks — which is also the limit of the guarantee, see the ADR. The F12 description above is the pre-fix state. |
 
 ## 11. Deliberately not fixed yet, and why
 

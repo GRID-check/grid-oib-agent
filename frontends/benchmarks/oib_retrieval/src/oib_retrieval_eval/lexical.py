@@ -46,7 +46,14 @@ from oib_retrieval_eval.corpus import Chunk
 
 #: Passed through to ``german_text.select_terms``. Left at the shipped defaults so the
 #: measured behaviour is the shipped behaviour; exposed so a tuning run can sweep it.
-DEFAULT_DF_CEILING_RATIO = 0.2
+# Imported, never copied. The module docstring's whole claim is that a change to the
+# shipped document-frequency ceiling must move these numbers; a literal here would keep
+# the harness reporting stable results while production behaviour had already moved.
+# `chunk_text_store` imports it the same way.
+try:
+    from aiq_agent.common.german_text import DEFAULT_DF_CEILING_RATIO
+except ImportError:  # pragma: no cover - the harness can run without the backend package
+    DEFAULT_DF_CEILING_RATIO = 0.25
 
 
 @dataclass

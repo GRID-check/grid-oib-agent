@@ -51,9 +51,9 @@ audit's own doctrine names the failure mode: *before optimising a measurement,
 establish what the measurement is of*.
 
 Two further forces bear on the decision. The corpus is 946 numbered requirements
-at a median of 62 tokens, cut into 1024-token blocks over per-page Documents:
+at a median of 128 tokens, cut into 1024-token blocks over per-page Documents:
 57% of pages began mid-Punkt and 92% of chunks did not start on a numbered line,
-so one chunk blended roughly fifteen unrelated requirements and no citation could
+so one chunk blended roughly eight unrelated requirements and no citation could
 be finer than a page. And the deployment is not one process — `AIQ_CHROMA_URL`
 points two backend replicas and a 2–8 replica research worker tier at one Chroma —
 while the collection write version the result cache keys on was a module global.
@@ -72,8 +72,9 @@ one package, and we will gate tuning on measurement.
    `retrieval_rank`, and cross-collection merging fuses those ranks. Rank fusion
    is scale-free, which is what makes layered retrieval actually layer.
 3. **`Chunk.score` is a true cosine similarity.** Recovered exactly via
-   `cos = 1 + ln s`, total on every input because `normalize`'s except-branch
-   substitutes a citable poison chunk rather than dropping one.
+   `cos = 1 + ln s`, total on every input because `normalize`'s except-branch keeps
+   a placeholder rather than dropping the hit — a scoring error must not silently
+   shorten a result set.
 4. **Documents with a usable outline are cut on that outline.** `punkt_documents`
    yields one requirement per chunk with a `punkt_id` to cite; anything it cannot
    parse keeps the previous per-page behaviour byte-for-byte. That fallback is
@@ -94,6 +95,15 @@ one package, and we will gate tuning on measurement.
    Punkte) still keeps every heading it omits.
 5. **Every collection records the embedding that wrote it.** Absent fingerprints
    are adopted, not rejected, so no deployed corpus breaks.
+
+   **The guarantee holds only where a fingerprint is present**, and adoption is the
+   compatibility gap that buys it: a collection written before this existed carries no
+   fingerprint, so the first process to touch it — right or wrong — defines its identity,
+   and a same-name same-dimension swap on such a collection stays undetectable. Once a
+   fingerprint exists it is never overwritten, including by an ingestion configured
+   differently; the mismatch is reported and both retrieval and ingestion refuse the
+   collection, because a stored fingerprint is a fact about vectors already written and
+   nothing a later process does can make it untrue.
 6. **The collection write version lives in the shared cache**, with `None`
    meaning *unknown* and unknown meaning *do not cache*. The retriever becomes a
    real singleton only together with this; alone it would have converted a

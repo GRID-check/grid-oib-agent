@@ -77,6 +77,9 @@ class OIBRetrievalEvalOutput(EvalOutput):
         default=0, description="Cases citing at least one forbidden (aenderungen_*) document."
     )
     total_uncited: int = Field(default=0, description="Cases whose answer cited no document page at all.")
+    total_errored: int = Field(
+        default=0, description="Cases skipped because the dataset row was malformed, not because the model failed."
+    )
 
 
 class OIBRetrievalEvaluator(BaseEvaluator):
@@ -106,11 +109,24 @@ class OIBRetrievalEvaluator(BaseEvaluator):
                 reasoning={"error": "No 'relevant' Punkt labels in expected_output for this case."},
             )
 
+        # A malformed label is a DATASET defect, and it must be scored as one rather than
+        # ending the run. These labels come from the eval dataset, not from the validated
+        # committed golden set, so `raw["richtlinie"]`, `int(raw["grade"])`,
+        # `PunktLabel.__post_init__` and `index.units` are all reachable with bad input --
+        # and one bad row raising here aborts every remaining item. The `labels is None`
+        # branch above already establishes the intended handling.
         graded: dict[Unit, int] = {}
-        for raw in labels:
-            label = PunktLabel(str(raw["richtlinie"]), str(raw["punkt"]), int(raw["grade"]))
-            for unit in self.index.units(label.richtlinie, label.punkt):
-                graded[unit] = max(graded.get(unit, 0), label.grade)
+        try:
+            for raw in labels:
+                label = PunktLabel(str(raw["richtlinie"]), str(raw["punkt"]), int(raw["grade"]))
+                for unit in self.index.units(label.richtlinie, label.punkt):
+                    graded[unit] = max(graded.get(unit, 0), label.grade)
+        except (KeyError, TypeError, ValueError) as error:
+            return EvalOutputItem(
+                id=item_id,
+                score=0.0,
+                reasoning={"error": f"Malformed Punkt label ({type(error).__name__}: {error})."},
+            )
 
         cited = extract_units(response)
         forbidden_hits = [unit for unit in cited if unit in self.forbidden]
@@ -147,8 +163,16 @@ class OIBRetrievalEvaluator(BaseEvaluator):
         base_output = await super().evaluate(eval_input)
         forbidden = 0
         uncited = 0
+        errored = 0
         for output_item in base_output.eval_output_items:
             reasoning = output_item.reasoning if isinstance(output_item.reasoning, dict) else {}
+            # An error item carries only "error": neither `cited_units` nor `should_refuse`
+            # is present, so it used to be counted as an answer that cited nothing. A
+            # dataset defect must not be reported as a model that failed to cite -- that
+            # reads as a retrieval regression and sends the reader to the wrong place.
+            if "error" in reasoning:
+                errored += 1
+                continue
             if reasoning.get("forbidden_citations"):
                 forbidden += 1
             if not reasoning.get("cited_units") and not reasoning.get("should_refuse"):
@@ -157,6 +181,7 @@ class OIBRetrievalEvaluator(BaseEvaluator):
             average_score=base_output.average_score,
             eval_output_items=base_output.eval_output_items,
             total_evaluated=len(base_output.eval_output_items),
+            total_errored=errored,
             total_with_forbidden_citation=forbidden,
             total_uncited=uncited,
         )
