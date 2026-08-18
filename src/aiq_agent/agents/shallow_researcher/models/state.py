@@ -21,6 +21,8 @@ class ShallowResearchAgentState(BaseModel):
         user_info: Optional user information.
         tools_info: Information about available tools.
         available_documents: User-uploaded documents with summaries for context.
+        focus_file_name: Filename of the composer's "Asking about <file>" subject.
+        focus_shelf: Shelf that focused file sits on (session/project/archiv).
         collection_name: Knowledge collection name (for fetching documents).
         tool_iterations: Counter for tool-calling iterations.
         requires_sources: Whether this turn must be grounded in captured sources.
@@ -49,6 +51,13 @@ class ShallowResearchAgentState(BaseModel):
     collection_name: str | None = None
     tool_iterations: int = 0
     project_context: str | None = None
+    # The composer's "Asking about <file>" subject for this turn (filename +
+    # shelf). Rendered into the system prompt so "summarize this document"
+    # has an antecedent, and widens the tool binding below: a bound file is an
+    # explicit statement that a file is in play, so the search tools are
+    # offered even on a turn the classifier called conversational.
+    focus_file_name: str | None = None
+    focus_shelf: str | None = None
     requires_sources: bool = True
     answer_citation_grounded: bool = False
     # Whether every QUOTED span in the final answer was found (fuzzily) in a

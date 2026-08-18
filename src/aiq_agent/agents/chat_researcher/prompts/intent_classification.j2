@@ -56,5 +56,10 @@ No research tools available.
 </project_context>
 {% endif %}
 
+{% if focus_file_name is defined and focus_file_name %}
+## Open file
+The composer says "Asking about **{{ focus_file_name }}**": the user has this file open and this turn is about it. A bare or object-less request ("fass zusammen", "summarize", "was steht drin", "dieses Dokument") therefore asks about THE CONTENT OF THAT FILE, which is `research` / `shallow` — not `meta`, and never `out_of_scope`. Only a turn that is genuinely about Grid itself (a greeting, a capability question, a `remember` request) stays `meta` while a file is open.
+{% endif %}
+
 ### USER QUERY
 "{{ query }}"

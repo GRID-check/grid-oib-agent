@@ -436,6 +436,8 @@ class ChatResearcherAgent:
                     user_info=state.user_info,
                     available_documents=state.available_documents,
                     project_context=state.project_context,
+                    focus_file_name=state.focus_file_name,
+                    focus_shelf=state.focus_shelf,
                     requires_sources=requires_sources,
                     # The user-requested forced skills (WS `skills` array). The
                     # shallow register layer resolves them against the run's
@@ -819,6 +821,13 @@ class ChatResearcherAgent:
                 "data_sources": state.data_sources,
                 "available_documents": state.available_documents,
                 "collection_scope": state.collection_scope,
+                # This dict is the WHOLE graph input: a field of the state that
+                # is not listed here is not merely stale inside the graph, it is
+                # absent. The composer subject and the user's forced skills both
+                # have to survive the hop or the nodes below read None.
+                "focus_file_name": state.focus_file_name,
+                "focus_shelf": state.focus_shelf,
+                "force_skills": state.force_skills,
                 "shallow_result": None,  # reset at turn boundary to avoid stale checkpoint state
                 # Reset like shallow_result: a persisted job id from a previous
                 # deep-research turn would otherwise be read as this turn's job.
