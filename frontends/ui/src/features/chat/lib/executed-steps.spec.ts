@@ -215,3 +215,41 @@ describe('deriveExecutedSteps — skills', () => {
     expect(chips.map((c) => c.key)).toEqual(['skill:a'])
   })
 })
+
+/**
+ * Status one-liners must not become chips.
+ *
+ * They are sentences about the turn, and NAT reports them as TOP-LEVEL
+ * functions — so without an explicit rule they land here under raw machine
+ * names. `status:retrieval:0` is the sharp case: it matches the corpus rule on
+ * "retriev" and would render a second, plausible-looking "OIB-Korpus" chip
+ * beside the real retrieval tool's own.
+ */
+describe('deriveExecutedSteps — turn status events', () => {
+  const statusStep = (slot: string, payload: Record<string, unknown>) =>
+    step({
+      id: `status-${slot}`,
+      functionName: `status:${slot}`,
+      displayName: `status:${slot}`,
+      content: JSON.stringify({ kind: 'status', channel: 'live', slot, ...payload }),
+    })
+
+  test.each([['routing'], ['retrieval:0'], ['documents'], ['citations'], ['escalation']])(
+    'status:%s earns no chip',
+    (slot) => {
+      expect(deriveExecutedSteps([statusStep(slot, { text: 'x' })], t)).toEqual([])
+    }
+  )
+
+  test('the retrieval status does not duplicate the tool chip it describes', () => {
+    const chips = deriveExecutedSteps(
+      [
+        statusStep('retrieval:0', { text: 'Sucht im OIB-Wissen: „GK4“', tools: ['knowledge_search'] }),
+        step({ id: 'tool', functionName: 'knowledge_search_tool' }),
+      ],
+      t
+    )
+    expect(chips.map((c) => c.key)).toEqual(['knowledge_search_tool'])
+    expect(chips[0].label).toBe('thinking.stepName.corpus')
+  })
+})

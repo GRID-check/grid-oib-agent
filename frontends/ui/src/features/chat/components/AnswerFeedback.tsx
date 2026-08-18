@@ -28,9 +28,10 @@
  * ── Colour ───────────────────────────────────────────────────────────────────
  * NO chroma. Provenance green (`--status-active`) and error red
  * (`--signal-error`) both used to mark the thumbs; neither meaning applies — a
- * down-vote is not an error, and green is Projektwissen. The selected thumb is
- * ink FILL (`bg-foreground text-background`) with a filled glyph, which is
- * unmistakable without borrowing a signal colour.
+ * down-vote is not an error, and green is Projektwissen. Selected is ink FILL
+ * instead (`bg-foreground text-background`) — unmistakable without borrowing a
+ * signal colour, and the chosen reason chip repeats exactly that language, so
+ * "selected" means one thing in this block.
  *
  * ── Motion ───────────────────────────────────────────────────────────────────
  * `springPress` on the thumb press (the user's own gesture resolving, ≈2px of
@@ -88,7 +89,7 @@ const thumbBase = cn(
   FOCUS_RING,
 )
 
-/** Selected: ink fill + filled glyph. Weight and fill, never chroma. */
+/** Selected: ink fill. Weight and fill, never chroma. */
 const thumbSelected = 'bg-foreground text-background hover:bg-foreground hover:text-background'
 
 export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversationId, compact = false, className }) => {
@@ -158,7 +159,7 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
             {t('feedback.question')}
           </span>
         )}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
           <motion.button
             type="button"
             onClick={handleUp}
@@ -168,7 +169,7 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
             transition={springPress}
             className={cn(thumbBase, verdict === 'up' && thumbSelected)}
           >
-            <ThumbsUp className={cn('size-3.5', verdict === 'up' && 'fill-current')} aria-hidden="true" />
+            <ThumbsUp className="size-3.5" aria-hidden="true" />
           </motion.button>
           <motion.button
             type="button"
@@ -179,7 +180,7 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
             transition={springPress}
             className={cn(thumbBase, verdict === 'down' && thumbSelected)}
           >
-            <ThumbsDown className={cn('size-3.5', verdict === 'down' && 'fill-current')} aria-hidden="true" />
+            <ThumbsDown className="size-3.5" aria-hidden="true" />
           </motion.button>
         </div>
         {/* What the vote alone commits, stated once, on the vote's own line. */}
@@ -203,7 +204,7 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
       </div>
 
       {verdict === 'down' && (
-        <div className="flex w-full max-w-sm flex-col gap-2 animate-in fade-in-0 slide-in-from-top-1 duration-base ease-entrance motion-reduce:animate-none">
+        <div className="flex w-full max-w-md flex-col gap-2 animate-in fade-in-0 slide-in-from-top-1 duration-base ease-entrance motion-reduce:animate-none">
           <p id={promptId} className="text-[11px] text-muted-foreground">
             {t('feedback.reasonPrompt')}
           </p>
@@ -219,7 +220,13 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
             className="gap-1.5"
           >
             {REASONS.map((key) => (
-              <ToggleGroupItem key={key} value={key} className="h-7 px-2.5 text-xs">
+              <ToggleGroupItem
+                key={key}
+                value={key}
+                // Selected is the SAME language as the selected thumb: ink fill,
+                // no chroma, unmistakable at a glance in a row of four.
+                className="h-7 px-2.5 text-xs data-[state=on]:border-transparent data-[state=on]:bg-foreground data-[state=on]:text-background data-[state=on]:shadow-2xs"
+              >
                 {t(`feedback.reasons.${key}`)}
               </ToggleGroupItem>
             ))}
@@ -241,7 +248,7 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
                   placeholder={t('feedback.commentPlaceholder')}
                   rows={2}
                   maxLength={2000}
-                  className="min-h-14 resize-none rounded-lg py-2 text-xs"
+                  className="min-h-14 resize-none rounded-lg py-2 text-xs md:text-xs"
                 />
                 {/* Ink when it will do something, 50% ink when it will not —
                     the two states are never a question of grey vs. grey. */}

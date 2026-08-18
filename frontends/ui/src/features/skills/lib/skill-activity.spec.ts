@@ -17,9 +17,12 @@ import {
   isSkillSelectionStepName,
   isSkillStepName,
   isUseSkillStepName,
+  liveSkillActivity,
+  parseSkillActivities,
   parseSkillActivity,
   skillLabel,
   skillLabelForStep,
+  skillLiveText,
   skillNameFromStepName,
 } from './skill-activity'
 
@@ -38,6 +41,15 @@ describe('step-name recognition', () => {
     expect(isSkillSelectionStepName('skill_selection')).toBe(true)
     expect(isUseSkillStepName('use_skill')).toBe(true)
     expect(isUseSkillStepName('skill:a')).toBe(false)
+  })
+
+  test('the LLM\'s "Tool:" announcement prefix does not hide the step', () => {
+    // `parseFunctionName` only strips "Function Start/Complete:", so an
+    // announced call arrives as `Tool: use_skill` and would otherwise slip past
+    // every rule keyed on the bare name.
+    expect(isUseSkillStepName('Tool: use_skill')).toBe(true)
+    expect(isSkillStepName('Tool: skill:a')).toBe(true)
+    expect(skillNameFromStepName('Tool: skill:a')).toBe('a')
   })
 
   test('the skill name is carried by the step name itself', () => {
@@ -97,6 +109,14 @@ describe('parseSkillActivity', () => {
   test('one malformed object does not cost us a well-formed one', () => {
     const blob = `{not json}\n${JSON.stringify({ phase: 'activated', name: 'a' })}\n{ also bad`
     expect(parseSkillActivity(blob)?.name).toBe('a')
+  })
+
+  test('every phase on a step is kept, oldest first', () => {
+    const blob = [
+      JSON.stringify({ kind: 'skill', channel: 'live', phase: 'activated', name: 'a', title: 'Alpha' }),
+      JSON.stringify({ kind: 'skill', channel: 'technical', phase: 'loaded', name: 'a', body_chars: 9 }),
+    ].join('\n')
+    expect(parseSkillActivities(blob).map((a) => a.phase)).toEqual(['activated', 'loaded'])
   })
 
   test('an unknown field is tolerated, a missing phase is not', () => {
@@ -164,5 +184,68 @@ describe('skillLabelForStep', () => {
 
   test('a step with no skill identity anywhere yields null', () => {
     expect(skillLabelForStep('use_skill', '')).toBeNull()
+  })
+})
+
+/**
+ * The live line is stricter than the label ladder.
+ *
+ * A bare id in a status sentence is worse than silence, so the backend marks a
+ * titleless activation `technical` and withholds its `text`. These tests pin
+ * that we honour that rather than falling back to the id — and that `loaded`,
+ * which lands on the SAME step a moment later, does not erase the sentence.
+ */
+describe('liveSkillActivity / skillLiveText', () => {
+  const activated = {
+    kind: 'skill',
+    channel: 'live',
+    phase: 'activated',
+    name: 'oib-brandschutznachweis',
+    title: 'Brandschutznachweis',
+    text: 'Skill „Brandschutznachweis“ wird angewendet',
+  }
+  const loaded = {
+    kind: 'skill',
+    channel: 'technical',
+    phase: 'loaded',
+    name: 'oib-brandschutznachweis',
+    title: 'Brandschutznachweis',
+    body_chars: 4096,
+  }
+
+  test('an activation with a title speaks, in the backend\'s own words', () => {
+    expect(skillLiveText(JSON.stringify(activated))).toBe(
+      'Skill „Brandschutznachweis“ wird angewendet'
+    )
+  })
+
+  test('the forced wording is carried through rather than re-derived', () => {
+    // "wurde angefordert" vs "wird angewendet" is a fact about WHO decided; a
+    // frontend template could not know it, so the sentence is not rebuilt here.
+    const forced = { ...activated, forced: true, text: 'Skill „Brandschutznachweis“ wurde angefordert' }
+    expect(skillLiveText(JSON.stringify(forced))).toBe('Skill „Brandschutznachweis“ wurde angefordert')
+  })
+
+  test('loaded arriving on the same step does not blank the line', () => {
+    const blob = [JSON.stringify(activated), JSON.stringify(loaded)].join('\n')
+    expect(skillLiveText(blob)).toBe('Skill „Brandschutznachweis“ wird angewendet')
+    // The state is still the newest phase — only the LIVE line skips backwards.
+    expect(parseSkillActivity(blob)?.phase).toBe('loaded')
+  })
+
+  test('a titleless activation is silent, and no title is invented', () => {
+    const untitled = { kind: 'skill', channel: 'technical', phase: 'activated', name: 'oib-2024' }
+    expect(liveSkillActivity(JSON.stringify(untitled))).toBeNull()
+    expect(skillLiveText(JSON.stringify(untitled))).toBeNull()
+    // …but the chip and the disclosure may still name it by its id.
+    expect(skillLabelForStep('skill:oib-2024', JSON.stringify(untitled))).toEqual({
+      text: 'oib-2024',
+      mono: true,
+    })
+  })
+
+  test('an offered event never reaches the live line', () => {
+    const offered = { kind: 'skill', channel: 'technical', phase: 'offered', offered_count: 6 }
+    expect(skillLiveText(JSON.stringify(offered))).toBeNull()
   })
 })

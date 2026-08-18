@@ -25,6 +25,7 @@
 
 import { notFound } from 'next/navigation'
 
+import { AnswerFeedback } from '@/features/chat/components/AnswerFeedback'
 import { AnswerFeedbackHealth } from '@/features/platform/components/answer-feedback-health'
 import { I18nProvider } from '@/i18n'
 
@@ -189,10 +190,42 @@ const DIGEST = {
   error: null,
 }
 
+/**
+ * The per-answer footnote's own states, keyed by conversation id.
+ *
+ * `useAnswerFeedback` hydrates ONE GET per conversation, so giving each state
+ * its own conversation is what lets five copies of the real component sit on
+ * one page in five different states — no props, no test hooks, the same code
+ * path a real answer takes.
+ */
+const TURN_STATES: Record<string, { messageId: string; verdict: string; reason: string | null; comment: string | null }[]> = {
+  'af-rest': [],
+  'af-up': [{ messageId: 'af-msg', verdict: 'up', reason: null, comment: null }],
+  'af-down': [{ messageId: 'af-msg', verdict: 'down', reason: null, comment: null }],
+  'af-note': [{ messageId: 'af-msg', verdict: 'down', reason: 'inaccurate', comment: null }],
+  'af-sent': [
+    {
+      messageId: 'af-msg',
+      verdict: 'down',
+      reason: 'wrong_source',
+      comment: 'Zitiert OIB-Richtlinie 2 statt 4.',
+    },
+  ],
+  'af-inline': [],
+}
+
 if (typeof window !== 'undefined') {
   const real = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+    // The per-answer thumbs: hydration per conversation, writes always accepted.
+    if (url.includes('/api/feedback/answers')) {
+      const conversationId = new URL(url, 'http://x').searchParams.get('conversationId') ?? ''
+      return new Response(JSON.stringify({ feedback: TURN_STATES[conversationId] ?? [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
     // Checked FIRST: the digest path contains the health path as a prefix.
     if (url.includes('/api/platform/answer-feedback/digest')) {
       return new Response(JSON.stringify(DIGEST), {
@@ -211,6 +244,45 @@ if (typeof window !== 'undefined') {
   }
 }
 
+/**
+ * The footnote's progressive disclosure, left to right: what a reader sees
+ * before they vote, and each step the vote opens. Every card carries a REAL
+ * (short) answer above the row, because "is this a footnote or does it
+ * outweigh the answer?" is the defect that cannot be judged without one.
+ */
+const FOOTNOTE_STATES = [
+  {
+    id: 'af-rest',
+    label: 'In Ruhe',
+    caption: 'Unter jeder Antwort — quiet bis zum Hover.',
+    answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
+  },
+  {
+    id: 'af-up',
+    label: 'Hilfreich',
+    caption: 'Die Stimme ist gespeichert — und damit fertig.',
+    answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
+  },
+  {
+    id: 'af-down',
+    label: 'Nicht hilfreich — Grund wählen',
+    caption: 'Die Stimme steht bereits; der Grund ist der zweite, freiwillige Akt.',
+    answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
+  },
+  {
+    id: 'af-note',
+    label: 'Hinweis offen',
+    caption: 'Erst nach dem Grund — Senden bleibt bis zum ersten Zeichen ink-grau deaktiviert.',
+    answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
+  },
+  {
+    id: 'af-sent',
+    label: 'Hinweis gesendet',
+    caption: 'Der zweite Akt schließt sich; Stimme und Grund bleiben stehen.',
+    answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
+  },
+] as const
+
 export default function AnswerFeedbackPreviewPage() {
   if (process.env.NODE_ENV !== 'development') {
     notFound()
@@ -228,6 +300,53 @@ export default function AnswerFeedbackPreviewPage() {
             Was Nutzer von ihren Antworten hielten — was gelungen ist, was nicht, und die Fragen dahinter.
           </p>
         </header>
+
+        <section data-testid="answer-feedback-states" className="space-y-3">
+          <h2 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+            Die Fußnote unter der Antwort — jeder Zustand
+          </h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {FOOTNOTE_STATES.map((state) => (
+              <div key={state.id} className="flex flex-col gap-2 rounded-lg border bg-card p-4">
+                <p className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {state.label}
+                </p>
+                <div className="rounded-lg border bg-background px-4 py-3">
+                  <p className="text-sm leading-relaxed">{state.answer}</p>
+                  <div className="mt-2.5">
+                    <AnswerFeedback messageId="af-msg" conversationId={state.id} />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">{state.caption}</p>
+              </div>
+            ))}
+
+            {/* The placement that actually ships: `compact`, inside the answer's
+                merged meta row (confidence · spacer · thumbs · timestamp). */}
+            <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+                Kompakt — in der Meta-Zeile der Antwort
+              </p>
+              <div className="rounded-lg border bg-background px-4 py-3">
+                <p className="text-sm leading-relaxed">
+                  Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.
+                </p>
+                <div className="mt-2.5 flex min-h-6 flex-wrap items-center gap-2">
+                  <span className="inline-flex h-6 items-center rounded-md bg-muted px-2 text-[11px] text-muted-foreground">
+                    Sichere Antwort
+                  </span>
+                  <span className="flex-1" aria-hidden="true" />
+                  <AnswerFeedback compact messageId="af-msg" conversationId="af-inline" />
+                  <span className="text-[11px] text-muted-foreground">09:41</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Gleiche Ruhe-Zeile, gleiche Höhe wie der Rest der Meta-Zeile.
+              </p>
+            </div>
+          </div>
+        </section>
+
         <AnswerFeedbackHealth />
       </main>
     </I18nProvider>
