@@ -94,8 +94,20 @@ def default_cache_dir() -> Path:
 
 
 def _cache_key(pdf_path: Path) -> str:
-    stat = pdf_path.stat()
-    digest = hashlib.sha256(f"{pdf_path.name}:{stat.st_size}:{int(stat.st_mtime)}".encode()).hexdigest()[:16]
+    """Cache file name for one PDF, keyed on its identity so an edited corpus re-extracts.
+
+    Tolerates a MISSING PDF, because the cache exists precisely so a warm run does not
+    need one — stat-ing unconditionally made `extract_pages` raise before it ever looked
+    at the cache, which defeats the purpose. A missing file yields a distinct key, so a
+    warm entry written from the real file is still found while a corpus that never had
+    the file cannot silently collide with one that did.
+    """
+    try:
+        stat = pdf_path.stat()
+        identity = f"{pdf_path.name}:{stat.st_size}:{int(stat.st_mtime)}"
+    except OSError:
+        identity = f"{pdf_path.name}:absent"
+    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
     return f"{pdf_path.stem}.{digest}.json"
 
 

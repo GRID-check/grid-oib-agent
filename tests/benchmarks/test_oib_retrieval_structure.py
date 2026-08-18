@@ -328,11 +328,20 @@ def test_the_production_diversity_cap_limits_pages_taken_from_one_document(synth
     )
     embedder = dense.HashedEmbedder()
     dense_index = dense.build_dense_index(embedder, chunks)
-    fused = runner._hybrid(dense_index.search(embedder, "Brandabschnitte", 10), [], 10)
-    # Every synthetic chunk is from one file, so the soft cap plus the fill pass decides
-    # how many of its pages survive; the invariant under test is that the merge ran at all
-    # and returned a bounded, ordered result rather than the whole ranking.
-    assert 0 < len(fused) <= 10
+    # Production's cap, read from the config rather than left at `_hybrid`'s default of
+    # 5 — the point of this test is what the agent actually sees.
+    settings = corpus.production_retrieval_settings()
+    cap = settings.max_chunks_per_document
+    hits = dense_index.search(embedder, "Brandabschnitte", 20)
+    fused = runner._hybrid(hits, [], 20, max_per_document=cap)
+    assert 0 < len(fused) <= 20
+    # The assertion that actually binds. Every synthetic chunk is from one file, so the
+    # cap decides how many of its pages reach the first pass; a `<= top_k` assertion
+    # passes just as well with the cap removed entirely and therefore tests nothing.
+    assert len(hits) > cap, "the fixture must offer more chunks than the cap, or this proves nothing"
+    first_pass = fused[:cap]
+    assert all(unit[0] == FILE_NAME for unit in first_pass)
+    assert len({unit[1] for unit in first_pass}) == len(first_pass), "the cap must not repeat a page"
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +368,7 @@ Diese Richtlinie gilt für Gebäude.
 2 WÄNDE gegen unbeheizte Dachräume 0,35
 3 WÄNDE erdberührt 0,40
 4 FENSTER gegen Außenluft 1,40
+5 TÜREN gegen Außenluft 1,70
 """
     body_two = """
 2.2 Sommerlicher Wärmeschutz ist beim Neubau von Wohngebäuden einzuhalten.
@@ -379,6 +389,14 @@ Diese Richtlinie gilt für Gebäude.
     )
     results, located, _parents, unlocated = structure.measure_document(index, "6", pages, FILE_NAME, 1024)
 
+    # This fixture deliberately has NO contents page, because what it demonstrates is the
+    # fallback: with nothing to arbitrate, a numbered table is indistinguishable from an
+    # outline and the metric has to say so. The table run is therefore made STRICTLY
+    # longer than the genuine one — `1, 2, 2.1, 3, 4, 5` against `1, 2, 2.1, 2.2, 2.3` —
+    # so the outcome follows from the objective rather than from `_best_chain`'s
+    # tie-break. At five each the assertion below would have passed or failed on a
+    # tie-break change, testing nothing.
+    #
     # Ground truth is unaffected: all five Punkte are found in the raw line stream.
     assert located == 5
     assert unlocated == []
