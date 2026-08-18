@@ -379,6 +379,34 @@ export const chat = {
       // The bare `use_skill` frame with no identifiable skill behind it.
       skillUnnamed: 'Skill',
     },
+    // Reader-facing names for the nodes and tools the backend emits, used by
+    // the opt-in technical panel. The names on the wire are internal ids
+    // (`knowledge_search`) — and NAT also forwards LangChain span names, which
+    // are CamelCase class names — so the panel resolves every row through this
+    // map instead of title-casing whatever arrived. Entries that a chip already
+    // names reuse `stepName.*` above: one node, one wording, everywhere.
+    nodeName: {
+      // The root frame that is open for the whole turn, not a step within it.
+      workflow: 'Turn',
+      clarification: 'Clarifying question',
+      deepResearch: 'Deep research',
+      dataSources: 'Data sources',
+      note: 'Note saved',
+      card: 'Result card',
+      documents: 'Document list',
+      askUser: 'Question to you',
+      model: 'Building model',
+      measure: 'Model measurement',
+      compliance: 'Compliance check',
+      skillSelection: 'Skill selection',
+      // A node this build has no name for. It keeps its row — the panel counts
+      // its steps and each carries a timestamp, so dropping rows would make the
+      // list disagree with the count and hide that something ran — but it says
+      // only that something internal ran. The raw name is not a vocabulary a
+      // reader can learn (unlike a `status:` slot, which is one and stays
+      // verbatim on purpose); it is whatever the framework called that span.
+      internal: 'Internal step',
+    },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
     herleitungSummary: 'Trace · {steps} steps · {sources} sources',

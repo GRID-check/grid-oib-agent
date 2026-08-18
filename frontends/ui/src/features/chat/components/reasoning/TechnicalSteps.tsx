@@ -3,6 +3,14 @@
  * (profile setting `showTechnicalReasoning`). Rendered as a collapsible tail
  * below the reasoning graph; the default trace is the friendly node graph, never
  * "which agent is running".
+ *
+ * "Raw" is about the GRANULARITY — every frame the backend sent, in order, with
+ * its timestamp — not about the wording. Each row is named through
+ * `getStepLabel`, so a node reads the same here as in the "Ausgeführt:" chips
+ * and in the reader's own locale, and the internal id behind it (a NAT function
+ * name, or a CamelCase LangChain span name) never reaches the page. The
+ * identifiers that ARE the label — a skill id, a `status:` slot, a model name —
+ * still show verbatim; that is what a power user opened this for.
  */
 
 'use client'
@@ -13,6 +21,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/component
 import { SectionLabel } from '@/components/ui/section-label'
 import type { Translator } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
+import { getStepLabel } from '../../lib/intermediate-step-parser'
 import type { ThinkingStep } from '../../types'
 
 export const TechnicalSteps: FC<{ steps: ThinkingStep[]; t: Translator }> = ({ steps, t }) => (
@@ -45,7 +54,9 @@ export const TechnicalSteps: FC<{ steps: ThinkingStep[]; t: Translator }> = ({ s
               className={`flex w-full items-center justify-between py-1.5 ${indentClass}`}
               role="listitem"
             >
-              <span className="min-w-0 truncate text-sm text-foreground">{step.displayName}</span>
+              <span className="min-w-0 truncate text-sm text-foreground">
+                {getStepLabel(step, t)}
+              </span>
               <span className="shrink-0 pl-4 text-xs text-muted-foreground">
                 {formatTime(step.timestamp)}
               </span>

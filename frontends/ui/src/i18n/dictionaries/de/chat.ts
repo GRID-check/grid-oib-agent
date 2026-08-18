@@ -350,6 +350,35 @@ export const chat: typeof en.chat = {
       // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
       skillUnnamed: 'Skill',
     },
+    // Lesbare Namen für die Knoten und Werkzeuge, die das Backend meldet — für
+    // das Technik-Panel (Opt-in). Auf der Leitung stehen interne Ids
+    // (`knowledge_search`), und NAT reicht zusätzlich LangChain-Span-Namen
+    // durch, also CamelCase-Klassennamen. Deshalb löst das Panel jede Zeile
+    // über diese Map auf, statt zu title-casen, was gerade ankam. Was schon
+    // einen Chip hat, nutzt `stepName.*` oben mit: ein Knoten, eine Wortwahl.
+    nodeName: {
+      // Der Rahmen, der den ganzen Zug über offen ist — kein Schritt darin.
+      workflow: 'Ablauf',
+      clarification: 'Rückfrage',
+      deepResearch: 'Tiefenrecherche',
+      dataSources: 'Datenquellen',
+      note: 'Notiz gespeichert',
+      card: 'Ergebniskarte',
+      documents: 'Dokumentenliste',
+      askUser: 'Rückfrage an Sie',
+      model: 'Gebäudemodell',
+      measure: 'Modellmessung',
+      compliance: 'Normprüfung',
+      skillSelection: 'Skill-Auswahl',
+      // Ein Knoten, für den dieser Build keinen Namen hat. Die Zeile bleibt —
+      // das Panel zählt seine Schritte und jeder trägt eine Uhrzeit, ein
+      // Weglassen ließe Liste und Zähler auseinanderlaufen und verschwiege,
+      // dass etwas lief — sagt aber nur, dass intern etwas passiert ist. Der
+      // rohe Name ist kein Vokabular, das man lernen kann (anders als ein
+      // `status:`-Slot, der genau das ist und bewusst wörtlich bleibt); er ist,
+      // wie das Framework diesen Span zufällig genannt hat.
+      internal: 'Interner Schritt',
+    },
     interrupted: 'Unterbrochen',
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
     // Wiederverbindung kann eine laufende Antwort verwerfen (Protokoll-
