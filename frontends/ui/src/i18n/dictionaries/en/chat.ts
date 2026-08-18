@@ -264,8 +264,10 @@ export const chat = {
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds} seconds',
     // Live one-liners describing what the assistant is doing right now, chosen
-    // from the newest streamed step. `runningNamed` is the honest fallback for
-    // a step we can't classify — it shows the step's own name.
+    // from the newest OPEN step that can be phrased for a reader. There is
+    // deliberately no "show the step's own name" entry: an internal identifier
+    // dressed up as a status is noise, so an unclassifiable step falls through
+    // to the previous meaningful phrase, or to `working` above.
     activity: {
       understanding: 'Understanding your question …',
       planning: 'Planning the approach …',
@@ -276,7 +278,15 @@ export const chat = {
       researching: 'Researching …',
       reading: 'Reading the results …',
       composing: 'Composing the answer …',
-      runningNamed: '{name} …',
+      // Skill activity — ONE line for the one fact worth reporting: which skill
+      // is shaping this answer. The name is the skill's own (an authored title
+      // where one exists, otherwise the bare `/identifier`), never the
+      // mechanism ("Use Skill") and never title-cased. The load itself is
+      // plumbing and gets no line of its own.
+      usingSkill: 'Applying the “{name}” skill …',
+      // The legacy `use_skill` tool frame, which names the mechanism and not
+      // the skill. Honest and unnamed rather than wrong and specific.
+      usingSkillUnnamed: 'Applying a skill …',
     },
     // Compact "what actually ran" chips in the Herleitung basis — one chip per
     // executed agent/tool, without the technical-steps opt-in.
@@ -289,6 +299,11 @@ export const chat = {
       corpus: 'OIB corpus',
       assistant: 'Assistant',
       reading: 'Reading',
+      // One chip per skill the turn actually applied. `{name}` is resolved by
+      // the single label authority (features/skills/lib/skill-activity).
+      skill: 'Skill: {name}',
+      // The bare `use_skill` frame with no identifiable skill behind it.
+      skillUnnamed: 'Skill',
     },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
@@ -305,7 +320,10 @@ export const chat = {
     // research outcome, not a gap.
     readNotUsed: 'read, not used',
     moreSources: '+{count} more',
-    selectedDataSources: 'Selected Data Sources:',
+    // The files hung on THIS message. The data sources toggled on in the
+    // composer are availability, not activity, and are deliberately not listed
+    // here — what ran is the `executedSteps` row above.
+    attachedFiles: 'Attached files:',
     // "Why this path?" — the routing classification for this turn (WP-A
     // `routing_decision` + `routing_reason`), in the trace framing node.
     routing: {
@@ -320,11 +338,6 @@ export const chat = {
     },
     // One-liner when this turn escalated from shallow to deep research.
     escalationNarration: 'Escalated to deep research: {reason}',
-    dataSource: {
-      webSearch: 'Web Search',
-      knowledgeBase: 'OIB Knowledge Base',
-      ris: 'RIS (Austrian Law)',
-    },
     node: {
       framingTab: 'Framing',
       framingTitle: 'Question understood',

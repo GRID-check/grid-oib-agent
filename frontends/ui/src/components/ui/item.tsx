@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Slot } from '@radix-ui/react-slot'
 
 import { cn } from '@/lib/utils'
+import { FOCUS_RING_INSET } from '@/components/ui/focus-ring'
 
 function Item({
   className,
@@ -14,7 +15,19 @@ function Item({
     <Comp
       data-slot="item"
       className={cn(
-        'flex items-center gap-3 px-5 py-3 text-left transition-colors duration-200 ease-out hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none motion-reduce:transition-none',
+        // A row is `px-4 py-3` — the design language's list-row padding.
+        'flex items-center gap-3 px-4 py-3 text-left transition-colors duration-200 ease-out hover:bg-accent/40 motion-reduce:transition-none',
+        // Keyboard focus must not be the same pixel as hover. It used to be
+        // exactly that — `outline-none` plus the hover background — so a
+        // keyboard reader could not tell which row they were on when the
+        // pointer happened to rest on another. The ring is inset because
+        // `ItemList` clips (`overflow-hidden`) and an offset ring on the first
+        // or last row would be sliced off by its rounded edge.
+        'outline-none',
+        FOCUS_RING_INSET,
+        // A row is routinely `asChild` an anchor, and an anchor cannot take
+        // `disabled` — so the aria mirror carries the same treatment.
+        'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50',
         className,
       )}
       {...props}

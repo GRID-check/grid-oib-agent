@@ -5,6 +5,7 @@ import * as RadioGroupPrimitive from '@radix-ui/react-radio-group'
 import { Circle } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
 
 const RadioGroup = React.forwardRef<
   React.ElementRef<typeof RadioGroupPrimitive.Root>,
@@ -27,7 +28,11 @@ const RadioGroupItem = React.forwardRef<
     ref={ref}
     data-slot="radio-group-item"
     className={cn(
-      'aspect-square size-4 shrink-0 rounded-full border border-input text-primary shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary',
+      // Same ring as its sibling `Checkbox` — the offset matters more here, not
+      // less: on a 16px circle an offset-less ring lands on the border itself
+      // and reads as "this radio is slightly thicker", not as focus.
+      'aspect-square size-4 shrink-0 rounded-full border border-input text-primary shadow-xs outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary',
+      FOCUS_RING,
       className,
     )}
     {...props}

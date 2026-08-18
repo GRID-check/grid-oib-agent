@@ -5,6 +5,7 @@ import * as SheetPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
 
 /**
  * Side sheet — a Dialog anchored to an edge instead of the centre.
@@ -32,7 +33,7 @@ const SheetOverlay = React.forwardRef<
   <SheetPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+      'fixed inset-0 z-50 bg-overlay backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
       className,
     )}
     {...props}
@@ -70,7 +71,12 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none touch-target">
+        <SheetPrimitive.Close
+          className={cn(
+            'absolute right-4 top-4 rounded-sm text-muted-foreground opacity-70 outline-none transition-opacity hover:opacity-100 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none touch-target',
+            FOCUS_RING,
+          )}
+        >
           <X className="size-4" aria-hidden />
           <span className="sr-only">{closeLabel}</span>
         </SheetPrimitive.Close>

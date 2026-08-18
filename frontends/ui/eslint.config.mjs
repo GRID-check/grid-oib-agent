@@ -1,5 +1,6 @@
 import { FlatCompat } from '@eslint/eslintrc'
 import requireTenantScope from './eslint-rules/require-tenant-scope.mjs'
+import motionVocabulary from './eslint-rules/motion-vocabulary.mjs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -10,9 +11,26 @@ const compat = new FlatCompat({
   baseDirectory: __dirname,
 })
 
+/**
+ * The repo's own rules, registered once under a single `grid` namespace.
+ *
+ * Flat config refuses to redefine a plugin name across two config objects that
+ * both match a file, and the blocks below deliberately overlap (one is scoped
+ * to src/app, one to all of src). Declaring the plugin in one fileless block
+ * and only setting severities per scope keeps that from being a footgun the
+ * next rule walks into.
+ */
+const gridRules = {
+  rules: {
+    'require-tenant-scope': requireTenantScope,
+    'motion-vocabulary': motionVocabulary,
+  },
+}
+
 /** @type {import('eslint').Linter.Config[]} */
 export default [
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
+  { plugins: { grid: gridRules } },
   {
     // Row-level security is enforced by Postgres at request time, which means a
     // missing tenant scope is invisible until a user actually hits it. Twice now
@@ -20,8 +38,17 @@ export default [
     // editor and CI. See eslint-rules/require-tenant-scope.mjs.
     files: ['src/app/**/*.{ts,tsx}'],
     ignores: ['src/**/*.spec.{ts,tsx}'],
-    plugins: { grid: { rules: { 'require-tenant-scope': requireTenantScope } } },
     rules: { 'grid/require-tenant-scope': 'error' },
+  },
+  {
+    // Motion is decoration with a job here, which makes it cheap to get wrong in
+    // ways nobody notices until a dense screen shimmers. Warn, not error, on the
+    // same reasoning as no-console below: the point is to stop new instances,
+    // and the few already in the tree (vendored shadcn sidebar chrome, one
+    // progress bar) should stay visible without turning unrelated runs red.
+    // See eslint-rules/motion-vocabulary.mjs.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: { 'grid/motion-vocabulary': 'warn' },
   },
   {
     files: ['src/**/*.{ts,tsx}'],

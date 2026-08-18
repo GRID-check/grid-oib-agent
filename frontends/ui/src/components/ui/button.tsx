@@ -5,12 +5,15 @@ import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@/lib/utils'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
+import { Spinner } from '@/components/ui/spinner'
 
 const buttonVariants = cva(
   // `min-w-11` covers the narrow cases the `size` heights cannot: an icon-only
   // button that uses `default`/`sm` rather than `icon`, or one whose label is a
   // single glyph. It is a floor, so it never squeezes a wider button.
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-[color,background-color,box-shadow,transform] duration-200 ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 outline-none pointer-coarse:min-w-11 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background aria-invalid:ring-destructive/20 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-[color,background-color,box-shadow,transform] duration-200 ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 outline-none pointer-coarse:min-w-11 aria-invalid:ring-destructive/20 aria-invalid:border-destructive " +
+    FOCUS_RING,
   {
     variants: {
       variant: {
@@ -48,18 +51,43 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
+  /**
+   * In-flight. The spinner takes the leading icon's place — same 16px glyph in
+   * the same slot — so the label neither moves nor disappears and the button
+   * keeps its width; a button that swaps its label for a spinner makes the
+   * reader re-read it to find out what they just triggered. Also implies
+   * `disabled` (a second click would fire the action twice) and `aria-busy`,
+   * which is what actually tells a screen reader the wait is expected.
+   *
+   * Ignored under `asChild`: Slot takes exactly one child, so there is nowhere
+   * to put the spinner without the caller composing it themselves.
+   */
+  loading?: boolean
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, loading = false, disabled, children, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
+    const showSpinner = loading && !asChild
     return (
       <Comp
         data-slot="button"
-        className={cn(buttonVariants({ variant, size, className }))}
+        className={cn(
+          buttonVariants({ variant, size }),
+          // Hide the caller's own leading glyph rather than sitting the spinner
+          // beside it — two icons is a busier button, not a busy one.
+          showSpinner && '[&>svg:first-of-type]:hidden',
+          className
+        )}
         ref={ref}
+        disabled={disabled || loading || undefined}
+        aria-busy={loading || undefined}
+        data-loading={loading || undefined}
         {...props}
-      />
+      >
+        {showSpinner ? <Spinner size="sm" aria-hidden="true" className="shrink-0" /> : null}
+        {children}
+      </Comp>
     )
   }
 )

@@ -28,6 +28,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useInvocableSkills } from '../hooks/use-invocable-skills'
+import { skillLabel } from '../lib/skill-activity'
 
 export interface SkillsUsedDisclosureProps {
   /** Skill names the agent activated, in activation order. */
@@ -79,9 +80,21 @@ export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
           <ul className="flex flex-col gap-1.5">
             {skillsActivated.map((name) => {
               const known = skills.find((skill) => skill.name === name)
+              // The ONE naming rule, shared with the live header line and the
+              // Herleitung chip (features/skills/lib/skill-activity): an
+              // authored title in proportional text, otherwise the bare
+              // identifier in `font-mono` — which is what this panel has always
+              // rendered, so nothing changes until titles exist. A row that
+              // cannot name its skill is dropped rather than shown blank.
+              const label = skillLabel({ name })
+              if (!label) return null
               return (
                 <li key={name} className="flex flex-col gap-0.5">
-                  <span className="text-foreground font-mono text-[11px]">{name}</span>
+                  <span
+                    className={cn('text-foreground text-[11px]', label.mono && 'font-mono')}
+                  >
+                    {label.text}
+                  </span>
                   {/* Absent when the descriptions have not arrived yet, or when
                       the skill has since been deleted or renamed. The name alone
                       is still true, so the row stays rather than disappearing. */}

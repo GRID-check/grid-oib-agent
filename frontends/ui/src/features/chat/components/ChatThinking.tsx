@@ -24,7 +24,7 @@ import { deriveExecutedSteps } from '../lib/executed-steps'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
 import { ReasoningFlow } from './reasoning/ReasoningFlow'
 import { type ChoicePrompt } from './reasoning'
-import { buildContextChips } from './reasoning/context'
+import { buildFileChips } from './reasoning/context'
 
 export interface ChatThinkingProps {
   /** Array of thinking steps to display */
@@ -42,9 +42,21 @@ export interface ChatThinkingProps {
   isRecoveryPending?: boolean
   /** Whether waiting for user response (HITL prompt pending) */
   isWaiting?: boolean
-  /** Data sources that were enabled for this query */
+  /**
+   * Data sources that were toggled ON in the composer when this message was
+   * sent — AVAILABILITY, not activity, and therefore not rendered.
+   *
+   * Kept as an accepted prop because callers still pass it and because the
+   * value is a real fact about the composer; what it is not is a fact about
+   * what this turn did. Rendering it inside the Herleitung is exactly the
+   * phantom-web-search bug: every source is enabled by default, so the row
+   * claimed `Websuche` on every turn, including greetings where the backend
+   * had already dropped every data-source tool. What ran comes from
+   * `deriveExecutedSteps` (the `Ausgeführt:` row), which is built from real
+   * Function Start/Complete frames.
+   */
   enabledDataSources?: string[]
-  /** Files that were available for this query */
+  /** Files attached to THIS message — a per-turn fact, so these are shown. */
   messageFiles?: Array<{ id: string; fileName: string }>
   /** Verbatim text of the triggering user message (framing node reframe). */
   userQuestion?: string
@@ -80,7 +92,8 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   isInterrupted = false,
   isRecoveryPending = false,
   isWaiting = false,
-  enabledDataSources = [],
+  // `enabledDataSources` is intentionally NOT destructured: it is accepted (see
+  // the prop doc) and deliberately not rendered anywhere.
   messageFiles = [],
   userQuestion = '',
   answerConfidence,
@@ -115,12 +128,9 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   // Unique source cards (hits + gaps) — bar "m Quellen", not sum of Treffer.
   const sourceCount = sourceCards.length
 
-  // Basis footer: the data sources + files this query ran against, shown as
-  // clean pills and always visible (no expand needed).
-  const contextChips = useMemo(
-    () => buildContextChips(enabledDataSources, messageFiles, t),
-    [enabledDataSources, messageFiles, t]
-  )
+  // Basis footer: the files attached to this message, as clean pills. Data
+  // sources deliberately do NOT appear here — see `enabledDataSources` above.
+  const fileChips = useMemo(() => buildFileChips(messageFiles), [messageFiles])
 
   // Live status: what the assistant is doing right now (derived from the newest
   // streamed step) plus a seconds-elapsed cue, so a slow turn reads as active
@@ -133,9 +143,11 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   // Herleitung names its steps without the technical-steps opt-in.
   const executedSteps = useMemo(() => deriveExecutedSteps(steps, t), [steps, t])
 
+  // Availability alone must never conjure a Herleitung: `enabledDataSources` is
+  // non-empty on essentially every turn, so including it here made the panel
+  // appear (and claim sources) for turns that did nothing.
   const hasSignal =
     steps.length > 0 ||
-    enabledDataSources.length > 0 ||
     messageFiles.length > 0 ||
     Boolean(answerConfidence) ||
     (citations?.length ?? 0) > 0 ||
@@ -293,22 +305,34 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                             className="size-1.5 animate-pulse rounded-full bg-brand motion-reduce:animate-none"
                           />
                         )}
-                        {s.label}
+                        {/* A skill with no authored title is named by its bare
+                            `/identifier`, so the identifier half renders
+                            `font-mono` — the same way `SkillsUsedDisclosure`
+                            writes it under the finished answer. One label
+                            authority, one appearance. */}
+                        {s.mono ? (
+                          <>
+                            {s.prefix && <span>{s.prefix}</span>}
+                            <span className="font-mono">{s.mono}</span>
+                          </>
+                        ) : (
+                          s.label
+                        )}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Basis footer — the data sources + files this query ran against,
-                  as clean pills. Only shown when the Herleitung is expanded. */}
-              {contextChips.length > 0 && (
+              {/* Basis footer — the files attached to this message, as clean
+                  pills. Only shown when the Herleitung is expanded. */}
+              {fileChips.length > 0 && (
                 <div className="flex flex-col gap-2 border-t border-border/60 px-4 pb-4 pt-3">
                   <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                    {t('thinking.selectedDataSources')}
+                    {t('thinking.attachedFiles')}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {contextChips.map((chip) => (
+                    {fileChips.map((chip) => (
                       <span
                         key={chip}
                         className="whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"

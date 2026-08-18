@@ -81,7 +81,7 @@ export function DataToolbar({
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)} data-testid="data-toolbar">
       <SearchField
-        className="min-w-[12rem] flex-1"
+        className="min-w-48 flex-1"
         value={searchValue}
         onChange={onSearchChange}
         placeholder={searchPlaceholder}

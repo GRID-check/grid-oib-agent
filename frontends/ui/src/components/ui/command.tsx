@@ -27,7 +27,7 @@ const Command = React.forwardRef<
     ref={ref}
     data-slot="command"
     className={cn(
-      'bg-popover text-popover-foreground flex h-full w-full flex-col overflow-hidden rounded-md',
+      'bg-popover text-popover-foreground flex h-full w-full flex-col overflow-hidden rounded-xl',
       className
     )}
     {...props}
@@ -91,7 +91,7 @@ function CommandDialog({
     <Dialog {...props}>
       <DialogContent
         showCloseButton={false}
-        className={cn('top-[30%] translate-y-0 gap-0 overflow-hidden p-0 rounded-2xl', className)}
+        className={cn('top-[30%] translate-y-0 gap-0 overflow-hidden rounded-xl p-0', className)}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{description}</DialogDescription>
@@ -137,7 +137,7 @@ const CommandList = React.forwardRef<
   <CommandPrimitive.List
     ref={ref}
     data-slot="command-list"
-    className={cn('max-h-[320px] overflow-x-hidden overflow-y-auto p-1', className)}
+    className={cn('max-h-80 overflow-x-hidden overflow-y-auto p-1', className)}
     {...props}
   />
 ))

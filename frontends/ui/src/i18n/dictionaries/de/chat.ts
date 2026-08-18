@@ -233,9 +233,11 @@ export const chat: typeof en.chat = {
     working: 'Antwort wird erstellt …',
     waiting: 'Warten auf Antwort',
     elapsedAria: 'Vergangen: {seconds} Sekunden',
-    // Live-Einzeiler, was der Assistent gerade tut, aus dem neuesten Schritt
-    // abgeleitet. `runningNamed` ist der ehrliche Fallback für einen Schritt,
-    // den wir nicht klassifizieren können.
+    // Live-Einzeiler, was der Assistent gerade tut — aus dem neuesten OFFENEN
+    // Schritt, der sich für Lesende formulieren lässt. Bewusst ohne Eintrag
+    // „zeig den Schrittnamen": ein interner Bezeichner im Status-Gewand ist
+    // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
+    // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
     activity: {
       understanding: 'Frage wird erfasst …',
       planning: 'Vorgehen wird geplant …',
@@ -246,7 +248,15 @@ export const chat: typeof en.chat = {
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
       composing: 'Antwort wird formuliert …',
-      runningNamed: '{name} …',
+      // Skill-Aktivität — EINE Zeile für die eine berichtenswerte Tatsache:
+      // welcher Skill diese Antwort prägt. `{name}` ist der Name des Skills
+      // selbst (gepflegter Titel, sonst der blanke `/Bezeichner`); nie der
+      // Mechanismus („Use Skill“) und nie Title-Case. Das Laden selbst ist
+      // Technik und bekommt keine eigene Zeile.
+      usingSkill: 'Skill „{name}“ wird angewendet …',
+      // Das alte `use_skill`-Frame benennt den Mechanismus, nicht den Skill.
+      // Lieber ehrlich unbenannt als falsch konkret.
+      usingSkillUnnamed: 'Skill wird angewendet …',
     },
     // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —
     // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
@@ -259,6 +269,12 @@ export const chat: typeof en.chat = {
       corpus: 'OIB-Korpus',
       assistant: 'Assistent',
       reading: 'Lesen',
+      // Ein Chip pro Skill, den dieser Turn tatsächlich angewendet hat.
+      // `{name}` liefert die einzige Label-Instanz
+      // (features/skills/lib/skill-activity).
+      skill: 'Skill: {name}',
+      // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
+      skillUnnamed: 'Skill',
     },
     interrupted: 'Unterbrochen',
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
@@ -289,7 +305,10 @@ export const chat: typeof en.chat = {
     // hat — ein echtes Rechercheergebnis, keine Lücke.
     readNotUsed: 'gelesen, nicht verwendet',
     moreSources: '+{count} weitere',
-    selectedDataSources: 'Ausgewählte Datenquellen:',
+    // Die an DIESE Nachricht angehängten Dateien. Die im Composer aktivierten
+    // Datenquellen sind Verfügbarkeit, keine Aktivität, und stehen bewusst
+    // nicht hier — was gelaufen ist, zeigt die `executedSteps`-Zeile darüber.
+    attachedFiles: 'Angehängte Dateien:',
     // „Warum dieser Weg?“ — die Routing-Einordnung dieses Turns (WP-A
     // `routing_decision` + `routing_reason`), im Herleitungs-Rahmenknoten.
     routing: {
@@ -304,11 +323,6 @@ export const chat: typeof en.chat = {
     },
     // Einzeiler, wenn dieser Turn von der Kurz- zur Tiefenrecherche eskaliert ist.
     escalationNarration: 'Eskaliert zur Tiefenrecherche: {reason}',
-    dataSource: {
-      webSearch: 'Websuche',
-      knowledgeBase: 'OIB-Wissensdatenbank',
-      ris: 'RIS (Österreichisches Recht)',
-    },
     node: {
       framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',

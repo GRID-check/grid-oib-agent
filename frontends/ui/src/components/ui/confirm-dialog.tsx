@@ -132,7 +132,7 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
                 )}
                 aria-hidden="true"
               >
-                <Icon className="size-[18px]" />
+                <Icon className="size-5" />
               </span>
             )}
             <div className="min-w-0 flex-1 space-y-1.5">
@@ -151,7 +151,7 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
           <Button
             variant={confirmVariant}
             onClick={() => void handleConfirm()}
-            disabled={pending}
+            loading={pending}
             data-testid={confirmTestId}
           >
             {confirmLabel}
