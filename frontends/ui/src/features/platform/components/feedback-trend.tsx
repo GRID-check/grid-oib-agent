@@ -206,6 +206,10 @@ export function FeedbackTrend({
           <text
             x={VIEW_W - 26}
             y={y(average) + 3}
+            // 9.5 SVG user units, a half-step under the axis labels above so
+            // the reference mark stays subordinate to the scale it annotates.
+            // Same coordinate system as those labels (see the note there) —
+            // not CSS pixels, so the type ramp does not apply.
             className="fill-muted-foreground/80 text-[9.5px]"
           >
             {t('answerFeedback.trendAverageMark')}

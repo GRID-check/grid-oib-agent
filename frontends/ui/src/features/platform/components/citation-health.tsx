@@ -188,10 +188,11 @@ const WINDOW_OPTIONS = [7, 30, 90] as const
  *
  * FOLLOW-UP for the `components/ui` owner: this belongs in `StatCard` itself.
  * Three surfaces reserve it by hand today and already disagree —
- * `platform-overview.tsx` uses `min-h-[7.25rem]` (icon + hint, same shape as
- * here), `base-knowledge.tsx` uses `min-h-24` (label + value only). A
- * `reserveHint` prop, or simply a floor baked into StatCard, would delete all
- * three literals and this constant with them.
+ * `app/app/(shell)/platform/platform-overview.tsx` uses `min-h-[7.25rem]`
+ * (icon + hint, the same shape as here), `app/app/(shell)/platform/
+ * base-knowledge.tsx` uses `min-h-24` (label + value only). A `reserveHint`
+ * prop, or simply a floor baked into StatCard, would delete all three
+ * literals and this constant with them.
  */
 const STAT_TILE_MIN_H = 'min-h-[7.25rem]'
 
@@ -406,8 +407,8 @@ export function CitationHealth(): JSX.Element {
    * children of it: `StatCard` is itself `rounded-lg border bg-card`, so
    * nesting it inside a `<Card>` put two identical planes on top of each other
    * and left the inner hairline doing all the separating — the card-inside-card
-   * the design language forbids. `platform-overview.tsx` and
-   * `base-knowledge.tsx` already lift their stats out this way.
+   * the design language forbids. `app/app/(shell)/platform/platform-overview
+   * .tsx` and `.../base-knowledge.tsx` already lift their stats out this way.
    */
   const stats = (data: SnapshotDto): JSX.Element => (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

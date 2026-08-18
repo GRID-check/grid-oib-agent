@@ -84,7 +84,7 @@ export const ExportFooter: FC<ExportFooterProps> = ({ disabled }) => {
               type="button"
               onClick={clearExportError}
               aria-label={t('dismissError')}
-              className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              className="shrink-0 rounded-xs opacity-70 transition-opacity duration-quick ease-out hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
             >
               <X className="size-4" aria-hidden="true" />
             </button>

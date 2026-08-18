@@ -79,7 +79,7 @@ const pillClasses = (isMe: boolean, isAgent: boolean, interactive: boolean): str
         : 'bg-muted text-foreground/80',
     interactive &&
       cn(
-        'cursor-pointer transition-[filter,box-shadow] hover:brightness-95 dark:hover:brightness-125',
+        'cursor-pointer transition-[filter,box-shadow] duration-quick ease-out hover:brightness-95 dark:hover:brightness-125',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
       )
   )

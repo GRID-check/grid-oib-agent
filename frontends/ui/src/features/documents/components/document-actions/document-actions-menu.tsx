@@ -114,6 +114,11 @@ export function DocumentActionsMenu({
               type="button"
               variant="ghost"
               size="icon"
+              // The 80% alpha is load-bearing, not a hand-derived surface:
+              // this trigger floats over a document thumbnail, and with
+              // `backdrop-blur-sm` it frosts the page image underneath instead
+              // of punching an opaque hole in it (same pair as the status
+              // badge on `file-card.tsx`).
               className="size-8 shrink-0 bg-background/80 shadow-2xs backdrop-blur-sm"
               aria-label={t('actions.label', { name: documentActions.name })}
               title={t('actions.menuLabel')}

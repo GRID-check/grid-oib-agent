@@ -15,6 +15,7 @@ import { type FC, type ReactNode, memo, useCallback, useRef, useEffect, useState
 import { CircleStop, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { motion, springDrawer } from '@/components/motion'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cancelJob } from '@/adapters/api'
@@ -183,7 +184,15 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
   )
 
   return (
-    // Wrapper animates its width; the panel content fades in once it lands.
+    // The wrapper's width is set in ONE pass and is never tweened. It used to
+    // run `width 300ms`, which is a layout animation on the widest element in
+    // the app: every frame re-laid-out and repainted the whole chat transcript
+    // beside it (`grid-design-language.md` §"Binding constraints" — a panel
+    // that changes size sets its size in one pass and TRANSLATES its content).
+    // The arrival the reader actually needs — "this came in from the right
+    // edge, that is where it goes back to" — is carried by a transform on the
+    // content instead, on `springDrawer` (a large surface arriving from an
+    // edge: direction of travel).
     <aside
       role="dialog"
       // Full-screen on mobile, where the panel covers the page and behaves
@@ -195,23 +204,28 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
         // Mobile: the open panel takes the whole viewport width (the chat
         // column collapses to 0% in MainLayout); desktop keeps the 50% split.
         width: isOpen ? (isMobile ? '100%' : '50%') : '0%',
-        transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
       }}
       aria-hidden={!isOpen}
       aria-label={t('chatToolbar.research')}
     >
-      {/* Outer container: clips content while the wrapper animates */}
-      <div className="h-full overflow-hidden border-l bg-background">
+      {/* The panel surface itself — border, background and content together —
+          is what travels, so the reader sees a whole plane arrive from the
+          right rather than an empty bordered column that fills in afterwards.
+          The <aside> above is the clipping shell it slides inside of. */}
+      <motion.div
+        className="h-full w-full overflow-hidden border-l bg-background"
+        // `initial={false}` so a panel that mounts already open does not
+        // slide; only a real open/close gesture animates.
+        initial={false}
+        animate={{ x: isOpen ? '0%' : '100%' }}
+        transition={prefersReducedMotion ? { duration: 0 } : springDrawer}
+      >
         <div
           className="flex h-full w-full flex-col"
           style={{
+            // Still hidden while closed, so nothing inside can be tabbed to or
+            // read out while the panel is parked off its own edge.
             visibility: isOpen ? 'visible' : 'hidden',
-            opacity: isOpen ? 1 : 0,
-            transition: prefersReducedMotion
-              ? 'none'
-              : isOpen
-                ? 'opacity 100ms ease-in-out, visibility 0ms'
-                : 'opacity 100ms ease-in-out 200ms, visibility 0ms 300ms',
           }}
         >
           {/* Header with tabs and close button */}
@@ -292,7 +306,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Confirmation before cancelling the run — it cannot be resumed. */}
       <StopResearchConfirmationModal
