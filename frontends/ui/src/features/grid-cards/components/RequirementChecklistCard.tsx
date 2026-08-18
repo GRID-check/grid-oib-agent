@@ -17,6 +17,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react'
+import { SectionLabel } from '@/components/ui/section-label'
 import { statusColor, statusLabel } from '../schematics/kit'
 import type { ChecklistItemData, DimStatus, NormReferenceData } from '../schematics/types'
 
@@ -49,10 +50,10 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col">
-      {/* Section label — uppercase 10.5, quiet ink */}
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-        {title}
-      </div>
+      {/* Section label — the shared eyebrow primitive, not a hand-rolled copy.
+          `tracking-[0.05em]` was exactly `tracking-wider` and the weight was a
+          step heavy (the ramp says `font-medium`); SectionLabel carries both. */}
+      <SectionLabel as="div">{title}</SectionLabel>
 
       <div className="mt-[9px] flex flex-col gap-[9px]">
         {items.map((item, index) => {
