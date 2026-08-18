@@ -214,11 +214,24 @@ function Sidebar({
       data-side={side}
       data-slot="sidebar"
     >
-      {/* Desktop gap: reserves layout width while the rail collapses. */}
+      {/* Desktop gap: reserves layout width for the `fixed` rail beside it.
+          NO TRANSITION, on purpose. This is the design language's binding
+          constraint made concrete — "a panel that changes size sets its size in
+          one pass and TRANSLATES its content" — and here it was also the app's
+          single most expensive animation: an in-flow element animating `width`
+          for 200ms re-runs layout for the whole page beside it, every frame, on
+          a change the reader made once.
+
+          It was never even coherent. The rail's CONTENTS swap on the same tick
+          (`iconRail` is React state: labels unmount, the brand mark swaps, tiles
+          restyle), so the old transition animated an empty box shrinking around
+          content that had already changed. Setting both the gap and the
+          container in one pass makes the collapse a single honest layout step
+          that agrees with itself. */}
       <div
         data-slot="sidebar-gap"
         className={cn(
-          'relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear',
+          'relative w-(--sidebar-width) bg-transparent',
           'group-data-[collapsible=offcanvas]:w-0',
           'group-data-[side=right]:rotate-180',
           variant === 'floating' || variant === 'inset'
@@ -235,10 +248,20 @@ function Sidebar({
           // dropped. Wherever `svh > dvh` (any browser with a retracting URL
           // bar) the mismatch pushed the rail's last rows, footer included,
           // below the visible area.
-          'fixed inset-y-0 z-10 hidden h-dvh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex',
+          // TRANSFORM ONLY. `left`/`right` were being animated to slide the
+          // offcanvas rail off the edge — a layout property doing a
+          // compositor's job — so the slide is now a `translate` of the same
+          // distance (100% of the rail's own width IS `--sidebar-width`), which
+          // the browser can run off the main thread. `width` is deliberately
+          // NOT in the transition list: see the gap above.
+          // Both legs get their own curve: `data-collapsible` is only present
+          // while collapsed, so the rail leaves on `ease-exit` and returns on
+          // `ease-entrance` — a departure accelerates away, an arrival decides
+          // early and settles.
+          'fixed inset-y-0 z-10 hidden h-dvh w-(--sidebar-width) transition-transform duration-deliberate ease-entrance group-data-[collapsible=offcanvas]:ease-exit motion-reduce:transition-none md:flex',
           side === 'left'
-            ? 'left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]'
-            : 'right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]',
+            ? 'left-0 group-data-[collapsible=offcanvas]:-translate-x-full'
+            : 'right-0 group-data-[collapsible=offcanvas]:translate-x-full',
           variant === 'floating' || variant === 'inset'
             ? 'p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]'
             : 'group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l',
@@ -297,7 +320,11 @@ function SidebarRail({ className, ...props }: React.ComponentProps<'button'>): R
       onClick={toggleSidebar}
       title="Toggle Sidebar"
       className={cn(
-        'absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex',
+        // Was `transition-all ease-linear` — the app's only `transition-all`,
+        // and it promised to animate every property this element might ever
+        // grow. The only thing it actually moves is its own `translate-x`
+        // between the collapsible modes, so that is what it names.
+        'absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-transform duration-quick ease-out motion-reduce:transition-none group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex',
         'in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize',
         '[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize',
         'group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar',
@@ -395,7 +422,12 @@ function SidebarGroupLabel({
       data-slot="sidebar-group-label"
       data-sidebar="group-label"
       className={cn(
-        'flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 outline-none ring-sidebar-ring transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0',
+        // Opacity fades, the margin does NOT. The collapsed state pulls this
+        // label out of flow with `-mt-8`, and animating a margin is animating
+        // layout — the label used to drag every row below it up over 200ms.
+        // Same split as the rail: the size change lands in one pass, and only
+        // the compositable half is timed.
+        'flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 outline-none ring-sidebar-ring transition-opacity duration-quick ease-out motion-reduce:transition-none focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0',
         'group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0',
         className,
       )}
@@ -460,7 +492,13 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>): R
 }
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+  // `transition-[width,height,padding]` here was the same layout animation as
+  // the rail's, multiplied by every row in the nav — and it was the ONLY
+  // transition on this control, so the one thing a nav row should ease (its
+  // hover fill) was snapping while its geometry was easing. Both are now the
+  // right way round: the tile resizes in one pass with the rail, and `colors`
+  // carries the hover.
+  'peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-colors duration-quick ease-out group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
   {
     variants: {
       variant: {

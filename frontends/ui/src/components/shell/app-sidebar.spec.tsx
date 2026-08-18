@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, afterEach } from 'vitest'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLayoutStore } from '@/features/layout/store'
-import { AppSidebar } from './app-sidebar'
+import { AppSidebar, railActivePillId } from './app-sidebar'
 
 // Isolate the nav-filtering logic from routing and the shell's sibling widgets.
 // The pathname is mutable because the rail now reads its own scope from it —
@@ -170,7 +170,7 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     // Scope to the rail's section nav so the wordmark / Settings footer stay out.
     const nav = container.querySelector('[data-sidebar="content"] nav')
     expect(nav).not.toBeNull()
-    const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
+    const labels = Array.from(nav!.querySelectorAll('a span[data-slot="rail-nav-label"]')).map((el) => el.textContent)
     // Ask Piloti · Files · History · Jobs* · Skills* · Archiv* · Inbox*,
     // per `project-sections.ts`. Skills and Jobs are absent here because
     // `showSkills` is off.
@@ -218,6 +218,36 @@ describe('AppSidebar - active state', () => {
       expect(link).not.toHaveAttribute('aria-current')
     }
   })
+
+  test('draws the shared-layout pill on the active entry, and nowhere else', () => {
+    // The pill is what the active state IS now — the button no longer carries
+    // `bg-card`/`border`, so "exactly one pill, inside the current link" is the
+    // assertion that the active surface still exists at all.
+    const { container } = render(<AppSidebar {...baseProps} />)
+    const pills = Array.from(container.querySelectorAll('[data-slot="rail-active-pill"]'))
+    expect(pills).toHaveLength(1)
+    expect(pills[0]!.closest('a')).toHaveAttribute('aria-current', 'page')
+    expect(pills[0]!.closest('a')).toHaveTextContent('Ask Piloti')
+  })
+
+  test('keys the pill identity by scope AND by rail width, so it never flies across either', () => {
+    // `layoutId` is motion state, not a DOM attribute, so the animation itself
+    // is not observable from a jsdom render — but the KEY is, and the key is
+    // the whole design decision. Two entries sharing it glide between each
+    // other; two entries differing in it do not. Both axes must therefore
+    // separate, or a pill would animate from "Dateien" to "Organisation"
+    // (different lists) or scale a 212px chip into a 36px one (different rail).
+    const ids = [
+      railActivePillId('project', false),
+      railActivePillId('project', true),
+      railActivePillId('org', false),
+      railActivePillId('org', true),
+    ]
+    expect(new Set(ids).size).toBe(4)
+    // Entries WITHIN one rail must share it — that is what makes the glide a
+    // glide rather than four independent chips.
+    expect(railActivePillId('project', false)).toBe(railActivePillId('project', false))
+  })
 })
 
 describe('AppSidebar - layout store mobile nav sync', () => {
@@ -260,7 +290,7 @@ describe('AppSidebar - org scope', () => {
       <AppSidebar {...orgProps} canAccessArchiv canManagePlatform canViewOrganization />
     )
     const nav = container.querySelector('[data-sidebar="content"] nav')
-    const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
+    const labels = Array.from(nav!.querySelectorAll('a span[data-slot="rail-nav-label"]')).map((el) => el.textContent)
     expect(labels).toEqual(['Projects', 'Archiv', 'Inbox', 'Organization', 'Platform', 'Profile'])
   })
 
@@ -277,7 +307,7 @@ describe('AppSidebar - org scope', () => {
       />
     )
     const nav = container.querySelector('[data-sidebar="content"] nav')
-    const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
+    const labels = Array.from(nav!.querySelectorAll('a span[data-slot="rail-nav-label"]')).map((el) => el.textContent)
     expect(labels).toEqual(['Projects', 'Profile'])
   })
 

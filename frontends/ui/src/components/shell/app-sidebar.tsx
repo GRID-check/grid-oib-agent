@@ -31,6 +31,7 @@ import { usePathname } from 'next/navigation'
 import { ChevronsLeft, ChevronsRight, Menu } from 'lucide-react'
 
 import { Logo } from '@/components/brand/logo'
+import { motion, springDrawer } from '@/components/motion'
 import {
   Sidebar,
   SidebarContent,
@@ -61,6 +62,38 @@ import { orgRailGroups } from './org-sections'
 
 /** Which set of destinations the rail is showing. */
 export type AppSidebarScope = 'project' | 'org'
+
+/**
+ * THE ACTIVE PILL'S SHARED-LAYOUT IDENTITY.
+ *
+ * Every rail entry that is currently active renders the same `motion.span`
+ * under this id, so when the route changes React unmounts one and mounts the
+ * other in a single commit and motion glides the chip between them instead of
+ * repainting it. That trajectory is the design language's rule 2 — DIRECTION
+ * OF TRAVEL: the pill's path says which section you just left and roughly how
+ * far back up the rail it is, which is exactly the thing a reader needs to
+ * find their way back and the one thing the endpoint alone cannot say.
+ *
+ * The id is KEYED, and both keys are load-bearing:
+ *
+ *  - **by scope.** Project scope and org scope list different destinations in
+ *    the same 236px column. A pill flying from "Dateien" to "Organisation"
+ *    would be animating a relationship that does not exist — the reader did
+ *    not move within a list, they swapped lists. Different key, so the chip
+ *    simply appears where it belongs.
+ *  - **by rail width.** Collapsing to the icon rail is a size change, not a
+ *    move. Sharing an id across it would ask motion to animate a 212×36 pill
+ *    into a 36×36 one, and a shared-layout size change is executed as a
+ *    `scale`, which visibly smears a 1px border and a 10px radius. Keyed, the
+ *    pill is re-created at the new size in the same pass the rail resizes in.
+ *
+ * Within one key every entry is the same width and height, so the animation
+ * reduces to a pure vertical translate — no scale, hence no border or radius
+ * distortion to correct.
+ */
+export function railActivePillId(scope: AppSidebarScope, iconRail: boolean): string {
+  return `rail-active-${scope}-${iconRail ? 'icon' : 'full'}`
+}
 
 /**
  * The org-scope surface tint.
@@ -302,6 +335,8 @@ function AppSidebarFrame({
 
   const orgSurface = inProject ? undefined : ORG_SCOPE_SURFACE
 
+  const activePillId = railActivePillId(inProject ? 'project' : 'org', iconRail)
+
   return (
     <>
       <MobileNavSync pathname={pathname} />
@@ -460,6 +495,7 @@ function AppSidebarFrame({
                         label={item.label}
                         badgeCount={item.badgeCount}
                         tooltip={iconRail}
+                        pillId={activePillId}
                       />
                     ))}
                   </SidebarMenu>
@@ -495,6 +531,15 @@ function AppSidebarFrame({
                   label={sectionLabel(PROJECT_SETTINGS_SECTION, t, tCollaboration)}
                   badgeCount={0}
                   tooltip={iconRail}
+                  // Its OWN id, so the pill never glides between the nav list
+                  // and the pinned footer. Settings is bottom-anchored in a
+                  // `shrink-0` footer while the list above it is a scroll
+                  // region — a chip travelling between them would be clipped
+                  // at the seam by `SidebarContent`'s own overflow, and the
+                  // distance it covered would be a function of how many
+                  // sections the project happens to have rather than of
+                  // anything the reader did.
+                  pillId={`${activePillId}-settings`}
                 />
               </SidebarMenu>
             </div>
@@ -612,6 +657,7 @@ function RailNavItem({
   label,
   badgeCount,
   tooltip,
+  pillId,
 }: {
   icon: ProjectSection['icon']
   href: string
@@ -619,6 +665,8 @@ function RailNavItem({
   label: string
   badgeCount: number
   tooltip: boolean
+  /** Shared-layout identity for the active chip — see `activePillId`. */
+  pillId: string
 }) {
   return (
     <SidebarMenuItem>
@@ -629,20 +677,71 @@ function RailNavItem({
         className={cn(
           'h-9 gap-[11px] rounded-[10px] px-3 text-[13px]',
           'group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center',
+          // The active SURFACE now lives on the pill below, so every fill the
+          // primitive would otherwise paint under it is turned off explicitly —
+          // including `data-[active=true]:bg-sidebar-accent`, which the old
+          // `bg-card` used to override and which would otherwise reappear the
+          // moment that override left. Only the INK stays here: colour and
+          // weight are a tween's business, never a spring's.
           active
-            ? 'border-border bg-card text-foreground shadow-xs hover:bg-card hover:text-foreground data-[active=true]:bg-card data-[active=true]:text-foreground border font-medium data-[active=true]:font-medium'
+            ? 'text-foreground hover:bg-transparent hover:text-foreground data-[active=true]:bg-transparent data-[active=true]:text-foreground font-medium data-[active=true]:font-medium'
             : 'text-muted-foreground hover:bg-accent hover:text-muted-foreground'
         )}
       >
         <Link href={href} aria-current={active ? 'page' : undefined}>
+          {active && (
+            <motion.span
+              layoutId={pillId}
+              data-slot="rail-active-pill"
+              aria-hidden
+              // Monochrome BY CONSTRUCTION: this is the exact chip the active
+              // item wore before — `border-border bg-card shadow-xs` — lifted
+              // off the button and onto its own element. Nothing new is drawn
+              // and no colour is introduced; only the ownership of those three
+              // classes changed, which is what lets them travel.
+              //
+              // `absolute inset-0` resolves against the LI, not the anchor: the
+              // anchor is `overflow-hidden` (it clips long labels), and an
+              // absolutely positioned box whose containing block is an ancestor
+              // of the clipper is not clipped by it — the same mechanism that
+              // already lets the icon-rail badge sit outside the tile. The li
+              // and the anchor are the same box in both rail widths, so this
+              // costs no geometry.
+              className="border-border bg-card shadow-xs absolute inset-0 rounded-[10px] border"
+              transition={springDrawer}
+            />
+          )}
           <Icon
             aria-hidden
-            className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')}
+            // `relative` on the two content nodes, rather than a z-index on the
+            // pill. Both are then positioned siblings in document order, so the
+            // later ones paint over the earlier one — no stacking context to
+            // create, and no negative z-index that would fall through the rail's
+            // own background.
+            className={cn(
+              'relative size-4 shrink-0',
+              active ? 'text-foreground' : 'text-muted-foreground'
+            )}
           />
-          <span className={cn('truncate', tooltip && 'sr-only')}>{label}</span>
+          {/* `data-slot`, because the label is no longer the only <span> inside
+              this anchor — the active pill is one too. A test (or a stylesheet)
+              reaching for "the rail entry's text" should say so rather than
+              picking the first span and hoping. */}
+          <span
+            data-slot="rail-nav-label"
+            // `relative` ONLY when the label is visible. `sr-only` sets
+            // `position: absolute` to take the text out of flow, and a later
+            // `relative` in the cascade beats it — which put a 1px box plus the
+            // row's 11px gap back into the icon rail and slid every glyph 5px
+            // off the 32px centre line the rail is aligned to. A hidden label
+            // has no paint order to fix, so it does not need the class.
+            className={cn('truncate', tooltip ? 'sr-only' : 'relative')}
+          >
+            {label}
+          </span>
           <InboxBadge
             pending={badgeCount}
-            className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:ml-0"
+            className="relative ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:ml-0"
           />
         </Link>
       </SidebarMenuButton>

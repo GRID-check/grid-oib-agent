@@ -33,7 +33,7 @@
  */
 
 import type { ComponentProps, ReactNode } from 'react'
-import { motion, springSnappy } from '@/components/motion'
+import { motion, motionQuick, springPress } from '@/components/motion'
 import { cn } from '@/lib/utils'
 
 export interface RaisedCardProps extends Omit<ComponentProps<'div'>, 'ref'> {
@@ -57,7 +57,7 @@ export function RaisedCard({
     <div
       className={cn(
         'border-border bg-muted/50 shadow-xs relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border',
-        'transition-shadow duration-200 ease-out motion-reduce:transition-none',
+        'transition-shadow duration-quick ease-out motion-reduce:transition-none',
         interactive && 'hover:shadow-md',
         className
       )}
@@ -71,9 +71,25 @@ export function RaisedCard({
   return (
     <motion.div
       className="h-full min-w-0 will-change-transform"
-      whileHover={{ y: -2 }}
-      whileTap={{ scale: 0.99 }}
-      transition={springSnappy}
+      // HOVER IS A TWEEN, THE PRESS IS A SPRING — and they are not the same
+      // motion wearing one transition.
+      //
+      // The 2px lift is ambient: it fires on every pointer crossing, dozens of
+      // times per screenful of a file grid, and its trajectory carries nothing
+      // the endpoint does not already say ("this is a target"). The design
+      // language's third veto — anything appearing more than ~5× per screenful
+      // is tween-only — lands squarely on it, so it is `motionQuick`, the same
+      // 180ms ease-out the card's own `transition-shadow` runs on. Sharing that
+      // number is the point: lift and shadow are one gesture.
+      //
+      // The tap is direct manipulation and must be REVERSIBLE mid-flight —
+      // release before the dip completes and the card has to come back from
+      // wherever it is, carrying its velocity. That is the one thing a tween
+      // cannot do (it restarts from zero velocity and stutters), and it is why
+      // `springPress` exists. ζ = 1.00, so the overshoot is 0px at any travel;
+      // the spring is bought for interruptibility, not for bounce.
+      whileHover={{ y: -2, transition: motionQuick }}
+      whileTap={{ scale: 0.99, transition: springPress }}
     >
       {card}
     </motion.div>

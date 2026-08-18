@@ -12,7 +12,21 @@ const buttonVariants = cva(
   // `min-w-11` covers the narrow cases the `size` heights cannot: an icon-only
   // button that uses `default`/`sm` rather than `icon`, or one whose label is a
   // single glyph. It is a floor, so it never squeezes a wider button.
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-[color,background-color,box-shadow,transform] duration-200 ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 outline-none pointer-coarse:min-w-11 aria-invalid:ring-destructive/20 aria-invalid:border-destructive " +
+  //
+  // THE PRESS. `active:scale-[0.98]` is the one moving thing on this control,
+  // and it is the press half of `springPress` — ζ = 1.00, 0% overshoot, so its
+  // OVERSHOOT AT ANY TRAVEL IS 0px. A critically damped spring IS an ease-out,
+  // which is why this stays a CSS transition on a plain <button> instead of
+  // spending a `linear()` sampling on a curve that has no bounce to describe.
+  // What it does buy is the settle time: springPress has ωn = √(600/0.6) =
+  // 31.6 rad/s, so it is within 2% of target in ~126ms — `duration-snap`.
+  //
+  // The duration is a LIST matched to the property list: colour and shadow keep
+  // the 180ms default (`--motion-quick`), the transform gets the 120ms press
+  // curve (`--motion-snap`). One `duration-*` utility could not say that, and
+  // running the press at the colour's duration is what made the dip read as a
+  // lag rather than as the button giving way.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-[color,background-color,box-shadow,transform] [transition-duration:var(--motion-quick),var(--motion-quick),var(--motion-quick),var(--motion-snap)] ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 outline-none pointer-coarse:min-w-11 aria-invalid:ring-destructive/20 aria-invalid:border-destructive " +
     FOCUS_RING,
   {
     variants: {
