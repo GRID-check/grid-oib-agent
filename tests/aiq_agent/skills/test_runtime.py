@@ -322,3 +322,47 @@ class TestActivationEvents:
         emit_skills_offered(runtime)
         assert _use_skill(runtime).invoke({"skill_name": "titel"}) == "titel body"
         assert runtime.activated == ("titel",)
+STANDARD = Skill(
+    name="haus-stil",
+    description="Fleet standard equipment.",
+    body="standard body",
+    origin="org",
+    standard=True,
+)
+
+
+def test_standard_skills_are_applied_without_being_asked_for() -> None:
+    # `delivery: standard` already means "resolved for every organization, no
+    # decision to make". Resolving it only put its description in the catalog,
+    # and a description the model may or may not open is not fleet policy.
+    runtime = SkillRuntime(skills=(S1, STANDARD))
+    assert "haus-stil" in runtime.forced
+    assert "haus-stil" in runtime.activated
+
+
+def test_an_ordinary_skill_is_not_forced() -> None:
+    # The flag is the whole gate: an offer the org took up, or a builtin, must
+    # stay opt-in or every resolved skill becomes mandatory.
+    runtime = SkillRuntime(skills=(S1, S2))
+    assert runtime.forced == ()
+    assert runtime.forced_block() is None
+
+
+def test_user_forces_are_listed_before_standard_skills() -> None:
+    # The forced block reads back to the model in order; what the user asked
+    # for should not sit underneath something they never mentioned.
+    runtime = SkillRuntime(skills=(S1, STANDARD), force_names=["alpha"])
+    assert runtime.forced == ("alpha", "haus-stil")
+
+
+def test_a_user_forced_standard_skill_is_not_listed_twice() -> None:
+    runtime = SkillRuntime(skills=(S1, STANDARD), force_names=["haus-stil"])
+    assert runtime.forced == ("haus-stil",)
+    assert runtime.activated.count("haus-stil") == 1
+
+
+def test_the_forced_doctrine_says_when_a_writing_skill_binds() -> None:
+    # Without "before you write", a skill that governs prose is loaded after the
+    # prose exists, which is the one moment it cannot affect anything.
+    runtime = SkillRuntime(skills=(STANDARD,))
+    assert "before you write" in (runtime.forced_block() or "")

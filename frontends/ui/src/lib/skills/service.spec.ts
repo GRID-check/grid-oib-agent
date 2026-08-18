@@ -631,6 +631,34 @@ describe('platform standard skills', () => {
     expect(platformRepository.listPublishedStandardRows).toHaveBeenCalledWith()
   })
 
+  /**
+   * The flag the backend forces on. `delivery: 'standard'` already meant
+   * "resolved for every organization, no decision to make", but resolving only
+   * put the skill's one-line description in the catalogue — and a description
+   * the model may or may not open is not fleet policy. `SkillRuntime` forces
+   * every resolved standard skill, which is what makes the tier bind; it can
+   * only do that if the distinction survives the wire.
+   */
+  it('marks standard skills on the wire so the backend applies rather than offers them', async () => {
+    const { skills } = await resolveSkillsForAgent('org_1')
+    const standard = skills.filter((s) => s.standard)
+    expect(standard.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * Not derivable from `origin`, which is also 'platform' for the machinery and
+   * for offers an org took up. Deriving it there would force every builtin on
+   * the fleet as policy.
+   */
+  it('does not mark the machinery or a taken-up offer as standard', async () => {
+    const { skills } = await resolveSkillsForAgent('org_1')
+    for (const skill of skills) {
+      if (!skill.standard) continue
+      expect(skill.origin).toBe('platform')
+    }
+    expect(skills.some((s) => s.origin === 'platform' && !s.standard)).toBe(true)
+  })
+
   it('leaves an unpublished standard draft imposing nothing and reserving nothing', async () => {
     publishPlatformRows([])
     vi.mocked(repository.insertSkill).mockImplementation(async (values) => makeSkill(values))

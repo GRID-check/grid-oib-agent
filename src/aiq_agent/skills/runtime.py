@@ -98,13 +98,29 @@ class SkillRuntime:
         self._forced: list[str] = []
         self._activated: list[str] = []
         self._activated_seen: set[str] = set()
-        # Forced skills go through the SAME activation site as model-invoked
-        # ones. They used to be appended here directly, which meant a second
-        # place that knew what "activated" means -- and would have meant a
-        # second place to remember to announce it from. The `forced` flag is
-        # the only difference, and it is a fact about who decided, not about
-        # what runs.
-        for name in force_names or ():
+        # A STANDARD skill is applied, not offered. `delivery: standard` already
+        # means "resolved for every organization, no decision to make" — but
+        # resolving it only put its one-line description in the catalog, and a
+        # description the model may or may not open is not fleet policy. Forcing
+        # it is what makes the tier mean what it says.
+        #
+        # This is a property of the skill, deliberately not a list of names in
+        # this file: the platform owner publishes a standard skill in the
+        # dashboard and it takes effect, with no deploy and nothing here to keep
+        # in sync with a row somebody can rename.
+        #
+        # The user's own `/name` forces come first, so the forced block reads in
+        # the order they asked for; standard skills follow, because they are the
+        # floor rather than the request.
+        #
+        # Both go through the SAME activation site as a model-invoked skill.
+        # Appending here directly would be a second place that knows what
+        # "activated" means -- and a second place to remember to ANNOUNCE it
+        # from, which would leave a standard skill shaping every answer without
+        # ever saying so. The `forced` flag is the only difference, and it is a
+        # fact about who decided, not about what runs.
+        standard = [s.name for s in skills if s.standard and s.name not in (force_names or ())]
+        for name in list(force_names or ()) + standard:
             if name in self._by_name:
                 self._record_activation(name, forced=True)
 

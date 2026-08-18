@@ -116,6 +116,10 @@ class Skill(BaseModel):
             ``use_skill``).
         metadata: Reserved GRID keys + free-form extra keys.
         origin: ``platform`` for builtin files, ``org`` for BFF-served rows.
+        standard: Fleet standard equipment — a published ``delivery: standard``
+            platform row. The organization made no decision about it and cannot
+            switch it off, so it is applied on every run that resolves it (see
+            ``SkillRuntime``) rather than waiting to be chosen.
         collection: Mid-level collection dir name for builtin files
             (research|synthesis); ``None`` for org rows.
         license: Optional license string.
@@ -128,6 +132,7 @@ class Skill(BaseModel):
     body: str
     metadata: dict[str, str] = {}
     origin: Literal["platform", "org"] = "platform"
+    standard: bool = False
     collection: str | None = None
     license: str | None = None
     compatibility: str | None = None
@@ -322,6 +327,7 @@ def build_skill_from_payload(
     *,
     origin: Literal["platform", "org"] = "platform",
     collection: str | None = None,
+    standard: bool = False,
 ) -> Skill:
     """Build + validate a :class:`Skill` from parsed data (YAML frontmatter or BFF row).
 
@@ -354,6 +360,7 @@ def build_skill_from_payload(
         body=body,
         metadata=metadata,
         origin=origin,
+        standard=standard,
         collection=collection,
         license=license_ if isinstance(license_, str) else None,
         compatibility=compatibility,
@@ -367,6 +374,7 @@ def parse_skill_md(
     *,
     origin: Literal["platform", "org"] = "platform",
     collection: str | None = None,
+    standard: bool = False,
 ) -> Skill:
     """Parse a SKILL.md document into a validated :class:`Skill`.
 
