@@ -12,6 +12,10 @@ from aiq_agent.skills.models import SkillValidationError
 
 EXPECTED = {
     ("bim", "ifc-spatial-reasoning"),
+    ("oib", "bebauung"),
+    ("oib", "brandschutz"),
+    ("oib", "nutzungssicherheit"),
+    ("oib", "waermeschutz"),
     ("research", "data-table-analysis"),
     ("research", "forecast-analysis"),
     ("research", "lightweight-calculation"),
