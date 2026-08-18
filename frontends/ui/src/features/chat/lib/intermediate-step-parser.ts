@@ -13,6 +13,7 @@ import {
   isSkillStepName,
   skillNameFromStepName,
 } from '@/features/skills/lib/skill-activity'
+import { isStatusStepName } from './turn-events'
 import type { IntermediateStepCategory } from '../types'
 
 /**
@@ -90,8 +91,11 @@ export const parseFunctionName = (name: string): ParsedFunctionName => {
  * @returns The category for data organization
  */
 export const mapFunctionToCategory = (functionName: string): IntermediateStepCategory => {
-  // `skill:<skillname>` carries the skill's name, so it cannot be a map key.
+  // Names that carry a variable suffix (`skill:<skillname>`,
+  // `status:retrieval:<n>`) cannot be map keys.
   if (isSkillStepName(functionName)) return 'tools'
+  // A status one-liner is about the TURN, not about an agent or a tool.
+  if (isStatusStepName(functionName)) return 'tasks'
   return CATEGORY_MAP[functionName] ?? DEFAULT_CATEGORY
 }
 
@@ -154,6 +158,13 @@ export const getDisplayName = (functionName: string): string => {
   }
   if (isSkillSelectionStepName(functionName)) {
     return 'Skill selection'
+  }
+  // Status slots are identifiers too (`status:retrieval:0`). Title-casing one
+  // produces "Status:retrieval:0", which is neither the identifier nor a name.
+  // The reader-facing wording is the payload's own German sentence, rendered on
+  // the live line; here — the opt-in technical panel — the raw slot is right.
+  if (isStatusStepName(functionName)) {
+    return functionName.trim()
   }
   if (functionName === 'chat_deepresearcher_agent') {
     return 'Chat Researcher'

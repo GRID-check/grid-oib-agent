@@ -18,6 +18,13 @@
  *    English phrase — "Use Skill", "Workflow: Chat Researcher" and the like are
  *    identifiers dressed up as work. They remain visible verbatim in the opt-in
  *    technical steps panel, which is where a log stream belongs.
+ *
+ * The `status:<slot>` turn events are excluded outright. They are SENTENCES
+ * about the turn, not tools that ran, and NAT reports them as top-level
+ * functions — so left alone they would land here under raw machine names, and
+ * `status:retrieval:0` would even match the corpus rule and duplicate the chip
+ * belonging to the retrieval tool it was describing. Their home is the live
+ * line.
  */
 
 import {
@@ -28,6 +35,7 @@ import {
   skillLabel,
 } from '@/features/skills/lib/skill-activity'
 import { isLLMModel } from './intermediate-step-parser'
+import { isStatusStepName, stepEventPayload } from './turn-events'
 import type { ThinkingStep } from '../types'
 
 export interface ExecutedStep {
@@ -79,7 +87,7 @@ const skillChip = (
   step: ExecutedStepInput,
   t: (key: string) => string
 ): Pick<ExecutedStep, 'label' | 'prefix' | 'mono'> | null => {
-  const activity = parseSkillActivity(step.content ?? step.rawPayload)
+  const activity = parseSkillActivity(stepEventPayload(step))
   if (!activity) return null
   if (activity.phase === 'offered') return null
 
@@ -111,6 +119,8 @@ export const deriveExecutedSteps = (
     // Round-level skill bookkeeping (how many were offered, which were pinned)
     // is availability, not activity — it never earns a chip.
     if (isSkillSelectionStepName(name)) continue
+    // Status one-liners are sentences, not executed tools (see the header).
+    if (isStatusStepName(name)) continue
 
     if (seen.has(name)) {
       // A later re-run of the same tool REPLACES the running flag — steps are

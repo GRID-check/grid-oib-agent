@@ -4,33 +4,41 @@
  * The header line answers one question: what is the assistant doing right now,
  * said in the reader's own nouns. The bar every phrase must clear is that you
  * can finish "…so the reader knows that ___" with something from THEIR world —
- * their question, their sources, an OIB-Richtlinie, a skill's name. If the only
- * honest completion names a mechanism — a function, a graph node, a model id, a
- * byte count, a catalogue size — the step does not belong on this line. It is
- * still visible, verbatim, in the opt-in technical steps panel; that is where a
- * log stream belongs.
+ * their question, the corpus being searched, the skill shaping the answer. If
+ * the only honest completion names a mechanism (a function, a graph node, a
+ * model id, a character count, a catalogue size), the step does not belong on
+ * this line. It stays visible, verbatim, in the opt-in technical panel; that is
+ * where a log stream belongs.
  *
- * So there is deliberately NO "show the step's own name" fallback any more.
- * That fallback is what manufactured the noise: it took any unknown internal
- * name, title-cased it, and presented an identifier dressed up as a status —
- * "Use Skill …", "Workflow: Chat Researcher", "Running Nemotron 3 Nano 30B …".
- * An unclassifiable step now falls back to the newest step that CAN be phrased,
- * and failing that to the caller's calm generic ("Antwort wird erstellt …").
- * Prefer silence over noise: a calm generic beats a truthful-but-meaningless
- * mechanism name.
+ * Two eras, and the newer one wins wherever it exists:
+ *
+ * **Turn events (`status:<slot>`, `skill:<id>`).** The backend states, in
+ * German, what it is doing at the moment it does it, and only marks `live` what
+ * a reader can use. Those sentences carry things the frontend cannot know — the
+ * corpus and the actual query (*Sucht im OIB-Wissen: „Fluchtweglänge GK4“*),
+ * the routing decision WITH the classifier's reason, the skill's authored
+ * title. So once a turn carries any turn event, the line is driven by those
+ * events ALONE: a generic *Quellen werden durchsucht …* derived from a tool
+ * name would otherwise overwrite the better sentence a second later, purely
+ * because the tool span opens after the status that announced it.
+ *
+ * **Legacy classification.** Without turn events (an older backend, a turn that
+ * emitted none) the line falls back to matching the function name, exactly as
+ * before. There is deliberately NO "show the step's own name" fallback: that is
+ * what manufactured the noise, taking any unknown internal name, title-casing
+ * it, and presenting an identifier dressed up as a status — "Use Skill …",
+ * "Workflow: Chat Researcher", "Running Nemotron 3 Nano 30B …". An
+ * unclassifiable step falls through to the newest step that CAN be phrased, and
+ * failing that to the caller's calm generic ("Antwort wird erstellt …").
+ * Prefer silence over noise.
  *
  * One line at a time. It replaces; it never accumulates.
  */
 
-import {
-  isSkillSelectionStepName,
-  isSkillStepName,
-  isUseSkillStepName,
-  parseSkillActivity,
-  skillLabel,
-} from '@/features/skills/lib/skill-activity'
+import { isUseSkillStepName } from '@/features/skills/lib/skill-activity'
 import type { ThinkingStep } from '../types'
 import { isLLMModel } from './intermediate-step-parser'
+import { isTurnEventStepName, turnEventLiveText } from './turn-events'
 
 /** i18n keys under `chat.thinking.activity.*`, one per recognised activity. */
 export type LiveActivityKey =
@@ -43,7 +51,6 @@ export type LiveActivityKey =
   | 'researching'
   | 'reading'
   | 'composing'
-  | 'usingSkill'
   | 'usingSkillUnnamed'
 
 /**
@@ -89,57 +96,19 @@ const classify = (functionName: string): LiveActivityKey | null => {
 }
 
 /**
- * The phrase for a skill step, or `undefined` when this step is not about a
- * skill and the ordinary rules should decide.
+ * The legacy phrase for a single step, or `null` when it produces none.
  *
- * Exactly ONE skill fact is worth the reader's line: which skill is shaping
- * this answer. `activated` (the agent chose it) and `loaded` (its instructions
- * are in context) are two halves of that same fact, so they produce the SAME
- * phrase rather than a two-beat "wird geladen …" → "wird angewendet …" log.
- *
- * Everything else about skills is filtered out here:
- *   • `offered` is availability, and availability is never activity — that is
- *     the phantom-Websuche rule applied to a new event.
- *   • `skill_selection` carries how many skills were offered and which were
- *     pinned: catalogue size is a number the reader cannot act on.
- *   • `body_chars` and friends are plumbing and never reach a phrase.
- * Filtered steps return `null`, which sends the header to the previous
- * meaningful phrase or the calm generic.
+ * `null` is the filter doing its job — a scaffolding node or an internal name
+ * we refuse to dress up as a status.
  */
-const skillActivityPhrase = (
-  step: ThinkingStep,
-  t: (key: string) => string
-): string | null | undefined => {
-  const name = (step.functionName || '').trim()
-
-  // The legacy LangChain tool: it names the MECHANISM, and title-cased it read
-  // "Use Skill …" — English, in a German UI. Unnamed but honest, and about a
-  // thing the reader knows (skills are a product concept they attach with `/`).
-  if (isUseSkillStepName(name)) return t('thinking.activity.usingSkillUnnamed')
-  if (isSkillSelectionStepName(name)) return null
-  if (!isSkillStepName(name)) return undefined
-
-  const activity = parseSkillActivity(step.content ?? step.rawPayload)
-  if (!activity || activity.phase === 'offered') return null
-
-  const named = skillLabel(activity)
-  if (!named) return null
-
-  return t('thinking.activity.usingSkill').replace('{name}', named.text)
-}
-
-/**
- * The phrase a single step would produce, or `null` when it produces none.
- *
- * `null` is the filter doing its job — a scaffolding node, an availability
- * event, or an internal name we refuse to dress up as a status.
- */
-const phraseFor = (step: ThinkingStep, t: (key: string) => string): string | null => {
+const legacyPhrase = (step: ThinkingStep, t: (key: string) => string): string | null => {
   const name = (step.functionName || '').trim()
   if (!name) return null
 
-  const skillPhrase = skillActivityPhrase(step, t)
-  if (skillPhrase !== undefined) return skillPhrase
+  // `use_skill` names the MECHANISM, and title-cased it read "Use Skill …" —
+  // English, in a German UI. Honest and unnamed instead. (Superseded entirely
+  // once the backend emits `skill:<id>` events, which carry the skill's title.)
+  if (isUseSkillStepName(name)) return t('thinking.activity.usingSkillUnnamed')
 
   if (SCAFFOLD_RE.test(name)) return null
 
@@ -159,30 +128,42 @@ const phraseFor = (step: ThinkingStep, t: (key: string) => string): string | nul
 /**
  * Resolve the current live-activity phrase.
  *
- * Scans the still-open steps newest-first and takes the first one that can be
- * phrased for a reader. A COMPLETED step must never drive the "right now"
- * phrase — after `Function Complete: web_search_tool` the backend goes quiet
- * while the LLM composes, and reusing that finished step left the header
- * shimmering "Searching the web …" for the whole compose phase. Walking the
- * remaining OPEN steps is what makes an unphraseable step degrade gracefully:
- * a sub-call we cannot name sits inside a parent we can, so the header holds
- * the parent's meaningful phrase instead of flashing an identifier.
- * Deep-research steps are excluded upstream by the caller, matching the rest of
- * ChatThinking.
- *
  * @param steps  the turn's thinking steps (newest last)
  * @param t      a `chat`-namespace translator
- * @returns a ready-to-render phrase, or `null` when nothing open can be phrased
+ * @returns a ready-to-render phrase, or `null` when nothing can be phrased
  *          (the caller then shows the generic working copy)
  */
 export const deriveLiveActivity = (
   steps: ThinkingStep[],
   t: (key: string) => string
 ): string | null => {
+  // ── The turn narrated itself ────────────────────────────────────────────
+  // Newest first, and completeness is irrelevant here: a turn event is pushed
+  // as a balanced START/END pair, so it is finished the instant it exists. It
+  // marks what happens NEXT, which is exactly what the line should say.
+  const hasTurnEvents = steps.some((step) => isTurnEventStepName(step.functionName || ''))
+  if (hasTurnEvents) {
+    for (let i = steps.length - 1; i >= 0; i -= 1) {
+      const step = steps[i]
+      if (!isTurnEventStepName(step.functionName || '')) continue
+      const text = turnEventLiveText(step)
+      if (text) return text
+    }
+    return null
+  }
+
+  // ── Legacy: infer from the function name ────────────────────────────────
+  // A COMPLETED step must never drive the "right now" phrase — after
+  // `Function Complete: web_search_tool` the backend goes quiet while the LLM
+  // composes, and reusing that finished step left the header shimmering
+  // "Searching the web …" for the whole compose phase. Walking the remaining
+  // OPEN steps is what makes an unphraseable step degrade gracefully: a
+  // sub-call we cannot name sits inside a parent we can, so the header holds
+  // the parent's meaningful phrase instead of flashing an identifier.
   for (let i = steps.length - 1; i >= 0; i -= 1) {
     const step = steps[i]
     if (step.isComplete) continue
-    const phrase = phraseFor(step, t)
+    const phrase = legacyPhrase(step, t)
     if (phrase) return phrase
   }
   return null

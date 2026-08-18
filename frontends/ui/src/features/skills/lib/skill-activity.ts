@@ -7,43 +7,57 @@
  * about what a skill is called, so none of them formats a name itself — they
  * all call `skillLabel`, and the degradation ladder lives here:
  *
- *   1. `title` — an authored, human-readable label → proportional text.
- *   2. `name`  — the bare `/identifier` → `font-mono`, matching how
+ *   1. `title` — the authored `grid-title` → proportional text.
+ *   2. `name`  — the bare id → `font-mono`, matching how
  *      `SkillsUsedDisclosure` has always rendered a name.
- *   3. neither — `null`, and the caller DROPS the step. A skill row that cannot
+ *   3. neither — `null`, and the caller DROPS the row. A skill row that cannot
  *      name its skill says nothing true, and "Use Skill …" (the mechanism,
  *      title-cased, in English) is exactly the non-answer this replaces.
  *
- * A skill name is an identifier, not prose: it is never title-cased, never
+ * A skill id is an identifier, not prose: it is never title-cased, never
  * snake_case-expanded, and never otherwise rewritten. `getDisplayName`'s
  * snake_case→Title Case path must not touch it.
+ *
+ * The LIVE line is stricter than the ladder. An id like
+ * `oib-brandschutznachweis-2024` in a status line is worse than silence, and
+ * synthesising a title from it would make a missing name indistinguishable
+ * from a real one — so the backend marks a titleless activation `technical`
+ * and withholds its `text`, and `liveSkillActivity` honours that rather than
+ * second-guessing it.
  */
 
 import {
-  SkillActivityPayloadSchema,
-  type SkillActivityPhaseWire,
-} from '@/adapters/api/skill-activity-schemas'
+  parseStepEventPayloads,
+  stepEventLiveText,
+  type SkillPhase,
+  type StepEventChannel,
+  type StepEventPayload,
+} from '@/adapters/api/step-event-schemas'
 
 /** Prefix of the per-skill intermediate step: `skill:<skillname>`. */
 export const SKILL_STEP_PREFIX = 'skill:'
 
-/** The round-level intermediate step describing the whole offer/choice decision. */
+/** The round-level step recording the catalogue this turn was given. */
 export const SKILL_SELECTION_STEP = 'skill_selection'
 
 /**
  * The legacy signal: `use_skill` is an ordinary LangChain tool, so before the
  * `skill:` steps existed this was the only trace that a skill ran — and it
- * names the MECHANISM, not the skill. Kept recognised (so it can be labelled
- * honestly and, once richer `skill:` steps are present, suppressed) but never
+ * names the MECHANISM, not the skill. It arrives as `use_skill` or, when the
+ * LLM announces the call, as `Tool: use_skill`. Kept recognised so it can be
+ * labelled honestly and suppressed once richer events are present, but never
  * treated as a skill identity.
  */
 export const USE_SKILL_TOOL = 'use_skill'
 
-export type SkillActivityPhase = SkillActivityPhaseWire
+export type SkillActivityPhase = SkillPhase
 
-/** A parsed skill-activity step, in UI camelCase. */
+/** A parsed skill event, in UI camelCase. */
 export interface SkillActivity {
   phase: SkillActivityPhase
+  channel?: StepEventChannel
+  /** The backend's German sentence. Present only on live events. */
+  text?: string
   name?: string
   title?: string
   description?: string
@@ -54,111 +68,91 @@ export interface SkillActivity {
   bodyChars?: number
 }
 
+/** A step name with any `Tool:` announcement prefix removed, lowercased. */
+const normalise = (functionName: string): string =>
+  (functionName || '').trim().replace(/^tool:\s*/i, '').toLowerCase()
+
 /** Whether a step's function name is the per-skill `skill:<skillname>` step. */
 export const isSkillStepName = (functionName: string): boolean =>
-  functionName.trim().toLowerCase().startsWith(SKILL_STEP_PREFIX)
+  normalise(functionName).startsWith(SKILL_STEP_PREFIX)
 
 /** Whether a step's function name is the round-level `skill_selection` step. */
 export const isSkillSelectionStepName = (functionName: string): boolean =>
-  functionName.trim().toLowerCase() === SKILL_SELECTION_STEP
+  normalise(functionName) === SKILL_SELECTION_STEP
 
 /** Whether a step's function name is the legacy `use_skill` tool call. */
 export const isUseSkillStepName = (functionName: string): boolean =>
-  functionName.trim().toLowerCase() === USE_SKILL_TOOL
+  normalise(functionName) === USE_SKILL_TOOL
 
 /**
- * The skill name carried by the step NAME itself (`skill:oib-brandschutz` →
+ * The skill id carried by the step NAME itself (`skill:oib-brandschutz` →
  * `oib-brandschutz`), or `null` for any other step. This is the fallback
- * identity when the payload is missing or malformed — the name is in the step
+ * identity when the payload is missing or malformed — the id is in the step
  * name too, so a broken payload must not cost us the one fact we have.
  */
 export const skillNameFromStepName = (functionName: string): string | null => {
-  const trimmed = functionName.trim()
+  const trimmed = (functionName || '').trim().replace(/^Tool:\s*/i, '')
   if (!isSkillStepName(trimmed)) return null
   const name = trimmed.slice(SKILL_STEP_PREFIX.length).trim()
   return name.length > 0 ? name : null
 }
 
-/**
- * Pull the balanced top-level `{…}` objects out of a payload blob.
- *
- * Needed because the three phases of one skill arrive under the SAME step name,
- * and the store appends each payload to the step's content — so by the time a
- * surface reads it, `content` can hold several JSON objects separated by
- * newlines. Brace-matching (string-aware, so a `}` inside a quoted value does
- * not close the object) is used rather than a line split because a
- * pretty-printed payload spans lines.
- */
-const extractJsonObjects = (raw: string): string[] => {
-  const out: string[] = []
-  let depth = 0
-  let start = -1
-  let inString = false
-  let escaped = false
-
-  for (let i = 0; i < raw.length; i += 1) {
-    const ch = raw[i]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (ch === '\\') escaped = true
-      else if (ch === '"') inString = false
-      continue
-    }
-    if (ch === '"') {
-      inString = true
-      continue
-    }
-    if (ch === '{') {
-      if (depth === 0) start = i
-      depth += 1
-      continue
-    }
-    if (ch === '}') {
-      if (depth === 0) continue
-      depth -= 1
-      if (depth === 0 && start >= 0) {
-        out.push(raw.slice(start, i + 1))
-        start = -1
-      }
-    }
+const toActivity = (payload: StepEventPayload): SkillActivity | null => {
+  if (!payload.phase) return null
+  return {
+    phase: payload.phase,
+    ...(payload.channel ? { channel: payload.channel } : {}),
+    ...(payload.text?.trim() ? { text: payload.text.trim() } : {}),
+    ...(payload.name?.trim() ? { name: payload.name.trim() } : {}),
+    ...(payload.title?.trim() ? { title: payload.title.trim() } : {}),
+    ...(payload.description?.trim() ? { description: payload.description.trim() } : {}),
+    ...(payload.origin?.trim() ? { origin: payload.origin.trim() } : {}),
+    ...(payload.forced !== undefined ? { forced: payload.forced } : {}),
+    ...(payload.offered_count !== undefined ? { offeredCount: payload.offered_count } : {}),
+    ...(payload.forced_names !== undefined ? { forcedNames: payload.forced_names } : {}),
+    ...(payload.body_chars !== undefined ? { bodyChars: payload.body_chars } : {}),
   }
-  return out
 }
 
 /**
- * Parse a skill-activity step payload.
+ * Every skill event in a step's payload, oldest first.
  *
- * Returns the LAST well-formed object in the blob, because the phases accumulate
- * in run order and the newest one is the current state of that skill (`loaded`
- * supersedes `activated` supersedes `offered`). Returns `null` when nothing in
- * the blob validates — the caller then falls back to the step name, or drops
- * the step.
+ * A step carries several: the adaptor repeats the object under
+ * `**Function Output:**`, and `activated` is followed by `loaded` under the
+ * same step name, which the store appends to the same content.
  */
-export const parseSkillActivity = (payload: string | undefined | null): SkillActivity | null => {
-  if (!payload || !payload.trim()) return null
+export const parseSkillActivities = (payload: string | null | undefined): SkillActivity[] =>
+  parseStepEventPayloads(payload)
+    .map(toActivity)
+    .filter((activity): activity is SkillActivity => activity !== null)
 
-  const candidates = extractJsonObjects(payload)
-  for (let i = candidates.length - 1; i >= 0; i -= 1) {
-    let json: unknown
-    try {
-      json = JSON.parse(candidates[i])
-    } catch {
-      continue
-    }
-    const parsed = SkillActivityPayloadSchema.safeParse(json)
-    if (!parsed.success) continue
-    const p = parsed.data
-    return {
-      phase: p.phase,
-      ...(p.name?.trim() ? { name: p.name.trim() } : {}),
-      ...(p.title?.trim() ? { title: p.title.trim() } : {}),
-      ...(p.description?.trim() ? { description: p.description.trim() } : {}),
-      ...(p.origin?.trim() ? { origin: p.origin.trim() } : {}),
-      ...(p.forced !== undefined ? { forced: p.forced } : {}),
-      ...(p.offered_count !== undefined ? { offeredCount: p.offered_count } : {}),
-      ...(p.forced_names !== undefined ? { forcedNames: p.forced_names } : {}),
-      ...(p.body_chars !== undefined ? { bodyChars: p.body_chars } : {}),
-    }
+/**
+ * The skill's current state: the NEWEST event on the step, because the phases
+ * supersede one another (`loaded` after `activated` after `offered`).
+ */
+export const parseSkillActivity = (payload: string | null | undefined): SkillActivity | null => {
+  const all = parseSkillActivities(payload)
+  return all.length > 0 ? all[all.length - 1] : null
+}
+
+/**
+ * The newest event on this step that MAY drive the live line, or `null`.
+ *
+ * Not simply the newest event: `loaded` follows `activated` on the same step
+ * and is technical, so taking the last one would blank the line the instant
+ * the instructions arrived — the reader would see the skill announce itself
+ * and vanish.
+ */
+export const liveSkillActivity = (payload: string | null | undefined): SkillActivity | null => {
+  const all = parseSkillActivities(payload)
+  for (let i = all.length - 1; i >= 0; i -= 1) {
+    const activity = all[i]
+    if (activity.phase !== 'activated') continue
+    if (activity.channel === 'technical') continue
+    // A titleless activation is telemetry by contract; the backend withholds
+    // its text, and we do not invent one.
+    if (!activity.title?.trim()) continue
+    return activity
   }
   return null
 }
@@ -166,7 +160,7 @@ export const parseSkillActivity = (payload: string | undefined | null): SkillAct
 /**
  * How a skill should be written on screen.
  *
- * `mono` is information, not styling preference: a bare identifier is rendered
+ * `mono` is information, not a styling preference: a bare id is rendered
  * `font-mono` (as `SkillsUsedDisclosure` already does) so the reader can tell a
  * machine name from an authored title at a glance.
  */
@@ -193,7 +187,7 @@ export const skillLabel = (
 
 /**
  * The label for a skill step given its function name and raw payload — the
- * combination every streamed surface actually has. Falls back to the name
+ * combination every streamed surface actually has. Falls back to the id
  * encoded in the step name when the payload is unusable.
  */
 export const skillLabelForStep = (
@@ -207,3 +201,13 @@ export const skillLabelForStep = (
     name: activity?.name ?? fallbackName,
   })
 }
+
+/** The live sentence for a skill step, or `null` when it must stay silent. */
+export const skillLiveText = (payload: string | null | undefined): string | null => {
+  const activity = liveSkillActivity(payload)
+  if (!activity) return null
+  const text = activity.text?.trim()
+  return text ? text : null
+}
+
+export { stepEventLiveText }

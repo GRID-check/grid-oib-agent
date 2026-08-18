@@ -278,14 +278,12 @@ export const chat = {
       researching: 'Researching …',
       reading: 'Reading the results …',
       composing: 'Composing the answer …',
-      // Skill activity — ONE line for the one fact worth reporting: which skill
-      // is shaping this answer. The name is the skill's own (an authored title
-      // where one exists, otherwise the bare `/identifier`), never the
-      // mechanism ("Use Skill") and never title-cased. The load itself is
-      // plumbing and gets no line of its own.
-      usingSkill: 'Applying the “{name}” skill …',
       // The legacy `use_skill` tool frame, which names the mechanism and not
-      // the skill. Honest and unnamed rather than wrong and specific.
+      // the skill. Honest and unnamed rather than wrong and specific. There is
+      // no named peer here on purpose: once the backend emits `skill:<id>`
+      // events it authors that sentence itself, carrying the skill's title and
+      // the difference between a skill the model chose and one the user asked
+      // for — neither of which a template here could know.
       usingSkillUnnamed: 'Applying a skill …',
     },
     // Compact "what actually ran" chips in the Herleitung basis — one chip per

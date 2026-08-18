@@ -46,9 +46,22 @@ export type {
   ApiError,
 } from './schemas'
 
-// Skill-activity intermediate-step payloads (`skill:<name>` / `skill_selection`)
-export { SkillActivityPayloadSchema, SkillActivityPhaseSchema } from './skill-activity-schemas'
-export type { SkillActivityPayload, SkillActivityPhaseWire } from './skill-activity-schemas'
+// Turn-event intermediate-step payloads (`status:<slot>` / `skill:<name>` / `skill_selection`)
+export {
+  StepEventPayloadSchema,
+  StepEventChannelSchema,
+  StepEventKindSchema,
+  SkillPhaseSchema,
+  parseStepEventPayloads,
+  stepEventLiveText,
+  unescapeStepPayload,
+} from './step-event-schemas'
+export type {
+  StepEventPayload,
+  StepEventChannel,
+  StepEventKind,
+  SkillPhase,
+} from './step-event-schemas'
 
 // Documents Client
 export { createDocumentsClient } from './documents-client'

@@ -248,14 +248,12 @@ export const chat: typeof en.chat = {
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
       composing: 'Antwort wird formuliert …',
-      // Skill-Aktivität — EINE Zeile für die eine berichtenswerte Tatsache:
-      // welcher Skill diese Antwort prägt. `{name}` ist der Name des Skills
-      // selbst (gepflegter Titel, sonst der blanke `/Bezeichner`); nie der
-      // Mechanismus („Use Skill“) und nie Title-Case. Das Laden selbst ist
-      // Technik und bekommt keine eigene Zeile.
-      usingSkill: 'Skill „{name}“ wird angewendet …',
       // Das alte `use_skill`-Frame benennt den Mechanismus, nicht den Skill.
-      // Lieber ehrlich unbenannt als falsch konkret.
+      // Lieber ehrlich unbenannt als falsch konkret. Bewusst ohne benanntes
+      // Gegenstück: sobald das Backend `skill:<id>`-Events sendet, formuliert
+      // es diesen Satz selbst — mit dem Titel des Skills und mit dem
+      // Unterschied zwischen „vom Modell gewählt“ und „von Ihnen angefordert“,
+      // den eine Vorlage hier nicht kennen kann.
       usingSkillUnnamed: 'Skill wird angewendet …',
     },
     // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —

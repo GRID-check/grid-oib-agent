@@ -137,78 +137,184 @@ describe('deriveLiveActivity', () => {
 })
 
 /**
- * Skills on the live line.
+ * Turn events on the live line.
  *
- * `use_skill` is an ordinary LangChain tool, so `getDisplayName` title-cased it
- * and the German header read "Use Skill …". The per-skill steps replace that
- * with the one fact worth a line: WHICH skill is shaping this answer.
+ * The backend states, in German, what it is doing at the moment it does it
+ * (`aiq_agent/common/turn_status.py`, `aiq_agent/skills/events.py`). Those
+ * sentences carry what the frontend cannot know — the corpus AND the query, the
+ * routing reason, a skill's authored title — so once a turn emits any of them
+ * they drive the line alone.
+ *
+ * Wire facts these tests pin, each of which breaks naive handling:
+ *   • every event is a balanced START/END pair, so it is COMPLETE on arrival;
+ *   • `channel: 'technical'` may never be rendered, and such events carry no
+ *     `text` at all, which is the structural half of the same guarantee;
+ *   • `loaded` follows `activated` under the SAME step name, so taking the
+ *     newest payload would blank the line the instant the skill loaded.
  */
-describe('deriveLiveActivity — skills', () => {
-  const skillStep = (name: string, payload: Record<string, unknown>) =>
-    step({ functionName: `skill:${name}`, displayName: name, content: JSON.stringify(payload) })
+describe('deriveLiveActivity — turn events', () => {
+  const eventStep = (name: string, ...payloads: Array<Record<string, unknown>>) =>
+    step({
+      id: name,
+      functionName: name,
+      displayName: name,
+      // Balanced pair: these arrive already finished.
+      isComplete: true,
+      content: payloads.map((p) => JSON.stringify(p)).join('\n'),
+    })
 
-  // A translator that really interpolates, so the assertions see the phrase a
-  // reader would see rather than a bare key.
-  const real = (key: string) =>
-    key === 'thinking.activity.usingSkill' ? 'Skill „{name}“ wird angewendet …' : key
+  const status = (slot: string, text: string, extra: Record<string, unknown> = {}) =>
+    eventStep(`status:${slot}`, { kind: 'status', channel: 'live', slot, text, ...extra })
 
-  test('an activated skill names itself by its authored title', () => {
+  test('a status one-liner speaks even though it is already complete', () => {
     const phrase = deriveLiveActivity(
-      [skillStep('oib-brandschutz', { phase: 'activated', name: 'oib-brandschutz', title: 'Brandschutznachweis' })],
-      real
+      [status('retrieval:0', 'Sucht im OIB-Wissen: „Fluchtweglänge GK4“', { tools: ['knowledge_search'] })],
+      t
     )
-    expect(phrase).toBe('Skill „Brandschutznachweis“ wird angewendet …')
+    expect(phrase).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
   })
 
-  test('with no title the bare identifier is used verbatim, never title-cased', () => {
+  test('the newest event wins — the line replaces, it never accumulates', () => {
     const phrase = deriveLiveActivity(
-      [skillStep('oib-brandschutz', { phase: 'activated', name: 'oib-brandschutz' })],
-      real
+      [
+        status('routing', 'Kurzrecherche: Frage betrifft OIB 2'),
+        status('retrieval:0', 'Sucht im RIS: „§ 3 BO Wien“'),
+        status('citations', 'Belege werden geprüft …'),
+      ],
+      t
     )
-    expect(phrase).toBe('Skill „oib-brandschutz“ wird angewendet …')
+    expect(phrase).toBe('Belege werden geprüft …')
   })
 
-  test('the loaded phase reuses the SAME line — the load is plumbing, not a second beat', () => {
+  test('a tool step never overwrites the richer sentence that announced it', () => {
+    // `status:retrieval:0` names the corpus AND quotes the query; the
+    // `knowledge_search_tool` span opens a moment later and would otherwise
+    // replace it with a generic "searching your sources".
+    const steps = [
+      status('retrieval:0', 'Sucht im OIB-Wissen: „Fluchtweglänge GK4“'),
+      step({ id: 'tool', functionName: 'knowledge_search_tool', isComplete: false }),
+    ]
+    expect(deriveLiveActivity(steps, t)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+  })
+
+  test('a technical event is never rendered, and carries no text to render', () => {
+    const steps = [
+      status('routing', 'Kurzrecherche: Frage betrifft OIB 2'),
+      eventStep('skill_selection', {
+        kind: 'skill',
+        channel: 'technical',
+        phase: 'offered',
+        offered_count: 6,
+        forced_names: [],
+      }),
+    ]
+    // Falls back to the newest event that MAY speak.
+    expect(deriveLiveActivity(steps, t)).toBe('Kurzrecherche: Frage betrifft OIB 2')
+  })
+
+  test('an activated skill says which skill, by its authored title', () => {
     const phrase = deriveLiveActivity(
-      [skillStep('a', { phase: 'loaded', name: 'a', title: 'Alpha', body_chars: 4096 })],
-      real
+      [
+        eventStep('skill:oib-brandschutznachweis', {
+          kind: 'skill',
+          channel: 'live',
+          phase: 'activated',
+          name: 'oib-brandschutznachweis',
+          title: 'Brandschutznachweis',
+          text: 'Skill „Brandschutznachweis“ wird angewendet',
+        }),
+      ],
+      t
     )
-    expect(phrase).toBe('Skill „Alpha“ wird angewendet …')
-    // A byte count is a number the reader cannot act on.
+    expect(phrase).toBe('Skill „Brandschutznachweis“ wird angewendet')
+  })
+
+  test('the loaded phase does not blank the line it followed', () => {
+    // Both phases land on the SAME step name; `loaded` is technical and has no
+    // text, so reading only the newest payload would erase the sentence.
+    const phrase = deriveLiveActivity(
+      [
+        eventStep(
+          'skill:oib-brandschutznachweis',
+          {
+            kind: 'skill',
+            channel: 'live',
+            phase: 'activated',
+            name: 'oib-brandschutznachweis',
+            title: 'Brandschutznachweis',
+            text: 'Skill „Brandschutznachweis“ wird angewendet',
+          },
+          {
+            kind: 'skill',
+            channel: 'technical',
+            phase: 'loaded',
+            name: 'oib-brandschutznachweis',
+            title: 'Brandschutznachweis',
+            body_chars: 4096,
+          }
+        ),
+      ],
+      t
+    )
+    expect(phrase).toBe('Skill „Brandschutznachweis“ wird angewendet')
     expect(phrase).not.toContain('4096')
   })
 
-  test('an OFFERED skill is availability and never reaches the live line', () => {
-    expect(
-      deriveLiveActivity([skillStep('a', { phase: 'offered', name: 'a', description: 'x' })], real)
-    ).toBeNull()
-  })
-
-  test('skill_selection bookkeeping never reaches the live line', () => {
-    expect(
-      deriveLiveActivity(
-        [
-          step({
-            functionName: 'skill_selection',
-            content: JSON.stringify({ phase: 'offered', offered_count: 6 }),
-          }),
-        ],
-        real
-      )
-    ).toBeNull()
-  })
-
-  test('a filtered skill step falls back to the previous meaningful phrase', () => {
+  test('a skill activated without an authored title stays silent', () => {
+    // An id like `oib-brandschutznachweis-2024` in a status line is worse than
+    // silence, and synthesising a title would make a missing name
+    // indistinguishable from a real one. The backend marks it technical; we do
+    // not second-guess that.
     const steps = [
-      step({ id: '1', functionName: 'knowledge_search', isComplete: false }),
-      { ...skillStep('a', { phase: 'offered', name: 'a' }), id: '2' },
+      eventStep('skill:oib-2024', {
+        kind: 'skill',
+        channel: 'technical',
+        phase: 'activated',
+        name: 'oib-2024',
+      }),
     ]
-    expect(deriveLiveActivity(steps, t)).toBe('thinking.activity.searchingKnowledge')
+    expect(deriveLiveActivity(steps, t)).toBeNull()
   })
 
-  test('bare use_skill says a skill is being applied — never the English "Use Skill"', () => {
+  test('the raw wire payload is html-escaped, and the sentence survives it', () => {
+    // NAT runs `html.escape(…, quote=False)`, and `&` is not JSON-structural —
+    // so `JSON.parse` SUCCEEDS on the escaped form and quietly hands back
+    // "Brand &amp; Rauch" as the sentence. `content` has already been decoded
+    // once by `formatPayload`; `rawPayload` has not, and is decoded here.
+    const wire = JSON.stringify({
+      kind: 'status',
+      channel: 'live',
+      slot: 'retrieval:0',
+      text: 'Sucht im OIB-Wissen: „Brand & Rauch“',
+    }).replace(/&/g, '&amp;')
+
     const phrase = deriveLiveActivity(
-      [step({ functionName: 'use_skill', displayName: getDisplayName('use_skill') })],
+      [step({ functionName: 'status:retrieval:0', isComplete: true, content: '', rawPayload: wire })],
+      t
+    )
+    expect(phrase).toBe('Sucht im OIB-Wissen: „Brand & Rauch“')
+  })
+
+  test('an already-decoded content payload is NOT decoded a second time', () => {
+    // `&amp;amp;` on the wire is a literal `&amp;` the sender meant; decoding
+    // it twice would collapse it to `&`.
+    const decodedOnce = JSON.stringify({
+      kind: 'status',
+      channel: 'live',
+      slot: 'retrieval:0',
+      text: 'Sucht nach „&amp; Co“',
+    })
+    const phrase = deriveLiveActivity(
+      [step({ functionName: 'status:retrieval:0', isComplete: true, content: decodedOnce })],
+      t
+    )
+    expect(phrase).toBe('Sucht nach „&amp; Co“')
+  })
+
+  test('legacy bare use_skill still says a skill is being applied — never "Use Skill"', () => {
+    // No turn events on this turn, so the legacy classification path runs.
+    const phrase = deriveLiveActivity(
+      [step({ functionName: 'Tool: use_skill', displayName: getDisplayName('Tool: use_skill') })],
       (key) => (key === 'thinking.activity.usingSkillUnnamed' ? 'Skill wird angewendet …' : key)
     )
     expect(phrase).toBe('Skill wird angewendet …')
