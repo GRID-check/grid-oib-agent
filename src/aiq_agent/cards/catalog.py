@@ -259,6 +259,52 @@ CARD_EXAMPLES: dict[str, dict] = {
         ],
         "reference": {"document": "OIB-Richtlinie 2", "edition": "Ausgabe Mai 2023"},
     },
+    "verdict_header": {
+        "type": "verdict_header",
+        "verdict": "1,10 m",
+        "subject": "Erforderliche Geländerhöhe",
+        "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 4.3", "edition": "Ausgabe Mai 2023"},
+        "confidence": "high",
+    },
+    "condition_tree": {
+        "type": "condition_tree",
+        "title": "Erforderliche Feuerwiderstandsklasse tragender Bauteile",
+        "question": "Gebäudeklasse",
+        "branches": [
+            {"condition": "GK 1–3", "outcome": "REI 30 (bzw. R 30)"},
+            {"condition": "GK 4", "outcome": "REI 60", "active": True},
+            {"condition": "GK 5", "outcome": "REI 90"},
+        ],
+        "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
+    },
+    "typed_table": {
+        "type": "typed_table",
+        "title": "Mindestmaße barrierefreie Erschließung",
+        "columns": [
+            {"label": "Bauteil", "type": "text"},
+            {"label": "Mindestmaß", "type": "mass"},
+            {"label": "Grundlage", "type": "norm"},
+            {"label": "Erfüllt", "type": "verdict"},
+        ],
+        "rows": [
+            ["Türdurchgangsbreite", "90 cm", "ÖNORM B 1600 Pkt. 5.1", "erfüllt"],
+            ["Rampenneigung", "6 %", "OIB-Richtlinie 4 Pkt. 3.2", "nicht erfüllt"],
+        ],
+        "reference": {"document": "ÖNORM B 1600", "edition": "Ausgabe 2020"},
+    },
+    "norm_chain": {
+        "type": "norm_chain",
+        "title": "Normenkette – Absturzsicherung",
+        "links": [
+            {
+                "label": "Wiener Bautechnikverordnung",
+                "rank": "verordnung",
+                "note": "erklärt die OIB-Richtlinien für verbindlich",
+            },
+            {"label": "OIB-Richtlinie 4", "rank": "oib_richtlinie", "note": "regelt die erforderliche Geländerhöhe"},
+            {"label": "ÖNORM B 1600", "rank": "oenorm", "note": "konkretisiert die barrierefreie Ausführung"},
+        ],
+    },
     "comparison_table": {
         "type": "comparison_table",
         "title": "GK 4 vs. GK 5 – wesentliche Anforderungen",

@@ -134,3 +134,42 @@ export interface ComparisonRowData {
   values: string[]
   highlight_index?: number | null
 }
+
+/** One branch of a condition tree: a case and the answer that holds under it. */
+export interface ConditionBranchData {
+  condition: string
+  outcome: string
+  active?: boolean | null
+  reference?: NormReferenceData | null
+}
+
+/** How a typed-table column's cells are rendered. */
+export type TypedColumnKind = 'mass' | 'norm' | 'verdict' | 'date' | 'text'
+
+/** One column of a typed table, declaring how its cells render. */
+export interface TypedColumnData {
+  label: string
+  /** Named `type` on the wire (mirrors the Pydantic field). */
+  type: TypedColumnKind
+}
+
+/**
+ * A link's declared rank in a norm chain. Mirrors `NormChainLink.rank` in
+ * `src/aiq_agent/cards/models.py` — the agent's display classification, not a
+ * `norm_registry` lookup. The first three bind; `oib_richtlinie` binds where a
+ * Land declares it; `oenorm`/`leitfaden` interpret.
+ */
+export type NormChainRank =
+  | 'bundesgesetz'
+  | 'landesgesetz'
+  | 'verordnung'
+  | 'oib_richtlinie'
+  | 'oenorm'
+  | 'leitfaden'
+
+/** One link in a norm hierarchy, with the rank that sets its visual weight. */
+export interface NormChainLinkData {
+  label: string
+  rank: NormChainRank
+  note?: string | null
+}

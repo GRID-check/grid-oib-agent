@@ -61,6 +61,12 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   legal_basis: 'presentational',
   requirement_checklist: 'presentational',
   comparison_table: 'presentational',
+  // The verdict, the decision tree, the typed table and the norm chain all only
+  // render what the agent already wrote in the answer — nothing is committed.
+  verdict_header: 'presentational',
+  condition_tree: 'presentational',
+  typed_table: 'presentational',
+  norm_chain: 'presentational',
   document_grid: 'presentational',
   building_section: 'presentational',
   stair_diagram: 'presentational',

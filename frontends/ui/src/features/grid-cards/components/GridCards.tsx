@@ -7,6 +7,10 @@ import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
 import { MemoryProposalCard } from './MemoryProposalCard'
 import { RequirementChecklistCard } from './RequirementChecklistCard'
 import { ComparisonTableCard } from './ComparisonTableCard'
+import { VerdictHeaderCard } from './VerdictHeaderCard'
+import { ConditionTreeCard } from './ConditionTreeCard'
+import { TypedTableCard } from './TypedTableCard'
+import { NormChainCard } from './NormChainCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
 import { DimensionDiagramCard } from '../schematics/DimensionDiagramCard'
@@ -122,6 +126,55 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
           reference={card.reference}
           note={card.note}
         />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'verdict_header') {
+    return (
+      <FadeIn distance={6}>
+        <VerdictHeaderCard
+          verdict={card.verdict}
+          subject={card.subject}
+          reference={card.reference}
+          confidence={card.confidence}
+          confidence_reason={card.confidence_reason}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'condition_tree') {
+    return (
+      <FadeIn distance={6}>
+        <ConditionTreeCard
+          title={card.title}
+          question={card.question}
+          branches={card.branches ?? []}
+          reference={card.reference}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'typed_table') {
+    return (
+      <FadeIn distance={6}>
+        <TypedTableCard
+          title={card.title}
+          columns={card.columns ?? []}
+          rows={card.rows ?? []}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'norm_chain') {
+    return (
+      <FadeIn distance={6}>
+        <NormChainCard title={card.title} links={card.links ?? []} />
       </FadeIn>
     )
   }

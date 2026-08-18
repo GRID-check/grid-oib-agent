@@ -111,6 +111,53 @@ const RAW_FIXTURES: CardInput[] = [
     reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b', edition: 'Ausgabe Mai 2023' },
   },
   {
+    type: 'verdict_header',
+    verdict: '1,10 m',
+    subject: 'Erforderliche Geländerhöhe',
+    reference: OIB4,
+    confidence: 'high',
+  },
+  {
+    type: 'condition_tree',
+    title: 'Erforderliche Feuerwiderstandsklasse tragender Bauteile',
+    question: 'Gebäudeklasse',
+    branches: [
+      { condition: 'GK 1–3', outcome: 'REI 30 (bzw. R 30)' },
+      { condition: 'GK 4', outcome: 'REI 60', active: true },
+      {
+        condition: 'GK 5',
+        outcome: 'REI 90',
+        reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
+      },
+    ],
+    reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b', edition: 'Ausgabe Mai 2023' },
+  },
+  {
+    type: 'typed_table',
+    title: 'Mindestmaße barrierefreie Erschließung',
+    columns: [
+      { label: 'Bauteil', type: 'text' },
+      { label: 'Mindestmaß', type: 'mass' },
+      { label: 'Grundlage', type: 'norm' },
+      { label: 'Erfüllt', type: 'verdict' },
+    ],
+    rows: [
+      ['Türdurchgangsbreite', '90 cm', 'ÖNORM B 1600 Pkt. 5.1', 'erfüllt'],
+      ['Rampenneigung', '6 %', 'OIB-Richtlinie 4 Pkt. 3.2', 'nicht erfüllt'],
+      ['Handlauf beidseitig', '—', 'ÖNORM B 1600 Pkt. 5.2', 'offen'],
+    ],
+    reference: { document: 'ÖNORM B 1600', edition: 'Ausgabe 2020' },
+  },
+  {
+    type: 'norm_chain',
+    title: 'Normenkette – Absturzsicherung',
+    links: [
+      { label: 'Wiener Bautechnikverordnung', rank: 'verordnung', note: 'erklärt die OIB-Richtlinien für verbindlich' },
+      { label: 'OIB-Richtlinie 4', rank: 'oib_richtlinie', note: 'regelt die erforderliche Geländerhöhe' },
+      { label: 'ÖNORM B 1600', rank: 'oenorm', note: 'konkretisiert die barrierefreie Ausführung' },
+    ],
+  },
+  {
     type: 'project_profile_patch',
     title: 'Projektkontext aktualisieren: Fluchtniveau',
     rationale:

@@ -50,8 +50,12 @@ drawing they would have made. The trigger, then the card:
   a U-value, HWB or energy class           -> thermal_envelope / energy_performance
   a fire compartment area                  -> fire_compartment
   the Richtlinie or norm the answer rests on -> legal_basis
+  a chain of norms, one binding, the rest interpreting -> norm_chain
   three or more pass/fail criteria         -> requirement_checklist
   two or more options weighed against each other -> comparison_table
+  the answer's single headline number or ruling, at the top -> verdict_header
+  an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
+  a tabular answer no purpose-built card covers -> typed_table
 
 WHEN NOT TO. A one-line factual answer gets no card: one that repeats the sentence above it costs
 the reader a second pass over the same fact. Never fabricate a field, a reference or a number to
