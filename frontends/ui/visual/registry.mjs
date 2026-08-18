@@ -776,6 +776,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-ask-split-preview"]',
   },
   {
+    id: 'file-ask-split-arrive',
+    path: '/dev/file-ask-split/chat?variant=arrive',
+    description:
+      'The same split reached the way Ask Piloti reaches it. `FilePreviewBridge` is mounted by the PROJECT layout, so on this journey it mounts in Files with the split OFF and its file panel collapsed, and only opens once chat is reached. That transition shipped broken: the pane rendered in peek mode inside a zero-width panel parked off the right edge, while every other check \u2014 mode, mount count, and the hand-rolled file-chat-dock mockup \u2014 stayed green. Held apart from `file-ask-split`, which mounts with the peek already open and therefore cannot see it.',
+    waitFor: '[data-testid="file-preview-host"][data-mode="peek"]',
+  },
+  {
     id: 'projects-home',
     mobile: true,
     path: '/dev/projects-home',

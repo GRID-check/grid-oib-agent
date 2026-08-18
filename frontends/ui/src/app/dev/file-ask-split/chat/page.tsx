@@ -29,11 +29,25 @@
  * a SCROLL container resolves differently from one inside a clipped box.
  * Substituting a simpler wrapper here would silently fix the bug in the preview.
  *
+ * ── `arrive` is the variant that matters ────────────────────────────────────
+ * `default` mounts with the peek ALREADY open, which is not a journey anyone
+ * takes. The real one is Ask Piloti from a file: the reader is on `/files`, so
+ * `FilePreviewBridge` — which lives in the PROJECT layout and therefore mounts
+ * once for the whole project, not per section — mounts with `split` FALSE. Its
+ * file panel is created with `defaultSize={0}`, `minSize={0}` and `maxSize={0}`,
+ * and only later, when the pathname reaches `/chat`, does `split` flip and a
+ * `useLayoutEffect` try to `resize()` it back open. `defaultSize` is a
+ * mount-time value, so it never gets a second chance. That cold-mount-then-flip
+ * is the transition Ask Piloti always takes and the one nothing covered.
+ *
  * Variants via `?variant=`:
  *   - default    — file open in `peek`, the split the reader should get.
  *   - `hidden`   — same file, peek dismissed: chat must reclaim the full row.
+ *   - `arrive`   — mounts with NO file, exactly as `/files` does, then the
+ *                  button opens the peek. This is the Ask Piloti path.
  */
 
+import { useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { FilePreviewBridge } from '@/features/documents/components/file-preview-host'
@@ -59,22 +73,37 @@ const FILE: FileItem = {
   tags: ['Brandschutz'],
 }
 
+const CONTEXT = { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: 'files' } as const
+
 // Module scope, not an effect — `FilePreviewSplit` sizes its file panel in a
 // `useLayoutEffect` that runs BEFORE this page's own effects would, so a seed
 // deferred to a component effect lands one commit too late and the panel starts
 // collapsed. Same reason `/dev/app-rail` seeds its storage key at module scope.
+//
+// `arrive` deliberately seeds NOTHING. See the header note: that variant is the
+// real journey, where the split is mounted cold and only flips later.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  const hidden = new URLSearchParams(window.location.search).get('variant') === 'hidden'
-  useFilePreviewStore.setState({
-    file: FILE,
-    mode: 'peek',
-    hidden,
-    context: { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: 'files' },
-  })
+  const seed = new URLSearchParams(window.location.search).get('variant') ?? 'default'
+  if (seed !== 'arrive') {
+    useFilePreviewStore.setState({ file: FILE, mode: 'peek', hidden: seed === 'hidden', context: CONTEXT })
+  } else {
+    useFilePreviewStore.setState({ file: null, mode: 'modal', hidden: false, context: CONTEXT })
+  }
 }
 
 export default function FileAskSplitPreview(): JSX.Element {
   const variant = useSearchParams()?.get('variant') ?? 'default'
+
+  // `arrive` drives itself, so the screenshot harness (which can navigate but
+  // not click) captures the post-arrival state. A plain `useEffect` is the
+  // point, not a shortcut: it runs AFTER the split has mounted and after its
+  // own `useLayoutEffect` has already collapsed the panel — precisely the
+  // ordering the real navigation produces, and precisely what a mount-time seed
+  // would paper over.
+  useEffect(() => {
+    if (variant !== 'arrive') return
+    useFilePreviewStore.getState().open(FILE, 'peek', CONTEXT)
+  }, [variant])
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>
@@ -94,7 +123,19 @@ export default function FileAskSplitPreview(): JSX.Element {
                   for. Every prop is optional and the stores are empty here, so
                   it renders its signed-out/empty state, which is enough: the
                   subject under test is the width of its column. */}
-              <MainLayout />
+              <>
+                {/* Drives the `arrive` variant the way Ask Piloti does: the
+                    peek is opened AFTER the split has already mounted cold. */}
+                <button
+                  type="button"
+                  data-testid="open-peek"
+                  className="sr-only"
+                  onClick={() => useFilePreviewStore.getState().open(FILE, 'peek', CONTEXT)}
+                >
+                  open peek
+                </button>
+                <MainLayout />
+              </>
             </FilePreviewBridge>
           </div>
         </main>

@@ -203,11 +203,25 @@ function FilePreviewSplit({
   const peekWidthRef = useRef(peekWidth)
   peekWidthRef.current = peekWidth
 
+  // OPEN THE PANEL, DON'T JUST RESIZE IT.
+  //
+  // The panel is `collapsible`, and on the journey that matters it is COLLAPSED
+  // when `split` flips: Ask Piloti starts in Files, and this bridge lives in the
+  // PROJECT layout, so it mounts once for the whole project — with `split`
+  // false — and is still mounted when the reader lands on chat. `resize()` alone
+  // left it at 0 there: the pane rendered, in `peek` mode, inside a zero-width
+  // panel parked off the right edge. `expand()` first is what takes a collapsed
+  // panel back into the layout; `resize()` then puts it at the reader's width
+  // rather than whatever it was last (which, on a cold mount, is zero).
   useLayoutEffect(() => {
     const panel = filePanelRef.current
     if (!panel) return
-    if (split) panel.resize(peekWidthRef.current)
-    else panel.collapse()
+    if (!split) {
+      panel.collapse()
+      return
+    }
+    panel.expand()
+    panel.resize(peekWidthRef.current)
   }, [split, filePanelRef])
 
   return (
@@ -215,8 +229,8 @@ function FilePreviewSplit({
       <ResizablePanel
         key="grid-file-ask-chat"
         id="grid-file-ask-chat"
-        defaultSize={split ? '70' : '100'}
-        minSize={split ? '40' : undefined}
+        defaultSize="100"
+        minSize="40"
         className="min-h-0 min-w-0 overflow-hidden"
       >
         {children}
@@ -226,9 +240,14 @@ function FilePreviewSplit({
         key="grid-file-ask-file"
         id="grid-file-ask-file"
         panelRef={filePanelRef}
-        defaultSize={split ? peekWidth : 0}
-        minSize={split ? FILE_PEEK_WIDTH_MIN : 0}
-        maxSize={split ? FILE_PEEK_WIDTH_MAX : 0}
+        // CONSTANT, not `split ? … : 0`. These used to collapse to zero with the
+        // flag, which meant the panel's own bounds said "you may not be wider
+        // than nothing" at the exact moment the effect above asked it to open —
+        // and a mount-time `defaultSize` never gets a second chance to say
+        // otherwise. The flag now drives one thing only: collapsed or not.
+        defaultSize={peekWidth}
+        minSize={FILE_PEEK_WIDTH_MIN}
+        maxSize={FILE_PEEK_WIDTH_MAX}
         collapsible
         collapsedSize={0}
         className="min-h-0 min-w-0"
