@@ -596,7 +596,7 @@ recall. Sample sizes are stated because they are small.
 | OLD page-cut, EN | 0.40 | 0.450 |
 | NEW Punkt-cut, DE | **0.60** | **0.678** |
 | NEW Punkt-cut, EN (raw) | 0.20 | **0.293** |
-| NEW Punkt-cut, EN + query expansion | **0.60** | **0.672** |
+| NEW Punkt-cut, EN + query expansion | **0.60** | ~~0.672~~ (see below) |
 
 Cutting the corpus into requirement-sized chunks improved German sharply and
 **made English materially worse** — the language gap went from 0.024 to 0.385.
@@ -615,6 +615,17 @@ more credible rather than less.
 The bilingual glossary closes it: 0.385 → **0.006**. Cross-lingual expansion is
 therefore not an enhancement to schedule later — it is a **precondition** for
 shipping Punkt chunking without regressing English.
+
+> **Correction (§23).** That last line overstates the glossary, and the error is
+> instructive. The five English questions in this table are the worked examples the
+> glossary's entries were *derived from*, so the 0.672 arm measured fit rather than
+> transfer, and reported parity (0.672 vs 0.678) where there is none. Re-scored on
+> the 22 held-out English golden entries over the same corpus, the glossary reaches
+> **0.502 against German's 0.605** — it closes about two thirds of the gap, not all
+> of it. The DE and raw-EN arms of this table are unaffected and reproduce (0.605
+> and 0.276 on the larger set); only the arm with a hand-tuned artifact in it moved,
+> which is the signature of the mistake. §19's per-question numbers were always
+> measured on the held-out set and stand as written.
 
 ## 13. The sparse channel, measured
 
@@ -973,3 +984,72 @@ The generalisable form is that a structure-aware component needs an inventory of
 the structure it claims to extract, held separately from the component, and
 compared on *content* rather than on labels. The four regression tests added with
 this fix all fail against the greedy implementation; the previous fourteen do not.
+
+## 23. Dual-language indexing beats translating the query
+
+§19 ended on a structural doubt about the glossary: it rewrites the *question* into
+the corpus's language, so it can only ever help with concepts somebody thought to
+write down, and every miss is silent. The alternative inverts it — leave the question
+alone and make the corpus reachable in the language asked, by indexing an English
+rendering of every Punkt beside its German original.
+
+All 1,911 Punkte of the Richtlinien were translated once, offline, and embedded twice.
+The two renderings share **one chunk identity**: retrieval scores both and keeps the
+better, so a Punkt cannot occupy two slots in `top_k` with itself.
+
+| arm | n | R@1 | R@5 | R@16 | MRR |
+|---|---|---|---|---|---|
+| EN — German index, raw | 22 | 0.09 | 0.50 | 0.73 | 0.274 |
+| EN — German index + glossary | 22 | 0.05 | 0.77 | 0.95 | 0.393 |
+| EN — dual index, **no glossary** | 22 | 0.27 | 0.77 | 0.95 | **0.522** |
+| EN — dual index + glossary | 22 | **0.36** | **0.86** | **1.00** | **0.552** |
+| DE — German index | 24 | 0.46 | 0.88 | 1.00 | 0.662 |
+| DE — dual index | 24 | 0.46 | 0.88 | 1.00 | 0.662 |
+
+**Read these against each other, not against §19.** This experiment ran on the
+Richtlinien only, as whole un-re-split Punkte (1,911 chunks); §19 ran on all 39 PDFs
+re-split by `SentenceSplitter` (2,476 chunks). Longer passages dilute a mean-pooled
+embedding, which depresses R@1 across every arm here — that alone accounts for the
+glossary reading 0.393 in this table and 0.502 in §19's. All six arms share this
+corpus, so the comparison between them is sound; the absolute values are not
+comparable to §19's and are not the point.
+
+Three results, in descending order of how much they should change the plan:
+
+**The dual index beats the glossary without a glossary at all** — 0.522 against
+0.393, +0.129 MRR, with no hand-curated table in the loop. The glossary's ceiling is
+the set of concepts someone remembered to enumerate; translation has no such ceiling,
+which is exactly the failure mode §19 diagnosed one question at a time.
+
+**German is untouched — 0.662 both ways, identical to three decimals in every
+column.** This is the property that makes the change shippable rather than a trade,
+and it is not a coincidence: a German query matches its German rendering at least as
+well as any English one, so the max-over-renderings score for a German question is
+the German score. The measurement confirms the argument rather than replacing it.
+
+**The two compose.** Dual + glossary is the best arm (0.552, and R@16 = 1.00 — the
+answer is in the pool for all 22 questions). So this is not a reason to delete the
+glossary; it is a reason to stop asking the glossary to carry parity by itself.
+
+### The design property that makes this safe
+
+An English rendering is a **retrieval surface only**. The chunk identity, the
+citation, and the quoted text handed to the model all stay German. A translation
+error can therefore cost recall — a Punkt that fails to surface — but it can never
+put translated words into an answer or a citation, which is the risk that would
+otherwise make machine-translating a legal corpus unacceptable.
+
+### What it would cost, and what is still unmeasured
+
+Ingest gains a translation pass (once per Punkt, cached by content hash, offline) and
+the collection roughly doubles in vector count. Neither is on the query path.
+
+Unmeasured, and each could move the result: (1) the instrument is again
+`multilingual-e5-small`, whose weak cross-lingual alignment is *why* both remedies
+have room to help — §19's falsification test applies here unchanged, and applies more
+strongly, since `text-embedding-3-large` aligns the two languages better and shrinks
+the headroom for both arms; (2) translation quality was not audited against the 1,911
+Punkte, only spot-checked, and the visible errors are grammatical rather than
+terminological; (3) the effect on the **sparse** channel is untested — an English
+rendering gives the lexical channel English lexemes it has never had, which should
+help more than the dense side, and is measurable with the harness that already exists.

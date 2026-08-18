@@ -1,19 +1,35 @@
 """Cross-lingual query expansion for the German OIB corpus.
 
 The corpus is German; users ask in German and in English. An English question cannot
-reach a German index lexically at all, and only weakly by embedding. Measured on this
-corpus with a multilingual retriever over Punkt-cut chunks:
+reach a German index lexically at all, and only weakly by embedding. Measured with a
+multilingual retriever over the 2,476 Punkt-cut chunks of the real corpus, scored on
+the 52-entry golden set (22 English questions, 24 German):
 
-===========================  =====
-arm                          MRR
-===========================  =====
-German question              0.678
-English question, raw        0.293
-English question + glossary  0.674
-===========================  =====
+===========================  ===  =====  =====  ======  =====
+arm                            n    R@1    R@5    R@16    MRR
+===========================  ===  =====  =====  ======  =====
+German question               24   0.33   0.96    1.00  0.605
+English question, raw         22   0.09   0.41    0.73  0.276
+English question + glossary   22   0.27   0.77    0.95  0.502
+===========================  ===  =====  =====  ======  =====
 
 So the gap is real, it is large, and prepending the corpus's own German terms closes
-it. That is what this module does, and the reason it is worth its complexity.
+about two thirds of it. That is what this module does, and the reason it is worth its
+complexity.
+
+It does **not** reach parity, and an earlier version of this docstring claimed it did
+-- 0.674 against 0.678, from five hand-written English questions that were themselves
+the worked examples these glossary entries were derived from. That measured fit, not
+transfer. On the 22 held-out English questions the remaining gap is 0.103, and most of
+what the glossary buys is recall rather than precision: R@16 goes 0.73 -> 0.95, which
+is the number that matters here because the reranker downstream can reorder a pool of
+60 but can never recover a chunk retrieval did not return.
+
+Closing the rest of the gap needs the corpus reachable in the language asked, rather
+than the question rewritten into the corpus's. Indexing an English rendering of every
+Punkt beside its German original measures better than this glossary and costs German
+nothing -- see ``docs/architecture/rag-system-audit-2026-08.md`` §23. This table is
+the reason that is worth doing.
 
 It is deliberately pure, deterministic and table-driven -- no LLM, no network, no
 database -- matching the idiom of `legal_terms`, `applicability` and

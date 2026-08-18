@@ -1,11 +1,18 @@
 """Tests for the cross-lingual query bridge.
 
-The corpus is German; users ask in German and English. Measured on this corpus with
-a multilingual retriever over Punkt-cut chunks, an English question scored MRR 0.293
-against 0.678 for the same question in German — and prepending the corpus's own
-German terms closed the gap to 0.674. This module is that bridge, so what these tests
-pin is the shape of an augmentation that has to stay additive, deterministic, and
-invisible to German.
+The corpus is German; users ask in German and English. Measured over Punkt-cut chunks
+on the 52-entry golden set, an English question scored MRR 0.276 against 0.605 for
+German, and prepending the corpus's own German terms lifted it to 0.502 — about two
+thirds of the gap, and mostly as recall (R@16 0.73 → 0.95). This module is that
+bridge, so what these tests pin is the shape of an augmentation that has to stay
+additive, deterministic, and invisible to German.
+
+They pin shape, not score. Not one of them asserts an MRR, and that is deliberate:
+this module was first credited with 0.674 — parity with German — by scoring the five
+worked examples its own entries were derived from. A test suite written from those
+same five examples would have agreed with that number just as confidently as this one
+agrees with the honest one.
+
 
 All offline: no LLM, no network, no database.
 """

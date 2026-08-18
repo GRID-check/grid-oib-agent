@@ -1286,11 +1286,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         )
 
         # Cross-lingual bridge. The corpus is German; an English question reaches it
-        # only weakly by embedding and not at all lexically. Measured on this corpus,
-        # an English question scored MRR 0.293 against 0.678 for the same question in
-        # German, and prepending the corpus's own German terms closed that to 0.674.
-        # A German query is returned untouched, so this is a no-op for the language
-        # the corpus is written in.
+        # only weakly by embedding and not at all lexically. Measured on the golden
+        # set, an English question scored MRR 0.276 against 0.605 for the same
+        # question in German, and prepending the corpus's own German terms lifted it
+        # to 0.502 -- about two thirds of the gap, mostly as recall (R@16 0.73 ->
+        # 0.95), which is the part the reranker downstream can still use. A German
+        # query is returned untouched, so this is a no-op for the language the corpus
+        # is written in.
         #
         # ONLY the matching query is augmented. The reranker judges, and the grounding
         # block reports, the user's actual question -- the glossary states the topic,
