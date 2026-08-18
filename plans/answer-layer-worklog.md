@@ -36,10 +36,14 @@ reads this first, updates it, and re-arms.
 | 54d546bf | `ifc_model_picker` — click a tile, viewer opens, no LLM round-trip |
 | 47ecc019 | `<answer_shape>` (inverted pyramid) on both writers + card markers taught up front (B2-prompt, B7) |
 | dfd2b576 | genre skills rewritten in English, German terms kept as terms of art (B6) |
+| 4be91c2d | lede typesetting for a long answer (B2, frontend half) |
+| 929a6c69 | `<answer_shape>` scoped to research turns |
+| 45cd9f07 | `key_takeaways` + `callout` — the two GENERIC cards; `summary` restyled |
+| 8878f678 | trace step labels: no CamelCase span name reaches the reader, both locales |
 
 ## In flight
-- beautify cards (`key_takeaways`, `callout`, richer `summary`)
-- step-label humanization (`ClassificationAssistant`/`Note` leak)
+- `follow_ups` card (B1) — chips that prefill the composer
+- answer action row (B3) — copy answer / copy with citations
 
 ## Governing principle (user's own words, distilled)
 > "nicht zurück zum LLM … ich klick das und sehe mehr"
@@ -101,3 +105,20 @@ second model turn. This is the pattern every new card should follow.
   (`describe_card`), which is right, but the *placement* contract now lives
   only in the L1 tool return — i.e. the model learns markers exist only after
   it has already committed to a paragraph. → B7.
+
+## Picked up along the way (small, unowned, do when nothing else holds the file)
+- `docs/architecture/cards.md` says **27 types**; it is 32 model-facing + 2 system.
+  `verdict_header`, `condition_tree`, `typed_table`, `norm_chain`,
+  `ifc_model_picker`, `key_takeaways`, `callout` are all undocumented.
+- `thinking.herleitungSummary` interpolates `{sources}` unconditionally, so a
+  measurement answer reads "Herleitung · 3 Schritte · 0 Quellen". Also
+  un-pluralised: "1 Schritte". Needs a no-sources variant + plural handling in
+  both dictionaries. (i18n files were owned by another agent when found.)
+- Two comments now describe old behaviour: `features/skills/lib/skill-activity.ts:18`
+  and `features/chat/lib/live-activity.ts:10`.
+- **`verdict_header` vs the new lede.** `<answer_shape>` now demands the first
+  sentence BE the ruling, and `verdict_header` puts the ruling in a card at the
+  top — so an answer doing both says it twice. `_CARD_DOCTRINE` has to say which
+  one wins: the card is for a ruling that is a VALUE worth showing large
+  (number + status), the lede is the sentence that qualifies it, and they must
+  not be the same words. Blocked while another agent owns `register.py`.
