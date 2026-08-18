@@ -55,10 +55,12 @@ made. Roughly half is a renderer PREREQUISITE or a refusal phrased with
 vorliegt"); the rest names an instrument while declining to apply it („die
 Auswertung nach OIB-RL 4 konnte nicht durchgeführt werden", „OIB-RL 4 regelt den
 Feuerwiderstand tragender Bauteile"). Both are the deliberate trade: no context
-disarms a deontic modal or a named instrument, so a refusal gets hedged rather
+disarms „muss"/„darf" or a named instrument, so a refusal gets hedged rather
 than a verdict slipping out. What is NOT accepted is a residue with a shape of
 its own — see „Brandschutz"/„Brandabschnitt" below, where 5 of these were one
-recurring sentence type and the stems moved tier because of it.
+recurring sentence type and the stems moved tier because of it, and „soll…",
+where the first live run showed the residue was a recommendation about the BIM
+MODEL rather than about the building.
 
 The carve-out that keeps the other direction honest is scoped to the CLAUSE, and
 that is not a detail. This function reads the model's FINISHED ANSWER — never
@@ -272,7 +274,10 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bdarf\b",
     r"\bdürf",
     r"\bduerf",
-    r"\bsoll(en|te|ten)\b",  # not bare „Soll", which is „Soll-Ist-Vergleich"
+    # „soll…" left the strong tier — see :data:`_WEAK_NORMATIVE_PATTERNS`. This
+    # line stays STRONG and is the reason the demotion is affordable: bare „soll"
+    # in front of a threshold word is a requirement whatever else its clause
+    # names, so „das Modell soll nicht unter 2,50 m liegen" is never disarmed.
     r"\bsoll\s+(mindestens|maximal|höchstens|hoechstens|nicht)\b",
     r"\bmust\b",
     r"\bshall\b",
@@ -405,6 +410,12 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
 #: three other authors; the first seven are the ones that cost false fires when
 #: promoted. ``fluchtniveau``, ``feuerwiderstand`` and ``reicht`` cost nothing
 #: in that sample and are strong.
+#:
+#: The last three arrived the other way — demoted from the strong tier on
+#: measurement, ``brandschutz``/``brandabschnitt`` on the blind corpora and
+#: ``soll…`` on the first live run. A corpus can only show a stem that fires too
+#: often on prose someone IMAGINED a model writing; the live run shows one
+#: firing on prose the model actually wrote.
 _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bgeeignet",  # „als Aufenthaltsraum geeignet" vs „für eine Messung geeignet"
     r"\berforderlich",  # a legal requirement vs a tool prerequisite
@@ -436,6 +447,40 @@ _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # strong tier still covers every verdict that names its own instrument.
     r"\bbrandschutz",
     r"\bbrandabschnitt",
+    # Demoted from the deontic modals on the first LIVE run of this branch, and
+    # the ONLY member of that group that moves. „muss" and „darf" state an
+    # obligation about the world and stay strong unconditionally; „soll…" is
+    # also the ordinary German for a SUGGESTION, and a measurement answer's
+    # suggestions are about the export:
+    #
+    #     „Dieser Ausreißer sollte im Modell geprüft werden."   ← recommendation
+    #     „Die Brüstung sollte auf 1,00 m erhöht werden."       ← verdict
+    #
+    # Which is which is decided by whether the clause names the apparatus, and
+    # that is exactly what this tier already tests. The first is silenced by
+    # „Modell", the second fires.
+    #
+    # THE NUMBERS, and they point two ways, so both are recorded. On the four
+    # blind corpora the demotion is exactly NEUTRAL — 0 → 0 misses, 25 → 25
+    # false fires over 376 sentences — because only 2 of those sentences carry
+    # „soll" at all and neither is decided by this stem („Sollte der Wert
+    # unterschritten werden, ist eine Ausnahmegenehmigung erforderlich" fires on
+    # `unterschr` and `genehmig` either way). So the corpora prove no collateral
+    # damage; they do not supply the case FOR the move.
+    #
+    # That case is the live run: over 18 descriptive answers from the real model
+    # against a real 10.9 MB IFC, the brake fired 5 times, and this stem is 1 of
+    # them — a recommendation about the BIM model that re-floored a correct
+    # measured answer to „low" as `normative_claim_uncited`. After the demotion
+    # 4 remain and the 4 adequacy answers, which are genuine normative material,
+    # all still fire.
+    #
+    # The other live „soll" fire („kein repräsentativer Raumhöhenwert und sollte
+    # gesondert geprüft werden") is NOT cleared: its clause names no apparatus,
+    # so it keeps firing. That is the demotion working as designed rather than a
+    # gap — a weak stem with nothing to disarm it behaves exactly like a strong
+    # one, which is what bounds the cost of this move.
+    r"\bsoll(en|te|ten)\b",  # not bare „Soll", which is „Soll-Ist-Vergleich"
 )
 
 #: The measurement APPARATUS naming itself. Narrow on purpose — every entry is
@@ -559,8 +604,8 @@ def answer_mentions_normative_claim(content: str) -> bool:
        and merely names where the number came from.
 
     The asymmetry is deliberate and is the trade this function makes: the weak
-    tier holds only stems measured to cost false fires when promoted, and no
-    context of any kind can disarm a deontic modal or a named instrument. So the
+    tier holds only stems measured to cost false fires, and no context of any
+    kind can disarm „muss", „darf" or a named instrument. So the
     worst case remains a hedge on a descriptive answer, never a confident legal
     assertion — see the module docstring. Non-string input is False; there is
     nothing to read, and the caller's other gates still apply.

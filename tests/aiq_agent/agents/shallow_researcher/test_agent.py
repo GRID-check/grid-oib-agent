@@ -472,6 +472,39 @@ class TestShallowResearcherAgent:
         assert "End every research answer with exactly ONE confidence marker" in rendered
         assert "classified as conversational / meta" not in rendered
 
+    def test_the_confidence_marker_does_not_depend_on_having_sources(self, mock_llm_provider, real_tool):
+        """A measured answer cites nothing, and used to drop the marker with it.
+
+        On the first live run of this branch the marker was absent from 4 of 32
+        real answers — and the split was not random. Every answer that produced
+        a `**Quellen:**` section carried the marker (18/18); every answer that
+        produced none dropped it 4 times in 14. The raw model output was
+        captured BEFORE the strip, so this is the model omitting the marker,
+        not the parser losing it.
+
+        The cause is the shape of the contract rather than a lack of emphasis:
+        the confidence line is step 3 of a research-turn shape whose steps 1
+        and 2 are inline `[N]` citations and a sources section, and whose level
+        definitions were written purely in terms of „the sources you actually
+        retrieved". An answer built on an `ifc_measure` result has none of
+        those, so the model dropped the whole shape. The prompt therefore has
+        to say that step 3 stands alone, and to give a measurement somewhere to
+        land among the levels.
+
+        Nothing here makes the marker enforceable: a missing marker stays a
+        soft degradation (no chip), never an error and never a retry.
+        """
+        rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=True)
+
+        # The output contract's step 3 is explicitly independent of steps 1-2.
+        assert "This line does not depend on steps 1 and 2" in rendered
+        # Grounding is evidence, not sources alone — a measurement counts.
+        assert "the sources you retrieved AND the measurements you took" in rendered
+        assert "or in a measurement you made this turn" in rendered
+        # And WHY it matters, which is what the model was never told.
+        assert "An answer that cites nothing still carries the marker." in rendered
+        assert "with no marker there is no chip" in rendered
+
     @pytest.mark.asyncio
     async def test_tool_iterations_incremented_on_tool_calls(self, mock_llm_provider, mock_llm, real_tool):
         """Test tool_iterations counter increments when LLM makes tool calls."""

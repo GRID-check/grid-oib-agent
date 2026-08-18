@@ -599,6 +599,52 @@ class TestNormativeClaimDetection:
         """Demoting the noun must not cost the verdict drawn about it."""
         assert answer_mentions_normative_claim(text) is True
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # VERBATIM from the first live end-to-end run of this branch:
+            # gpt-5.6-luna, the real graph, the real 10.9 MB institute model.
+            # A 0,250 m clearHeight outlier in a Keller survey, and the model
+            # recommending that the EXPORT be looked at — which re-floored a
+            # correct measured answer to "low" as `normative_claim_uncited`.
+            "Dieser Ausreißer sollte im Modell geprüft werden",
+            "Der Wert von 0,250 m sollte im Modell nachgezogen werden.",
+            "Die Abweichung sollte in der Auswertung gesondert behandelt werden.",
+        ],
+    )
+    def test_a_recommendation_about_the_export_is_not_a_verdict(self, text):
+        """B4. „soll…" left the deontic modals — the only member that moves.
+
+        „muss" and „darf" state an obligation about the world; „soll…" is also
+        the ordinary German for a SUGGESTION, and a measurement answer's
+        suggestions are about the export. On the four blind corpora the move is
+        exactly neutral (0 → 0 misses, 25 → 25 false fires over 376 sentences),
+        which proves no collateral damage but does not supply the case for it:
+        only 2 of those 376 sentences carry „soll" at all. The case is the live
+        run — 5 fires over 18 descriptive answers, of which this is one.
+        """
+        assert answer_mentions_normative_claim(text) is False
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # No apparatus word in the clause, so nothing disarms the stem.
+            "Die Brüstung sollte auf 1,00 m erhöht werden",
+            "Aufenthaltsräume sollen eine lichte Höhe von 2,50 m aufweisen.",
+            # The clause split reaches the verdict past the apparatus…
+            "Die Messung ergibt 0,95 m, der Fluchtweg sollte somit verbreitert werden.",
+            "Die Auswertung zeigt, dass die Decke angehoben werden sollte.",
+            # …and an evidential adjunct CITES the apparatus, it is not about it.
+            "Laut Messung sollte die Brüstung erhöht werden.",
+            # A threshold word after bare „soll" stays STRONG whatever else the
+            # clause names — the line that bounds the demotion.
+            "Das Modell zeigt 2,30 m; die lichte Höhe soll nicht unter 2,50 m liegen.",
+        ],
+    )
+    def test_a_demoted_soll_verdict_still_fires(self, text):
+        """Demoting the modal must not cost the verdict stated with it."""
+        assert answer_mentions_normative_claim(text) is True
+
     def test_a_dash_separates_the_measurement_from_the_verdict(self):
         """The module docstring's own headline verdict, next to its number.
 
