@@ -51,8 +51,8 @@ export const ToolCallsTab: FC<ToolCallsTabProps> = ({ toolCalls = [] }) => {
       {/* Content */}
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <span data-testid="toolcalls-empty-icon" className="mb-3 h-8 w-8 text-muted-foreground">
-            <Wrench className="h-8 w-8" aria-hidden="true" />
+          <span data-testid="toolcalls-empty-icon" className="mb-3 size-8 text-muted-foreground">
+            <Wrench className="size-8" aria-hidden="true" />
           </span>
           <p className="text-sm text-muted-foreground">{t('toolCallsTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">

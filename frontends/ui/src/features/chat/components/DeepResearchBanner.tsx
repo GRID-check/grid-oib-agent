@@ -191,9 +191,9 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   const { variant, Icon } = STATUS_META[config.status]
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-200 ease-out motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-base ease-entrance motion-reduce:animate-none">
       {escalationReason?.trim() && (
-        <p className="px-1 text-[12.5px] leading-relaxed text-warning" role="status">
+        <p className="px-1 text-xs leading-relaxed text-warning" role="status">
           {t('deepResearch.escalationNarration', { reason: escalationReason.trim() })}
         </p>
       )}

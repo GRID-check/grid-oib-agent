@@ -264,7 +264,10 @@ export function FileCard({
             {showStatus && (
               <DocumentStatusBadge
                 status={file.status}
-                className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-[10px] font-medium leading-4 shadow-2xs backdrop-blur-sm"
+                // The 80% alpha is load-bearing: this badge floats over a document
+                // thumbnail, and with `backdrop-blur-sm` it frosts the image
+                // underneath instead of hiding it.
+                className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-xs font-medium leading-4 shadow-2xs backdrop-blur-sm"
               />
             )}
           </RaisedCardMedia>
@@ -273,7 +276,7 @@ export function FileCard({
             <div className="flex items-center gap-2">
               {source && sourceLabel && (
                 <span
-                  className="inline-flex shrink-0 items-center rounded-[6px] px-2 py-[3px] text-[10.5px] font-semibold leading-none tracking-[0.02em]"
+                  className="inline-flex shrink-0 items-center rounded-sm px-2 py-[3px] text-xs font-semibold leading-none tracking-[0.02em]"
                   style={SOURCE_TINT[source]}
                 >
                   {sourceLabel}
@@ -282,7 +285,7 @@ export function FileCard({
               <span className="flex-1" />
               {ext !== '' && (
                 <span
-                  className="inline-flex shrink-0 items-center rounded px-1.5 py-[2.5px] text-[9px] font-bold uppercase leading-none tracking-[0.04em]"
+                  className="inline-flex shrink-0 items-center rounded-sm px-1.5 py-[2.5px] text-[10.5px] font-bold uppercase leading-none tracking-wider"
                   style={extChipTint(ext)}
                 >
                   {ext}
@@ -293,13 +296,13 @@ export function FileCard({
             {/* The name the document goes by. The format chip beside it still
                 comes from the FILE name, because that is what the bytes are —
                 a rename changes the label, never the format. */}
-            <p className="mt-[10px] truncate text-[12.5px] font-medium leading-[1.4] text-foreground" title={name}>
+            <p className="mt-[10px] truncate text-xs font-medium leading-[1.4] text-foreground" title={name}>
               {name}
             </p>
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (
-              <p className="mt-1 line-clamp-2 text-[11.5px] leading-[1.45] text-destructive" title={failureReason}>
+              <p className="mt-1 line-clamp-2 text-xs leading-[1.45] text-destructive" title={failureReason}>
                 {failureReason}
               </p>
             ) : isAwaitingSummary ? (
@@ -312,7 +315,7 @@ export function FileCard({
               </div>
             ) : (
               file.summary && (
-                <p className="mt-1 line-clamp-2 text-[11.5px] leading-[1.45] text-muted-foreground" title={file.summary}>
+                <p className="mt-1 line-clamp-2 text-xs leading-[1.45] text-muted-foreground" title={file.summary}>
                   {file.summary}
                 </p>
               )
@@ -321,7 +324,7 @@ export function FileCard({
         </RaisedCardBody>
 
         {!hideFooter && (
-          <RaisedCardFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-[11px] text-muted-foreground/80">
+          <RaisedCardFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-xs text-muted-foreground/80">
             {footerLead ?? <span className="flex-1" />}
             <span className="shrink-0 tabular-nums">{formatBytes(file.fileSize, locale)}</span>
             <span aria-hidden className="text-muted-foreground/40">

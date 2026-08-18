@@ -15,20 +15,18 @@
  */
 
 import { withPageSession } from '@/lib/auth/require-auth'
-import { getNavFlags } from '@/lib/authz/nav'
 import {
   canManageMembers,
   canManageModels,
   canViewAuditLogs,
   isOrgAdmin,
 } from '@/lib/authz/organizations'
-import { BackLink, OrgTopbar } from '@/components/shell'
+import { BackLink, ShellContent } from '@/components/shell'
 import { getTranslations } from '@/i18n/server'
 import {
   OrganizationNav,
   type OrganizationSectionKey,
 } from '@/features/organization/components/organization-nav'
-import { isAuthRequired } from '@/lib/auth/auth-required'
 
 export default async function OrganizationLayout({
   children,
@@ -36,7 +34,6 @@ export default async function OrganizationLayout({
   children: React.ReactNode
 }): Promise<JSX.Element> {
   return withPageSession(async (session) => {
-    const navFlags = await getNavFlags(session)
     const t = await getTranslations('organization')
 
     // Capability flags decide the nav, exactly as they decide each route: a custom
@@ -56,37 +53,22 @@ export default async function OrganizationLayout({
     if (isOrgAdmin(session)) sections.push('enterprise')
 
     return (
-      <div className="bg-background text-foreground flex min-h-dvh flex-col">
-        <OrgTopbar
-          user={{ name: session.name, email: session.email }}
-          authRequired={isAuthRequired()}
-          heading={t('title')}
-          canManageOrganization={navFlags.canManageOrganization}
-          canViewOrganization={navFlags.canViewOrganization}
-          canManagePlatform={navFlags.canManagePlatform}
-          canAccessArchiv={navFlags.canAccessArchiv}
-          canAccessInbox={navFlags.canAccessInbox}
+      <ShellContent>
+        <BackLink
+          className="touch-target mb-6"
+          fallbackHref="/app/projects"
+          fallbackLabel={t('backToApp')}
         />
-        <main
-          id="main-content"
-          className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-10"
-        >
-          <BackLink
-            className="touch-target mb-6"
-            fallbackHref="/app/projects"
-            fallbackLabel={t('backToApp')}
-          />
-          {/* Rail beside the content from `lg`; stacked strip below that. */}
-          <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-            <div className="lg:w-52 lg:shrink-0">
-              <OrganizationNav sections={sections} />
-            </div>
-            <div className="animate-in fade-in-0 slide-in-from-bottom-1 min-w-0 flex-1 duration-200 ease-out motion-reduce:animate-none">
-              {children}
-            </div>
+        {/* Rail beside the content from `lg`; stacked strip below that. */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
+          <div className="lg:w-52 lg:shrink-0">
+            <OrganizationNav sections={sections} />
           </div>
-        </main>
-      </div>
+          <div className="animate-in fade-in-0 slide-in-from-bottom-1 min-w-0 flex-1 duration-200 ease-out motion-reduce:animate-none">
+            {children}
+          </div>
+        </div>
+      </ShellContent>
     )
   })
 }

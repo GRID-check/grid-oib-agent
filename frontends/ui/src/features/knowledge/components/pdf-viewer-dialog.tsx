@@ -119,7 +119,7 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
               href={src}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80"
+              className="inline-flex items-center gap-1 font-medium text-primary transition-opacity duration-quick ease-out hover:opacity-80"
             >
               <ExternalLink className="size-3" aria-hidden />
               {t('viewer.openInTab')}

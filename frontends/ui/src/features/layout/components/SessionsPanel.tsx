@@ -343,7 +343,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       initialFocusRef={isMobile ? undefined : searchInputRef}
       heading={
         <>
-          <MessageSquareText className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <MessageSquareText className="size-4 shrink-0" aria-hidden="true" />
           <span className="truncate">{t('sessionsPanel.title')}</span>
           {/* The panel states its own size, so "is this all of them?" is
               answered before it is asked. */}
@@ -384,7 +384,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 anySessionBusy ? t('sessionsPanel.cannotDeleteBusy') : t('sessionsPanel.deleteAll')
               }
             >
-              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              <Trash2 className="size-4" aria-hidden="true" />
               <span>{t('sessionsPanel.deleteAllButton')}</span>
             </Button>
           )}
@@ -399,7 +399,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             without spending a word on it. */}
         {isNavigationBlocked && (
           <p
-            className="border-border/70 bg-muted/40 text-muted-foreground flex min-h-11 items-start gap-2 rounded-lg border px-3 py-2 text-xs"
+            className="border-border bg-muted text-muted-foreground flex min-h-11 items-start gap-2 rounded-lg border px-3 py-2 text-xs"
             role="status"
           >
             {/* Spinner injects its own role=status; hide it so this region
@@ -427,7 +427,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
               : t('sessionsPanel.startNewSession')
           }
         >
-          <Plus className="h-4 w-4" aria-hidden="true" />
+          <Plus className="size-4" aria-hidden="true" />
           <span className="text-sm font-medium">{t('sessionsPanel.newSessionButton')}</span>
         </Button>
 
@@ -486,36 +486,36 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             by default with a count badge. Includes headless/CLI jobs that have
             no local session. Hidden entirely when there are no runs. */}
         {showDeepResearch && (
-          <div className="border-border/60 mb-3 shrink-0 border-b pb-3">
+          <div className="border-border mb-3 shrink-0 border-b pb-3">
             <button
               type="button"
               onClick={() => setIsDeepResearchOpen((open) => !open)}
               aria-expanded={isDeepResearchOpen}
               data-testid="deep-research-toggle"
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex min-h-11 w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold outline-none transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:ring-2 pointer-coarse:min-h-11"
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex min-h-11 w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold outline-none transition-colors duration-quick ease-out motion-reduce:transition-none focus-visible:ring-2 pointer-coarse:min-h-11"
             >
               <ChevronRight
                 className={cn(
-                  'h-4 w-4 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                  'size-4 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
                   isDeepResearchOpen && 'rotate-90'
                 )}
                 aria-hidden="true"
               />
-              <FlaskConical className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <FlaskConical className="size-4 shrink-0" aria-hidden="true" />
               <span>
                 {t('sessionsPanel.deepResearchHeading', { count: deepResearchRuns?.length ?? 0 })}
               </span>
             </button>
 
             {isDeepResearchOpen && (
-              <ItemList className="mt-1 flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0 animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none">
+              <ItemList className="mt-1 flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0 animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none">
                 {(deepResearchRuns ?? []).map((run) => (
                   <Item
                     key={run.job_id}
                     asChild
                     // Same geometry and hover weight as a chat row (including the
                     // transparent border), so the two lists share one left edge.
-                    className="hover:bg-accent/60 focus-visible:ring-ring/50 min-h-11 items-start gap-2.5 rounded-lg border border-transparent py-2.5 pl-2.5 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:bg-transparent"
+                    className="hover:bg-muted focus-visible:ring-ring/50 min-h-11 items-start gap-2.5 rounded-lg border border-transparent py-2.5 pl-2.5 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:bg-transparent"
                   >
                     <Link
                       href={runHref(run)}
@@ -815,11 +815,13 @@ const SessionItem: FC<SessionItemProps> = ({
             // its icon to the TITLE, not float to the middle of two lines.
             showResearchChip ? 'items-start py-2.5' : 'items-center',
             isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-            // Selected reads as a raised card (border + fill + subtle shadow) rather
-            // than the near-identical bg-accent/60 hover tint used for the rest.
+            // Selected reads as a raised card (border + fill + subtle shadow); hover
+            // sits one step BELOW it on the surface ladder (`muted` < `accent`), which
+            // is what keeps the two distinguishable now that neither is an alpha of
+            // the other.
             isSelected
               ? 'border-border bg-accent text-foreground shadow-sm hover:bg-accent'
-              : 'hover:bg-accent/60 border-transparent'
+              : 'hover:bg-muted border-transparent'
           )}
         >
           <button
@@ -879,7 +881,7 @@ const SessionItem: FC<SessionItemProps> = ({
           // Fade the row out beneath the buttons so a long title slides under
           // them instead of colliding with them. Both the hovered and the
           // selected row sit on --accent, so one ramp covers both.
-          className="absolute inset-y-0 right-2 flex items-center gap-1 rounded-r-lg pl-6 [background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)] animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none"
+          className="absolute inset-y-0 right-2 flex items-center gap-1 rounded-r-lg pl-6 [background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)] animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none"
         >
           <Button
             variant="ghost"
@@ -898,7 +900,7 @@ const SessionItem: FC<SessionItemProps> = ({
                 : t('sessionsPanel.rename')
             }
           >
-            <Pencil className="h-4 w-4" aria-hidden="true" />
+            <Pencil className="size-4" aria-hidden="true" />
           </Button>
           <Button
             variant="ghost"
@@ -917,7 +919,7 @@ const SessionItem: FC<SessionItemProps> = ({
                 : t('sessionsPanel.deleteSession')
             }
           >
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            <Trash2 className="size-4" aria-hidden="true" />
           </Button>
         </div>
       )}
@@ -943,7 +945,7 @@ const runStatusKey = (status: string): string => {
 }
 
 const RunStatusIcon: FC<{ status: string; className?: string }> = ({ status, className }) => {
-  const base = cn('h-4 w-4 shrink-0', className)
+  const base = cn('size-4 shrink-0', className)
   if (status === 'completed') {
     return <FileCheck2 className={cn(base, 'text-success')} aria-hidden="true" />
   }
@@ -967,7 +969,7 @@ const SessionStatusIcon: FC<{
   isSessionActive: boolean
   className?: string
 }> = ({ session, isSessionActive, className }) => {
-  const base = cn('h-4 w-4 shrink-0', className)
+  const base = cn('size-4 shrink-0', className)
   const isActive = isSessionActive || session.hasActiveDeepResearch
 
   if (isActive) {

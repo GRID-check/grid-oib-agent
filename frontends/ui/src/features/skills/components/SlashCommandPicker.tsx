@@ -207,14 +207,14 @@ export const SlashCommandPicker = forwardRef<SlashCommandPickerHandle, SlashComm
         value={optionValue(skill)}
         onSelect={() => onSelect(skill)}
         className={cn(
-          'flex-col items-start gap-0.5 rounded-lg px-2.5 py-1.5 transition-colors duration-150 ease-out',
+          'flex-col items-start gap-0.5 rounded-lg px-2.5 py-1.5 transition-colors duration-snap ease-out',
           'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
         )}
       >
         {/* `asChild` so the row carries OUR stable id (see slashOptionDomId). */}
         <div id={slashOptionDomId(skill)} data-testid="slash-option" data-skill-name={skill.name}>
           {/* Monospace: this is a literal token the user types, not a title. */}
-          <span className="block truncate font-mono text-[13px] leading-tight text-foreground/90">
+          <span className="block truncate font-mono text-sm leading-tight text-foreground/90">
             /<HighlightedName name={skill.name} query={query} />
           </span>
           {/* Two lines, not one and not three. One would cut a spec-conformant
@@ -240,7 +240,7 @@ export const SlashCommandPicker = forwardRef<SlashCommandPickerHandle, SlashComm
         // through the middle of its own sentence. The fade softened it but the
         // slice still read as a rendering fault rather than as "scroll for more".
         'bg-popover text-popover-foreground flex max-h-[360px] w-full flex-col overflow-hidden rounded-xl border shadow-lg',
-          'animate-in fade-in-0 slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none',
+          'animate-in fade-in-0 slide-in-from-bottom-1 duration-snap ease-out motion-reduce:animate-none',
           className,
         )}
       >
@@ -294,7 +294,7 @@ export const SlashCommandPicker = forwardRef<SlashCommandPickerHandle, SlashComm
 
         {/* Outside the scroll region, so the hint stays put while the list moves. */}
         <div
-          className="flex shrink-0 items-center gap-2 border-t bg-muted/40 px-3 py-2"
+          className="flex shrink-0 items-center gap-2 border-t bg-muted px-3 py-2"
           aria-label={t('composer.picker.keyboardHint')}
         >
           <Slash className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />

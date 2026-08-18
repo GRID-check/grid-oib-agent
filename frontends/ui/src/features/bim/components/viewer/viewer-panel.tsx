@@ -50,7 +50,7 @@ export function ViewerPanel({
         'flex max-h-[calc(100%-1.5rem)] w-72 flex-col overflow-hidden',
         // Enters from the edge it lives on: a panel that fades in place reads
         // as a layer appearing, one that slides reads as a drawer opening.
-        'animate-in fade-in-0 slide-in-from-right-2 duration-200 ease-out motion-reduce:animate-none',
+        'animate-in fade-in-0 slide-in-from-right-2 duration-base ease-entrance motion-reduce:animate-none',
         className
       )}
     >
@@ -111,7 +111,7 @@ export function ViewerFieldGroup({ label, children }: { label: string; children:
         QTO_WALLBASEQUANTITIES, which is louder than anything under it and
         shreds the only casing that made the name readable.
       */}
-      <h3 className="text-muted-foreground mb-1 text-[11px] font-semibold tracking-wide">{label}</h3>
+      <h3 className="text-muted-foreground mb-1 text-xs font-semibold tracking-wide">{label}</h3>
       <dl>{children}</dl>
     </div>
   )

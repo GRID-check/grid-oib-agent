@@ -154,7 +154,7 @@ export function ProjectsGrid({
               }
             />
           ) : (
-            <section aria-labelledby="projects-results" className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+            <section aria-labelledby="projects-results" className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
               <SectionHeading id="projects-results" count={rest.length}>
                 {t('list.results.heading')}
               </SectionHeading>
@@ -164,7 +164,7 @@ export function ProjectsGrid({
         ) : (
           // `gap-8` is the documented gap between major sections; whitespace
           // does the separating, so neither heading needs a rule under it.
-          <div className="flex flex-col gap-8 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+          <div className="flex flex-col gap-8 animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
             <section aria-labelledby="projects-resume">
               <SectionHeading id="projects-resume">
                 {basis === 'activity' ? t('list.resume.heading') : t('list.resume.fallbackHeading')}

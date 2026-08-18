@@ -123,7 +123,7 @@ export function AddresseeIndicator({
         // message cut in half. That promise is the one thing this element exists to
         // make (ADR-0036 decision 6) and it is not the part that may be abbreviated.
         // Wrapping puts the offer on its own line instead, where it costs nothing.
-        'inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] text-muted-foreground',
+        'inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground',
         // Placement belongs HERE, not at each call site. In the composer's
         // wrapping chip row this element sat inline when its label was short
         // ("Geht an Piloti") and wrapped when it was long ("Geht an Anna Berger,
@@ -165,8 +165,8 @@ export function AddresseeIndicator({
           data-testid="composer-mention-offer"
           onClick={onMentionSomeone}
           className={cn(
-            'inline-flex shrink-0 items-center gap-1 rounded px-1 text-[12.5px] touch-target',
-            'text-muted-foreground/80 transition-colors duration-200 ease-out',
+            'inline-flex shrink-0 items-center gap-1 rounded px-1 text-xs touch-target',
+            'text-muted-foreground/80 transition-colors duration-quick ease-out',
             'underline decoration-dotted decoration-from-font underline-offset-[3px]',
             'hover:text-foreground hover:decoration-solid',
             'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',

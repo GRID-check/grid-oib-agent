@@ -43,6 +43,7 @@ import {
   MIN_TREND_VOTES,
   type FeedbackDayPoint,
 } from '@/lib/feedback/trend'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 
 export type FeedbackTrendPoint = FeedbackDayPoint
@@ -141,9 +142,7 @@ export function FeedbackTrend({
   return (
     <div className={cn('space-y-1.5', className)} data-testid="feedback-trend">
       <div className="flex items-baseline justify-between gap-3">
-        <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-          {t('answerFeedback.trendHeading')}
-        </h4>
+        <SectionLabel as="h3">{t('answerFeedback.trendHeading')}</SectionLabel>
         {/* The direction, in words. A reader should not have to measure the slope
             to learn whether the thing they are responsible for is improving. */}
         <p
@@ -182,6 +181,10 @@ export function FeedbackTrend({
           {/* The scale. Two labels — the top of the axis and zero — because a line
               with no magnitude is a shape, not a measurement: 10% and 40% draw
               identically when the axis auto-fits. */}
+          {/* SVG user units, not CSS pixels — this chart draws into a viewBox
+              with `preserveAspectRatio="none"`, so these sizes are measurements
+              inside the plot's coordinate system and the type ramp does not
+              apply to them. */}
           <text x={4} y={y(maxRate) + 4} className="fill-muted-foreground text-[10px]">
             {t('answerFeedback.percent', { value: Math.round(maxRate).toString() })}
           </text>
@@ -273,7 +276,7 @@ export function FeedbackTrend({
 
         {/* Dates on the axis they belong to, alone — the legend below explains the
             marks, and mixing the two put four unrelated facts on one line. */}
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>{days[0] ? formatDay(days[0].day, locale) : ''}</span>
           {hovered && (
             <span className="font-medium text-foreground" data-testid="feedback-trend-hover">
@@ -298,7 +301,7 @@ export function FeedbackTrend({
           than no reference line.
         */}
         <figcaption
-          className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5 text-[11px] text-muted-foreground"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5 text-xs text-muted-foreground"
           data-testid="feedback-trend-legend"
         >
           <span className="inline-flex items-center gap-1.5">

@@ -99,7 +99,7 @@ export function SectionCard({
       )
     }
     return (
-      <div className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+      <div className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
         {children}
       </div>
     )

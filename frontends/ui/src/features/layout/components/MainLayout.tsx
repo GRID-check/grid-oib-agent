@@ -294,12 +294,14 @@ export const MainLayout: FC<MainLayoutProps> = ({
               <button
                 type="button"
                 onClick={expandFile}
+                // Floating over the transcript: the alpha is what `backdrop-blur`
+                // blurs, and the `supports-` step is the no-blur fallback.
                 className="border-base bg-card/70 absolute left-3 right-3 top-14 z-20 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60"
               >
-                <span className="min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
+                <span className="min-w-0 flex-1 truncate text-xs font-medium tracking-[-0.01em]">
                   {documentDisplayName(peekedFile)}
                 </span>
-                <span className="text-muted-foreground shrink-0 text-[11px]">
+                <span className="text-muted-foreground shrink-0 text-xs">
                   {previewHidden ? tFiles('assignment.showFile') : tFiles('assignment.expandFile')}
                 </span>
               </button>

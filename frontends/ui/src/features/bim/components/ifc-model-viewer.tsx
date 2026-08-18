@@ -107,7 +107,7 @@ export function IfcModelViewer({ className, ...options }: IfcModelViewerProps): 
   }
 
   return (
-    <div className={cn('bg-muted/30 relative overflow-hidden rounded-xl border', className)}>
+    <div className={cn('bg-muted relative overflow-hidden rounded-xl border', className)}>
       <IfcViewerCanvasLazy {...viewport.canvasProps} className="size-full" />
       <ModelViewportProgress phase={viewport.status.phase} percent={viewport.status.percent} />
       <ViewerLegend

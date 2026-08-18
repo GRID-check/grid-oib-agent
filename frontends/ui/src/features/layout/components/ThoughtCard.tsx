@@ -72,7 +72,7 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
   const canExpand = !thought.isStreaming
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted">
       {/* Header - always visible */}
       <button
         type="button"
@@ -89,7 +89,7 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
             <Spinner size="sm" label={t('thoughtCard.generating')} className="shrink-0" />
           ) : (
             <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-              <MessageSquare className="h-4 w-4" />
+              <MessageSquare className="size-4" />
             </span>
           )}
 
@@ -131,12 +131,12 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
           {canExpand && (
             <span
               className={cn(
-                'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                'text-muted-foreground transition-transform duration-quick motion-reduce:transition-none',
                 isExpanded && 'rotate-180'
               )}
               aria-hidden="true"
             >
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="size-4" />
             </span>
           )}
         </div>

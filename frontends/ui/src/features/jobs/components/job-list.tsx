@@ -206,7 +206,7 @@ function JobCard({
         <div className="flex items-start justify-between gap-4">
           <div
             className={cn(
-              'min-w-0 space-y-1.5 transition-opacity duration-200 ease-out motion-reduce:transition-none',
+              'min-w-0 space-y-1.5 transition-opacity duration-quick ease-out motion-reduce:transition-none',
               !job.enabled && 'opacity-45',
             )}
           >
@@ -350,7 +350,7 @@ function JobCard({
                 {t('actions.history')}
                 <ChevronDown
                   className={cn(
-                    'size-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                    'size-3.5 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
                     historyOpen && 'rotate-180',
                   )}
                   aria-hidden
@@ -358,7 +358,7 @@ function JobCard({
               </Button>
             </CollapsibleTrigger>
           </div>
-          <CollapsibleContent className="animate-in fade-in-0 pt-1 duration-200 ease-out motion-reduce:animate-none">
+          <CollapsibleContent className="animate-in fade-in-0 pt-1 duration-base ease-out motion-reduce:animate-none">
             {historyOpen && (
               <JobRunHistory
                 key={historyToken}
@@ -463,7 +463,7 @@ export function JobList({
         <div
           className={cn(
             GRID_CLASS,
-            'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
+            'animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none',
           )}
         >
           {jobs.map((job) => (

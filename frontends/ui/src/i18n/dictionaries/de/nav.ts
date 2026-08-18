@@ -4,6 +4,9 @@ import type { en } from '../en'
 export const nav: typeof en.nav = {
   projectNavigation: 'Projektnavigation',
   projectSections: 'Projektbereiche',
+  orgNavigation: 'Organisationsnavigation',
+  orgSections: 'Organisationsbereiche',
+  backToProjects: 'Zurück zu den Projekten',
   allProjects: 'Piloti — alle Projekte',
   collapseSidebar: 'Seitenleiste einklappen',
   expandSidebar: 'Seitenleiste ausklappen',
@@ -26,6 +29,7 @@ export const nav: typeof en.nav = {
     work: 'Arbeit',
     automate: 'Automatisieren',
     org: 'Organisation',
+    account: 'Verwaltung',
   },
   sectionSubtitles: {
     files: 'Dokumente, auf die sich Piloti in diesem Projekt stützt.',

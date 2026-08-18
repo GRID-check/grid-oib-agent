@@ -202,7 +202,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
           children
         ) : isEmpty ? (
           <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-            <FileText className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <FileText className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">
               {t('reportTab.contentWhenAvailable')}
             </p>
@@ -211,7 +211,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
           /* Research notes: preview treatment */
           <div className="flex flex-1 flex-col gap-3">
             <div className="flex shrink-0 items-center gap-2 rounded-md border border-warning bg-warning-subtle px-3 py-2">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-warning motion-reduce:animate-none" />
+              <div className="size-2 animate-pulse rounded-full bg-warning motion-reduce:animate-none" />
               <span className="text-sm text-warning">
                 {t('reportTab.notesBanner')}
               </span>

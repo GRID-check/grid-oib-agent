@@ -183,7 +183,9 @@ export class MeasureOverlay {
 
       const label = document.createElement('div')
       label.className =
-        'pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-background/95 px-1.5 py-0.5 font-mono text-[11px] whitespace-nowrap tabular-nums shadow-sm'
+        // 95%: a measurement label sits ON the 3D canvas, and it has to stay
+        // readable without fully hiding the geometry it is measuring.
+        'pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-background/95 px-1.5 py-0.5 font-mono text-xs whitespace-nowrap tabular-nums shadow-sm'
       label.textContent = measurementText(measurement, this.labels)
       this.labelLayer.appendChild(label)
 
@@ -205,7 +207,9 @@ export class MeasureOverlay {
       this.pendingMarker = this.appendMarker(anchor.snap, TICK_RADIUS)
       this.pendingLabel = document.createElement('div')
       this.pendingLabel.className =
-        'pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-background/95 px-1.5 py-0.5 font-mono text-[11px] whitespace-nowrap tabular-nums shadow-sm'
+        // 95%: a measurement label sits ON the 3D canvas, and it has to stay
+        // readable without fully hiding the geometry it is measuring.
+        'pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-background/95 px-1.5 py-0.5 font-mono text-xs whitespace-nowrap tabular-nums shadow-sm'
       this.labelLayer.appendChild(this.pendingLabel)
     }
     if (!anchor) this.clearPending()

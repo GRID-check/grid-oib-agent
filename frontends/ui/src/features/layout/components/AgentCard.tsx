@@ -176,7 +176,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
       : t('agentCard.toolsCount', { completed: completedToolCalls.length, total: toolCalls.length })
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted">
       {/* Header - always visible */}
       <button
         type="button"
@@ -194,11 +194,11 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
           ) : (
             <span className={cn('shrink-0', statusTextClass)} aria-hidden="true">
               {isComplete ? (
-                <Check className="h-4 w-4" />
+                <Check className="size-4" />
               ) : isError ? (
-                <X className="h-4 w-4" />
+                <X className="size-4" />
               ) : (
-                <Clock className="h-4 w-4" />
+                <Clock className="size-4" />
               )}
             </span>
           )}
@@ -228,12 +228,12 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
           {canExpand && (
             <span
               className={cn(
-                'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                'text-muted-foreground transition-transform duration-quick motion-reduce:transition-none',
                 isExpanded && 'rotate-180'
               )}
               aria-hidden="true"
             >
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="size-4" />
             </span>
           )}
         </div>
@@ -280,7 +280,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
                     <div className="flex min-w-0 flex-1 flex-col">
                       <div className="flex items-start gap-1">
                         <ToolIcon
-                          className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground"
+                          className="mt-0.5 size-3 shrink-0 text-muted-foreground"
                           aria-hidden="true"
                         />
                         <span

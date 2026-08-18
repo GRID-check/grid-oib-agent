@@ -14,6 +14,7 @@
 
 import { type FC } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { SectionLabel } from '@/components/ui/section-label'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
 import { useLocale } from '@/i18n'
 
@@ -87,15 +88,13 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
       <div className="grid-usage-viz overflow-x-auto">
         <div className="min-w-[420px]">
           <div className="flex justify-end">
-            <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">
-              {findingsLabel(maxStack)}
-            </span>
+            <SectionLabel className="leading-4">{findingsLabel(maxStack)}</SectionLabel>
           </div>
           {/* Deliberately NOT role="img": that would collapse the whole plot
               into one opaque node and hide the per-day tooltip triggers from
               assistive tech. The group keeps an accessible name; each column
               below is its own focusable, describable target. */}
-          <div className="flex h-24 items-end gap-[2px] border-b border-border/60" role="group" aria-label={ariaLabel}>
+          <div className="flex h-24 items-end gap-[2px] border-b border-border" role="group" aria-label={ariaLabel}>
             {points.map((point) => {
               const total = stackTotal(point)
               return (
@@ -108,7 +107,7 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
                       tabIndex={0}
                       role="button"
                       aria-label={`${dateLabel(point.day)}: ${findingsLabel(total)}`}
-                      className="flex h-full min-w-[6px] flex-1 cursor-default flex-col justify-end gap-[2px] rounded-[3px] focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                      className="flex h-full min-w-[6px] flex-1 cursor-default flex-col justify-end gap-[2px] rounded-sm focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
                     >
                       {total > 0 ? (
                         presentKinds
@@ -119,6 +118,10 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
                           .map(({ kind, index }, position) => (
                             <div
                               key={kind}
+                              // 3px, not `rounded-t-sm` (6px): the bar is 6px
+                              // wide at its floor, and a 6px cap turns a mark
+                              // into a lozenge. A data end's radius is bounded
+                              // by the mark's width.
                               className={position === 0 ? 'w-full rounded-t-[3px]' : 'w-full'}
                               style={{
                                 backgroundColor: seriesVar(index),
@@ -145,6 +148,9 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
                           .map(({ kind, index }) => (
                             <li key={kind} className="flex items-center gap-1.5">
                               <span
+                                // 2px on an 8px swatch: `rounded-sm` (6px) would
+                                // round it to all but a circle, and a legend key
+                                // must read as the same shape as the bar it names.
                                 className="size-2 shrink-0 rounded-[2px]"
                                 style={{ backgroundColor: seriesVar(index) }}
                                 aria-hidden
@@ -160,10 +166,10 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
               )
             })}
           </div>
-          <div className="mt-1 flex justify-between text-[10px] font-medium uppercase leading-4 text-muted-foreground">
+          <SectionLabel as="div" className="mt-1 flex justify-between leading-4">
             <span>{dateLabel(points[0].day)}</span>
             <span>{dateLabel(points[points.length - 1].day)}</span>
-          </div>
+          </SectionLabel>
         </div>
       </div>
       {/* Legend: identity is never color-alone. */}
@@ -171,6 +177,8 @@ export const CitationDefectChart: FC<CitationDefectChartProps> = ({
         {presentKinds.map(({ kind, index }) => (
           <li key={kind} className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
+              // 2px on a 10px swatch — see the tooltip key above: the token
+              // step would round the square into a dot.
               className="size-2.5 shrink-0 rounded-[2px]"
               style={{ backgroundColor: seriesVar(index) }}
               aria-hidden

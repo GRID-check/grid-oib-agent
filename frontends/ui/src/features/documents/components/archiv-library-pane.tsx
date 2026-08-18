@@ -161,7 +161,7 @@ export function ArchivLibraryPane({
   // First-run empty state — the Archiv holds no documents yet.
   if (files.length === 0) {
     return (
-      <div className="animate-in fade-in-0 flex h-full items-center justify-center p-8 duration-200 ease-out motion-reduce:animate-none">
+      <div className="animate-in fade-in-0 flex h-full items-center justify-center p-8 duration-base ease-out motion-reduce:animate-none">
         <EmptyState
           icon={Archive}
           title={t('library.emptyTitle')}
@@ -173,7 +173,7 @@ export function ArchivLibraryPane({
   }
 
   return (
-    <div className="animate-in fade-in-0 flex h-full flex-col duration-200 ease-out motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 flex h-full flex-col duration-base ease-out motion-reduce:animate-none">
       {/* Search bar — instant substring filter as you type; Enter (or the search
           button) runs the semantic search over the Archiv collection. */}
       <FileSearchBar
@@ -238,7 +238,7 @@ export function ArchivLibraryPane({
           their thumbnails. */}
       <div
         key={view}
-        className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+        className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none"
         data-testid="archiv-results"
         data-view={view}
       >

@@ -350,7 +350,7 @@ export function DocumentKindThumbnail({
         >
           <ImageOff className="size-6 opacity-50" aria-hidden />
           {failedLabel && (
-            <span className="px-3 text-center text-[10.5px] font-medium leading-tight">{failedLabel}</span>
+            <span className="px-3 text-center text-xs font-medium leading-tight">{failedLabel}</span>
           )}
         </div>
       )
@@ -374,7 +374,9 @@ export function DocumentKindThumbnail({
           <ImageIcon className="size-[26px] opacity-45" aria-hidden />
           {formatLabel && (
             <span
-              className="inline-flex items-center rounded-[6px] px-2 py-[3px] text-[10px] font-bold uppercase leading-none tracking-[0.04em]"
+              // The eyebrow ramp step (10.5px / uppercase / tracking-wider),
+              // rendered as a tinted chip rather than a bare label.
+              className="inline-flex items-center rounded-sm px-2 py-[3px] text-[10.5px] font-bold uppercase leading-none tracking-wider"
               style={OFFICE_TINT}
             >
               {formatLabel}

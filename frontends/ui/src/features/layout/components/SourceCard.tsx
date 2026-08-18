@@ -74,7 +74,7 @@ export const SourceCard: FC<SourceCardProps> = ({ source }) => {
         <div className="flex items-center gap-2">
           {/* Cited indicator */}
           {source.isCited && (
-            <Check className="h-4 w-4 shrink-0 text-success" aria-label={t('sourceCard.cited')} role="img" />
+            <Check className="size-4 shrink-0 text-success" aria-label={t('sourceCard.cited')} role="img" />
           )}
 
           {/* Title or domain */}

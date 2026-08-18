@@ -203,7 +203,7 @@ export function IfcModelHealthPanel({
                   <button
                     type="button"
                     onClick={() => onShowElements(issue.sampleGlobalIds)}
-                    className="shrink-0 rounded-md px-2 py-0.5 text-xs underline-offset-2 transition-colors duration-200 ease-out hover:underline"
+                    className="shrink-0 rounded-md px-2 py-0.5 text-xs underline-offset-2 transition-colors duration-quick ease-out hover:underline"
                   >
                     {/*
                       `health.showElements`, not `compliance.showInModel`. The
@@ -280,7 +280,7 @@ export function IfcSpatialTree({
             onClick={() => onSelectStorey(null)}
             aria-pressed={selectedStorey === null}
             className={cn(
-              'w-full rounded-md px-2 py-1 text-left font-medium transition-colors duration-200 ease-out hover:bg-muted',
+              'w-full rounded-md px-2 py-1 text-left font-medium transition-colors duration-quick ease-out hover:bg-muted',
               selectedStorey === null && 'bg-muted'
             )}
           >
@@ -300,7 +300,7 @@ export function IfcSpatialTree({
                 className={cn(
                   'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left font-medium',
                   selectable
-                    ? 'transition-colors duration-200 ease-out hover:bg-muted'
+                    ? 'transition-colors duration-quick ease-out hover:bg-muted'
                     : 'cursor-default text-muted-foreground',
                   active && 'bg-muted'
                 )}
@@ -458,6 +458,8 @@ export function IfcElementTable({
       </p>
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
         <table className="w-full text-sm">
+          {/* 80% + `backdrop-blur`: the header is STICKY, so rows scroll under
+              it — the alpha is what there is to blur. */}
           <thead className="sticky top-0 bg-muted/80 backdrop-blur">
             <tr className="text-left">
               <th scope="col" className="px-2 py-1 font-medium">
@@ -503,7 +505,7 @@ export function IfcElementTable({
               <tr
                 key={element.globalId}
                 className={cn(
-                  'cursor-pointer border-t transition-colors duration-200 ease-out hover:bg-muted/60',
+                  'cursor-pointer border-t transition-colors duration-quick ease-out hover:bg-muted motion-reduce:transition-none',
                   element.globalId === selectedGlobalId && 'bg-muted'
                 )}
                 onClick={() => onSelect(element)}
@@ -576,7 +578,7 @@ export function IfcPropertyPanel({ element, isLoading, error }: IfcPropertyPanel
   return (
     <div className="space-y-4 text-sm">
       <div>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
+        <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground">
           {t('properties.identity')}
         </h3>
         <dl className="space-y-0.5">
@@ -593,7 +595,7 @@ export function IfcPropertyPanel({ element, isLoading, error }: IfcPropertyPanel
 
       {element.materials.length > 0 && (
         <div>
-          <h3 className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
+          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground">
             {t('properties.materials')}
           </h3>
           <ol className="list-inside list-decimal space-y-0.5">
@@ -606,7 +608,7 @@ export function IfcPropertyPanel({ element, isLoading, error }: IfcPropertyPanel
 
       {element.classifications.length > 0 && (
         <div>
-          <h3 className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
+          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground">
             {t('properties.classifications')}
           </h3>
           <ul className="space-y-0.5">
@@ -623,7 +625,7 @@ export function IfcPropertyPanel({ element, isLoading, error }: IfcPropertyPanel
 
       {Object.entries(element.properties).map(([setName, properties]) => (
         <div key={setName}>
-          <h3 className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground">{setName}</h3>
+          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground">{setName}</h3>
           <dl className="space-y-0.5">
             {Object.entries(properties).map(([name, value]) => (
               <div key={name} className="flex justify-between gap-3">
@@ -637,7 +639,7 @@ export function IfcPropertyPanel({ element, isLoading, error }: IfcPropertyPanel
 
       {Object.entries(element.quantities).map(([setName, quantities]) => (
         <div key={setName}>
-          <h3 className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground">{setName}</h3>
+          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground">{setName}</h3>
           <dl className="space-y-0.5">
             {Object.entries(quantities).map(([name, value]) => (
               <div key={name} className="flex justify-between gap-3">

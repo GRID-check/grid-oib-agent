@@ -2,7 +2,7 @@
  * SourceBasisTrigger — the composer's Datenbasis control.
  *
  * Replaces a hand-rolled button that carried five arbitrary values
- * (`gap-[7px]`, `px-[11px]`, `text-[12.5px]`, `size-3.5`, `size-3`) and an
+ * (`gap-[7px]`, `px-[11px]`, `text-xs`, `size-3.5`, `size-3`) and an
  * `active:scale-95` with no `motion-reduce` escape — all of it a direct
  * design-language violation introduced purely by not reaching for
  * `<Button variant="outline" size="sm">`, which is what it is now.

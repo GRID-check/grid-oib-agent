@@ -66,7 +66,7 @@ export function ComposerSubjectBar({
           style={sourceTint('project')}
         >
           <span
-            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background/70"
+            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-card"
             aria-hidden
           >
             <FileText className="size-3.5" style={{ color: sourceBase('project') }} />
@@ -85,13 +85,13 @@ export function ComposerSubjectBar({
                 <span className="font-medium">{name}</span>
               )}
             </span>
-            <span className="text-[11px] leading-snug opacity-80">{t('assignment.subjectHint')}</span>
+            <span className="text-xs leading-snug opacity-80">{t('assignment.subjectHint')}</span>
           </span>
           {onShowFile && (
             <button
               type="button"
               onClick={onShowFile}
-              className="text-muted-foreground hover:text-foreground shrink-0 rounded-md px-1.5 py-1 text-[11px]"
+              className="text-muted-foreground hover:text-foreground shrink-0 rounded-md px-1.5 py-1 text-xs"
             >
               {t('assignment.showFile')}
             </button>
@@ -100,7 +100,7 @@ export function ComposerSubjectBar({
             type="button"
             onClick={onClear}
             aria-label={t('assignment.subjectClear')}
-            className="focus-visible:ring-ring/60 text-muted-foreground hover:text-foreground shrink-0 rounded-md p-1 transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2"
+            className="focus-visible:ring-ring/60 text-muted-foreground hover:text-foreground shrink-0 rounded-md p-1 transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
           >
             <X className="size-3.5" aria-hidden />
           </button>

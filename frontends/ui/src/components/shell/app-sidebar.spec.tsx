@@ -7,8 +7,12 @@ import { useLayoutStore } from '@/features/layout/store'
 import { AppSidebar } from './app-sidebar'
 
 // Isolate the nav-filtering logic from routing and the shell's sibling widgets.
+// The pathname is mutable because the rail now reads its own scope from it —
+// project scope inside `/app/projects/<id>/…`, org scope everywhere above.
+let pathname = '/app/projects/p1/chat'
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/app/projects/p1/chat',
+  usePathname: () => pathname,
+  useRouter: () => ({ back: vi.fn(), push: vi.fn(), replace: vi.fn() }),
 }))
 
 vi.mock('next/link', () => ({
@@ -41,6 +45,9 @@ vi.mock('@/hooks/use-is-mobile', () => ({
 }))
 
 const baseProps = {
+  // Explicit, like `canAccessInbox` below and for the same reason: a defaulted
+  // scope would let a caller render the wrong rail and never find out.
+  scope: 'project' as const,
   projectId: 'p1',
   projects: [{ id: 'p1', name: 'Project One' }],
   authRequired: false,
@@ -51,7 +58,17 @@ const baseProps = {
   canAccessInbox: true,
 }
 
+const orgProps = {
+  ...baseProps,
+  scope: 'org' as const,
+  projectId: null,
+}
+
 afterEach(() => {
+  pathname = '/app/projects/p1/chat'
+  // The primitive persists collapse in localStorage, so a test that collapses
+  // the rail used to hand the icon rail to every test that ran after it.
+  window.localStorage.removeItem('grid.sidebar.collapsed')
   vi.mocked(useIsMobile).mockReturnValue(false)
   useLayoutStore.setState({ isMobileNavOpen: false })
 })
@@ -215,5 +232,116 @@ describe('AppSidebar - layout store mobile nav sync', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getAllByText('Ask Piloti').length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * Org scope. The rail is mounted once, in the shared layout, and swaps its
+ * CONTENTS — so what these assert is not "a second sidebar exists" but that the
+ * one sidebar stops claiming a project the reader is no longer in.
+ */
+describe('AppSidebar - org scope', () => {
+  test('unmounts the project switcher and the pinned project Settings row', () => {
+    pathname = '/app/inbox'
+    render(<AppSidebar {...orgProps} canAccessArchiv />)
+
+    // The switcher is mocked to a bare <div>, so the claim it makes is asserted
+    // through the pinned Settings row, which is the rail's own markup: in org
+    // scope there is no project whose settings it could open.
+    expect(screen.queryByText('Settings')).not.toBeInTheDocument()
+    // …and none of the project's sections are offered either.
+    expect(screen.queryByText('Files')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ask Piloti')).not.toBeInTheDocument()
+  })
+
+  test('offers the org destinations, gated exactly as the flags say', () => {
+    pathname = '/app/inbox'
+    const { container } = render(
+      <AppSidebar {...orgProps} canAccessArchiv canManagePlatform canViewOrganization />
+    )
+    const nav = container.querySelector('[data-sidebar="content"] nav')
+    const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
+    expect(labels).toEqual(['Projects', 'Archiv', 'Inbox', 'Organization', 'Platform', 'Profile'])
+  })
+
+  test('drops the entries the reader has no capability for', () => {
+    pathname = '/app/profile'
+    const { container } = render(
+      <AppSidebar
+        {...orgProps}
+        canAccessArchiv={false}
+        canAccessInbox={false}
+        canManagePlatform={false}
+        canViewOrganization={false}
+        canManageOrganization={false}
+      />
+    )
+    const nav = container.querySelector('[data-sidebar="content"] nav')
+    const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
+    expect(labels).toEqual(['Projects', 'Profile'])
+  })
+
+  test('marks the destination the reader is on, and only that one', () => {
+    pathname = '/app/organization/models'
+    render(<AppSidebar {...orgProps} canViewOrganization />)
+    const current = screen
+      .getAllByRole('link')
+      .filter((link) => link.getAttribute('aria-current') === 'page')
+      .map((link) => link.getAttribute('href'))
+    expect(current).toEqual(['/app/organization'])
+  })
+
+  test('never lights up the projects entry from inside a project', () => {
+    // `/app/projects` is a PREFIX of every project URL, so a naive
+    // `startsWith` would mark the listing active while the reader is deep
+    // inside a project — in the one scope where that entry is not even shown.
+    pathname = '/app/archiv'
+    render(<AppSidebar {...orgProps} canAccessArchiv />)
+    const archiv = screen
+      .getAllByText('Archiv')
+      .map((el) => el.closest('a'))
+      .filter((link): link is HTMLAnchorElement => link !== null)
+    expect(archiv.some((link) => link.getAttribute('aria-current') === 'page')).toBe(true)
+    const projects = screen
+      .getAllByText('Projects')
+      .map((el) => el.closest('a'))
+      .filter((link): link is HTMLAnchorElement => link !== null)
+    expect(projects.every((link) => !link.hasAttribute('aria-current'))).toBe(true)
+  })
+
+  test('leads with a back control everywhere except the projects listing itself', () => {
+    pathname = '/app/inbox'
+    const { unmount } = render(<AppSidebar {...orgProps} />)
+    expect(screen.getByTestId('back-link')).toBeInTheDocument()
+    unmount()
+
+    // The listing IS the fallback every back control points at; a control there
+    // would link to the page it is on.
+    pathname = '/app/projects'
+    render(<AppSidebar {...orgProps} />)
+    expect(screen.queryByTestId('back-link')).not.toBeInTheDocument()
+  })
+
+  test('keeps the rail geometry identical across scopes', () => {
+    pathname = '/app/inbox'
+    const { container: org, unmount } = render(<AppSidebar {...orgProps} />)
+    const orgHeader = org.querySelector('[data-sidebar="header"]')!.className
+    const orgFooter = org.querySelector('[data-sidebar="footer"]')!.className
+    unmount()
+
+    pathname = '/app/projects/p1/chat'
+    const { container: project } = render(<AppSidebar {...baseProps} />)
+    // Same padding, same shrink behaviour, same box — only the contents differ.
+    // This is the whole reason the rail moved into the shared layout.
+    expect(org).not.toBe(project)
+    expect(project.querySelector('[data-sidebar="header"]')!.className).toBe(orgHeader)
+    expect(project.querySelector('[data-sidebar="footer"]')!.className).toBe(orgFooter)
+  })
+
+  test('tints the rail so the scope is visible without anything moving', () => {
+    pathname = '/app/inbox'
+    const { container } = render(<AppSidebar {...orgProps} />)
+    const rail = container.querySelector('[data-slot="sidebar-container"]')!
+    expect(rail.className).toContain('--color-sidebar:var(--background-color-interaction-base)')
   })
 })

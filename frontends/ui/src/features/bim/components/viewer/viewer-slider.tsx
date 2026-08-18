@@ -105,7 +105,7 @@ export function ViewerSlider({
         // without a cap it grew past both edges of a phone — the label ran off
         // the left and the direction button off the right.
         'pointer-events-auto flex max-w-full items-center gap-2 px-3 py-2 sm:gap-3',
-        'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out motion-reduce:animate-none',
+        'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none',
         className
       )}
     >

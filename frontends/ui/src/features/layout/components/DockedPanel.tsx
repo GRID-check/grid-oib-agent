@@ -144,14 +144,21 @@ export const DockedPanel: FC<DockedPanelProps> = ({
         aria-hidden={!open}
         data-state={open ? 'open' : 'closed'}
         className={cn(
-          // Full viewport height. On mobile it is a modal drawer from the
-          // screen edge. On desktop a left panel docks BESIDE the global
-          // sidebar (`--sidebar-current-width` from SidebarProvider) so chat
-          // history does not cover project navigation. 0px when no rail.
-          'bg-background fixed inset-y-0 z-40 flex w-full max-w-[400px] flex-col shadow-lg md:shadow-none',
-          side === 'left'
-            ? 'left-0 md:left-[var(--sidebar-current-width,0px)] border-r'
-            : 'right-0 border-l',
+          // On mobile it is a modal drawer from the screen edge, so it is
+          // `fixed` and spans the viewport.
+          //
+          // On desktop it is `absolute` INSIDE the shell's `relative` <main>,
+          // which starts at the inner edge of the rail. So `left-0` is that
+          // edge — by construction, with no CSS variable to publish, read or
+          // get wrong. It used to be `md:left-[var(--sidebar-current-width)]`
+          // against the viewport, and because the panel is force-mounted while
+          // closed and `-translate-x-full` translates by its OWN width (400px,
+          // not the rail's 236px), the CLOSED panel parked an opaque `z-40`
+          // rectangle exactly over the `z-10` rail. Positioned inside <main>,
+          // the same translate takes it outside the scroll container's box,
+          // where it is clipped and unreachable.
+          'bg-background fixed inset-y-0 z-40 flex w-full max-w-[400px] flex-col shadow-lg md:absolute md:shadow-none',
+          side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
           // Slide transition; reduced-motion users get an instant swap
           'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
           open ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full',

@@ -268,7 +268,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="text-foreground truncate text-[15px] font-semibold tracking-tight">
+              <h2 className="text-foreground truncate text-sm font-semibold tracking-tight">
                 {t('title')}
               </h2>
               <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center">
@@ -285,7 +285,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
 
       {/* Error banner */}
       {error && (
-        <div className="border-b px-4 py-3 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+        <div className="border-b px-4 py-3 animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
             <AlertTitle>{t('workspace.uploadProblem')}</AlertTitle>

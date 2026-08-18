@@ -177,7 +177,7 @@ export function JobRunHistory({
   }
 
   return (
-    <ItemList as="ul" className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+    <ItemList as="ul" className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
       {runs.map((run) => {
         const TriggerIcon = run.trigger === 'schedule' ? CalendarClock : Hand
         const jobStatus = run.jobId ? jobStatuses[run.jobId] : undefined

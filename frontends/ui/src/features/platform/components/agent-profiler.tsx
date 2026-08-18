@@ -230,7 +230,7 @@ export function AgentProfiler(): JSX.Element {
               ) : conversations.length === 0 ? (
                 <EmptyState variant="bare" icon={Clock} title={t('profiler.empty')} />
               ) : (
-                <div className="animate-in fade-in-0 min-h-[18.5rem] duration-200 ease-out motion-reduce:animate-none">
+                <div className="animate-in fade-in-0 min-h-[18.5rem] duration-base ease-out motion-reduce:animate-none">
                   <ScrollArea className="max-h-[28rem]">
                     <ItemList>
                       {conversations.map((conversation) => (
@@ -238,7 +238,7 @@ export function AgentProfiler(): JSX.Element {
                           key={conversation.conversationId}
                           role="button"
                           tabIndex={0}
-                          className={selectedId === conversation.conversationId ? 'bg-accent/60' : undefined}
+                          className={selectedId === conversation.conversationId ? 'bg-accent' : undefined}
                           onClick={() => selectConversation(conversation.conversationId)}
                           onKeyDown={(event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
@@ -288,7 +288,7 @@ export function AgentProfiler(): JSX.Element {
                   }
                 />
               ) : timeline && timeline.turns.length > 0 ? (
-                <div className="animate-in fade-in-0 flex min-h-[8.5rem] flex-col gap-4 duration-200 ease-out motion-reduce:animate-none">
+                <div className="animate-in fade-in-0 flex min-h-[8.5rem] flex-col gap-4 duration-base ease-out motion-reduce:animate-none">
                   {timeline.turns.map((turn, index) => (
                     <div key={turn.turnId} className="rounded-lg border p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">

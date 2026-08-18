@@ -80,7 +80,7 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
 
       {/* Piloti put a question to the asker. Stated, not offered. */}
       {turn.waitingOn && (
-        <p className="text-muted-foreground bg-muted/40 rounded-lg px-3 py-2 text-xs">
+        <p className="text-muted-foreground bg-muted rounded-lg px-3 py-2 text-xs">
           {t('thread.spectatorPrompt', { question: turn.waitingOn })}
         </p>
       )}

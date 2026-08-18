@@ -17,7 +17,7 @@
  */
 
 import { notFound } from 'next/navigation'
-import { PlatformModelDefaults } from '@/app/app/platform/models/platform-model-defaults'
+import { PlatformModelDefaults } from '@/app/app/(shell)/platform/models/platform-model-defaults'
 import { AGENT_GROUPS as REGISTRY } from '@/lib/model-config/agent-groups'
 
 // The real registry, not a copy of it: a renamed group or a reworded

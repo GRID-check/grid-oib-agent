@@ -128,7 +128,7 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
 
       {state.kind === 'unavailable' && (
         <p
-          className="text-muted-foreground animate-in fade-in-0 rounded-lg border border-dashed px-3 py-2 text-xs duration-200 ease-out motion-reduce:animate-none"
+          className="text-muted-foreground animate-in fade-in-0 rounded-lg border border-dashed px-3 py-2 text-xs duration-base ease-out motion-reduce:animate-none"
           role="status"
         >
           {/* Explicitly NOT "looks good": the reviewer never ran. */}
@@ -138,7 +138,7 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
 
       {state.kind === 'done' && sorted.length === 0 && (
         <p
-          className="text-muted-foreground animate-in fade-in-0 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs duration-200 ease-out motion-reduce:animate-none"
+          className="text-muted-foreground animate-in fade-in-0 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs duration-base ease-out motion-reduce:animate-none"
           role="status"
         >
           <Check className="size-3.5 shrink-0 text-success-foreground" aria-hidden />
@@ -148,7 +148,7 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
 
       {state.kind === 'done' && sorted.length > 0 && (
         <ul
-          className="animate-in fade-in-0 flex flex-col gap-1.5 duration-200 ease-out motion-reduce:animate-none"
+          className="animate-in fade-in-0 flex flex-col gap-1.5 duration-base ease-out motion-reduce:animate-none"
           data-testid="skill-review-findings"
         >
           {sorted.map((finding, index) => {
@@ -170,14 +170,14 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
                     {finding.message}
                   </p>
                   {finding.fix && (
-                    <p className="text-muted-foreground text-[11px] leading-snug">{finding.fix}</p>
+                    <p className="text-muted-foreground text-xs leading-snug">{finding.fix}</p>
                   )}
                   {/* The rule that produced this, quietly. It is what turns a
                       complaint into a citation — an author who disagrees can go
                       read the rule instead of arguing with a verdict. Muted and
                       last, because it is provenance, not the point. */}
                   {finding.check && (
-                    <p className="text-muted-foreground/70 font-mono text-[10px] leading-snug">
+                    <p className="text-muted-foreground/70 font-mono text-xs leading-snug">
                       {finding.check}
                     </p>
                   )}

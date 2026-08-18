@@ -13,6 +13,7 @@
 import { type FC, useState } from 'react'
 import { Scale, ExternalLink, FileText } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
@@ -57,13 +58,18 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   const corpusFileName = resolveCorpusFileName(law, corpusFiles)
   const [viewerOpen, setViewerOpen] = useState(false)
 
+  // The left accent is the LAW signal, not ink: this card is the trust
+  // affordance, and `border-l-primary/30` made it read as any other quiet card
+  // (grid-design-language.md §"Domain-specific treatments" names
+  // `border-l-2 border-l-source-law/40` verbatim). The OIB accent
+  // (`accentForLane`) is deliberately NOT resolved here: `legalBasisCardSchema`
+  // carries no lane, and deriving 'oib' from the law string by hand is exactly
+  // the drift that helper exists to prevent — the card needs a lane on the wire
+  // before it can carry the accent.
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col gap-3 border-l-2 border-l-primary/30 pl-4">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col gap-3 border-l-2 border-l-source-law/40 pl-4">
       {/* Eyebrow — marks this as a citation, not a message */}
-      <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-        <Scale className="size-3.5" aria-hidden="true" />
-        <span>{t('cards.legalBasis')}</span>
-      </div>
+      <SectionLabel icon={Scale}>{t('cards.legalBasis')}</SectionLabel>
 
       {/* Header: law/Richtlinie + § / article references */}
       <div className="flex flex-wrap items-center gap-2">

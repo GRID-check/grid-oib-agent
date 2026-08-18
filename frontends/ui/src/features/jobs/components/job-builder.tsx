@@ -382,7 +382,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                         <Field
                           key={kind}
                           className={cn(
-                            'cursor-pointer rounded-lg border px-3 py-2.5 transition-colors duration-150 ease-out',
+                            'cursor-pointer rounded-lg border px-3 py-2.5 transition-colors duration-snap ease-out',
                             active
                               ? 'border-primary bg-primary/5'
                               : 'border-border hover:border-foreground/30',
@@ -468,7 +468,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                 {detached && (
                   <p
                     role="status"
-                    className="animate-in fade-in-0 text-foreground text-xs font-medium duration-200 ease-out motion-reduce:animate-none"
+                    className="animate-in fade-in-0 text-foreground text-xs font-medium duration-base ease-out motion-reduce:animate-none"
                   >
                     {t('builder.skillDetached', {
                       name: detached.name,
@@ -488,7 +488,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                 {/* Always-included knowledge source: a pinned, non-interactive row
                     (never a checkbox). The knowledge layer is guaranteed on every
                     run server-side, so it is shown here regardless of the API list. */}
-                <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-2.5 py-2">
+                <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted px-2.5 py-2">
                   <Lock className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="text-sm text-foreground">{t('builder.knowledgeAlways')}</span>
                 </div>
@@ -515,7 +515,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                         <Field
                           key={source.id}
                           orientation="horizontal"
-                          className="hover:border-border justify-start rounded-lg border border-transparent px-1 py-1.5 transition-colors duration-150 ease-out"
+                          className="hover:border-border justify-start rounded-lg border border-transparent px-1 py-1.5 transition-colors duration-snap ease-out"
                         >
                           <Checkbox
                             id={`job-source-${source.id}`}
@@ -566,7 +566,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                 </Field>
 
                 {scheduleEnabled && (
-                  <div className="animate-in fade-in-0 space-y-4 border-t border-border pt-4 duration-200 ease-out motion-reduce:animate-none">
+                  <div className="animate-in fade-in-0 space-y-4 border-t border-border pt-4 duration-base ease-out motion-reduce:animate-none">
                     <Field>
                       <FieldLabel>{t('builder.presetLabel')}</FieldLabel>
                       <Select
@@ -587,7 +587,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                     </Field>
 
                     {preset === 'custom' && (
-                      <Field className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+                      <Field className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
                         <FieldLabel htmlFor="job-cron">{t('builder.cronLabel')}</FieldLabel>
                         <Input
                           id="job-cron"
@@ -727,7 +727,7 @@ function FirePromptPreview({
             // and a fixed cap clipped an ordinary prompt-plus-skill mid-line
             // while thousands of pixels of the column beside it sat empty.
             // Longer prompts still scroll — inside the pane, as intended.
-            className="max-h-[calc(100vh-15rem)] overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-4 font-mono text-xs leading-relaxed text-foreground"
+            className="max-h-[calc(100vh-15rem)] overflow-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed text-foreground"
           >
             {compiled}
           </pre>

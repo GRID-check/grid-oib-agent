@@ -18,7 +18,7 @@ import {
   Sparkles,
   SquarePen,
 } from 'lucide-react'
-import { AnimatePresence, motion } from '@/components/motion'
+import { AnimatePresence, motion, motionQuick } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -37,6 +37,7 @@ import { ParticipantStrip } from '@/features/collaboration/components/Participan
 import { ShareDialog } from '@/features/collaboration/components/ShareDialog'
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
 import { useSharing } from '@/features/collaboration/hooks/use-sharing'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 
@@ -46,9 +47,6 @@ import { useLayoutStore } from '../store'
  * first keystroke, since `commitTitle`/`cancelTitleEdit` resolve the edit.
  */
 const MENU_FOCUS_GUARD_MS = 250
-
-/** Toolbar chrome: opacity/transform only, 180ms ease-out, no spring. */
-const EASE_OUT = { duration: 0.18, ease: 'easeOut' } as const
 
 interface ChatToolbarProps {
   sessionTitle?: string
@@ -323,6 +321,9 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           of growing under the right-hand actions pill.
           min-h-12 matches the 44px/36px controls so the pill never collapses
           when the breadcrumb is hidden on an empty chat. */}
+      {/* The alpha pair is load-bearing: this toolbar FLOATS over the scrolling
+          transcript, and `backdrop-blur` needs something to blur. The
+          `supports-` step drops to a more opaque fill where there is no blur. */}
       <div className="pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60 sm:max-w-none">
         {/* Global navigation opener — mobile only. The chat route hides the
             standalone top bar, so this hamburger is the way back out to
@@ -343,7 +344,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           }
           title={tNav('openNavigation')}
         >
-          <Menu className="h-4 w-4" aria-hidden="true" />
+          <Menu className="size-4" aria-hidden="true" />
           <InboxBadge
             pending={inboxPending}
             className="absolute top-0.5 right-0.5 translate-x-1/3 -translate-y-1/3"
@@ -361,7 +362,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           aria-label={t('chatToolbar.toggleSessions')}
           title={!isAuthenticated ? t('chatToolbar.signInToView') : t('chatToolbar.toggleSessions')}
         >
-          <MessageSquareText className="h-4 w-4" aria-hidden="true" />
+          <MessageSquareText className="size-4" aria-hidden="true" />
         </Button>
 
         {/* Breadcrumb: {project} / {session title (click-to-rename)} — shown
@@ -439,7 +440,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                     disabled={!canRename}
                     aria-label={tChat('breadcrumb.renameAria')}
                     title={canRename ? tChat('breadcrumb.renameAria') : sessionTitle}
-                    className="max-w-[420px] truncate rounded-md px-1 py-0.5 pointer-coarse:py-3 text-left text-sm font-medium text-foreground transition-colors duration-200 ease-out motion-reduce:transition-none enabled:cursor-text enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className="max-w-[420px] truncate rounded-md px-1 py-0.5 pointer-coarse:py-3 text-left text-sm font-medium text-foreground transition-colors duration-quick ease-out motion-reduce:transition-none enabled:cursor-text enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     {sessionTitle}
                   </button>
@@ -500,7 +501,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={EASE_OUT}
+            transition={motionQuick}
             className="hidden items-center gap-1 pl-1 pr-1.5 sm:flex"
           >
             {/* No `onOpen`: the strip is deliberately inert here. Sharing has ONE
@@ -527,7 +528,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  transition={EASE_OUT}
+                  transition={motionQuick}
                   className="inline-flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-sm text-muted-foreground"
                   data-testid="research-running"
                 >
@@ -558,7 +559,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                 : t('chatToolbar.createNewSession')
           }
         >
-          <SquarePen className="h-4 w-4" aria-hidden="true" />
+          <SquarePen className="size-4" aria-hidden="true" />
           <span className="hidden text-sm font-medium sm:inline">{t('chatToolbar.newChat')}</span>
         </Button>
 
@@ -588,7 +589,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                 title={t('chatToolbar.moreActions')}
                 data-testid="thread-menu"
               >
-                <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                <MoreHorizontal className="size-4" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -599,8 +600,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   unanswerable without opening the dialog. */}
               {sharingState && (
                 <div className="px-2 py-1.5 sm:hidden">
-                  <DropdownMenuLabel className="p-0 pb-1 text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {tCollab('sharing.audienceHeading')}
+                  <DropdownMenuLabel className="p-0 pb-1">
+                    <SectionLabel>{tCollab('sharing.audienceHeading')}</SectionLabel>
                   </DropdownMenuLabel>
                   <AccessChip
                     visibility={sharingState.visibility}
@@ -617,7 +618,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   onSelect={startEditingTitleFromMenu}
                   data-testid="rename-session"
                 >
-                  <PencilLine className="h-4 w-4" aria-hidden="true" />
+                  <PencilLine className="size-4" aria-hidden="true" />
                   {t('chatToolbar.renameSession')}
                 </DropdownMenuItem>
               )}
@@ -629,7 +630,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   menu item gives the reader nothing. */}
               {canShare && (
                 <DropdownMenuItem onSelect={() => setIsShareOpen(true)} data-testid="share-button">
-                  <Share2 className="h-4 w-4" aria-hidden="true" />
+                  <Share2 className="size-4" aria-hidden="true" />
                   {tCollab('sharing.action')}
                 </DropdownMenuItem>
               )}
@@ -651,7 +652,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   aria-expanded={isResearchPanelOpen}
                   data-testid="research-panel-toggle"
                 >
-                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  <Sparkles className="size-4" aria-hidden="true" />
                   {t('chatToolbar.researchReport')}
                 </DropdownMenuItem>
               )}

@@ -54,7 +54,7 @@ const UploadErrorAlert: FC<{ message: string; onClose: () => void; className?: s
         aria-label={t('dismissError')}
         className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
-        <X className="h-4 w-4" aria-hidden="true" />
+        <X className="size-4" aria-hidden="true" />
       </button>
     </AlertDescription>
   </Alert>
@@ -241,7 +241,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   }, [])
 
   const uploadTargetControls = projectId ? (
-    <div className="flex flex-col gap-2 rounded-xl bg-muted/50 p-3">
+    <div className="flex flex-col gap-2 rounded-xl bg-muted p-3">
       <span className="text-xs font-semibold uppercase text-muted-foreground">{t('fileSourcesTab.uploadTo')}</span>
       <div className="flex gap-2">
         <Button

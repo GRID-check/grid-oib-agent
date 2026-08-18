@@ -55,6 +55,7 @@ import type {
   ResourceRole,
   ResourceSharingState,
 } from '@/lib/sharing/types'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { AccessChip, namedAudienceCount } from './AccessChip'
 import { sortByRoleThenName } from './ParticipantStrip'
@@ -181,7 +182,7 @@ export function AccessOverview({
       {derived.length > 0 && (
         <div
           data-testid="access-derived"
-          className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border bg-muted/30 px-3 py-2.5"
+          className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-lg border bg-muted px-3 py-2.5"
         >
           <AvatarStack people={derived.map((entry) => entry.person)} size="sm" max={6} />
           {/* The NAMES, as text — not only as faces. "Who can see this?" is the
@@ -207,12 +208,12 @@ export function AccessOverview({
             same weight, and its count would restate the chip's. */}
         {named.length > 0 && (derived.length > 0 || !showVisibility) && (
           <div className="flex items-baseline justify-between gap-3">
-            <h3 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+            <SectionLabel as="h3">
               {/* "Namentlich" rather than "Personen mit Zugriff": with a rule block
                   above, this list is no longer everyone who has access, and a
                   heading that claims otherwise is the confusion this split fixes. */}
               {t('sharing.overview.namedHeading')}
-            </h3>
+            </SectionLabel>
             <span className="text-xs tabular-nums text-muted-foreground">{namedCountLabel}</span>
           </div>
         )}
@@ -236,9 +237,7 @@ export function AccessOverview({
                 className="space-y-1"
                 data-testid={`access-group-${role}`}
               >
-                <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t(headingKey)}
-                </h4>
+                <SectionLabel as="h3">{t(headingKey)}</SectionLabel>
                 <ul className="-mx-2">
                   {group.map((entry) => (
                     /*
@@ -263,7 +262,7 @@ export function AccessOverview({
                       data-testid="access-row"
                       data-role={entry.role}
                       data-reason={entry.reason}
-                      className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors duration-200 ease-out hover:bg-accent/40"
+                      className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors duration-quick ease-out hover:bg-accent motion-reduce:transition-none"
                     >
                       <PersonAvatar person={entry.person} size="md" />
                       <div className="min-w-0 flex-1">

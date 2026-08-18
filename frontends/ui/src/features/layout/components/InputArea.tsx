@@ -204,7 +204,7 @@ const FileChip: FC<{
   return (
     <span
       className={cn(
-        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs',
         // A finger has to be able to hit the remove-x, and that button can only
         // grow inside a taller chip — the strip scrolls horizontally, so the
         // extra height costs nothing but a slightly shorter filename.
@@ -1217,7 +1217,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // in the textarea shrank the whole composer — text, chips and all — on
           // every mousedown, which reads as the surface flinching away from the
           // click rather than as a control acknowledging a press.
-          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
+          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-quick ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-2 border-error border-dashed'
@@ -1229,12 +1229,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       >
         {/* Drag overlay */}
         {isDragging && (
+          // 90%, not an opaque fill: a drop scrim has to dim what is underneath
+          // without erasing it, so the reader can still see what they are
+          // dropping onto ("a scrim built from --background at near-full
+          // opacity" is the failure the tokens file documents).
           <div className="bg-background/90 absolute inset-0 z-10 flex items-center justify-center rounded-xl">
             <div className="flex flex-col items-center gap-2">
               {isUnsupportedDrag ? (
-                <XCircle className="text-error h-8 w-8" aria-hidden="true" />
+                <XCircle className="text-error size-8" aria-hidden="true" />
               ) : (
-                <Paperclip className="text-brand h-8 w-8" aria-hidden="true" />
+                <Paperclip className="text-brand size-8" aria-hidden="true" />
               )}
               <span
                 className={cn(
@@ -1336,7 +1340,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           <button
             type="button"
             onClick={() => setManageFilesOpen(true)}
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-[12px] font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 touch-target sm:hidden"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-xs font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 touch-target sm:hidden"
           >
             {t('inputArea.manageFilesMobile', { count: attachedFilesCount })}
           </button>
@@ -1346,13 +1350,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         <Textarea
           ref={textareaRef}
           // text-base (16px) below md keeps iOS Safari from zooming the page
-          // when the composer gains focus; desktop keeps the tighter 14.5px.
+          // when the composer gains focus; desktop drops to the body ramp step.
           // The composer CARD signals focus with its focus-within ring (see the
           // card class above), so the textarea shows no ring/border/outline of
           // its own. `outline-hidden!` beats the app's global :focus-visible
           // outline (globals.css, unlayered) with an important utility — otherwise
           // focus is drawn twice: a nested box inside the card's ring.
-          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 pointer-coarse:min-h-11 md:text-[14.5px]"
+          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 pointer-coarse:min-h-11 md:text-sm"
           value={message}
           onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
           onKeyDown={handleKeyDown}
@@ -1433,9 +1437,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     type="button"
                     onClick={clearError}
                     aria-label={t('dismissError')}
-                    className="focus-visible:ring-ring/60 shrink-0 rounded-md p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
+                    className="focus-visible:ring-ring/60 shrink-0 rounded-md p-1 opacity-70 transition-opacity duration-quick ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
                   >
-                    <X className="h-4 w-4" aria-hidden="true" />
+                    <X className="size-4" aria-hidden="true" />
                   </button>
                 </AlertDescription>
               </Alert>
@@ -1451,21 +1455,29 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               Dashed status-active dot + label + chevron (dummy composer). */}
           <Popover>
             <PopoverTrigger asChild>
-              <button
+              {/* The primitive, not a hand-rolled `<button>`: the outline/sm
+                  variant IS this chip's geometry, and it ships the press
+                  response with its `motion-reduce` escape for free. Matches
+                  `SourceBasisTrigger` beside it. */}
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 disabled={cannotContribute}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] pointer-coarse:h-11 transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-w-0"
               >
-                <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
+                <span className="border-status-active flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed">
+                  {/* 5px: the dot has to sit INSIDE a 14px dashed ring with a
+                      visible gap on every side, and the 6px token step closes it. */}
                   <span className="bg-status-active size-[5px] rounded-full" />
                 </span>
-                <span className="text-foreground/85 hidden max-w-44 truncate text-[12.5px] font-medium sm:inline">
+                <span className="text-foreground/85 hidden max-w-44 truncate sm:inline">
                   {scopeLabel}
                 </span>
                 <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
-              </button>
+              </Button>
             </PopoverTrigger>
             <PopoverContent side="top" align="start" className="w-64 p-1.5">
               <div
@@ -1517,24 +1529,24 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
           {/* Deep-Research intent pill — preference, NOT a hard trigger:
               the agent auto-escalates on its own (spec §2.2(6)) */}
-          <button
+          {/* Same rebuild as the scope chip beside it. Pressed is the `default`
+              (ink) variant and resting is `outline`, so "on" is the ink fill the
+              design language reserves for the action — no third hand-rolled
+              state, and the press response comes from the primitive. */}
+          <Button
             type="button"
+            variant={deepResearchIntent ? 'default' : 'outline'}
+            size="sm"
             aria-pressed={deepResearchIntent}
             aria-label={tChat('composer.deepResearchAria')}
             title={tChat('composer.deepResearchHint')}
             disabled={cannotContribute}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
-            className={cn(
-              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
-              'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
-              deepResearchIntent
-                ? 'border-primary bg-primary text-primary-foreground shadow-xs'
-                : 'border-border bg-card text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground'
-            )}
+            className={cn('shrink-0', !deepResearchIntent && 'text-muted-foreground')}
           >
             <ZoomIn className="size-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
-          </button>
+          </Button>
 
           {/* Who this message goes to — ALWAYS, whenever collaboration exists at
               all. The point of it being unconditional: if it only appeared in the
@@ -1618,7 +1630,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     : t('inputArea.selectFiles')
               }
             >
-              <Paperclip className="h-4 w-4" aria-hidden="true" />
+              <Paperclip className="size-4" aria-hidden="true" />
             </Button>
 
             {/* Send button - wrapped in Popover when research session is complete/in-progress.
@@ -1644,7 +1656,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   title={t('inputArea.startNewSession')}
                 >
                   <RotateCw className="size-3.5" aria-hidden="true" />
-                  <span className="text-[12.5px] font-semibold">
+                  <span className="text-xs font-semibold">
                     {t('inputArea.startNewSession')}
                   </span>
                 </Button>
@@ -1658,7 +1670,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     aria-label={t('inputArea.researchInProgressAria')}
                     title={t('inputArea.researchInProgress')}
                   >
-                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                    <ArrowUp className="size-4" aria-hidden="true" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
@@ -1733,7 +1745,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                         exit={{ opacity: 0, scale: 0.8 }}
                         transition={springSnappy}
                       >
-                        <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                        <ArrowUp className="size-4" aria-hidden="true" />
                       </motion.span>
                     )}
                   </AnimatePresence>
@@ -1882,7 +1894,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           standard. The composer floats over the scrolling chat, so a light
           blurred pill keeps it readable over messages behind it. */}
       <div className="mt-1.5 flex justify-center">
-        <p className="text-muted-foreground bg-muted/70 supports-[backdrop-filter]:bg-muted/45 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg px-2.5 py-1 text-center text-[11px] leading-snug backdrop-blur-sm">
+        {/* Frosted, not hand-derived: this hint sits ON the transcript, and the
+            alpha pair is what `backdrop-blur-sm` has to blur (the `supports-`
+            step is the no-blur fallback). */}
+        <p className="text-muted-foreground bg-muted/70 supports-[backdrop-filter]:bg-muted/45 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg px-2.5 py-1 text-center text-xs leading-snug backdrop-blur-sm">
           <Sparkles className="size-3 shrink-0 opacity-70" aria-hidden="true" />
           <span>{t('inputArea.aiDisclosure')}</span>
         </p>

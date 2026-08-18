@@ -82,6 +82,7 @@ import {
   type ShareCandidate,
   type ShareableResourceType,
 } from '@/lib/sharing/types'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import type { SharingFailure, UseSharingResult } from '../hooks/use-sharing'
 import { useShareCandidates } from '../hooks/use-sharing'
@@ -323,7 +324,7 @@ export function ShareDialog({
           <Button
             variant="ghost"
             size="icon"
-            className="size-8 text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground motion-reduce:transition-none"
+            className="size-8 text-muted-foreground transition-colors duration-snap ease-out hover:text-foreground motion-reduce:transition-none"
             disabled={saving}
             // Several of these live in one list, so "button, more" alone would not
             // say whose access it governs.
@@ -333,8 +334,8 @@ export function ShareDialog({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
-            {t('sharing.roleHeading')}
+          <DropdownMenuLabel>
+            <SectionLabel>{t('sharing.roleHeading')}</SectionLabel>
           </DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={entry.role}
@@ -432,7 +433,7 @@ export function ShareDialog({
               <Alert
                 variant="destructive"
                 data-testid="share-failure"
-                className="animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none"
+                className="animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none"
               >
                 <AlertTriangle className="size-4" aria-hidden />
                 <AlertDescription>{failureMessage(failure)}</AlertDescription>
@@ -455,9 +456,7 @@ export function ShareDialog({
                 statement (rendered by the overview below). */}
             {canManage && (
               <section className="space-y-2">
-                <h3 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t('sharing.visibilityHeading')}
-                </h3>
+                <SectionLabel as="h3">{t('sharing.visibilityHeading')}</SectionLabel>
                 <Select
                   value={state.visibility}
                   disabled={saving}
@@ -499,9 +498,7 @@ export function ShareDialog({
               <>
                 <Separator />
                 <section className="space-y-2.5">
-                  <h3 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {t('sharing.invite.label')}
-                  </h3>
+                  <SectionLabel as="h3">{t('sharing.invite.label')}</SectionLabel>
                   <div className="relative">
                     <Search
                       className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -559,7 +556,7 @@ export function ShareDialog({
                           key={candidate.person.userId}
                           data-testid="share-candidate"
                           data-blocked={candidate.needsProjectAccess || undefined}
-                          className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors duration-150 ease-out hover:bg-accent/40 motion-reduce:transition-none"
+                          className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors duration-snap ease-out hover:bg-accent motion-reduce:transition-none"
                         >
                           <PersonAvatar person={candidate.person} size="md" />
                           {/* Identity is a COLUMN, and the right-hand slot is its

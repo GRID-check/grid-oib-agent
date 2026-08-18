@@ -560,7 +560,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               aria-label={t('assignment.responsible')}
             >
               {(['all', 'mine', 'unassigned'] as const).map((key) => (
-                <ToggleGroupItem key={key} value={key} className="px-2 text-[11px]">
+                <ToggleGroupItem key={key} value={key} className="px-2 text-xs">
                   {t(
                     key === 'all'
                       ? 'assignment.filterAll'
@@ -583,7 +583,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
       {/* Error banner */}
       {error && (
-        <div className="border-b px-4 py-3 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+        <div className="border-b px-4 py-3 animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
             <AlertTitle>{t('workspace.uploadProblem')}</AlertTitle>
@@ -617,7 +617,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             through the chip row instead. All tree functionality (expand/collapse,
             selection, drill-in, create) is preserved. */}
         {view === 'tree' && (
-          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none md:max-h-none md:w-60 md:border-b-0 md:border-r">
+          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none md:max-h-none md:w-60 md:border-b-0 md:border-r">
             {foldersError ? (
               <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
             ) : (

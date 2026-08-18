@@ -235,7 +235,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                 title={isDeepResearchStreaming ? t('researchPanel.stopResearching') : t('researchPanel.noActiveResearch')}
                 data-testid="research-panel-stop"
               >
-                <CircleStop className="h-4 w-4" aria-hidden="true" />
+                <CircleStop className="size-4" aria-hidden="true" />
                 <span className="hidden sm:inline">{t('researchPanel.stopResearchingButton')}</span>
               </Button>
             </div>
@@ -251,7 +251,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                 title={t('researchPanel.closePanel')}
                 data-testid="research-panel-close"
               >
-                <X className="h-4 w-4" aria-hidden="true" />
+                <X className="size-4" aria-hidden="true" />
               </Button>
             </div>
           </div>
@@ -276,7 +276,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                     <Skeleton className="size-8 shrink-0 rounded-md" />
                     <div className="flex-1 space-y-1.5">
                       <Skeleton className="h-3.5 w-1/2" />
-                      <Skeleton className="h-3 w-3/4" />
+                      <Skeleton className="size-3/4" />
                     </div>
                   </div>
                 ))}

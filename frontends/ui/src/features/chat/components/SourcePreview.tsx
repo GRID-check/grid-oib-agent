@@ -28,6 +28,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
+import { SectionLabel } from '@/components/ui/section-label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import {
@@ -215,7 +216,7 @@ const useConversationId = (): string | null =>
 
 const chipButtonClasses =
   'inline-flex h-6 max-w-full shrink-0 cursor-pointer items-center gap-1 truncate whitespace-nowrap pointer-coarse:h-11 ' +
-  'rounded-md border px-2.5 text-xs font-medium transition-[color,background-color,transform] duration-200 ease-out ' +
+  'rounded-md border px-2.5 text-xs font-medium transition-[color,background-color,transform] duration-quick ease-out ' +
   '[&>svg]:size-3 [&>svg]:shrink-0 hover:brightness-95 dark:hover:brightness-125 active:scale-95 ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
   'disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100'
@@ -255,7 +256,7 @@ export type CitationDetail = 'full' | 'name-only'
  */
 const cardButtonClasses =
   'flex w-full cursor-pointer gap-3 rounded-lg border bg-card p-3 text-left ' +
-  'transition-[color,background-color,transform] duration-200 ease-out hover:bg-accent active:scale-[0.99] ' +
+  'transition-[color,background-color,transform] duration-quick ease-out hover:bg-accent active:scale-[0.99] ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ' +
   'disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100'
 
@@ -285,7 +286,7 @@ const CitationIndex: FC<{ index?: string }> = ({ index }) =>
     // there and the marker renders flush against the label ("3Attika-Detail").
     // Carrying its own trailing space makes the marker read correctly in every
     // chip shape rather than only in the ones that keep it a flex child.
-    <span className="me-1 shrink-0 text-[10px] font-semibold tabular-nums opacity-60">{index}</span>
+    <span className="me-1 shrink-0 text-xs font-semibold tabular-nums opacity-60">{index}</span>
   )
 
 /** Everything a citation shows before it is clicked, in either layout. */
@@ -429,12 +430,12 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
   }
   return (
     <div className="shrink-0 rounded-lg border px-3 py-2" style={style}>
-      <p
-        className="text-[10.5px] font-semibold uppercase tracking-[0.05em]"
+      <SectionLabel
+        as="p"
         style={{ color: `var(--source-${signal}-text, var(--muted-foreground))` }}
       >
         {t('sourcePreview.citedPassage')}
-      </p>
+      </SectionLabel>
       <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-sm text-foreground">
         {snippet}
       </p>
@@ -508,14 +509,12 @@ const LocusRail: FC<{
       }}
     >
       <div className="flex shrink-0 items-center gap-1.5">
-        <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-          {t('citationPeek.lociLabel', { count: loci.length })}
-        </span>
+        <SectionLabel>{t('citationPeek.lociLabel', { count: loci.length })}</SectionLabel>
         <span className="flex-1" />
         {/* The stepper is for reading STRAIGHT THROUGH — the reader who wants
             the next passage rather than a particular one, and who should not
             have to find it in the list to get there. */}
-        <span className="text-[10.5px] tabular-nums text-muted-foreground">
+        <span className="text-xs tabular-nums text-muted-foreground">
           {t('citationPeek.lociPosition', {
             index: activeIndex >= 0 ? activeIndex + 1 : 0,
             count: loci.length,
@@ -551,7 +550,7 @@ const LocusRail: FC<{
                 onClick={() => onSelect(locus)}
                 aria-current={isActive ? 'true' : undefined}
                 className={cn(
-                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors duration-snap ease-out',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                   isActive
                     ? 'border-transparent'
@@ -564,31 +563,26 @@ const LocusRail: FC<{
               >
                 <span className="flex items-center gap-1.5">
                   {locus.number != null ? (
-                    <span className="shrink-0 text-[10.5px] font-semibold tabular-nums opacity-70">
+                    <span className="shrink-0 text-xs font-semibold tabular-nums opacity-70">
                       [{locus.number}]
                     </span>
                   ) : (
                     // No marker means retrieval surfaced this passage and the
                     // answer did not lean on it. Saying so is the difference
                     // between a thin document and an honest one.
-                    <span
-                      className={cn(
-                        'shrink-0 text-[10px] uppercase tracking-[0.04em]',
-                        isActive ? 'opacity-70' : 'text-muted-foreground'
-                      )}
-                    >
+                    <SectionLabel className={cn('shrink-0', isActive && 'text-current opacity-70')}>
                       {t('citationPeek.retrievedOnly')}
-                    </span>
+                    </SectionLabel>
                   )}
                   <span className="flex-1" />
-                  <span className="shrink-0 text-[11px] font-medium tabular-nums">
+                  <span className="shrink-0 text-xs font-medium tabular-nums">
                     {t('answerSources.page', { page: locus.page! })}
                   </span>
                 </span>
                 {locus.snippet && (
                   <span
                     className={cn(
-                      'mt-1 line-clamp-2 text-[11.5px] leading-snug',
+                      'mt-1 line-clamp-2 text-xs leading-snug',
                       isActive ? 'opacity-80' : 'text-muted-foreground'
                     )}
                   >
@@ -905,7 +899,7 @@ const InfoPreviewChip: FC<{
         <div className="flex flex-wrap items-center gap-1.5">
           <SourceSignalChip signal={signal}>{t(`sourcePreview.kinds.${kind}`)}</SourceSignalChip>
           {tier && (
-            <span className="text-[11px] font-medium text-muted-foreground">{tier}</span>
+            <span className="text-xs font-medium text-muted-foreground">{tier}</span>
           )}
         </div>
         {/* The written source list's payload, one click away: the citation
@@ -914,7 +908,7 @@ const InfoPreviewChip: FC<{
           {index && <span className="mr-1 text-muted-foreground">[{index}]</span>}
           {target.title}
         </p>
-        {meta && <p className="text-[11px] text-muted-foreground">{meta}</p>}
+        {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
         {bindingNote && (
           <div
             className="rounded-md border-l-2 py-1.5 pl-2.5 pr-2"
@@ -923,13 +917,13 @@ const InfoPreviewChip: FC<{
               backgroundColor: `var(--source-${signal}-tint, var(--muted))`,
             }}
           >
-            <p
-              className="text-[10px] font-semibold uppercase tracking-[0.05em]"
+            <SectionLabel
+              as="p"
               style={{ color: `var(--source-${signal}-text, var(--muted-foreground))` }}
             >
               {t('sourcePreview.bindingLabel')}
-            </p>
-            <p className="mt-0.5 text-[12.5px] leading-relaxed text-foreground">{bindingNote}</p>
+            </SectionLabel>
+            <p className="mt-0.5 text-xs leading-relaxed text-foreground">{bindingNote}</p>
           </div>
         )}
         {target.snippet && <CitedPassageBox snippet={target.snippet} signal={signal} />}
@@ -939,7 +933,7 @@ const InfoPreviewChip: FC<{
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[12.5px] font-medium hover:underline"
+              className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
               style={{ color: `var(--source-${signal}-text, var(--foreground))` }}
             >
               {t('sourcePreview.openExternal')}

@@ -32,6 +32,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatRelativeTime } from '@/lib/format'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 
 export interface FeedbackDigestPayload {
@@ -108,7 +109,7 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
 
   if (loading && !data) {
     return (
-      <div className={cn('min-h-[8.5rem] space-y-2 rounded-lg border bg-muted/30 p-4', className)}>
+      <div className={cn('min-h-[8.5rem] space-y-2 rounded-lg border bg-muted p-4', className)}>
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-12 w-full" />
       </div>
@@ -139,21 +140,21 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
   return (
     <section
       className={cn(
-        'animate-in fade-in-0 min-h-[8.5rem] space-y-3 rounded-lg border bg-muted/30 p-4 duration-200 ease-out motion-reduce:animate-none',
+        'animate-in fade-in-0 min-h-[8.5rem] space-y-3 rounded-lg border bg-muted p-4 duration-base ease-out motion-reduce:animate-none',
         className,
       )}
       data-testid="feedback-digest"
       aria-label={t('answerFeedback.digest.title')}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+        <SectionLabel as="h3" className="flex items-center gap-1.5">
           <Sparkles className="size-3.5" aria-hidden />
           {t('answerFeedback.digest.title')}
-        </h4>
+        </SectionLabel>
         <div className="flex items-center gap-1.5">
           {/* Provenance and age, together. "Written by a model, 20 minutes ago"
               is one fact for the reader, not two. */}
-          <span className="text-[11px] text-muted-foreground/80" data-testid="feedback-digest-age">
+          <span className="text-xs text-muted-foreground/80" data-testid="feedback-digest-age">
             {t('answerFeedback.digest.generated', {
               ago: formatRelativeTime(digest.generatedAt, locale),
             })}
@@ -206,7 +207,7 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
       {/* The caveat travels with the text. These sentences are a model's reading
           of self-selected votes, and they are the most quotable thing on the
           page — the disclaimer belongs where the quote is taken from. */}
-      <p className="text-[11px] text-muted-foreground/70">
+      <p className="text-xs text-muted-foreground/70">
         {t('answerFeedback.digest.caveat', { votes: digest.votes, days: digest.windowDays })}
       </p>
     </section>

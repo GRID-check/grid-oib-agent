@@ -197,7 +197,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
         <Spinner size="sm" label={label} />
       ) : (
         <FileText
-          className={cn('h-8 w-8', status === 'error' ? 'text-error' : 'text-muted-foreground')}
+          className={cn('size-8', status === 'error' ? 'text-error' : 'text-muted-foreground')}
           aria-hidden="true"
         />
       )}
@@ -232,9 +232,9 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
           {/* Status indicator */}
           <span className="flex items-center gap-1">
             {status === 'available' && (
-              <Check className="h-3 w-3 text-success" aria-hidden="true" />
+              <Check className="size-3 text-success" aria-hidden="true" />
             )}
-            {status === 'error' && <X className="h-3 w-3 text-error" aria-hidden="true" />}
+            {status === 'error' && <X className="size-3 text-error" aria-hidden="true" />}
             <span className={cn(config.showSpinner ? 'text-sm' : 'text-xs', config.textClass)}>
               {label}
             </span>
@@ -264,7 +264,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   return (
     <motion.div
       className={cn(
-        'group flex items-start justify-between rounded-2xl bg-card p-3 shadow-xs transition-colors duration-200 ease-out',
+        'group flex items-start justify-between rounded-2xl bg-card p-3 shadow-xs transition-colors duration-quick ease-out',
         status === 'error' && 'ring-1 ring-error/40'
       )}
       initial={{ opacity: 0, y: 8 }}
@@ -291,7 +291,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
         <Button
           variant="ghost"
           size="icon"
-          className="ml-2 size-8 flex-shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity duration-200 ease-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+          className="ml-2 size-8 flex-shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity duration-quick ease-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
           onClick={handleDelete}
           disabled={deleteDisabled}
           aria-label={
@@ -307,7 +307,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
                 : t('fileSourceCard.deleteFile')
           }
         >
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          <Trash2 className="size-4" aria-hidden="true" />
         </Button>
       </div>
     </motion.div>

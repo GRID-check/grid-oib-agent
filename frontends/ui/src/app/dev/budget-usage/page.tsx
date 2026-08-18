@@ -21,7 +21,7 @@ import { notFound } from 'next/navigation'
 import { Gauge } from 'lucide-react'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { BudgetUsageCard } from '../../app/organization/budget-usage-card'
+import { BudgetUsageCard } from '../../app/(shell)/organization/budget-usage-card'
 
 const MODELS = [
   {

@@ -118,7 +118,7 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
                   aria-hidden={!pending}
                   className={
                     pending
-                      ? 'transition-opacity duration-150 ease-out motion-reduce:transition-none'
+                      ? 'transition-opacity duration-snap ease-out motion-reduce:transition-none'
                       : 'opacity-0'
                   }
                 />

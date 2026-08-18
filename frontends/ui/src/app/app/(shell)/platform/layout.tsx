@@ -16,7 +16,7 @@ import { ShieldAlert } from 'lucide-react'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { getNavFlags } from '@/lib/authz/nav'
-import { BackLink, OrgTopbar } from '@/components/shell'
+import { BackLink, ShellContent } from '@/components/shell'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { getTranslations } from '@/i18n/server'
 import { PlatformNav } from '@/features/platform/components/platform-nav'
@@ -40,29 +40,10 @@ export default async function PlatformLayout({
     const tOrg = await getTranslations('organization')
 
     const shell = (body: React.ReactNode): JSX.Element => (
-      <div className="bg-background text-foreground flex min-h-dvh flex-col">
-        <OrgTopbar
-          user={{ name: session?.name, email: session?.email }}
-          authRequired={isAuthRequired()}
-          heading={t('title')}
-          canManageOrganization={navFlags.canManageOrganization}
-          canViewOrganization={navFlags.canViewOrganization}
-          canManagePlatform={navFlags.canManagePlatform}
-          canAccessArchiv={navFlags.canAccessArchiv}
-          canAccessInbox={navFlags.canAccessInbox}
-        />
-        <main
-          id="main-content"
-          className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-10"
-        >
-          <BackLink
-            className="mb-6"
-            fallbackHref="/app/projects"
-            fallbackLabel={tOrg('backToApp')}
-          />
-          {body}
-        </main>
-      </div>
+      <ShellContent>
+        <BackLink className="mb-6" fallbackHref="/app/projects" fallbackLabel={tOrg('backToApp')} />
+        {body}
+      </ShellContent>
     )
 
     if (!navFlags.canManagePlatform) {

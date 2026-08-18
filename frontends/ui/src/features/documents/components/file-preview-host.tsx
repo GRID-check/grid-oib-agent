@@ -270,7 +270,7 @@ function PeekToolbar({
   const actions = useDocumentActions({ document: file, scope })
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 px-2.5">
-      <p className="text-foreground min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
+      <p className="text-foreground min-w-0 flex-1 truncate text-xs font-medium tracking-[-0.01em]">
         {name}
       </p>
       <button

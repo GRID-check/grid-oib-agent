@@ -106,14 +106,14 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   }, [respondToInteractionFn])
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-200 ease-out motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-base ease-entrance motion-reduce:animate-none">
       <div className="flex max-w-[85%] flex-col">
         <div className="flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
           {/* Agent icon and label */}
           <div
-            className={`flex items-center gap-2 transition-opacity duration-200 ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
+            className={`flex items-center gap-2 transition-opacity duration-quick ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
           >
-            <MessageSquare className="h-5 w-5 text-muted-foreground" />
+            <MessageSquare className="size-5 text-muted-foreground" />
             <span className="text-sm font-semibold text-muted-foreground">
               {isResponded ? t('agentPrompt.receivedInput') : t('agentPrompt.needsInput')}
             </span>
@@ -121,7 +121,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
 
           {/* Content - rendered as markdown */}
           <div
-            className={`prose prose-sm max-w-none transition-opacity duration-200 ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
+            className={`prose prose-sm max-w-none transition-opacity duration-quick ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
           >
             <MarkdownRenderer content={displayContent} />
           </div>
@@ -211,8 +211,8 @@ const ResponseDisplay: FC<{ response?: string }> = ({ response }) => {
   if (!response) return null
 
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2">
-      <MessageSquare className="text-subtle h-4 w-4" />
+    <div className="flex items-center gap-2 rounded-xl bg-muted px-3 py-2">
+      <MessageSquare className="text-subtle size-4" />
       <span className="text-subtle text-sm">
         {t('agentPrompt.yourResponse')} <span className="text-primary">{response}</span>
       </span>

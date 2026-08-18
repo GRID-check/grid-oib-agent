@@ -2,15 +2,9 @@ import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { getNavFlags } from '@/lib/authz/nav'
-import { isIfcModelsEnabled, isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { listProjects } from '@/lib/projects/service'
-import { getOrganizationDisplayName } from '@/lib/organizations/service'
-import { AppSidebar, NavigationTrailLabel, ProjectSectionFrame } from '@/components/shell'
+import { NavigationTrailLabel, ProjectSectionFrame } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
-import { RouteFocus } from '@/shared/components/route-focus'
-import { isAuthRequired } from '@/lib/auth/auth-required'
 import { FilePreviewBridge } from '@/features/documents/components/file-preview-host'
 
 interface ProjectLayoutProps {
@@ -59,13 +53,21 @@ export async function generateMetadata({
   }
 }
 
+/**
+ * The project segment: an ACCESS GATE and the project's own section chrome.
+ *
+ * It no longer renders a rail or a `<main>`. Both moved up to the `(shell)`
+ * layout, because mounting them here is what made them disappear the moment the
+ * reader stepped out of a project — the rail, the content column and the scroll
+ * container all belonged to a segment that unmounts. What is genuinely
+ * per-project stays: the access check, the soft-delete 404, the trail label, and
+ * the section header/actions frame.
+ */
 export default async function ProjectLayout({
   children,
   params,
 }: ProjectLayoutProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
-    const navFlags = await getNavFlags(session)
-    const showSkills = isSkillsEnabled(session)
     const { id } = await params
     // View access is enough to enter the project shell; per-section controls
     // (danger zone, member management) are gated inside their own pages.
@@ -77,54 +79,19 @@ export default async function ProjectLayout({
     const current = await findProjectInOrg(id, session.organizationId)
     if (!current) notFound()
 
-    // The sidebar switcher goes through the service, not a raw org-wide select:
-    // it is a list of project names and ids, which is exactly what ADR-0038 says
-    // a member without `project:view` on a project must not be handed. Ordering
-    // by name stays a presentation concern, applied to the reachable set.
-    const orgProjects = (await listProjects(session))
-      .map((project) => ({ id: project.id, name: project.name }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-
-    // The org the reader is acting in, for the rail footer's eyebrow. Resolves
-    // to null and is simply omitted if the identity lookup fails — chrome must
-    // not depend on a label.
-    const organizationName = await getOrganizationDisplayName(session.organizationId)
-
     return (
-      <div className="bg-background text-foreground flex h-dvh flex-col overflow-hidden md:flex-row">
+      <>
         {/* Names this project in the tab's return trail, so a surface above
-            projects (the Archiv, Organisation) can offer "Zurück zu <project>"
-            rather than a path it can only read an id out of. */}
+            projects (the Archiv, the Organisation, the Postfach) can offer
+            "Zurück zu <project>" rather than a path it can only read an id out
+            of — including the org-scope rail's own back control. */}
         <NavigationTrailLabel label={current.name} />
-        <AppSidebar
-          projectId={id}
-          projects={orgProjects}
-          user={{ name: session.name, email: session.email }}
-          organizationName={organizationName}
-          authRequired={isAuthRequired()}
-          canManageOrganization={navFlags.canManageOrganization}
-          canViewOrganization={navFlags.canViewOrganization}
-          canManagePlatform={navFlags.canManagePlatform}
-          canAccessArchiv={navFlags.canAccessArchiv}
-          canAccessInbox={navFlags.canAccessInbox}
-          showSkills={showSkills}
-          showModels={isIfcModelsEnabled(session)}
-        />
-        {/* tabIndex={-1} makes the landmark programmatically focusable so
-            RouteFocus can move focus here on client-side section changes. */}
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className="bg-background relative flex min-w-0 flex-1 flex-col overflow-hidden outline-none"
-        >
-          <RouteFocus />
-          <FilePreviewBridge>
-            <ProjectSectionFrame projectId={id} projectName={current.name}>
-              {children}
-            </ProjectSectionFrame>
-          </FilePreviewBridge>
-        </main>
-      </div>
+        <FilePreviewBridge>
+          <ProjectSectionFrame projectId={id} projectName={current.name}>
+            {children}
+          </ProjectSectionFrame>
+        </FilePreviewBridge>
+      </>
     )
   })
 }

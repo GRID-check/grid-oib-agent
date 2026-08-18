@@ -2,6 +2,14 @@
 export const nav = {
   projectNavigation: 'Project navigation',
   projectSections: 'Project sections',
+  /** The same rail, in org scope — above any single project. */
+  orgNavigation: 'Organization navigation',
+  orgSections: 'Organization sections',
+  /**
+   * Fallback for the org rail's back control, used only when the tab has no
+   * return trail to name the project the reader actually came from.
+   */
+  backToProjects: 'Back to projects',
   allProjects: 'Piloti — all projects',
   collapseSidebar: 'Collapse sidebar',
   expandSidebar: 'Expand sidebar',
@@ -24,6 +32,8 @@ export const nav = {
     work: 'Work',
     automate: 'Automate',
     org: 'Organization',
+    /** Org-scope rail: the organization, platform and account destinations. */
+    account: 'Administration',
   },
   sectionSubtitles: {
     files: 'Documents that ground Piloti’s answers in this project.',

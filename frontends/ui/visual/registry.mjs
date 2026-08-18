@@ -65,6 +65,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="app-rail-preview"]',
   },
   {
+    id: 'app-shell-scopes',
+    path: '/dev/app-shell-scopes',
+    description:
+      'The persistent rail in BOTH scopes, side by side — project scope (switcher, project sections, pinned Settings) against org scope (a "Zurück zu <project>" control from the return trail, the org destinations, no Settings row) on a distinct surface tint. The comparison is the evidence: the top edge, the 36px context slot, the group rhythm, the footer edge and the 236px width line up across the seam, so stepping out of a project changes the contents and moves nothing.',
+    waitFor: '[data-testid="app-shell-scopes-preview"]',
+  },
+  {
     id: 'sessions',
     mobile: true,
     path: '/dev/sessions',

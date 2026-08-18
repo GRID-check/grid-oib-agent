@@ -445,7 +445,7 @@ export function SkillEditorDialog({
                           </p>
                           <span
                             className={cn(
-                              'shrink-0 text-[11px] tabular-nums',
+                              'shrink-0 text-xs tabular-nums',
                               (field.state.value ?? '').length > DESCRIPTION_MAX
                                 ? 'text-destructive'
                                 : 'text-muted-foreground',
@@ -622,7 +622,7 @@ export function SkillEditorDialog({
                                 type="button"
                                 aria-label={t('editor.cards.removeAria', { type })}
                                 onClick={() => removeCard(type)}
-                                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 rounded-sm leading-none transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2"
+                                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 rounded-sm leading-none transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
                               >
                                 <X className="size-3" aria-hidden />
                               </button>

@@ -25,6 +25,7 @@
 
 import { type CSSProperties, type FC } from 'react'
 import { Globe } from 'lucide-react'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -125,7 +126,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
         role="note"
         aria-label={t('answerSources.gapAria')}
       >
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-source-auto/40 bg-source-auto-tint px-2 py-0.5 text-[11px] font-medium text-source-auto-text">
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-source-auto/40 bg-source-auto-tint px-2 py-0.5 text-xs font-medium text-source-auto-text">
           <Globe className="size-3 shrink-0" aria-hidden="true" />
           {t('answerSources.gapLabel')}
         </span>
@@ -141,9 +142,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
       role="list"
       aria-label={t('answerSources.ariaLabel')}
     >
-      <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-        {t('answerSources.label')}
-      </span>
+      <SectionLabel>{t('answerSources.label')}</SectionLabel>
       {shown.map((doc, docIndex) => {
         const numbers = citationNumbers(doc)
         // The chip the reader just asked about, from an inline [N] or a shared

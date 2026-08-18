@@ -14,7 +14,7 @@
 
 import { useEffect } from 'react'
 import { notFound } from 'next/navigation'
-import { PlatformRetrievalSettings } from '@/app/app/platform/retrieval/platform-retrieval-settings'
+import { PlatformRetrievalSettings } from '@/app/app/(shell)/platform/retrieval/platform-retrieval-settings'
 import { RETRIEVAL_SETTINGS } from '@/lib/retrieval-settings/catalog'
 
 // The real catalog, not a copy of it: a renamed key or a reworded description

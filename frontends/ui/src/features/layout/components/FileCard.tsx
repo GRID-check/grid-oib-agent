@@ -66,7 +66,7 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
   const shouldRenderMarkdown = isMarkdownFile(file.filename)
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted">
       {/* Header - always visible */}
       <button
         type="button"
@@ -78,7 +78,7 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* File Icon */}
           <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-            <FileText className="h-4 w-4" />
+            <FileText className="size-4" />
           </span>
 
           {/* File Info */}
@@ -103,12 +103,12 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
           {/* Expand/collapse icon */}
           <span
             className={cn(
-              'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+              'text-muted-foreground transition-transform duration-quick motion-reduce:transition-none',
               isExpanded && 'rotate-180'
             )}
             aria-hidden="true"
           >
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="size-4" />
           </span>
         </div>
       </button>

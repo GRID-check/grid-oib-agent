@@ -289,7 +289,7 @@ export function FilePreviewPane({
       {!peeking && (
       <div className="flex shrink-0 items-center gap-2.5 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:gap-3 @md:px-5 sm:pt-3.5">
         <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold uppercase leading-none"
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold uppercase leading-none"
           style={extChipTint(ext)}
           aria-hidden
         >
@@ -301,7 +301,7 @@ export function FilePreviewPane({
               name underneath it, which is the answer to "which file is this
               actually" for anyone who renamed it. */}
           <h3
-            className="truncate text-[15px] font-semibold leading-tight tracking-[-0.01em] text-foreground"
+            className="truncate text-sm font-semibold leading-tight tracking-[-0.01em] text-foreground"
             title={actions.isRenamed ? `${actions.name}\n${file.filename}` : actions.name}
           >
             {actions.name}
@@ -314,7 +314,7 @@ export function FilePreviewPane({
               `failed` is the case that matters, and it must not require a
               scroll. */}
           <div className="mt-1 flex min-w-0 items-center gap-1.5">
-            <p className="truncate text-[11.5px] text-muted-foreground">
+            <p className="truncate text-xs text-muted-foreground">
               {ext || file.contentType || t('preview.unknownType')}
             </p>
             <span className="text-muted-foreground/40" aria-hidden>
@@ -568,7 +568,7 @@ export function FilePreviewPane({
             The utility is scroll-driven, so the fade RETRACTS at the bottom of
             travel: its presence is the signal, not decoration. */}
         {!peeking && (
-        <div className="scroll-fade-bottom flex w-full flex-col border-t bg-muted/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
+        <div className="scroll-fade-bottom bg-surface-sunken flex w-full flex-col border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
           {/* The building's own numbers lead the rail: they are what the file
               IS. Ungated by the metadata flag, which covers what INGESTION
               derived — these come out of the IFC itself. Renders nothing until
@@ -673,12 +673,12 @@ export function FilePreviewPane({
                     type="button"
                     onClick={toggleDetails}
                     aria-expanded={detailsOpen}
-                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground touch-target motion-reduce:transition-none"
+                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground transition-colors duration-snap ease-out hover:text-foreground touch-target motion-reduce:transition-none"
                   >
                     {t('preview.visualDetails.title')}
                     <ChevronDown
                       className={cn(
-                        'size-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                        'size-3.5 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
                         detailsOpen && 'rotate-180',
                       )}
                       aria-hidden
@@ -695,7 +695,7 @@ export function FilePreviewPane({
                       {!detailsLoading &&
                         details?.map((d, i) => (
                           <div key={`${d.page}-${d.contentType}-${i}`} className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-medium text-foreground">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium text-foreground">
                               <span>{t('preview.visualDetails.page', { page: d.page })}</span>
                               {d.drawingType && <span className="text-muted-foreground">· {d.drawingType}</span>}
                               {d.scale && d.scale.toLowerCase() !== 'unbekannt' && (
@@ -704,7 +704,7 @@ export function FilePreviewPane({
                                 </span>
                               )}
                             </div>
-                            <p className="whitespace-pre-line text-[12px] leading-relaxed text-muted-foreground">
+                            <p className="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
                               {d.text}
                             </p>
                           </div>
@@ -753,7 +753,7 @@ export function FilePreviewPane({
 
           <div className="flex-1" />
           {showMetadataPanel && (
-            <p className="mt-4 border-t pt-3 text-[11px] leading-relaxed text-muted-foreground/80">
+            <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-muted-foreground/80">
               {t('preview.indexed.caption')}
             </p>
           )}
@@ -814,7 +814,7 @@ function IndexedSummary({ summary }: { summary: string }) {
     <div className="rounded-lg border bg-card p-3 shadow-2xs">
       <p
         ref={textRef}
-        className={cn('text-[13px] leading-[1.55] text-foreground', !expanded && 'line-clamp-5')}
+        className={cn('text-sm leading-[1.55] text-foreground', !expanded && 'line-clamp-5')}
         style={!expanded ? { WebkitLineClamp: SUMMARY_CLAMP_LINES } : undefined}
       >
         {summary}
@@ -824,12 +824,12 @@ function IndexedSummary({ summary }: { summary: string }) {
           type="button"
           onClick={() => setExpanded((open) => !open)}
           aria-expanded={expanded}
-          className="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none"
+          className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors duration-snap ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none"
         >
           {expanded ? t('preview.summaryLess') : t('preview.summaryMore')}
           <ChevronDown
             className={cn(
-              'size-3 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+              'size-3 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
               expanded && 'rotate-180',
             )}
             aria-hidden
@@ -957,7 +957,7 @@ function DocumentTagsSection({
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
                 aria-label={t('preview.removeTag', { tag })}
-                className="-mr-0.5 rounded-sm p-0.5 transition-colors duration-150 ease-out hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target motion-reduce:transition-none"
+                className="-mr-0.5 rounded-sm p-0.5 transition-colors duration-snap ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target motion-reduce:transition-none"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -1015,7 +1015,7 @@ function DocumentTagsSection({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => addTag(tag)}
               disabled={isSaving}
-              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-150 ease-out hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none"
+              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-snap ease-out hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none"
             >
               {tag}
             </button>
@@ -1083,14 +1083,18 @@ function PageMock({ caption, action, skeleton }: { caption?: string; action?: Re
     <div className="h-fit min-h-[320px] w-full max-w-[520px] rounded-lg border bg-background p-7 shadow-lg">
       <div className="flex items-baseline justify-between border-b pb-2.5">
         <div className="space-y-1.5">
-          <div className={cn('h-[9px] w-28 rounded', skeleton ? 'bg-muted' : 'bg-muted/50')} />
-          <div className={cn('h-[6px] w-16 rounded', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
+          {/* The alphas are the point here, not drift: a skeleton paints solid
+              bars (content is COMING), the page mock paints faded ones (this is
+              an illustration of a page, and nothing is coming). Same bars, two
+              claims, and the opacity is what separates them. */}
+          <div className={cn('h-[9px] w-28 rounded-sm', skeleton ? 'bg-muted' : 'bg-muted/50')} />
+          <div className={cn('h-[6px] w-16 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
         </div>
-        <div className={cn('h-[6px] w-12 rounded', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
+        <div className={cn('h-[6px] w-12 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
       </div>
       <div className="mt-3.5 flex h-[260px] flex-col items-center justify-center gap-3 rounded border border-dashed px-6 text-center">
         {!skeleton && caption && (
-          <p className="max-w-[80%] text-[11.5px] leading-relaxed text-muted-foreground text-balance">{caption}</p>
+          <p className="max-w-[80%] text-xs leading-relaxed text-muted-foreground text-balance">{caption}</p>
         )}
         {action}
       </div>

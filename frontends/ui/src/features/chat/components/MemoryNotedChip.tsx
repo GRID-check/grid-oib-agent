@@ -78,7 +78,7 @@ export const MemoryNotedChip: FC<MemoryNotedChipProps> = ({ items }) => {
                 <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm leading-snug text-foreground">{item.content}</p>
-                  <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span>{label}</span>
                     <span aria-hidden="true">·</span>
                     <span className="inline-flex items-center gap-1">
@@ -92,7 +92,7 @@ export const MemoryNotedChip: FC<MemoryNotedChipProps> = ({ items }) => {
           })}
         </ul>
         <div className="border-t px-4 py-2.5">
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             {t('memory.manageHint')}
           </p>
         </div>

@@ -131,10 +131,10 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
           {/* Polite, not assertive: the phase changes two or three times per
               batch and each one is worth hearing, but the byte counter beneath
               it updates every second and must never be announced. */}
-          <p aria-live="polite" className="truncate text-[13px] font-medium leading-tight text-foreground">
+          <p aria-live="polite" className="truncate text-sm font-medium leading-tight text-foreground">
             {headline}
           </p>
-          <p aria-hidden className="truncate text-[11.5px] leading-tight text-muted-foreground tabular-nums">
+          <p aria-hidden className="truncate text-xs leading-tight text-muted-foreground tabular-nums">
             {detail}
           </p>
         </button>
@@ -340,23 +340,25 @@ function UploadRow({
             document looks like itself from the second it is dropped. */}
         <span
           aria-hidden
-          className="flex size-6 shrink-0 items-center justify-center rounded text-[8.5px] font-bold uppercase leading-none"
+          // 8.5px is load-bearing and stays — a four-letter extension has to fit
+          // inside a 24px square; see file-list-view.
+          className="flex size-6 shrink-0 items-center justify-center rounded-sm text-[8.5px] font-bold uppercase leading-none"
           style={extChipTint(ext)}
         >
           {ext || '—'}
         </span>
 
-        <p className="min-w-0 flex-1 truncate text-[12.5px] text-foreground" title={file.fileName}>
+        <p className="min-w-0 flex-1 truncate text-xs text-foreground" title={file.fileName}>
           {file.fileName}
         </p>
 
-        <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {formatBytes(file.fileSize, locale)}
         </span>
 
         <span
           className={cn(
-            'w-[68px] shrink-0 text-right text-[11px] font-medium tabular-nums',
+            'w-[68px] shrink-0 text-right text-xs font-medium tabular-nums',
             phase === 'ready' && 'text-success',
             isFailed && 'text-destructive',
             phase !== 'ready' && !isFailed && 'text-muted-foreground',
@@ -393,7 +395,7 @@ function UploadRow({
       )}
 
       {isFailed && file.errorMessage && (
-        <p className="mt-1 pl-[34px] text-[11px] leading-snug text-destructive">{file.errorMessage}</p>
+        <p className="mt-1 pl-[34px] text-xs leading-snug text-destructive">{file.errorMessage}</p>
       )}
     </motion.li>
   )

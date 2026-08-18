@@ -27,7 +27,7 @@
 
 'use client'
 
-import { type FC, type ReactNode, useCallback, useMemo } from 'react'
+import { type FC, useCallback, useMemo } from 'react'
 import { AlertTriangle, Layers } from 'lucide-react'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -39,6 +39,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useAuth } from '@/adapters/auth'
 import { useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useTranslations } from '@/i18n'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useLayoutStore } from '../../store'
 import { computePresetSourceIds } from '../../lib/source-presets'
 import type { SourcePresetId } from '../../types'
@@ -50,12 +51,6 @@ import { buildSourceBasis, hasNoExternalSources, summariseBasis } from './source
 const PRESETS: readonly SourcePresetId[] = ['law', 'office', 'project']
 /** Sentinel value for the "Alle Quellen" option — not a preset id in the store. */
 const ALL = 'all'
-
-const SectionLabel: FC<{ children: ReactNode }> = ({ children }) => (
-  <h3 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-    {children}
-  </h3>
-)
 
 export const SourceBasisPicker: FC = () => {
   const t = useTranslations('research')
@@ -179,7 +174,7 @@ export const SourceBasisPicker: FC = () => {
           <>
             {basis.always.length > 0 && (
               <section className="space-y-2">
-                <SectionLabel>{t('sourceBasis.alwaysOn')}</SectionLabel>
+                <SectionLabel as="h3">{t('sourceBasis.alwaysOn')}</SectionLabel>
                 <ItemList as="ul" aria-label={t('sourceBasis.alwaysOn')}>
                   {basis.always.map((entry) => (
                     <SourceBasisRow key={entry.id} entry={entry} />
@@ -189,9 +184,9 @@ export const SourceBasisPicker: FC = () => {
             )}
 
             <section className="space-y-2">
-              <SectionLabel>{t('sourceBasis.external')}</SectionLabel>
+              <SectionLabel as="h3">{t('sourceBasis.external')}</SectionLabel>
               {basis.external.length === 0 ? (
-                <div className="rounded-lg border border-dashed bg-muted/40 p-6 text-center">
+                <div className="rounded-lg border border-dashed bg-muted p-6 text-center">
                   <Layers className="mx-auto size-6 text-muted-foreground/60" aria-hidden="true" />
                   <p className="mt-2 text-sm font-medium">{t('sourceBasis.emptyTitle')}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{t('sourceBasis.emptyBody')}</p>
@@ -226,7 +221,7 @@ export const SourceBasisPicker: FC = () => {
       {/* Outside the fade: a footer must stay sharp. */}
       {!isEmpty && !dataSourcesError && (
         <div className="space-y-1.5 border-t pt-3">
-          <SectionLabel>{t('sourceBasis.presetsLabel')}</SectionLabel>
+          <SectionLabel as="h3">{t('sourceBasis.presetsLabel')}</SectionLabel>
           <ToggleGroup
             type="single"
             variant="inverted"

@@ -97,7 +97,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
   const hasPreview = previewText.length > 0
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted">
       {/* Header - always visible */}
       <button
         type="button"
@@ -115,11 +115,11 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           ) : (
             <span className={cn('shrink-0', statusTextClass)} aria-hidden="true">
               {isComplete ? (
-                <Check className="h-4 w-4" />
+                <Check className="size-4" />
               ) : isError ? (
-                <X className="h-4 w-4" />
+                <X className="size-4" />
               ) : (
-                <Clock className="h-4 w-4" />
+                <Clock className="size-4" />
               )}
             </span>
           )}
@@ -145,12 +145,12 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           {canExpand && (
             <span
               className={cn(
-                'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                'text-muted-foreground transition-transform duration-quick motion-reduce:transition-none',
                 isExpanded && 'rotate-180'
               )}
               aria-hidden="true"
             >
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="size-4" />
             </span>
           )}
         </div>

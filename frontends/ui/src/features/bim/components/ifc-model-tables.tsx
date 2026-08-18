@@ -180,7 +180,7 @@ export function IfcRoomSchedule({
 
           <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-xs">
+              <thead className="bg-muted text-xs">
                 <tr>
                   <th scope="col" className="px-2 py-1.5 text-left font-medium">
                     {t('schedule.room')}
@@ -216,7 +216,7 @@ export function IfcRoomSchedule({
                 const elided = storey.rooms.length - visible.length
                 return (
                   <tbody key={storey.storeyName} className="border-t">
-                    <tr className="bg-muted/30">
+                    <tr className="bg-accent">
                       {/*
                         `rowgroup`, not `colgroup`. A colgroup header claims to
                         head the rest of a COLUMN, so the rooms beneath were
@@ -243,7 +243,7 @@ export function IfcRoomSchedule({
                         onClick={onSelect ? () => onSelect(room.globalId) : undefined}
                         className={`border-t ${
                           onSelect
-                            ? 'cursor-pointer transition-colors duration-200 ease-out hover:bg-muted/50'
+                            ? 'cursor-pointer transition-colors duration-quick ease-out hover:bg-muted motion-reduce:transition-none'
                             : ''
                         } ${room.globalId === selectedGlobalId ? 'bg-muted' : ''}`}
                       >
@@ -302,7 +302,7 @@ export function IfcRoomSchedule({
                         </td>
                       </tr>
                     )}
-                    <tr className="border-t bg-muted/20 text-xs font-medium">
+                    <tr className="border-t bg-muted text-xs font-medium">
                       <td className="px-2 py-1">{t('schedule.storeyTotal')}</td>
                       <td className="px-2 py-1 text-right tabular-nums">
                         {format(storey.netFloorArea)}
@@ -459,7 +459,7 @@ export function IfcQuantityTakeoff({
           )}
           <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-xs">
+              <thead className="bg-muted text-xs">
                 <tr>
                   <th scope="col" className="px-2 py-1.5 text-left font-medium">
                     {t('takeoff.group')}

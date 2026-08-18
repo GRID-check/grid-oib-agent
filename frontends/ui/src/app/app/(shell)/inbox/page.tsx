@@ -25,8 +25,7 @@ import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { inboxIsReachable } from '@/lib/inbox/registry'
-import { getNavFlags } from '@/lib/authz/nav'
-import { BackLink, OrgTopbar } from '@/components/shell'
+import { BackLink, ShellContent } from '@/components/shell'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -38,9 +37,7 @@ import {
 import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { InboxList } from '@/features/collaboration/components'
-import { isAuthRequired } from '@/lib/auth/auth-required'
 import { PRODUCT_NAME } from '@/lib/brand'
-
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('collaboration')
@@ -53,52 +50,35 @@ export default async function InboxPage(): Promise<JSX.Element> {
       notFound()
     }
 
-    const navFlags = await getNavFlags(session)
     const t = await getTranslations('collaboration')
     const tOrg = await getTranslations('organization')
 
     return (
-      <div className="flex min-h-dvh flex-col bg-background text-foreground">
-        <OrgTopbar
-          user={{ name: session.name, email: session.email }}
-          authRequired={isAuthRequired()}
-          heading={t('inbox.title')}
-          canManageOrganization={navFlags.canManageOrganization}
-          canViewOrganization={navFlags.canViewOrganization}
-          canManagePlatform={navFlags.canManagePlatform}
-          canAccessArchiv={navFlags.canAccessArchiv}
-          canAccessInbox={navFlags.canAccessInbox}
+      <ShellContent>
+        <BackLink className="mb-6" fallbackHref="/app/projects" fallbackLabel={tOrg('backToApp')} />
+        <PageHeader
+          title={t('inbox.title')}
+          subtitle={t('inbox.subtitle')}
+          breadcrumb={
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link href="/app/projects">{PRODUCT_NAME}</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>{t('inbox.title')}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+          }
         />
-        <main id="main-content" className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-10">
-          <BackLink
-            className="mb-6"
-            fallbackHref="/app/projects"
-            fallbackLabel={tOrg('backToApp')}
-          />
-          <PageHeader
-            title={t('inbox.title')}
-            subtitle={t('inbox.subtitle')}
-            breadcrumb={
-              <Breadcrumb>
-                <BreadcrumbList>
-                  <BreadcrumbItem>
-                    <BreadcrumbLink asChild>
-                      <Link href="/app/projects">{PRODUCT_NAME}</Link>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>{t('inbox.title')}</BreadcrumbPage>
-                  </BreadcrumbItem>
-                </BreadcrumbList>
-              </Breadcrumb>
-            }
-          />
-          <div className="mt-7">
-            <InboxList />
-          </div>
-        </main>
-      </div>
+        <div className="mt-7">
+          <InboxList />
+        </div>
+      </ShellContent>
     )
   })
 }

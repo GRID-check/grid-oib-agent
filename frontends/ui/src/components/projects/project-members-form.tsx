@@ -262,7 +262,7 @@ function MemberSuggestField({
                   }}
                   onMouseEnter={() => setHighlight(index)}
                   className={cn(
-                    'flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors duration-150 ease-out motion-reduce:transition-none',
+                    'flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors duration-snap ease-out motion-reduce:transition-none',
                     index === active && 'bg-accent',
                   )}
                 >
@@ -572,7 +572,7 @@ export function ProjectMembersForm({
         </Card>
       ) : (
         <Alert>
-          <Lock className="h-4 w-4" />
+          <Lock className="size-4" />
           <AlertTitle>{t('readOnly.title')}</AlertTitle>
           <AlertDescription>{t('readOnly.description')}</AlertDescription>
         </Alert>
@@ -657,7 +657,7 @@ export function ProjectMembersForm({
                       <ItemTitle className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate">{member.name}</span>
                         {isSelf && (
-                          <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[10px] font-normal">
+                          <Badge variant="outline" className="shrink-0">
                             {t('roster.youBadge')}
                           </Badge>
                         )}
@@ -669,7 +669,7 @@ export function ProjectMembersForm({
                         <>
                           <span
                             className={cn(
-                              'text-xs uppercase tracking-widest text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none',
+                              'text-xs uppercase tracking-widest text-muted-foreground transition-opacity duration-snap ease-out motion-reduce:transition-none',
                               !isUpdating && 'invisible',
                             )}
                             aria-hidden={!isUpdating}

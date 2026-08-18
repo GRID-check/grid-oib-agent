@@ -346,7 +346,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
             description={t('answerFeedback.emptyBody')}
           />
         ) : (
-          <div className="animate-in fade-in-0 min-h-[20rem] space-y-6 duration-200 ease-out motion-reduce:animate-none">
+          <div className="animate-in fade-in-0 min-h-[20rem] space-y-6 duration-base ease-out motion-reduce:animate-none">
             {/* ---- The window in sentences, above the figures it is made of.
                  Its own fetch, so a slow model never delays the numbers. ---- */}
             <FeedbackDigest search={search} />
@@ -355,7 +355,12 @@ export function AnswerFeedbackHealth(): JSX.Element {
                  A hero figure rather than a one-bar chart (choosing-a-form). ---- */}
             <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
               <div>
-                <p className="text-3xl font-semibold tabular-nums tracking-tight text-foreground">
+                {/* The ramp's numeric-stat step (`text-2xl`). NOT `StatCard`:
+                    that primitive is a bordered `bg-card` tile, and this figure
+                    is deliberately bare so it reads as the headline of the row
+                    it shares with the two raw counts, not as one of three
+                    boxes. The number's own typography is the primitive's. */}
+                <p className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
                   {t('answerFeedback.percent', { value: num(helpfulRate, locale, 1) })}
                 </p>
                 <p className="text-xs text-muted-foreground">{t('answerFeedback.helpfulRate')}</p>
@@ -432,7 +437,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         }}
                         aria-pressed={reason === reasonKey}
                         className={cn(
-                          'w-32 shrink-0 truncate rounded text-left text-xs transition-colors duration-200 ease-out',
+                          'w-32 shrink-0 truncate rounded text-left text-xs transition-colors duration-quick ease-out',
                           'underline decoration-dotted decoration-from-font underline-offset-[3px]',
                           // Truncation clips a `touch-target` overlay, so these
                           // text-height filters buy their 44px with padding instead.
@@ -483,8 +488,8 @@ export function AnswerFeedbackHealth(): JSX.Element {
                       data-testid="feedback-topic"
                       data-selected={topic === topicKey || undefined}
                       className={cn(
-                        'flex items-center gap-3 px-3 py-2 text-xs transition-colors duration-200 ease-out',
-                        topic === topicKey && 'bg-accent/40',
+                        'flex items-center gap-3 px-3 py-2 text-xs transition-colors duration-quick ease-out',
+                        topic === topicKey && 'bg-accent',
                       )}
                     >
                       <button
@@ -523,7 +528,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                 {/* Not a second denominator. Only tagged conversations reach this
                     table, so its votes do not sum to the headline — said out loud
                     rather than left for somebody to discover by adding it up. */}
-                <p className="text-[11px] text-muted-foreground/70">
+                <p className="text-xs text-muted-foreground/70">
                   {t('answerFeedback.topicsCaveat')}
                 </p>
               </div>
@@ -549,8 +554,8 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         data-testid="feedback-org"
                         data-selected={org === o.organizationId || undefined}
                         className={cn(
-                          'flex items-center gap-3 px-3 py-2 text-xs transition-colors duration-200 ease-out',
-                          org === o.organizationId && 'bg-accent/40',
+                          'flex items-center gap-3 px-3 py-2 text-xs transition-colors duration-quick ease-out',
+                          org === o.organizationId && 'bg-accent',
                         )}
                       >
                         <button
@@ -558,7 +563,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                           onClick={() => setOrg(org === o.organizationId ? null : o.organizationId)}
                           aria-pressed={org === o.organizationId}
                           className={cn(
-                            'min-w-0 flex-1 truncate rounded text-left font-mono text-[11px] text-foreground',
+                            'min-w-0 flex-1 truncate rounded text-left font-mono text-xs text-foreground',
                             'underline decoration-dotted decoration-from-font underline-offset-[3px]',
                           // Truncation clips a `touch-target` overlay, so these
                           // text-height filters buy their 44px with padding instead.
@@ -664,9 +669,9 @@ export function AnswerFeedbackHealth(): JSX.Element {
                               ? t('answerFeedback.landedChip')
                               : t(`answerFeedback.reasons.${turn.reason ?? 'other'}`)}
                           </span>
-                          <span className="truncate font-mono text-[11px]">{turn.organizationId}</span>
+                          <span className="truncate font-mono text-xs">{turn.organizationId}</span>
                           {turn.topics.map((topicKey) => (
-                            <span key={topicKey} className="rounded bg-muted px-1.5 py-px text-[11px]">
+                            <span key={topicKey} className="rounded bg-muted px-1.5 py-px text-xs">
                               {t(`answerFeedback.topics.${topicKey}`)}
                             </span>
                           ))}

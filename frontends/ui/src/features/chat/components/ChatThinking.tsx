@@ -14,6 +14,7 @@ import { type FC, useMemo, useState, useEffect, useRef } from 'react'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { motion, AnimatePresence } from '@/components/motion'
+import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import type { ThinkingStep, CitationSource } from '../types'
@@ -180,12 +181,12 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   })
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-snap ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
             aria-label={summaryLabel}
           >
             <span className="flex min-w-0 items-center gap-2">
@@ -212,7 +213,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               ) : isWaiting ? (
                 <>
                   <span className="text-brand">
-                    <Clock className="h-5 w-5" />
+                    <Clock className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.waiting')}
@@ -228,7 +229,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               ) : isInterrupted ? (
                 <>
                   <span className="text-warning">
-                    <AlertTriangle className="h-5 w-5" />
+                    <AlertTriangle className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.interrupted')}
@@ -237,7 +238,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               ) : (
                 <>
                   <span className="text-success">
-                    <CheckCircle2 className="h-5 w-5" />
+                    <CheckCircle2 className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.done')}
@@ -249,14 +250,14 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
             <span className="flex shrink-0 items-center gap-2">
               {isThinking && elapsedSeconds > 0 && (
                 <span
-                  className="rounded-md bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground"
+                  className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
                   aria-label={t('thinking.elapsedAria', { seconds: elapsedSeconds })}
                 >
                   {formatElapsed(elapsedSeconds)}
                 </span>
               )}
               <span className="text-xs text-muted-foreground">{summaryLabel}</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
+              <ChevronDown className="size-4 text-muted-foreground transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
             </span>
 
             {/* Slim indeterminate sweep along the header's lower edge — a
@@ -304,14 +305,12 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   shown when the Herleitung is expanded. */}
               {executedSteps.length > 0 && (
                 <div className="flex flex-col gap-2 px-4 pb-4 pt-3">
-                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                    {t('thinking.executedSteps')}
-                  </span>
+                  <SectionLabel>{t('thinking.executedSteps')}</SectionLabel>
                   <div className="flex flex-wrap gap-1.5">
                     {executedSteps.map((s) => (
                       <span
                         key={s.key}
-                        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground"
                       >
                         {s.running && (
                           <span
@@ -341,15 +340,13 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               {/* Basis footer — the files attached to this message, as clean
                   pills. Only shown when the Herleitung is expanded. */}
               {fileChips.length > 0 && (
-                <div className="flex flex-col gap-2 border-t border-border/60 px-4 pb-4 pt-3">
-                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                    {t('thinking.attachedFiles')}
-                  </span>
+                <div className="flex flex-col gap-2 border-t border-border px-4 pb-4 pt-3">
+                  <SectionLabel>{t('thinking.attachedFiles')}</SectionLabel>
                   <div className="flex flex-wrap gap-1.5">
                     {fileChips.map((chip) => (
                       <span
                         key={chip}
-                        className="whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                        className="whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground"
                       >
                         {chip}
                       </span>
@@ -370,20 +367,20 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           line; only once recovery has settled with nothing found do we prompt
           a resend. */}
       {isInterrupted && isRecoveryPending ? (
-        <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
+        <div className="flex items-start gap-2 border-t border-border px-4 pb-3 pt-2.5">
           <Spinner
             size="xs"
             className="mt-0.5 shrink-0 text-muted-foreground"
             aria-hidden="true"
           />
-          <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">
+          <span className="text-xs leading-relaxed text-muted-foreground" role="status">
             {t('thinking.recoveringNotice')}
           </span>
         </div>
       ) : isInterrupted ? (
-        <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-          <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">
+        <div className="flex items-start gap-2 border-t border-border px-4 pb-3 pt-2.5">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <span className="text-xs leading-relaxed text-muted-foreground" role="status">
             {t('thinking.interruptedNotice')}
           </span>
         </div>

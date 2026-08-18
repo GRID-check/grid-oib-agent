@@ -11,6 +11,7 @@
 import { type FC, memo, useCallback, useId, useMemo } from 'react'
 import { Check, ChevronRight, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
 import type { PluggableList } from 'unified'
@@ -143,7 +144,7 @@ const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: st
   const reasons = citationsRemoved.reasons?.filter((r) => r.trim().length > 0) ?? []
 
   const text = (
-    <span className="text-[11px] leading-relaxed text-muted-foreground" role="note">
+    <span className="text-xs leading-relaxed text-muted-foreground" role="note">
       {label}
     </span>
   )
@@ -161,15 +162,17 @@ const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: st
             className="cursor-help rounded-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
             aria-label={label}
           >
-            <span className="text-[11px] leading-relaxed text-muted-foreground underline decoration-dotted underline-offset-2">
+            <span className="text-xs leading-relaxed text-muted-foreground underline decoration-dotted underline-offset-2">
               {label}
             </span>
           </button>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
-          <span className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.05em]">
+          {/* `text-current`: the tooltip paints its own foreground, and the
+              eyebrow's muted ink would drop below AA on it. */}
+          <SectionLabel className="mb-1 block text-current">
             {t('answerSources.citationsRemovedReasonsLabel')}
-          </span>
+          </SectionLabel>
           <ul className="list-disc space-y-0.5 pl-4">
             {reasons.map((reason, i) => (
               <li key={i}>{reason}</li>
@@ -369,13 +372,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               <span className="flex items-center gap-1">
                 {isLoading ? (
                   <>
-                    <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="h-3 w-3" />
+                    <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="size-3" />
                     <span className="text-xs">{t('agentResponse.loading')}</span>
                   </>
                 ) : (
                   <>
                     <span className="text-xs">{buttonText}</span>
-                    <ChevronRight className="h-3 w-3" aria-hidden="true" />
+                    <ChevronRight className="size-3" aria-hidden="true" />
                   </>
                 )}
               </span>
@@ -433,19 +436,19 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const isMeta = routingDecision === 'meta'
   return (
     <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-200 ease-out motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-base ease-entrance motion-reduce:animate-none">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta reply: quiet secondary fill + conversation icon. */}
       {isMeta ? (
-        <div className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-[7px] bg-secondary px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-secondary-foreground">
+        <SectionLabel as="div" className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md bg-secondary px-2.5 py-1 text-secondary-foreground">
           <MessageCircle className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
           {t('roles.note')}
-        </div>
+        </SectionLabel>
       ) : (
-        <div className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-[7px] bg-primary px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-primary-foreground">
+        <SectionLabel as="div" className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md bg-primary px-2.5 py-1 text-primary-foreground">
           <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
           {t('roles.result')}
-        </div>
+        </SectionLabel>
       )}
 
       {/* Shell: subtle surface + hairline + soft shadow, corners clipped. A meta
@@ -455,15 +458,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       <div
         className={
           isMeta
-            ? 'overflow-hidden rounded-[12px] border border-input bg-muted/50 shadow-sm'
-            : 'overflow-hidden rounded-[12px] border border-input bg-input-background shadow-sm'
+            ? 'overflow-hidden rounded-lg border border-input bg-muted shadow-sm'
+            : 'overflow-hidden rounded-lg border border-input bg-input-background shadow-sm'
         }
       >
         {/* Answer body — the hero white surface. It fills the top of the card
             flush (corners clipped by the shell) and is separated from the
             provenance footer by a single hairline, so the whole thing reads as
             one considered object with sections — not a card floating in a tray. */}
-        <div className="flex flex-col gap-2 break-words border-b border-border/55 bg-card px-[22px] pb-[17px] pt-[18px]">
+        <div className="flex flex-col gap-2 break-words border-b bg-card px-[22px] pb-[17px] pt-[18px]">
           {/* Optional Grid cards rendered before the markdown body */}
           {hasCards && <GridCards cards={cards} projectId={projectId} messageId={messageId} />}
 
@@ -493,13 +496,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 <span className="flex items-center gap-1">
                   {isLoading ? (
                     <>
-                      <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="h-3 w-3" />
+                      <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="size-3" />
                       <span className="text-xs">{t('agentResponse.loading')}</span>
                     </>
                   ) : (
                     <>
                       <span className="text-xs">{buttonText}</span>
-                      <ChevronRight className="h-3 w-3" aria-hidden="true" />
+                      <ChevronRight className="size-3" aria-hidden="true" />
                     </>
                   )}
                 </span>
@@ -531,7 +534,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             <div
               className={
                 hasMetaRow
-                  ? 'animate-in fade-in-0 flex min-h-6 flex-wrap items-center gap-2 duration-200 ease-out [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none'
+                  ? 'animate-in fade-in-0 flex min-h-6 flex-wrap items-center gap-2 duration-quick ease-out [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none'
                   : 'min-h-6'
               }
               aria-hidden={hasMetaRow ? undefined : true}
@@ -548,7 +551,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               {hasFeedback && messageId && (
                 <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
               )}
-              {timestamp && <span className="text-subtle text-[11px]">{formatTime(timestamp, locale)}</span>}
+              {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
             </div>
           )}
         </div>
