@@ -133,12 +133,20 @@ second model turn. This is the pattern every new card should follow.
   the provenance behind a click would be a REGRESSION — the code comment there
   argues, correctly, that „2,47 m ±5 mm" is what decides whether a 2,50 m
   minimum is held, and a reader who has to click for it will not.
-- **Visual redesign of the schematic cards.** Reviewed the rendered gallery
-  (`frontends/ui/visual/screenshots/cards-gallery.light.png`) at readable scale.
-  `building_section`, `stair_diagram` and the new generic cards all read well in
-  light and dark. The "LEGAL BASIS" eyebrow in that screenshot is the /dev/cards
-  gallery running the EN dictionary, not a German-UI leak — `cards.legalBasis`
-  is „Rechtsgrundlage".
+- **Visual redesign of the schematic cards.** ~~Reviewed the rendered gallery…~~
+  **CORRECTED at `de23eb69`.** I diagnosed the English "LEGAL BASIS" eyebrow as
+  "the gallery running the EN dictionary, not a German-UI leak" and filed it as
+  harmless. The diagnosis was right and the conclusion was wrong: the GALLERY IS
+  THE EVIDENCE SURFACE, and evidence rendered in the wrong language cannot show
+  a language bug. „Ask about this" was sitting in the middle of a German
+  Anforderungsliste in the committed screenshot and nobody could see it, because
+  the cards with hardcoded German copy looked right — and the newest cards are
+  exactly the translated ones. `/dev/cards` and `/dev/chat-turn` are now pinned
+  with `fixedLocale`, which the doc had already documented as a required gotcha.
+  **Lesson: never file a finding about the evidence surface as "not a product
+  bug" — an instrument that reads wrong is the first thing to fix.**
+  The schematic geometry did hold up at desktop width, which was the other half
+  of that review and stands.
 
 ## Backlog additions
 | # | item | why it is here | owner |
@@ -364,3 +372,28 @@ write its replacement is invisible in review.
 - **Duplicate-heading ids in the RENDERER are fixed; `AgentCard` was the last
   raw identifier found.** If another appears, the pattern is settled: a map to
   an i18n key, a neutral fallback, and never drop the row.
+- **S7-A landed `de23eb69`.** Also added `condition-tree` and `report-outline`
+  preview routes + targets (both drive an interactive state, which needed a
+  module-scope guard — `reactStrictMode` runs the effect twice and the naive
+  driver photographed the panel it had just closed, now a documented gotcha).
+  Three real defects found by looking: the outline's active-section rule was
+  drawn on a `rounded-md` anchor so it printed as a parenthesis; the „Dazu
+  fragen" chip stretched to a full-width bar in the schematic legend (column
+  flex container); the Bedingungsbaum's correcting sentence wrapped into a
+  four-line column beside its button on a phone.
+  Honest verdict recorded for `DimChecksList`: it HOLDS at 624px and at 352px —
+  the label truncates first and no number is lost. Good, since the earlier
+  "reject click-to-expand" decision assumed exactly that.
+
+## Sprint 8 — in flight
+- **S8-A · schematics at phone width.** Drawings overflow right below ~400px
+  (guardrail, ramp) — a dimension arrow with a number on it can be clipped off.
+  Door and turning-circle render 700–800px tall for two numbers. Undetected
+  because `cards-gallery` has no mobile target; adding one is part of the fix.
+- **S8-B · answer shape has THREE homes.** `<answer_shape>` (330 tok, English,
+  prompt), `piloti-voice`'s „Der erste Satz ist die Antwort" (inside 1,717 tok of
+  German skill body, forced every turn), and the deep writer's own "open with the
+  answer" paragraph from `47ecc019`. Same class as the card doctrine/craft split
+  — resolve it the same way, and note that editing seed `0053` does NOT change a
+  database that already ran it (`ON CONFLICT DO NOTHING`), so shipping a body
+  change needs more than an edit.
