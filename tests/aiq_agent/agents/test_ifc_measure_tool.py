@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import pathlib
 import urllib.error
 
@@ -2132,7 +2133,8 @@ class TestTheSchemaIsWhatTheModelActuallySees:
                 capture_output=True,
                 text=True,
                 check=True,
-                env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin"},
+                env={**os.environ, "PYTHONHASHSEED": seed},
+                timeout=120,
             ).stdout.strip()
             for seed in ("1", "2", "3")
         }
@@ -2490,14 +2492,40 @@ class TestEveryWellFormedCallStillDispatchesIdentically:
             kind=parsed.kind or "",
             room_kind=parsed.room_kind or "",
             limit=parsed.limit if parsed.limit and parsed.limit > 0 else 50,
-            angle_deg=parsed.angle_deg or None,
-            swivel_deg=parsed.swivel_deg or None,
+            # Passed THROUGH, exactly as `_ifc_measure` passes them. An
+            # `or None` here would launder `swivel_deg=0.0` back into „absent"
+            # — the defect the typed schema removed — and this parity table
+            # would then assert a mapping the tool no longer has, staying green
+            # over a real regression.
+            angle_deg=parsed.angle_deg,
+            swivel_deg=parsed.swivel_deg,
             when=parsed.when,
         )
 
     @pytest.mark.parametrize("arguments,expected", CALLS, ids=[row[0]["operation"] for row in CALLS])
     def test_the_engine_call_is_unchanged(self, arguments, expected):
         assert self._dispatch(**arguments) == expected
+
+    def test_a_zero_angle_survives_the_dispatch_and_is_not_read_as_absent(self):
+        """0° is a MEASUREMENT, „absent" is a question never asked.
+
+        The schema stopped conflating them by typing the angles `float | None`,
+        but that only fixed the model. The dispatch is where an `or None` would
+        put the defect back, and until now nothing asserted it there: the model
+        test covers `IfcMeasureInput`, the parity table covers operations that
+        carry no angle. A Dachüberstand measured at a swivel of exactly 0° must
+        reach the engine as 0.0, or the answer silently becomes „no swivel
+        requested" and the reader cannot tell the two apart.
+        """
+        base = {"operation": "light_incidence", "global_id": "1" * 22, "angle_deg": 45.0}
+        _, args = self._dispatch(**base, swivel_deg=0.0)
+
+        assert args["swivel"] == 0.0, "0° is a measurement, not a question never asked"
+        assert args["angle"] == 45.0
+        # And a genuinely absent swivel stays ABSENT — the key is not written at
+        # all, so the engine's own default applies rather than a fabricated 0.
+        _, without = self._dispatch(**base)
+        assert "swivel" not in without
 
     def test_every_operation_is_covered_by_a_row(self):
         """A parity table that quietly stops covering an operation proves

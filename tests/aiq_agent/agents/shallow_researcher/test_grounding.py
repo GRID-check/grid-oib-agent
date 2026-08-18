@@ -21,6 +21,7 @@ its undecidable fixture said „Räume exportieren", and the real remedies say
 „…dessen Höhe gemessen werden könnte".
 """
 
+import functools
 from pathlib import Path
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -789,6 +790,30 @@ class TestNormativeClaimDetection:
     @pytest.mark.parametrize(
         "text",
         [
+            "The minimum is 2.50 m for the series.",
+            "Die lichte Höhe beträgt 2.48 m.",
+            "Der Mindestwert der Serie liegt bei 2.41 m.",
+        ],
+    )
+    def test_a_decimal_point_is_not_a_sentence_end(self, text):
+        """The English half of the decimal guard, and it cost a real false fire.
+
+        German prose writes „2,50 m" and the comma rule already covers it, but a
+        model answering in English — or quoting a number straight off the engine
+        — writes „2.50 m". Split there, „The minimum is 2" loses „for the
+        series", and a stranded `minimum` reads as a threshold: a measured
+        answer floored to „low" by its own decimal point.
+        """
+        assert not answer_mentions_normative_claim(text)
+
+    def test_a_sentence_final_period_still_separates_the_verdict(self):
+        """The guard must not cost the split it exists inside of."""
+        assert answer_mentions_normative_claim("Die Höhe ist 2.20 m. Damit ist der Raum unzulässig.")
+        assert answer_mentions_normative_claim("The clear height must be at least 2.50 m.")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
             # The same three, as sentences, where tearing the hyphen apart
             # strands „erforderlich"/„Sollwert" in a clause with no apparatus
             # word left in it and the carve-out can no longer reach them.
@@ -862,7 +887,7 @@ class TestNormativeClaimDetection:
 @tool
 def ifc_measure(operation: str) -> str:
     """Measure the project's IFC/BIM model and report the provenance."""
-    return _MEASURE_RESULT.pop(0) if _MEASURE_RESULT else _MEASURED_LINE
+    return _MEASURE_RESULT.pop(0) if _MEASURE_RESULT else _measured_line()
 
 
 #: ``ifc_measure``'s renderer output, queued per call so a test can script a
@@ -870,9 +895,19 @@ def ifc_measure(operation: str) -> str:
 #: rather than copied as prose: the gate reads the trailer ``_render`` writes,
 #: and a hand-typed line proves nothing about what the tool returns.
 _MEASURE_RESULT: list[str] = []
-_MEASURED_LINE = _render(
-    "measure", _answer(value=2.7, unit="m", tolerance=0.005, provenance="computed", decidable=True)
-)
+
+
+@functools.lru_cache(maxsize=1)
+def _measured_line() -> str:
+    """Built on FIRST USE, not at import.
+
+    `_answer` imports `ifc_spatial.envelope`. Computed at module scope, a
+    missing spatial engine turns collection of this file into an ImportError,
+    so the `pytest.importorskip` guards inside the tests never get to run and
+    the whole module errors instead of skipping — which is the opposite of what
+    those guards are for.
+    """
+    return _render("measure", _answer(value=2.7, unit="m", tolerance=0.005, provenance="computed", decidable=True))
 _REFUSED_LINE = (
     "Error: the request was rejected — unbekannte Operation 'measure_room'. This is a problem with "
     "the arguments, not with the model."
@@ -957,7 +992,7 @@ class TestMeasurementSignalReachesTheState:
         measurement the answer is actually built on, and the turn falls back to
         "low" for evidence it does hold.
         """
-        _MEASURE_RESULT.extend([_MEASURED_LINE, _REFUSED_LINE])
+        _MEASURE_RESULT.extend([_measured_line(), _REFUSED_LINE])
         result = await self._run(
             mock_llm_provider,
             mock_llm,
@@ -968,7 +1003,7 @@ class TestMeasurementSignalReachesTheState:
     @pytest.mark.asyncio
     async def test_grounding_survives_a_later_barren_iteration(self, mock_llm_provider, mock_llm):
         """And across iterations: a second, fruitless call does not erase the first."""
-        _MEASURE_RESULT.extend([_MEASURED_LINE, _REFUSED_LINE])
+        _MEASURE_RESULT.extend([_measured_line(), _REFUSED_LINE])
         result = await self._run(
             mock_llm_provider,
             mock_llm,

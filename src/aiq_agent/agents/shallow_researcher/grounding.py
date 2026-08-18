@@ -559,8 +559,15 @@ _MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS)
 #: across 376 sentences while splitting „Die Datei ist zu groß und der Sollwert
 #: fehlt" into a verdict. Two clauses about the apparatus are not a verdict
 #: because a conjunction stands between them.
+#: The „." is guarded the way the hyphen and the comma already are: a period
+#: BETWEEN DIGITS is a decimal point, not a sentence end. German prose writes
+#: „2,50 m" and the comma rule covers that, but a model answering in English —
+#: or quoting an engine value — writes „2.50 m", and splitting there strands the
+#: first half of the sentence. „The minimum is 2.50 m for the series." became
+#: „The minimum is 2" | „50 m for the series.", and `minimum` without `series`
+#: reads as a threshold: a measured answer floored by its own decimal point.
 _SENTENCE_SPLIT_RE = re.compile(
-    r"[.!?\n;:–—]+"
+    r"(?<!\d)\.(?!\d)|[!?\n;:–—]+|\.{2,}"
     r"|\s-{1,2}\s"
     r"|,(?=\s*(?:dass|wie|was|damit|sodass|so\s+dass|weshalb|weswegen|womit|wodurch)\b)"
     r"|,(?=\s[^.!?\n;:–—]*"

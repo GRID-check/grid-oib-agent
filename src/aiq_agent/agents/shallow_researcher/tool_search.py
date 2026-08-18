@@ -354,14 +354,18 @@ class ToolSearchIndex:
         if not weighted:
             return ToolSelection(selected=all_names, reason="empty_query")
 
-        scored = [(self._score(doc, weighted), idx, doc.name) for idx, doc in enumerate(candidates)]
-        if not any(score > 0.0 for score, _, _ in scored):
+        scored = [(self._score(doc, weighted), doc.name) for doc in candidates]
+        if not any(score > 0.0 for score, _ in scored):
             # The question said nothing the tool corpus recognizes. Ranking by
             # a table of zeros is picking at random; hand back everything.
             return ToolSelection(selected=all_names, reason="no_signal")
 
-        # Descending score, ties broken by the tool set's own order so the
-        # decision is deterministic.
+        # Descending score, ties broken by the tool's own NAME. Registration
+        # order looks deterministic and is not portable: two tools on equal
+        # positive scores straddling the `top_k` boundary would swap when the
+        # list is reordered, which is the same silent config knob the
+        # zero-score padding below was removed for — just one level down, where
+        # it is harder to see because both candidates were genuinely retrieved.
         scored.sort(key=lambda row: (-row[0], row[1]))
         # A tool that scored ZERO was not retrieved, and binding it as though it
         # had been makes the tool set's REGISTRATION ORDER a silent config knob:
@@ -371,7 +375,7 @@ class ToolSearchIndex:
         # padded tools are unrelated to the question by construction — and it
         # costs the schemas of `top_k` tools on every turn plus a selection
         # nobody can reproduce from the query.
-        ranked = [name for score, _, name in scored[:top_k] if score > 0.0]
+        ranked = [name for score, name in scored[:top_k] if score > 0.0]
         if not ranked:
             return ToolSelection(selected=all_names, reason="no_signal")
 

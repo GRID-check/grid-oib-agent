@@ -39,7 +39,7 @@ the client and the request arrives with a `tool_search` tool and nothing to
 search. There is no warning. The observable symptom is a 400 from the upstream
 provider:
 
-```
+```text
 Invalid Value: 'tools.tool_search'.
 tools.tool_search requires at least one deferred tool.
 ```

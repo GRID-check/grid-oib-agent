@@ -29,7 +29,8 @@ interface ConfidenceChipProps {
   /**
    * Why the self-assessment was capped (WP-A transparency extra), appended as an
    * extra sentence to the tooltip so the cap is explained rather than silent
-   * (PB-9). See {@link AnswerConfidenceCappedReason} for the four causes.
+   * (PB-9). See {@link AnswerConfidenceCappedReason} for the causes it can
+   * carry; the type is the list, so no count is restated here to go stale.
    */
   cappedReason?: AnswerConfidenceCappedReason
   /**

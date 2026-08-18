@@ -359,6 +359,29 @@ MEASURE_HEADLINE: dict[str, str] = {
 }
 
 
+def _measure_one(
+    run: Callable[[Callable[[], Any]], Any],
+    fn: Callable[..., Any],
+    model: SpatialModel,
+    global_id: str,
+) -> Any:
+    """One element's measurement, where a thrown exception is that element's
+    answer rather than the whole call's.
+
+    `run()` converts the two failures this package models — an unknown id and a
+    wrong kind — into `ToolError`. It does not convert a kernel-level failure: a
+    `RuntimeError` out of the tessellator propagates, and in a batch that aborts
+    the other forty-nine measurements. That is precisely the defect `survey` and
+    the multi-id `measure` were added to remove, so catching only `ToolError`
+    here reintroduces it one layer down. `element_profile` already caught
+    `Exception` for this reason; all three paths now share the rule.
+    """
+    try:
+        return run(lambda: fn(model, global_id))
+    except Exception as exc:  # noqa: BLE001
+        return {"decidable": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 def _headline(measure: str, answer: dict[str, Any] | None) -> float | None:
     """The scalar a summary should disperse over, or None if there isn't one."""
     value = (answer or {}).get("value")
@@ -760,18 +783,37 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         # error this package exists to prevent: seventeen rooms measured and
         # one of them undecidable is not „the basement is 2.70 m", and the
         # caller has to be able to see which one.
-        results = [{"globalId": gid, "answer": _jsonable(run(lambda gid=gid: fn(model, gid)))} for gid in ids]
+        results = [{"globalId": gid, "answer": _jsonable(_measure_one(run, fn, model, gid))} for gid in ids]
         decided = [r for r in results if (r["answer"] or {}).get("decidable")]
-        values = [(r["answer"] or {}).get("value") for r in decided]
-        numeric = [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        # `_headline`, not `answer["value"]`: eighteen of the twenty measures
+        # answer with a DICT, and reading `value` off those yields nothing to
+        # disperse. The batch path used to do exactly that, so a comma-separated
+        # `clearWidth` returned `measured`/`of` and no range while the same
+        # measure through `survey` returned the spread — one renderer branch,
+        # two different answers to the same question.
+        numeric = [value for value in (_headline(name, r["answer"]) for r in decided) if value is not None]
         agreement: dict[str, Any] = {
             "measured": len(decided),
             "of": len(ids),
             "undecidable": [r["globalId"] for r in results if not (r["answer"] or {}).get("decidable")],
         }
-        if numeric:
+        # Two measurements or none — the same rule `survey` keeps, and for the
+        # same reason: `spread: 0.0` off a single element reads as „they all
+        # agree", which is the strongest claim this tool can make, produced from
+        # one sample.
+        if len(numeric) >= 2:
             low, high = min(numeric), max(numeric)
-            agreement |= {"min": round(low, 6), "max": round(high, 6), "spread": round(high - low, 6)}
+            agreement |= {
+                "min": round(low, 6),
+                "max": round(high, 6),
+                "spread": round(high - low, 6),
+                "spreadOver": len(numeric),
+                "spreadOf": MEASURE_HEADLINE.get(name) or "value",
+            }
+        elif len(numeric) == 1:
+            agreement["note"] = (
+                "Nur ein Bauteil lieferte eine Zahl — daraus folgt keine Spanne und keine Aussage über die übrigen."
+            )
         return {"measure": name, "results": results, "summary": agreement}
 
     def survey(args: dict[str, Any]) -> Any:
@@ -863,12 +905,10 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
             if subjects and not any(element.is_a(subject) for subject in subjects):
                 not_applicable.append({"globalId": global_id, "name": ref.get("name"), "ifcType": element.is_a()})
                 continue
-            try:
-                answer = _jsonable(run(lambda gid=global_id: fn(model, gid)))
-            except ToolError as exc:
-                # And even inside the right type, one element that the geometry
-                # kernel chokes on must not cost the caller the other forty-nine.
-                answer = {"decidable": False, "error": str(exc)}
+            # One element the geometry kernel chokes on must not cost the
+            # caller the other forty-nine — see `_measure_one`, which all three
+            # batch paths share so the rule cannot drift between them.
+            answer = _jsonable(_measure_one(run, fn, model, global_id))
             results.append(
                 {
                     "globalId": global_id,
@@ -942,14 +982,21 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
             # Said out loud: the caller asked about a storey and got its rooms,
             # which is a narrowing they did not write and must be able to see.
             out["scopedTo"] = list(subjects)
-        if total > len(results):
+        # `not_applicable` elements were SELECTED but never measured, so they
+        # widen `total` without being a truncation: a caller who pins
+        # `ifcType="IfcWall"` and asks for `clearHeight` has every wall land
+        # there, and reporting „gemessen wurden die ersten N" would name a limit
+        # that never bound. Truncation is what the LIMIT cut off, and that is
+        # what the hint must be about.
+        if total - len(not_applicable) > len(results):
             # Said out loud, never inferred. A survey of 50 of 200 rooms
             # reported as „the rooms" is the one error this package exists to
             # prevent, and silence would produce it every time.
             out["truncated"] = True
-            out["summary"]["selected"] = total
+            measurable = total - len(not_applicable)
+            out["summary"]["selected"] = measurable
             out["hint"] = (
-                f"{total} Bauteile passen zur Auswahl, gemessen wurden die ersten {len(results)}. "
+                f"{measurable} messbare Bauteile passen zur Auswahl, gemessen wurden die ersten {len(results)}. "
                 "Die Spanne gilt NUR für diese; enger auswählen (storey, nameContains) und erneut messen."
                 + (
                     f" {name} kostet je Bauteil spürbar Zeit, deshalb liegt die Voreinstellung hier bei "

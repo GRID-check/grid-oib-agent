@@ -133,6 +133,12 @@ def test_a_narrowed_binding_is_deferred_too(provider, llm):
     deferred = _deferred_names(llm.bind_calls[0])
     assert deferred == [ti["name"] for ti in tools_info]
     assert len(deferred) < len(TOOLS)
+    # The question asks for a measurement in so many words, so the narrowing is
+    # only correct if `ifc_measure` survived it. Asserting merely that the set
+    # got SMALLER would pass on a selection that kept `ris_search` and dropped
+    # the one tool that can answer — which is the failure mode narrowing has,
+    # and the one this test exists to catch.
+    assert "ifc_measure" in deferred
 
 
 def test_meta_turns_are_deliberately_not_deferred(provider, llm):

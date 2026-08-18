@@ -243,7 +243,10 @@ Keines davon ist eine Aussage über das Gebäude, und hinter jedem wartet ein
 - **Aufgelistet ist nicht gefunden** — `find_elements` zeigt höchstens `limit`
   Treffer und nennt die Gesamtzahl daneben; in die Antwort gehört die
   Gesamtzahl. `survey` misst höchstens 50 Bauteile und sagt daneben, wie viele
-  es insgesamt waren.
+  es insgesamt waren — bei `balustrade`, `headroom`, `roomDepth` und
+  `thresholdHeight` ohne ausdrückliches `limit` nur **12**, weil diese Kennwerte
+  je Bauteil spürbar Zeit kosten. Wer vierzig Türen erwartet und zwölf Zeilen
+  bekommt, hat nicht gemessen, was er glaubt: `limit` ausdrücklich setzen.
 - **`decidable: false` ist ein Befund, kein Fehler** — die Frage war sinnvoll,
   diese Datei kann sie nicht beantworten. `missing` nennt, was fehlt und was es
   behebt; die Abhilfe ist die Arbeitsanweisung an die Architektin und oft der

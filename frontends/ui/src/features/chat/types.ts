@@ -311,7 +311,7 @@ export interface ChatMessage {
   /**
    * Why the self-assessed confidence was capped (WP-A transparency extra),
    * surfaced as an extra sentence in the ConfidenceChip tooltip (PB-9). See
-   * {@link AnswerConfidenceCappedReason} for the four causes.
+   * {@link AnswerConfidenceCappedReason} for the causes it can carry.
    */
   answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /**

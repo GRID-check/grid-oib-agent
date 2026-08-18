@@ -97,7 +97,7 @@ const MAX_REMOVED_REASON_CHARS = 120
 const MAX_TRACE_LANES = 40
 
 const CONFIDENCES = ['low', 'medium', 'high'] as const
-const CAPPED_REASONS = [
+export const CAPPED_REASONS = [
   'ungrounded',
   'quote_unverified',
   'normative_claim_uncited',

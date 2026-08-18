@@ -41,7 +41,7 @@ export interface ResponseTransparency {
   escalationReason?: string
   /**
    * Present only when confidence was downgraded. See
-   * {@link AnswerConfidenceCappedReason} for the four causes.
+   * {@link AnswerConfidenceCappedReason} for the causes it can carry.
    */
   answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /** The model's own one-clause justification for its self-assessment, shown verbatim. */

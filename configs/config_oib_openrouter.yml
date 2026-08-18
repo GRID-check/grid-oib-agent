@@ -678,7 +678,15 @@ functions:
     #   min_intelligence_index: 50
     #   models:
     #     # Only override these to add a model the shipped lists do not know.
-    #     # Setting `allow` REPLACES the seeded list rather than extending it.
+    #     # Every list REPLACES its seeded counterpart rather than extending it
+    #     # — `deny` no less than `allow`. So an override has to restate the
+    #     # shipped entries it still wants, or it silently re-enables them: the
+    #     # three-line example below would readmit the four denied ids it omits,
+    #     # and each of those would then cost a wasted round trip per tool
+    #     # subset before the fallback latched. The shipped `deny` is:
+    #     #   x-ai/grok-4.6, x-ai/grok-4.5, deepseek/deepseek-v4-pro-0813,
+    #     #   deepseek/deepseek-v4-flash-0731, moonshotai/kimi-k3,
+    #     #   meta-llama/llama-3.3-70b-instruct, openai/gpt-4o-mini
     #     deny:
     #       - x-ai/grok-4.6                    # 422, and scores 60.9 — capability is not quality
     #       - deepseek/deepseek-v4-flash-0731  # routing-flaky: two sweeps disagreed

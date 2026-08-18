@@ -1137,6 +1137,13 @@ async def ensure_model_verdict(llm: Any, *, settings: DeferredToolLoadingSetting
     except Exception:  # noqa: BLE001 - a failed diagnosis is not a failed turn
         logger.warning("[DeferredToolLoading] capability probe for %r raised", model_id, exc_info=True)
         _PROBE_ATTEMPTS[model_id] = _PROBE_ATTEMPTS.get(model_id, 0) + 1
+        # Evicted here too, not only on the inconclusive path below. Model ids
+        # arrive from the per-org override header, which this module treats as
+        # an untrusted key space; a probe that raises every time would otherwise
+        # grow this map without bound while the eviction sat in the branch it
+        # never reaches.
+        while len(_PROBE_ATTEMPTS) > _MAX_CACHED_MODEL_VERDICTS:
+            _PROBE_ATTEMPTS.popitem(last=False)
         return None
 
     if outcome == "deferred":

@@ -33,6 +33,8 @@
  */
 
 import type { Message } from '@/lib/db/schema'
+import { CAPPED_REASONS } from '@/lib/conversations/message-provenance'
+
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { ChatMessage, ErrorCardData, FileCardData, MessageType, ThinkingStep } from '../types'
 import { validateGridCards } from '@/shared/cards/schemas'
@@ -272,14 +274,6 @@ const isRoutingDecision = (value: unknown): value is 'meta' | 'shallow' | 'deep'
  * server, can carry anything, and a value the chip has no copy for would render
  * a cap with no explanation.
  */
-const CAPPED_REASONS: readonly AnswerConfidenceCappedReason[] = [
-  'ungrounded',
-  'quote_unverified',
-  'normative_claim_uncited',
-  'measurement_only',
-  'citation_fallback',
-]
-
 const isCappedReason = (value: unknown): value is AnswerConfidenceCappedReason =>
   CAPPED_REASONS.includes(value as AnswerConfidenceCappedReason)
 
