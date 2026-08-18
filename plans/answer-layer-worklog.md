@@ -40,6 +40,7 @@ reads this first, updates it, and re-arms.
 | 929a6c69 | `<answer_shape>` scoped to research turns |
 | 45cd9f07 | `key_takeaways` + `callout` — the two GENERIC cards; `summary` restyled |
 | 8878f678 | trace step labels: no CamelCase span name reaches the reader, both locales |
+| da5108de / 5cc3657b | worklog + `docs/architecture/cards.md` brought back to 33 types, `[[card:N]]` documented |
 
 ## In flight
 - `follow_ups` card (B1) — chips that prefill the composer
@@ -122,3 +123,24 @@ second model turn. This is the pattern every new card should follow.
   one wins: the card is for a ruling that is a VALUE worth showing large
   (number + status), the lede is the sentence that qualifies it, and they must
   not be the same words. Blocked while another agent owns `register.py`.
+
+## Considered and REJECTED (do not re-propose)
+- **Click-to-expand on schematic check rows.** Looked like the highest-leverage
+  application of "ich klick das und sehe mehr" — 15 cards at once. It is not:
+  `DimChecksList` (`schematics/kit.tsx`) already prints label, value, ± band,
+  provenance chip and the limit inline, and `DimensionCheckData` carries no
+  per-check reference, so there is nothing left to reveal. Moving the band or
+  the provenance behind a click would be a REGRESSION — the code comment there
+  argues, correctly, that „2,47 m ±5 mm" is what decides whether a 2,50 m
+  minimum is held, and a reader who has to click for it will not.
+- **Visual redesign of the schematic cards.** Reviewed the rendered gallery
+  (`frontends/ui/visual/screenshots/cards-gallery.light.png`) at readable scale.
+  `building_section`, `stair_diagram` and the new generic cards all read well in
+  light and dark. The "LEGAL BASIS" eyebrow in that screenshot is the /dev/cards
+  gallery running the EN dictionary, not a German-UI leak — `cards.legalBasis`
+  is „Rechtsgrundlage".
+
+## Backlog additions
+| # | item | why it is here | owner |
+|---|---|---|---|
+| B9 | **report outline for deep-research reports** — a section list built from the markdown headings, sticky beside `ReportTab`, click to jump | a deep report is a long document rendered in a side panel with NO navigation at all. Every long-form legal/research surface (Harvey, Perplexity Pages) has an outline; ours makes the reader scroll to find out what is in it. Note: needs i18n keys, so it serialises after the answer-actions agent releases the dictionaries | — |
