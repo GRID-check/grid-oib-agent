@@ -799,11 +799,17 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       set(
         {
           currentConversation: conversation,
+          // The id ONLY. `conversation.title` was the filename just long enough
+          // to be overwritten by the first user message (addUserMessage), so
+          // reusing it here restored the subject as "summarize this" and sent
+          // that string on the wire as `focus_file_name`, matching no document.
+          // ComposerSubjectBar re-reads the real filename and shelf from the
+          // document; a null title is what asks it to.
           composerSubject: conversation.subjectResourceId
             ? {
                 resourceType: 'document' as const,
                 resourceId: conversation.subjectResourceId,
-                title: conversation.title || null,
+                title: null,
               }
             : null,
           deepResearchJobId: null,

@@ -615,6 +615,40 @@ describe('useChatStore', () => {
 
       expect(useChatStore.getState().composerSubject).toBeNull()
     })
+
+    test('restores a subject file without inventing a filename from the title', () => {
+      // `conversation.title` is the filename only until addUserMessage
+      // overwrites it with the first thing the user typed. Reusing it here
+      // restored the subject as "fass das dokument zusammen" and sent that
+      // string on the wire as `focus_file_name`, matching no document — and
+      // the bar's own repair lookup skipped, because a title was present.
+      const conv: Conversation = {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'fass das dokument zusammen',
+        subjectResourceType: 'document',
+        subjectResourceId: 'doc-aufsicht',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        conversations: [conv],
+        composerSubject: null,
+      })
+
+      useChatStore.getState().selectConversation('conv-1')
+
+      const subject = useChatStore.getState().composerSubject
+      expect(subject).toEqual({
+        resourceType: 'document',
+        resourceId: 'doc-aufsicht',
+        title: null,
+      })
+      expect(subject?.title).not.toBe(conv.title)
+      expect(subject?.filename).toBeUndefined()
+    })
   })
 
   describe('addUserMessage', () => {

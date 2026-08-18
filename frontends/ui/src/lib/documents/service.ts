@@ -1371,6 +1371,11 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     id: reconciled.id,
     status: reconciled.status,
     filename: reconciled.filename,
+    // The shelf, straight off the row. The composer's "Asking about <file>"
+    // bar re-reads it after a reload, where the client no longer holds one —
+    // the DB column is the authority, so nothing has to infer a shelf from a
+    // collection-id prefix (ADR-0047 decision 3).
+    scope: reconciled.scope,
     fileSize: reconciled.fileSize,
     contentType: reconciled.contentType,
     collectionName: reconciled.collectionName,
