@@ -559,7 +559,7 @@ const LimitEditor: FC<{
 }
 
 const LoadingSkeleton: FC = () => (
-  <div className="flex flex-col gap-5">
+  <div className="flex min-h-[16rem] flex-col gap-5">
     {[0, 1].map((i) => (
       <div key={i}>
         <div className="flex justify-between">
@@ -698,7 +698,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   return (
     <TooltipProvider delayDuration={100}>
       {/* `grid-spend-viz` scopes the validated chart tokens (end of globals.css). */}
-      <div className="grid-spend-viz flex flex-col gap-5">
+      <div className="grid-spend-viz animate-in fade-in-0 flex min-h-[16rem] flex-col gap-5 duration-200 ease-out motion-reduce:animate-none">
         {usage.status.blocked && (
           <Badge variant="destructive" className="self-start">
             <AlertTriangle className="mr-1 size-3" aria-hidden />

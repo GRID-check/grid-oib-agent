@@ -137,55 +137,60 @@ export function ShortcutsCheatsheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-4xl">
-        {/* Header band — the raised icon disc is the house treatment for a
-            surface that opens on its own (see EmptyState). */}
-        <DialogHeader className="flex-row items-start gap-3.5 space-y-0 px-6 pt-6 pb-5 text-left">
-          <span
-            className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-raised shadow-xs"
-            aria-hidden
-          >
-            <Keyboard className="size-4.5 text-muted-foreground" />
-          </span>
-          <div className="min-w-0 space-y-1">
-            <DialogTitle>{t('title')}</DialogTitle>
-            <DialogDescription>{t('description')}</DialogDescription>
-          </div>
-        </DialogHeader>
+      <DialogContent className="gap-0 overflow-visible p-0 sm:max-w-4xl motion-reduce:animate-none">
+        {/* Clip the body to the dialog radius; keep overflow off the dialog
+            itself so the close control's focus ring is a full ring, not a
+            clipped top-right border. */}
+        <div className="overflow-hidden rounded-[inherit]">
+          {/* Header band — the raised icon disc is the house treatment for a
+              surface that opens on its own (see EmptyState). */}
+          <DialogHeader className="flex-row items-start gap-3.5 space-y-0 px-6 pt-6 pb-5 text-left">
+            <span
+              className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-raised shadow-xs"
+              aria-hidden
+            >
+              <Keyboard className="size-4.5 text-muted-foreground" />
+            </span>
+            <div className="min-w-0 space-y-1">
+              <DialogTitle>{t('title')}</DialogTitle>
+              <DialogDescription>{t('description')}</DialogDescription>
+            </div>
+          </DialogHeader>
 
-        {/* Body — two balanced columns on desktop, one stack on mobile. The
-            whole set fits without scrolling at normal window heights; the
-            scroll fade is there for short viewports only. */}
-        <div className="scroll-fade-bottom max-h-[min(70vh,38rem)] overflow-y-auto px-6 pb-6">
-          <div className="grid items-start gap-x-5 gap-y-5 sm:grid-cols-2">
-            {columns.map((column, index) => (
-              <div key={index} className="space-y-5">
-                {column.map((section) => (
-                  <section key={section.id} data-shortcut-group={section.id}>
-                    <SectionLabel as="h3" className="mb-2">
-                      {tGroups(section.i18nKey)}
-                    </SectionLabel>
-                    <ItemList className="rounded-xl bg-card">
-                      {section.rows.map((row) => (
-                        <Row key={row.id} row={row} mod={mod} label={resolveLabel(row.label)} />
-                      ))}
-                    </ItemList>
-                    {section.note && (
-                      <p className="mt-2 px-0.5 text-xs text-muted-foreground">
-                        {t('projectScopeNote')}
-                      </p>
-                    )}
-                  </section>
-                ))}
-              </div>
-            ))}
+          {/* Body — two balanced columns on desktop, one stack on mobile. The
+              whole set fits without scrolling at normal window heights; the
+              scroll fade is there for short viewports only. */}
+          <div className="scroll-fade-bottom max-h-[min(70vh,38rem)] overflow-y-auto px-6 pb-6">
+            <div className="grid items-start gap-x-5 gap-y-5 sm:grid-cols-2">
+              {columns.map((column, index) => (
+                <div key={index} className="space-y-5">
+                  {column.map((section) => (
+                    <section key={section.id} data-shortcut-group={section.id}>
+                      <SectionLabel as="h3" className="mb-2">
+                        {tGroups(section.i18nKey)}
+                      </SectionLabel>
+                      <ItemList className="rounded-xl bg-card">
+                        {section.rows.map((row) => (
+                          <Row key={row.id} row={row} mod={mod} label={resolveLabel(row.label)} />
+                        ))}
+                      </ItemList>
+                      {section.note && (
+                        <p className="mt-2 px-0.5 text-xs text-muted-foreground">
+                          {t('projectScopeNote')}
+                        </p>
+                      )}
+                    </section>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Footer band — sits OUTSIDE the faded scroll region so the way to
-            turn the feature off never dissolves into the edge. */}
-        <div className="border-t border-border bg-surface-sunken px-6 py-3.5">
-          <p className="text-xs text-muted-foreground">{t('disableHint')}</p>
+          {/* Footer band — sits OUTSIDE the faded scroll region so the way to
+              turn the feature off never dissolves into the edge. */}
+          <div className="border-t border-border bg-surface-sunken px-6 py-3.5">
+            <p className="text-xs text-muted-foreground">{t('disableHint')}</p>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

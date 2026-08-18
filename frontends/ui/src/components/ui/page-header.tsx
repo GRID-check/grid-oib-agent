@@ -34,21 +34,31 @@ export function PageHeader({
 }: PageHeaderProps): JSX.Element {
   const titleRow = (
     <>
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+      <div className="min-w-0">
+        <h1 className="text-balance text-xl font-semibold tracking-tight">{title}</h1>
+        {subtitle && (
+          <p className="mt-1 text-pretty text-sm text-muted-foreground">{subtitle}</p>
+        )}
       </div>
-      {action}
+      {action ? <div className="shrink-0">{action}</div> : null}
     </>
   )
 
   return (
     <header
-      className={cn(breadcrumb ? 'flex flex-col gap-3' : 'flex items-end justify-between gap-4', className)}
+      className={cn(
+        'min-w-0',
+        breadcrumb ? 'flex flex-col gap-3' : 'flex items-end justify-between gap-4',
+        className,
+      )}
       {...props}
     >
       {breadcrumb}
-      {breadcrumb ? <div className="flex items-end justify-between gap-4">{titleRow}</div> : titleRow}
+      {breadcrumb ? (
+        <div className="flex min-w-0 items-end justify-between gap-4">{titleRow}</div>
+      ) : (
+        titleRow
+      )}
     </header>
   )
 }

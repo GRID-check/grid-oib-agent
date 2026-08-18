@@ -33,6 +33,7 @@ const SIDEBAR_WIDTH_ICON = '64px'
 type SidebarStyle = React.CSSProperties & {
   '--sidebar-width'?: string
   '--sidebar-width-icon'?: string
+  '--sidebar-current-width'?: string
   '--skeleton-width'?: string
 }
 
@@ -126,9 +127,22 @@ function SidebarProvider({
     [state, open, setOpen, isMobile, openMobile, toggleSidebar],
   )
 
+  const currentWidth = isMobile ? '0px' : open ? SIDEBAR_WIDTH : SIDEBAR_WIDTH_ICON
+
+  // Docked chat panels (Sessions) are `position: fixed` inside <main>, a sibling
+  // of this wrapper, so they cannot inherit the var. Publish it on :root.
+  React.useEffect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--sidebar-current-width', currentWidth)
+    return () => {
+      root.style.removeProperty('--sidebar-current-width')
+    }
+  }, [currentWidth])
+
   const wrapperStyle: SidebarStyle = {
     '--sidebar-width': SIDEBAR_WIDTH,
     '--sidebar-width-icon': SIDEBAR_WIDTH_ICON,
+    '--sidebar-current-width': currentWidth,
     ...style,
   }
 

@@ -31,7 +31,7 @@ import { cn } from '@/lib/utils'
  * here once.
  */
 const countPillVariants = cva(
-  'inline-flex shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-[11px] tabular-nums',
+  'inline-flex min-w-5 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] leading-none tabular-nums',
   {
     variants: {
       tone: {

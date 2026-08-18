@@ -7,6 +7,7 @@ import type { AnswerFeedbackReason, AnswerFeedbackVerdict } from '@/lib/db/schem
 export interface AnswerFeedbackState {
   verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
+  comment: string | null
 }
 
 type ConversationFeedbackMap = Map<string, AnswerFeedbackState>
@@ -33,10 +34,18 @@ async function loadConversationFeedback(conversationId: string): Promise<Convers
     )
     if (!res.ok) return new Map()
     const data = (await res.json()) as {
-      feedback?: { messageId: string; verdict: AnswerFeedbackVerdict; reason: AnswerFeedbackReason | null }[]
+      feedback?: {
+        messageId: string
+        verdict: AnswerFeedbackVerdict
+        reason: AnswerFeedbackReason | null
+        comment?: string | null
+      }[]
     }
     return new Map(
-      (data.feedback ?? []).map((f) => [f.messageId, { verdict: f.verdict, reason: f.reason ?? null }]),
+      (data.feedback ?? []).map((f) => [
+        f.messageId,
+        { verdict: f.verdict, reason: f.reason ?? null, comment: f.comment ?? null },
+      ]),
     )
   } catch {
     // Silent: feedback is a progressive enhancement, never a blocking error.
@@ -107,6 +116,7 @@ export function useAnswerFeedback(
                     messageId,
                     verdict: next.verdict,
                     reason: next.reason,
+                    comment: next.comment,
                     conversationId: conversationId ?? null,
                     projectId: projectId ?? null,
                   }),

@@ -201,10 +201,15 @@ function JobCard({
     // beneath it. Not `interactive` — a job card is a container with its own
     // buttons, and a hover-lift would promise a click on the card that does
     // not exist.
-    <RaisedCard className={cn(!job.enabled && 'opacity-75')}>
+    <RaisedCard>
       <RaisedCardBody className="flex flex-1 flex-col gap-4 px-4 pb-4 pt-4 sm:px-5">
         <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1.5">
+          <div
+            className={cn(
+              'min-w-0 space-y-1.5 transition-opacity duration-200 ease-out motion-reduce:transition-none',
+              !job.enabled && 'opacity-45',
+            )}
+          >
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-foreground truncate text-sm font-semibold">{job.name}</h3>
               <Badge variant="secondary">{t(`list.output.${job.output}`)}</Badge>
@@ -258,9 +263,36 @@ function JobCard({
         <div className="mt-auto">
           {canManage && (
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" onClick={() => void runNow()} disabled={running || !job.enabled}>
-                {running ? <Spinner size="sm" /> : <Play className="size-3.5" aria-hidden />}
-                {running ? t('actions.running') : t('actions.runNow')}
+              <Button
+                size="sm"
+                onClick={() => void runNow()}
+                disabled={running || !job.enabled}
+                aria-busy={running}
+              >
+                {/* Both labels stay mounted so the button width does not jump
+                    when "Run now" becomes "Running…". */}
+                <span className="inline-grid justify-items-start">
+                  <span
+                    className={cn(
+                      'col-start-1 row-start-1 inline-flex items-center gap-2',
+                      running && 'invisible',
+                    )}
+                    aria-hidden={running}
+                  >
+                    <Play className="size-3.5" aria-hidden />
+                    {t('actions.runNow')}
+                  </span>
+                  <span
+                    className={cn(
+                      'col-start-1 row-start-1 inline-flex items-center gap-2',
+                      !running && 'invisible',
+                    )}
+                    aria-hidden={!running}
+                  >
+                    <Spinner size="sm" aria-hidden />
+                    {t('actions.running')}
+                  </span>
+                </span>
               </Button>
               <Button
                 size="sm"
@@ -317,13 +349,16 @@ function JobCard({
                 <History className="size-3.5" aria-hidden />
                 {t('actions.history')}
                 <ChevronDown
-                  className={cn('size-3.5 transition-transform', historyOpen && 'rotate-180')}
+                  className={cn(
+                    'size-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                    historyOpen && 'rotate-180',
+                  )}
                   aria-hidden
                 />
               </Button>
             </CollapsibleTrigger>
           </div>
-          <CollapsibleContent className="pt-1">
+          <CollapsibleContent className="animate-in fade-in-0 pt-1 duration-200 ease-out motion-reduce:animate-none">
             {historyOpen && (
               <JobRunHistory
                 key={historyToken}
@@ -425,7 +460,12 @@ export function JobList({
       )}
 
       {jobs !== null && !error && jobs.length > 0 && (
-        <div className={GRID_CLASS}>
+        <div
+          className={cn(
+            GRID_CLASS,
+            'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
+          )}
+        >
           {jobs.map((job) => (
             <JobCard
               key={job.id}

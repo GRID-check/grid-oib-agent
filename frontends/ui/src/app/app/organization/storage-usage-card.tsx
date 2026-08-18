@@ -168,9 +168,9 @@ export const StorageUsageCard: FC<StorageUsageCardProps> = ({
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-4" data-testid="storage-usage-loading">
-        <div className="bg-muted h-2.5 w-full animate-pulse rounded-[4px]" />
-        <div className="bg-muted h-4 w-2/3 animate-pulse rounded" />
+      <div className="flex min-h-[11.5rem] flex-col gap-4" data-testid="storage-usage-loading">
+        <div className="bg-muted h-2.5 w-full animate-pulse rounded-[4px] motion-reduce:animate-none" />
+        <div className="bg-muted h-4 w-2/3 animate-pulse rounded motion-reduce:animate-none" />
       </div>
     )
   }
@@ -180,7 +180,7 @@ export const StorageUsageCard: FC<StorageUsageCardProps> = ({
   }
 
   return (
-    <div className="flex flex-col gap-6" data-testid="storage-usage">
+    <div className="animate-in fade-in-0 flex min-h-[11.5rem] flex-col gap-6 duration-200 ease-out motion-reduce:animate-none" data-testid="storage-usage">
       <StorageMeter usedBytes={data.usage.total.bytes} quotaBytes={data.quotaBytes} />
 
       <div className="flex flex-col gap-2">

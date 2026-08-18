@@ -1209,7 +1209,7 @@ export function ModelStage({
             counted fewer elements than the answer named.
           */}
           {stageWarning && (
-            <div className="absolute top-16 left-1/2 z-20 -translate-x-1/2 sm:top-20">
+            <div className="absolute top-16 left-1/2 z-20 -translate-x-1/2 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none sm:top-20">
               <ViewerSurface className="flex items-start gap-2 px-3 py-2 text-xs">
                 <TriangleAlert className="text-warning mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                 {/*
@@ -1824,9 +1824,9 @@ function StageViewMenu({
                 // `pointer-coarse:min-h-11`: these are raw buttons, so they
                 // never see the floor `Button` applies. ~30 px rows two pixels
                 // apart are the only route to a plan or an elevation.
-                'focus-visible:ring-ring/60 pointer-coarse:min-h-11 flex items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2',
+                'focus-visible:ring-ring/60 pointer-coarse:min-h-11 flex items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] font-medium outline-none transition-colors duration-200 ease-out focus-visible:ring-2',
                 view === candidate
-                  ? 'bg-accent text-foreground font-medium'
+                  ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
               )}
             >
@@ -1840,7 +1840,7 @@ function StageViewMenu({
             type="button"
             aria-pressed={orthographic}
             onClick={() => onOrthographicChange(!orthographic)}
-            className="focus-visible:ring-ring/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground pointer-coarse:min-h-11 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2"
+            className="focus-visible:ring-ring/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground pointer-coarse:min-h-11 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] font-medium outline-none transition-colors duration-200 ease-out focus-visible:ring-2"
           >
             {t('viewer.projection.parallel')}
             {orthographic && <Check className="size-3.5" aria-hidden="true" />}

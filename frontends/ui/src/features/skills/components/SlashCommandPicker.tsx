@@ -240,7 +240,7 @@ export const SlashCommandPicker = forwardRef<SlashCommandPickerHandle, SlashComm
         // through the middle of its own sentence. The fade softened it but the
         // slice still read as a rendering fault rather than as "scroll for more".
         'bg-popover text-popover-foreground flex max-h-[360px] w-full flex-col overflow-hidden rounded-xl border shadow-lg',
-          'animate-in fade-in-0 slide-in-from-bottom-1 duration-150 ease-out',
+          'animate-in fade-in-0 slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none',
           className,
         )}
       >

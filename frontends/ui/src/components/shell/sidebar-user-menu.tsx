@@ -14,7 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { motion, springSnappy } from '@/components/motion'
 import { useLayoutStore } from '@/features/layout/store'
 import type { ThemeMode } from '@/features/layout/types'
 import { useTranslations, useLocale, locales } from '@/i18n'
@@ -98,23 +97,24 @@ export function SidebarUserMenu({
       <DropdownMenuTrigger
         className={cn(
           'flex items-center gap-2.5 text-left text-sm',
-          'transition-colors duration-200 ease-out hover:bg-accent',
+          'transition-[color,background-color,transform] duration-200 ease-out hover:bg-accent',
+          'active:scale-[0.98] motion-reduce:transition-none',
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
           compact ? 'w-auto rounded-full p-0' : 'w-full rounded-lg py-1 pl-0 pr-2',
         )}
         aria-label={t('userMenu.label', { name: displayName })}
       >
-        <motion.span className="flex shrink-0" whileTap={{ scale: 0.95 }} transition={springSnappy}>
+        <span className="flex shrink-0">
           <Avatar className={avatarSizeClass}>
             {(authUser?.image ?? user?.image) && <AvatarImage src={authUser?.image ?? user?.image ?? undefined} alt="" />}
             <AvatarFallback className="text-xs font-medium">{initial}</AvatarFallback>
           </Avatar>
-        </motion.span>
+        </span>
         {!compact && (
           <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-muted-foreground">{displayName}</span>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
+      <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56 motion-reduce:animate-none">
         <DropdownMenuLabel>
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium">{displayName}</span>

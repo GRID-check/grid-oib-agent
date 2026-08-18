@@ -97,17 +97,40 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
           size="sm"
           onClick={() => void run()}
           disabled={state.kind === 'running'}
+          aria-busy={state.kind === 'running'}
           className="h-8 px-3.5 text-xs"
         >
-          {state.kind === 'running' && <Spinner size="sm" />}
-          {state.kind === 'running' ? t('editor.review.running') : t('editor.review.action')}
+          <span className="inline-grid justify-items-start">
+            <span
+              className={cn(
+                'col-start-1 row-start-1 inline-flex items-center gap-1.5',
+                state.kind === 'running' && 'invisible',
+              )}
+              aria-hidden={state.kind === 'running'}
+            >
+              {t('editor.review.action')}
+            </span>
+            <span
+              className={cn(
+                'col-start-1 row-start-1 inline-flex items-center gap-1.5',
+                state.kind !== 'running' && 'invisible',
+              )}
+              aria-hidden={state.kind !== 'running'}
+            >
+              <Spinner size="sm" aria-hidden />
+              {t('editor.review.running')}
+            </span>
+          </span>
         </Button>
       </div>
 
       <p className="text-muted-foreground text-xs">{t('editor.review.subtitle')}</p>
 
       {state.kind === 'unavailable' && (
-        <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-2 text-xs" role="status">
+        <p
+          className="text-muted-foreground animate-in fade-in-0 rounded-lg border border-dashed px-3 py-2 text-xs duration-200 ease-out motion-reduce:animate-none"
+          role="status"
+        >
           {/* Explicitly NOT "looks good": the reviewer never ran. */}
           {t('editor.review.unavailable')}
         </p>
@@ -115,7 +138,7 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
 
       {state.kind === 'done' && sorted.length === 0 && (
         <p
-          className="text-muted-foreground flex items-center gap-2 rounded-lg border px-3 py-2 text-xs"
+          className="text-muted-foreground animate-in fade-in-0 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs duration-200 ease-out motion-reduce:animate-none"
           role="status"
         >
           <Check className="size-3.5 shrink-0 text-success-foreground" aria-hidden />
@@ -124,7 +147,10 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
       )}
 
       {state.kind === 'done' && sorted.length > 0 && (
-        <ul className="flex flex-col gap-1.5" data-testid="skill-review-findings">
+        <ul
+          className="animate-in fade-in-0 flex flex-col gap-1.5 duration-200 ease-out motion-reduce:animate-none"
+          data-testid="skill-review-findings"
+        >
           {sorted.map((finding, index) => {
             const Icon = SEVERITY_ICON[finding.severity]
             return (

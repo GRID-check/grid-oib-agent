@@ -215,10 +215,10 @@ const useConversationId = (): string | null =>
 
 const chipButtonClasses =
   'inline-flex h-6 max-w-full shrink-0 cursor-pointer items-center gap-1 truncate whitespace-nowrap pointer-coarse:h-11 ' +
-  'rounded-md border px-2.5 text-xs font-medium transition-[color,background-color,box-shadow] ' +
-  '[&>svg]:size-3 [&>svg]:shrink-0 hover:brightness-95 dark:hover:brightness-125 ' +
+  'rounded-md border px-2.5 text-xs font-medium transition-[color,background-color,transform] duration-200 ease-out ' +
+  '[&>svg]:size-3 [&>svg]:shrink-0 hover:brightness-95 dark:hover:brightness-125 active:scale-95 ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
-  'disabled:cursor-progress disabled:opacity-70'
+  'disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100'
 
 // ---------------------------------------------------------------------------
 // Layout variants — ONE behaviour, two shapes
@@ -255,8 +255,9 @@ export type CitationDetail = 'full' | 'name-only'
  */
 const cardButtonClasses =
   'flex w-full cursor-pointer gap-3 rounded-lg border bg-card p-3 text-left ' +
-  'transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 ' +
-  'focus-visible:ring-ring/60 disabled:cursor-progress disabled:opacity-70'
+  'transition-[color,background-color,transform] duration-200 ease-out hover:bg-accent active:scale-[0.99] ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ' +
+  'disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100'
 
 const faceClasses = (variant: CitationVariant): string =>
   variant === 'card' ? cardButtonClasses : cn(chipButtonClasses, 'max-w-56')

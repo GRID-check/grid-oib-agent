@@ -139,8 +139,8 @@ export function IfcRevisionTimeline({
                   type="button"
                   onClick={() => onOpen(revision.model)}
                   aria-current={isCurrent ? 'true' : undefined}
-                  className={`truncate text-sm ${
-                    isCurrent ? 'font-semibold' : 'hover:underline'
+                  className={`truncate text-sm font-medium transition-colors duration-200 ease-out ${
+                    isCurrent ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {t('timeline.revision', { index: revision.index })} · {revision.model.filename}

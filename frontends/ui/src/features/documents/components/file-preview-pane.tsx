@@ -481,7 +481,7 @@ export function FilePreviewPane({
             'flex min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60',
             peeking
               ? 'h-full min-h-0 flex-1 p-3'
-              : 'h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
+              : 'h-[50dvh] min-h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
           )}
         >
           {isModel ? (
@@ -673,11 +673,14 @@ export function FilePreviewPane({
                     type="button"
                     onClick={toggleDetails}
                     aria-expanded={detailsOpen}
-                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground touch-target"
+                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground touch-target motion-reduce:transition-none"
                   >
                     {t('preview.visualDetails.title')}
                     <ChevronDown
-                      className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')}
+                      className={cn(
+                        'size-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                        detailsOpen && 'rotate-180',
+                      )}
                       aria-hidden
                     />
                   </button>
@@ -821,10 +824,16 @@ function IndexedSummary({ summary }: { summary: string }) {
           type="button"
           onClick={() => setExpanded((open) => !open)}
           aria-expanded={expanded}
-          className="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target"
+          className="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none"
         >
           {expanded ? t('preview.summaryLess') : t('preview.summaryMore')}
-          <ChevronDown className={cn('size-3 shrink-0 transition-transform', expanded && 'rotate-180')} aria-hidden />
+          <ChevronDown
+            className={cn(
+              'size-3 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+              expanded && 'rotate-180',
+            )}
+            aria-hidden
+          />
         </button>
       )}
     </div>
@@ -948,7 +957,7 @@ function DocumentTagsSection({
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
                 aria-label={t('preview.removeTag', { tag })}
-                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target"
+                className="-mr-0.5 rounded-sm p-0.5 transition-colors duration-150 ease-out hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target motion-reduce:transition-none"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -1006,7 +1015,7 @@ function DocumentTagsSection({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => addTag(tag)}
               disabled={isSaving}
-              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-150 ease-out hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none"
             >
               {tag}
             </button>
@@ -1071,7 +1080,7 @@ function MetaRow({
  */
 function PageMock({ caption, action, skeleton }: { caption?: string; action?: ReactNode; skeleton?: boolean }) {
   return (
-    <div className="h-fit w-full max-w-[520px] rounded-lg border bg-background p-7 shadow-lg">
+    <div className="h-fit min-h-[320px] w-full max-w-[520px] rounded-lg border bg-background p-7 shadow-lg">
       <div className="flex items-baseline justify-between border-b pb-2.5">
         <div className="space-y-1.5">
           <div className={cn('h-[9px] w-28 rounded', skeleton ? 'bg-muted' : 'bg-muted/50')} />

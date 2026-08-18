@@ -96,7 +96,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
 
           <PageHeader className="mb-8" title={t('title')} subtitle={t('subtitle')} />
 
-          <div className="flex flex-col gap-6">
+          <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col gap-6 duration-200 ease-out motion-reduce:animate-none">
             {/* Account */}
             <Card>
               <CardHeader>
@@ -124,13 +124,13 @@ export default async function ProfilePage(): Promise<JSX.Element> {
 
                 <dl className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
-                    <dt className="text-muted-foreground text-xs font-medium uppercase">
+                    <dt className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
                       {t('account.name')}
                     </dt>
                     <dd className="mt-1 text-sm">{session.name || t('account.noName')}</dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground text-xs font-medium uppercase">
+                    <dt className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
                       {t('account.email')}
                     </dt>
                     <dd className="mt-1 truncate text-sm">
@@ -138,7 +138,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground text-xs font-medium uppercase">
+                    <dt className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
                       {t('account.organization')}
                     </dt>
                     <dd className="mt-1 flex items-center gap-1.5 text-sm">
@@ -150,7 +150,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
                   </div>
                   {session.role && (
                     <div>
-                      <dt className="text-muted-foreground text-xs font-medium uppercase">
+                      <dt className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
                         {t('account.role')}
                       </dt>
                       <dd className="mt-1 text-sm" title={session.role}>

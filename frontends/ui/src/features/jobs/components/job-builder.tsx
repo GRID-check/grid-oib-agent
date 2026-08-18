@@ -382,7 +382,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                         <Field
                           key={kind}
                           className={cn(
-                            'cursor-pointer rounded-lg border px-3 py-2.5',
+                            'cursor-pointer rounded-lg border px-3 py-2.5 transition-colors duration-150 ease-out',
                             active
                               ? 'border-primary bg-primary/5'
                               : 'border-border hover:border-foreground/30',
@@ -424,9 +424,13 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                 <Field>
                   <FieldLabel>{t('builder.skillLabel')}</FieldLabel>
                   {attachable === null && !skillsError ? (
-                    <p className="text-sm text-muted-foreground">{t('builder.skillsLoading')}</p>
+                    <p className="text-muted-foreground flex min-h-9 items-center text-sm">
+                      {t('builder.skillsLoading')}
+                    </p>
                   ) : skillsError ? (
-                    <p className="text-sm text-muted-foreground">{t('builder.skillsError')}</p>
+                    <p className="text-muted-foreground flex min-h-9 items-center text-sm">
+                      {t('builder.skillsError')}
+                    </p>
                   ) : (
                     <Select
                       value={skill?.name ?? NO_SKILL}
@@ -462,7 +466,10 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                   )}
                 </Field>
                 {detached && (
-                  <p role="status" className="text-xs font-medium text-foreground">
+                  <p
+                    role="status"
+                    className="animate-in fade-in-0 text-foreground text-xs font-medium duration-200 ease-out motion-reduce:animate-none"
+                  >
                     {t('builder.skillDetached', {
                       name: detached.name,
                       output: outputLabel(detached.output),
@@ -491,10 +498,14 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                   <FieldDescription>{t('builder.sourcesHint')}</FieldDescription>
                 </Field>
                 {sources === null && !sourcesError && (
-                  <p className="text-sm text-muted-foreground">{t('builder.sourcesLoading')}</p>
+                  <p className="text-muted-foreground flex min-h-9 items-center text-sm">
+                    {t('builder.sourcesLoading')}
+                  </p>
                 )}
                 {sourcesError && (
-                  <p className="text-sm text-muted-foreground">{t('builder.sourcesError')}</p>
+                  <p className="text-muted-foreground flex min-h-9 items-center text-sm">
+                    {t('builder.sourcesError')}
+                  </p>
                 )}
                 {additionalSources !== null && additionalSources.length > 0 && (
                   <div className="space-y-2">
@@ -504,7 +515,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                         <Field
                           key={source.id}
                           orientation="horizontal"
-                          className="justify-start rounded-lg border border-transparent px-1 py-1.5 hover:border-border"
+                          className="hover:border-border justify-start rounded-lg border border-transparent px-1 py-1.5 transition-colors duration-150 ease-out"
                         >
                           <Checkbox
                             id={`job-source-${source.id}`}
@@ -555,7 +566,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                 </Field>
 
                 {scheduleEnabled && (
-                  <div className="space-y-4 border-t border-border pt-4">
+                  <div className="animate-in fade-in-0 space-y-4 border-t border-border pt-4 duration-200 ease-out motion-reduce:animate-none">
                     <Field>
                       <FieldLabel>{t('builder.presetLabel')}</FieldLabel>
                       <Select
@@ -576,7 +587,7 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
                     </Field>
 
                     {preset === 'custom' && (
-                      <Field>
+                      <Field className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
                         <FieldLabel htmlFor="job-cron">{t('builder.cronLabel')}</FieldLabel>
                         <Input
                           id="job-cron"
@@ -651,9 +662,28 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
           </Button>
           <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
             {([canSubmit, isSubmitting]) => (
-              <Button type="submit" disabled={!canSubmit || isSubmitting}>
-                {isSubmitting && <Spinner size="sm" />}
-                {isSubmitting ? t('builder.saving') : t('builder.save')}
+              <Button type="submit" disabled={!canSubmit || isSubmitting} aria-busy={isSubmitting}>
+                <span className="inline-grid justify-items-start">
+                  <span
+                    className={cn(
+                      'col-start-1 row-start-1 inline-flex items-center gap-2',
+                      isSubmitting && 'invisible',
+                    )}
+                    aria-hidden={isSubmitting}
+                  >
+                    {t('builder.save')}
+                  </span>
+                  <span
+                    className={cn(
+                      'col-start-1 row-start-1 inline-flex items-center gap-2',
+                      !isSubmitting && 'invisible',
+                    )}
+                    aria-hidden={!isSubmitting}
+                  >
+                    <Spinner size="sm" aria-hidden />
+                    {t('builder.saving')}
+                  </span>
+                </span>
               </Button>
             )}
           </form.Subscribe>

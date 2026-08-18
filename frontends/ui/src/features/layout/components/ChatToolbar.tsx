@@ -18,7 +18,7 @@ import {
   Sparkles,
   SquarePen,
 } from 'lucide-react'
-import { AnimatePresence, motion, springSnappy } from '@/components/motion'
+import { AnimatePresence, motion } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -46,6 +46,9 @@ import { useLayoutStore } from '../store'
  * first keystroke, since `commitTitle`/`cancelTitleEdit` resolve the edit.
  */
 const MENU_FOCUS_GUARD_MS = 250
+
+/** Toolbar chrome: opacity/transform only, 180ms ease-out, no spring. */
+const EASE_OUT = { duration: 0.18, ease: 'easeOut' } as const
 
 interface ChatToolbarProps {
   sessionTitle?: string
@@ -309,7 +312,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     // the right tab), and the panel closes from its own X and from Escape. So
     // the toggle here is the *re-entry* for a report you already have, and it
     // appears only when this thread actually has one.
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 min-h-14 px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
       {/* Center the floating controls on the SAME comfortable column as the
           message list and composer (max-w-3xl, mx-auto), so the pills align to
           the chat window instead of hugging the screen edges on wide viewports. */}
@@ -317,8 +320,10 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
       {/* LEFT pill: orientation only — the single history door + the current
           session title/rename, always visible (mobile included). Capped at ~64%
           of the row on mobile so a long title truncates inside the pill instead
-          of growing under the right-hand actions pill. */}
-      <div className="pointer-events-auto flex min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60 sm:max-w-none">
+          of growing under the right-hand actions pill.
+          min-h-12 matches the 44px/36px controls so the pill never collapses
+          when the breadcrumb is hidden on an empty chat. */}
+      <div className="pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60 sm:max-w-none">
         {/* Global navigation opener — mobile only. The chat route hides the
             standalone top bar, so this hamburger is the way back out to
             projects / files / settings (opens the same AppSidebar drawer). */}
@@ -418,7 +423,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                     onKeyDown={handleTitleKeyDown}
                     onBlur={handleTitleBlur}
                     aria-label={tChat('breadcrumb.renameInputAria')}
-                    className="h-7 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className="h-11 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:h-9"
                   />
                 ) : (
                   // Click-to-rename, kept as the SHORTCUT rather than as the only
@@ -434,7 +439,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                     disabled={!canRename}
                     aria-label={tChat('breadcrumb.renameAria')}
                     title={canRename ? tChat('breadcrumb.renameAria') : sessionTitle}
-                    className="max-w-[420px] truncate rounded-md px-1 py-0.5 pointer-coarse:py-3 text-left text-sm font-medium text-foreground transition-colors duration-200 ease-out enabled:cursor-text enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className="max-w-[420px] truncate rounded-md px-1 py-0.5 pointer-coarse:py-3 text-left text-sm font-medium text-foreground transition-colors duration-200 ease-out motion-reduce:transition-none enabled:cursor-text enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     {sessionTitle}
                   </button>
@@ -464,20 +469,12 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           and go in the one menu — progressive disclosure rather than three more
           permanent buttons in a 768px row that also has to carry a thread title.
 
-          `layout` on the pill is what makes the arrivals bearable. Everything in
-          here comes and goes DURING a conversation — the roster resolves a moment
-          after the thread opens, research starts and finishes, the menu appears
-          with the first thing worth listing — and each one changes the pill's
-          width. Without it the pill snaps to its new size and shoves New chat
-          sideways mid-sentence; with it the pill grows into the new width and the
-          buttons slide. Reduced motion is handled globally by the app's
-          <MotionConfig reducedMotion="user">, so this degrades to no movement. */}
+          Arrivals fade (opacity only). Width is reserved by the controls that
+          stay mounted — layout/width animation was a spring that bounced the
+          New-chat button sideways. Reduced motion is handled globally by
+          <MotionConfig reducedMotion="user">. */}
       {isChatStarted && (
-      <motion.div
-        layout
-        transition={springSnappy}
-        className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60"
-      >
+      <div className="pointer-events-auto flex min-h-12 shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60">
         {/* ── STATUS ────────────────────────────────────────────────────────────
             Who can reach this thread, stated ONCE, in whichever of the two forms is
             true of the audience (see `showFaces` / `showAccessChip` above), and
@@ -500,11 +497,10 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         {hasStatus && (
           <motion.div
             key="status"
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={springSnappy}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={EASE_OUT}
             className="hidden items-center gap-1 pl-1 pr-1.5 sm:flex"
           >
             {/* No `onOpen`: the strip is deliberately inert here. Sharing has ONE
@@ -525,16 +521,13 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
               {isDeepResearchStreaming && (
                 <motion.span
                   key="running"
-                  layout
-                  // Widens from nothing rather than fading in on top of the
-                  // neighbours: this arrives mid-turn, next to marks that are
-                  // already there, so it has to make room for itself instead of
-                  // displacing them in one frame. `overflow-hidden` keeps the label
-                  // clipped while the width is still growing.
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: 'auto' }}
-                  exit={{ opacity: 0, width: 0 }}
-                  transition={springSnappy}
+                  // Opacity only — a width tween is layout motion and shoves
+                  // the New-chat control. The reserved min-h-12 on the pill
+                  // keeps the row from collapsing when this leaves.
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={EASE_OUT}
                   className="inline-flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-sm text-muted-foreground"
                   data-testid="research-running"
                 >
@@ -666,7 +659,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           </DropdownMenu>
           </>
         )}
-      </motion.div>
+      </div>
       )}
       </div>
 

@@ -48,6 +48,9 @@ export function SearchField({
   inputRef,
   trailing,
 }: SearchFieldProps): JSX.Element {
+  const canClear = Boolean(clearLabel)
+  const hasValue = Boolean(value)
+
   const field = (
     <InputGroup>
       <InputGroupAddon>
@@ -62,21 +65,29 @@ export function SearchField({
         aria-label={label}
         className={cn(
           'h-9 pl-8 [&::-webkit-search-cancel-button]:hidden',
-          value && clearLabel ? 'pr-8' : undefined,
+          // Reserve the clear gutter even when empty so typing does not shift text.
+          canClear && 'pr-8',
           inputClassName,
         )}
       />
-      {value && clearLabel ? (
+      {canClear ? (
         <Button
           type="button"
           variant="ghost"
           size="icon"
+          tabIndex={hasValue ? undefined : -1}
+          aria-hidden={!hasValue}
           className={cn(
-            'absolute right-0.5 top-1/2 size-8 -translate-y-1/2 text-muted-foreground md:size-6',
+            'absolute right-0.5 top-1/2 size-8 -translate-y-1/2 text-muted-foreground',
+            'transition-opacity duration-200 ease-out motion-reduce:transition-none',
+            hasValue ? 'opacity-100' : 'pointer-events-none opacity-0',
             clearClassName,
           )}
           aria-label={clearLabel}
-          onClick={() => (onClear ? onClear() : onChange(''))}
+          onClick={() => {
+            if (!hasValue) return
+            onClear ? onClear() : onChange('')
+          }}
         >
           <X className="size-3.5" aria-hidden />
         </Button>
@@ -89,9 +100,9 @@ export function SearchField({
   }
 
   return (
-    <div className={cn('flex items-center gap-2', className)}>
+    <div className={cn('flex min-w-0 items-center gap-2', className)}>
       {field}
-      {trailing}
+      <div className="shrink-0">{trailing}</div>
     </div>
   )
 }

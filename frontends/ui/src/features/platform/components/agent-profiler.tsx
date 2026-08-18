@@ -205,7 +205,7 @@ export function AgentProfiler(): JSX.Element {
             title={t('profiler.loadError')}
             action={
               <Button variant="outline" size="sm" onClick={() => load(search)} disabled={loading}>
-                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden />
                 {t('profiler.retry')}
               </Button>
             }
@@ -222,7 +222,7 @@ export function AgentProfiler(): JSX.Element {
               />
 
               {loading ? (
-                <div className="flex flex-col gap-2">
+                <div className="flex min-h-[18.5rem] flex-col gap-2">
                   {Array.from({ length: 5 }, (_, i) => (
                     <Skeleton key={i} className="h-14 w-full" />
                   ))}
@@ -230,7 +230,7 @@ export function AgentProfiler(): JSX.Element {
               ) : conversations.length === 0 ? (
                 <EmptyState variant="bare" icon={Clock} title={t('profiler.empty')} />
               ) : (
-                <>
+                <div className="animate-in fade-in-0 min-h-[18.5rem] duration-200 ease-out motion-reduce:animate-none">
                   <ScrollArea className="max-h-[28rem]">
                     <ItemList>
                       {conversations.map((conversation) => (
@@ -263,7 +263,7 @@ export function AgentProfiler(): JSX.Element {
                       {t('profiler.capped', { count: conversations.length })}
                     </p>
                   )}
-                </>
+                </div>
               )}
             </div>
 
@@ -271,7 +271,7 @@ export function AgentProfiler(): JSX.Element {
               {!selectedId ? (
                 <EmptyState variant="bare" icon={Clock} title={t('profiler.detailEmpty')} />
               ) : timelineLoading ? (
-                <div className="flex flex-col gap-2">
+                <div className="flex min-h-[8.5rem] flex-col gap-2">
                   <Skeleton className="h-6 w-40" />
                   <Skeleton className="h-24 w-full" />
                 </div>
@@ -288,7 +288,7 @@ export function AgentProfiler(): JSX.Element {
                   }
                 />
               ) : timeline && timeline.turns.length > 0 ? (
-                <div className="flex flex-col gap-4">
+                <div className="animate-in fade-in-0 flex min-h-[8.5rem] flex-col gap-4 duration-200 ease-out motion-reduce:animate-none">
                   {timeline.turns.map((turn, index) => (
                     <div key={turn.turnId} className="rounded-lg border p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">

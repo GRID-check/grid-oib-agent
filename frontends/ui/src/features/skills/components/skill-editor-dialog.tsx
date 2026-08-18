@@ -622,7 +622,7 @@ export function SkillEditorDialog({
                                 type="button"
                                 aria-label={t('editor.cards.removeAria', { type })}
                                 onClick={() => removeCard(type)}
-                                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 rounded-sm leading-none focus-visible:outline-none focus-visible:ring-2"
+                                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 rounded-sm leading-none transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2"
                               >
                                 <X className="size-3" aria-hidden />
                               </button>
@@ -643,28 +643,30 @@ export function SkillEditorDialog({
                       label={t('editor.cards.searchPlaceholder')}
                     />
 
-                    {cardResults.length === 0 ? (
-                      <EmptyState
-                        variant="bare"
-                        title={t('editor.cards.noMatches')}
-                        className="py-3"
-                      />
-                    ) : (
-                      <ScrollArea className="h-44">
-                        <ItemList>
-                          {cardResults.map((entry) => (
-                            <Item key={entry.type} asChild>
-                              <button type="button" onClick={() => addCard(entry.type)}>
-                                <ItemContent>
-                                  <ItemTitle className="font-mono">{entry.type}</ItemTitle>
-                                  <ItemDescription>{entry.description}</ItemDescription>
-                                </ItemContent>
-                              </button>
-                            </Item>
-                          ))}
-                        </ItemList>
-                      </ScrollArea>
-                    )}
+                    <div className="h-44">
+                      {cardResults.length === 0 ? (
+                        <EmptyState
+                          variant="bare"
+                          title={t('editor.cards.noMatches')}
+                          className="flex h-full items-center py-3"
+                        />
+                      ) : (
+                        <ScrollArea className="h-full">
+                          <ItemList>
+                            {cardResults.map((entry) => (
+                              <Item key={entry.type} asChild>
+                                <button type="button" onClick={() => addCard(entry.type)}>
+                                  <ItemContent>
+                                    <ItemTitle className="font-mono">{entry.type}</ItemTitle>
+                                    <ItemDescription>{entry.description}</ItemDescription>
+                                  </ItemContent>
+                                </button>
+                              </Item>
+                            ))}
+                          </ItemList>
+                        </ScrollArea>
+                      )}
+                    </div>
                   </section>
                 </aside>
               </div>
@@ -694,9 +696,28 @@ export function SkillEditorDialog({
                   selector={(state) => [state.canSubmit, state.isSubmitting] as const}
                 >
                   {([canSubmit, isSubmitting]) => (
-                    <Button type="submit" disabled={!canSubmit || isSubmitting}>
-                      {isSubmitting && <Spinner size="sm" />}
-                      {isSubmitting ? t('editor.saving') : t('editor.save')}
+                    <Button type="submit" disabled={!canSubmit || isSubmitting} aria-busy={isSubmitting}>
+                      <span className="inline-grid justify-items-start">
+                        <span
+                          className={cn(
+                            'col-start-1 row-start-1 inline-flex items-center gap-2',
+                            isSubmitting && 'invisible',
+                          )}
+                          aria-hidden={isSubmitting}
+                        >
+                          {t('editor.save')}
+                        </span>
+                        <span
+                          className={cn(
+                            'col-start-1 row-start-1 inline-flex items-center gap-2',
+                            !isSubmitting && 'invisible',
+                          )}
+                          aria-hidden={!isSubmitting}
+                        >
+                          <Spinner size="sm" aria-hidden />
+                          {t('editor.saving')}
+                        </span>
+                      </span>
                     </Button>
                   )}
                 </form.Subscribe>

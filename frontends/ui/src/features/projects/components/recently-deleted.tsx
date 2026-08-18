@@ -153,10 +153,19 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
               <Button
                 variant="outline"
                 size="sm"
+                className="min-w-24"
                 onClick={() => void handleRestore(entry)}
                 disabled={restoringId === entry.id}
               >
-                {restoringId === entry.id && <Spinner size="xs" />}
+                <Spinner
+                  size="xs"
+                  aria-hidden={restoringId !== entry.id}
+                  className={
+                    restoringId === entry.id
+                      ? 'transition-opacity duration-150 ease-out motion-reduce:transition-none'
+                      : 'opacity-0'
+                  }
+                />
                 {t('recentlyDeleted.restore')}
               </Button>
             )}

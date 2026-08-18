@@ -62,6 +62,7 @@ describe('AnswerFeedback', () => {
       messageId: 'msg_1',
       verdict: 'up',
       reason: null,
+      comment: null,
       conversationId: 'conv_1',
       projectId: 'proj_1',
     })
@@ -97,12 +98,31 @@ describe('AnswerFeedback', () => {
 
     await user.click(screen.getByRole('button', { name: 'Wrong source' }))
 
-    expect(screen.queryByText('What was the problem?')).not.toBeInTheDocument()
+    expect(screen.getByText('What was the problem?')).toBeInTheDocument()
     expect(screen.getByText('Thanks for your feedback.')).toBeInTheDocument()
 
     await waitFor(() => expect(postCalls()).toHaveLength(2))
     const lastBody = JSON.parse((postCalls()[1] as [string, RequestInit])[1].body as string)
-    expect(lastBody).toMatchObject({ verdict: 'down', reason: 'wrong_source' })
+    expect(lastBody).toMatchObject({ verdict: 'down', reason: 'wrong_source', comment: null })
+  })
+
+  test('lets a down-vote carry a free-text note', async () => {
+    const user = userEvent.setup()
+    render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
+
+    await user.click(screen.getByRole('button', { name: 'Mark this answer as not helpful' }))
+    await user.type(screen.getByPlaceholderText('Optional — tell us what went wrong'), 'Missed OIB RL 4.')
+    await user.click(screen.getByRole('button', { name: 'Send note' }))
+
+    await waitFor(() => expect(postCalls().length).toBeGreaterThanOrEqual(2))
+    const lastBody = JSON.parse(
+      (postCalls()[postCalls().length - 1] as [string, RequestInit])[1].body as string,
+    )
+    expect(lastBody).toMatchObject({
+      verdict: 'down',
+      reason: 'other',
+      comment: 'Missed OIB RL 4.',
+    })
   })
 
   test('reverts the optimistic vote when the server rejects it', async () => {

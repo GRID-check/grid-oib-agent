@@ -89,7 +89,7 @@ export const SkillRawDocumentSection: FC<SkillRawDocumentSectionProps> = ({
     >
       <CollapsibleTrigger
         type="button"
-        className="hover:bg-muted/50 focus-visible:ring-ring/50 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2"
+        className="hover:bg-muted/50 focus-visible:ring-ring/50 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2"
       >
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="text-sm font-medium">{t('editor.raw.heading')}</span>
@@ -97,14 +97,14 @@ export const SkillRawDocumentSection: FC<SkillRawDocumentSectionProps> = ({
         </span>
         <ChevronDown
           className={cn(
-            'text-muted-foreground size-4 shrink-0 transition-transform',
+            'text-muted-foreground size-4 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
             open && 'rotate-180',
           )}
           aria-hidden
         />
       </CollapsibleTrigger>
 
-      <CollapsibleContent className="border-border border-t px-4 py-3">
+      <CollapsibleContent className="border-border animate-in fade-in-0 border-t px-4 py-3 duration-200 ease-out motion-reduce:animate-none">
         <Field>
           <FieldLabel htmlFor="skill-raw-document">{t('editor.raw.documentLabel')}</FieldLabel>
           <Textarea

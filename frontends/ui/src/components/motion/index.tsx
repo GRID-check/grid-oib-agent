@@ -14,8 +14,10 @@
 import { type ReactNode } from 'react'
 import { motion, type HTMLMotionProps, type Transition, type Variants } from 'motion/react'
 
-/** Physical spring for touchable things (buttons, cards, toggles). */
-export const springSnappy: Transition = { type: 'spring', stiffness: 500, damping: 32, mass: 0.6 }
+/** Physical spring for touchable things (buttons, cards, toggles).
+ *  Critically damped enough that it never overshoots a neighbour — layout
+ *  shift is the enemy. MotionConfig reducedMotion="user" zeros it. */
+export const springSnappy: Transition = { type: 'spring', stiffness: 380, damping: 32, mass: 0.55 }
 
 /** Softer spring for larger surfaces (panels, cards settling into place). */
 export const springGentle: Transition = { type: 'spring', stiffness: 260, damping: 28 }

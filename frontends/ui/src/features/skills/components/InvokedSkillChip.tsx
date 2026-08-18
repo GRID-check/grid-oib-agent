@@ -36,7 +36,7 @@ export function InvokedSkillChip({
   return (
     <div
       data-testid="invoked-skill-chip"
-      className="border-primary/20 bg-primary/5 mt-2 flex items-start gap-2.5 rounded-lg border px-2.5 py-2"
+      className="border-primary/20 bg-primary/5 animate-in fade-in-0 mt-2 flex items-start gap-2.5 rounded-lg border px-2.5 py-2 duration-200 ease-out motion-reduce:animate-none"
     >
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         {/* The name in the form the user typed it. No icon: there is exactly one

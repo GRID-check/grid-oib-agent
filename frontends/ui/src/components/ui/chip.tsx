@@ -22,9 +22,10 @@ import { cn } from '@/lib/utils'
  */
 const chipVariants = cva(
   'inline-flex items-center gap-1 rounded-md border font-medium w-fit whitespace-nowrap shrink-0 ' +
-    'align-middle transition-[color,background-color,box-shadow] ' +
-    '[&>svg]:pointer-events-none [&>svg]:shrink-0 ' +
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+    'align-middle outline-none transition-[transform,opacity] duration-200 ease-out ' +
+    'motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:shrink-0 ' +
+    'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 ' +
+    'focus-visible:ring-offset-background',
   {
     variants: {
       variant: {
@@ -46,7 +47,7 @@ const chipVariants = cva(
       // secondary affordance. `touch-target` widens the hit area and leaves the
       // pill alone; a non-interactive chip is not a target and gets nothing.
       interactive: {
-        true: 'cursor-pointer hover:brightness-95 active:brightness-90 dark:hover:brightness-125 touch-target',
+        true: 'cursor-pointer touch-target hover:brightness-95 active:brightness-90 dark:hover:brightness-125 active:scale-[0.98] motion-reduce:active:scale-100',
         false: '',
       },
     },
@@ -87,7 +88,7 @@ const ChipCount = React.forwardRef<HTMLSpanElement, React.HTMLAttributes<HTMLSpa
       ref={ref}
       data-slot="chip-count"
       className={cn(
-        'inline-flex min-w-4 items-center justify-center rounded-full bg-foreground/10 px-1 text-[10px] font-semibold tabular-nums',
+        'inline-flex min-w-4 items-center justify-center rounded-full bg-foreground/10 px-1 text-[10px] font-semibold leading-none tabular-nums',
         className
       )}
       {...props}

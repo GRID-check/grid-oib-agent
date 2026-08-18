@@ -14,7 +14,7 @@ function Item({
     <Comp
       data-slot="item"
       className={cn(
-        'flex items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none',
+        'flex items-center gap-3 px-5 py-3 text-left transition-colors duration-200 ease-out hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none motion-reduce:transition-none',
         className,
       )}
       {...props}

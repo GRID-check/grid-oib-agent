@@ -215,7 +215,7 @@ export function PlatformSkillCatalog(): JSX.Element {
                   <div className="flex items-start justify-between gap-3">
                     <div
                       className={cn(
-                        'min-w-0 space-y-1 transition-opacity duration-200 motion-reduce:transition-none',
+                        'min-w-0 space-y-1 transition-opacity duration-200 ease-out motion-reduce:transition-none',
                         !skill.published && 'opacity-60',
                       )}
                     >

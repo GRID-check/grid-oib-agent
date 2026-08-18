@@ -207,7 +207,7 @@ export const PlatformOverview: FC = () => {
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {Array.from({ length: 4 }, (_, i) => (
-            <Skeleton key={i} className="h-[74px] w-full" />
+            <Skeleton key={i} className="h-[7.25rem] w-full" />
           ))}
         </div>
         <Skeleton className="h-48 w-full" />
@@ -236,10 +236,12 @@ export const PlatformOverview: FC = () => {
 
   return (
     <TooltipProvider delayDuration={100}>
-      <div className="flex flex-col gap-6">
-        {/* Headline stats */}
+      <div className="animate-in fade-in-0 flex flex-col gap-6 duration-200 ease-out motion-reduce:animate-none">
+        {/* Headline stats — min-h reserves the optional hint line so a capped
+            directory does not grow the row after the first paint. */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard
+            className="min-h-[7.25rem]"
             icon={<Building2 className="size-4" aria-hidden />}
             label={t('stats.organizations')}
             value={totals.organizations}
@@ -252,16 +254,19 @@ export const PlatformOverview: FC = () => {
             }
           />
           <StatCard
+            className="min-h-[7.25rem]"
             icon={<FolderKanban className="size-4" aria-hidden />}
             label={t('stats.projects')}
             value={totals.projects}
           />
           <StatCard
+            className="min-h-[7.25rem]"
             icon={<Gauge className="size-4" aria-hidden />}
             label={t('stats.spendToday')}
             value={eur(totals.dayUsd * overview.eurPerUsd, locale)}
           />
           <StatCard
+            className="min-h-[7.25rem]"
             icon={<ReceiptEuro className="size-4" aria-hidden />}
             label={t('stats.spendMonth')}
             value={

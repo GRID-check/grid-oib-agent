@@ -262,7 +262,7 @@ function MemberSuggestField({
                   }}
                   onMouseEnter={() => setHighlight(index)}
                   className={cn(
-                    'flex cursor-pointer items-center gap-3 px-3 py-2',
+                    'flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors duration-150 ease-out motion-reduce:transition-none',
                     index === active && 'bg-accent',
                   )}
                 >
@@ -667,11 +667,15 @@ export function ProjectMembersForm({
                     <ItemActions className="ml-0 w-full justify-end sm:ml-auto sm:w-auto sm:min-w-[220px]">
                       {canManage ? (
                         <>
-                          {isUpdating && (
-                            <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                              {t('roster.saving')}
-                            </span>
-                          )}
+                          <span
+                            className={cn(
+                              'text-xs uppercase tracking-widest text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none',
+                              !isUpdating && 'invisible',
+                            )}
+                            aria-hidden={!isUpdating}
+                          >
+                            {t('roster.saving')}
+                          </span>
                           <Select
                             value={member.role || NO_ACCESS}
                             onValueChange={(value) =>

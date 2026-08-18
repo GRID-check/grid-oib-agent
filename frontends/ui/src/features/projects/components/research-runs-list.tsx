@@ -196,7 +196,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
           job.status === 'running' || job.status === 'submitted' || job.status === 'pending'
         const label = runLabel(job)
         return (
-          <Item as="li" key={job.job_id} className="flex-wrap">
+          <Item as="li" key={job.job_id} className="group flex-wrap">
             <Badge variant={STATUS_BADGE_VARIANT[job.status] ?? 'secondary'}>
               {statusLabel(job.status)}
             </Badge>
@@ -232,7 +232,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                       : isActive
                         ? t('researchRuns.viewProgress')
                         : tr('runsList.viewThinking')}
-                    <ArrowRight />
+                    <ArrowRight className="transition-transform duration-200 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" />
                   </Link>
                 </Button>
               ) : (

@@ -12,7 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { motion, springSnappy } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 
@@ -56,7 +55,9 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
       <DropdownMenuTrigger
         className={cn(
           'flex h-9 w-full items-center gap-2.5 rounded-[10px] border border-border bg-card px-3 text-left shadow-xs',
-          'transition-colors duration-200 ease-out hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+          'transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-out',
+          'hover:bg-accent active:scale-[0.98] motion-reduce:transition-none',
+          'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
           collapsed && 'w-10 justify-center px-0',
         )}
         aria-label={
@@ -71,19 +72,19 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
               {active?.name ?? t('projectSwitcher.select')}
             </span>
-            <motion.span
-              className="flex shrink-0"
-              initial={false}
-              animate={{ rotate: open ? 180 : 0 }}
-              transition={springSnappy}
+            <span
+              className={cn(
+                'flex size-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                open && 'rotate-180',
+              )}
               aria-hidden
             >
               <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
-            </motion.span>
+            </span>
           </>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="bottom" className="w-60">
+      <DropdownMenuContent align="start" side="bottom" className="w-60 motion-reduce:animate-none">
         <DropdownMenuLabel className="text-[10.5px] font-semibold tracking-[0.05em] text-muted-foreground uppercase">
           {t('projectSwitcher.switchHeading')}
         </DropdownMenuLabel>
@@ -116,7 +117,7 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
                 }}
                 // ≥44px touch target (a11y) via padding, with the icon kept
                 // small; negative margin keeps the row from growing.
-                className="-my-2 -mr-1.5 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                className="-my-2 -mr-1.5 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-200 ease-out hover:bg-accent hover:text-foreground active:scale-[0.98] motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
               >
                 <Settings className="size-3.5" aria-hidden />
               </button>

@@ -240,7 +240,7 @@ export function ModelAdvancedSheet({
         // Starts BELOW the close pill rather than at the corner: covering the
         // way out of the stage would leave Escape as the only exit.
         'absolute top-16 right-3 bottom-3 z-30 flex w-[min(26rem,calc(100%-1.5rem))] flex-col overflow-hidden sm:top-[4.5rem] sm:right-4 sm:bottom-4',
-        'animate-in fade-in-0 slide-in-from-right-4 duration-200 motion-reduce:animate-none'
+        'animate-in fade-in-0 slide-in-from-right-2 duration-200 ease-out motion-reduce:animate-none'
       )}
     >
       <div className="border-border flex items-center justify-between gap-2 border-b p-3">
