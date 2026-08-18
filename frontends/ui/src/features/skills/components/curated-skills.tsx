@@ -94,7 +94,7 @@ export function CuratedSkills({
         {t('curated.hint')}
       </p>
 
-      <div className="mt-1 grid animate-in fade-in-0 gap-4 duration-200 ease-out motion-reduce:animate-none lg:grid-cols-2">
+      <div className="mt-1 grid animate-in fade-in-0 gap-4 duration-base ease-out motion-reduce:animate-none lg:grid-cols-2">
         {skills.map((skill) => (
           // The same card as an org skill, on purpose: a curated skill is not a
           // lesser thing to be listed, it is the same kind of object with a
@@ -104,7 +104,7 @@ export function CuratedSkills({
               <div className="flex items-start justify-between gap-3">
                 <div
                   className={cn(
-                    'min-w-0 space-y-1 transition-opacity duration-200 ease-out motion-reduce:transition-none',
+                    'min-w-0 space-y-1 transition-opacity duration-quick ease-out motion-reduce:transition-none',
                     !skill.enabled && 'opacity-45',
                   )}
                 >
@@ -152,14 +152,14 @@ export function CuratedSkills({
                       <BookOpen className="size-3.5" aria-hidden />
                       {t('toolbox.actions.viewBody')}
                       <ChevronDown
-                        className="size-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none"
+                        className="size-3.5 shrink-0 transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none"
                         aria-hidden
                       />
                     </Button>
                   </CollapsibleTrigger>
                 </div>
-                <CollapsibleContent className="animate-in fade-in-0 pt-2 duration-200 ease-out motion-reduce:animate-none">
-                  <pre className="bg-muted/40 text-foreground max-h-64 overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-xs leading-relaxed">
+                <CollapsibleContent className="animate-in fade-in-0 pt-2 duration-base ease-out motion-reduce:animate-none">
+                  <pre className="bg-muted text-foreground max-h-64 overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-xs leading-relaxed">
                     {skill.body}
                   </pre>
                 </CollapsibleContent>

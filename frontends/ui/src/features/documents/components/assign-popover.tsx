@@ -119,14 +119,14 @@ export function AssignPopover({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         {trigger ?? (
-          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px]">
+          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs">
             {triggerLabel ?? (assignees.length > 0 ? t('assignment.edit') : t('assignment.assign'))}
           </Button>
         )}
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-72 space-y-2 p-3 duration-200 ease-out motion-reduce:animate-none"
+        className="w-72 space-y-2 p-3 duration-quick ease-out motion-reduce:animate-none"
       >
         {!pickOnly &&
           assignees.map((person) => {
@@ -194,7 +194,7 @@ export function AssignPopover({
                 <Item
                   key={person.userId}
                   asChild
-                  className="w-full rounded-md px-2 py-1.5 transition-opacity duration-150 ease-out disabled:opacity-50 motion-reduce:transition-none"
+                  className="w-full rounded-md px-2 py-1.5 transition-opacity duration-snap ease-out disabled:opacity-50 motion-reduce:transition-none"
                 >
                   <button
                     type="button"
@@ -213,7 +213,7 @@ export function AssignPopover({
                     </ItemContent>
                     {!pickOnly && assigned ? (
                       <ItemActions>
-                        <span className="text-muted-foreground text-[11px]">{t('assignment.responsible')}</span>
+                        <span className="text-muted-foreground text-xs">{t('assignment.responsible')}</span>
                       </ItemActions>
                     ) : null}
                   </button>

@@ -51,10 +51,11 @@ import { useSpectatedTurn } from '@/features/collaboration/hooks/use-spectated-t
 import { SpectatedTurn } from '@/features/collaboration/components/SpectatedTurn'
 import { TypingPresence } from '@/features/collaboration/components/TypingPresence'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
-import { AnimatePresence, motion, fadeRise } from '@/components/motion'
+import { AnimatePresence, motion, fadeRise, motionQuick } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useProjectBimModels } from '@/features/bim/hooks/use-bim-model'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 
 interface ChatAreaProps {
@@ -86,9 +87,6 @@ interface ChatAreaProps {
    */
   canCollaborate?: boolean
 }
-
-/** Chat chrome: opacity/transform only, 180ms ease-out, no spring. */
-const EASE_OUT = { duration: 0.18, ease: 'easeOut' } as const
 
 /**
  * Main chat area container with scrollable message list.
@@ -777,14 +775,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         // fades. A ring rather than a background, so it reads on the
                         // user bubble and the answer card alike.
                         highlightedMessageId === message.id &&
-                          'ring-warning/50 ring-offset-background rounded-xl ring-2 ring-offset-4 transition-shadow duration-200 ease-out motion-reduce:transition-none'
+                          'ring-warning/50 ring-offset-background rounded-xl ring-2 ring-offset-4 transition-shadow duration-quick ease-out motion-reduce:transition-none'
                       )}
                       variants={fadeRise}
                       // Animate only genuinely new messages; hydrated ones render in place.
                       initial={hydratedIds.has(message.id) ? false : 'hidden'}
                       animate="visible"
                       exit={{ opacity: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
-                      transition={EASE_OUT}
+                      transition={motionQuick}
                     >
                       {/* Where the reader left off, in a shared thread (spec CC-19). */}
                       {unreadDividerBeforeId === message.id && (
@@ -971,9 +969,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 type="button"
                 onClick={handleScrollToLatest}
                 aria-label={t('chatArea.scrollToLatest')}
-                className="bg-card text-muted-foreground hover:text-foreground pointer-events-auto flex h-9 w-9 items-center justify-center rounded-lg border shadow-md transition-colors duration-150 ease-out motion-reduce:transition-none"
+                className="bg-card text-muted-foreground hover:text-foreground pointer-events-auto flex size-9 items-center justify-center rounded-lg border shadow-md transition-colors duration-snap ease-out motion-reduce:transition-none"
               >
-                <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                <ArrowDown className="size-4" aria-hidden="true" />
               </button>
             </motion.div>
           )}
@@ -1104,10 +1102,10 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       }
       return (
         <div
-          className="bg-muted/50 shadow-xs flex items-center gap-2 rounded-xl px-4 py-2"
+          className="bg-muted shadow-xs flex items-center gap-2 rounded-xl px-4 py-2"
           role="status"
         >
-          <FileText className="text-muted-foreground h-4 w-4" aria-hidden="true" />
+          <FileText className="text-muted-foreground size-4" aria-hidden="true" />
           <span className="text-muted-foreground text-sm">
             {message.fileData.fileName} ({message.fileData.fileStatus})
           </span>
@@ -1216,9 +1214,7 @@ const UnreadDivider: FC<{ label: string }> = ({ label }) => (
     data-testid="unread-divider"
   >
     <span className="bg-border h-px flex-1" aria-hidden="true" />
-    <span className="text-muted-foreground text-[10.5px] font-semibold uppercase tracking-[0.06em]">
-      {label}
-    </span>
+    <SectionLabel>{label}</SectionLabel>
     <span className="bg-border h-px flex-1" aria-hidden="true" />
   </div>
 )
@@ -1278,20 +1274,20 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
   const elapsed = useElapsedSeconds(true)
   return (
     <div
-      className="animate-in fade-in-0 bg-muted/60 flex min-h-9 w-fit items-center gap-2 rounded-2xl px-3.5 py-2.5 duration-200 ease-out motion-reduce:animate-none"
+      className="animate-in fade-in-0 bg-muted flex min-h-9 w-fit items-center gap-2 rounded-2xl px-3.5 py-2.5 duration-base ease-out motion-reduce:animate-none"
       role="status"
       aria-label={label}
     >
       <span className="flex items-center gap-1" aria-hidden="true">
-        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-pulse rounded-full motion-reduce:animate-none [animation-delay:-0.3s]" />
-        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-pulse rounded-full motion-reduce:animate-none [animation-delay:-0.15s]" />
-        <span className="bg-muted-foreground/70 h-1.5 w-1.5 animate-pulse rounded-full motion-reduce:animate-none" />
+        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none [animation-delay:-0.3s]" />
+        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none [animation-delay:-0.15s]" />
+        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none" />
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
       <span className="animate-text-shimmer text-xs font-medium motion-reduce:animate-none">{label}</span>
       {elapsed > 2 && (
-        <span className="text-muted-foreground/80 text-[11px] tabular-nums">
+        <span className="text-muted-foreground/80 text-xs tabular-nums">
           {formatElapsed(elapsed)}
         </span>
       )}
@@ -1316,15 +1312,15 @@ const MessageListSkeleton: FC = () => {
     >
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="bg-muted/70 h-10 w-1/2 animate-pulse rounded-2xl" />
+        <div className="bg-muted h-10 w-1/2 animate-pulse rounded-2xl" />
       </div>
       {/* assistant bubble (left, taller) */}
       <div className="flex justify-start">
-        <div className="bg-muted/50 h-24 w-4/5 animate-pulse rounded-2xl" />
+        <div className="bg-muted h-24 w-4/5 animate-pulse rounded-2xl" />
       </div>
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="bg-muted/70 h-10 w-1/3 animate-pulse rounded-2xl" />
+        <div className="bg-muted h-10 w-1/3 animate-pulse rounded-2xl" />
       </div>
     </div>
   )
@@ -1397,17 +1393,16 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
         style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
       >
         <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
-          <div className="bg-muted text-brand flex h-12 w-12 items-center justify-center rounded-xl border">
-            <Lock className="h-5 w-5" aria-hidden="true" />
+          <div className="bg-muted text-brand flex size-12 items-center justify-center rounded-xl border">
+            <Lock className="size-5" aria-hidden="true" />
           </div>
-          <h1 className="tracking-display text-2xl font-semibold">
+          <h1 className="text-xl font-semibold tracking-tight">
             {t('chatArea.loggedOutTitle')}
           </h1>
           <p className="text-muted-foreground text-sm">{t('chatArea.loggedOutBody')}</p>
           <Button
             onClick={onSignIn}
             aria-label={t('chatArea.signInSso')}
-            className="active:scale-press transition"
           >
             {t('chatArea.signInSso')}
           </Button>
@@ -1428,19 +1423,20 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
       <div className="bg-card shadow-xs mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border px-[11px]">
         <Lock className="text-subtle size-3 shrink-0" aria-hidden="true" />
-        <span className="text-muted-foreground text-[12px] font-medium">
+        <span className="text-muted-foreground text-xs font-medium">
           {tChat('workspace.private')}
         </span>
       </div>
 
-      {/* Hero greeting — 23px/500 ink, tight tracking */}
-      <h1 className="tracking-display text-foreground text-center text-[23px] font-medium">
+      {/* Hero greeting — the one larger moment in the app, and the only place
+          the ramp's 23px step is used (design language, "Type ramp"). */}
+      <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
         {heading}
       </h1>
 
       {/* One-line subtitle under the greeting: tells a first-timer that answers
           cite their sources (copy already in both locales — chat.greeting.subtitle). */}
-      <p className="text-muted-foreground mt-2 max-w-md text-center text-[13.5px] leading-relaxed">
+      <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
         {composerSubject
           ? tFiles('assignment.welcomeAbout', {
               name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
@@ -1472,7 +1468,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
                 key={key}
                 type="button"
                 onClick={() => setComposerPrefill(question, undefined, composerSubject)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-[12.5px] font-medium transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
+                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-xs font-medium transition-colors duration-quick ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
               >
                 <FileText className="size-3.5 shrink-0" style={{ color: 'var(--source-project)' }} aria-hidden="true" />
                 {question}
@@ -1487,7 +1483,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
                 key={key}
                 type="button"
                 onClick={() => setComposerPrefill(question)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-[12.5px] font-medium transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
+                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-xs font-medium transition-colors duration-quick ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
               >
                 <Boxes className="text-subtle size-3.5 shrink-0" aria-hidden="true" />
                 {question}
@@ -1501,7 +1497,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
               key={key}
               type="button"
               onClick={() => setComposerPrefill(question)}
-              className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center rounded-md border px-[13px] text-[12.5px] font-medium transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
+              className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center rounded-md border px-[13px] text-xs font-medium transition-colors duration-quick ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11"
             >
               {question}
             </button>

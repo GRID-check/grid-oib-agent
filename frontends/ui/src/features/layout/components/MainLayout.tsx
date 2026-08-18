@@ -15,7 +15,6 @@
 import { type FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useIsMobile } from '@/hooks/use-is-mobile'
-import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { ChatToolbar } from './ChatToolbar'
 import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
@@ -122,7 +121,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
 
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
-  const prefersReducedMotion = useReducedMotion()
   const isMobile = useIsMobile()
   const filePeeking = useFilePreviewStore(
     (s) => s.mode === 'peek' && s.file !== null && !s.hidden,
@@ -242,6 +240,16 @@ export const MainLayout: FC<MainLayoutProps> = ({
             // Chat stays the home column. A peeked file sits to the right
             // as a companion (~22rem), not a 50/50 split. Research still
             // shares the row 50/50 and the peek yields to it.
+            //
+            // Set in ONE pass, never tweened. This used to run `width 300ms`,
+            // which re-laid-out and repainted the ENTIRE chat transcript on
+            // every frame for the whole 300ms each time the research panel or
+            // a file peek opened — the exact thing
+            // `grid-design-language.md` §"Binding constraints" forbids. The
+            // companion panel beside it carries the arrival on a transform
+            // (see `ResearchPanel`), which is where that motion belongs: the
+            // reader needs to see where the PANEL came from, not watch their
+            // own text re-wrap sixty times.
             width: isResearchPanelOpen
               ? isMobile
                 ? '0%'
@@ -249,7 +257,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
               : filePeeking && !isMobile
                 ? `calc(100% - ${peekWidth + 24}px)`
                 : '100%',
-            transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
             // Published from the ResizeObserver above; inherits into ChatArea
             // (a descendant), which reads it via calc(). undefined pre-measure.
             ...(composerHeight != null
@@ -294,12 +301,14 @@ export const MainLayout: FC<MainLayoutProps> = ({
               <button
                 type="button"
                 onClick={expandFile}
+                // Floating over the transcript: the alpha is what `backdrop-blur`
+                // blurs, and the `supports-` step is the no-blur fallback.
                 className="border-base bg-card/70 absolute left-3 right-3 top-14 z-20 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60"
               >
-                <span className="min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
+                <span className="min-w-0 flex-1 truncate text-xs font-medium tracking-[-0.01em]">
                   {documentDisplayName(peekedFile)}
                 </span>
-                <span className="text-muted-foreground shrink-0 text-[11px]">
+                <span className="text-muted-foreground shrink-0 text-xs">
                   {previewHidden ? tFiles('assignment.showFile') : tFiles('assignment.expandFile')}
                 </span>
               </button>

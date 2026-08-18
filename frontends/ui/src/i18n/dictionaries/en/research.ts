@@ -69,42 +69,60 @@ export const research = {
     loadingEllipsis: 'Loading data sources...',
     unableToLoad: 'Unable to load data sources',
     retryAria: 'Retry loading data sources',
-    none: 'No data sources available',
-    changesDisabledBusy: 'Data source changes disabled during active operations',
   },
 
-  dataConnectionCard: {
-    enabled: 'enabled',
-    disabled: 'disabled',
-    disabledParenthetical: '(disabled)',
-    noPermission: "You don't have permission to access this data source",
-    enableName: 'Enable {name}',
-    disableName: 'Disable {name}',
-    nameDisabled: '{name} (disabled)',
-  },
-
-  dataConnectionsTab: {
-    availableSources: 'Available Sources ({count})',
-  },
-
-  dataSourcesPanel: {
-    title: 'Data Sources',
-    footerConnections:
-      '{enabled} of {available} available connections enabled. Enabled connections will be available to the AI assistant.',
-    footerFiles: 'Attached files will be always available to agents until deleted.',
-    tabConnections: 'Connections',
-    tabFiles: 'Files',
-    enableAuthBanner: 'Enable authentication to access additional data sources.',
-    signInBanner: 'Sign in to access additional data sources.',
-    allConnections: 'All Connections',
-    allAvailableDisabledOps: 'All available connections (disabled during operations)',
-    allAvailableState: 'All available connections: {state}',
-    disableEnableAll: 'Disable / Enable All',
-    toggleAllDisabled: 'Toggle all connections (disabled)',
-    disableAll: 'Disable all connections',
-    enableAll: 'Enable all connections',
-    individualConnections: 'Individual Connections ({count})',
-    signInRequiredSource: 'Sign in required to access this data source',
+  /**
+   * Datenbasis — the composer control for WHERE Piloti may look.
+   *
+   * One name for one thing: this object retires the four competing labels the
+   * same surface used to carry. Tense is meaning here — the control speaks only
+   * in the present/permissive ("may search"); what was actually used is the
+   * Herleitung's job to report, never this control's.
+   */
+  sourceBasis: {
+    label: 'Data basis',
+    triggerAria: 'Data basis: {summary}. Opens the picker.',
+    description: 'Where Piloti may search. What it actually used is in the derivation.',
+    allSources: 'All sources',
+    internalOnly: 'Project knowledge only',
+    overflowAria: '{count} more source types',
+    alwaysOn: 'Always included',
+    alwaysOnChip: 'Always on',
+    external: 'External sources',
+    signInRequired: 'Sign-in required',
+    signInReason: 'Sign in to use this source.',
+    lockedBusy: 'The data basis cannot be changed while research is running.',
+    noExternalWarning: 'Piloti will then search only your project documents.',
+    presetsLabel: 'Presets',
+    emptyTitle: 'No external sources',
+    emptyBody:
+      'No external sources are enabled for this project right now. Piloti searches your project documents.',
+    toggleAria: 'Allow {name}',
+    /** Stratum wordmarks — always shown together with their icon and colour. */
+    strata: {
+      law: 'Building law',
+      office: 'Office archive',
+      project: 'Project knowledge',
+      auto: 'Web',
+    },
+    /** Presets in the picker footer — "All" makes the normal case nameable. */
+    presets: {
+      all: 'All sources',
+      law: 'Building law & guidelines',
+      project: 'Project documents',
+      office: 'Office archive',
+    },
+    /**
+     * The knowledge layer is not a toggleable source — it rides along on every
+     * turn. It is listed here instead of being filtered away and skewing the
+     * count.
+     */
+    knowledge: {
+      projectName: 'Project knowledge',
+      projectDescription: 'Your project documents in this project.',
+      officeName: 'Office archive',
+      officeDescription: 'Shared documents from your office.',
+    },
   },
 
   deleteModals: {
@@ -218,8 +236,6 @@ export const research = {
     unsupportedFileType: 'Unsupported file type',
     dropToUpload: 'Drop files to upload',
     accepts: 'Accepts: {types}',
-    toggleDataSources: 'Toggle data sources connections',
-    selectedConnections: 'Selected data connections',
     openFiles: 'Open uploaded files',
     availableFiles: 'Available files',
     uploadNotAvailable: 'File upload not available',
@@ -251,7 +267,6 @@ export const research = {
     fileUploadingStatus: 'Uploading',
     fileFailedStatus: 'Upload failed',
     fileReadyStatus: 'Ready',
-    sourcesPopoverAllHint: 'Enabled connections are available to the AI assistant.',
   },
 
   reportCard: {

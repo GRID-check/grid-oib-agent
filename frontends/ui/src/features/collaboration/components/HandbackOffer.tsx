@@ -69,7 +69,7 @@ export function HandbackOffer({
       role="status"
       className={cn(
         'flex w-fit max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-card px-3.5 py-2 shadow-xs',
-        'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out',
+        'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance',
         className,
       )}
     >

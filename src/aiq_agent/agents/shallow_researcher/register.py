@@ -133,6 +133,14 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                     allow = set(config.skill_allowlist)
                     resolved_skills = tuple(s for s in resolved_skills if s.name in allow)
                 skill_runtime = SkillRuntime(skills=resolved_skills, force_names=state.force_skills)
+                # Announce the catalog BEFORE the LLM runs. Constructing the
+                # runtime already announced each FORCED skill by its human
+                # title (SkillRuntime._record_activation), so a `/name`
+                # invocation is named to the user before the first token
+                # rather than in `skills_activated[]` after the answer.
+                from aiq_agent.skills.events import emit_skills_offered
+
+                emit_skills_offered(skill_runtime)
                 run_tools = list(selected_tools) + list(skill_runtime.build_tools())
             # Per-org runtime model overrides (X-Grid-Model-Overrides). Returns
             # the build-time provider unchanged when no override targets this

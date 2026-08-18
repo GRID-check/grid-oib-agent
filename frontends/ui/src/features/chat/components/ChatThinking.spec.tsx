@@ -55,29 +55,27 @@ describe('ChatThinking', () => {
   })
 
   describe('turn-driven autoOpen (live expands, done collapses)', () => {
-    // The expanded reasoning renders the "Selected Data Sources:" footer (moved
-    // inside the collapsible), so its presence is a proxy for "expanded".
-    const sources = ['web_search']
+    // The expanded reasoning renders the "Attached files:" footer (moved inside
+    // the collapsible), so its presence is a proxy for "expanded".
+    const files = [{ id: 'file-1', fileName: 'plan.pdf' }]
 
     test('autoOpen expands the reasoning without a click (live turn)', () => {
-      render(<ChatThinking steps={[createStep()]} autoOpen enabledDataSources={sources} />)
-      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
+      render(<ChatThinking steps={[createStep()]} autoOpen messageFiles={files} />)
+      expect(screen.getByText('Attached files:')).toBeVisible()
     })
 
     test('autoOpen=false keeps the reasoning collapsed (past/done turn)', () => {
-      render(<ChatThinking steps={[createStep()]} autoOpen={false} enabledDataSources={sources} />)
-      expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
+      render(<ChatThinking steps={[createStep()]} autoOpen={false} messageFiles={files} />)
+      expect(screen.queryByText('Attached files:')).not.toBeInTheDocument()
     })
 
     test('a live→done autoOpen transition collapses the reasoning', async () => {
       const { rerender } = render(
-        <ChatThinking steps={[createStep()]} autoOpen enabledDataSources={sources} />
+        <ChatThinking steps={[createStep()]} autoOpen messageFiles={files} />
       )
-      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
-      rerender(<ChatThinking steps={[createStep()]} autoOpen={false} enabledDataSources={sources} />)
-      await waitFor(() =>
-        expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
-      )
+      expect(screen.getByText('Attached files:')).toBeVisible()
+      rerender(<ChatThinking steps={[createStep()]} autoOpen={false} messageFiles={files} />)
+      await waitFor(() => expect(screen.queryByText('Attached files:')).not.toBeInTheDocument())
     })
 
     // NB: the "a manual toggle in between is not stomped" guarantee (the
@@ -104,8 +102,11 @@ describe('ChatThinking', () => {
       render(<ChatThinking steps={steps} isThinking={true} />)
 
       expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
-      // An unclassified step surfaces its own display name (honest fallback).
-      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+      // An unclassifiable step gets NO phrase of its own: its display name is an
+      // internal identifier, and dressing one up as a status is the noise this
+      // line exists to avoid. The calm generic stands in.
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
+      expect(screen.queryByText('Test Function …')).not.toBeInTheDocument()
     })
 
     test('shows a friendly activity phrase derived from the current step', () => {
@@ -136,12 +137,11 @@ describe('ChatThinking', () => {
       render(<ChatThinking steps={steps} />)
 
       expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
-      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
     })
 
-    test('falls back to the generic working copy when there is no step yet', () => {
-      // No steps, but data-source signal keeps the panel mounted while thinking.
-      render(<ChatThinking steps={[]} isThinking={true} enabledDataSources={['web_search']} />)
+    test('falls back to the generic working copy when the open step cannot be phrased', () => {
+      render(<ChatThinking steps={[createStep({ functionName: 'acme_internal' })]} isThinking />)
 
       expect(screen.getByText('Working on a response …')).toBeInTheDocument()
     })
@@ -161,7 +161,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={true} isInterrupted={true} />)
 
-      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
       expect(screen.queryByText('Interrupted')).not.toBeInTheDocument()
     })
 
@@ -233,7 +233,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={true} isWaiting={true} />)
 
-      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
       expect(screen.queryByText('Waiting for response')).not.toBeInTheDocument()
     })
   })
@@ -419,20 +419,10 @@ describe('ChatThinking', () => {
     })
   })
 
-  describe('data sources footer (in expanded reasoning)', () => {
-    // The basis footer (data sources + files as pills) now lives INSIDE the
-    // expanded Herleitung so the collapsed turn stays compact and answer-first
+  describe('attached-files footer (in expanded reasoning)', () => {
+    // The basis footer (attached files as pills) lives INSIDE the expanded
+    // Herleitung so the collapsed turn stays compact and answer-first
     // (P0/P2-4). It renders once the reasoning is open (`defaultOpen`).
-    test('shows enabled data sources as chips when expanded', () => {
-      const steps = [createStep()]
-
-      render(<ChatThinking steps={steps} defaultOpen enabledDataSources={['web_search', 'knowledge_base']} />)
-
-      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
-      expect(screen.getByText('Web Search')).toBeVisible()
-      expect(screen.getByText('Knowledge Base')).toBeVisible()
-    })
-
     test('shows files as chips', () => {
       const steps = [createStep()]
       const messageFiles = [
@@ -442,53 +432,167 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} defaultOpen messageFiles={messageFiles} />)
 
+      expect(screen.getByText('Attached files:')).toBeVisible()
       expect(screen.getByText('document.pdf')).toBeVisible()
       expect(screen.getByText('report.docx')).toBeVisible()
     })
 
-    test('shows both data sources and files as chips', () => {
+    test('shows no footer when no files are attached', () => {
       const steps = [createStep()]
+
+      render(<ChatThinking steps={steps} defaultOpen />)
+
+      expect(screen.queryByText('Attached files:')).not.toBeInTheDocument()
+    })
+  })
+
+  /**
+   * The phantom web search.
+   *
+   * Every data source is enabled by default and `web_search` is first in the
+   * registry, so the old basis footer claimed "Websuche" inside the Herleitung
+   * on EVERY turn — a bare greeting included, where the backend drops all
+   * data-source tools before the model ever sees them. Availability is the
+   * constant, activation is the event: only the `Ran:` row, derived from real
+   * Function Start/Complete frames, may say what a turn did.
+   */
+  describe('enabled data sources are never rendered as activity', () => {
+    const enabled = ['web_search', 'knowledge_layer', 'ris']
+
+    test('a turn with sources enabled but no executed search renders no source-activity chip', () => {
+      // A greeting: one assistant step ran, no search tool did.
+      const steps = [
+        createStep({
+          functionName: 'meta_chatter',
+          displayName: 'Meta Chatter',
+          isComplete: true,
+        }),
+      ]
 
       render(
         <ChatThinking
           steps={steps}
+          isThinking={false}
           defaultOpen
-          enabledDataSources={['web_search']}
-          messageFiles={[{ id: 'file-1', fileName: 'document.pdf' }]}
+          enabledDataSources={enabled}
         />
       )
 
-      expect(screen.getByText('Web Search')).toBeVisible()
-      expect(screen.getByText('document.pdf')).toBeVisible()
+      // The activity row is present and names what really ran …
+      expect(screen.getByText('Ran:')).toBeVisible()
+      expect(screen.getByText('Assistant')).toBeVisible()
+      // … and nothing anywhere claims a search happened.
+      expect(screen.queryByText('Web search')).not.toBeInTheDocument()
+      expect(screen.queryByText('Web Search')).not.toBeInTheDocument()
+      expect(screen.queryByText('RIS')).not.toBeInTheDocument()
+      expect(screen.queryByText('OIB corpus')).not.toBeInTheDocument()
+      expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
+      expect(screen.queryByText('Attached files:')).not.toBeInTheDocument()
     })
 
-    test('maps knowledge_layer to the OIB Knowledge Base chip', () => {
-      const steps = [createStep()]
-
-      render(<ChatThinking steps={steps} defaultOpen enabledDataSources={['web_search', 'knowledge_layer']} />)
-
-      expect(screen.getByText('OIB Knowledge Base')).toBeVisible()
-      expect(screen.queryByText(/knowledge_layer/i)).not.toBeInTheDocument()
-    })
-
-    test('title-cases unknown data source ids into chips', () => {
-      const steps = [createStep()]
+    test('an executed web search IS reported — the fix removes the false claim, not the true one', () => {
+      const steps = [
+        createStep({
+          functionName: 'web_search_tool',
+          displayName: 'Web Search Tool',
+          isComplete: true,
+        }),
+      ]
 
       render(
-        <ChatThinking steps={steps} defaultOpen enabledDataSources={['web_search', 'onedrive', 'google_drive']} />
+        <ChatThinking
+          steps={steps}
+          isThinking={false}
+          defaultOpen
+          enabledDataSources={enabled}
+        />
       )
 
-      expect(screen.getByText('Web Search')).toBeVisible()
-      expect(screen.getByText('Onedrive')).toBeVisible()
-      expect(screen.getByText('Google Drive')).toBeVisible()
+      expect(screen.getByText('Web search')).toBeVisible()
     })
 
-    test('shows no footer when there are no data sources or files', () => {
-      const steps = [createStep()]
+    test('enabled sources alone never conjure a Herleitung panel', () => {
+      const { container } = render(
+        <ChatThinking steps={[]} isThinking={false} enabledDataSources={enabled} />
+      )
 
-      render(<ChatThinking steps={steps} />)
+      expect(container).toBeEmptyDOMElement()
+    })
+  })
 
-      expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
+  /**
+   * Skill activation, rendered.
+   *
+   * The chip row is where a reader finds out a skill shaped this answer while
+   * the turn is still open; the post-hoc `SkillsUsedDisclosure` says the same
+   * thing under the finished answer. They never coexist (this panel only shows
+   * while thinking), and they use the same label authority so they cannot
+   * disagree.
+   */
+  describe('skill activity', () => {
+    const skillStep = (name: string, payload: Record<string, unknown>) =>
+      createStep({
+        id: `skill-${name}`,
+        functionName: `skill:${name}`,
+        displayName: name,
+        content: JSON.stringify(payload),
+        isComplete: true,
+      })
+
+    test('each activated skill gets its own chip, named by its title', () => {
+      render(
+        <ChatThinking
+          isThinking
+          defaultOpen
+          steps={[
+            skillStep('oib-brandschutz', {
+              phase: 'loaded',
+              name: 'oib-brandschutz',
+              title: 'Brandschutznachweis',
+            }),
+            skillStep('schallschutz', { phase: 'activated', name: 'schallschutz' }),
+          ]}
+        />
+      )
+
+      expect(screen.getByText('Skill: Brandschutznachweis')).toBeVisible()
+      // No authored title: the bare identifier, verbatim and in mono.
+      const bare = screen.getByText('schallschutz')
+      expect(bare).toBeVisible()
+      expect(bare).toHaveClass('font-mono')
+      expect(screen.queryByText(/Use Skill/i)).not.toBeInTheDocument()
+    })
+
+    test('an offered-but-unused skill claims nothing', () => {
+      const { container } = render(
+        <ChatThinking
+          isThinking
+          defaultOpen
+          steps={[skillStep('a', { phase: 'offered', name: 'a', description: 'available' })]}
+        />
+      )
+
+      expect(container.textContent).not.toContain('Skill')
+    })
+
+    test('the chips stand down once the answer lands — the disclosure owns the post-hoc claim', () => {
+      // `SkillsUsedDisclosure` sits under the finished answer and reports the
+      // same activations with their descriptions. One fact, one owner.
+      render(
+        <ChatThinking
+          isThinking={false}
+          defaultOpen
+          steps={[
+            skillStep('oib-brandschutz', {
+              phase: 'loaded',
+              name: 'oib-brandschutz',
+              title: 'Brandschutznachweis',
+            }),
+          ]}
+        />
+      )
+
+      expect(screen.queryByText('Skill: Brandschutznachweis')).not.toBeInTheDocument()
     })
   })
 

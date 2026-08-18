@@ -13,7 +13,7 @@
 import { notFound } from 'next/navigation'
 import { HardDrive } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { PlatformStorageTable } from '../../app/platform/storage-table'
+import { PlatformStorageTable } from '../../app/(shell)/platform/storage-table'
 
 const GB = 1e9
 

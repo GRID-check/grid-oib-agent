@@ -48,6 +48,7 @@
 import { type FC, useState } from 'react'
 import { User, Copy, Check } from 'lucide-react'
 import { toast } from 'sonner'
+import { SectionLabel } from '@/components/ui/section-label'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLocale, useTranslations } from '@/i18n'
@@ -134,21 +135,24 @@ export const UserMessage: FC<UserMessageProps> = ({
   // ── Solo thread: today's rendering, untouched ───────────────────────────────
   if (!author) {
     return (
-      <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col items-end duration-200 ease-out motion-reduce:animate-none">
+      <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col items-end duration-base ease-entrance motion-reduce:animate-none">
         {/* "Eingabe" role tab — uppercase 10.5/600, inset from the bubble edge */}
-        <div className="mr-[14px] inline-flex items-center gap-1.5 rounded-t-[7px] bg-accent px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+        <SectionLabel as="div" className="mr-[14px] inline-flex items-center gap-1.5 rounded-t-md bg-accent px-2.5 py-1">
           <User className="size-2.5" aria-hidden="true" />
           {t('roles.input')}
-        </div>
+        </SectionLabel>
 
         {/* Bubble — width 400, asymmetric corners, hairline border, trace shadow */}
-        <div className="group relative w-[400px] max-w-full rounded-[12px_4px_12px_12px] border border-input bg-card px-[14px] py-[11px] text-[13.5px] leading-[1.55] text-default shadow-xs">
+        {/* Three corners are the token radius; the 4px top-right is the
+            bubble's tail-side notch — the one deliberate value, and what makes
+            an input bubble identifiable at a glance. */}
+        <div className="group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs">
           {body}
           <button
             type="button"
             onClick={() => void handleCopyMessage()}
             aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
-            className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out motion-reduce:transition-none absolute top-2 right-2 p-1.5 rounded-md bg-accent/80 hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="opacity-0 group-hover:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none absolute top-2 right-2 p-1.5 rounded-md bg-muted hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             {copied ? (
               <Check className="size-4" aria-hidden="true" />
@@ -171,7 +175,7 @@ export const UserMessage: FC<UserMessageProps> = ({
   return (
     <div
       className={cn(
-        'animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col items-end duration-200 ease-out motion-reduce:animate-none',
+        'animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col items-end duration-base ease-entrance motion-reduce:animate-none',
         // Rhythm carries the run: a grouped follow-up tucks up under its
         // predecessor, a new speaker gets a little more air than the thread's
         // default gap. That contrast is what replaces side-switching.
@@ -193,14 +197,16 @@ export const UserMessage: FC<UserMessageProps> = ({
         className={cn(
           // Identical for every human, yours and a colleague's alike: the header
           // says who is speaking, the layout says "a person is asking Piloti".
-          'group relative w-[400px] max-w-full rounded-[12px_4px_12px_12px] border border-input bg-card',
-          'px-[14px] py-[11px] text-[13.5px] leading-[1.55] text-default shadow-xs',
+          // Three corners are the token radius; the 4px top-right is the
+          // bubble's tail-side notch — the one deliberate value.
+          'group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card',
+          'px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs',
           // A grouped follow-up squares off the corner that pointed at the header
           // it no longer draws, so a run reads as one block of speech. It stays
           // flush with the bubble above — the header sits over the bubble here, not
           // in a left gutter, so indenting would break the column instead of
           // forming it.
-          grouped ? 'rounded-[12px]' : ''
+          grouped ? 'rounded-tr-lg' : ''
         )}
       >
         {body}
@@ -208,7 +214,7 @@ export const UserMessage: FC<UserMessageProps> = ({
           type="button"
           onClick={() => void handleCopyMessage()}
           aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
-          className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2 p-1.5 rounded-md bg-accent/80 hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="opacity-0 group-hover:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none absolute top-2 right-2 p-1.5 rounded-md bg-muted hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           {copied ? (
             <Check className="size-4" aria-hidden="true" />

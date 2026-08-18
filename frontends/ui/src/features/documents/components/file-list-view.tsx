@@ -99,7 +99,7 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                 name and status. Pages, size and date are reference columns. */}
             <TableHead
               scope="col"
-              className="hidden h-auto w-[76px] px-2 py-1.5 text-right text-[10.5px] font-semibold tracking-[0.05em] lg:table-cell"
+              className="hidden h-auto w-[76px] px-2 py-1.5 text-right text-[10.5px] font-medium tracking-wider lg:table-cell"
             >
               {t('list.columns.pages')}
             </TableHead>
@@ -139,8 +139,8 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                 onKeyDown={(event) => handleKeyDown(event, index)}
                 className={cn(
                   'cursor-pointer focus-visible:outline-none',
-                  'transition-colors duration-150 ease-out motion-reduce:transition-none',
-                  isSelected ? 'bg-accent hover:bg-accent data-[state=selected]:bg-accent' : 'hover:bg-muted/60',
+                  'transition-colors duration-snap ease-out motion-reduce:transition-none',
+                  isSelected ? 'bg-accent hover:bg-accent data-[state=selected]:bg-accent' : 'hover:bg-muted',
                   'focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
                 )}
               >
@@ -148,14 +148,17 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                   <div className="flex min-h-8 min-w-0 items-center gap-2.5">
                     <span
                       aria-hidden
-                      className="flex size-6 shrink-0 items-center justify-center rounded text-[8.5px] font-bold uppercase leading-none"
+                      // 8.5px is load-bearing and stays: this glyph holds a four-letter
+                      // extension ("DOCX") inside a 24px square, and the ramp's next
+                      // step overflows it.
+                      className="flex size-6 shrink-0 items-center justify-center rounded-sm text-[8.5px] font-bold uppercase leading-none"
                       style={extChipTint(ext)}
                     >
                       {ext || '—'}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span
-                        className="block truncate text-[12.5px] font-medium leading-[1.4] text-foreground"
+                        className="block truncate text-xs font-medium leading-[1.4] text-foreground"
                         title={documentDisplayName(file)}
                       >
                         {documentDisplayName(file)}
@@ -165,7 +168,7 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                           one doubles the information without doubling the
                           scroll the way a taller card would. */}
                       {file.summary && (
-                        <span className="block truncate text-[11px] leading-tight text-muted-foreground">
+                        <span className="block truncate text-xs leading-tight text-muted-foreground">
                           {file.summary}
                         </span>
                       )}
@@ -173,11 +176,11 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                   </div>
                 </TableCell>
                 <TableCell className={CELL}>
-                  {file.status && <DocumentStatusBadge status={file.status} className="text-[10px]" />}
+                  {file.status && <DocumentStatusBadge status={file.status} />}
                 </TableCell>
                 <TableCell
                   className={cn(
-                    'hidden whitespace-nowrap text-right text-[11.5px] text-muted-foreground tabular-nums lg:table-cell',
+                    'hidden whitespace-nowrap text-right text-xs text-muted-foreground tabular-nums lg:table-cell',
                     CELL
                   )}
                 >
@@ -185,7 +188,7 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                 </TableCell>
                 <TableCell
                   className={cn(
-                    'hidden whitespace-nowrap text-right text-[11.5px] text-muted-foreground tabular-nums sm:table-cell',
+                    'hidden whitespace-nowrap text-right text-xs text-muted-foreground tabular-nums sm:table-cell',
                     CELL
                   )}
                 >
@@ -193,7 +196,7 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                 </TableCell>
                 <TableCell
                   className={cn(
-                    'hidden whitespace-nowrap text-right text-[11.5px] text-muted-foreground tabular-nums md:table-cell',
+                    'hidden whitespace-nowrap text-right text-xs text-muted-foreground tabular-nums md:table-cell',
                     CELL
                   )}
                 >
@@ -257,7 +260,7 @@ function SortHeader({
         type="button"
         onClick={() => onSort(nextSort(sort, column))}
         className={cn(
-          'flex w-full items-center gap-1 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 motion-reduce:transition-none',
+          'flex w-full items-center gap-1 px-2 py-1.5 text-[10.5px] font-medium uppercase tracking-wider transition-colors duration-snap ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 motion-reduce:transition-none',
           align === 'right' && 'justify-end',
           isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
         )}
@@ -267,7 +270,7 @@ function SortHeader({
             does not shift the row it lives in. */}
         <Arrow
           className={cn(
-            'size-3 shrink-0 transition-opacity duration-150 ease-out motion-reduce:transition-none',
+            'size-3 shrink-0 transition-opacity duration-snap ease-out motion-reduce:transition-none',
             isActive ? 'opacity-100' : 'opacity-0'
           )}
           aria-hidden

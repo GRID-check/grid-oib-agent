@@ -321,6 +321,82 @@
   --border-color-feedback-info: oklch(0.711 0.125 266 / 60%);
 }
 
+/* =============================================================================
+   Motion — the timing half of the design language.
+
+   One vocabulary of movement, same as there is one ink ramp. Before this block
+   the app had ELEVEN distinct interaction durations spread across Tailwind
+   classes, framer props and inline CSS — and 199 of the 245 uses were already
+   `duration-200`. So these tokens mostly NAME what was already true and give
+   the other 46 somewhere to land.
+
+   Motion has no light/dark variant, so these live in their own :root block
+   rather than being duplicated into the two palettes.
+
+   | token            | value  | what it is for                                  |
+   |------------------|--------|-------------------------------------------------|
+   | snap             |  120ms | a control acknowledging a press or a toggle      |
+   |                  |        | flipping. Under ~150ms the eye reads "instant    |
+   |                  |        | feedback", not "travel".                         |
+   | quick            |  180ms | a small local change: chip in, icon swap, a row  |
+   |                  |        | revealing its actions.                           |
+   | base             |  240ms | THE DEFAULT. Transcript entrances, accordion     |
+   |                  |        | heights, hover-to-open surfaces. If you are      |
+   |                  |        | unsure, it is this one.                          |
+   | deliberate       |  320ms | a large surface arriving (drawer, dialog, sheet).|
+   |                  |        | Long travel at 240ms reads as yanked.            |
+   | ambient          | 1600ms | looping background motion (skeleton pulse).      |
+   | ambient-slow     | 2600ms | the slowest loop (text shimmer) — slow enough to |
+   |                  |        | read as breathing rather than as a progress bar  |
+   |                  |        | making a claim about how long something takes.   |
+
+   Nothing above 320ms is an INTERACTION duration: the two ambient values are
+   for things that loop, and a loop is not a response.
+   ============================================================================= */
+:root {
+  --motion-snap: 120ms;
+  --motion-quick: 180ms;
+  --motion-base: 240ms;
+  --motion-deliberate: 320ms;
+  --motion-ambient: 1600ms;
+  --motion-ambient-slow: 2600ms;
+}
+
+/* Easings.
+
+   These sit in `@theme static` rather than the `:root` + `@theme inline` pair
+   every other token here uses, and the reason is mechanical: `--ease-*` IS
+   Tailwind v4's easing namespace, so the usual `--ease-entrance:
+   var(--ease-entrance)` mapping would be a self-reference. `static` gets both
+   halves at once — it generates the `ease-entrance` / `ease-exit` /
+   `ease-cycle` utilities AND emits the custom properties on :root, so
+   hand-written CSS (keyframes, @utility blocks below in globals.css) can say
+   `var(--ease-entrance)` too. Theme variables are otherwise tree-shaken unless
+   some utility happens to pull them in, which is not a dependency a keyframe
+   should have.
+
+   --ease-out restates Tailwind's own default with the identical value, for that
+   same reason: the token is then guaranteed present for raw CSS.
+
+   out       the workhorse. Fast off the mark, settling into place. Anything
+             responding to a pointer.
+   entrance  for things ARRIVING. Note the ease-OUT shape: the previous
+             `easeQuiet` was cubic-bezier(0.25, 0.1, 0.25, 1), which is CSS's
+             default `ease` — it ramps IN, so entrances started slowly and the
+             element appeared to hesitate before committing. An arrival should
+             be decided at the start and gentle at the end, never the reverse.
+   exit      for things LEAVING. The mirror: gentle start, accelerating away.
+             A dismissal that decelerates looks reluctant.
+   cycle     symmetric in/out, for loops and shuttles where neither end is an
+             arrival (shimmer sweeps, indeterminate progress).
+   ============================================================================= */
+@theme static {
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-cycle: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
 /* Expose the shadcn vars as Tailwind theme colors (bg-background, text-primary
    is taken by a legacy utility — shadcn primitives use bg-primary/text-foreground
    etc. via these mappings). The provenance signal vars are mapped too, so
@@ -398,6 +474,20 @@
   --shadow-md: var(--elevation-md);
   --shadow-lg: var(--elevation-lg);
   --shadow-xl: var(--elevation-lg);
+
+  /* motion durations → `duration-snap`, `duration-quick`, `duration-base`,
+     `duration-deliberate`, `duration-ambient`, `duration-ambient-slow`.
+     Tailwind v4 resolves the `duration-*` utility against the
+     --transition-duration-* namespace; `inline` keeps each utility pointing at
+     the --motion-* token, so a timing number is still written in exactly one
+     place. Bare numeric durations (`duration-200`) keep working — Tailwind
+     falls back to them when no theme key matches. */
+  --transition-duration-snap: var(--motion-snap);
+  --transition-duration-quick: var(--motion-quick);
+  --transition-duration-base: var(--motion-base);
+  --transition-duration-deliberate: var(--motion-deliberate);
+  --transition-duration-ambient: var(--motion-ambient);
+  --transition-duration-ambient-slow: var(--motion-ambient-slow);
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, 'SF Mono', 'Cascadia Code', monospace;

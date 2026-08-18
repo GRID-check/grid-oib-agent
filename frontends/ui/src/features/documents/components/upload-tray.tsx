@@ -14,7 +14,7 @@ import {
 import { useElapsedSeconds, useTransferRate } from '../hooks/use-transfer-rate'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { Button } from '@/components/ui/button'
-import { AnimatePresence, motion, springGentle } from '@/components/motion'
+import { AnimatePresence, motion, motionBase, springSnap } from '@/components/motion'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatBytes, formatDurationShort, formatTransferRate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -131,10 +131,10 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
           {/* Polite, not assertive: the phase changes two or three times per
               batch and each one is worth hearing, but the byte counter beneath
               it updates every second and must never be announced. */}
-          <p aria-live="polite" className="truncate text-[13px] font-medium leading-tight text-foreground">
+          <p aria-live="polite" className="truncate text-sm font-medium leading-tight text-foreground">
             {headline}
           </p>
-          <p aria-hidden className="truncate text-[11.5px] leading-tight text-muted-foreground tabular-nums">
+          <p aria-hidden className="truncate text-xs leading-tight text-muted-foreground tabular-nums">
             {detail}
           </p>
         </button>
@@ -168,7 +168,13 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
           aria-label={isExpanded ? t('uploads.actions.collapse') : t('uploads.actions.expand')}
           className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:size-11"
         >
-          <ChevronDown className={cn('size-4 transition-transform', isExpanded && 'rotate-180')} aria-hidden />
+          <ChevronDown
+            className={cn(
+              'size-4 transition-transform duration-quick ease-out motion-reduce:transition-none',
+              isExpanded && 'rotate-180'
+            )}
+            aria-hidden
+          />
         </button>
       </div>
 
@@ -187,7 +193,11 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={springGentle}
+            // A tween, not a spring: this is an accordion height, and a spring
+            // on a layout property overshoots PAST `auto` and clips the last
+            // row on the way in. `grid-design-language.md` §"Fixed
+            // choreography" puts height changes on `--motion-base`.
+            transition={motionBase}
             className="max-h-[42dvh] overflow-y-auto overscroll-contain"
           >
             {visible.map((file) => (
@@ -254,7 +264,10 @@ function TrayGlyph({ summary }: { summary: TransferSummary }) {
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeDasharray={`${filled} ${circumference}`}
-        className="stroke-primary transition-[stroke-dasharray] duration-500 ease-out"
+        // `duration-deliberate` is the ceiling of the motion scale; the 500ms
+        // this replaces was off it entirely, so the ring still lagged visibly
+        // behind the byte count beside it.
+        className="stroke-primary transition-[stroke-dasharray] duration-deliberate ease-out motion-reduce:transition-none"
       />
     </svg>
   )
@@ -296,8 +309,15 @@ function TrackBar({
         <span className="animate-progress-sweep block h-full w-1/3 rounded-full bg-primary/60" />
       ) : (
         <span
-          className="block h-full rounded-r-full bg-primary transition-[width] duration-300 ease-out"
-          style={{ width: `${percent}%` }}
+          // `scaleX` from the left edge, NOT `width`. This bar re-renders on
+          // every progress event — a `transition-[width]` here asked the
+          // browser to re-lay-out the tray on each tick for the whole life of
+          // an upload, which is the one thing
+          // `grid-design-language.md` §"Binding constraints" rules out
+          // ("transform and opacity only"). At 3px tall the `rounded-r`
+          // cap's horizontal squash under the scale is sub-pixel.
+          className="block h-full w-full origin-left rounded-r-full bg-primary transition-transform duration-quick ease-out motion-reduce:transition-none"
+          style={{ transform: `scaleX(${percent / 100})` }}
         />
       )}
     </div>
@@ -330,7 +350,12 @@ function UploadRow({
       layout
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={springGentle}
+      // A dropped file LANDING is one of the three cases that earn a spring:
+      // continuation of the gesture the user made a moment ago, over 4px —
+      // well inside `springSnap`'s 24px travel ceiling. `springDrawer` (via
+      // the legacy `springGentle` alias) was the large-surface spring, too
+      // slow to read as the file arriving.
+      transition={springSnap}
       data-testid="upload-row"
       data-phase={phase}
       className="border-t px-4 py-2 first:border-t-0"
@@ -340,23 +365,25 @@ function UploadRow({
             document looks like itself from the second it is dropped. */}
         <span
           aria-hidden
-          className="flex size-6 shrink-0 items-center justify-center rounded text-[8.5px] font-bold uppercase leading-none"
+          // 8.5px is load-bearing and stays — a four-letter extension has to fit
+          // inside a 24px square; see file-list-view.
+          className="flex size-6 shrink-0 items-center justify-center rounded-sm text-[8.5px] font-bold uppercase leading-none"
           style={extChipTint(ext)}
         >
           {ext || '—'}
         </span>
 
-        <p className="min-w-0 flex-1 truncate text-[12.5px] text-foreground" title={file.fileName}>
+        <p className="min-w-0 flex-1 truncate text-xs text-foreground" title={file.fileName}>
           {file.fileName}
         </p>
 
-        <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {formatBytes(file.fileSize, locale)}
         </span>
 
         <span
           className={cn(
-            'w-[68px] shrink-0 text-right text-[11px] font-medium tabular-nums',
+            'w-[68px] shrink-0 text-right text-xs font-medium tabular-nums',
             phase === 'ready' && 'text-success',
             isFailed && 'text-destructive',
             phase !== 'ready' && !isFailed && 'text-muted-foreground',
@@ -393,7 +420,7 @@ function UploadRow({
       )}
 
       {isFailed && file.errorMessage && (
-        <p className="mt-1 pl-[34px] text-[11px] leading-snug text-destructive">{file.errorMessage}</p>
+        <p className="mt-1 pl-[34px] text-xs leading-snug text-destructive">{file.errorMessage}</p>
       )}
     </motion.li>
   )

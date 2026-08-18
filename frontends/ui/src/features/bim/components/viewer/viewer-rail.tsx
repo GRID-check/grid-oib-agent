@@ -42,7 +42,7 @@ export function ViewerRail({ children, className }: ViewerRailProps): JSX.Elemen
         // The fade says "there is more" without a scrollbar. A hard cut across
         // a half-height row reads as a rendering fault; a fade reads as a list.
         'scroll-fade-bottom flex max-h-[calc(100%-1.5rem)] w-52 flex-col overflow-y-auto overscroll-contain',
-        'animate-in fade-in-0 slide-in-from-left-2 duration-200 ease-out motion-reduce:animate-none',
+        'animate-in fade-in-0 slide-in-from-left-2 duration-base ease-entrance motion-reduce:animate-none',
         className
       )}
     >
@@ -86,7 +86,7 @@ export function ViewerRailSection({ label, action, children }: ViewerRailSection
           reference this design follows labels the same thing "Models" and
           "Layers", quietly.
         */}
-        <h3 className="text-muted-foreground text-[11px] font-semibold tracking-wide">{label}</h3>
+        <h3 className="text-muted-foreground text-xs font-semibold tracking-wide">{label}</h3>
         {action}
       </div>
       <div className="px-1.5 pb-2">{children}</div>
@@ -140,23 +140,25 @@ export function ViewerRailItem({
       title={label}
       data-testid={rest['data-testid']}
       className={cn(
-        'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] font-medium',
+        'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm font-medium',
         // Weight is stable: toggling `font-medium` on the selected row reflows
         // the truncated name. Colour + fill already say which row is on.
-        'transition-colors duration-200 ease-out',
+        'transition-colors duration-quick ease-out',
         'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
-        // `min-h-11` as well as the padding: 20 px of padding on a 13 px line
+        // `min-h-11` as well as the padding: 20 px of padding on a 14 px line
         // comes to ~38 px, six short of the floor the repo asserts in
         // `touch-target.spec.ts`. A level list on a forty-storey model is
         // exactly where a mis-tap costs the reader the wrong isolation.
         'pointer-coarse:min-h-11 pointer-coarse:py-2.5',
-        selected ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+        // Hover sits one step BELOW selected on the surface ladder (`muted` <
+        // `accent`), which is what keeps them distinguishable without an alpha.
+        selected ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
         disabled && 'pointer-events-none opacity-50'
       )}
     >
       {icon && <span className="shrink-0 [&_svg]:size-3.5">{icon}</span>}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {meta && <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{meta}</span>}
+      {meta && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{meta}</span>}
     </button>
   )
 }

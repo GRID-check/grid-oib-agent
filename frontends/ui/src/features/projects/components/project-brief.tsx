@@ -106,7 +106,7 @@ export function ProjectBrief({
           {canEdit && (
             <Link
               href={intakeHref}
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground touch-target motion-reduce:transition-none"
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors duration-quick ease-out hover:text-foreground touch-target motion-reduce:transition-none"
             >
               <PencilLine className="size-3.5" aria-hidden />
               {t('overview.brief.edit')}
@@ -174,7 +174,7 @@ export function ProjectBrief({
         ) : (
           <p className="mt-3 text-sm text-muted-foreground">
             {t('overview.brief.startedNoDetailsBefore')}
-            <Link href={intakeHref} className="font-medium text-foreground underline-offset-4 transition-colors duration-200 ease-out hover:underline motion-reduce:transition-none">
+            <Link href={intakeHref} className="font-medium text-foreground underline-offset-4 transition-colors duration-quick ease-out hover:underline motion-reduce:transition-none">
               {t('overview.brief.completeBrief')}
             </Link>
             {t('overview.brief.startedNoDetailsAfter')}
@@ -316,7 +316,7 @@ function SummaryControl({
         type="button"
         onClick={() => void generate()}
         disabled={pending}
-        className="mt-2 inline-flex min-w-36 items-center gap-1 text-xs text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground disabled:opacity-60 touch-target motion-reduce:transition-none"
+        className="mt-2 inline-flex min-w-36 items-center gap-1 text-xs text-muted-foreground transition-colors duration-quick ease-out hover:text-foreground disabled:opacity-60 touch-target motion-reduce:transition-none"
       >
         <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
           {pending ? (

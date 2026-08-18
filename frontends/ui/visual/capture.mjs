@@ -309,6 +309,20 @@ async function captureVariant(browser, baseUrl, target, variant) {
     // navigation itself only has to reach DOMContentLoaded — `networkidle` would
     // additionally sit through a 500ms quiet window on every single load.
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120_000 })
+    // Hide Next's dev-tools indicator. The harness runs `next dev` (the /dev
+    // preview routes 404 in a production build), so every shot otherwise carries
+    // a floating badge pinned to the bottom-left corner — which is exactly where
+    // the app rail's footer sits. It has already been mistaken for a rendering
+    // defect in the product; it is not part of any surface under review.
+    // `addStyleTag` rather than a config flag so the product's own dev
+    // experience is untouched.
+    await page.addStyleTag({
+      content: `
+        nextjs-portal,
+        [data-nextjs-dev-tools-button],
+        [data-nextjs-toast] { display: none !important; }
+      `,
+    })
     await applyTheme(page, THEMES[0])
     if (target.waitFor) {
       // Two-phase on purpose. Presence is the real gate; visibility is only

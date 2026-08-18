@@ -86,7 +86,7 @@ export function ProjectSettings({
         <ProjectSectionActions>
           <Link
             href={`/app/projects/${data.id}/knowledge`}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground touch-target motion-reduce:transition-none"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors duration-quick ease-out hover:text-foreground touch-target motion-reduce:transition-none"
           >
             <BookOpenCheck className="size-4" aria-hidden />
             {t('project.knowledgeLink')}

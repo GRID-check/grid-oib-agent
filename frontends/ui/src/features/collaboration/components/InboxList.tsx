@@ -142,7 +142,7 @@ export function InboxList({
       {mutationError && (
         <Alert
           variant="destructive"
-          className="animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none"
+          className="animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none"
         >
           <AlertCircle />
           <AlertTitle className="line-clamp-none">{t('inbox.errors.actionFailed')}</AlertTitle>

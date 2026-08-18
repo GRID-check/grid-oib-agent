@@ -8,6 +8,12 @@
  * but are not used for UI display in the current ChatThinking component.
  */
 
+import {
+  isSkillSelectionStepName,
+  isSkillStepName,
+  skillNameFromStepName,
+} from '@/features/skills/lib/skill-activity'
+import { isStatusStepName } from './turn-events'
 import type { IntermediateStepCategory } from '../types'
 
 /**
@@ -24,6 +30,11 @@ const CATEGORY_MAP: Record<string, IntermediateStepCategory> = {
   chat_deepresearcher_agent: 'agents',
   web_search_tool: 'tools',
   tavily_search: 'tools',
+  // The agent's skill machinery: `use_skill` is a real LangChain tool, and the
+  // narration steps around it describe the same capability, so they file under
+  // the same category rather than inventing a fourth one.
+  use_skill: 'tools',
+  skill_selection: 'tools',
 }
 
 /**
@@ -80,6 +91,11 @@ export const parseFunctionName = (name: string): ParsedFunctionName => {
  * @returns The category for data organization
  */
 export const mapFunctionToCategory = (functionName: string): IntermediateStepCategory => {
+  // Names that carry a variable suffix (`skill:<skillname>`,
+  // `status:retrieval:<n>`) cannot be map keys.
+  if (isSkillStepName(functionName)) return 'tools'
+  // A status one-liner is about the TURN, not about an agent or a tool.
+  if (isStatusStepName(functionName)) return 'tasks'
   return CATEGORY_MAP[functionName] ?? DEFAULT_CATEGORY
 }
 
@@ -131,6 +147,25 @@ export const getWorkflowDisplayName = (functionName: string): string => {
  * @returns Human-readable name (e.g., "Web Search Tool", "Workflow", "Nemotron 3 Nano 30B")
  */
 export const getDisplayName = (functionName: string): string => {
+  // A skill name is an IDENTIFIER, not prose. `skill:oib-brandschutz` must read
+  // "oib-brandschutz" and never "Oib Brandschutz" — the snake_case→Title Case
+  // path below would mangle it, which is the same class of mistake that made
+  // `use_skill` render as the English "Use Skill" in a German UI. The
+  // user-facing labels come from `features/skills/lib/skill-activity`; this is
+  // only the technical-steps fallback, and even there the raw name is right.
+  if (isSkillStepName(functionName)) {
+    return skillNameFromStepName(functionName) ?? functionName.trim()
+  }
+  if (isSkillSelectionStepName(functionName)) {
+    return 'Skill selection'
+  }
+  // Status slots are identifiers too (`status:retrieval:0`). Title-casing one
+  // produces "Status:retrieval:0", which is neither the identifier nor a name.
+  // The reader-facing wording is the payload's own German sentence, rendered on
+  // the live line; here — the opt-in technical panel — the raw slot is right.
+  if (isStatusStepName(functionName)) {
+    return functionName.trim()
+  }
   if (functionName === 'chat_deepresearcher_agent') {
     return 'Chat Researcher'
   }

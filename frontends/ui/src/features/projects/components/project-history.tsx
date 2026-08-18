@@ -318,7 +318,7 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                               {formatRelativeTime(conversation.updatedAt, locale)}
                             </span>
                             <ChevronRight
-                              className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                              className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-quick ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
                               aria-hidden
                             />
                           </ItemActions>

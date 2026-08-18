@@ -232,7 +232,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                       : isActive
                         ? t('researchRuns.viewProgress')
                         : tr('runsList.viewThinking')}
-                    <ArrowRight className="transition-transform duration-200 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" />
+                    <ArrowRight className="transition-transform duration-quick ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" />
                   </Link>
                 </Button>
               ) : (

@@ -17,7 +17,7 @@
 import { notFound } from 'next/navigation'
 import { HardDrive } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { StorageUsageCard } from '../../app/organization/storage-usage-card'
+import { StorageUsageCard } from '../../app/(shell)/organization/storage-usage-card'
 
 const GB = 1e9
 

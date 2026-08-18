@@ -51,6 +51,27 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="passage-mark"]',
   },
   {
+    id: 'app-rail',
+    path: '/dev/app-rail',
+    description:
+      'The expanded 236px project rail on its own — brand row and collapse control, the grouped nav (work / automate / organisation) with its separators, and the footer stack of Settings, connection presence and the user tile. Every gated entry is on, so the column is at full height and competes for vertical space the way it does for a real member.',
+    waitFor: '[data-testid="app-rail-preview"]',
+  },
+  {
+    id: 'app-rail-collapsed',
+    path: '/dev/app-rail?variant=collapsed',
+    description:
+      'The 64px icon rail — the rail\'s OTHER layout, not a narrower one: labels go sr-only, group labels unmount, tiles become square hit areas. Captures what previously had no visual evidence at all, so the icon column\'s horizontal alignment against the brand mark, the group separation, and the footer\'s bottom edge (Settings, presence dot, avatar) are all reviewable.',
+    waitFor: '[data-testid="app-rail-preview"]',
+  },
+  {
+    id: 'app-shell-scopes',
+    path: '/dev/app-shell-scopes',
+    description:
+      'The persistent rail in BOTH scopes, side by side — project scope (switcher, project sections, pinned Settings) against org scope (a "Zurück zu <project>" control from the return trail, the org destinations, no Settings row) on a distinct surface tint. The comparison is the evidence: the top edge, the 36px context slot, the group rhythm, the footer edge and the 236px width line up across the seam, so stepping out of a project changes the contents and moves nothing.',
+    waitFor: '[data-testid="app-shell-scopes-preview"]',
+  },
+  {
     id: 'sessions',
     mobile: true,
     path: '/dev/sessions',

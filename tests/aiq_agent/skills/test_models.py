@@ -6,10 +6,12 @@ import pytest
 
 from aiq_agent.skills.models import GRID_METADATA_KEYS
 from aiq_agent.skills.models import MAX_DESCRIPTION_CHARS
+from aiq_agent.skills.models import MAX_TITLE_CHARS
 from aiq_agent.skills.models import SkillValidationError
 from aiq_agent.skills.models import build_skill_from_payload
 from aiq_agent.skills.models import parse_skill_md
 from aiq_agent.skills.models import preferred_cards
+from aiq_agent.skills.models import skill_title
 
 VALID_MD = """---
 name: forecast-analysis
@@ -174,14 +176,68 @@ def test_build_skill_from_payload_rejects_garbage() -> None:
 
 
 def test_reserved_key_registry() -> None:
-    """Two reserved keys, and neither one says anything about when a skill runs.
+    """Three reserved keys, and none of them says when a skill runs.
 
     ``grid-execution`` and ``grid-schedulable`` were removed outright when
     scheduling became a property of the job.
     """
-    assert GRID_METADATA_KEYS == {"grid-agents", "grid-cards"}
+    assert GRID_METADATA_KEYS == {"grid-agents", "grid-cards", "grid-title"}
     assert "grid-execution" not in GRID_METADATA_KEYS
     assert "grid-schedulable" not in GRID_METADATA_KEYS
+
+
+def _with_title(value: str) -> str:
+    return VALID_MD.replace("  grid-agents: shallow_researcher", f"  grid-title: {value}")
+
+
+def test_grid_title_is_the_human_name() -> None:
+    skill = parse_skill_md(_with_title("Prognose Baurecht"))
+    assert skill_title(skill) == "Prognose Baurecht"
+
+
+def test_absent_title_is_absent_and_never_synthesised_from_the_id() -> None:
+    """No title means no title — the id is a routing key, not a label."""
+    skill = parse_skill_md(VALID_MD)
+    assert skill_title(skill) is None
+
+
+def test_over_long_title_is_a_strict_error_for_a_file_skill() -> None:
+    with pytest.raises(SkillValidationError, match="grid-title"):
+        parse_skill_md(_with_title("A" * (MAX_TITLE_CHARS + 1)))
+
+
+def test_title_with_a_tag_is_a_strict_error() -> None:
+    with pytest.raises(SkillValidationError, match="grid-title"):
+        parse_skill_md(_with_title('"Prognose <b>Baurecht</b>"'))
+
+
+def test_org_row_drops_a_bad_title_instead_of_dying() -> None:
+    """A tenant's over-long title costs them the title, never the whole skill."""
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-title": "B" * (MAX_TITLE_CHARS + 1), "grid-agents": "shallow_researcher"},
+        },
+        origin="org",
+    )
+    assert "grid-title" not in skill.metadata
+    assert skill.metadata["grid-agents"] == "shallow_researcher"
+    assert skill_title(skill) is None
+
+
+def test_org_row_keeps_a_good_title() -> None:
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-title": "  Brandschutznachweis  "},
+        },
+        origin="org",
+    )
+    assert skill_title(skill) == "Brandschutznachweis"
 
 
 def _with_cards(value: str) -> str:

@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { sourceSignalStyle } from '@/features/layout/components/SourceSignalChip'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
+import { SectionLabel } from '@/components/ui/section-label'
 import { AuthorityTag } from '../AuthorityTag'
 import { KIND_TO_SIGNAL } from '../../lib/source-kinds'
 import {
@@ -75,8 +76,8 @@ export const SourceCard: FC<{
   return (
     <div role="listitem" data-source-card className="flex min-w-0 flex-col">
       {/* Folder tab — tinted, uppercase, seated on the card's top-left. */}
-      <span
-        className="ml-2.5 inline-flex max-w-[calc(100%-0.625rem)] items-center gap-1 self-start rounded-t-[7px] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em]"
+      <SectionLabel
+        className="ml-2.5 inline-flex max-w-[calc(100%-0.625rem)] items-center gap-1 self-start rounded-t-md px-2 py-1"
         style={{ backgroundColor: tint.backgroundColor, color: tint.color }}
       >
         {/* The glyph is dropped when a badge is shown: at column width the tab
@@ -93,14 +94,14 @@ export const SourceCard: FC<{
         )}
         {showAuthority && <AuthorityTag>{doc.authority}</AuthorityTag>}
         <span className="truncate">{tabLabel}</span>
-      </span>
+      </SectionLabel>
 
       {/* Card body — neutral hairline card. A document that was read but never
           cited sits back visually (dashed hairline, muted ink) so it never
           reads as grounding the answer did not actually use. */}
       <div
         className={cn(
-          'min-w-0 flex-1 rounded-[10px] border bg-card px-3 py-2.5 shadow-xs',
+          'min-w-0 flex-1 rounded-lg border bg-card px-3 py-2.5 shadow-xs',
           // Only set a document back once the verdict is real. While the turn
           // streams nothing has been cited yet, so dimming would grey out every
           // source the answer is about to lean on.
@@ -125,14 +126,14 @@ export const SourceCard: FC<{
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span
             className={cn(
-              'inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-medium',
+              'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
               used ? 'bg-secondary tabular-nums text-muted-foreground' : 'bg-muted text-muted-foreground'
             )}
           >
             {hitsText}
           </span>
           {pages.length > 0 && (
-            <span className="text-[10.5px] tabular-nums text-muted-foreground">
+            <span className="text-xs tabular-nums text-muted-foreground">
               {t('answerSources.pages', { pages: pages.join(', ') })}
             </span>
           )}
@@ -142,7 +143,7 @@ export const SourceCard: FC<{
               backend never resolved shows neither: claiming "not used" there
               would be a statement about the ANSWER made from a missing number. */}
           {numbers.length > 0 && (
-            <span className="text-[10.5px] font-semibold tabular-nums text-muted-foreground">
+            <span className="text-xs font-semibold tabular-nums text-muted-foreground">
               {numbers.map((n) => `[${n}]`).join(' ')}
             </span>
           )}
@@ -152,7 +153,7 @@ export const SourceCard: FC<{
               the ones about to be cited a second later. Withheld until the
               turn lands. */}
           {!used && !live && (
-            <span className="text-[10.5px] italic text-muted-foreground/80">
+            <span className="text-xs italic text-muted-foreground/80">
               {t('thinking.readNotUsed')}
             </span>
           )}

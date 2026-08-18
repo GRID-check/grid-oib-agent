@@ -353,7 +353,7 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
           className={cn(
             // The WHOLE row is the highlight — 12px radius, full-bleed inside the
             // list padding — which is what makes selection legible at a glance.
-            'items-center gap-3 rounded-lg px-2.5 py-2 transition-colors duration-150 ease-out motion-reduce:transition-none',
+            'items-center gap-3 rounded-lg px-2.5 py-2 transition-colors duration-snap ease-out motion-reduce:transition-none',
             'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
             blocked && 'opacity-55',
           )}
@@ -412,7 +412,7 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
         data-testid="mention-picker"
         className={cn(
           'bg-popover text-popover-foreground flex max-h-[320px] w-full flex-col overflow-hidden rounded-xl border shadow-lg',
-          'animate-in fade-in-0 slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none',
+          'animate-in fade-in-0 slide-in-from-bottom-1 duration-snap ease-out motion-reduce:animate-none',
           className,
         )}
       >
@@ -497,7 +497,7 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
         {/* Footer: outside the scroll container on purpose — the hint has to stay
             visible while the list scrolls. */}
         <div
-          className="flex shrink-0 items-center gap-2 border-t bg-muted/40 px-3 py-2"
+          className="flex shrink-0 items-center gap-2 border-t bg-muted px-3 py-2"
           aria-label={t('mentions.picker.keyboardHint')}
         >
           <AtSign className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />

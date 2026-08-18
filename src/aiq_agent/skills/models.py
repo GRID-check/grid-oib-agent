@@ -7,7 +7,8 @@ The agentskills.io format contract:
 - ``license``: optional free-form string.
 - ``compatibility``: optional, at most 500 chars.
 - ``metadata``: map of strings; reserved GRID keys are validated
-  (``grid-cards`` must name known, non-system Grid card types).
+  (``grid-cards`` must name known, non-system Grid card types; ``grid-title``
+  is a short human display name).
 - ``allowed-tools``: optional free-form string (tool-level allowlist).
 - Body: markdown; <500 lines recommended, not enforced.
 
@@ -48,7 +49,7 @@ MAX_COMPATIBILITY_CHARS = 500
 #: all. Both keys are simply unreserved: a stored org row or an old SKILL.md
 #: still carrying one keeps it as an ordinary free-form metadata entry, and
 #: nothing reads it.
-GRID_METADATA_KEYS = frozenset({"grid-agents", "grid-cards"})
+GRID_METADATA_KEYS = frozenset({"grid-agents", "grid-cards", "grid-title"})
 
 #: ``grid-cards`` — the card types a skill would LIKE its answers rendered as.
 #:
@@ -59,6 +60,29 @@ GRID_METADATA_KEYS = frozenset({"grid-agents", "grid-cards"})
 #: sanctioned path, so naming one here would be asking the model to fabricate
 #: something it must never produce.
 GRID_CARDS_KEY = "grid-cards"
+
+#: ``grid-title`` — the skill's HUMAN name, for a reader rather than a parser.
+#:
+#: ``name`` is an id: lowercase, hyphenated, unique, and stable enough to be
+#: typed after a slash. It is not a label — "ifc-spatial-analysis" is what the
+#: resolver matches on, not what belongs in a sentence a user reads while the
+#: agent works. Nothing else in the model carries a display string:
+#: ``description`` is a full paragraph written for the MODEL's benefit.
+#:
+#: Deliberately optional and deliberately NOT synthesised from the id. An
+#: absent title is absent, and the surface that renders it decides how to
+#: degrade (the frontend already owns that decision for every other optional
+#: field). Title-casing the id here would manufacture a name nobody wrote and
+#: make a missing one indistinguishable from a real one.
+#:
+#: One value, no per-locale variants: a skill is authored in one language by
+#: one tenant, and a translation table in frontmatter would be a second
+#: catalog to keep in sync with nothing to keep it honest.
+GRID_TITLE_KEY = "grid-title"
+
+#: A title is a label, not a sentence. Long enough for "IFC-Raumanalyse
+#: (Fluchtwege)", short enough that no surface has to truncate it.
+MAX_TITLE_CHARS = 60
 
 #: Anything that looks like an XML/HTML tag.
 #:
@@ -208,6 +232,40 @@ def _validate_grid_cards(value: str, *, strict: bool) -> str | None:
     return ",".join(kept) if kept else None
 
 
+def _validate_grid_title(value: str, *, strict: bool) -> str | None:
+    """Validate ``grid-title``; return the value to store, or ``None`` to drop it.
+
+    Same two tolerances as :func:`_validate_grid_cards`, for the same reason: a
+    SKILL.md is reviewed in this repo, so a title that is empty, over-long or
+    carries markup is an authoring error we want at parse time; a BFF-served
+    org row is tenant data over the wire, where a bad title must cost the
+    tenant its title and not its whole skill.
+
+    Tags are rejected on both paths because a title is interpolated into the
+    same prompt-adjacent and user-facing surfaces ``name`` is — see
+    :data:`XML_TAG_RE`.
+    """
+    title = value.strip()
+    if not title:
+        if strict:
+            raise SkillValidationError(f"Skill metadata {GRID_TITLE_KEY} must not be empty")
+        logger.warning("Dropping empty %s", GRID_TITLE_KEY)
+        return None
+    if len(title) > MAX_TITLE_CHARS:
+        if strict:
+            raise SkillValidationError(
+                f"Skill metadata {GRID_TITLE_KEY} exceeds {MAX_TITLE_CHARS} characters: {len(title)}"
+            )
+        logger.warning("Dropping over-long %s (%d characters)", GRID_TITLE_KEY, len(title))
+        return None
+    if XML_TAG_RE.search(title):
+        if strict:
+            raise SkillValidationError(f"Skill metadata {GRID_TITLE_KEY} must not contain XML tags")
+        logger.warning("Dropping %s containing XML tags", GRID_TITLE_KEY)
+        return None
+    return title
+
+
 def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
     if metadata is None:
         return {}
@@ -222,6 +280,12 @@ def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
             if cards is None:
                 continue
             validated[key] = cards
+            continue
+        if key == GRID_TITLE_KEY:
+            title = _validate_grid_title(value, strict=strict)
+            if title is None:
+                continue
+            validated[key] = title
             continue
         validated[key] = value
     return validated
@@ -241,6 +305,16 @@ def preferred_cards(metadata: dict[str, str]) -> tuple[str, ...]:
         return ()
     known = model_facing_card_types()
     return tuple(name for name in split_metadata_list(raw) if name in known)
+
+
+def skill_title(skill: Skill) -> str | None:
+    """The skill's human display name, or ``None`` when the author gave none.
+
+    ``None`` is a real answer, not a failure: see :data:`GRID_TITLE_KEY` for
+    why no title is ever synthesised from the id here.
+    """
+    title = skill.metadata.get(GRID_TITLE_KEY)
+    return title if title else None
 
 
 def build_skill_from_payload(

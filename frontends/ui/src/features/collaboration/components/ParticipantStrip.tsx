@@ -122,7 +122,7 @@ export function ParticipantStrip({
         // An avatar row reads as a group, not as buttons, so the strip keeps its
         // size and `touch-target` widens the catchment.
         'inline-flex shrink-0 items-center rounded-full p-0.5 outline-none touch-target',
-        'transition-colors duration-200 ease-out',
+        'transition-colors duration-quick ease-out',
         'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50',
         className,
       )}

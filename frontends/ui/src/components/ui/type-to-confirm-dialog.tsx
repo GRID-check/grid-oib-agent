@@ -96,7 +96,11 @@ export const TypeToConfirmDialog: FC<TypeToConfirmDialogProps> = ({
           </DialogClose>
           <Button
             variant="destructive"
-            disabled={!matches || pending}
+            // `disabled` is already true until the name matches, so `pending`
+            // alone produced no visible change at all — the reader clicked and
+            // the dialog just sat there. `loading` is what says "it went".
+            disabled={!matches}
+            loading={pending}
             onClick={() => void onConfirm()}
           >
             {confirmLabel}

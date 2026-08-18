@@ -20,7 +20,7 @@
  */
 
 import { notFound } from 'next/navigation'
-import { PlatformCards } from '@/app/app/platform/cards/platform-cards'
+import { PlatformCards } from '@/app/app/(shell)/platform/cards/platform-cards'
 
 const FIELDS = {
   parking_requirement: [

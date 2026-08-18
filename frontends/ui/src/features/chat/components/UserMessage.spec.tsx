@@ -135,8 +135,13 @@ Line 3`
         expect(container.querySelector('.bg-muted\\/45')).toBeNull()
       }
       // Same asymmetric corner on both, so neither reads as "the other side".
-      expect(colleague.container.querySelector('.rounded-\\[12px_4px_12px_12px\\]')).toBeInTheDocument()
-      expect(mine.container.querySelector('.rounded-\\[12px_4px_12px_12px\\]')).toBeInTheDocument()
+      // `rounded-lg` + `rounded-tr-[4px]` is the same geometry the old
+      // `rounded-[12px_4px_12px_12px]` spelled out by hand — the base radius is
+      // the token now, and only the deliberately tighter notch stays literal.
+      for (const { container } of [colleague, mine]) {
+        expect(container.querySelector('.rounded-lg')).toBeInTheDocument()
+        expect(container.querySelector('.rounded-tr-\\[4px\\]')).toBeInTheDocument()
+      }
     })
 
     test('a grouped message repeats no header and stays attributable to a screen reader', () => {

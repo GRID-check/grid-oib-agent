@@ -21,6 +21,7 @@ import { type FC, useState } from 'react'
 import { Check, Copy, Quote } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import {
   DropdownMenu,
@@ -69,8 +70,8 @@ export const CopySourceCitationButton: FC<{ citation: CitationRef }> = ({ citati
       onClick={() => void handleCopy()}
       aria-label={t('answerSources.copyCitationAria', { label: citation.document.title })}
       className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium',
-        'text-muted-foreground transition-[color,transform] duration-200 ease-out active:scale-95 hover:text-foreground',
+        'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium',
+        'text-muted-foreground transition-[color,transform] duration-quick ease-out active:scale-95 hover:text-foreground',
         'motion-reduce:transition-none motion-reduce:active:scale-100',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
       )}
@@ -107,7 +108,7 @@ export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations 
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[color,transform] duration-200 ease-out active:scale-95 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none motion-reduce:active:scale-100"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-[color,transform] duration-quick ease-out active:scale-95 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none motion-reduce:active:scale-100"
         >
           {copied ? (
             <Check aria-hidden="true" className="size-3" />
@@ -118,14 +119,14 @@ export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations 
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-          {t('answerSources.citeAsLabel')}
+        <DropdownMenuLabel>
+          <SectionLabel>{t('answerSources.citeAsLabel')}</SectionLabel>
         </DropdownMenuLabel>
         {CITATION_FORMATS.map((format) => (
           <DropdownMenuItem key={format} onSelect={() => void handleCopy(format)}>
             <span className="flex min-w-0 flex-col">
-              <span className="text-[13px]">{t(`answerSources.formats.${format}.label`)}</span>
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-sm">{t(`answerSources.formats.${format}.label`)}</span>
+              <span className="text-xs text-muted-foreground">
                 {t(`answerSources.formats.${format}.hint`)}
               </span>
             </span>

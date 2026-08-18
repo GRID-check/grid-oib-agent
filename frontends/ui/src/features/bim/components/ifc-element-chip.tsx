@@ -53,7 +53,9 @@ export function IfcElementChip({ link, children }: IfcElementChipProps): JSX.Ele
       // tint: `border-brand` is a static utility with no `--modifier()`, so
       // `border-brand/30` compiles to nothing and the chip would silently lose
       // its outline (`scripts/check-static-utility-modifiers.mjs` catches it).
-      className="mx-0.5 inline-flex max-w-full items-baseline gap-1 rounded-md border border-transparent bg-info-subtle px-1.5 py-0.5 align-baseline text-[0.9em] text-info no-underline transition-opacity duration-150 ease-out hover:opacity-80"
+      // em-relative, not a ramp step: this chip sits INSIDE a sentence of the
+      // answer and has to track that sentence's size, not pin itself to one.
+      className="mx-0.5 inline-flex max-w-full items-baseline gap-1 rounded-md border border-transparent bg-info-subtle px-1.5 py-0.5 align-baseline text-[0.9em] text-info no-underline transition-opacity duration-snap ease-out hover:opacity-80"
     >
       <Box className="size-3 shrink-0 self-center" aria-hidden="true" />
       <span className="truncate">{children}</span>

@@ -1,4 +1,14 @@
-export { AppSidebar, type AppSidebarProps } from './app-sidebar'
+export { AppSidebar, type AppSidebarProps, type AppSidebarScope } from './app-sidebar'
+export { AppShellRail, type AppShellRailProps } from './app-shell-rail'
+export {
+  orgRailGroups,
+  orgSections,
+  projectIdFromPathname,
+  type OrgSection,
+  type OrgSectionKey,
+  type OrgSectionFlags,
+} from './org-sections'
+export { ShellContent, type ShellContentProps, type ShellContentWidth } from './shell-content'
 export { BackLink, type BackLinkProps } from './back-link'
 export { NavigationTrail, NavigationTrailLabel } from './navigation-trail'
 export { CommandPalette, type CommandPaletteProps } from './command-palette'
@@ -19,12 +29,6 @@ export {
   type ShortcutRow,
   type ShortcutSection,
 } from './shortcuts'
-export { OrgTopbar, type OrgTopbarProps } from './org-topbar'
-// ProjectSectionFrame is a client module; re-exporting it next to OrgTopbar
-// (server-only, `@/i18n/server`) is fine for server layouts. Client pages
-// must import ProjectSectionActions from `./project-section-frame` directly —
-// a barrel import would pull OrgTopbar into the client graph and next build
-// dies on `server-only`.
 export { ProjectSectionFrame } from './project-section-frame'
 export {
   ProjectSwitcher,

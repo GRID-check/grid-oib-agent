@@ -14,6 +14,7 @@ import { type FC, useMemo, useState, useEffect, useRef } from 'react'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { motion, AnimatePresence } from '@/components/motion'
+import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import type { ThinkingStep, CitationSource } from '../types'
@@ -21,10 +22,11 @@ import { deriveTraceLanes } from '../lib/trace-lanes'
 import { buildCitationModel } from '../lib/citations'
 import { deriveLiveActivity } from '../lib/live-activity'
 import { deriveExecutedSteps } from '../lib/executed-steps'
+import { isSkillStepName, isUseSkillStepName } from '@/features/skills/lib/skill-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
 import { ReasoningFlow } from './reasoning/ReasoningFlow'
 import { type ChoicePrompt } from './reasoning'
-import { buildContextChips } from './reasoning/context'
+import { buildFileChips } from './reasoning/context'
 
 export interface ChatThinkingProps {
   /** Array of thinking steps to display */
@@ -42,9 +44,21 @@ export interface ChatThinkingProps {
   isRecoveryPending?: boolean
   /** Whether waiting for user response (HITL prompt pending) */
   isWaiting?: boolean
-  /** Data sources that were enabled for this query */
+  /**
+   * Data sources that were toggled ON in the composer when this message was
+   * sent — AVAILABILITY, not activity, and therefore not rendered.
+   *
+   * Kept as an accepted prop because callers still pass it and because the
+   * value is a real fact about the composer; what it is not is a fact about
+   * what this turn did. Rendering it inside the Herleitung is exactly the
+   * phantom-web-search bug: every source is enabled by default, so the row
+   * claimed `Websuche` on every turn, including greetings where the backend
+   * had already dropped every data-source tool. What ran comes from
+   * `deriveExecutedSteps` (the `Ausgeführt:` row), which is built from real
+   * Function Start/Complete frames.
+   */
   enabledDataSources?: string[]
-  /** Files that were available for this query */
+  /** Files attached to THIS message — a per-turn fact, so these are shown. */
   messageFiles?: Array<{ id: string; fileName: string }>
   /** Verbatim text of the triggering user message (framing node reframe). */
   userQuestion?: string
@@ -80,7 +94,8 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   isInterrupted = false,
   isRecoveryPending = false,
   isWaiting = false,
-  enabledDataSources = [],
+  // `enabledDataSources` is intentionally NOT destructured: it is accepted (see
+  // the prop doc) and deliberately not rendered anywhere.
   messageFiles = [],
   userQuestion = '',
   answerConfidence,
@@ -115,12 +130,9 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   // Unique source cards (hits + gaps) — bar "m Quellen", not sum of Treffer.
   const sourceCount = sourceCards.length
 
-  // Basis footer: the data sources + files this query ran against, shown as
-  // clean pills and always visible (no expand needed).
-  const contextChips = useMemo(
-    () => buildContextChips(enabledDataSources, messageFiles, t),
-    [enabledDataSources, messageFiles, t]
-  )
+  // Basis footer: the files attached to this message, as clean pills. Data
+  // sources deliberately do NOT appear here — see `enabledDataSources` above.
+  const fileChips = useMemo(() => buildFileChips(messageFiles), [messageFiles])
 
   // Live status: what the assistant is doing right now (derived from the newest
   // streamed step) plus a seconds-elapsed cue, so a slow turn reads as active
@@ -131,11 +143,26 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
   // "What actually ran" — one compact chip per executed agent/tool, so the
   // Herleitung names its steps without the technical-steps opt-in.
-  const executedSteps = useMemo(() => deriveExecutedSteps(steps, t), [steps, t])
+  //
+  // Skill chips are LIVE-ONLY. While the turn is open they are the only place
+  // the reader can see that three skills were applied, because the header line
+  // replaces rather than accumulates. Once the answer lands, `SkillsUsedDisclosure`
+  // sits directly beneath it and reports the same activations WITH their
+  // descriptions — so keeping the chips would give one fact two owners, and the
+  // one with less to say would be making the claim twice. Same label authority
+  // either way (`features/skills/lib/skill-activity`), so the two can never
+  // word it differently.
+  const executedSteps = useMemo(() => {
+    const derived = deriveExecutedSteps(steps, t)
+    if (isThinking) return derived
+    return derived.filter((s) => !isSkillStepName(s.key) && !isUseSkillStepName(s.key))
+  }, [steps, t, isThinking])
 
+  // Availability alone must never conjure a Herleitung: `enabledDataSources` is
+  // non-empty on essentially every turn, so including it here made the panel
+  // appear (and claim sources) for turns that did nothing.
   const hasSignal =
     steps.length > 0 ||
-    enabledDataSources.length > 0 ||
     messageFiles.length > 0 ||
     Boolean(answerConfidence) ||
     (citations?.length ?? 0) > 0 ||
@@ -154,12 +181,12 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   })
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-snap ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
             aria-label={summaryLabel}
           >
             <span className="flex min-w-0 items-center gap-2">
@@ -186,7 +213,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               ) : isWaiting ? (
                 <>
                   <span className="text-brand">
-                    <Clock className="h-5 w-5" />
+                    <Clock className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.waiting')}
@@ -202,7 +229,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               ) : isInterrupted ? (
                 <>
                   <span className="text-warning">
-                    <AlertTriangle className="h-5 w-5" />
+                    <AlertTriangle className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.interrupted')}
@@ -211,7 +238,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               ) : (
                 <>
                   <span className="text-success">
-                    <CheckCircle2 className="h-5 w-5" />
+                    <CheckCircle2 className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.done')}
@@ -223,14 +250,14 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
             <span className="flex shrink-0 items-center gap-2">
               {isThinking && elapsedSeconds > 0 && (
                 <span
-                  className="rounded-md bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground"
+                  className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
                   aria-label={t('thinking.elapsedAria', { seconds: elapsedSeconds })}
                 >
                   {formatElapsed(elapsedSeconds)}
                 </span>
               )}
               <span className="text-xs text-muted-foreground">{summaryLabel}</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
+              <ChevronDown className="size-4 text-muted-foreground transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
             </span>
 
             {/* Slim indeterminate sweep along the header's lower edge — a
@@ -278,14 +305,12 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   shown when the Herleitung is expanded. */}
               {executedSteps.length > 0 && (
                 <div className="flex flex-col gap-2 px-4 pb-4 pt-3">
-                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                    {t('thinking.executedSteps')}
-                  </span>
+                  <SectionLabel>{t('thinking.executedSteps')}</SectionLabel>
                   <div className="flex flex-wrap gap-1.5">
                     {executedSteps.map((s) => (
                       <span
                         key={s.key}
-                        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground"
                       >
                         {s.running && (
                           <span
@@ -293,25 +318,35 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                             className="size-1.5 animate-pulse rounded-full bg-brand motion-reduce:animate-none"
                           />
                         )}
-                        {s.label}
+                        {/* A skill with no authored title is named by its bare
+                            `/identifier`, so the identifier half renders
+                            `font-mono` — the same way `SkillsUsedDisclosure`
+                            writes it under the finished answer. One label
+                            authority, one appearance. */}
+                        {s.mono ? (
+                          <>
+                            {s.prefix && <span>{s.prefix}</span>}
+                            <span className="font-mono">{s.mono}</span>
+                          </>
+                        ) : (
+                          s.label
+                        )}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Basis footer — the data sources + files this query ran against,
-                  as clean pills. Only shown when the Herleitung is expanded. */}
-              {contextChips.length > 0 && (
-                <div className="flex flex-col gap-2 border-t border-border/60 px-4 pb-4 pt-3">
-                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                    {t('thinking.selectedDataSources')}
-                  </span>
+              {/* Basis footer — the files attached to this message, as clean
+                  pills. Only shown when the Herleitung is expanded. */}
+              {fileChips.length > 0 && (
+                <div className="flex flex-col gap-2 border-t border-border px-4 pb-4 pt-3">
+                  <SectionLabel>{t('thinking.attachedFiles')}</SectionLabel>
                   <div className="flex flex-wrap gap-1.5">
-                    {contextChips.map((chip) => (
+                    {fileChips.map((chip) => (
                       <span
                         key={chip}
-                        className="whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                        className="whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground"
                       >
                         {chip}
                       </span>
@@ -332,20 +367,20 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           line; only once recovery has settled with nothing found do we prompt
           a resend. */}
       {isInterrupted && isRecoveryPending ? (
-        <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
+        <div className="flex items-start gap-2 border-t border-border px-4 pb-3 pt-2.5">
           <Spinner
             size="xs"
             className="mt-0.5 shrink-0 text-muted-foreground"
             aria-hidden="true"
           />
-          <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">
+          <span className="text-xs leading-relaxed text-muted-foreground" role="status">
             {t('thinking.recoveringNotice')}
           </span>
         </div>
       ) : isInterrupted ? (
-        <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-          <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">
+        <div className="flex items-start gap-2 border-t border-border px-4 pb-3 pt-2.5">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <span className="text-xs leading-relaxed text-muted-foreground" role="status">
             {t('thinking.interruptedNotice')}
           </span>
         </div>

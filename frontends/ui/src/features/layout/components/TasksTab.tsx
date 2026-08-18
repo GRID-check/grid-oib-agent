@@ -114,9 +114,9 @@ export const TasksTab: FC = () => {
       data-testid="deep-research-outcome-notice"
     >
       {attachedOutcome === 'success' ? (
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-info" aria-hidden="true" />
+        <CheckCircle2 className="size-4 shrink-0 text-info" aria-hidden="true" />
       ) : (
-        <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+        <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden="true" />
       )}
       <span
         className={`text-sm ${attachedOutcome === 'success' ? 'text-info' : 'text-warning'}`}
@@ -137,7 +137,7 @@ export const TasksTab: FC = () => {
       data-testid="deep-research-recovery-notice"
     >
       <div className="flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+        <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden="true" />
         <span className="text-sm font-medium text-warning">
           {showConnectionLost
             ? t('tasksTab.connectionLostTitle')
@@ -196,7 +196,7 @@ export const TasksTab: FC = () => {
       {/* Content */}
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <CheckCircle2 className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <CheckCircle2 className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">{t('tasksTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
             {t('tasksTab.emptyHelp')}
@@ -212,7 +212,7 @@ export const TasksTab: FC = () => {
           {/* Writing report indicator */}
           {isWritingReport && (
             <div className="flex shrink-0 items-center gap-2 rounded-md bg-info-subtle px-3 py-2">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-info motion-reduce:animate-none" />
+              <div className="size-2 animate-pulse rounded-full bg-info motion-reduce:animate-none" />
               <span className="text-sm text-info">
                 {t('tasksTab.writingReport')}
               </span>

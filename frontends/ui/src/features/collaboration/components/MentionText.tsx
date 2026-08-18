@@ -59,6 +59,9 @@ const pillClasses = (isMe: boolean, isAgent: boolean, interactive: boolean): str
     // a stray space before a comma. Some gap is unavoidable (every product with
     // inline mention pills has it); this is the tightest that still reads as a
     // pill rather than a highlight.
+    // em-relative, not a ramp step: a mention rides INSIDE a sentence and has
+    // to track whatever size that sentence is set at (bubble body, digest row,
+    // inbox preview) rather than pin itself to one of them.
     'inline-flex items-baseline rounded-md px-[3px] py-px align-baseline text-[0.9375em] font-medium',
     // A mention of YOU is the only signal that a message wants something from the
     // reader — no row treatment carries it — so it has to survive a scan. It does
@@ -76,7 +79,7 @@ const pillClasses = (isMe: boolean, isAgent: boolean, interactive: boolean): str
         : 'bg-muted text-foreground/80',
     interactive &&
       cn(
-        'cursor-pointer transition-[filter,box-shadow] hover:brightness-95 dark:hover:brightness-125',
+        'cursor-pointer transition-[filter,box-shadow] duration-quick ease-out hover:brightness-95 dark:hover:brightness-125',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
       )
   )

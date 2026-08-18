@@ -14,7 +14,7 @@
  */
 
 import { I18nProvider } from '@/i18n'
-import { PlatformSkillCatalog } from '@/app/app/platform/skills/platform-skill-catalog'
+import { PlatformSkillCatalog } from '@/app/app/(shell)/platform/skills/platform-skill-catalog'
 
 const SKILLS = [
   {

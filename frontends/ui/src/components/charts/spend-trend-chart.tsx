@@ -11,6 +11,7 @@
 import { type FC } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
+import { SectionLabel } from '@/components/ui/section-label'
 import { formatEur as eur } from '@/lib/format'
 import { useLocale } from '@/i18n'
 
@@ -46,11 +47,9 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
       <div className="grid-usage-viz overflow-x-auto">
         <div className="min-w-[420px]">
           <div className="flex justify-end">
-            <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">
-              {eur(maxUsd * eurPerUsd, locale)}
-            </span>
+            <SectionLabel className="leading-4">{eur(maxUsd * eurPerUsd, locale)}</SectionLabel>
           </div>
-          <div className="flex h-24 items-end gap-[2px] border-b border-border/60" role="img">
+          <div className="flex h-24 items-end gap-[2px] border-b border-border" role="img">
             {points.map((point) => (
               <Tooltip key={point.day}>
                 {/* Full-height column = hit target bigger than the mark. */}
@@ -58,6 +57,9 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
                   <div className="flex h-full min-w-[6px] flex-1 cursor-default items-end">
                     {point.usd > 0 ? (
                       <div
+                        // 3px, not `rounded-t-sm` (6px): the bar is 6px wide at
+                        // its floor, and a 6px cap turns a mark into a lozenge.
+                        // A data end's radius is bounded by the mark's width.
                         className="w-full rounded-t-[3px]"
                         style={{
                           backgroundColor: 'var(--grid-series-1)',
@@ -78,10 +80,10 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
               </Tooltip>
             ))}
           </div>
-          <div className="mt-1 flex justify-between text-[10px] font-medium uppercase leading-4 text-muted-foreground">
+          <SectionLabel as="div" className="mt-1 flex justify-between leading-4">
             <span>{dateLabel(points[0].day)}</span>
             <span>{dateLabel(points[points.length - 1].day)}</span>
-          </div>
+          </SectionLabel>
         </div>
       </div>
     </TooltipProvider>

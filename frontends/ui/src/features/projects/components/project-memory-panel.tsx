@@ -277,7 +277,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
       </div>
 
       {adding && (
-        <RaisedCard className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+        <RaisedCard className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
           <RaisedCardBody className="space-y-3 p-4">
             <div className="flex flex-wrap items-start gap-3">
               <Field>
@@ -394,7 +394,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
         <ItemList>
           {groups.map((group) => (
             <Fragment key={group.kind}>
-              <div className="bg-muted/40 px-5 py-2">
+              <div className="bg-muted px-5 py-2">
                 <SectionLabel as="h3">{t(`memory.kinds.${group.kind}`)}</SectionLabel>
               </div>
               {group.items.map((item) => {
@@ -470,7 +470,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                     </ItemContent>
 
                     {!isEditing && (
-                      <ItemActions className="gap-1 opacity-0 transition-opacity duration-200 ease-out focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
+                      <ItemActions className="gap-1 opacity-0 transition-opacity duration-quick ease-out focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
                         <Button
                           variant="ghost"
                           size="icon"

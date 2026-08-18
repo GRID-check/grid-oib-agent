@@ -4,6 +4,7 @@ import * as React from 'react'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
 
 import { cn } from '@/lib/utils'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
 
 const Tabs = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Root>,
@@ -45,7 +46,8 @@ const TabsTrigger = React.forwardRef<
     ref={ref}
     data-slot="tabs-trigger"
     className={cn(
-      "data-[state=active]:bg-card data-[state=active]:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0 inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md px-3.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow,background-color] duration-200 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs pointer-coarse:min-h-11 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+      "data-[state=active]:bg-card data-[state=active]:text-foreground outline-none inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md px-3.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow,background-color] duration-200 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs pointer-coarse:min-h-11 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+      FOCUS_RING,
       className
     )}
     {...props}

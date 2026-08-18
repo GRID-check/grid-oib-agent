@@ -46,6 +46,23 @@ export type {
   ApiError,
 } from './schemas'
 
+// Turn-event intermediate-step payloads (`status:<slot>` / `skill:<name>` / `skill_selection`)
+export {
+  StepEventPayloadSchema,
+  StepEventChannelSchema,
+  StepEventKindSchema,
+  SkillPhaseSchema,
+  parseStepEventPayloads,
+  stepEventLiveText,
+  unescapeStepPayload,
+} from './step-event-schemas'
+export type {
+  StepEventPayload,
+  StepEventChannel,
+  StepEventKind,
+  SkillPhase,
+} from './step-event-schemas'
+
 // Documents Client
 export { createDocumentsClient } from './documents-client'
 export type {

@@ -128,7 +128,7 @@ export function EngagementNotice({
           className={cn(
             'h-6 px-1.5 text-xs font-medium',
             'text-foreground/90 underline decoration-dotted decoration-from-font underline-offset-[3px]',
-            'transition-colors duration-150 ease-out hover:decoration-solid hover:text-foreground',
+            'transition-colors duration-snap ease-out hover:decoration-solid hover:text-foreground',
             'motion-reduce:transition-none',
           )}
           disabled={saving}
@@ -144,7 +144,7 @@ export function EngagementNotice({
       {failed && (
         <span
           role="alert"
-          className="text-error animate-in fade-in-0 duration-150 ease-out motion-reduce:animate-none"
+          className="text-error animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none"
         >
           {t('mentions.engagement.failed')}
         </span>

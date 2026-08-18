@@ -42,7 +42,7 @@ export interface ErrorBannerProps {
  *
  * Motion: the banner arrives in the transcript with the same entrance every
  * other chat turn uses — a 200ms fade-and-rise (`animate-in fade-in-0
- * slide-in-from-bottom-1 duration-200 ease-out`) on mount only, never on
+ * slide-in-from-bottom-1 duration-quick ease-out`) on mount only, never on
  * re-render, so a banner that appears mid-conversation reads as the same class
  * of object as the answer beside it. Dropped entirely under
  * `prefers-reduced-motion` via `motion-reduce:animate-none` (design language
@@ -75,7 +75,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   const StatusIcon = errorMeta.status === 'error' ? XCircle : AlertTriangle
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-200 ease-out motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-base ease-entrance motion-reduce:animate-none">
       <Alert variant={variant} className="relative">
         <StatusIcon />
         <AlertTitle>{displayTitle}</AlertTitle>
@@ -94,9 +94,9 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
                 >
                   {isExpanded ? t('error.hideDetails') : t('error.showDetails')}
                   {isExpanded ? (
-                    <ChevronUp className="h-3 w-3" aria-hidden="true" />
+                    <ChevronUp className="size-3" aria-hidden="true" />
                   ) : (
-                    <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                    <ChevronDown className="size-3" aria-hidden="true" />
                   )}
                 </button>
               </>
@@ -118,7 +118,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
                 onClick={onRetry}
                 aria-label={t('error.retry')}
               >
-                <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+                <RotateCw className="size-3.5" aria-hidden="true" />
                 {t('error.retry')}
               </Button>
             </div>
@@ -131,7 +131,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
             aria-label={tc('actions.close')}
             className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            <X className="h-4 w-4" aria-hidden="true" />
+            <X className="size-4" aria-hidden="true" />
           </button>
         )}
       </Alert>

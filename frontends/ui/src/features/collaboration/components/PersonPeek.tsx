@@ -60,7 +60,7 @@ export function PersonPeek({
       {isAgent ? (
         <span
           aria-hidden
-          className="border-border bg-muted/60 text-foreground/80 inline-flex size-9 shrink-0 items-center justify-center rounded-full border"
+          className="border-border bg-muted text-foreground/80 inline-flex size-9 shrink-0 items-center justify-center rounded-full border"
         >
           <Sparkles className="size-4" />
         </span>

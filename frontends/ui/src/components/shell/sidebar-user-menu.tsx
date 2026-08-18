@@ -52,6 +52,13 @@ export interface SidebarUserMenuProps {
    * footer's 30px; the org top bar passes a 36px avatar to match the dummy.
    */
   avatarSizeClass?: string
+  /**
+   * The organization the reader is acting in, shown as an eyebrow above their
+   * name. Everything this product does — projects, the Archiv, the Inbox — is
+   * scoped to one organization, and until now nothing in the rail said which.
+   * Omitted when unresolvable, so a label lookup can never blank the footer.
+   */
+  organizationName?: string | null
 }
 
 const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -72,6 +79,7 @@ export function SidebarUserMenu({
   canManagePlatform = false,
   canAccessArchiv = false,
   avatarSizeClass = 'size-[30px]',
+  organizationName = null,
 }: SidebarUserMenuProps) {
   const { user: authUser, signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
@@ -105,13 +113,42 @@ export function SidebarUserMenu({
         aria-label={t('userMenu.label', { name: displayName })}
       >
         <span className="flex shrink-0">
-          <Avatar className={avatarSizeClass}>
+          {/* The hairline is not decoration. `AvatarFallback` fills with
+              `bg-muted` (L 0.961), and the rail it sits on is
+              `--background-color-surface-sunken` (L 0.958) — a 0.3% lightness
+              step, so on this one surface the disc is invisible and the
+              monogram reads as loose text on the rail. An alpha-ink ring
+              composites on whatever surface the avatar lands on, which is
+              exactly what the border ramp is for, and it matches how
+              `AvatarStack` already separates overlapping discs. */}
+          <Avatar className={cn('ring-border ring-1', avatarSizeClass)}>
             {(authUser?.image ?? user?.image) && <AvatarImage src={authUser?.image ?? user?.image ?? undefined} alt="" />}
             <AvatarFallback className="text-xs font-medium">{initial}</AvatarFallback>
           </Avatar>
         </span>
         {!compact && (
-          <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-muted-foreground">{displayName}</span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            {/* Org eyebrow. It sits ABOVE the name because it is the scope the
+                name acts in — read top-down it says "in Musterarchitektur, you
+                are Anna Berger".
+
+                Deliberately below the design language's 10.5px eyebrow: that
+                convention is for a label sitting OVER a section, and this one
+                sits UNDER a name. An org name is long user data, so at 10.5px
+                with `tracking-wider` it spread the full 236px and truncated
+                immediately, reading as a heading competing with the person.
+                Tiny, tight and quiet is the whole job.
+
+                `truncate` on both lines: neither may push the other. */}
+            {organizationName && (
+              <span className="text-muted-foreground/70 truncate text-[9.5px] font-medium tracking-wide uppercase">
+                {organizationName}
+              </span>
+            )}
+            <span className="text-muted-foreground truncate text-[12.5px] font-medium">
+              {displayName}
+            </span>
+          </span>
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56 motion-reduce:animate-none">

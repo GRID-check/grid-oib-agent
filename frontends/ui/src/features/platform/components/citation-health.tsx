@@ -31,7 +31,7 @@ import {
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -179,6 +179,22 @@ interface SnapshotDto {
 }
 
 const WINDOW_OPTIONS = [7, 30, 90] as const
+
+/**
+ * Reserved height for a stat tile, so the optional hint line cannot grow the
+ * row after the first paint — and, more importantly, so the tile and the
+ * skeleton standing in for it are ONE value instead of two literals that a
+ * later padding change silently desynchronises.
+ *
+ * FOLLOW-UP for the `components/ui` owner: this belongs in `StatCard` itself.
+ * Three surfaces reserve it by hand today and already disagree —
+ * `app/app/(shell)/platform/platform-overview.tsx` uses `min-h-[7.25rem]`
+ * (icon + hint, the same shape as here), `app/app/(shell)/platform/
+ * base-knowledge.tsx` uses `min-h-24` (label + value only). A `reserveHint`
+ * prop, or simply a floor baked into StatCard, would delete all three
+ * literals and this constant with them.
+ */
+const STAT_TILE_MIN_H = 'min-h-[7.25rem]'
 
 /** Findings whose remedy names an entity, and so need a subject-less variant. */
 const FINDINGS_WITH_SUBJECT_FALLBACK = new Set<FindingId>(['retrieval_unavailable', 'answers_ungrounded'])
@@ -386,276 +402,300 @@ export function CitationHealth(): JSX.Element {
     )
   }
 
+  /**
+   * The four headline tiles. They are SIBLINGS of the analysis card, never
+   * children of it: `StatCard` is itself `rounded-lg border bg-card`, so
+   * nesting it inside a `<Card>` put two identical planes on top of each other
+   * and left the inner hairline doing all the separating — the card-inside-card
+   * the design language forbids. `app/app/(shell)/platform/platform-overview
+   * .tsx` and `.../base-knowledge.tsx` already lift their stats out this way.
+   */
+  const stats = (data: SnapshotDto): JSX.Element => (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <StatCard
+        className={STAT_TILE_MIN_H}
+        icon={<ShieldCheck className="size-4" aria-hidden />}
+        label={t('citations.stats.cleanRate')}
+        value={
+          <span className={cleanRateTone(data.totals.cleanRate)}>
+            {percent(data.totals.cleanRate, locale)}
+          </span>
+        }
+        hint={t('citations.stats.cleanRateHint', {
+          clean: data.totals.cleanTurns,
+          turns: data.totals.turns,
+        })}
+      />
+      <StatCard
+        className={STAT_TILE_MIN_H}
+        icon={<SearchX className="size-4" aria-hidden />}
+        label={t('citations.stats.ungrounded')}
+        value={data.totals.ungroundedAnswers}
+        hint={t('citations.stats.ungroundedHint')}
+      />
+      <StatCard
+        className={STAT_TILE_MIN_H}
+        icon={<FileWarning className="size-4" aria-hidden />}
+        label={t('citations.stats.removed')}
+        value={data.totals.citationsRemoved}
+        hint={t('citations.stats.removedHint')}
+      />
+      <StatCard
+        className={STAT_TILE_MIN_H}
+        icon={<Quote className="size-4" aria-hidden />}
+        label={t('citations.stats.quotes')}
+        value={data.totals.unverifiedQuotes}
+        hint={t('citations.stats.quotesHint')}
+      />
+    </div>
+  )
+
   return (
-    <Card data-testid="citation-health">
-      <CardHeader>
-        <CardTitle>{t('citations.title')}</CardTitle>
-        <CardDescription>{t('citations.description')}</CardDescription>
-        {/* CardAction is pinned to the header's second column, which squeezes
-            the title/description to a sliver on narrow viewports. Drop the
-            switch onto its own full-width row below the text under `sm`. */}
-        <CardAction className="col-start-1 row-span-1 row-start-3 justify-self-start pt-1 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-self-end sm:pt-0">
-          {windowSwitch}
-        </CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-6">
-        {loading || !snapshot ? (
-          <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {Array.from({ length: 4 }, (_, i) => (
-                <Skeleton key={i} className="h-[7.25rem] w-full" />
-              ))}
-            </div>
-            <Skeleton className="h-32 w-full" />
-          </>
-        ) : snapshot.totals.turns === 0 ? (
-          <EmptyState
-            variant="bare"
-            icon={ShieldCheck}
-            title={t('citations.empty.title')}
-            description={t('citations.empty.description')}
-          />
-        ) : (
-          <div className="animate-in fade-in-0 flex flex-col gap-6 duration-200 ease-out motion-reduce:animate-none">
-            {/* Headline: the clean rate first, then what went wrong. */}
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatCard
-                className="min-h-[7.25rem]"
-                icon={<ShieldCheck className="size-4" aria-hidden />}
-                label={t('citations.stats.cleanRate')}
-                value={
-                  <span className={cleanRateTone(snapshot.totals.cleanRate)}>
-                    {percent(snapshot.totals.cleanRate, locale)}
-                  </span>
-                }
-                hint={t('citations.stats.cleanRateHint', {
-                  clean: snapshot.totals.cleanTurns,
-                  turns: snapshot.totals.turns,
-                })}
-              />
-              <StatCard
-                className="min-h-[7.25rem]"
-                icon={<SearchX className="size-4" aria-hidden />}
-                label={t('citations.stats.ungrounded')}
-                value={snapshot.totals.ungroundedAnswers}
-                hint={t('citations.stats.ungroundedHint')}
-              />
-              <StatCard
-                className="min-h-[7.25rem]"
-                icon={<FileWarning className="size-4" aria-hidden />}
-                label={t('citations.stats.removed')}
-                value={snapshot.totals.citationsRemoved}
-                hint={t('citations.stats.removedHint')}
-              />
-              <StatCard
-                className="min-h-[7.25rem]"
-                icon={<Quote className="size-4" aria-hidden />}
-                label={t('citations.stats.quotes')}
-                value={snapshot.totals.unverifiedQuotes}
-                hint={t('citations.stats.quotesHint')}
-              />
-            </div>
+    <div data-testid="citation-health" className="flex flex-col gap-4">
+      {/* Header band. Same type as the CardHeader it replaces (`text-sm
+          font-semibold` + muted description), but outside any box: the stats
+          below have to be siblings of the card, and a title sitting inside a
+          card the stats are not in would claim only half its own surface. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold leading-none">{t('citations.title')}</h2>
+          <p className="mt-1.5 text-sm text-muted-foreground">{t('citations.description')}</p>
+        </div>
+        {windowSwitch}
+      </div>
 
-            {/* The answer to "so what do I do?" — before any chart. */}
-            <section className="flex flex-col gap-2" data-testid="citation-findings">
-              <h3 className="text-sm font-medium">{t('citations.findingsTitle')}</h3>
-              <p className="text-xs text-muted-foreground">{t('citations.findingsDescription')}</p>
-              <ul className="flex flex-col gap-1">
-                {snapshot.findings.map((finding) => {
-                  const vars = { ...finding.metrics, subject: finding.subject?.label ?? '' }
-                  // A subject-specific remedy reads better, but several findings
-                  // have no entity to point at — fall back to the generic wording
-                  // rather than interpolating an empty name into the sentence.
-                  const actionKey =
-                    finding.subject === null && FINDINGS_WITH_SUBJECT_FALLBACK.has(finding.id)
-                      ? `citations.findings.${finding.id}.actionNoSubject`
-                      : `citations.findings.${finding.id}.action`
-                  return (
-                    <FindingRow
-                      key={finding.id}
-                      finding={finding}
-                      title={t(`citations.findings.${finding.id}.title`)}
-                      meaning={t(`citations.findings.${finding.id}.meaning`, vars)}
-                      action={t(actionKey, vars)}
-                    />
-                  )
-                })}
-              </ul>
-            </section>
+      {loading || !snapshot ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} className={`w-full ${STAT_TILE_MIN_H}`} />
+            ))}
+          </div>
+          <Card>
+            <CardContent>
+              <Skeleton className="h-32 w-full" />
+            </CardContent>
+          </Card>
+        </>
+      ) : snapshot.totals.turns === 0 ? (
+        <Card>
+          <CardContent>
+            <EmptyState
+              variant="bare"
+              icon={ShieldCheck}
+              title={t('citations.empty.title')}
+              description={t('citations.empty.description')}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="animate-in fade-in-0 flex flex-col gap-4 duration-200 ease-out motion-reduce:animate-none">
+          {/* Headline: the clean rate first, then what went wrong. */}
+          {stats(snapshot)}
 
-            {/* Trend */}
-            <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-medium">{t('citations.trend.title')}</h3>
-              <p className="text-xs text-muted-foreground">
-                {t('citations.trend.description', { days: snapshot.windowDays })}
-              </p>
-              <CitationDefectChart
-                points={snapshot.dailyTrend}
-                kinds={DEFECT_KINDS}
-                kindLabel={kindLabel}
-                turnsLabel={(count) => t('citations.trend.turns', { count })}
-                findingsLabel={(count) => t('citations.trend.findings', { count })}
-                flaggedLabel={(count) => t('citations.trend.flagged', { count })}
-                emptyLabel={t('citations.trend.empty')}
-                ariaLabel={t('citations.trend.title')}
-              />
-            </section>
-
-            {/* The addable half of "what to do": specific sources to supply. */}
-            {snapshot.missingSources.length > 0 ? (
-              <section className="flex flex-col gap-2" data-testid="citation-missing-sources">
-                <h3 className="text-sm font-medium">{t('citations.missingTitle')}</h3>
-                <p className="text-xs text-muted-foreground">{t('citations.missingDescription')}</p>
-                <ul className="flex flex-col divide-y rounded-lg border">
-                  {snapshot.missingSources.map((candidate) => {
-                    const anchor = ACTION_ANCHOR[candidate.action]
+          <Card>
+            <CardContent className="flex flex-col gap-6">
+              {/* The answer to "so what do I do?" — before any chart. */}
+              <section className="flex flex-col gap-2" data-testid="citation-findings">
+                <h3 className="text-sm font-medium">{t('citations.findingsTitle')}</h3>
+                <p className="text-xs text-muted-foreground">{t('citations.findingsDescription')}</p>
+                <ul className="flex flex-col gap-1">
+                  {snapshot.findings.map((finding) => {
+                    const vars = { ...finding.metrics, subject: finding.subject?.label ?? '' }
+                    // A subject-specific remedy reads better, but several findings
+                    // have no entity to point at — fall back to the generic wording
+                    // rather than interpolating an empty name into the sentence.
+                    const actionKey =
+                      finding.subject === null && FINDINGS_WITH_SUBJECT_FALLBACK.has(finding.id)
+                        ? `citations.findings.${finding.id}.actionNoSubject`
+                        : `citations.findings.${finding.id}.action`
                     return (
-                      <li
-                        key={candidate.target}
-                        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5"
-                      >
-                        <div className="min-w-0 flex-1 basis-full sm:basis-0">
-                          <p className="truncate text-sm" title={candidate.target}>
-                            {candidate.fileName ?? candidate.target}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {t('citations.missingCited', {
-                              turns: candidate.turns,
-                              organizations: candidate.organizations,
-                            })}
-                            {' · '}
-                            {t(`citations.missingStatus.${candidate.present ? 'present' : 'absent'}`)}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="shrink-0">
-                          {t(`citations.missingKinds.${candidate.kind}`)}
-                        </Badge>
-                        {anchor ? (
-                          <Button
-                            asChild
-                            variant="outline"
-                            size="sm"
-                            className="shrink-0"
-                            onClick={() => {
-                              // Put the identifier on the clipboard so the target
-                              // manager's own form can be filled without retyping
-                              // a document number by hand.
-                              void navigator.clipboard
-                                ?.writeText(candidate.documentNumber ?? candidate.fileName ?? candidate.target)
-                                .catch(() => undefined)
-                            }}
-                          >
-                            <a href={anchor}>
-                              <Plus className="size-3.5" aria-hidden />
-                              {t(`citations.missingActions.${candidate.action}`)}
-                            </a>
-                          </Button>
-                        ) : (
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {t(`citations.missingActions.${candidate.action}`)}
-                          </span>
-                        )}
-                      </li>
+                      <FindingRow
+                        key={finding.id}
+                        finding={finding}
+                        title={t(`citations.findings.${finding.id}.title`)}
+                        meaning={t(`citations.findings.${finding.id}.meaning`, vars)}
+                        action={t(actionKey, vars)}
+                      />
                     )
                   })}
                 </ul>
-                <p className="text-xs text-muted-foreground">{t('citations.missingCaveat')}</p>
               </section>
-            ) : null}
 
-            {/* Why it happened + where it happened */}
-            <div className="grid gap-6 md:grid-cols-2">
+              {/* Trend */}
               <section className="flex flex-col gap-2">
-                <h3 className="text-sm font-medium">{t('citations.reasonsTitle')}</h3>
-                <p className="text-xs text-muted-foreground">{t('citations.reasonsDescription')}</p>
-                {reasonRows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t('citations.reasonsEmpty')}</p>
-                ) : (
-                  <RankedBars rows={reasonRows} />
-                )}
+                <h3 className="text-sm font-medium">{t('citations.trend.title')}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {t('citations.trend.description', { days: snapshot.windowDays })}
+                </p>
+                <CitationDefectChart
+                  points={snapshot.dailyTrend}
+                  kinds={DEFECT_KINDS}
+                  kindLabel={kindLabel}
+                  turnsLabel={(count) => t('citations.trend.turns', { count })}
+                  findingsLabel={(count) => t('citations.trend.findings', { count })}
+                  flaggedLabel={(count) => t('citations.trend.flagged', { count })}
+                  emptyLabel={t('citations.trend.empty')}
+                  ariaLabel={t('citations.trend.title')}
+                />
               </section>
-              <section className="flex flex-col gap-2">
-                <h3 className="text-sm font-medium">{t('citations.sourcesTitle')}</h3>
-                <p className="text-xs text-muted-foreground">{t('citations.sourcesDescription')}</p>
-                {sourceRows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t('citations.sourcesEmpty')}</p>
-                ) : (
-                  <RankedBars rows={sourceRows} />
-                )}
-              </section>
-            </div>
 
-            {/* Per-organization */}
-            <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-medium">{t('citations.orgsTitle')}</h3>
-              <p className="text-xs text-muted-foreground">{t('citations.orgsDescription')}</p>
-              {snapshot.organizations.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('citations.orgsEmpty')}</p>
-              ) : (
-                <ul className="flex flex-col divide-y rounded-lg border">
-                  {snapshot.organizations.map((org) => (
-                    <li
-                      key={org.organizationId ?? 'unattributed'}
-                      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 sm:flex-nowrap"
-                    >
-                      <p className="min-w-0 flex-1 basis-full truncate text-sm sm:basis-0">
-                        {org.name ?? org.organizationId ?? t('citations.unattributed')}
-                      </p>
-                      <div className="flex flex-1 items-center justify-between gap-4 sm:flex-none sm:justify-end">
-                        {(
-                          [
-                            [t('citations.colTurns'), String(org.turns)],
-                            [t('citations.colDefects'), String(org.defectTurns)],
-                            [t('citations.colDefectRate'), percent(org.defectRate, locale)],
-                          ] as const
-                        ).map(([label, value]) => (
-                          <div key={label} className="flex min-w-14 flex-col items-end">
-                            <SectionLabel>{label}</SectionLabel>
-                            <span className="text-sm tabular-nums">{value}</span>
+              {/* The addable half of "what to do": specific sources to supply. */}
+              {snapshot.missingSources.length > 0 ? (
+                <section className="flex flex-col gap-2" data-testid="citation-missing-sources">
+                  <h3 className="text-sm font-medium">{t('citations.missingTitle')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('citations.missingDescription')}</p>
+                  <ul className="flex flex-col divide-y rounded-lg border">
+                    {snapshot.missingSources.map((candidate) => {
+                      const anchor = ACTION_ANCHOR[candidate.action]
+                      return (
+                        <li
+                          key={candidate.target}
+                          className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5"
+                        >
+                          <div className="min-w-0 flex-1 basis-full sm:basis-0">
+                            <p className="truncate text-sm" title={candidate.target}>
+                              {candidate.fileName ?? candidate.target}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {t('citations.missingCited', {
+                                turns: candidate.turns,
+                                organizations: candidate.organizations,
+                              })}
+                              {' · '}
+                              {t(`citations.missingStatus.${candidate.present ? 'present' : 'absent'}`)}
+                            </p>
                           </div>
-                        ))}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+                          <Badge variant="outline" className="shrink-0">
+                            {t(`citations.missingKinds.${candidate.kind}`)}
+                          </Badge>
+                          {anchor ? (
+                            <Button
+                              asChild
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0"
+                              onClick={() => {
+                                // Put the identifier on the clipboard so the target
+                                // manager's own form can be filled without retyping
+                                // a document number by hand.
+                                void navigator.clipboard
+                                  ?.writeText(candidate.documentNumber ?? candidate.fileName ?? candidate.target)
+                                  .catch(() => undefined)
+                              }}
+                            >
+                              <a href={anchor}>
+                                <Plus className="size-3.5" aria-hidden />
+                                {t(`citations.missingActions.${candidate.action}`)}
+                              </a>
+                            </Button>
+                          ) : (
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {t(`citations.missingActions.${candidate.action}`)}
+                            </span>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  <p className="text-xs text-muted-foreground">{t('citations.missingCaveat')}</p>
+              </section>
+              ) : null}
 
-            {/* Drill-down */}
-            <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-medium">{t('citations.recentTitle')}</h3>
-              <p className="text-xs text-muted-foreground">{t('citations.recentDescription')}</p>
-              {snapshot.recent.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('citations.recentEmpty')}</p>
-              ) : (
-                <ul className="flex flex-col divide-y rounded-lg border">
-                  {snapshot.recent.map((event) => (
-                    <li key={event.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
-                      <Badge variant="outline" className={SEVERITY_BADGE[event.severity]}>
-                        {kindLabel(event.kind)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {t(`citations.agents.${event.agent}`)} · {t('citations.itemCount', { count: event.count })}
-                      </span>
-                      {event.reasons ? (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {Object.keys(event.reasons).map(reasonLabel).join(', ')}
+              {/* Why it happened + where it happened */}
+              <div className="grid gap-6 md:grid-cols-2">
+                <section className="flex flex-col gap-2">
+                  <h3 className="text-sm font-medium">{t('citations.reasonsTitle')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('citations.reasonsDescription')}</p>
+                  {reasonRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t('citations.reasonsEmpty')}</p>
+                  ) : (
+                    <RankedBars rows={reasonRows} />
+                  )}
+              </section>
+                <section className="flex flex-col gap-2">
+                  <h3 className="text-sm font-medium">{t('citations.sourcesTitle')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('citations.sourcesDescription')}</p>
+                  {sourceRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t('citations.sourcesEmpty')}</p>
+                  ) : (
+                    <RankedBars rows={sourceRows} />
+                  )}
+              </section>
+              </div>
+
+              {/* Per-organization */}
+              <section className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium">{t('citations.orgsTitle')}</h3>
+                <p className="text-xs text-muted-foreground">{t('citations.orgsDescription')}</p>
+                {snapshot.organizations.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t('citations.orgsEmpty')}</p>
+                ) : (
+                  <ul className="flex flex-col divide-y rounded-lg border">
+                    {snapshot.organizations.map((org) => (
+                      <li
+                        key={org.organizationId ?? 'unattributed'}
+                        className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 sm:flex-nowrap"
+                      >
+                        <p className="min-w-0 flex-1 basis-full truncate text-sm sm:basis-0">
+                          {org.name ?? org.organizationId ?? t('citations.unattributed')}
+                        </p>
+                        <div className="flex flex-1 items-center justify-between gap-4 sm:flex-none sm:justify-end">
+                          {(
+                            [
+                              [t('citations.colTurns'), String(org.turns)],
+                              [t('citations.colDefects'), String(org.defectTurns)],
+                              [t('citations.colDefectRate'), percent(org.defectRate, locale)],
+                            ] as const
+                          ).map(([label, value]) => (
+                            <div key={label} className="flex min-w-14 flex-col items-end">
+                              <SectionLabel>{label}</SectionLabel>
+                              <span className="text-sm tabular-nums">{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              {/* Drill-down */}
+              <section className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium">{t('citations.recentTitle')}</h3>
+                <p className="text-xs text-muted-foreground">{t('citations.recentDescription')}</p>
+                {snapshot.recent.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t('citations.recentEmpty')}</p>
+                ) : (
+                  <ul className="flex flex-col divide-y rounded-lg border">
+                    {snapshot.recent.map((event) => (
+                      <li key={event.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                        <Badge variant="outline" className={SEVERITY_BADGE[event.severity]}>
+                          {kindLabel(event.kind)}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {t(`citations.agents.${event.agent}`)} · {t('citations.itemCount', { count: event.count })}
                         </span>
-                      ) : null}
-                      <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {new Date(event.createdAt).toLocaleString(locale)}
-                      </span>
-                      <code className="w-full truncate text-[10px] text-muted-foreground">
-                        {t('citations.turnId')}: {event.turnId}
-                      </code>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                        {event.reasons ? (
+                          <span className="truncate text-xs text-muted-foreground">
+                            {Object.keys(event.reasons).map(reasonLabel).join(', ')}
+                          </span>
+                        ) : null}
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {new Date(event.createdAt).toLocaleString(locale)}
+                        </span>
+                        <code className="w-full truncate text-[10px] text-muted-foreground">
+                          {t('citations.turnId')}: {event.turnId}
+                        </code>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
   )
 }

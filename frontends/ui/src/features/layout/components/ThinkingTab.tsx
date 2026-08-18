@@ -121,7 +121,7 @@ const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
 
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <BookOpen className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <BookOpen className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">
             {filter === 'referenced'
               ? t('thinkingTab.noReferenced')

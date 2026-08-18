@@ -233,9 +233,11 @@ export const chat: typeof en.chat = {
     working: 'Antwort wird erstellt …',
     waiting: 'Warten auf Antwort',
     elapsedAria: 'Vergangen: {seconds} Sekunden',
-    // Live-Einzeiler, was der Assistent gerade tut, aus dem neuesten Schritt
-    // abgeleitet. `runningNamed` ist der ehrliche Fallback für einen Schritt,
-    // den wir nicht klassifizieren können.
+    // Live-Einzeiler, was der Assistent gerade tut — aus dem neuesten OFFENEN
+    // Schritt, der sich für Lesende formulieren lässt. Bewusst ohne Eintrag
+    // „zeig den Schrittnamen“: ein interner Bezeichner im Status-Gewand ist
+    // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
+    // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
     activity: {
       understanding: 'Frage wird erfasst …',
       planning: 'Vorgehen wird geplant …',
@@ -246,7 +248,82 @@ export const chat: typeof en.chat = {
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
       composing: 'Antwort wird formuliert …',
-      runningNamed: '{name} …',
+      // Das alte `use_skill`-Frame benennt den Mechanismus, nicht den Skill.
+      // Lieber ehrlich unbenannt als falsch konkret. Bewusst ohne benanntes
+      // Gegenstück: sobald das Backend `skill:<id>`-Events sendet, formuliert
+      // es diesen Satz selbst — mit dem Titel des Skills und mit dem
+      // Unterschied zwischen „vom Modell gewählt“ und „von Ihnen angefordert“,
+      // den eine Vorlage hier nicht kennen kann.
+      usingSkillUnnamed: 'Skill wird angewendet …',
+    },
+    // ── Turn-Events: die Worte zu dem, was das Backend GEMELDET hat ───────
+    //
+    // Der Agent erzählt sich selbst über `status:<slot>`-Schritte — und zwar in
+    // SCHLÜSSELN: eine stabile Punkt-ID plus Interpolationswerte. Alles, was
+    // Lesende sehen, steht hier, in ihrer Sprache. Früher stand es im Python
+    // und ging als fertiger deutscher Satz über die Leitung — genau so las eine
+    // englische Oberfläche Deutsch.
+    //
+    // Ein Schlüssel ohne Eintrag hier zeigt NICHTS — die Live-Zeile fällt auf
+    // die vorige sinnvolle Phrase zurück. Nie den Schlüssel, nie einen
+    // internen Bezeichner.
+    turnStatus: {
+      // Korpus-NAMEN: „im OIB-Wissen“ ist Produkttext mit angeschweißter
+      // Präposition, kein Eigenname. Das Backend schickt die ID.
+      corpus: {
+        knowledge: 'im OIB-Wissen',
+        ris: 'im RIS',
+        web: 'im Web',
+        documents: 'in Ihren Unterlagen',
+        ifc: 'im Gebäudemodell',
+      },
+      // Verbindet zwei Korpora in einer Zeile. Grammatik, also auch hier.
+      corpusJoin: ' und ',
+      status: {
+        // Welche Ablage der Lesenden gerade gesichtet wird. Ein Schlüssel pro
+        // Ablage statt einer Vorlage mit `{shelf}`-Platzhalter: Deutsch braucht
+        // den Dativ („aus dem Büroarchiv“), Englisch gar keinen Artikel.
+        documents: {
+          archiv: 'Unterlagen aus dem Büroarchiv werden gesichtet …',
+          project: 'Unterlagen aus dem Projekt werden gesichtet …',
+          session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
+          several: 'Unterlagen aus Ihren Ablagen werden gesichtet …',
+        },
+        // Die Routing-ENTSCHEIDUNG aus einer festen Auswahl. Die Begründung des
+        // Klassifikators ist Freitext in der Sprache des Modells und steht
+        // deshalb nie hier — sie wird zitiert, zugeschrieben, in der
+        // nachgeordneten Zeile `routing.line` weiter unten.
+        routing: {
+          meta: 'Gespräch — keine Recherche nötig',
+          outOfScope: 'Frage außerhalb des Fachgebiets',
+          shallow: 'Kurzrecherche wird vorbereitet',
+          deep: 'Tiefenrecherche wird vorbereitet',
+        },
+        // `{query}` sind die eigenen Worte der Lesenden, zurückgespiegelt —
+        // nie übersetzt, und vom Backend gekürzt, damit die Zeile passt.
+        retrieval: {
+          withQuery: 'Sucht {corpus}: „{query}“',
+          plain: 'Sucht {corpus} …',
+        },
+        // Werkzeuge, die keine Recherche sind, aber vom Nutzer gewollt waren.
+        // Ein Werkzeug ohne Eintrag bekommt gar keine Zeile: sein interner
+        // Name ist kein Status.
+        action: {
+          remember: 'Notiz wird gespeichert …',
+          card: 'Ergebniskarte wird erstellt …',
+        },
+        citations: 'Belege werden geprüft …',
+        escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
+      },
+    },
+    // Das eine Skill-Ereignis, das Lesende sehen, danach unterschieden, WER
+    // entschieden hat. Zwei Sätze statt eines mit getauschtem Verb — dieser
+    // Unterschied ist nicht in jeder Sprache ein Wort. `{skill}` ist der vom
+    // Büro vergebene `grid-title` und reist unverändert: es ist ihr Name für
+    // ihre eigene Arbeitsweise.
+    skill: {
+      activated: 'Skill „{skill}“ wird angewendet',
+      forced: 'Skill „{skill}“ wurde angefordert',
     },
     // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —
     // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
@@ -259,6 +336,12 @@ export const chat: typeof en.chat = {
       corpus: 'OIB-Korpus',
       assistant: 'Assistent',
       reading: 'Lesen',
+      // Ein Chip pro Skill, den dieser Turn tatsächlich angewendet hat.
+      // `{name}` liefert die einzige Label-Instanz
+      // (features/skills/lib/skill-activity).
+      skill: 'Skill: {name}',
+      // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
+      skillUnnamed: 'Skill',
     },
     interrupted: 'Unterbrochen',
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
@@ -289,7 +372,10 @@ export const chat: typeof en.chat = {
     // hat — ein echtes Rechercheergebnis, keine Lücke.
     readNotUsed: 'gelesen, nicht verwendet',
     moreSources: '+{count} weitere',
-    selectedDataSources: 'Ausgewählte Datenquellen:',
+    // Die an DIESE Nachricht angehängten Dateien. Die im Composer aktivierten
+    // Datenquellen sind Verfügbarkeit, keine Aktivität, und stehen bewusst
+    // nicht hier — was gelaufen ist, zeigt die `executedSteps`-Zeile darüber.
+    attachedFiles: 'Angehängte Dateien:',
     // „Warum dieser Weg?“ — die Routing-Einordnung dieses Turns (WP-A
     // `routing_decision` + `routing_reason`), im Herleitungs-Rahmenknoten.
     routing: {
@@ -304,11 +390,6 @@ export const chat: typeof en.chat = {
     },
     // Einzeiler, wenn dieser Turn von der Kurz- zur Tiefenrecherche eskaliert ist.
     escalationNarration: 'Eskaliert zur Tiefenrecherche: {reason}',
-    dataSource: {
-      webSearch: 'Websuche',
-      knowledgeBase: 'OIB-Wissensdatenbank',
-      ris: 'RIS (Österreichisches Recht)',
-    },
     node: {
       framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
@@ -525,6 +606,11 @@ export const chat: typeof en.chat = {
       other: 'Sonstiges',
     },
     thanks: 'Danke für Ihr Feedback.',
+    // States what the press COMMITTED rather than thanking: the vote is
+    // persisted on the press, so the reason and note are a second, optional
+    // act, and "danke" beside an open "Was war das Problem?" reads as if
+    // the exchange were already over.
+    voteRecorded: 'Bewertung gespeichert.',
     commentLabel: 'Noch etwas?',
     commentPlaceholder: 'Optional — was ist schiefgelaufen?',
     commentSubmit: 'Hinweis senden',

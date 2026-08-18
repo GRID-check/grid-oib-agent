@@ -5,6 +5,8 @@ import * as SheetPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
+import { OVERLAY_MOTION, OVERLAY_EXIT, OVERLAY_REDUCED } from '@/components/ui/overlay-motion'
 
 /**
  * Side sheet — a Dialog anchored to an edge instead of the centre.
@@ -32,7 +34,8 @@ const SheetOverlay = React.forwardRef<
   <SheetPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+      'fixed inset-0 z-50 bg-overlay backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 '
+        + OVERLAY_MOTION,
       className,
     )}
     {...props}
@@ -50,6 +53,29 @@ const SIDE_CLASSES = {
 
 export type SheetSide = keyof typeof SIDE_CLASSES
 
+/**
+ * THE SLIDE. A sheet is the design language's DIRECTION-OF-TRAVEL case: it comes
+ * from a named edge and the reader has to know which one, so it can be sent back
+ * there. Radix drives that through `data-[state]` keyframes, and this surface
+ * takes a TWEEN rather than one of the springs.
+ *
+ * That is the honest reading of the pixel budget, not a lack of ambition. A
+ * sheet's travel is its own width, so an overshooting spring's error is
+ * enormous here: `springDrawer` is 1.4%, which is 4.0px on the 288px mobile nav
+ * and 6.3px on a 448px `sm:max-w-md` panel, against a 1-2px budget. The budget's
+ * own arithmetic puts `springDrawer` in range only to ~145px. A panel half the
+ * screen wide that flies 6px past its edge and comes back is the slapstick the
+ * vocabulary exists to prevent, and no softer spring fixes it — at this travel
+ * anything with a visible overshoot percentage is out of budget by
+ * construction, and anything damped enough to be in budget is an ease-out with
+ * extra steps.
+ *
+ * So: `--motion-deliberate` on `--ease-entrance`. The decision lands at the
+ * START of the move, which is what an arriving surface wants, and the same pair
+ * `DockedPanel` uses — the app's two large sliding panels now agree on what
+ * "a panel arriving" feels like. The exit is one step shorter on `--ease-exit`
+ * via `OVERLAY_EXIT`, because nobody wants to watch a thing they dismissed.
+ */
 interface SheetContentProps extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> {
   side?: SheetSide
   /** Accessible label for the close button. */
@@ -57,20 +83,28 @@ interface SheetContentProps extends React.ComponentPropsWithoutRef<typeof SheetP
 }
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Content>, SheetContentProps>(
-  ({ className, children, side = 'right', closeLabel = 'Close', ...props }, ref) => (
+  ({ className, children, side = 'right', closeLabel = 'Close', style, ...props }, ref) => (
     <SheetPortal>
       <SheetOverlay />
       <SheetPrimitive.Content
         ref={ref}
+        style={style}
         className={cn(
-          'fixed z-50 flex flex-col gap-4 overflow-y-auto bg-background p-6 shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-200 data-[state=open]:duration-300',
+          'fixed z-50 flex flex-col gap-4 overflow-y-auto bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out '
+            + 'ease-entrance data-[state=open]:duration-deliberate '
+            + `${OVERLAY_EXIT} ${OVERLAY_REDUCED}`,
           SIDE_CLASSES[side],
           className,
         )}
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none touch-target">
+        <SheetPrimitive.Close
+          className={cn(
+            'absolute right-4 top-4 rounded-sm text-muted-foreground opacity-70 outline-none transition-opacity duration-quick ease-out hover:opacity-100 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none touch-target',
+            FOCUS_RING,
+          )}
+        >
           <X className="size-4" aria-hidden />
           <span className="sr-only">{closeLabel}</span>
         </SheetPrimitive.Close>

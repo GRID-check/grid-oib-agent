@@ -28,6 +28,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useInvocableSkills } from '../hooks/use-invocable-skills'
+import { skillLabel } from '../lib/skill-activity'
 
 export interface SkillsUsedDisclosureProps {
   /** Skill names the agent activated, in activation order. */
@@ -53,7 +54,7 @@ export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
       <CollapsibleTrigger
         className={cn(
           'text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 flex items-center gap-1.5',
-          'rounded-md text-[11px] leading-relaxed transition-colors duration-200 ease-out',
+          'rounded-md text-xs leading-relaxed transition-colors duration-quick ease-out',
           'focus-visible:outline-none focus-visible:ring-2',
         )}
         data-testid="skills-used-trigger"
@@ -62,7 +63,7 @@ export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
         <span>{summary}</span>
         <ChevronDown
           className={cn(
-            'size-3 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+            'size-3 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
             open && 'rotate-180',
           )}
           aria-hidden
@@ -71,21 +72,33 @@ export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
 
       <CollapsibleContent className="mt-1.5">
         <div
-          className="border-border/70 bg-muted/30 animate-in fade-in-0 flex flex-col gap-2 rounded-lg border px-3 py-2.5 duration-200 ease-out motion-reduce:animate-none"
+          className="bg-muted animate-in fade-in-0 flex flex-col gap-2 rounded-lg border px-3 py-2.5 duration-base ease-out motion-reduce:animate-none"
           data-testid="skills-used-panel"
         >
-          <p className="text-foreground text-[11px] font-medium">{t('composer.activated.title')}</p>
+          <p className="text-foreground text-xs font-medium">{t('composer.activated.title')}</p>
 
           <ul className="flex flex-col gap-1.5">
             {skillsActivated.map((name) => {
               const known = skills.find((skill) => skill.name === name)
+              // The ONE naming rule, shared with the live header line and the
+              // Herleitung chip (features/skills/lib/skill-activity): an
+              // authored title in proportional text, otherwise the bare
+              // identifier in `font-mono` — which is what this panel has always
+              // rendered, so nothing changes until titles exist. A row that
+              // cannot name its skill is dropped rather than shown blank.
+              const label = skillLabel({ name })
+              if (!label) return null
               return (
                 <li key={name} className="flex flex-col gap-0.5">
-                  <span className="text-foreground font-mono text-[11px]">{name}</span>
+                  <span
+                    className={cn('text-foreground text-xs', label.mono && 'font-mono')}
+                  >
+                    {label.text}
+                  </span>
                   {/* Absent when the descriptions have not arrived yet, or when
                       the skill has since been deleted or renamed. The name alone
                       is still true, so the row stays rather than disappearing. */}
-                  <span className="text-muted-foreground line-clamp-2 min-h-[1.375rem] text-[11px] leading-snug">
+                  <span className="text-muted-foreground line-clamp-2 min-h-[1.375rem] text-xs leading-snug">
                     {known?.description ?? ''}
                   </span>
                 </li>
@@ -95,7 +108,7 @@ export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
 
           {/* The mechanism, stated once at the bottom: it is the same for every
               answer, so it belongs under the specifics rather than above them. */}
-          <p className="text-muted-foreground/80 text-[11px] leading-snug">
+          <p className="text-muted-foreground/80 text-xs leading-snug">
             {t('composer.activated.explainer')}
           </p>
         </div>

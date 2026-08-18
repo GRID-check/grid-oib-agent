@@ -40,6 +40,9 @@ export const ViewerSurface = forwardRef<HTMLDivElement, ViewerSurfaceProps>(
         className={cn(
           'rounded-2xl border border-border',
           tone === 'raised'
+            // The alpha pair is load-bearing: these panels FLOAT over the 3D
+            // canvas and `backdrop-blur-md` needs something to blur; the
+            // `supports-` step is the no-blur fallback.
             ? 'bg-card/80 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-card/70'
             : 'bg-transparent',
           className

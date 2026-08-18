@@ -11,7 +11,7 @@
  * confirm here is safe. Not linked from anywhere and 404s outside development.
  */
 
-import { VectorMaintenance } from '@/app/app/platform/vector-maintenance'
+import { VectorMaintenance } from '@/app/app/(shell)/platform/vector-maintenance'
 
 const RESULT = {
   collectionsScanned: 24,

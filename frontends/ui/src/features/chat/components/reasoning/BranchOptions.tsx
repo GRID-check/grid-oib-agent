@@ -78,7 +78,7 @@ export const BranchOptions: FC<BranchOptionsProps> = ({
             aria-pressed={isSelected}
             className={cn(
               'flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-left',
-              'transition-[border-color,box-shadow,opacity] duration-200 ease-out motion-reduce:transition-none',
+              'transition-[border-color,box-shadow,opacity] duration-quick ease-out motion-reduce:transition-none',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
               isSelected ? 'border-primary shadow-sm' : 'shadow-xs',
               interactive ? 'cursor-pointer hover:border-input hover:shadow-sm' : 'cursor-default',
@@ -90,7 +90,7 @@ export const BranchOptions: FC<BranchOptionsProps> = ({
                 'mt-0.5 inline-flex size-[18px] shrink-0 items-center justify-center rounded-full',
                 isSelected
                   ? 'bg-primary text-primary-foreground'
-                  : 'border-[1.5px] border-input bg-card text-[10px] font-semibold text-muted-foreground'
+                  : 'border-[1.5px] border-input bg-card text-xs font-semibold text-muted-foreground'
               )}
               aria-hidden="true"
             >
@@ -98,7 +98,7 @@ export const BranchOptions: FC<BranchOptionsProps> = ({
             </span>
             <span
               className={cn(
-                'text-[13.5px] leading-snug text-foreground',
+                'text-sm leading-snug text-foreground',
                 isSelected ? 'font-semibold' : 'font-medium'
               )}
             >

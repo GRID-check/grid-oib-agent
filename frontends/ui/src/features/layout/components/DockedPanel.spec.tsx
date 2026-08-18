@@ -207,7 +207,15 @@ describe('DockedPanel', () => {
     await user.click(screen.getByTestId('toggle'))
 
     const panel = screen.getByRole('dialog', { name: 'Test panel' })
-    // Mobile still uses left-0; desktop docks after the rail width.
-    expect(panel.className).toContain('md:left-[var(--sidebar-current-width,0px)]')
+    // The rail's inner edge is now a POSITION, not a measurement: on desktop the
+    // panel is absolute inside the shell's <main>, which begins where the rail
+    // ends, so `left-0` is that edge. Mobile keeps `fixed` + `left-0` against
+    // the viewport, which is the same class doing a different job.
+    expect(panel.className).toContain('md:absolute')
+    expect(panel.className).toContain('left-0')
+    // The old CSS-variable dock is gone: it measured the rail (236/64px) while
+    // the closed panel translated by its own 400px, parking an opaque rectangle
+    // over the rail.
+    expect(panel.className).not.toContain('--sidebar-current-width')
   })
 })

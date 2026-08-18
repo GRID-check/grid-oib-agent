@@ -9,7 +9,7 @@
  * linked from anywhere and 404s outside development.
  */
 
-import { BaseKnowledge } from '@/app/app/platform/base-knowledge'
+import { BaseKnowledge } from '@/app/app/(shell)/platform/base-knowledge'
 
 const DOC_CLASSES = [
   'oib_richtlinie',

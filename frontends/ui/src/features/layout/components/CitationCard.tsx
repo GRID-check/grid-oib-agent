@@ -67,7 +67,14 @@ export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
   if (!ref) return null
 
   return (
-    <div className="animate-in fade-in-0">
+    // The transcript's arrival choreography, not a bare `animate-in`: a
+    // citation card lands beside answer blocks that all fade-and-rise on
+    // `duration-base ease-entrance`, and an unguarded, untimed entrance both
+    // ran at Tailwind's default 150ms and ignored `prefers-reduced-motion`.
+    // No `slide-in-from-bottom-1` here — this card carries legal provenance,
+    // and the design language keeps evidentiary content off anything that
+    // moves for its own sake.
+    <div className="animate-in fade-in-0 duration-base ease-entrance motion-reduce:animate-none">
       <SourcePreviewChip
         citation={ref}
         variant="card"

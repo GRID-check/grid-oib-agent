@@ -130,7 +130,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
           aria-hidden="true"
           onClick={handleDismiss}
           data-testid="docked-panel-backdrop"
-          className="bg-overlay animate-in fade-in-0 fixed inset-0 z-30 backdrop-blur-sm duration-300 motion-reduce:animate-none md:hidden"
+          className="bg-overlay animate-in fade-in-0 fixed inset-0 z-30 backdrop-blur-sm duration-deliberate ease-out motion-reduce:animate-none md:hidden"
         />
       )}
       <aside
@@ -144,16 +144,28 @@ export const DockedPanel: FC<DockedPanelProps> = ({
         aria-hidden={!open}
         data-state={open ? 'open' : 'closed'}
         className={cn(
-          // Full viewport height. On mobile it is a modal drawer from the
-          // screen edge. On desktop a left panel docks BESIDE the global
-          // sidebar (`--sidebar-current-width` from SidebarProvider) so chat
-          // history does not cover project navigation. 0px when no rail.
-          'bg-background fixed inset-y-0 z-40 flex w-full max-w-[400px] flex-col shadow-lg md:shadow-none',
-          side === 'left'
-            ? 'left-0 md:left-[var(--sidebar-current-width,0px)] border-r'
-            : 'right-0 border-l',
-          // Slide transition; reduced-motion users get an instant swap
-          'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
+          // On mobile it is a modal drawer from the screen edge, so it is
+          // `fixed` and spans the viewport.
+          //
+          // On desktop it is `absolute` INSIDE the shell's `relative` <main>,
+          // which starts at the inner edge of the rail. So `left-0` is that
+          // edge — by construction, with no CSS variable to publish, read or
+          // get wrong. It used to be `md:left-[var(--sidebar-current-width)]`
+          // against the viewport, and because the panel is force-mounted while
+          // closed and `-translate-x-full` translates by its OWN width (400px,
+          // not the rail's 236px), the CLOSED panel parked an opaque `z-40`
+          // rectangle exactly over the `z-10` rail. Positioned inside <main>,
+          // the same translate takes it outside the scroll container's box,
+          // where it is clipped and unreachable.
+          'bg-background fixed inset-y-0 z-40 flex w-full max-w-[400px] flex-col shadow-lg md:absolute md:shadow-none',
+          side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
+          // Slide transition; reduced-motion users get an instant swap.
+          // `duration-deliberate` is the drawer/panel step of the motion scale
+          // and `ease-entrance` is the curve for anything that MOVES on
+          // arrival — the literal 300ms and `ease-in-out` this replaces are
+          // both off-vocabulary (`grid-design-language.md` §"Motion
+          // vocabulary": no `ease-in-out` on a one-shot).
+          'transition-transform duration-deliberate ease-entrance motion-reduce:transition-none',
           open ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full',
           !open && 'pointer-events-none',
           className
@@ -161,7 +173,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
       >
         {/* Heading row — 48px, matching the chat toolbar pills' band so the
             seams register across the two surfaces. */}
-        <div className="border-border/60 flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
+        <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
           <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">{heading}</div>
           <Button
             ref={closeButtonRef}
@@ -172,7 +184,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
             aria-label={t('dockedPanel.closePanel')}
             title={t('dockedPanel.closePanel')}
           >
-            <X className="h-4 w-4" aria-hidden="true" />
+            <X className="size-4" aria-hidden="true" />
           </Button>
         </div>
 
@@ -183,7 +195,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
 
         {/* Footer */}
         {footer && (
-          <div className="border-border/60 bg-background shrink-0 border-t px-4 py-3">{footer}</div>
+          <div className="bg-background shrink-0 border-t px-4 py-3">{footer}</div>
         )}
       </aside>
     </>

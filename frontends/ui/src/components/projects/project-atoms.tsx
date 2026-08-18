@@ -190,7 +190,7 @@ export function ProjectSettingsLink({
         // p-2 around a 14px glyph is a 30px target — over WCAG 2.2's 24px floor
         // with room to spare, which this one needs: on a row it is the only
         // control besides the stretched link covering everything else.
-        'relative z-10 rounded-lg p-2 text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none',
+        'relative z-10 rounded-lg p-2 text-muted-foreground transition-colors duration-quick ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none',
         className,
       )}
     >
@@ -215,7 +215,7 @@ export function ProjectInitialsTile({
     <span
       aria-hidden
       className={cn(
-        'grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-[11px] font-semibold tracking-wide text-muted-foreground transition-colors duration-200 ease-out group-hover:bg-accent group-hover:text-foreground motion-reduce:transition-none',
+        'grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-xs font-semibold tracking-wide text-muted-foreground transition-colors duration-quick ease-out group-hover:bg-accent group-hover:text-foreground motion-reduce:transition-none',
         className,
       )}
     >

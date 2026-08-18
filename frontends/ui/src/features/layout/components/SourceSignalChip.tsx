@@ -45,7 +45,7 @@ export const sourceSignalStyle = (signal: SourceTint): CSSProperties => ({
 
 const chipClasses =
   'inline-flex h-6 max-w-full shrink-0 items-center gap-1 truncate whitespace-nowrap rounded-full ' +
-  'border px-2.5 text-xs font-medium transition-[color,background-color,box-shadow,filter] duration-150 ease-out ' +
+  'border px-2.5 text-xs font-medium transition-[color,background-color,box-shadow,filter] duration-snap ease-out ' +
   'motion-reduce:transition-none ' +
   '[&>svg]:size-3 [&>svg]:shrink-0 ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'

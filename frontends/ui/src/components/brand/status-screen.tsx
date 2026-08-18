@@ -27,7 +27,7 @@ export function StatusScreen({ code, title, description, actions, className }: S
       {code && (
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{code}</p>
       )}
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground text-balance">{title}</h1>
+      <h1 className="mt-2 text-xl font-semibold tracking-tight text-foreground text-balance">{title}</h1>
       <p className="mt-2 max-w-md text-sm text-muted-foreground text-balance">{description}</p>
       {actions && <div className="mt-6 flex items-center gap-3">{actions}</div>}
     </div>

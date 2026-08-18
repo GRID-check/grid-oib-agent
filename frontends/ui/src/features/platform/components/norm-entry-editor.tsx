@@ -329,7 +329,7 @@ function Step({
       <div className="flex items-baseline gap-2">
         <span
           aria-hidden
-          className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+          className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
         >
           {index}
         </span>
@@ -347,7 +347,7 @@ function Step({
 function Fact({ label, value, href }: { label: string; value: string; href?: string }): JSX.Element {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
       {href ? (
         <a
           href={href}
@@ -611,8 +611,8 @@ export function NormEntryEditor({
                   key={value}
                   htmlFor={itemId}
                   className={cn(
-                    'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/60',
-                    selected ? 'border-primary bg-accent/40' : 'hover:bg-accent/20',
+                    'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors duration-quick ease-out focus-within:ring-2 focus-within:ring-ring/60',
+                    selected ? 'border-primary bg-accent' : 'hover:bg-muted',
                   )}
                 >
                   <RadioGroupItem id={itemId} value={value} className="mt-0.5" />
@@ -638,7 +638,7 @@ export function NormEntryEditor({
                 testId="norm-editor-find"
               >
                 {searching ? (
-                  <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3">
+                  <div className="flex flex-col gap-3 rounded-xl border bg-muted p-3">
                     <form.AppField name="verify_title_query">
                       {(field) => (
                         <field.TextField
@@ -675,7 +675,7 @@ export function NormEntryEditor({
                               type="button"
                               onClick={() => applyCandidate(candidate)}
                               aria-label={t('norms.verify.candidate', { title: candidate.title })}
-                              className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors duration-200 ease-out hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+                              className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors duration-quick ease-out hover:bg-accent focus-visible:bg-accent focus-visible:outline-none motion-reduce:transition-none"
                             >
                               <span className="text-sm">{candidate.title}</span>
                               <span className="font-mono text-xs text-muted-foreground">
@@ -689,7 +689,7 @@ export function NormEntryEditor({
                   </div>
                 ) : (
                   <div
-                    className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3"
+                    className="flex flex-col gap-3 rounded-xl border bg-muted p-3"
                     data-testid="norm-editor-confirmed"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -849,7 +849,7 @@ export function NormEntryEditor({
                 <Button type="button" variant="ghost" size="sm" className="w-fit px-2 text-muted-foreground">
                   <ChevronDown
                     className={cn(
-                      'size-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                      'size-3.5 transition-transform duration-quick ease-out motion-reduce:transition-none',
                       advancedOpen && 'rotate-180',
                     )}
                     aria-hidden
@@ -959,7 +959,7 @@ export function NormEntryEditor({
                   )}
                 </form.AppField>
 
-                <div className="flex flex-col gap-4 rounded-xl border bg-muted/20 p-3">
+                <div className="flex flex-col gap-4 rounded-xl border bg-muted p-3">
                   <div className="flex flex-col gap-0.5">
                     <span className="text-sm font-medium">{t('norms.verify.seedTitle')}</span>
                     <span className="text-xs text-muted-foreground">{t('norms.verify.seedHint')}</span>

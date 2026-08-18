@@ -5,6 +5,7 @@ import * as CheckboxPrimitive from '@radix-ui/react-checkbox'
 import { CheckIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
 
 const Checkbox = React.forwardRef<
   React.ElementRef<typeof CheckboxPrimitive.Root>,
@@ -23,7 +24,7 @@ const Checkbox = React.forwardRef<
       // which is invisible. Re-assert the checked fill under `dark:` so the
       // two conditions compose instead of one silently winning.
       'dark:data-[state=checked]:bg-primary dark:data-[state=checked]:text-primary-foreground',
-      'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+      FOCUS_RING,
       'aria-invalid:ring-destructive/20 aria-invalid:border-destructive',
       className
     )}

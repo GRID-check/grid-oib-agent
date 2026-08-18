@@ -19,6 +19,7 @@ from aiq_api.jobs.runner import _GRAPH_RECURSION_ERROR_MSG
 from aiq_api.jobs.runner import _WALL_CLOCK_TIMEOUT_MSG
 from aiq_api.jobs.runner import CancellationMonitor
 from aiq_api.jobs.runner import _create_agent_instance
+from aiq_api.jobs.runner import _extract_skills_activated
 from aiq_api.jobs.runner import _purge_deep_checkpoint
 from aiq_api.jobs.runner import _resolve_deep_research_checkpointer
 from aiq_api.jobs.runner import _update_status_if_not_terminal
@@ -396,3 +397,28 @@ class TestPurgeDeepCheckpointImportable:
     def test_purge_is_noop_without_dsn(self, monkeypatch):
         monkeypatch.delenv("AIQ_DEEP_CHECKPOINT_DB", raising=False)
         _purge_deep_checkpoint("job-x")  # must not raise
+
+
+class TestExtractSkillsActivated:
+    """Lifting the job run's skill transparency off whatever the agent returned.
+
+    The runner is agent-agnostic by design, so this reads defensively: a state
+    object, a dict, or an agent with no such field at all.
+    """
+
+    def test_reads_it_off_an_agent_state(self) -> None:
+        state = SimpleNamespace(skills_activated=["oib-brandschutznachweis"])
+        assert _extract_skills_activated(state) == ["oib-brandschutznachweis"]
+
+    def test_reads_it_off_a_dict_result(self) -> None:
+        assert _extract_skills_activated({"skills_activated": ["a", "b"]}) == ["a", "b"]
+
+    def test_an_agent_without_the_field_simply_has_none(self) -> None:
+        assert _extract_skills_activated(SimpleNamespace()) is None
+        assert _extract_skills_activated({}) is None
+        assert _extract_skills_activated("just a report string") is None
+
+    def test_an_empty_or_malformed_list_is_none_not_an_empty_claim(self) -> None:
+        assert _extract_skills_activated(SimpleNamespace(skills_activated=[])) is None
+        assert _extract_skills_activated(SimpleNamespace(skills_activated="oib")) is None
+        assert _extract_skills_activated(SimpleNamespace(skills_activated=[None, 3, "ok"])) == ["ok"]

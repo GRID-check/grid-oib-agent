@@ -41,7 +41,7 @@ export function ViewerNotice({
     <div
       className={cn(
         'flex size-full flex-col items-center justify-center gap-2 p-8 text-center',
-        'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
+        'animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none',
         className
       )}
     >

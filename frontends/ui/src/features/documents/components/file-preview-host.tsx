@@ -251,7 +251,7 @@ export function FilePreviewBridge({ children }: { children: ReactNode }): JSX.El
 }
 
 const peekIconButtonClass =
-  'text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100'
+  'text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity duration-quick ease-out hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100'
 
 function PeekToolbar({
   file,
@@ -270,7 +270,7 @@ function PeekToolbar({
   const actions = useDocumentActions({ document: file, scope })
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 px-2.5">
-      <p className="text-foreground min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
+      <p className="text-foreground min-w-0 flex-1 truncate text-xs font-medium tracking-[-0.01em]">
         {name}
       </p>
       <button

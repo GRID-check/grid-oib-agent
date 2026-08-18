@@ -21,12 +21,12 @@ export function SemanticMatch({ snippet, page, score }: { snippet: string; page:
       data-testid="semantic-match"
     >
       {snippet !== '' && (
-        <p className="line-clamp-3 text-[11.5px] leading-[1.45] text-foreground/80" title={snippet}>
+        <p className="line-clamp-3 text-xs leading-[1.45] text-foreground/80" title={snippet}>
           <Quote className="mr-1 inline size-3 -translate-y-px text-primary/60" aria-hidden />
           {snippet}
         </p>
       )}
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {page !== null && (
           <span className="shrink-0 font-medium tabular-nums" data-testid="semantic-page">
             {t('browser.semantic.page', { page: String(page) })}

@@ -75,6 +75,8 @@ def _skill_runtime(resolved, force_names):
     runtime.forced_block.return_value = "## Aktive Skills (vom Nutzer erzwungen)"
     runtime.build_tools.return_value = [MagicMock(name="use_skill")]
     runtime.activated = list(force_names or [])
+    runtime.skills = tuple(resolved)
+    runtime.forced = tuple(force_names or ())
     return runtime
 
 
@@ -121,6 +123,81 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
         # instance is the one with run() awaiting it.)
         assert state.skills_block == "## Verfügbare Skills\n\n## Aktive Skills (vom Nutzer erzwungen)"
         assert result.skills_activated == ["forecast-analysis"]
+        await gen.aclose()
+
+
+@pytest.mark.asyncio
+async def test_the_catalog_is_announced_before_the_llm_runs():
+    """The `offered` event fires at wiring time, not after the answer.
+
+    Everything about skills used to leave the process as ``skills_activated[]``
+    on the TERMINAL frame — i.e. after the answer the skill shaped. This asserts
+    the seam: the register announces the catalog while it is still assembling
+    the run, before a single token is generated.
+    """
+    builder = _FakeBuilder({"web_search_tool": web_search_tool})
+    config = ShallowResearchAgentConfig(
+        llm="research_llm",
+        tools=["web_search_tool"],
+        skills_enabled=True,
+    )
+    resolved = (_skill("forecast-analysis"),)
+    runtime = _skill_runtime(resolved, ["forecast-analysis"])
+    announced = []
+
+    with (
+        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
+        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
+        patch("aiq_agent.skills.SkillRuntime", return_value=runtime),
+        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch(
+            "aiq_agent.skills.events.emit_skills_offered",
+            side_effect=lambda rt: announced.append(rt),
+        ),
+    ):
+        ResolverCls.return_value.resolve.return_value = resolved
+
+        run_fn, gen = await _get_run_fn(config, builder)
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="run forecast-analysis")],
+            force_skills=["forecast-analysis"],
+        )
+        await run_fn(state)
+
+        assert announced == [runtime]
+        await gen.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_turn_without_skills_announces_nothing():
+    """Silence is the correct report for a turn with no skills in it."""
+    builder = _FakeBuilder({"web_search_tool": web_search_tool})
+    config = ShallowResearchAgentConfig(
+        llm="research_llm",
+        tools=["web_search_tool"],
+        skills_enabled=True,
+    )
+    announced = []
+
+    with (
+        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
+        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
+        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch(
+            "aiq_agent.skills.events.emit_skills_offered",
+            side_effect=lambda rt: announced.append(rt),
+        ),
+    ):
+        ResolverCls.return_value.resolve.return_value = ()
+
+        run_fn, gen = await _get_run_fn(config, builder)
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="hallo")],
+            requires_sources=False,
+        )
+        await run_fn(state)
+
+        assert announced == []
         await gen.aclose()
 
 

@@ -51,10 +51,10 @@ export function ProjectStatusChip({ status }: ProjectStatusChipProps): JSX.Eleme
   const t = useTranslations('projects')
   return (
     <span
-      className="inline-flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[11px] font-medium"
+      className="inline-flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs font-medium"
       style={STATUS_STYLE[status]}
     >
-      <Activity className="size-[11px]" strokeWidth={2.4} aria-hidden />
+      <Activity className="size-3" strokeWidth={2.4} aria-hidden />
       {t(`card.status.${status}`)}
     </span>
   )

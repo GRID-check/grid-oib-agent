@@ -71,42 +71,65 @@ export const research: typeof en.research = {
     loadingEllipsis: 'Datenquellen werden geladen...',
     unableToLoad: 'Datenquellen konnten nicht geladen werden',
     retryAria: 'Laden der Datenquellen erneut versuchen',
-    none: 'Keine Datenquellen verfügbar',
-    changesDisabledBusy: 'Änderungen an Datenquellen sind während aktiver Vorgänge deaktiviert',
   },
 
-  dataConnectionCard: {
-    enabled: 'aktiviert',
-    disabled: 'deaktiviert',
-    disabledParenthetical: '(deaktiviert)',
-    noPermission: 'Sie haben keine Berechtigung, auf diese Datenquelle zuzugreifen',
-    enableName: '{name} aktivieren',
-    disableName: '{name} deaktivieren',
-    nameDisabled: '{name} (deaktiviert)',
-  },
-
-  dataConnectionsTab: {
-    availableSources: 'Verfügbare Quellen ({count})',
-  },
-
-  dataSourcesPanel: {
-    title: 'Datenquellen',
-    footerConnections:
-      '{enabled} von {available} verfügbaren Verbindungen aktiviert. Aktivierte Verbindungen stehen dem KI-Assistenten zur Verfügung.',
-    footerFiles: 'Angehängte Dateien stehen den Agenten bis zur Löschung dauerhaft zur Verfügung.',
-    tabConnections: 'Verbindungen',
-    tabFiles: 'Dateien',
-    enableAuthBanner: 'Aktivieren Sie die Authentifizierung, um auf weitere Datenquellen zuzugreifen.',
-    signInBanner: 'Melden Sie sich an, um auf weitere Datenquellen zuzugreifen.',
-    allConnections: 'Alle Verbindungen',
-    allAvailableDisabledOps: 'Alle verfügbaren Verbindungen (während Vorgängen deaktiviert)',
-    allAvailableState: 'Alle verfügbaren Verbindungen: {state}',
-    disableEnableAll: 'Alle deaktivieren / aktivieren',
-    toggleAllDisabled: 'Alle Verbindungen umschalten (deaktiviert)',
-    disableAll: 'Alle Verbindungen deaktivieren',
-    enableAll: 'Alle Verbindungen aktivieren',
-    individualConnections: 'Einzelne Verbindungen ({count})',
-    signInRequiredSource: 'Anmeldung erforderlich, um auf diese Datenquelle zuzugreifen',
+  /**
+   * Datenbasis — der Verfasser-Regler dafür, WORIN Piloti suchen darf.
+   *
+   * Ein Name für eine Sache: dieses Objekt löst die vier konkurrierenden
+   * Bezeichnungen ab, die dieselbe Fläche früher trugen (aria-label
+   * „Datengrundlage“, sichtbar „Datengrundlage“, title „Ausgewählte
+   * Datenverbindungen“, Kopfzeile „Datenquellen“).
+   *
+   * Zeitform ist hier Bedeutung: der Regler spricht ausschließlich in der
+   * Gegenwart/Möglichkeit („darf suchen“). Was tatsächlich benutzt wurde, sagt
+   * die Herleitung — nie dieses Bedienelement.
+   */
+  sourceBasis: {
+    label: 'Datenbasis',
+    triggerAria: 'Datenbasis: {summary}. Öffnet die Auswahl.',
+    description:
+      'Worin Piloti suchen darf. Was tatsächlich verwendet wurde, steht in der Herleitung.',
+    allSources: 'Alle Quellen',
+    internalOnly: 'Nur Projektwissen',
+    overflowAria: '{count} weitere Quellenarten',
+    alwaysOn: 'Immer dabei',
+    alwaysOnChip: 'Immer aktiv',
+    external: 'Externe Quellen',
+    signInRequired: 'Anmeldung nötig',
+    signInReason: 'Melden Sie sich an, um diese Quelle zu nutzen.',
+    lockedBusy: 'Während einer laufenden Recherche lässt sich die Datenbasis nicht ändern.',
+    noExternalWarning: 'Piloti sucht dann nur noch in Ihren Projektunterlagen.',
+    presetsLabel: 'Voreinstellungen',
+    emptyTitle: 'Keine externen Quellen',
+    emptyBody:
+      'Für dieses Projekt sind derzeit keine externen Quellen freigeschaltet. Piloti sucht in Ihren Projektunterlagen.',
+    toggleAria: '{name} zulassen',
+    /** Wortmarken der Provenienz-Straten — immer mit Icon und Farbe zusammen. */
+    strata: {
+      law: 'Baurecht',
+      office: 'Büroarchiv',
+      project: 'Projektwissen',
+      auto: 'Web',
+    },
+    /** Voreinstellungen im Fuß der Auswahl — „Alle“ macht den Normalfall benennbar. */
+    presets: {
+      all: 'Alle Quellen',
+      law: 'Baurecht & Richtlinien',
+      project: 'Projektunterlagen',
+      office: 'Büroarchiv',
+    },
+    /**
+     * Die Wissensschicht ist keine umschaltbare Quelle — sie geht bei jedem Zug
+     * mit auf die Leitung. Deshalb steht sie hier sichtbar drin, statt gefiltert
+     * zu verschwinden und die Zählung zu verfälschen.
+     */
+    knowledge: {
+      projectName: 'Projektwissen',
+      projectDescription: 'Ihre Projektunterlagen in diesem Projekt.',
+      officeName: 'Büroarchiv',
+      officeDescription: 'Freigegebene Unterlagen Ihres Büros.',
+    },
   },
 
   deleteModals: {
@@ -226,8 +249,6 @@ export const research: typeof en.research = {
     unsupportedFileType: 'Nicht unterstützter Dateityp',
     dropToUpload: 'Dateien zum Hochladen ablegen',
     accepts: 'Akzeptiert: {types}',
-    toggleDataSources: 'Datenquellen-Verbindungen umschalten',
-    selectedConnections: 'Ausgewählte Datenverbindungen',
     openFiles: 'Hochgeladene Dateien öffnen',
     availableFiles: 'Verfügbare Dateien',
     uploadNotAvailable: 'Datei-Upload nicht verfügbar',
@@ -259,7 +280,6 @@ export const research: typeof en.research = {
     fileUploadingStatus: 'Wird hochgeladen',
     fileFailedStatus: 'Upload fehlgeschlagen',
     fileReadyStatus: 'Bereit',
-    sourcesPopoverAllHint: 'Aktivierte Verbindungen stehen dem KI-Assistenten zur Verfügung.',
   },
 
   reportCard: {

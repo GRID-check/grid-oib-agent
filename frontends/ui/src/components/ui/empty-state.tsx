@@ -37,7 +37,7 @@ export function EmptyState({
     <div
       className={cn(
         'flex w-full min-w-0 flex-col items-center justify-center text-center',
-        variant === 'panel' ? 'rounded-2xl border border-dashed bg-muted/25 px-6 py-12' : 'py-10',
+        variant === 'panel' ? 'rounded-lg border border-dashed bg-muted/25 px-6 py-12' : 'py-10',
         className,
       )}
       {...props}

@@ -54,11 +54,8 @@ import {
   ItemMedia,
   ItemTitle,
 } from '@/components/ui/item'
-import { motion } from '@/components/motion'
+import { motion, motionQuick } from '@/components/motion'
 import { cn } from '@/lib/utils'
-
-/** Exit + layout only — transform/opacity, 180ms ease-out. */
-const ROW_MOTION = { duration: 0.18, ease: 'easeOut' } as const
 
 /**
  * The ONE place the registry's icon names become components. Keeping the map here
@@ -183,14 +180,14 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
       asChild
       className={cn(
         'relative items-start py-3.5',
-        inert && 'bg-muted/25 hover:bg-muted/25',
+        inert && 'bg-muted hover:bg-muted',
       )}
     >
       <motion.li
         ref={ref}
         layout
         exit={{ opacity: 0, x: 12 }}
-        transition={ROW_MOTION}
+        transition={motionQuick}
         data-testid="inbox-item"
         data-state={item.state}
         data-type={item.type}
@@ -226,7 +223,7 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
               aria-hidden
               className={cn(
                 'mt-[7px] size-1.5 shrink-0 rounded-full bg-foreground',
-                'transition-opacity duration-150 ease-out motion-reduce:transition-none',
+                'transition-opacity duration-snap ease-out motion-reduce:transition-none',
                 unread ? 'opacity-100' : 'opacity-0',
               )}
             />

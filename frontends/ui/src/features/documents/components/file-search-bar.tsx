@@ -51,6 +51,8 @@ export function FileSearchBar({
 }: FileSearchBarProps) {
   return (
     <>
+      {/* 95% + `backdrop-blur` is a frosted sticky band, not a hand-derived
+          surface: the list has to stay faintly visible scrolling under it. */}
       <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
         <form
           className="flex min-h-9 items-center gap-2"
@@ -94,7 +96,7 @@ export function FileSearchBar({
 
       {semanticActive && (
         <div
-          className="flex min-h-9 items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+          className="flex min-h-9 items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none"
           role="status"
           data-testid={bannerTestId}
         >
@@ -110,7 +112,7 @@ export function FileSearchBar({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground motion-reduce:transition-none"
+            className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground transition-colors duration-snap ease-out hover:text-foreground motion-reduce:transition-none"
             onClick={onResetSemantic}
           >
             <X className="size-3.5" aria-hidden />

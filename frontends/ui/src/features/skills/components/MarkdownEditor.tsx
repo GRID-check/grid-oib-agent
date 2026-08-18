@@ -74,7 +74,7 @@ function headingCommand(base: ICommand, glyph: string, label: string): ICommand 
   return {
     ...base,
     icon: (
-      <span className="text-[11px] font-semibold leading-none tracking-tight">{glyph}</span>
+      <span className="text-xs font-semibold leading-none tracking-tight">{glyph}</span>
     ),
     buttonProps: { 'aria-label': label, title: label },
   }

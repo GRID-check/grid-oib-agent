@@ -981,6 +981,25 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 logger.warning("Could not fetch available documents: %s", e)
             return available_documents
 
+        # Say what is happening in the FIRST hole of the turn. Nothing at all
+        # reached the client before the intent classifier's LLM call, so a turn
+        # scoped to an archive or a project sat silent through every one of
+        # these round-trips. Only emitted when one of the reader's OWN shelves
+        # is in scope -- the base OIB corpus is read on every research turn,
+        # and announcing a constant says nothing.
+        try:
+            from aiq_agent.common.turn_status import emit_documents_loading
+
+            emit_documents_loading(
+                [
+                    str(shelf)
+                    for entry in (_scoped_collections or ())
+                    if (shelf := getattr(entry, "shelf", None)) is not None
+                ]
+            )
+        except Exception:  # noqa: BLE001 — transparency must never take a turn down
+            logger.debug("Document-loading status not emitted", exc_info=True)
+
         # Run the independent per-turn I/O paths concurrently: the live
         # memory-digest fetch, the available-documents aggregation, and the
         # session-registry hydration. None depends on the others, and each fails

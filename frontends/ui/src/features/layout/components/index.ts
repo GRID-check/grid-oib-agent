@@ -37,7 +37,6 @@ export { ReportCard } from './ReportCard'
 export { ExportFooter } from './ExportFooter'
 
 // Data sources tabs and cards (reused by the composer sources popover)
-export { DataConnectionCard } from './DataConnectionCard'
 export { FileSourcesTab } from './FileSourcesTab'
 export { FileSourceCard } from './FileSourceCard'
 

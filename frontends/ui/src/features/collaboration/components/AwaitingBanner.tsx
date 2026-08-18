@@ -121,7 +121,7 @@ export function AwaitingBanner({
       aria-live="polite"
       className={cn(
         'rounded-lg border px-4 py-3 shadow-xs',
-        'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out',
+        'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance',
         // `border-warning` / `bg-warning-*` are static `@utility` blocks in
         // globals.css with no `--modifier()`, so a slash-opacity form
         // (`border-warning/40`) matches nothing and silently fell back to the
@@ -141,7 +141,7 @@ export function AwaitingBanner({
             // a second `bg-warning-subtle` would not.
             awaitingMe
               ? 'border-warning bg-card text-warning'
-              : 'border-border bg-muted/60 text-muted-foreground',
+              : 'border-border bg-muted text-muted-foreground',
           )}
         >
           {awaitingMe ? <Hand className="size-4" /> : <Clock className="size-4" />}
@@ -197,7 +197,7 @@ export function AwaitingBanner({
           {/* Several people awaited: each one gets its own release, because the
               state resolves per person (MN-10). */}
           {!single && (
-            <ul className="mt-2.5 flex flex-col divide-y rounded-lg border bg-background/40">
+            <ul className="mt-2.5 flex flex-col divide-y rounded-lg border bg-background">
               {/* Releasing one person removes their row while the others stay. A CSS
                   `animate-in` can only play on mount, so without this the released
                   row vanished between frames and the rows below snapped upward —

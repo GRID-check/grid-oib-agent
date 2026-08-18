@@ -41,7 +41,6 @@ export type { SourceInfo } from './components'
 
 // Data sources tabs and cards (reused by the composer sources popover)
 export {
-  DataConnectionCard,
   FileSourcesTab,
   FileSourceCard,
 } from './components'

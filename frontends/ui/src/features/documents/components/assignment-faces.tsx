@@ -14,7 +14,7 @@ export function AssignmentFaces({
 }) {
   const t = useTranslations('files')
   if (!assignees || assignees.length === 0) {
-    return <span className={cn('truncate text-[11px] text-muted-foreground', className)}>{t('assignment.unassigned')}</span>
+    return <span className={cn('truncate text-xs text-muted-foreground', className)}>{t('assignment.unassigned')}</span>
   }
   const people = assignees.map((person) => ({
     userId: person.userId,

@@ -151,7 +151,7 @@ const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => 
       className={`${geistSans.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
-      <body className="bg-surface-base font-sans antialiased">
+      <body className="bg-surface-base text-foreground font-sans antialiased">
         <ChunkReloadGuard />
         <a
           href="#main-content"

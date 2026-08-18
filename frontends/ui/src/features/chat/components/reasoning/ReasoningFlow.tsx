@@ -131,6 +131,7 @@ import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceLanes } from '../../lib/trace-lanes'
 import { buildCitationModel, totalHits, type CitedDocument } from '../../lib/citations'
 import { SourceCard } from './SourceCard'
+import { SectionLabel } from '@/components/ui/section-label'
 import { BranchOptions } from './BranchOptions'
 import { citationChips } from './citations'
 import type { ChoicePrompt } from './citations'
@@ -156,13 +157,14 @@ const CENTRE_OUT: HandleSpec = { id: 'out', left: '50%' }
 /**
  * The card entrance, in ms. Kept in code because `animatedRef` has to know when
  * the animation it started is over, and the animation itself is pure CSS
- * (`duration-300` plus an inline per-card delay).
+ * (`duration-base` plus an inline per-card delay) — so this constant must stay
+ * equal to `--motion-base`.
  */
-const ENTER_MS = 300
+const ENTER_MS = 240
 const ENTER_STAGGER_MS = 60
 
 const Eyebrow: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">{children}</div>
+  <SectionLabel as="div">{children}</SectionLabel>
 )
 
 // ── node payloads ───────────────────────────────────────────────────────────
@@ -239,14 +241,14 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
         <Sparkles className="size-2.5" aria-hidden="true" /> {data.label}
       </span>
     </Eyebrow>
-    <p className="mt-1 text-[13px] leading-relaxed text-foreground">{data.question}</p>
+    <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>
     {data.routing && (
       <div className="mt-2 border-t border-base pt-1.5">
         {data.routingLabel && <Eyebrow>{data.routingLabel}</Eyebrow>}
-        <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{data.routing}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{data.routing}</p>
       </div>
     )}
-    {data.escalation && <p className="mt-1.5 text-[12px] leading-relaxed text-warning">{data.escalation}</p>}
+    {data.escalation && <p className="mt-1.5 text-xs leading-relaxed text-warning">{data.escalation}</p>}
     {data.sources.map((h) => (
       <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
     ))}
@@ -279,7 +281,11 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
               />
             )}
             <div
-              className={entering ? 'animate-in fade-in-0 slide-in-from-bottom-2 duration-300' : undefined}
+              className={
+                entering
+                  ? 'animate-in fade-in-0 slide-in-from-bottom-2 duration-base ease-entrance motion-reduce:animate-none'
+                  : undefined
+              }
               style={
                 entering
                   ? { animationDelay: `${slot * ENTER_STAGGER_MS}ms`, animationFillMode: 'backwards' }
@@ -306,7 +312,7 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
         // No entrance on the container itself — the cards inside carry it, and
         // this wrapper re-mounts whenever the width crosses GROUPED_MAX_W, which
         // faded the whole box back in on top of them on every such resize.
-        <div className="rounded-xl border bg-muted/40 px-3 py-3">
+        <div className="rounded-xl border bg-muted px-3 py-3">
           <Eyebrow>{data.groupLabel}</Eyebrow>
           <div className="mt-2">{stack}</div>
         </div>
@@ -342,12 +348,12 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
         follows as "from where". The trust verdict (confidence + provenance
         chips) is NOT restated here — it lives once on the answer card. */}
     {data.tally && (
-      <p className="mt-1 text-[13px] font-semibold leading-snug tabular-nums text-foreground">
+      <p className="mt-1 text-sm font-semibold leading-snug tabular-nums text-foreground">
         {data.tally}
       </p>
     )}
     {data.hitSummary && (
-      <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{data.hitSummary}</p>
+      <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{data.hitSummary}</p>
     )}
     <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />
   </div>
@@ -359,7 +365,7 @@ const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
       <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
     ))}
     <div className="text-sm font-semibold text-foreground">{data.prompt.text.trim() || data.sub}</div>
-    <div className="mb-3 mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">{data.sub}</div>
+    <div className="mb-3 mt-0.5 text-xs leading-relaxed text-muted-foreground">{data.sub}</div>
     <BranchOptions
       options={data.prompt.options}
       selected={data.prompt.selected}

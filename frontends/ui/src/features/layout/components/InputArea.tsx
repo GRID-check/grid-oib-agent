@@ -31,7 +31,6 @@ import {
   ChevronDown,
   Eye,
   FileText,
-  Layers,
   Paperclip,
   RotateCw,
   Sparkles,
@@ -51,12 +50,10 @@ import {
 } from '@/components/ui/dialog'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
-import { useAuth } from '@/adapters/auth'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
@@ -64,10 +61,7 @@ import { latestDeepResearchJobStatus } from '@/features/chat/lib/session-activit
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 import { researchSessionState } from '../lib/research-session-state'
-import type { SourcePresetId } from '../types'
-import type { DataSource } from '../data-sources'
-import { SourceSignalChipToggle } from './SourceSignalChip'
-import { DataConnectionCard } from './DataConnectionCard'
+import { SourceBasisPicker, SourceBasisTrigger } from './source-basis'
 import { FileSourcesTab } from './FileSourcesTab'
 import { UploadDestinationNote } from './UploadDestination'
 import { useAppConfig } from '@/shared/context'
@@ -103,13 +97,6 @@ import { InvokedSkillChip } from '@/features/skills/components/InvokedSkillChip'
 import { SlashCommandPicker } from '@/features/skills/components/SlashCommandPicker'
 import { useSlashCommand } from '@/features/skills/hooks/use-slash-command'
 import type { SendMessageOutcome } from '@/features/chat/hooks/use-websocket-chat'
-
-/** Preset chip order + their provenance signals (spec §4 --source-* family). */
-const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
-  { id: 'law', signal: 'law' },
-  { id: 'project', signal: 'project' },
-  { id: 'office', signal: 'office' },
-]
 
 /** Connection mode for the chat */
 export type ConnectionMode = 'sse' | 'websocket'
@@ -167,173 +154,6 @@ function mentionRefusalMessage(
 const TEXTAREA_MAX_HEIGHT_PX = 200
 
 /**
- * Connection toggle list rendered inside the "Datengrundlage" popover.
- * Lifted from the old DataSourcesPanel connections tab — same store actions,
- * same DataConnectionCard, plus a single enable/disable-all control. Kept as a
- * child so its store subscriptions only mount while the popover is open.
- */
-const SourcesPopoverContent: FC = () => {
-  const t = useTranslations('research')
-  const tc = useTranslations('common')
-  const { idToken } = useAuth()
-  const hasValidToken = !!idToken
-
-  const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
-  const availableDataSources = useLayoutStore((s) => s.availableDataSources)
-  const dataSourcesLoading = useLayoutStore((s) => s.dataSourcesLoading)
-  const dataSourcesError = useLayoutStore((s) => s.dataSourcesError)
-  const toggleDataSource = useLayoutStore((s) => s.toggleDataSource)
-  const setEnabledDataSources = useLayoutStore((s) => s.setEnabledDataSources)
-  const fetchDataSources = useLayoutStore((s) => s.fetchDataSources)
-  const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
-  const isBusy = useIsCurrentSessionBusy()
-
-  const enabledSourcesSet = useMemo(() => new Set(enabledDataSourceIds), [enabledDataSourceIds])
-
-  const displaySources: DataSource[] = useMemo(() => {
-    if (!availableDataSources || availableDataSources.length === 0) return []
-    return availableDataSources.map((source) => ({
-      id: source.id,
-      name: source.name,
-      description: source.description ?? '',
-      category: source.category ?? 'enterprise',
-      defaultEnabled: true,
-      requiresAuth: source.requires_auth ?? false,
-    }))
-  }, [availableDataSources])
-
-  const availableSources = useMemo(
-    () => displaySources.filter((source) => !source.requiresAuth || hasValidToken),
-    [displaySources, hasValidToken]
-  )
-
-  const enabledAvailableCount = enabledDataSourceIds.filter((id) =>
-    availableSources.some((s) => s.id === id)
-  ).length
-  const allAvailableEnabled =
-    enabledAvailableCount === availableSources.length && availableSources.length > 0
-
-  const handleToggle = useCallback(
-    (sourceId: string, enabled: boolean) => {
-      const updatedIds = enabled
-        ? [...enabledDataSourceIds, sourceId]
-        : enabledDataSourceIds.filter((id) => id !== sourceId)
-      toggleDataSource(sourceId)
-      saveDataSourcesToConversation?.(updatedIds)
-    },
-    [toggleDataSource, enabledDataSourceIds, saveDataSourcesToConversation]
-  )
-
-  const handleToggleAll = useCallback(() => {
-    const updatedIds = allAvailableEnabled ? [] : availableSources.map((s) => s.id)
-    setEnabledDataSources(updatedIds)
-    saveDataSourcesToConversation?.(updatedIds)
-  }, [allAvailableEnabled, setEnabledDataSources, availableSources, saveDataSourcesToConversation])
-
-  return (
-    <div className="flex max-h-[min(60vh,420px)] flex-col">
-      <div className="mb-2 flex items-center gap-2">
-        <Layers className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
-        <span className="text-sm font-semibold">{t('dataSourcesPanel.title')}</span>
-      </div>
-
-      {/* Enable/disable all */}
-      <div
-        role="button"
-        tabIndex={isBusy ? -1 : 0}
-        onClick={isBusy ? undefined : handleToggleAll}
-        onKeyDown={(e) => {
-          if (!isBusy && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault()
-            handleToggleAll()
-          }
-        }}
-        className={cn(
-          'bg-card shadow-xs focus-visible:ring-ring/50 mb-2 flex items-center justify-between rounded-xl p-2.5 outline-none transition-colors focus-visible:ring-2',
-          isBusy ? 'cursor-not-allowed opacity-50' : 'hover:bg-accent cursor-pointer'
-        )}
-        aria-pressed={allAvailableEnabled}
-        aria-disabled={isBusy}
-        aria-label={
-          isBusy
-            ? t('dataSourcesPanel.allAvailableDisabledOps')
-            : t('dataSourcesPanel.allAvailableState', {
-                state: allAvailableEnabled
-                  ? t('dataConnectionCard.enabled')
-                  : t('dataConnectionCard.disabled'),
-              })
-        }
-        title={isBusy ? t('dataSources.changesDisabledBusy') : undefined}
-      >
-        <span className="text-sm font-medium">{t('dataSourcesPanel.disableEnableAll')}</span>
-        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-        <div onClick={(e) => e.stopPropagation()}>
-          <Switch
-            checked={allAvailableEnabled}
-            onCheckedChange={handleToggleAll}
-            disabled={isBusy}
-            aria-label={
-              isBusy
-                ? t('dataSourcesPanel.toggleAllDisabled')
-                : allAvailableEnabled
-                  ? t('dataSourcesPanel.disableAll')
-                  : t('dataSourcesPanel.enableAll')
-            }
-          />
-        </div>
-      </div>
-
-      {/* Individual connections */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {dataSourcesLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Spinner label={t('dataSources.loading')} />
-          </div>
-        ) : dataSourcesError ? (
-          <div className="flex flex-col items-center py-4">
-            <span className="text-destructive mb-2 text-sm">{t('dataSources.unableToLoad')}</span>
-            <span className="text-muted-foreground mb-3 text-xs">{dataSourcesError}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fetchDataSources()}
-              aria-label={t('dataSources.retryAria')}
-            >
-              {tc('actions.retry')}
-            </Button>
-          </div>
-        ) : displaySources.length === 0 ? (
-          <div className="flex flex-col items-center py-4">
-            <span className="text-muted-foreground text-sm">{t('dataSources.none')}</span>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {displaySources.map((source) => {
-              const isSourceAvailable = !source.requiresAuth || hasValidToken
-              return (
-                <DataConnectionCard
-                  key={source.id}
-                  source={source}
-                  isEnabled={enabledSourcesSet.has(source.id)}
-                  isAvailable={isSourceAvailable}
-                  isBusy={isBusy}
-                  unavailableReason={
-                    !isSourceAvailable ? t('dataSourcesPanel.signInRequiredSource') : undefined
-                  }
-                  onToggle={handleToggle}
-                />
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      <p className="text-muted-foreground mt-2 text-xs">{t('inputArea.sourcesPopoverAllHint')}</p>
-    </div>
-  )
-}
-
-/**
  * Inline removable file chip shown above the composer textarea. Live status:
  * spinner while uploading/ingesting, green check on success, red on failure
  * (failed chips also offer a retry). The ✕ deletes the file.
@@ -384,7 +204,7 @@ const FileChip: FC<{
   return (
     <span
       className={cn(
-        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs',
         // A finger has to be able to hit the remove-x, and that button can only
         // grow inside a taller chip — the strip scrolls horizontally, so the
         // extra height costs nothing but a slightly shorter filename.
@@ -509,6 +329,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Attached-file preview (read-only): a successful chip opens the shared
   // FilePreviewDialog for its file. Also the primary file-access path on mobile.
   const [previewFile, setPreviewFile] = useState<TrackedFile | null>(null)
+  // Datenbasis popover. Controlled so the trigger knows whether a change the
+  // reader just made is visible to them in the open picker, or needs its own
+  // one-shot receipt on the closed trigger.
+  const [sourcesOpen, setSourcesOpen] = useState(false)
   /** Last session upload this composer auto-bound, so clearing the bar does not re-bind. */
   const boundSessionUploadRef = useRef<string | null>(null)
   // Manage-files dialog/sheet open state — driven by BOTH the desktop button and
@@ -545,9 +369,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
-  const hasHadAChat = useChatStore((state) =>
-    state.conversations.some((conversation) => conversation.messages.length > 0),
-  )
   const ensureSession = useChatStore((state) => state.ensureSession)
   // The real "new session" action — the same one the logo / new-session path in
   // MainLayout uses (startNewSessionDraft). Wired to the post-research
@@ -710,12 +531,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   }, [sendMessage, setChatSendFn])
 
   // Layout store — individual selectors for minimal re-render surface
-  const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
   const knowledgeLayerAvailable = useLayoutStore((s) => s.knowledgeLayerAvailable)
-  const availableDataSources = useLayoutStore((s) => s.availableDataSources)
   const deepResearchIntent = useLayoutStore((s) => s.deepResearchIntent)
   const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
-  const activeSourcePreset = useLayoutStore((s) => s.activeSourcePreset)
   const applySourcePreset = useLayoutStore((s) => s.applySourcePreset)
   const projectId = useChatStore((s) => s.projectId)
 
@@ -728,39 +546,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     applySourcePreset('project', computePresetSourceIds('project', sources))
   }, [composerSubject?.resourceId, composerSubject?.shelf, applySourcePreset])
 
-  // Persist source selection per conversation, exactly like the panel does.
-  const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
-
   // Streaming state + cancel action for the composer stop button (C1).
   // stopStreaming is added by the STREAMING agent in messages-store; selecting
   // it defensively means the button no-ops until that half of the contract lands.
   const isStreaming = useChatStore((s) => s.isStreaming)
   const stopStreaming = useChatStore((s) => s.stopStreaming)
-
-  /**
-   * Shortcut preset chips: apply the subset of REAL sources the preset stands
-   * for (see lib/source-presets.ts). Clicking the active preset again restores
-   * the default all-enabled state.
-   */
-  const handlePresetClick = useCallback(
-    (preset: SourcePresetId) => {
-      const { availableDataSources: sources, activeSourcePreset: current } =
-        useLayoutStore.getState()
-      const nextIds =
-        current === preset
-          ? (sources ?? []).map((s) => s.id)
-          : computePresetSourceIds(preset, sources ?? [])
-      // NOTE: `saveDataSourcesToConversation` persists onto the conversation, so
-      // this is a write. Its viewer gate is the render condition on the chip row
-      // (`!cannotContribute`) rather than a check here, because the chips are not
-      // rendered at all for a viewer — there is no control to hold a stale
-      // handle to. `cannotContribute` is declared below this callback, so
-      // repeating the check here would be a use-before-declaration.
-      applySourcePreset(current === preset ? null : preset, nextIds)
-      saveDataSourcesToConversation?.(nextIds)
-    },
-    [applySourcePreset, saveDataSourcesToConversation]
-  )
 
   // Check if we're in response mode (responding to a HITL prompt)
   const isResponseMode = !!pendingInteraction
@@ -1393,16 +1183,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (f) => f.status === 'uploading' || f.status === 'ingesting' || f.status === 'success'
   ).length
 
-  // Data sources counts for indicator
-  const enabledSourcesCount = enabledDataSourceIds.length
-  const totalSourcesCount = availableDataSources?.length ?? 0
-
-  // Empty thread → the shortcut preset chips render under the composer,
-  // and only until the project has had its first real chat. After that
-  // they are onboarding noise on every new draft.
-  const isEmptyThread = !currentConversation || currentConversation.messages.length === 0
-  const showSourcePresets = !cannotContribute && isEmptyThread && !hasHadAChat
-
   // Scope chip label: the active project (display-only scope; cross-project
   // search does not exist yet — spec §2.3, honest disabled option).
   const scopeLabel = projectName || tChat('composer.scopeFallback')
@@ -1437,7 +1217,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // in the textarea shrank the whole composer — text, chips and all — on
           // every mousedown, which reads as the surface flinching away from the
           // click rather than as a control acknowledging a press.
-          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
+          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-quick ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-2 border-error border-dashed'
@@ -1449,12 +1229,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       >
         {/* Drag overlay */}
         {isDragging && (
+          // 90%, not an opaque fill: a drop scrim has to dim what is underneath
+          // without erasing it, so the reader can still see what they are
+          // dropping onto ("a scrim built from --background at near-full
+          // opacity" is the failure the tokens file documents).
           <div className="bg-background/90 absolute inset-0 z-10 flex items-center justify-center rounded-xl">
             <div className="flex flex-col items-center gap-2">
               {isUnsupportedDrag ? (
-                <XCircle className="text-error h-8 w-8" aria-hidden="true" />
+                <XCircle className="text-error size-8" aria-hidden="true" />
               ) : (
-                <Paperclip className="text-brand h-8 w-8" aria-hidden="true" />
+                <Paperclip className="text-brand size-8" aria-hidden="true" />
               )}
               <span
                 className={cn(
@@ -1556,7 +1340,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           <button
             type="button"
             onClick={() => setManageFilesOpen(true)}
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-[12px] font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 touch-target sm:hidden"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-xs font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 touch-target sm:hidden"
           >
             {t('inputArea.manageFilesMobile', { count: attachedFilesCount })}
           </button>
@@ -1566,13 +1350,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         <Textarea
           ref={textareaRef}
           // text-base (16px) below md keeps iOS Safari from zooming the page
-          // when the composer gains focus; desktop keeps the tighter 14.5px.
+          // when the composer gains focus; desktop drops to the body ramp step.
           // The composer CARD signals focus with its focus-within ring (see the
           // card class above), so the textarea shows no ring/border/outline of
           // its own. `outline-hidden!` beats the app's global :focus-visible
           // outline (globals.css, unlayered) with an important utility — otherwise
           // focus is drawn twice: a nested box inside the card's ring.
-          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 pointer-coarse:min-h-11 md:text-[14.5px]"
+          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 pointer-coarse:min-h-11 md:text-sm"
           value={message}
           onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
           onKeyDown={handleKeyDown}
@@ -1653,9 +1437,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     type="button"
                     onClick={clearError}
                     aria-label={t('dismissError')}
-                    className="focus-visible:ring-ring/60 shrink-0 rounded-md p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
+                    className="focus-visible:ring-ring/60 shrink-0 rounded-md p-1 opacity-70 transition-opacity duration-quick ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
                   >
-                    <X className="h-4 w-4" aria-hidden="true" />
+                    <X className="size-4" aria-hidden="true" />
                   </button>
                 </AlertDescription>
               </Alert>
@@ -1671,21 +1455,29 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               Dashed status-active dot + label + chevron (dummy composer). */}
           <Popover>
             <PopoverTrigger asChild>
-              <button
+              {/* The primitive, not a hand-rolled `<button>`: the outline/sm
+                  variant IS this chip's geometry, and it ships the press
+                  response with its `motion-reduce` escape for free. Matches
+                  `SourceBasisTrigger` beside it. */}
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 disabled={cannotContribute}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] pointer-coarse:h-11 transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-w-0"
               >
-                <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
+                <span className="border-status-active flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed">
+                  {/* 5px: the dot has to sit INSIDE a 14px dashed ring with a
+                      visible gap on every side, and the 6px token step closes it. */}
                   <span className="bg-status-active size-[5px] rounded-full" />
                 </span>
-                <span className="text-foreground/85 hidden max-w-44 truncate text-[12.5px] font-medium sm:inline">
+                <span className="text-foreground/85 hidden max-w-44 truncate sm:inline">
                   {scopeLabel}
                 </span>
                 <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
-              </button>
+              </Button>
             </PopoverTrigger>
             <PopoverContent side="top" align="start" className="w-64 p-1.5">
               <div
@@ -1720,57 +1512,41 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             </PopoverContent>
           </Popover>
 
-          {/* Datengrundlage chip — opens a Popover hosting the connection
-              toggle list + enable/disable-all (C3/C4). Enabled-count badge
-              stays live on the trigger. */}
-          <Popover>
+          {/* Datenbasis — the one control for WHERE Piloti may look. The
+              trigger names the mix (a preset, a set of strata, "Alle Quellen");
+              it never renders a bare count, because the count it used to render
+              was wrong in both directions — see components/source-basis. Open
+              state is lifted so the trigger can tell "the reader is watching
+              the picker" from "a preset click landed off-screen". */}
+          <Popover open={sourcesOpen} onOpenChange={setSourcesOpen}>
             <PopoverTrigger asChild>
-              <button
-                type="button"
-                disabled={cannotContribute}
-                aria-label={tChat('composer.sourcesAria', {
-                  enabled: enabledSourcesCount,
-                  total: totalSourcesCount,
-                })}
-                title={t('inputArea.selectedConnections')}
-                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] pointer-coarse:h-11 text-[12.5px] transition-[color,background-color,transform] duration-200 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Layers className="size-3.5 shrink-0" aria-hidden="true" />
-                <span className="hidden sm:inline">{tChat('composer.sources')}</span>
-                <span className="bg-muted text-foreground/80 inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10.5px] font-semibold tabular-nums">
-                  {enabledSourcesCount}
-                </span>
-                <ChevronDown
-                  className="text-muted-foreground size-3 shrink-0"
-                  aria-hidden="true"
-                />
-              </button>
+              <SourceBasisTrigger disabled={cannotContribute} pickerOpen={sourcesOpen} />
             </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="w-80 p-3">
-              <SourcesPopoverContent />
+            <PopoverContent side="top" align="start" className="w-88 max-w-[calc(100vw-2rem)] p-3">
+              <SourceBasisPicker />
             </PopoverContent>
           </Popover>
 
           {/* Deep-Research intent pill — preference, NOT a hard trigger:
               the agent auto-escalates on its own (spec §2.2(6)) */}
-          <button
+          {/* Same rebuild as the scope chip beside it. Pressed is the `default`
+              (ink) variant and resting is `outline`, so "on" is the ink fill the
+              design language reserves for the action — no third hand-rolled
+              state, and the press response comes from the primitive. */}
+          <Button
             type="button"
+            variant={deepResearchIntent ? 'default' : 'outline'}
+            size="sm"
             aria-pressed={deepResearchIntent}
             aria-label={tChat('composer.deepResearchAria')}
             title={tChat('composer.deepResearchHint')}
             disabled={cannotContribute}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
-            className={cn(
-              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center transition-[color,background-color,box-shadow] duration-200 ease-out active:scale-95',
-              'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
-              deepResearchIntent
-                ? 'border-primary bg-primary text-primary-foreground shadow-xs'
-                : 'border-border bg-card text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground'
-            )}
+            className={cn('shrink-0', !deepResearchIntent && 'text-muted-foreground')}
           >
             <ZoomIn className="size-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
-          </button>
+          </Button>
 
           {/* Who this message goes to — ALWAYS, whenever collaboration exists at
               all. The point of it being unconditional: if it only appeared in the
@@ -1854,7 +1630,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     : t('inputArea.selectFiles')
               }
             >
-              <Paperclip className="h-4 w-4" aria-hidden="true" />
+              <Paperclip className="size-4" aria-hidden="true" />
             </Button>
 
             {/* Send button - wrapped in Popover when research session is complete/in-progress.
@@ -1880,7 +1656,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   title={t('inputArea.startNewSession')}
                 >
                   <RotateCw className="size-3.5" aria-hidden="true" />
-                  <span className="text-[12.5px] font-semibold">
+                  <span className="text-xs font-semibold">
                     {t('inputArea.startNewSession')}
                   </span>
                 </Button>
@@ -1894,7 +1670,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     aria-label={t('inputArea.researchInProgressAria')}
                     title={t('inputArea.researchInProgress')}
                   >
-                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                    <ArrowUp className="size-4" aria-hidden="true" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
@@ -1969,7 +1745,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                         exit={{ opacity: 0, scale: 0.8 }}
                         transition={springSnappy}
                       >
-                        <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                        <ArrowUp className="size-4" aria-hidden="true" />
                       </motion.span>
                     )}
                   </AnimatePresence>
@@ -2109,58 +1885,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         </PopoverContent>
       </Popover>
 
-      {/* Mobile scope cue: on phones the scope / Datengrundlage / Deep-Research
-          labels collapse to bare icons (to keep the action row one compact
-          line), so a mobile user can't tell what sources are active or that
-          scoping exists. A tiny, mobile-only line under the composer keeps the
-          active source count legible without re-bulking the action row. Shown on
-          the empty thread (first-run), where learning the scope matters most. */}
-      {isEmptyThread && !isDisabledByAuth && enabledSourcesCount > 0 && (
-        <p
-          className="text-muted-foreground mt-1.5 flex items-center justify-center gap-1.5 text-[11px] sm:hidden"
-          role="note"
-        >
-          <Layers className="size-3 shrink-0 opacity-70" aria-hidden="true" />
-          <span>{tChat('composer.sourcesActiveMobile', { count: enabledSourcesCount })}</span>
-        </p>
-      )}
-
-      {/* Shortcut preset chips (empty thread only): map onto the REAL data
-          sources in the store — see lib/source-presets.ts.
-
-          `cannotContribute`, not `isDisabledByAuth`: `handlePresetClick` calls
-          `saveDataSourcesToConversation`, which persists the Datengrundlage onto
-          the conversation — exactly the write the viewer gate exists to stop,
-          and the one the user guide claims is closed. "Empty thread" is not the
-          protection it looks like either: `isEmptyThread` is also true on any
-          shared thread for as long as its messages are still loading. */}
-      {showSourcePresets && (
-        <div
-          // Shortcuts are a desktop affordance — hidden on mobile, where they
-          // only add vertical bulk under an already space-constrained composer.
-          className="mt-[18px] hidden flex-wrap items-center justify-center gap-2 sm:flex"
-          role="group"
-          aria-label={tChat('shortcuts.label')}
-        >
-          <span className="text-muted-foreground mr-1.5 text-[12.5px]">
-            {tChat('shortcuts.label')}
-          </span>
-          {SOURCE_PRESETS.map(({ id, signal }) => (
-            <SourceSignalChipToggle
-              key={id}
-              signal={signal}
-              active={activeSourcePreset === id}
-              onClick={() => handlePresetClick(id)}
-              className="h-8 gap-[7px] rounded-[10px] px-[13px] text-[12.5px] pointer-coarse:h-11"
-              aria-label={tChat('shortcuts.presetAria', {
-                label: tChat(`shortcuts.presets.${id}`),
-              })}
-            >
-              {tChat(`shortcuts.presets.${id}`)}
-            </SourceSignalChipToggle>
-          ))}
-        </div>
-      )}
       {/* AI-transparency disclosure (EU AI Act Art. 50): users must know they
           interact with an AI system and that answers can be wrong. Kept to a
           single compact line so it costs minimal vertical space on both mobile
@@ -2170,7 +1894,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           standard. The composer floats over the scrolling chat, so a light
           blurred pill keeps it readable over messages behind it. */}
       <div className="mt-1.5 flex justify-center">
-        <p className="text-muted-foreground bg-muted/70 supports-[backdrop-filter]:bg-muted/45 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg px-2.5 py-1 text-center text-[11px] leading-snug backdrop-blur-sm">
+        {/* Frosted, not hand-derived: this hint sits ON the transcript, and the
+            alpha pair is what `backdrop-blur-sm` has to blur (the `supports-`
+            step is the no-blur fallback). */}
+        <p className="text-muted-foreground bg-muted/70 supports-[backdrop-filter]:bg-muted/45 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg px-2.5 py-1 text-center text-xs leading-snug backdrop-blur-sm">
           <Sparkles className="size-3 shrink-0 opacity-70" aria-hidden="true" />
           <span>{t('inputArea.aiDisclosure')}</span>
         </p>

@@ -37,7 +37,7 @@ export function ViewerLegend({ entries, className }: ViewerLegendProps): JSX.Ele
     <ul
       className={cn(
         'pointer-events-none flex max-w-[70%] flex-wrap gap-1.5',
-        'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
+        'animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none',
         className
       )}
     >

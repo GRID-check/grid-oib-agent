@@ -74,14 +74,29 @@ body {
 /* Reduced motion: framer-motion is handled globally via <MotionConfig
    reducedMotion="user"> in providers.tsx; this covers the rest — CSS
    transitions and tw-animate-css entrance animations collapse to an instant
-   state change instead of moving. */
+   state change instead of moving.
+
+   THE DELAYS MATTER AS MUCH AS THE DURATIONS. Collapsing only the duration
+   leaves every stagger and lead-in delay running at full length, and a delay
+   with no animation left to justify it is just latency — worse, it is latency
+   that HIDES CONTENT. An entrance built as `animate-in` + `[animation-delay:Nms]`
+   + `[animation-fill-mode:backwards]` holds the element at its *from* keyframe
+   (opacity 0) for the whole delay; with the duration zeroed the element then
+   snaps in, so the only thing the reader experiences is N milliseconds of
+   nothing. The answer meta row in AgentResponse.tsx does exactly this at 120ms,
+   and its source chips stagger on top of that out to ~240ms — a quarter of a
+   second of invisible content for the one reader who asked for LESS motion.
+   Zeroing the delay is therefore not a nicety, it is the correctness half of
+   the rule; `transition-delay` is the same bug on the transition side. */
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
   ::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0.01ms !important;
   }
 }
 

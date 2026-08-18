@@ -82,7 +82,7 @@ export function ProjectUppyUpload({
           onClick={() => inputRef.current?.click()}
           disabled={isUploading}
           data-testid="project-upload-dropcard"
-          className="flex min-h-[132px] w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-card/50 p-4 text-center transition-colors duration-200 ease-out hover:border-ring hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex min-h-[132px] w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-card p-4 text-center transition-colors duration-quick ease-out hover:border-ring hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isUploading ? (
             <Spinner size="default" className="text-muted-foreground" />

@@ -37,7 +37,7 @@ export function ViewerProgress({ label, percent, className }: ViewerProgressProp
     <div
       className={cn(
         'pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-3',
-        'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
+        'animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none',
         className
       )}
     >
@@ -57,7 +57,7 @@ export function ViewerProgress({ label, percent, className }: ViewerProgressProp
             'h-full rounded-full bg-foreground/70',
             determinate
               ? // `scaleX`, not width: a width tween is a layout animation.
-                'w-full origin-left transition-transform duration-200 ease-out motion-reduce:transition-none'
+                'w-full origin-left transition-transform duration-quick ease-out motion-reduce:transition-none'
               : // A slow sweep, not a spinner: it says "still working" without
                 // claiming a position it does not know.
                 'w-1/3 animate-progress-sweep motion-reduce:animate-none'

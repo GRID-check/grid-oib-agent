@@ -176,6 +176,40 @@ export async function getOrgSettings(organizationId: string): Promise<OrgSetting
   return toSettings((await findOrganization(organizationId)) ?? undefined)
 }
 
+const ORG_NAME_CACHE_TTL_MS = 300_000
+const orgNameCacheKey = (organizationId: string): string => `orgname:${organizationId}`
+
+/**
+ * The org's human name, for chrome that has to say which organization the
+ * reader is acting in.
+ *
+ * Prefers the Grid-side `displayName` (a local row) and only falls back to
+ * WorkOS, because this is called from a layout on a navigation path — a
+ * WorkOS round-trip per render would put an identity API in front of every
+ * page. The fallback is cached for five minutes: an org rename is rare and
+ * five minutes of staleness on a label costs nothing, where an uncached miss
+ * would be paid by every reader on every load.
+ *
+ * Fails soft to `null`. This resolves a LABEL; chrome must still render if the
+ * identity service is down, so callers treat null as "omit the line" rather
+ * than as an error.
+ */
+export async function getOrganizationDisplayName(
+  organizationId: string | null | undefined
+): Promise<string | null> {
+  if (!organizationId) return null
+  return getCached(orgNameCacheKey(organizationId), ORG_NAME_CACHE_TTL_MS, async () => {
+    try {
+      const { displayName } = await getOrgSettings(organizationId)
+      if (displayName) return displayName
+      const org = await getWorkOS().organizations.getOrganization(organizationId)
+      return org.name || null
+    } catch {
+      return null
+    }
+  })
+}
+
 export interface OrgSettingsPatch {
   displayName?: string | null
   defaultLocale?: Locale

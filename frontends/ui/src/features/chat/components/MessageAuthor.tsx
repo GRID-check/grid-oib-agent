@@ -61,7 +61,12 @@ export interface MessageAuthorProps {
   className?: string
 }
 
-/** Disc size, matched to the bubble's type scale rather than the shell's avatars. */
+/**
+ * Disc size, matched to the bubble's type scale rather than the shell's avatars.
+ * 22px and 9.5px are both deliberately off the ramp and stay: two uppercase
+ * initials have to fit INSIDE this disc, and the ramp's next step (12px) clips
+ * the second one — the same failure `AvatarStack` documents at its 28px floor.
+ */
 const AVATAR_CLASS =
   'flex size-[22px] shrink-0 items-center justify-center overflow-hidden rounded-full text-[9.5px] font-semibold uppercase leading-none'
 
@@ -140,11 +145,11 @@ export const MessageAuthor: FC<MessageAuthorProps> = ({
       )}
 
       <span className="flex items-baseline gap-1.5" aria-hidden="true">
-        <span className="text-[12.5px] font-semibold leading-none text-foreground">
+        <span className="text-xs font-semibold leading-none text-foreground">
           {displayName}
         </span>
         {timestamp && (
-          <span className="text-subtle text-[11px] leading-none tabular-nums">
+          <span className="text-subtle text-xs leading-none tabular-nums">
             {formatTime(timestamp, locale)}
           </span>
         )}

@@ -63,6 +63,25 @@ import type { ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profil
 import { useLocale, useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 
+/**
+ * Horizontal twin of the `scroll-fade-bottom` utility (`app/globals.css`): the
+ * edges of a horizontally scrolling strip dissolve so a clipped step reads as
+ * "there is more sideways", not as broken chrome.
+ *
+ * It is a MASK, deliberately. The overlay gradients this replaced painted
+ * `from-background to-transparent`, which (a) is a gradient — a Do-not in
+ * `grid-design-language.md` — and (b) hard-codes the surface, so the fade would
+ * be visibly wrong the moment the wizard sits on a card or in a dialog. A mask
+ * composites against whatever is actually behind it and names no colour.
+ *
+ * FOLLOW-UP for the `app/globals.css` owner: this belongs beside
+ * `scroll-fade-bottom` as `@utility scroll-fade-x`, with the same
+ * `--scroll-fade-size` var. It is inline here only because that file is not
+ * this change's to edit.
+ */
+const SCROLL_FADE_X =
+  'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)'
+
 interface ProjectIntakeWizardProps {
   projectId: string
   projectName?: string
@@ -582,9 +601,21 @@ export function ProjectIntakeWizard({
         </Alert>
       )}
 
-      {/* Module stepper (A–H). The edge fades signal that it scrolls horizontally. */}
-      <div className="relative mb-6">
-        <nav aria-label={t('intake.progressAria')} className="-mx-1 overflow-x-auto px-1 pb-1">
+      {/* Module stepper (A–H). The edge fades signal that it scrolls
+          horizontally. They are a MASK on the scroll container, not two
+          overlay gradients: a mask composites against whatever surface the
+          stepper lands on and names no colour, where the overlays it replaced
+          hard-coded `from-background` and would have been wrong the moment
+          this wizard moved onto a card (same argument as the
+          `scroll-fade-bottom` utility in `app/globals.css`). It is inline
+          because that utility is vertical-only and `globals.css` is not this
+          change's to edit — it should graduate to a `scroll-fade-x` utility. */}
+      <div className="mb-6">
+        <nav
+          aria-label={t('intake.progressAria')}
+          className="-mx-1 overflow-x-auto px-1 pb-1"
+          style={{ maskImage: SCROLL_FADE_X, WebkitMaskImage: SCROLL_FADE_X }}
+        >
           <ol className="flex min-w-max items-start gap-1.5">
             {stages.map((s, i) => {
               const state = i < currentStep ? 'complete' : i === currentStep ? 'current' : 'upcoming'
@@ -601,7 +632,7 @@ export function ProjectIntakeWizard({
                   >
                     <span
                       className={cn(
-                        'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors duration-200 ease-out motion-reduce:transition-none',
+                        'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors duration-quick ease-out motion-reduce:transition-none',
                         state === 'complete' && 'border-primary bg-primary text-primary-foreground',
                         state === 'current' && 'border-primary text-primary ring-2 ring-ring/30',
                         state === 'upcoming' && 'border-border text-muted-foreground',
@@ -624,15 +655,6 @@ export function ProjectIntakeWizard({
             })}
           </ol>
         </nav>
-        {/* Scroll-affordance fades at each edge. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-background to-transparent"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-background to-transparent"
-        />
       </div>
 
       <div className="mb-8 flex items-center justify-between gap-4">
@@ -953,7 +975,13 @@ function ZoneBlocks({
         const zoneQuestions = [...(stage.zoneCommon ?? []), ...(stage.zoneDefinitions?.[use]?.questions ?? [])]
         if (zoneQuestions.length === 0) return null
         return (
-          <div key={use} className="rounded-xl border border-l-2 border-l-primary bg-primary/5 px-4 py-4">
+          // The zone grouping is a quiet surface off the four-token ladder
+          // (`bg-muted`), not a 5% tint of the ACTION ink: `bg-primary/5`
+          // invented a fifth surface that no token controls. The left rule
+          // stays — it is INK, which is allowed; `border` + `border-l-2` used
+          // to draw that edge twice, so the shorthand now names the other
+          // three sides only.
+          <div key={use} className="rounded-xl border-y border-r border-l-2 border-l-primary bg-muted px-4 py-4">
             <p className="mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Zone · {label}</p>
             <div className="space-y-5">
               {zoneQuestions.map((q) => {
@@ -1478,7 +1506,10 @@ function WhyDisclosure({ why }: { why: string }) {
         {t('intake.why')}
       </button>
       {open && (
-        <p className="mt-1.5 max-w-xl border-l-2 border-primary/40 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+        // Same resolution as the zone block above: a real surface plus the
+        // documented quotation rule (`border-l-2 border-border`), instead of a
+        // second, differently-alpha'd invention of the action ink.
+        <p className="mt-1.5 max-w-xl border-l-2 border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
           {why}
         </p>
       )}

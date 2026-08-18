@@ -144,7 +144,7 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
                     })}
               </p>
               {entry.status === 'failed' && entry.lastError && (
-                <p className="mt-0.5 break-words font-mono text-[11px] text-destructive/80">
+                <p className="mt-0.5 break-words font-mono text-xs text-destructive/80">
                   {entry.lastError}
                 </p>
               )}
@@ -162,7 +162,7 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
                   aria-hidden={restoringId !== entry.id}
                   className={
                     restoringId === entry.id
-                      ? 'transition-opacity duration-150 ease-out motion-reduce:transition-none'
+                      ? 'transition-opacity duration-snap ease-out motion-reduce:transition-none'
                       : 'opacity-0'
                   }
                 />

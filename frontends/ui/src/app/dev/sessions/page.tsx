@@ -176,6 +176,7 @@ export default function SessionsPreviewPage() {
           chat route where the standalone mobile bar is suppressed. */}
       <div className="hidden md:contents">
         <AppSidebar
+          scope="project"
           projectId="p-1"
           projects={PROJECTS}
           user={{ name: 'Anna Berger', email: 'anna.berger@example.at' }}
@@ -187,25 +188,30 @@ export default function SessionsPreviewPage() {
         />
       </div>
 
-      {/* Chat-plane stand-in: the panel docks beside the rail, over this surface. */}
-      <main className="min-w-0 flex-1 overflow-hidden">
+      {/* Chat-plane stand-in. `relative` and hosting the panel as a CHILD,
+          because that is now how the product hosts it: the shell's <main> is
+          the positioning context, so the panel's `left-0` IS the rail's inner
+          edge. Rendering it as a sibling here would position it against the
+          viewport and put it back on top of the rail — the exact defect the
+          absolute positioning removed. */}
+      <main className="relative min-w-0 flex-1 overflow-hidden">
         <p className="text-muted-foreground p-6 pl-[26rem] font-mono text-xs">
           /dev/sessions — chat plane stand-in (the panel docks beside the rail)
         </p>
-      </main>
 
-      <SessionsPanel
-        sessions={sessions}
-        selectedSessionId="s-2"
-        onSelectSession={() => {}}
-        onNewSession={() => {}}
-        onDeleteSession={() => {}}
-        onDeleteAllSessions={() => {}}
-        onRenameSession={() => {}}
-        showDeepResearchSection={variant === 'research'}
-        projectId="p-1"
-        projectCollection={variant === 'research' ? 'preview' : undefined}
-      />
+        <SessionsPanel
+          sessions={sessions}
+          selectedSessionId="s-2"
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+          onDeleteSession={() => {}}
+          onDeleteAllSessions={() => {}}
+          onRenameSession={() => {}}
+          showDeepResearchSection={variant === 'research'}
+          projectId="p-1"
+          projectCollection={variant === 'research' ? 'preview' : undefined}
+        />
+      </main>
     </div>
   )
 }

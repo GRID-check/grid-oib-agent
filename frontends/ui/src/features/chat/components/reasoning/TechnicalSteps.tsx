@@ -10,6 +10,7 @@
 import type { FC } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import { SectionLabel } from '@/components/ui/section-label'
 import type { Translator } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ThinkingStep } from '../../types'
@@ -21,12 +22,10 @@ export const TechnicalSteps: FC<{ steps: ThinkingStep[]; t: Translator }> = ({ s
         type="button"
         className="group flex w-full items-center justify-between rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
-        <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-          {t('thinking.stepsHeading')}
-        </span>
+        <SectionLabel>{t('thinking.stepsHeading')}</SectionLabel>
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <span>{steps.length}</span>
-          <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
+          <ChevronDown className="size-3.5 transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
         </span>
       </button>
     </CollapsibleTrigger>

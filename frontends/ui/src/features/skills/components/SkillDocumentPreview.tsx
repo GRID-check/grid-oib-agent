@@ -24,6 +24,7 @@
 
 import { type FC } from 'react'
 import { useTranslations } from '@/i18n'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { renderSkillDocumentParts, type SkillDocumentInput } from '../lib/skill-document'
 
@@ -61,24 +62,20 @@ export const SkillDocumentPreview: FC<SkillDocumentPreviewProps> = ({
 
       <div className="overflow-hidden rounded-lg border">
         {/* Level 1 — the part that is always loaded. */}
-        <div className="border-border/70 bg-muted/40 border-b px-3 py-1.5">
-          <p className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-            {t('editor.preview.level1')}
-          </p>
-          <p className="text-muted-foreground/90 text-[11px] leading-snug">
+        <div className="bg-muted border-b px-3 py-1.5">
+          <SectionLabel as="p">{t('editor.preview.level1')}</SectionLabel>
+          <p className="text-muted-foreground/90 text-xs leading-snug">
             {t('editor.preview.level1Hint')}
           </p>
         </div>
-        <pre className="whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-relaxed">
+        <pre className="whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-relaxed">
           <code>{frontmatter}</code>
         </pre>
 
         {/* Level 2 — loaded only if the agent activates the skill. */}
-        <div className="border-border/70 bg-muted/40 border-y px-3 py-1.5">
-          <p className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-            {t('editor.preview.level2')}
-          </p>
-          <p className="text-muted-foreground/90 text-[11px] leading-snug">
+        <div className="bg-muted border-y px-3 py-1.5">
+          <SectionLabel as="p">{t('editor.preview.level2')}</SectionLabel>
+          <p className="text-muted-foreground/90 text-xs leading-snug">
             {t('editor.preview.level2Hint')}
           </p>
         </div>
@@ -87,11 +84,11 @@ export const SkillDocumentPreview: FC<SkillDocumentPreviewProps> = ({
             thing this pane claims — that it shows exactly what is stored. Vertical
             scrolling is fine; the body is long by design. */}
         {renderedBody ? (
-          <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-relaxed">
             <code>{renderedBody}</code>
           </pre>
         ) : (
-          <p className="text-muted-foreground px-3 py-2 text-[11px] italic">
+          <p className="text-muted-foreground px-3 py-2 text-xs italic">
             {t('editor.preview.emptyBody')}
           </p>
         )}

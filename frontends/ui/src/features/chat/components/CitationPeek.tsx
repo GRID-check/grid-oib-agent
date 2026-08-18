@@ -18,6 +18,7 @@
 import { type FC } from 'react'
 import { ExternalLink, FileSearch, Link2 } from 'lucide-react'
 import { useTranslations } from '@/i18n'
+import { SectionLabel } from '@/components/ui/section-label'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import {
   citedPages,
@@ -59,7 +60,7 @@ const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
         ? t('answerSources.pages', { pages: pages.join(', ') })
         : t('citationPeek.wholeDocument')
 
-  return <p className="text-[11px] tabular-nums text-muted-foreground">{text}</p>
+  return <p className="text-xs tabular-nums text-muted-foreground">{text}</p>
 }
 
 export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen, url }) => {
@@ -73,7 +74,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
       <div className="flex flex-wrap items-center gap-1.5">
         <SourceSignalChip signal={tint}>{t(`sourcePreview.kinds.${doc.kind}`)}</SourceSignalChip>
         {doc.laneLabel && (
-          <span className="text-[11px] font-medium text-muted-foreground">{doc.laneLabel}</span>
+          <span className="text-xs font-medium text-muted-foreground">{doc.laneLabel}</span>
         )}
       </div>
 
@@ -91,13 +92,13 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
             backgroundColor: `var(--source-${tint}-tint, var(--muted))`,
           }}
         >
-          <p
-            className="text-[10px] font-semibold uppercase tracking-[0.05em]"
+          <SectionLabel
+            as="p"
             style={{ color: `var(--source-${tint}-text, var(--muted-foreground))` }}
           >
             {t('sourcePreview.bindingLabel')}
-          </p>
-          <p className="mt-0.5 text-[12.5px] leading-relaxed text-foreground">{doc.bindingNote}</p>
+          </SectionLabel>
+          <p className="mt-0.5 text-xs leading-relaxed text-foreground">{doc.bindingNote}</p>
         </div>
       )}
 
@@ -110,13 +111,13 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
             borderColor: `color-mix(in oklch, var(--source-${tint}, var(--foreground)) 25%, transparent)`,
           }}
         >
-          <p
-            className="text-[10.5px] font-semibold uppercase tracking-[0.05em]"
+          <SectionLabel
+            as="p"
             style={{ color: `var(--source-${tint}-text, var(--muted-foreground))` }}
           >
             {t('sourcePreview.citedPassage')}
-          </p>
-          <p className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">
+          </SectionLabel>
+          <p className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-foreground">
             {snippet}
           </p>
         </div>
@@ -130,7 +131,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
             // The screenshot harness needs to walk peek → document the way a
             // reader does; naming the step beats guessing at button order.
             data-citation-open=""
-            className="inline-flex items-center gap-1 text-[12.5px] font-medium hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
             style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
           >
             <FileSearch aria-hidden="true" className="size-3.5" />
@@ -142,7 +143,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[12.5px] font-medium hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
             style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
           >
             {t('sourcePreview.openExternal')}
