@@ -317,8 +317,25 @@ export const SCREENSHOT_TARGETS = [
   {
     id: 'cards-gallery',
     path: '/dev/cards',
-    description: 'Full Grid card gallery — every card type with fixture data.',
+    description:
+      'Full Grid card gallery — every card type with fixture data, pinned to German so a translated string cannot render in English beside the cards whose copy is hardcoded.',
     waitFor: 'main',
+  },
+  {
+    id: 'condition-tree',
+    mobile: true,
+    path: '/dev/condition-tree',
+    description:
+      "The Bedingungsbaum in its three states, in the real 680px thread column: the case that applies open at rest; another case opened AGAINST it (Konjunktiv lead, dashed chrome, „Nur zum Vergleich …\" inside the panel) while the active row keeps its tinted node, its outcome and its „trifft zu\" chip; and a tree with no case marked, which opens closed rather than picking one for the reader. The middle block is driven into the switched state before the shot, because that state — not the resting one — is what stops the wrong case being screenshotted into an Einreichung.",
+    waitFor: '[data-testid="condition-tree-preview"]',
+  },
+  {
+    id: 'report-outline',
+    mobile: true,
+    path: '/dev/report-outline',
+    description:
+      'The deep-research report\'s outline, on a report long enough for it to exist: the real ReportTab against a ~1.400-word report in a box the size of the research panel. Collapsed and scrolled into the middle (the sticky row names the section in view), and open (ten entries, H3 indented, the current one marked). Both claims are properties of the report around it, so neither is reviewable from the component alone.',
+    waitFor: '[data-testid="report-outline"]',
   },
   {
     id: 'platform-skills',

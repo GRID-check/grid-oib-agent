@@ -4,12 +4,20 @@
  * Card-gallery dev page: renders every Grid card type with realistic fixture
  * data so visual changes can be reviewed (and screenshotted) in one place.
  * Not linked from anywhere and returns 404 outside development.
+ *
+ * The whole gallery is pinned to German with `fixedLocale`. Without it the
+ * provider falls back to `defaultLocale` ('en'), which is how the committed
+ * screenshot came to show an English „Ask about this" chip in the middle of a
+ * German Anforderungsliste: the cards whose copy is hardcoded German looked
+ * right and only the translated ones leaked. See docs/ux/visual-screenshots.md.
  */
 
 import { notFound } from 'next/navigation'
 
+import { I18nProvider } from '@/i18n'
 import { SummaryCard } from '@/features/grid-cards/components/SummaryCard'
 import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
+import { ConditionTreeCard } from '@/features/grid-cards/components/ConditionTreeCard'
 import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
 import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
@@ -50,6 +58,14 @@ export default function CardsGalleryPage() {
     notFound()
   }
 
+  return (
+    <I18nProvider initialLocale="de" fixedLocale>
+      <Gallery />
+    </I18nProvider>
+  )
+}
+
+function Gallery() {
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
       <h1 className="text-lg font-semibold">Grid card gallery</h1>
@@ -130,6 +146,36 @@ export default function CardsGalleryPage() {
                 'Wie weise ich die Feuerwiderstandsklasse REI 60 der tragenden Bauteile im Einreichplan nach?',
             },
           ]}
+        />
+      </Section>
+
+      {/* At rest: the case that applies is open, the others are one line each.
+          The switched state — a different case previewed against it — is its
+          own target, /dev/condition-tree. */}
+      <Section id="condition_tree">
+        <ConditionTreeCard
+          title="Erforderliche Feuerwiderstandsklasse tragender Bauteile"
+          question="Gebäudeklasse"
+          branches={[
+            { condition: 'GK 1–3', outcome: 'REI 30 (bzw. R 30)' },
+            {
+              condition: 'GK 4',
+              outcome: 'REI 60',
+              active: true,
+              reference: {
+                document: 'OIB-Richtlinie 2',
+                section: 'Tabelle 1b',
+                excerpt:
+                  'Tragende Bauteile in Gebäuden der Gebäudeklasse 4 sind in REI 60 auszuführen; in Kellergeschossen gilt REI 90.',
+              },
+            },
+            {
+              condition: 'GK 5',
+              outcome: 'REI 90',
+              reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
+            },
+          ]}
+          reference={{ document: 'OIB-Richtlinie 2', section: 'Tabelle 1b', edition: 'Ausgabe Mai 2023' }}
         />
       </Section>
 
@@ -230,13 +276,41 @@ export default function CardsGalleryPage() {
         />
       </Section>
 
+      {/* The legend at its most crowded, which is the state worth having on
+          film: a measured value with its ± band, the „gemessen" provenance chip
+          and the limit all in one `text-xs` row, plus the unanswerable check
+          that prints the CAD remedy and offers the „Dazu fragen" chip. */}
       <Section id="dimension_diagram_ramp">
         <DimensionDiagramCard
           title="Rampe – Neigung & Breite"
           shape="ramp"
           dimensions={[
-            { label: 'Neigung', value: 7.2, required: 6, unit: '%', comparator: '<=', status: 'fail' },
-            { label: 'nutzbare Breite', value: 120, required: 120, unit: 'cm', comparator: '>=', status: 'pass' },
+            {
+              label: 'Neigung',
+              value: 7.2,
+              required: 6,
+              unit: '%',
+              comparator: '<=',
+              status: 'fail',
+              provenance: 'computed',
+              tolerance: 0.1,
+            },
+            {
+              label: 'nutzbare Breite',
+              value: 120,
+              required: 120,
+              unit: 'cm',
+              comparator: '>=',
+              status: 'pass',
+              provenance: 'declared',
+            },
+            {
+              label: 'Handlauf beidseitig',
+              value: null,
+              unit: 'cm',
+              status: 'needs_input',
+              missing: 'Dieser Export enthält kein IfcRailing — Handläufe im CAD als IfcRailing modellieren.',
+            },
           ]}
           reference={{ document: 'ÖNORM B 1600', section: 'Pkt. 5.2' }}
         />

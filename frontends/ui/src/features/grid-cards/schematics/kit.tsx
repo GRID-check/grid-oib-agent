@@ -554,7 +554,15 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
                 chip builds it and puts it in the composer — no turn is fired
                 and nothing is fetched. */}
             {check.status === 'needs_input' && (
-              <AskAboutChip className="ml-5.5 mt-0.5" subject={check.label} missing={check.missing} />
+              // `self-start`, because the row is a COLUMN flex container and a
+              // flex item stretches across it: without it the chip grew into a
+              // full-width bar with its label alone at the left, while the same
+              // chip on a checklist row stayed a pill.
+              <AskAboutChip
+                className="ml-5.5 mt-0.5 self-start"
+                subject={check.label}
+                missing={check.missing}
+              />
             )}
           </li>
         )

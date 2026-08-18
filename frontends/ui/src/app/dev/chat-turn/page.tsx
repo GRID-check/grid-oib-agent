@@ -18,10 +18,16 @@
  * a verified backend answer does: it must NOT render as a second source list —
  * AgentResponse folds it into the one numbered "Belegt durch" block.
  *
+ * Pinned to German with `fixedLocale`: without it the provider falls back to
+ * `defaultLocale` ('en') and the answer's own chrome — „Belegt durch", the
+ * confidence chip, the feedback line, the copy actions' labels — was captured
+ * in English above German prose. See docs/ux/visual-screenshots.md.
+ *
  * Not linked anywhere and 404s outside development.
  */
 
 import { notFound } from 'next/navigation'
+import { I18nProvider } from '@/i18n'
 import { UserMessage } from '@/features/chat/components/UserMessage'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
@@ -176,14 +182,16 @@ export default function ChatTurnPreviewPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-muted/30 px-4 py-10">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
-        <h1 className="font-mono text-xs text-muted-foreground" data-testid="chat-turn-preview">
-          /dev/chat-turn — live (reasoning expanded) → completed (answer-dominant)
-        </h1>
-        <LiveTurn />
-        <CompletedTurn />
-      </div>
-    </main>
+    <I18nProvider initialLocale="de" fixedLocale>
+      <main className="min-h-dvh bg-muted/30 px-4 py-10">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
+          <h1 className="font-mono text-xs text-muted-foreground" data-testid="chat-turn-preview">
+            /dev/chat-turn — live (reasoning expanded) → completed (answer-dominant)
+          </h1>
+          <LiveTurn />
+          <CompletedTurn />
+        </div>
+      </main>
+    </I18nProvider>
   )
 }

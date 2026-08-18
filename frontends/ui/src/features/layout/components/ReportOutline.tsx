@@ -154,7 +154,12 @@ export const ReportOutline: FC<ReportOutlineProps> = ({ entries, scrollRootRef }
                   setIsOpen(false)
                 }}
                 className={cn(
-                  'block truncate rounded-md border-l-2 py-1 pr-2 text-sm outline-none',
+                  // Square on the LEFT, because that edge carries the
+                  // „you are here" rule: a 2px left border on a `rounded-md`
+                  // box is drawn around the corner radius at both ends, so the
+                  // mark rendered as a parenthesis beside the section title
+                  // rather than as a straight rule.
+                  'block truncate rounded-r-md border-l-2 py-1 pr-2 text-sm outline-none',
                   entry.level === 3 ? 'pl-6' : 'pl-3',
                   isActive
                     ? 'border-l-foreground font-medium text-foreground'

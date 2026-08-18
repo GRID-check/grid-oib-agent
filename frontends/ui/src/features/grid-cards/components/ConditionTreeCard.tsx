@@ -229,7 +229,13 @@ const BranchNode: FC<BranchNodeProps> = ({
                 // again, which is how the wrong one gets screenshotted.
                 <div className="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-md bg-card px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
                   <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                  <span className="min-w-0 flex-1">
+                  {/* The correcting sentence claims 12rem before the row is
+                      allowed to keep the way-back button beside it. With a
+                      plain `flex-1` the button held its width on a phone and
+                      the sentence wrapped into a four-line column beside it;
+                      now it takes the full width and the button drops to its
+                      own line. */}
+                  <span className="min-w-0 flex-[1_1_12rem]">
                     {t('cards.conditionTree.previewNotice', {
                       condition: activeBranch.condition,
                       outcome: activeBranch.outcome,
