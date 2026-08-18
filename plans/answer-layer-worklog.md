@@ -162,7 +162,7 @@ what they found. I plan and verify; the agents implement.
   SHAPE to look for, not a one-off. See the follow-ups-direction backlog.
 - `5bd4a04c` answer actions — the answer can leave the app.
 
-## Sprint 4 — in flight
+## Sprint 4 — S4-A landed, S4-B in flight
 **S4-A · the hidden presentation skill.** `piloti-cards`: DB-owned like
 `piloti-voice` (migration, `delivery: 'standard'` so it is always applied,
 `grid-hidden: "true"` so it never shows in the skills disclosure but still emits
@@ -211,7 +211,7 @@ Taken at `d4f5ced0`:
 | `render_card_index()` | 892 |
 | `emit_card` HOW preamble | ~190 |
 | **`emit_card` description total** | **2,272** |
-| `render_card_details()` for the seven generic types | 1,482 |
+| `render_card_details()` for the seven generic types | 1,835 |
 
 The L1/L2 split cut this from 5,209 to ~700. It is back at 2,272 because every
 card added a trigger line AND a paragraph of craft, and `piloti-cards` would add
@@ -229,3 +229,25 @@ Follow-up commit after S4-A lands: move the craft paragraphs out of
   prefilled question instead of something to retype.
 - **S5-B · report outline** (B9, `layout/ReportTab`). A deep report is a long
   document in a side panel with no navigation at all.
+
+### Budget, re-measured with tiktoken (cl100k_base — chars/4 was wrong both ways)
+After `55d53e5f` (the skill) and `3f8c8e4a` (the split):
+
+| what | tok/turn |
+|---|---|
+| `_CARD_DOCTRINE` | 1,089 → **708** |
+| `emit_card` description | 2,126 → **1,745** |
+| `piloti-cards` inlined shapes (5 types, not 7) | **1,199** |
+| **total cards cost per turn** | **2,944** |
+
+Seven types would have been 1,945 → 3,690 total. `norm_chain` (375) and
+`typed_table` (269) are the most expensive AND the narrowest, so they are taught
+in the skill body but left to a `describe_card` round-trip on the rare turns
+they fire. A ceiling test in `test_tool_description.py` now fails if the
+description drifts past 2,300 — deliberately slack, so it catches creep and not
+a single added trigger line.
+
+**Rule, now enforced by tests on both sides:** a new card type adds a TRIGGER
+LINE to `_CARD_DOCTRINE` and its PARAGRAPH to `piloti-cards`. The two halves are
+asserted against each other, because deleting a paragraph and forgetting to
+write its replacement is invisible in review.
