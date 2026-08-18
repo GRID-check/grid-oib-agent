@@ -7,7 +7,6 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
 import { OVERLAY_MOTION, OVERLAY_EXIT, OVERLAY_REDUCED } from '@/components/ui/overlay-motion'
-import { springDrawerLinear } from '@/components/motion'
 
 /**
  * Side sheet — a Dialog anchored to an edge instead of the centre.
@@ -57,29 +56,26 @@ export type SheetSide = keyof typeof SIDE_CLASSES
 /**
  * THE SLIDE. A sheet is the design language's DIRECTION-OF-TRAVEL case: it comes
  * from a named edge and the reader has to know which one, so it can be sent back
- * there. That is a spring earned on trajectory, and at this size the spring is
- * `springDrawer` (ζ = 0.806, 1.4% overshoot) — never `springSnap`, whose 24px
- * travel ceiling this blows past by an order of magnitude.
+ * there. Radix drives that through `data-[state]` keyframes, and this surface
+ * takes a TWEEN rather than one of the springs.
  *
- * Radix drives the slide through `data-[state]` keyframes, so it takes the CSS
- * `linear()` sampling rather than the JS spring. It rides on a custom property
- * set inline, and is applied through a `data-[state=open]:` variant (specificity
- * 0-2-0) so it beats the plain `ease-entrance` class (0-1-0) below it REGARDLESS
- * of the order Tailwind happens to emit them in. An engine without `linear()`
- * drops the declaration and the `ease-entrance` underneath stands — the
- * documented degrade path, and the reason the fallback is a real easing rather
- * than tw-animate-css's default `ease`.
+ * That is the honest reading of the pixel budget, not a lack of ambition. A
+ * sheet's travel is its own width, so an overshooting spring's error is
+ * enormous here: `springDrawer` is 1.4%, which is 4.0px on the 288px mobile nav
+ * and 6.3px on a 448px `sm:max-w-md` panel, against a 1-2px budget. The budget's
+ * own arithmetic puts `springDrawer` in range only to ~145px. A panel half the
+ * screen wide that flies 6px past its edge and comes back is the slapstick the
+ * vocabulary exists to prevent, and no softer spring fixes it — at this travel
+ * anything with a visible overshoot percentage is out of budget by
+ * construction, and anything damped enough to be in budget is an ease-out with
+ * extra steps.
  *
- * OVERSHOOT, IN PIXELS, HONESTLY: this slide's travel is the panel's own width,
- * so 1.4% is 4.0px on the 288px mobile nav sheet and 6.3px on a 448px
- * `sm:max-w-md` panel. Both are OVER the 1–2px budget the design language sets,
- * and 6.3px is a visible bounce. The budget's own arithmetic says `springDrawer`
- * lands in range up to ~145px of travel. Flagged rather than silently shipped:
- * the fix is a shorter entrance travel (slide the panel in from a partial
- * offset, not from fully offscreen), not a softer spring — see the report.
+ * So: `--motion-deliberate` on `--ease-entrance`. The decision lands at the
+ * START of the move, which is what an arriving surface wants, and the same pair
+ * `DockedPanel` uses — the app's two large sliding panels now agree on what
+ * "a panel arriving" feels like. The exit is one step shorter on `--ease-exit`
+ * via `OVERLAY_EXIT`, because nobody wants to watch a thing they dismissed.
  */
-const SHEET_SPRING = { '--sheet-spring': springDrawerLinear } as React.CSSProperties
-
 interface SheetContentProps extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> {
   side?: SheetSide
   /** Accessible label for the close button. */
@@ -92,13 +88,10 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
       <SheetOverlay />
       <SheetPrimitive.Content
         ref={ref}
-        // Merged, not overwritten: a caller passing `style` must not silently
-        // strip the custom property the open-state easing resolves against.
-        style={{ ...SHEET_SPRING, ...style }}
+        style={style}
         className={cn(
           'fixed z-50 flex flex-col gap-4 overflow-y-auto bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out '
             + 'ease-entrance data-[state=open]:duration-deliberate '
-            + 'data-[state=open]:[animation-timing-function:var(--sheet-spring)] '
             + `${OVERLAY_EXIT} ${OVERLAY_REDUCED}`,
           SIDE_CLASSES[side],
           className,

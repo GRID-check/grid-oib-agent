@@ -198,7 +198,7 @@ surface that already has a border.
 
 ## Motion vocabulary
 
-One scale, one set of curves, three springs. Durations and easings are tokens
+One scale, one set of curves, four springs. Durations and easings are tokens
 in `src/styles/tokens.css`; the springs and tweens live in
 `src/components/motion/index.tsx`. **Never write a literal duration or
 cubic-bezier in a component.**
@@ -236,16 +236,38 @@ transitions on layout-triggering properties.
 |---|---|---|---|---|
 | `springPress` | 600 / 38 / 0.6 | 1.00 | **0%** | Press and release, tap scale, checkbox. Chosen for interruptibility and velocity carry-over, not bounce — a tween cannot resolve a press interrupted mid-flight. |
 | `springSnap` | 520 / 30 / 1 | 0.658 | **6.4%** | **Travel ≤ 24px only.** Toggle thumb, segmented indicator, icon swap, landing file, snap-back. |
-| `springDrawer` | 260 / 26 / 1 | 0.806 | **1.4%** | Large surfaces: drawer, sheet, research panel, wizard step, shared-layout row moves. |
+| `springDrawer` | 260 / 26 / 1 | 0.806 | **1.4%** | **Travel ≤ ~145px.** Large but BOUNDED surfaces: research panel, wizard step, a card settling. |
+| `springGlide` | 260 / 29 / 1 | 0.899 | **0.157%** | **Unbounded travel.** The distance is not knowable when the transition is written: shared-layout chips, anything whose travel is the reader's route history. |
 
 `springSnapLinear` / `springDrawerLinear` are CSS `linear()` equivalents for
-Radix-driven, class-only cases (`Switch`, `Sheet`). A zero-overshoot spring
-needs none — it *is* an ease-out.
+Radix-driven, class-only cases (`Switch`). A zero-overshoot spring needs none —
+it *is* an ease-out.
 
 **Overshoot is budgeted in pixels, not percent.** 6.4% of an 18px toggle thumb
 is 1.2px — a detent you feel. 6.4% of a 400px drawer is 26px — a trampoline.
 Same number, opposite verdict. That is why `springSnap` carries a 24px ceiling
 as part of its contract rather than as advice.
+
+**Which is why there are four and not three.** The first three each hold the
+pixel budget up to a ceiling, so picking one means knowing the travel in
+advance. Sometimes you cannot: the nav rail's active pill is a shared-layout
+chip whose distance is whatever the reader's last two routes happen to be —
+38px between neighbours, 288px from the top of the column to Inbox at the
+bottom. On `springDrawer` the short hop is 0.53px and the long one is 4.0px,
+which on a 38px row pitch is the pill barging into the row above its target.
+`springGlide` is calibrated the other way round: ζ high enough that the pixel
+overshoot is in budget at *any* distance (0.44px at 288px, 0.69px at 448px)
+rather than up to a ceiling. It shares `springDrawer`'s natural frequency, so
+only the landing differs, not the arrival time.
+
+**And why a sheet takes a tween.** Past roughly 300px of travel there is no
+spring left to pick: anything with a perceptible overshoot percentage is out of
+budget by construction, and anything damped enough to stay in it is an ease-out
+with extra steps. A sheet's travel is its own width — 288px on the mobile nav,
+448px for a `sm:max-w-md` panel — so it takes `--motion-deliberate` on
+`--ease-entrance`, the same pair `DockedPanel` uses. A panel half the screen
+wide flying 6px past its edge and coming back is precisely the failure the
+pixel budget exists to catch.
 
 ### When a spring is earned
 
@@ -259,8 +281,9 @@ endpoint does not.** Three ways:
 3. **Snap-back** — it failed to reach a destination and returned. The overshoot
    *is* the message "that didn't take."
 
-Everything else is a tween. **Three vetoes override all of the above:** travel
-over 24px never uses `springSnap`; anything carrying legal, evidentiary,
+Everything else is a tween. **Four vetoes override all of the above:** travel
+over 24px never uses `springSnap`, and travel over ~145px never uses
+`springDrawer`; anything carrying legal, evidentiary,
 provenance or error content is tween-only; and anything appearing more than
 about five times per screenful is tween-only, because a spring repeated thirty
 times stops being a physical cue and becomes texture.

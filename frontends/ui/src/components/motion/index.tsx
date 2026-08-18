@@ -140,6 +140,43 @@ export const springDrawer: SpringTransition = {
 }
 
 /**
+ * GLIDE — ζ = 0.899, overshoot 0.157%. **UNBOUNDED TRAVEL.**
+ *
+ * The other three springs all carry a travel range because their pixel
+ * overshoot scales with distance: `springSnap` is in budget to 24px,
+ * `springDrawer` to ~145px, and `springPress` only because it does not
+ * overshoot at all. That leaves a real gap — a surface whose travel is not
+ * knowable when the transition is written.
+ *
+ * The rail's active pill is exactly that. It is a shared-layout chip, so its
+ * distance is whatever the reader's last two routes happen to be: 38px between
+ * adjacent rows, ~68px across a group seam, 288px from the top of the nav
+ * column to Inbox at the bottom. On `springDrawer` the short hops land in
+ * budget (0.53px, 0.96px) and the long one throws 4.0px — which on a 38px row
+ * pitch means the pill visibly barges into the row above its target before
+ * settling back. A sheet has the same shape of problem, with travel equal to
+ * the panel's own width.
+ *
+ * So this one is calibrated the other way round: ζ is set high enough that the
+ * overshoot is in budget at ANY distance rather than up to a ceiling. 0.157% is
+ * 0.44px at 288px and 0.69px even at 448px — under a pixel on a surface half
+ * the screen wide. It is still a spring and still overshoots; you feel the
+ * settle as weight, and the trajectory still says where the thing came from.
+ * What you do not get is a bounce, which is the correct trade for something
+ * that might have to cross the whole column.
+ *
+ * ωn matches `springDrawer` (16.1 rad/s), so glide and drawer take about the
+ * same time to arrive; only the landing differs. Use `springDrawer` when the
+ * travel IS bounded and you want the tick of life at the end of it.
+ */
+export const springGlide: SpringTransition = {
+  type: 'spring',
+  stiffness: 260,
+  damping: 29,
+  mass: 1,
+}
+
+/**
  * CSS `linear()` equivalents of the two overshooting springs, sampled from the
  * same damped-oscillator step response the JS springs solve (24 even samples,
  * run out to where the curve is within 0.2% of its target).

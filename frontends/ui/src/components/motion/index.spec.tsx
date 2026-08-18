@@ -19,6 +19,7 @@ import {
   motionQuick,
   motionSnap,
   springDrawer,
+  springGlide,
   springDrawerLinear,
   springDrawerLinearDuration,
   springGentle,
@@ -105,8 +106,44 @@ describe('spring configs', () => {
     })
   })
 
-  it('orders the three springs from stiffest to softest', () => {
-    expect(dampingRatio(springPress)).toBeGreaterThan(dampingRatio(springDrawer))
+  describe('springGlide — the unbounded-travel one', () => {
+    it('lands in the documented band (ζ = 0.899)', () => {
+      expect(dampingRatio(springGlide)).toBeCloseTo(0.899, 3)
+      expect(dampingRatio(springGlide)).toBeGreaterThan(0.87)
+      expect(dampingRatio(springGlide)).toBeLessThan(0.93)
+    })
+
+    it('overshoots 0.157%', () => {
+      expect(overshoot(springGlide) * 100).toBeCloseTo(0.157, 2)
+    })
+
+    /**
+     * The contract that distinguishes it from the other three. They each hold
+     * the budget up to a documented ceiling; this one holds it with no ceiling
+     * at all, which is the only reason to reach for it. 448px is a `sm:max-w-md`
+     * sheet — about as far as anything in this app can travel.
+     */
+    it('keeps overshoot under a pixel at ANY travel, with no documented ceiling', () => {
+      expect(overshoot(springGlide) * 288).toBeLessThan(1)
+      expect(overshoot(springGlide) * 448).toBeLessThan(1)
+      expect(overshoot(springGlide) * 1000).toBeLessThan(2)
+    })
+
+    /** Still a spring: it has to settle, or it should have been a tween. */
+    it('still overshoots — it is a settle, not an ease-out in disguise', () => {
+      expect(overshoot(springGlide)).toBeGreaterThan(0)
+    })
+
+    /** Same arrival time as the drawer; only the landing differs. */
+    it('shares springDrawer\'s natural frequency', () => {
+      const wn = (s: SpringTransition) => Math.sqrt(s.stiffness / (s.mass ?? 1))
+      expect(wn(springGlide)).toBeCloseTo(wn(springDrawer), 6)
+    })
+  })
+
+  it('orders the four springs from stiffest to softest', () => {
+    expect(dampingRatio(springPress)).toBeGreaterThan(dampingRatio(springGlide))
+    expect(dampingRatio(springGlide)).toBeGreaterThan(dampingRatio(springDrawer))
     expect(dampingRatio(springDrawer)).toBeGreaterThan(dampingRatio(springSnap))
   })
 })

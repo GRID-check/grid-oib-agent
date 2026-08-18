@@ -31,7 +31,7 @@ import { usePathname } from 'next/navigation'
 import { ChevronsLeft, ChevronsRight, Menu } from 'lucide-react'
 
 import { Logo } from '@/components/brand/logo'
-import { motion, springDrawer } from '@/components/motion'
+import { motion, springGlide } from '@/components/motion'
 import {
   Sidebar,
   SidebarContent,
@@ -665,7 +665,7 @@ function RailNavItem({
   label: string
   badgeCount: number
   tooltip: boolean
-  /** Shared-layout identity for the active chip — see `activePillId`. */
+  /** Shared-layout identity for the active chip — see {@link railActivePillId}. */
   pillId: string
 }) {
   return (
@@ -708,16 +708,26 @@ function RailNavItem({
               // and the anchor are the same box in both rail widths, so this
               // costs no geometry.
               className="border-border bg-card shadow-xs absolute inset-0 rounded-[10px] border"
-              transition={springDrawer}
+              // `springGlide`, not `springDrawer`. This chip's travel is
+              // whatever the reader's last two routes happen to be — 38px
+              // between neighbours, 288px from the top of the column to Inbox
+              // at the bottom — and an overshooting spring's PIXEL error scales
+              // with that distance. `springDrawer` lands at 0.53px on the short
+              // hop and 4.0px on the long one, and 4px on a 38px row pitch is
+              // the pill barging into the row above its target. Glide is
+              // calibrated to stay under a pixel at any distance.
+              transition={springGlide}
             />
           )}
           <Icon
             aria-hidden
-            // `relative` on the two content nodes, rather than a z-index on the
+            // `relative` on the visible content, rather than a z-index on the
             // pill. Both are then positioned siblings in document order, so the
-            // later ones paint over the earlier one — no stacking context to
-            // create, and no negative z-index that would fall through the rail's
-            // own background.
+            // later one paints over the earlier one — no stacking context to
+            // create, and no negative z-index, which would fall straight
+            // through to behind the rail's own background (`sidebar-container`
+            // is the nearest stacking context, and a non-positioned block's
+            // background paints ABOVE negative-z children inside it).
             className={cn(
               'relative size-4 shrink-0',
               active ? 'text-foreground' : 'text-muted-foreground'
