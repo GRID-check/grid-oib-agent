@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { VerdictHeaderCard } from './VerdictHeaderCard'
 import { ConditionTreeCard } from './ConditionTreeCard'
 import { TypedTableCard } from './TypedTableCard'
@@ -34,31 +35,57 @@ describe('VerdictHeaderCard', () => {
 })
 
 describe('ConditionTreeCard', () => {
-  it('renders the deciding factor, each branch, and marks the active one', () => {
+  const branches = [
+    { condition: 'GK 1–3', outcome: 'REI 30' },
+    { condition: 'GK 4', outcome: 'REI 60', active: true },
+    {
+      condition: 'GK 5',
+      outcome: 'REI 90',
+      reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
+    },
+  ]
+
+  it('renders the deciding factor, every branch, and marks the active one', () => {
     render(
       <ConditionTreeCard
         title="Erforderliche Feuerwiderstandsklasse"
         question="Gebäudeklasse"
-        branches={[
-          { condition: 'GK 1–3', outcome: 'REI 30' },
-          { condition: 'GK 4', outcome: 'REI 60', active: true },
-          {
-            condition: 'GK 5',
-            outcome: 'REI 90',
-            reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
-          },
-        ]}
+        branches={branches}
         reference={{ document: 'OIB-Richtlinie 2', edition: 'Ausgabe Mai 2023' }}
       />,
     )
 
     expect(screen.getByText('Gebäudeklasse')).toBeInTheDocument()
+    // Every case is present, collapsed or not.
+    expect(screen.getByText('GK 1–3')).toBeInTheDocument()
     expect(screen.getByText('GK 4')).toBeInTheDocument()
+    expect(screen.getByText('GK 5')).toBeInTheDocument()
     expect(screen.getByText('REI 60')).toBeInTheDocument()
     // The matching branch is called out in words, not by colour alone.
     expect(screen.getByText('trifft zu')).toBeInTheDocument()
-    // A branch with its own source shows an inline citation chip.
-    expect(screen.getByText('OIB-Richtlinie 2 · Tabelle 1b')).toBeInTheDocument()
+  })
+
+  it('expands a branch on click to reveal its norm (hidden while collapsed)', async () => {
+    const user = userEvent.setup()
+    render(
+      <ConditionTreeCard
+        title="Erforderliche Feuerwiderstandsklasse"
+        question="Gebäudeklasse"
+        branches={branches}
+        reference={{ document: 'OIB-Richtlinie 2', edition: 'Ausgabe Mai 2023' }}
+      />,
+    )
+
+    // GK 5 starts collapsed, so the norm it rests on is not in the document yet.
+    // The section (unique to the branch) stands in for the whole reference block;
+    // the bare document name also rides in the card footer, so it is not a proof.
+    expect(screen.queryByText('Tabelle 1b')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /GK 5/ }))
+
+    // „Ich klick das und sehe mehr" — the branch's Grundlage is now revealed.
+    expect(screen.getByText('Tabelle 1b')).toBeInTheDocument()
+    expect(screen.getByText('Grundlage')).toBeInTheDocument()
   })
 })
 
