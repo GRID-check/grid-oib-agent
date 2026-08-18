@@ -54,6 +54,12 @@ export interface AppSidebarProps {
   projectId: string
   projects: ProjectSwitcherProject[]
   user?: SidebarUser
+  /**
+   * The organization the reader is acting in. Shown as an eyebrow above their
+   * name in the rail footer — every project, the Archiv and the Inbox are
+   * scoped to one org, and the rail never said which.
+   */
+  organizationName?: string | null
   authRequired: boolean
   /** Whether the current user can manage the organization (org admin). */
   canManageOrganization?: boolean
@@ -125,6 +131,7 @@ function AppSidebarFrame({
   projectId,
   projects,
   user,
+  organizationName = null,
   authRequired,
   canManageOrganization = false,
   canViewOrganization = false,
@@ -323,6 +330,7 @@ function AppSidebarFrame({
           <div className={cn('border-t border-border pt-3', iconRail && 'flex w-full justify-center')}>
             <SidebarUserMenu
               user={user}
+              organizationName={organizationName}
               authRequired={authRequired}
               compact={iconRail}
               canManageOrganization={canManageOrganization}

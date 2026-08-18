@@ -68,6 +68,7 @@ export default function AppRailPreview(): JSX.Element {
           projectId="p-1"
           projects={PROJECTS}
           user={{ name: 'Anna Berger', email: 'anna.berger@example.at' }}
+          organizationName="Musterarchitektur ZT GmbH"
           authRequired={false}
           // Every gated entry on, so the shot shows the rail at FULL height —
           // the footer-clipping and group-rhythm defects only surface when the

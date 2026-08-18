@@ -52,6 +52,13 @@ export interface SidebarUserMenuProps {
    * footer's 30px; the org top bar passes a 36px avatar to match the dummy.
    */
   avatarSizeClass?: string
+  /**
+   * The organization the reader is acting in, shown as an eyebrow above their
+   * name. Everything this product does — projects, the Archiv, the Inbox — is
+   * scoped to one organization, and until now nothing in the rail said which.
+   * Omitted when unresolvable, so a label lookup can never blank the footer.
+   */
+  organizationName?: string | null
 }
 
 const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -72,6 +79,7 @@ export function SidebarUserMenu({
   canManagePlatform = false,
   canAccessArchiv = false,
   avatarSizeClass = 'size-[30px]',
+  organizationName = null,
 }: SidebarUserMenuProps) {
   const { user: authUser, signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
@@ -119,7 +127,28 @@ export function SidebarUserMenu({
           </Avatar>
         </span>
         {!compact && (
-          <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-muted-foreground">{displayName}</span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            {/* Org eyebrow, in the design language's label convention. It sits
+                ABOVE the name because it is the scope the name acts in — read
+                top-down it says "in Musterarchitektur, you are Anna Berger".
+                `truncate` on both lines: an org name is user data and a rail
+                is 236px, so neither line may push the other. */}
+            {organizationName && (
+              {/* Deliberately below the doc's 10.5px eyebrow: this one sits
+                  UNDER a name rather than over a section, and an org name is
+                  long user data, so at 10.5px with `tracking-wider` it spread
+                  the full 236px and truncated immediately — reading as a
+                  heading competing with the person. Tiny, tight and quiet is
+                  the whole job: it answers "which org" for someone who already
+                  knows, and is skippable for everyone else. */}
+              <span className="text-muted-foreground/70 truncate text-[9.5px] font-medium tracking-wide uppercase">
+                {organizationName}
+              </span>
+            )}
+            <span className="text-muted-foreground truncate text-[12.5px] font-medium">
+              {displayName}
+            </span>
+          </span>
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56 motion-reduce:animate-none">

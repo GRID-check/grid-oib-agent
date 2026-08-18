@@ -6,6 +6,7 @@ import { getNavFlags } from '@/lib/authz/nav'
 import { isIfcModelsEnabled, isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { listProjects } from '@/lib/projects/service'
+import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { AppSidebar, NavigationTrailLabel, ProjectSectionFrame } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { RouteFocus } from '@/shared/components/route-focus'
@@ -84,6 +85,11 @@ export default async function ProjectLayout({
       .map((project) => ({ id: project.id, name: project.name }))
       .sort((a, b) => a.name.localeCompare(b.name))
 
+    // The org the reader is acting in, for the rail footer's eyebrow. Resolves
+    // to null and is simply omitted if the identity lookup fails — chrome must
+    // not depend on a label.
+    const organizationName = await getOrganizationDisplayName(session.organizationId)
+
     return (
       <div className="bg-background text-foreground flex h-dvh flex-col overflow-hidden md:flex-row">
         {/* Names this project in the tab's return trail, so a surface above
@@ -94,6 +100,7 @@ export default async function ProjectLayout({
           projectId={id}
           projects={orgProjects}
           user={{ name: session.name, email: session.email }}
+          organizationName={organizationName}
           authRequired={isAuthRequired()}
           canManageOrganization={navFlags.canManageOrganization}
           canViewOrganization={navFlags.canViewOrganization}
