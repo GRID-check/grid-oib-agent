@@ -277,7 +277,17 @@ write its replacement is invisible in review.
   rectangle. `AskAboutChip` is the reusable form of the `follow_ups` mechanism —
   one component, two call sites (`RequirementChecklistCard`, `DimChecksList`),
   building the sentence itself so the two cannot drift into two phrasings.
-- S5-B: report outline for deep-research reports — in flight.
+- **S5-B landed `010ab256`.** A sticky collapsible bar across the top of the
+  report's scroll box, not a rail — the report column is ~580–670px on desktop
+  and ~360px on mobile, and a readable rail needs ~200px of it. Collapsed by
+  default, and the collapsed row already prints the section in view, so "you are
+  here" is delivered without opening anything. Threshold 4 entries. Stays away
+  entirely while the report streams (a half-arrived heading slugs to an id that
+  stops existing a token later). `slugify` moved verbatim to
+  `MarkdownRenderer/utils.ts` as `headingAnchorId` so outline and renderer
+  cannot drift; a spec renders through the REAL renderer and asserts every id
+  resolves. The `## Quellen` section — the one readers jump to most — is lifted
+  out by `splitReportSources` and had no id at all; it does now.
 
 ## Sprint 6 — candidates (found by the sweep, not yet scheduled)
 - **`{workflow}` renders a raw kebab-case id** in `research.thoughtCard.via` /
@@ -293,3 +303,19 @@ write its replacement is invisible in review.
 - **`deepResearch.stats.tokens`** is described („Textmenge {count}") rather than
   renamed because there is no honest reader-facing unit. The real fix is
   probably to drop the stat.
+
+## Sprint 6 — in flight
+- **S6-A · the deep path was never taught to choose.** `cards/prompt.py` still
+  says "Only include a card when it adds real value" — the exact disclaimer that
+  left fifteen diagram renderers unused on the shallow path until `6302033a`
+  replaced it with a trigger table. It is still standing on the surface that
+  produces the LONGEST answers, i.e. the ones that most need a takeaway block, a
+  callout and follow-ups. Share the doctrine, withhold the parts that are false
+  post-hoc (placement, `describe_card`), keep the anti-fabrication rule loudest
+  — this path only ever has the report text, so a card inventing a figure here
+  is worse than on the other path because nothing checked it.
+- **S6-B · identifiers reaching the reader.** Duplicate `##` headings produce
+  duplicate anchor ids, so the second outline entry scrolls to the first
+  section (flagged by S5-B, belongs in the renderer for every surface at once).
+  And `research.thoughtCard.via` prints a raw `researcher-agent` — the same
+  class as the CamelCase span names fixed in `8878f678`.
