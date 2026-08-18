@@ -74,12 +74,23 @@ def run():
 
 
 def _answer(**kwargs) -> dict:
-    """One real :class:`Answer` as the engine would hand it over."""
-    from ifc_spatial.envelope import Answer
+    """One real :class:`Answer` as the engine would hand it over.
+
+    Guarded, because CI's backend job does not install ``ifc-spatial-py``: the
+    engine lives in a separate package with its own heavy geometry stack. The
+    ``run`` fixture guards the tests that drive the engine, but the fixtures
+    built HERE are real ``Answer`` envelopes and import it too — so without this
+    the module raised ImportError during collection and took twelve tests down
+    with it, including ones that never touch geometry. Skipping is right rather
+    than faking an ``Answer``: the whole point of this suite is that the
+    detector reads what the renderer actually writes, and a hand-built
+    stand-in is how the previous version stayed green over a live defect.
+    """
+    envelope = pytest.importorskip("ifc_spatial.envelope", reason="the spatial engine is not installed")
 
     kwargs.setdefault("from_", ["3cUkl32yn9qRSPvBJVyWcE"])
     kwargs.setdefault("method", "clearHeight(space)")
-    return Answer(**kwargs).to_dict()
+    return envelope.Answer(**kwargs).to_dict()
 
 
 class TestMeasurementDetectionAgainstTheRealRenderer:
@@ -116,7 +127,8 @@ class TestMeasurementDetectionAgainstTheRealRenderer:
 
     def test_undecidable_finding_is_not_grounding(self):
         """A ``decidable: false`` result is a fact about the EXPORT, carrying no number."""
-        from ifc_spatial.envelope import MissingFact
+        envelope = pytest.importorskip("ifc_spatial.envelope", reason="the spatial engine is not installed")
+        MissingFact = envelope.MissingFact
 
         result = _render(
             "measure",
@@ -908,6 +920,8 @@ def _measured_line() -> str:
     those guards are for.
     """
     return _render("measure", _answer(value=2.7, unit="m", tolerance=0.005, provenance="computed", decidable=True))
+
+
 _REFUSED_LINE = (
     "Error: the request was rejected — unbekannte Operation 'measure_room'. This is a problem with "
     "the arguments, not with the model."
