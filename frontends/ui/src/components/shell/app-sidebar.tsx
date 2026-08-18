@@ -216,8 +216,24 @@ function AppSidebarFrame({
       </header>
 
       <Sidebar collapsible="icon" aria-label={t('projectNavigation')}>
+        {/* `shrink-0` on the header and footer is load-bearing, not defensive.
+            `SidebarContent` between them is `flex-1 basis-0`, whose scaled
+            shrink factor is 0 — so under a height deficit the whole deficit
+            lands here. Normally `min-height: auto` protects a flex item from
+            that, but the `overflow-hidden` these two carry in the icon rail
+            (to stop labels painting past 64px) sets the automatic minimum size
+            to 0. Without `shrink-0` the footer is squeezed to nothing and, being
+            clipped rather than scrollable, crops its last child — the user
+            avatar — silently. */}
         <SidebarHeader
-          className={cn('gap-0 p-0 pt-[18px]', iconRail ? 'overflow-hidden px-0' : 'px-3')}
+          className={cn(
+            'shrink-0 gap-0 p-0 pt-[18px]',
+            // 14px, so a 36px tile centres at x=32 in the 64px rail — the same
+            // axis as the brand mark, the presence dot and the avatar. A zero
+            // inset left the icon column flush at x=0 (centre 18) while
+            // everything else centred at 32.
+            iconRail ? 'overflow-hidden px-3.5' : 'px-3',
+          )}
         >
           <SidebarBrand iconRail={iconRail} />
           {!iconRail && (
@@ -233,14 +249,27 @@ function AppSidebarFrame({
             // overflow-y-auto here used to replace the primitive's
             // group-data-[collapsible=icon]:overflow-hidden, so labels kept
             // painting past the 64px rail.
-            iconRail ? 'overflow-hidden px-0' : 'overflow-y-auto px-3',
+            iconRail ? 'overflow-hidden px-3.5' : 'overflow-y-auto px-3',
           )}
         >
           <nav aria-label={t('projectSections')}>
-            {groups.map((group) => {
+            {groups.map((group, index) => {
               const label = t(`sectionGroups.${group.group}`)
               return (
-                <SidebarGroup key={group.group} className="p-0">
+                <SidebarGroup
+                  key={group.group}
+                  className={cn(
+                    'p-0',
+                    // Expanded, the group label's own `h-8` is what separates
+                    // one group from the next. The icon rail unmounts that
+                    // label, so without this the seam between groups collapses
+                    // to 0 while items inside a group sit 2px apart — seven
+                    // icons reading as one undifferentiated column. 12px against
+                    // a 2px item gap is a 6:1 ratio, which is the chunking the
+                    // label used to provide.
+                    iconRail && index > 0 && 'mt-3',
+                  )}
+                >
                   {label && !iconRail ? <SidebarGroupLabel>{label}</SidebarGroupLabel> : null}
                   <SidebarGroupContent>
                     <SidebarMenu className="gap-0.5" aria-label={label}>
@@ -264,9 +293,17 @@ function AppSidebarFrame({
         </SidebarContent>
 
         <SidebarFooter
-          className={cn('gap-0 p-0 pb-[14px]', iconRail ? 'overflow-hidden px-0' : 'px-3')}
+          className={cn(
+            'shrink-0 gap-0 p-0 pb-[14px]',
+            iconRail ? 'overflow-hidden px-3.5' : 'px-3',
+          )}
         >
-          <div className={cn('mb-2.5', iconRail && 'flex justify-center')}>
+          {/* No `justify-center` here: `SidebarMenu` is `w-full`, so a flex
+              centring rule on this wrapper was a no-op and the Settings tile
+              stayed flush left while the presence dot and avatar centred. The
+              rail's `px-3.5` now sizes this box to the tile, so it aligns by
+              construction rather than by a rule that could be defeated again. */}
+          <div className="mb-2.5">
             <SidebarMenu className="gap-0.5">
               <RailNavItem
                 item={PROJECT_SETTINGS_SECTION}
@@ -363,7 +400,11 @@ function SidebarBrand({ iconRail }: { iconRail: boolean }) {
           aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
           className={cn(
             'flex items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
-            iconRail ? 'mt-[18px] h-9 w-10' : 'ml-auto size-7',
+            // Icon rail: exactly a nav tile (36px square), so it lands on the same
+        // column and the same grid as the items below instead of reading as a
+        // loose glyph floating in the header's dead space. It was `h-9 w-10` —
+        // a 40px width that matched nothing else in the rail.
+        iconRail ? 'mt-2 size-9' : 'ml-auto size-7',
           )}
         >
           {collapsed ? (

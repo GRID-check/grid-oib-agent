@@ -235,7 +235,13 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex',
+          // `h-dvh`, not `h-svh`: the app shell this rail sits in is `h-dvh`
+          // (`app/projects/[id]/layout.tsx`), and this element is `fixed` with
+          // `inset-y-0` — over-constrained, so height wins and `bottom` is
+          // dropped. Wherever `svh > dvh` (any browser with a retracting URL
+          // bar) the mismatch pushed the rail's last rows, footer included,
+          // below the visible area.
+          'fixed inset-y-0 z-10 hidden h-dvh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex',
           side === 'left'
             ? 'left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]'
             : 'right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]',

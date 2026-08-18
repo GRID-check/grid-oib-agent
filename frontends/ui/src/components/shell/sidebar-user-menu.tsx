@@ -105,7 +105,15 @@ export function SidebarUserMenu({
         aria-label={t('userMenu.label', { name: displayName })}
       >
         <span className="flex shrink-0">
-          <Avatar className={avatarSizeClass}>
+          {/* The hairline is not decoration. `AvatarFallback` fills with
+              `bg-muted` (L 0.961), and the rail it sits on is
+              `--background-color-surface-sunken` (L 0.958) — a 0.3% lightness
+              step, so on this one surface the disc is invisible and the
+              monogram reads as loose text on the rail. An alpha-ink ring
+              composites on whatever surface the avatar lands on, which is
+              exactly what the border ramp is for, and it matches how
+              `AvatarStack` already separates overlapping discs. */}
+          <Avatar className={cn('ring-border ring-1', avatarSizeClass)}>
             {(authUser?.image ?? user?.image) && <AvatarImage src={authUser?.image ?? user?.image ?? undefined} alt="" />}
             <AvatarFallback className="text-xs font-medium">{initial}</AvatarFallback>
           </Avatar>

@@ -51,6 +51,20 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="passage-mark"]',
   },
   {
+    id: 'app-rail',
+    path: '/dev/app-rail',
+    description:
+      'The expanded 236px project rail on its own — brand row and collapse control, the grouped nav (work / automate / organisation) with its separators, and the footer stack of Settings, connection presence and the user tile. Every gated entry is on, so the column is at full height and competes for vertical space the way it does for a real member.',
+    waitFor: '[data-testid="app-rail-preview"]',
+  },
+  {
+    id: 'app-rail-collapsed',
+    path: '/dev/app-rail?variant=collapsed',
+    description:
+      'The 64px icon rail — the rail\'s OTHER layout, not a narrower one: labels go sr-only, group labels unmount, tiles become square hit areas. Captures what previously had no visual evidence at all, so the icon column\'s horizontal alignment against the brand mark, the group separation, and the footer\'s bottom edge (Settings, presence dot, avatar) are all reviewable.',
+    waitFor: '[data-testid="app-rail-preview"]',
+  },
+  {
     id: 'sessions',
     mobile: true,
     path: '/dev/sessions',
