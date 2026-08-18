@@ -803,6 +803,41 @@ German is unaffected throughout — the expansion is a no-op for it by construct
 The remaining DE/EN MRR gap is 0.10, against 0.235 for the same corpus page-cut and
 unexpanded.
 
+### The one way this change is net-negative, and how to find out
+
+The measurement instrument is `multilingual-e5-small` — 384 dimensions, 118M
+parameters, and **weak cross-lingual alignment is precisely why the glossary has so
+much room to help**. Production embeds with `text-embedding-3-large`, which aligns
+German and English far better. So the raw English baseline rises there and the
+headroom the glossary fills shrinks, while its *cost* does not: diluting a query the
+encoder already understands is pure loss. It is entirely possible for this change to
+measure as a win here and be a small loss in production.
+
+Nothing about that is detectable in service — §20 shows `fill@16 = 1.000`, so a worse
+ordering produces a confident answer with no symptom.
+
+**Falsification test, and it is cheap:** re-run the 22 English golden entries on
+`text-embedding-3-large`, both arms. If raw English R@16 is already ≥ 0.90 there, the
+glossary is buying little and its rank-1 cost is real, and the right move is to stop
+prepending into the *dense* query and let the glossary serve only the sparse channel —
+which already receives the terms as separate lexemes rather than as a prepended string,
+so that change is a deletion rather than a build. The harness and the golden set exist;
+this needs an API key and one run.
+
+Two design properties worth stating because they are easy to get wrong and are already
+right: the **reranker judges the user's original question**, never the augmented one, so
+the judge is never scoring a phrase nobody asked; and the **sparse channel receives
+`expansion_terms` as lexemes**, not the concatenated string, so prepending cannot corrupt
+the lexical match. The mechanism behind the measured trade is a centroid shift — a few
+prepended German nouns pull a mean-pooled query vector toward the topic and away from
+the specifics — which is exactly the R@16-up / R@1-down shape observed.
+
+A miss is now logged. A glossary of this size against a corpus of thousands of legal
+terms will fail to cover concepts, and an uncovered English query was previously silent:
+returned unchanged, `top_k` filled anyway, no signal. `augmented_query` now logs every
+English query that matches no concept, which is both the coverage metric this approach
+lacked and the work queue for extending it.
+
 ## 20. Abstention cannot be built from a similarity threshold
 
 The golden set carries six questions the OIB corpus genuinely cannot answer —

@@ -18,7 +18,7 @@ it. That is what this module does, and the reason it is worth its complexity.
 It is deliberately pure, deterministic and table-driven -- no LLM, no network, no
 database -- matching the idiom of `legal_terms`, `applicability` and
 `norm_registry.match_entries`. A translation model on the hot retrieval path would
-cost a round trip per query to do worse than a 33-entry table, because the table is
+cost a round trip per query to do worse than this table, because the table is
 grounded in counted corpus vocabulary rather than in general German.
 
 The augmentation is **additive and original-preserving**: the user's own words stay
@@ -187,5 +187,14 @@ def augmented_query(query: str | None) -> str:
         return query
     terms = expansion_terms(query)
     if not terms:
+        # The coverage metric this table needs and otherwise does not have. A glossary of
+        # this size against a corpus of thousands of legal terms will miss concepts, and
+        # a miss is SILENT: the query is returned unchanged, retrieval fills top_k anyway,
+        # and the user gets a confident building-law answer with no signal that the
+        # English question never reached the German index. Every line here names a concept
+        # worth counting in the corpus and adding, and the rate is the honest measure of
+        # how far from parity this approach actually is.
+        if detect_language(query) == "en":
+            logger.info("Query expansion found no glossary concept for English query: %r", query[:120])
         return query
     return f"{' '.join(terms)} {query}"
