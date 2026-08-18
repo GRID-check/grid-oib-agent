@@ -13,6 +13,7 @@ import { TypedTableCard } from './TypedTableCard'
 import { NormChainCard } from './NormChainCard'
 import { KeyTakeawaysCard } from './KeyTakeawaysCard'
 import { CalloutCard } from './CalloutCard'
+import { FollowUpsCard } from './FollowUpsCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
 import { DimensionDiagramCard } from '../schematics/DimensionDiagramCard'
@@ -194,6 +195,14 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
     return (
       <FadeIn distance={6}>
         <CalloutCard kind={card.kind} text={card.text} title={card.title} detail={card.detail} />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'follow_ups') {
+    return (
+      <FadeIn distance={6}>
+        <FollowUpsCard title={card.title} items={card.items ?? []} />
       </FadeIn>
     )
   }

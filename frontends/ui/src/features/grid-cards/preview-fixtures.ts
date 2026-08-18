@@ -186,6 +186,16 @@ const RAW_FIXTURES: CardInput[] = [
     detail: 'Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.',
   },
   {
+    // One chip without a `hint` on purpose: the tooltip is an extra, and the
+    // gallery should not suggest that a follow-up is incomplete without one.
+    type: 'follow_ups',
+    items: [
+      { question: 'Wie wird das Fluchtniveau genau gemessen?', hint: 'Messpunkt und Bezugsebene' },
+      { question: 'Welche Anforderungen gelten für mein Projekt konkret?' },
+      { question: 'Was wäre bei Gebäudeklasse 5 anders?', hint: 'Vergleich der beiden Klassen' },
+    ],
+  },
+  {
     type: 'project_profile_patch',
     title: 'Projektkontext aktualisieren: Fluchtniveau',
     rationale:

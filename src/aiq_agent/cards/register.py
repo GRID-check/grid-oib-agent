@@ -58,6 +58,7 @@ drawing they would have made. The trigger, then the card:
   a tabular answer no purpose-built card covers -> typed_table
   the two to five points the reader must leave with -> key_takeaways
   one caveat, deadline or tip that changes what the reader DOES -> callout
+  an answer this reader will have a next question about -> follow_ups
   the user wants to SEE or OPEN the building and the project may hold several models
                                            -> ifc_model_picker
 
@@ -69,6 +70,21 @@ for callout for the single sentence a reader must not miss — a Frist, a Land-s
 an easily-overlooked condition. Inside a paragraph that sentence reads at exactly the weight of the
 sentence beside it, which is the one weight it must not have. One callout per answer; a second puts
 both back at that weight.
+
+follow_ups closes a substantive answer with the two to four questions THIS ANSWER just made
+askable. A reader who has only now learnt what a Fluchtniveau is has a next question and no
+phrasing for it, and a chip that costs one click is the cheapest thing on the whole answer
+surface: nothing is sent, the question only lands in their composer, so they still edit it and
+press send. Two rules decide whether the set is worth reading. Each question must NAME something
+the answer itself introduced — the term it defined, the number it gave, the exception it raised —
+because an anchored question is one the reader recognises as theirs and "Erzähl mir mehr" is one
+they learn to ignore, after which they stop reading the chips at all. And the set must be
+DIFFERENT KINDS of question, not one question four times: narrow it to this project, go a level
+deeper on a rule you just named, compare the alternative you ruled out, push toward the next
+concrete step. At most one follow_ups per answer, and put it LAST — it is what the reader leaves on.
+Not on a conversational or off-topic turn, where there is no subject to go deeper into, and not on
+an answer that already ends by asking the user something: two questions competing for the same
+reply is how you get neither.
 
 The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
 emit it INSTEAD of writing the file names as a prose bullet list. It renders the project's models

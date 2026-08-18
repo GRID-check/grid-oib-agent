@@ -898,6 +898,62 @@ class CalloutCard(BaseModel):
     )
 
 
+class FollowUp(BaseModel):
+    """One next question, written out in full so it can be sent as it stands."""
+
+    question: str = Field(
+        min_length=1,
+        description=(
+            "The next question as a COMPLETE, sendable sentence in the answer's language — this exact "
+            "text lands in the composer, so 'Wie wird das Fluchtniveau gemessen?' works and a topic "
+            "label like 'Fluchtniveau' does not. Name something this answer introduced: a term it "
+            "defined, a value it gave, a caveat it raised"
+        ),
+    )
+    hint: str | None = Field(
+        default=None,
+        description=(
+            "Optional half-line saying what asking this would get the reader, e.g. 'Messpunkt und "
+            "Bezugsebene'. Shown only as a tooltip — never the question itself, and omit it rather "
+            "than restating the question in other words"
+        ),
+    )
+
+
+class FollowUpsCard(BaseModel):
+    """Emit at the END of an answer: the two to four questions this answer just made askable.
+
+    The reader who now knows what a Fluchtniveau is has a next question and no
+    phrasing for it; each item renders as a chip that PREFILLS the composer, so
+    the way forward costs a click instead of a paragraph of typing. Nothing is
+    sent on click — the reader still edits and presses send — so the card
+    suggests, it never asks on their behalf.
+
+    What makes the set work is anchoring and spread: every question must name
+    something THIS answer introduced (a term it defined, a number it gave, an
+    exception it raised), and the set must cover different KINDS of next step —
+    narrowing to this project, going a level deeper on a rule just named,
+    comparing the alternative, moving toward the next action. Four rephrasings
+    of one question is one question. A generic 'Erzähl mir mehr' is worse than
+    no card at all: it teaches the reader the chips are decoration, and then
+    they stop reading them.
+    """
+
+    type: Literal["follow_ups"]
+    title: str | None = Field(
+        default=None,
+        description="Optional headline, e.g. 'Weiterführende Fragen'; omit to let the questions stand alone",
+    )
+    items: list[FollowUp] = Field(
+        min_length=2,
+        max_length=4,
+        description=(
+            "The next questions, most useful first. Two to four — one chip is not a set of options, "
+            "five is a menu the reader has to read instead of an offer they can take"
+        ),
+    )
+
+
 # ── Document-surfacing card (system-emitted) ─────────────────────────────────
 # Surfaced by the `surface_documents` tool from a REAL vector search over the
 # project + Büroarchiv corpus — never fabricated by the model (it is a system
@@ -1225,6 +1281,7 @@ GridCard = (
     | NormChainCard
     | KeyTakeawaysCard
     | CalloutCard
+    | FollowUpsCard
     | BuildingSectionCard
     | StairDiagramCard
     | DimensionDiagramCard
@@ -1261,6 +1318,8 @@ __all__ = [
     "ConditionBranch",
     "ConditionTreeCard",
     "DocumentGridCard",
+    "FollowUp",
+    "FollowUpsCard",
     "GridCard",
     "IfcHighlight",
     "IfcViewerCard",

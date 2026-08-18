@@ -502,6 +502,85 @@ class TestGenericPolishCards:
         assert "KeyTakeaway = {" in detail
 
 
+class TestFollowUpsCard:
+    """The card whose payload is USER INPUT: each question is prefilled verbatim.
+
+    Every constraint here exists because the `question` string does not get
+    rendered and forgotten — it lands in the composer as the text the user is
+    about to send. So it must be sendable as it stands, and the set must be a
+    set: two to four, because one chip is not a choice and five is a menu the
+    reader has to work through instead of an offer they can take.
+    """
+
+    def test_follow_ups_validates_and_keeps_the_hint_optional(self):
+        from aiq_agent.cards.models import FollowUpsCard
+
+        raw = {
+            "type": "follow_ups",
+            "title": "Weiterführende Fragen",
+            "items": [
+                {"question": "Wie wird das Fluchtniveau genau gemessen?", "hint": "Messpunkt und Bezugsebene"},
+                {"question": "Was wäre bei Gebäudeklasse 5 anders?"},
+            ],
+        }
+        card = grid_card_adapter.validate_python(raw)
+        assert isinstance(card, FollowUpsCard)
+        assert card.items[0].hint == "Messpunkt und Bezugsebene"
+        # No hint means no tooltip — an empty string would render an empty one.
+        assert card.items[1].hint is None
+
+    def test_follow_ups_rejects_one_question_and_five(self):
+        # One chip is not a set of next steps, it is the answer picking the
+        # reader's next question for them; five is a menu, and the reader has to
+        # read all of it before they can take any of it.
+        one = {"type": "follow_ups", "items": [{"question": "Und dann?"}]}
+        five = {"type": "follow_ups", "items": [{"question": f"Frage {i}?"} for i in range(5)]}
+        assert validate_cards([one, five]) == []
+
+    def test_follow_ups_rejects_an_empty_question(self):
+        # The question IS the payload: an empty one prefills the composer with
+        # nothing and the chip becomes a click that appears to do nothing.
+        raw = {"type": "follow_ups", "items": [{"question": ""}, {"question": "Was gilt in Wien?"}]}
+        assert validate_cards([raw]) == []
+
+    def test_follow_ups_needs_no_title(self):
+        raw = {"type": "follow_ups", "items": [{"question": "Erste Frage?"}, {"question": "Zweite Frage?"}]}
+        [card] = validate_cards([raw])
+        assert "title" not in card
+
+    def test_the_worked_example_round_trips_and_shows_four_different_moves(self):
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+
+        card = grid_card_adapter.validate_python(CARD_EXAMPLES["follow_ups"])
+        assert card.type == "follow_ups"
+        # The example is the only place the model sees what "diverse" means, so
+        # it has to BE diverse — four rewordings of one question would validate
+        # just as happily and would teach exactly the wrong shape.
+        questions = [item.question for item in card.items]
+        assert len(set(questions)) == len(questions)
+        assert all(q.endswith("?") for q in questions), "each question is sent as written"
+
+    def test_render_card_details_spells_out_the_follow_up_block(self):
+        from aiq_agent.cards.catalog import render_card_details
+
+        detail = render_card_details(["follow_ups"])
+        assert '"follow_ups"' in detail
+        assert "FollowUp = {" in detail
+
+    def test_the_doctrine_states_the_trigger_and_the_two_rules(self):
+        # A trigger nobody is pointed at is a card that never gets emitted, and
+        # the two rules (anchored, diverse) are the whole difference between a
+        # chip a reader clicks and one they learn to ignore.
+        from aiq_agent.cards.register import _CARD_DOCTRINE
+
+        assert "follow_ups" in _CARD_DOCTRINE
+        assert "NAME something" in _CARD_DOCTRINE
+        assert "DIFFERENT KINDS" in _CARD_DOCTRINE
+        # And when NOT to: a chat turn has no subject to go deeper into, and an
+        # answer that already asked a question would be asking twice.
+        assert "conversational or off-topic" in _CARD_DOCTRINE
+
+
 class TestTheCatalogTellsTheModelToCopyNotGuess:
     """The rule has to be stated where the model reads the catalog.
 

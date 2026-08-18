@@ -353,6 +353,24 @@ CARD_EXAMPLES: dict[str, dict] = {
         "text": "Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen.",
         "detail": "Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.",
     },
+    # The example carries the two properties that decide whether this card is
+    # worth a click: every question names something the answer itself put on the
+    # table (das Fluchtniveau, die GK-4-Einstufung, REI 60), and the four are
+    # four DIFFERENT moves — measure it, apply it to my project, compare the
+    # neighbouring class, act on it. Four rewordings of "Wie ist das mit der
+    # Gebäudeklasse?" would validate just as happily, which is exactly why the
+    # example has to show the spread rather than describe it. Note also that
+    # every `question` is a full sentence with a question mark: it is sent as
+    # written, so a topic label would arrive in the composer as a fragment.
+    "follow_ups": {
+        "type": "follow_ups",
+        "items": [
+            {"question": "Wie wird das Fluchtniveau genau gemessen?", "hint": "Messpunkt und Bezugsebene"},
+            {"question": "Welche Anforderungen gelten für mein Projekt konkret?"},
+            {"question": "Was wäre bei Gebäudeklasse 5 anders?", "hint": "Vergleich der beiden Klassen"},
+            {"question": "Wie weise ich REI 60 im Einreichplan nach?"},
+        ],
+    },
 }
 
 

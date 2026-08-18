@@ -72,6 +72,10 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // written and nothing would be annoying to redo.
   key_takeaways: 'presentational',
   callout: 'presentational',
+  // Follow-up chips only PREFILL the composer — no request, no write, and
+  // the user still presses send. A queued draft they can ignore is not a
+  // decision, so there is nothing to remember across a reload.
+  follow_ups: 'presentational',
   document_grid: 'presentational',
   building_section: 'presentational',
   stair_diagram: 'presentational',

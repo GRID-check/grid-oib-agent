@@ -186,3 +186,13 @@ export interface KeyTakeawayData {
  * beside its tone — the kind must never be carried by colour alone.
  */
 export type CalloutKind = 'hinweis' | 'achtung' | 'frist' | 'tipp'
+
+/**
+ * One follow-up question. `question` is the exact text that lands in the
+ * composer, so it is a whole sendable sentence — never a topic label. Mirrors
+ * `FollowUp` in `src/aiq_agent/cards/models.py`.
+ */
+export interface FollowUpData {
+  question: string
+  hint?: string | null
+}

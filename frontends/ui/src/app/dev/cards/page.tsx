@@ -11,6 +11,7 @@ import { notFound } from 'next/navigation'
 import { SummaryCard } from '@/features/grid-cards/components/SummaryCard'
 import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
 import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
+import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
 import { RequirementChecklistCard } from '@/features/grid-cards/components/RequirementChecklistCard'
 import { ComparisonTableCard } from '@/features/grid-cards/components/ComparisonTableCard'
@@ -111,6 +112,24 @@ export default function CardsGalleryPage() {
         <CalloutCard
           kind="tipp"
           text="Ein Schnitt durch das Treppenhaus mit eingetragenem Fluchtniveau erspart in der Regel eine Rückfrage der Behörde."
+        />
+      </Section>
+
+      {/* Four chips of very different lengths, because the thing to review here
+          is that a long question truncates to one line instead of turning the
+          chip into a paragraph — and that the set still reads as an offer. */}
+      <Section id="follow_ups">
+        <FollowUpsCard
+          title="Weiterführende Fragen"
+          items={[
+            { question: 'Wie wird das Fluchtniveau genau gemessen?', hint: 'Messpunkt und Bezugsebene' },
+            { question: 'Welche Anforderungen gelten für mein Projekt konkret?' },
+            { question: 'Was wäre bei Gebäudeklasse 5 anders?', hint: 'Vergleich der beiden Klassen' },
+            {
+              question:
+                'Wie weise ich die Feuerwiderstandsklasse REI 60 der tragenden Bauteile im Einreichplan nach?',
+            },
+          ]}
         />
       </Section>
 
