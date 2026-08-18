@@ -82,7 +82,7 @@ describe('/api/platform/retrieval-settings', () => {
       settings: unknown[]
     }
     expect(body.definitions.map((d) => d.key)).toContain('knowledge.top_k')
-    expect(body.definitions).toHaveLength(9)
+    expect(body.definitions).toHaveLength(10)
     expect(body.settings).toEqual([])
   })
 
