@@ -173,6 +173,43 @@ class TestExtractQueryFromText:
         assert sources == ["web_search"]
         assert skills is None
 
+    def test_extract_json_payload_sets_focus_from_intent(self):
+        from aiq_agent.common.focus_file import get_focused_file_name
+        from aiq_agent.common.focus_file import get_turn_shelves
+        from aiq_agent.common.focus_file import set_turn_intent
+
+        text = '{"query": "Fass zusammen", "focus_file_name": "Protokoll.pdf", "focus_shelf": "session"}'
+        try:
+            query, _sources, _skills = _extract_query_from_text(text)
+            assert query == "Fass zusammen"
+            assert get_focused_file_name() == "Protokoll.pdf"
+            assert get_turn_shelves() == frozenset({"session"})
+        finally:
+            set_turn_intent()
+
+    def test_extract_json_payload_maps_source_preset(self):
+        from aiq_agent.common.focus_file import get_turn_shelves
+        from aiq_agent.common.focus_file import set_turn_intent
+
+        text = '{"query": "Was gilt?", "source_preset": "law"}'
+        try:
+            query, _sources, _skills = _extract_query_from_text(text)
+            assert query == "Was gilt?"
+            assert get_turn_shelves() == frozenset({"base"})
+        finally:
+            set_turn_intent()
+
+    def test_extract_json_payload_ignores_client_include_shelves(self):
+        from aiq_agent.common.focus_file import get_turn_shelves
+        from aiq_agent.common.focus_file import set_turn_intent
+
+        text = '{"query": "Fass zusammen", "focus_file_name": "a.pdf", "include_shelves": ["archiv", "base"]}'
+        try:
+            _extract_query_from_text(text)
+            assert get_turn_shelves() is None
+        finally:
+            set_turn_intent()
+
     def test_extract_json_payload_with_skills(self):
         """Test extracting forced skills from a JSON payload."""
         text = '{"query": "Analyse", "skills": ["forecast-analysis", "data-table-analysis"]}'

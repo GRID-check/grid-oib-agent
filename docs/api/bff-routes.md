@@ -161,9 +161,9 @@ Users only ever read/write their **own** votes; when a vote carries a
 
 | Method | Path | Auth | Description | Request | Response |
 |--------|------|------|-------------|---------|----------|
-| `POST` | `/api/feedback/answers` | Required | Upsert the caller's vote on one answer. `reason` (fixed keys `inaccurate`/`too_slow`/`wrong_source`/`other`) is only valid with `verdict: "down"`. | `{ messageId, verdict: 'up'\|'down', reason?, conversationId?, projectId? }` | `{ messageId, verdict, reason }` |
+| `POST` | `/api/feedback/answers` | Required | Upsert the caller's vote on one answer. `reason` (fixed keys `inaccurate`/`too_slow`/`wrong_source`/`other`) and optional `comment` (free-text, max 2000) are only valid with `verdict: "down"`. | `{ messageId, verdict: 'up'\|'down', reason?, comment?, conversationId?, projectId? }` | `{ messageId, verdict, reason, comment }` |
 | `DELETE` | `/api/feedback/answers?messageId=` | Required | Retract (toggle off) the caller's vote. Idempotent. | — | `204 No Content` |
-| `GET` | `/api/feedback/answers?conversationId=` | Required | The caller's own votes in one conversation (bounded to 200), for client hydration. | — | `{ feedback: [{ messageId, verdict, reason }] }` |
+| `GET` | `/api/feedback/answers?conversationId=` | Required | The caller's own votes in one conversation (bounded to 200), for client hydration. | — | `{ feedback: [{ messageId, verdict, reason, comment }] }` |
 
 These three routes are the whole of the tenant-facing surface — nobody in an
 organization can read anyone else's votes. The collected feedback is read back

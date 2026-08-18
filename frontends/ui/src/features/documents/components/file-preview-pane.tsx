@@ -25,6 +25,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { SectionLabel } from '@/components/ui/section-label'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { documentFileUrl } from '@/lib/documents/urls'
 import { useLocale, useTranslations } from '@/i18n'
@@ -480,7 +481,7 @@ export function FilePreviewPane({
             'flex min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60',
             peeking
               ? 'h-full min-h-0 flex-1 p-3'
-              : 'h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
+              : 'h-[50dvh] min-h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
           )}
         >
           {isModel ? (
@@ -587,7 +588,9 @@ export function FilePreviewPane({
               read at the same weight as the MIME type. */}
           {showMetadataPanel && (
             <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
-              <SectionLabel icon={Sparkles}>{t('preview.indexed.title')}</SectionLabel>
+              <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
+                {t('preview.indexed.title')}
+              </SectionLabel>
               {/* Keyed by file so a newly-selected document always starts
                   collapsed and re-measures against its own text. */}
               {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
@@ -601,7 +604,9 @@ export function FilePreviewPane({
               was not. The flag now gates ROWS, which is what it was always
               about; the group is whole either way. */}
           <section className={cn('space-y-2', showMetadataPanel && 'mt-4')}>
-            <SectionLabel icon={FileCode2}>{t('preview.properties')}</SectionLabel>
+            <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
+              {t('preview.properties')}
+            </SectionLabel>
             <div className="space-y-2">
               {showMetadataPanel && detectedType && (
                 <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
@@ -668,11 +673,14 @@ export function FilePreviewPane({
                     type="button"
                     onClick={toggleDetails}
                     aria-expanded={detailsOpen}
-                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground touch-target"
+                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground touch-target motion-reduce:transition-none"
                   >
                     {t('preview.visualDetails.title')}
                     <ChevronDown
-                      className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')}
+                      className={cn(
+                        'size-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                        detailsOpen && 'rotate-180',
+                      )}
                       aria-hidden
                     />
                   </button>
@@ -816,31 +824,19 @@ function IndexedSummary({ summary }: { summary: string }) {
           type="button"
           onClick={() => setExpanded((open) => !open)}
           aria-expanded={expanded}
-          className="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target"
+          className="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none"
         >
           {expanded ? t('preview.summaryLess') : t('preview.summaryMore')}
-          <ChevronDown className={cn('size-3 shrink-0 transition-transform', expanded && 'rotate-180')} aria-hidden />
+          <ChevronDown
+            className={cn(
+              'size-3 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+              expanded && 'rotate-180',
+            )}
+            aria-hidden
+          />
         </button>
       )}
     </div>
-  )
-}
-
-/**
- * A rail section's eyebrow.
- *
- * The rail is three different KINDS of information stacked in one column — what
- * the agent understood, what the file is, what the user has labelled it — and
- * without a heading per kind they read as one undifferentiated list of small
- * grey text. The icon carries the same weight rule as {@link MetaRow}'s: it is
- * a scan target, not decoration.
- */
-function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
-  return (
-    <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-      <Icon className="size-3.5 shrink-0" aria-hidden />
-      {children}
-    </p>
   )
 }
 
@@ -961,7 +957,7 @@ function DocumentTagsSection({
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
                 aria-label={t('preview.removeTag', { tag })}
-                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target"
+                className="-mr-0.5 rounded-sm p-0.5 transition-colors duration-150 ease-out hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target motion-reduce:transition-none"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -1019,7 +1015,7 @@ function DocumentTagsSection({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => addTag(tag)}
               disabled={isSaving}
-              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-150 ease-out hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none"
             >
               {tag}
             </button>
@@ -1084,7 +1080,7 @@ function MetaRow({
  */
 function PageMock({ caption, action, skeleton }: { caption?: string; action?: ReactNode; skeleton?: boolean }) {
   return (
-    <div className="h-fit w-full max-w-[520px] rounded-lg border bg-background p-7 shadow-lg">
+    <div className="h-fit min-h-[320px] w-full max-w-[520px] rounded-lg border bg-background p-7 shadow-lg">
       <div className="flex items-baseline justify-between border-b pb-2.5">
         <div className="space-y-1.5">
           <div className={cn('h-[9px] w-28 rounded', skeleton ? 'bg-muted' : 'bg-muted/50')} />

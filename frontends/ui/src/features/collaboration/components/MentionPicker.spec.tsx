@@ -150,7 +150,7 @@ describe('MentionPicker — the rows', () => {
 
   test('the footer keeps the keyboard hint', () => {
     renderPicker()
-    expect(screen.getByText('↑↓ to choose · ↵ to insert · Esc to close')).toBeInTheDocument()
+    expect(screen.getByLabelText('↑↓ to choose · ↵ to insert · Esc to close')).toBeInTheDocument()
   })
 
   test('the list is a labelled listbox of options (a11y)', () => {

@@ -11,7 +11,7 @@
 'use client'
 
 import { type FC, useMemo, useState, useEffect, useRef } from 'react'
-import { ChevronDown, CheckCircle2, AlertTriangle, Clock, Loader2 } from 'lucide-react'
+import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { motion, AnimatePresence } from '@/components/motion'
 import { Spinner } from '@/components/ui/spinner'
@@ -154,12 +154,12 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   })
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out motion-reduce:animate-none">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="group relative flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
             aria-label={summaryLabel}
           >
             <span className="flex min-w-0 items-center gap-2">
@@ -172,11 +172,11 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.span
                       key={activityLabel}
-                      className="animate-text-shimmer truncate text-sm font-semibold"
+                      className="animate-text-shimmer truncate text-sm font-semibold motion-reduce:animate-none"
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
-                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      transition={{ duration: 0.18, ease: 'easeOut' }}
                       aria-live="polite"
                     >
                       {activityLabel}
@@ -194,9 +194,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : isInterrupted && isRecoveryPending ? (
                 <>
-                  <span className="text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  </span>
+                  <Spinner size="sm" className="text-muted-foreground" aria-hidden="true" />
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.recovering')}
                   </span>
@@ -232,7 +230,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </span>
               )}
               <span className="text-xs text-muted-foreground">{summaryLabel}</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
             </span>
 
             {/* Slim indeterminate sweep along the header's lower edge — a
@@ -242,25 +240,24 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-x-4 bottom-1.5 h-0.5 overflow-hidden rounded-full bg-foreground/5"
               >
-                <span className="animate-progress-sweep block h-full w-1/3 rounded-full bg-foreground/30" />
+                <span className="animate-progress-sweep block h-full w-1/3 rounded-full bg-foreground/30 motion-reduce:animate-none" />
               </span>
             )}
           </button>
         </CollapsibleTrigger>
 
-        {/* Expanded content — height-animated so the completion collapse reads
-            as a smooth shrink to the one-line bar, not a jump. The basis footer
-            lives INSIDE here (not always-on) so the collapsed turn is just the
-            one-line summary and never bulks the thread before the answer. */}
+        {/* Expanded content — opacity only (no height tween). The reserved
+            min-h-12 header is the chrome; the body mounts/unmounts. The basis
+            footer lives INSIDE here so the collapsed turn is just the one-line
+            summary and never bulks the thread before the answer. */}
         <AnimatePresence initial={false}>
           {open && (
             <motion.div
               key="herleitung-content"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.28, ease: [0.25, 0.1, 0.25, 1] }}
-              className="overflow-hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
             >
               <div className="border-base border-t px-2 pb-3 pt-3 sm:px-4">
                 <ReasoningFlow
@@ -293,7 +290,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                         {s.running && (
                           <span
                             aria-hidden="true"
-                            className="size-1.5 animate-pulse rounded-full bg-brand"
+                            className="size-1.5 animate-pulse rounded-full bg-brand motion-reduce:animate-none"
                           />
                         )}
                         {s.label}
@@ -336,8 +333,9 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           a resend. */}
       {isInterrupted && isRecoveryPending ? (
         <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
-          <Loader2
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
+          <Spinner
+            size="xs"
+            className="mt-0.5 shrink-0 text-muted-foreground"
             aria-hidden="true"
           />
           <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">

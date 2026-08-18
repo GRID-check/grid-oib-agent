@@ -5,10 +5,10 @@
  *
  *  1. The default card grid (`FileBrowserPane`) — the shared raised FileCard in
  *     its home surface, with the folder quick-filter chip row.
- *  2. The folder-TREE composition — the real `ViewToggleButton` pair, the tree
- *     band wrapper (same responsive classes the workspace uses) around the real
- *     `FolderTreePane`, plus a standalone `FileSearchBar` with a live query so
- *     the enlarged clear (X) hit target is visible.
+ *  2. The folder-TREE composition — the same segmented `ToggleGroup` the
+ *     workspace uses, the tree band wrapper (same responsive classes) around
+ *     the real `FolderTreePane`, plus a standalone `FileSearchBar` with a live
+ *     query so the enlarged clear (X) hit target is visible.
  *
  * The tree fixture is the evidence for the mobile touch-target work on the
  * folder tree, view toggle, filter chips, and search-bar clear button. A
@@ -30,8 +30,8 @@ import { useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
 import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
-import { ViewToggleButton } from '@/features/documents/components/project-file-workspace'
 import { FileSearchBar } from '@/features/documents/components/file-search-bar'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { LayoutGrid, ListTree } from 'lucide-react'
 import type { FileItem, FolderItem } from '@/features/documents/components/project-file-workspace'
 
@@ -231,14 +231,23 @@ function FileBrowserFixtures(): JSX.Element {
       <div className="flex h-[720px] flex-col overflow-hidden rounded-xl border">
         {/* Action bar with the real card/tree view toggle. */}
         <div className="flex items-center justify-end gap-4 border-b px-4 py-3">
-          <div
-            role="group"
+          <ToggleGroup
+            type="single"
+            value={view}
+            onValueChange={(value) => {
+              if (value === 'cards' || value === 'tree') setView(value)
+            }}
+            segmented
+            size="icon-sm"
             aria-label="Ansicht"
-            className="flex items-center rounded-lg border bg-card p-0.5 shadow-2xs"
           >
-            <ViewToggleButton active={view === 'cards'} onClick={() => setView('cards')} label="Kacheln" icon={LayoutGrid} />
-            <ViewToggleButton active={view === 'tree'} onClick={() => setView('tree')} label="Ordner" icon={ListTree} />
-          </div>
+            <ToggleGroupItem value="cards" aria-label="Kacheln" title="Kacheln">
+              <LayoutGrid />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="tree" aria-label="Ordner" title="Ordner">
+              <ListTree />
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
         {/* Stacks on mobile (tree band on top), splits on md+ — same as workspace. */}
         <div className="flex flex-1 flex-col overflow-hidden md:flex-row">

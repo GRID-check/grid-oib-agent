@@ -66,7 +66,8 @@ export function ConnectionPresenceIndicator({
           aria-label={label}
           data-presence={presence}
           className={cn(
-            'inline-flex items-center gap-2 text-xs text-muted-foreground select-none',
+            'inline-flex min-h-4 items-center gap-2 rounded-sm text-xs text-muted-foreground select-none',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             className,
           )}
         >
@@ -76,7 +77,7 @@ export function ConnectionPresenceIndicator({
               <span
                 className={cn(
                   'absolute inline-flex size-full rounded-full opacity-60',
-                  'animate-ping bg-warning motion-reduce:hidden',
+                  'animate-ping bg-warning motion-reduce:hidden motion-reduce:animate-none',
                 )}
               />
             )}
@@ -87,10 +88,10 @@ export function ConnectionPresenceIndicator({
               )}
             />
           </span>
-          {!compact && <span className="truncate">{label}</span>}
+          {!compact && <span className="min-w-0 truncate">{label}</span>}
         </div>
       </TooltipTrigger>
-      <TooltipContent>{tooltip}</TooltipContent>
+      <TooltipContent className="motion-reduce:animate-none">{tooltip}</TooltipContent>
     </Tooltip>
   )
 }

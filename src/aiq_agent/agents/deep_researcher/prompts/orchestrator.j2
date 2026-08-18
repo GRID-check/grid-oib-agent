@@ -137,13 +137,9 @@ The user provided the following clarifications about their research needs:
 {{ clarifier_result }}
 {% endif %}
 
-{% if available_documents %}
-## Knowledge-base inventory (index — NOT sources)
-The following documents exist in the knowledge base. The list is an index of what can be retrieved, not evidence — nothing here may be cited until knowledge_search has returned a passage from it:
-{% for doc in (available_documents or []) %}
-- **{{ doc.file_name }}**: {{ doc.summary or "No summary available" }}
-{% endfor %}
-When building `run_research_batch` queries, prioritize queries about these internal documents. Include document context in each ResearchQuery when relevant.
+{% if document_inventory %}
+{{ document_inventory }}
+When building `run_research_batch` queries, prioritize queries about these internal documents. Include document context in each ResearchQuery when relevant. A listing question about one shelf uses only that shelf's group — Büroarchiv is never the OIB corpus.
 {% endif %}
 
 ## Available Tools

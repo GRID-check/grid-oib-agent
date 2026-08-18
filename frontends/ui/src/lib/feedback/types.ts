@@ -11,6 +11,8 @@ import { ANSWER_FEEDBACK_REASONS, ANSWER_FEEDBACK_VERDICTS } from '@/lib/db/sche
 
 /** Client-side chat identifiers are short strings; keep abuse bounded. */
 export const MAX_FEEDBACK_ID_LENGTH = 128
+/** Down-vote free-text ceiling — enough for a paragraph, not a manifesto. */
+export const MAX_FEEDBACK_COMMENT_LENGTH = 2000
 
 const messageIdSchema = z.string().trim().min(1).max(MAX_FEEDBACK_ID_LENGTH)
 const conversationIdSchema = z.string().trim().min(1).max(MAX_FEEDBACK_ID_LENGTH)
@@ -21,6 +23,8 @@ export const upsertAnswerFeedbackSchema = z.object({
   verdict: z.enum(ANSWER_FEEDBACK_VERDICTS),
   /** Down-vote reason key; only meaningful with verdict 'down'. */
   reason: z.enum(ANSWER_FEEDBACK_REASONS).nullish(),
+  /** Optional free-text on a down-vote. Empty string is stored as null. */
+  comment: z.string().trim().max(MAX_FEEDBACK_COMMENT_LENGTH).nullish(),
   conversationId: conversationIdSchema.nullish(),
   projectId: z.string().uuid().nullish(),
 })
@@ -42,4 +46,5 @@ export interface AnswerFeedbackView {
   messageId: string
   verdict: (typeof ANSWER_FEEDBACK_VERDICTS)[number]
   reason: (typeof ANSWER_FEEDBACK_REASONS)[number] | null
+  comment: string | null
 }

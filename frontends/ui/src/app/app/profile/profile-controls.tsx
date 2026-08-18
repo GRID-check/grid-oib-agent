@@ -12,6 +12,7 @@ import { Monitor, Moon, Sun, Globe, Palette, ShieldCheck, LogOut, ListTree } fro
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -75,7 +76,8 @@ export const ProfileControls: FC<ProfileControlsProps> = ({
           <CardDescription>{t('appearance.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <label className="mb-2 block text-sm font-medium">{t('appearance.theme')}</label>
+          <Field>
+          <FieldLabel>{t('appearance.theme')}</FieldLabel>
           <Select value={theme} onValueChange={handleTheme}>
             <SelectTrigger className="w-full sm:w-72" aria-label={t('appearance.theme')}>
               <SelectValue />
@@ -94,6 +96,7 @@ export const ProfileControls: FC<ProfileControlsProps> = ({
               })}
             </SelectContent>
           </Select>
+          </Field>
         </CardContent>
       </Card>
 
@@ -107,7 +110,8 @@ export const ProfileControls: FC<ProfileControlsProps> = ({
           <CardDescription>{t('language.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <label className="mb-2 block text-sm font-medium">{t('language.label')}</label>
+          <Field>
+          <FieldLabel>{t('language.label')}</FieldLabel>
           <Select value={locale} onValueChange={handleLocale}>
             <SelectTrigger className="w-full sm:w-72" aria-label={t('language.label')}>
               <SelectValue />
@@ -120,6 +124,7 @@ export const ProfileControls: FC<ProfileControlsProps> = ({
               ))}
             </SelectContent>
           </Select>
+          </Field>
         </CardContent>
       </Card>
 

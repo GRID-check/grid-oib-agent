@@ -163,9 +163,9 @@ describe('AnswerFeedbackHealth — the answers that landed', () => {
     render(<AnswerFeedbackHealth />)
 
     // Both controls exist from the start; neither is hidden behind a disclosure.
-    const missed = await screen.findByRole('button', { name: 'Missed' })
-    const landed = screen.getByRole('button', { name: 'Landed' })
-    expect(missed).toHaveAttribute('aria-pressed', 'true')
+    const missed = await screen.findByRole('radio', { name: 'Missed' })
+    const landed = screen.getByRole('radio', { name: 'Landed' })
+    expect(missed).toHaveAttribute('aria-checked', 'true')
 
     await user.click(landed)
     await waitFor(() => expect(healthUrls().at(-1)).toContain('verdict=up'))
@@ -203,7 +203,7 @@ describe('AnswerFeedbackHealth — the answers that landed', () => {
     await user.click(await screen.findByRole('button', { name: 'Inaccurate' }))
     await waitFor(() => expect(healthUrls().at(-1)).toContain('reason=inaccurate'))
 
-    await user.click(screen.getByRole('button', { name: 'Landed' }))
+    await user.click(screen.getByRole('radio', { name: 'Landed' }))
     await waitFor(() => {
       const url = healthUrls().at(-1) ?? ''
       expect(url).toContain('verdict=up')
@@ -304,7 +304,7 @@ describe('AnswerFeedbackHealth — filtering and export', () => {
     render(<AnswerFeedbackHealth />)
 
     await waitFor(() => expect(healthUrls().at(-1)).toContain('days=30'))
-    await user.click(screen.getByRole('button', { name: 'Last 7 days' }))
+    await user.click(screen.getByRole('radio', { name: 'Last 7 days' }))
     await waitFor(() => expect(healthUrls().at(-1)).toContain('days=7'))
   })
 
@@ -367,7 +367,7 @@ describe('AnswerFeedbackHealth — filtering and export', () => {
     expect(link).toHaveAttribute('download')
 
     // …including which half of the feedback is being looked at.
-    await user.click(screen.getByRole('button', { name: 'Landed' }))
+    await user.click(screen.getByRole('radio', { name: 'Landed' }))
     await waitFor(() =>
       expect(screen.getByRole('link', { name: /Export CSV/ })).toHaveAttribute(
         'href',

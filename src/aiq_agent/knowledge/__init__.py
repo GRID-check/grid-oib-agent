@@ -46,6 +46,10 @@ from .factory import set_document_display_title
 from .factory import set_document_doc_class
 from .factory import unregister_summary
 from .factory import update_document_tags
+from .inventory import allocate_inventory
+from .inventory import listing_intent_override
+from .inventory import render_inventory_block
+from .inventory import shelf_hint_from_query
 from .schema import AvailableDocument
 from .schema import Chunk
 from .schema import ContentType
@@ -92,6 +96,10 @@ __all__ = [
     "list_summary_collections",
     "get_available_documents",
     "get_available_documents_async",
+    "allocate_inventory",
+    "listing_intent_override",
+    "render_inventory_block",
+    "shelf_hint_from_query",
     "clear_collection_summaries",
     "clear_all_summaries",
 ]

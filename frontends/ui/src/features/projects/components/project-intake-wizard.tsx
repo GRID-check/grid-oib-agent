@@ -15,13 +15,14 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
-import { AnimatePresence, easeQuiet, motion } from '@/components/motion'
+import { AnimatePresence, motion } from '@/components/motion'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   Select,
   SelectContent,
@@ -567,15 +568,10 @@ export function ProjectIntakeWizard({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 md:py-12">
-      <header className="mb-8">
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          {isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          {projectName ?? t('intake.titleFallback')}
-        </h1>
+      <div className="mb-8">
+        <SectionLabel>{isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}</SectionLabel>
         <p className="mt-1 text-sm text-muted-foreground">{t('intake.subtitle')}</p>
-      </header>
+      </div>
 
       {salvageNotice && (
         <Alert variant="warning" className="mb-6">
@@ -605,7 +601,7 @@ export function ProjectIntakeWizard({
                   >
                     <span
                       className={cn(
-                        'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors',
+                        'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors duration-200 ease-out motion-reduce:transition-none',
                         state === 'complete' && 'border-primary bg-primary text-primary-foreground',
                         state === 'current' && 'border-primary text-primary ring-2 ring-ring/30',
                         state === 'upcoming' && 'border-border text-muted-foreground',
@@ -643,7 +639,7 @@ export function ProjectIntakeWizard({
         <Progress value={progress} className="h-1 flex-1" />
         <span
           className={cn(
-            'shrink-0 text-xs transition-opacity',
+            'shrink-0 text-xs transition-opacity duration-200 ease-out motion-reduce:transition-none',
             draftSaved ? 'text-success opacity-100' : 'text-muted-foreground opacity-0',
           )}
           aria-live="polite"
@@ -677,7 +673,7 @@ export function ProjectIntakeWizard({
             initial="enter"
             animate="center"
             exit="exit"
-            transition={easeQuiet}
+            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
           >
             <div className="mb-6">
               <div className="flex items-baseline gap-2">
@@ -702,7 +698,7 @@ export function ProjectIntakeWizard({
                 />
                 {checking && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
                     {t('intake.consistency.checking')}
                   </div>
                 )}
@@ -782,10 +778,17 @@ export function ProjectIntakeWizard({
 
           {isReview ? (
             findings && findings.length > 0 ? (
-              <span aria-hidden />
+              <span aria-hidden className="inline-flex min-h-9 min-w-36" />
             ) : (
-              <Button type="submit" disabled={saving || checking}>
-                {(saving || checking) && <Loader2 className="size-4 animate-spin" aria-hidden />}
+              <Button type="submit" disabled={saving || checking} className="min-w-36">
+                <Loader2
+                  className={
+                    saving || checking
+                      ? 'size-4 animate-spin motion-reduce:animate-none'
+                      : 'size-4 opacity-0'
+                  }
+                  aria-hidden
+                />
                 {checking
                   ? t('intake.consistency.checking')
                   : saving
@@ -866,14 +869,16 @@ function BauwerkStage({
               <span className="flex-1 truncate text-sm font-medium">{bw.name}</span>
             )}
             {canManage && bauwerke.length > 1 && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => onRemoveBauwerk(bw.id)}
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
+                className="h-auto gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-destructive"
               >
                 <Trash2 className="size-3.5" aria-hidden />
                 {t('intake.bauwerk.remove')}
-              </button>
+              </Button>
             )}
           </div>
 
@@ -908,7 +913,7 @@ function BauwerkStage({
               <button
                 type="button"
                 onClick={onAddBauwerk}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 font-mono text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:bg-primary/5 hover:text-primary"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 font-mono text-xs text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/60 hover:bg-primary/5 hover:text-primary motion-reduce:transition-none"
               >
                 <Plus className="size-4" aria-hidden />
                 {t('intake.bauwerk.add')}
@@ -1040,7 +1045,7 @@ function ReviewSection({
           <button
             type="button"
             onClick={onEdit}
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground motion-reduce:transition-none"
           >
             <PencilLine className="size-3" aria-hidden />
             {editLabel}
@@ -1235,8 +1240,11 @@ function ConflictFindings({
       </ul>
 
       <div className="mt-4 flex items-center justify-end">
-        <Button type="button" onClick={onProceed} disabled={saving}>
-          {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
+        <Button type="button" onClick={onProceed} disabled={saving} className="min-w-36">
+          <Loader2
+            className={saving ? 'size-4 animate-spin motion-reduce:animate-none' : 'size-4 opacity-0'}
+            aria-hidden
+          />
           {t('intake.consistency.proceed')}
         </Button>
       </div>
@@ -1458,9 +1466,15 @@ function WhyDisclosure({ why }: { why: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="inline-flex items-center gap-1 font-mono text-[11px] text-primary transition-colors hover:text-primary/80 pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:py-2"
+        className="inline-flex items-center gap-1 font-mono text-[11px] text-primary transition-colors duration-200 ease-out hover:text-primary/80 pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:py-2 motion-reduce:transition-none"
       >
-        <ChevronDown className={cn('size-3 transition-transform', open && 'rotate-180')} aria-hidden />
+        <ChevronDown
+          className={cn(
+            'size-3 transition-transform duration-200 ease-out motion-reduce:transition-none',
+            open && 'rotate-180',
+          )}
+          aria-hidden
+        />
         {t('intake.why')}
       </button>
       {open && (
@@ -1558,7 +1572,7 @@ function Segmented({
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'inline-flex items-center justify-center border-border transition-colors',
+              'inline-flex items-center justify-center border-border transition-colors duration-200 ease-out motion-reduce:transition-none',
               i > 0 && 'border-l',
               // Comfortable tap targets on touch screens; denser on desktop pointers.
               size === 'sm'
@@ -1599,7 +1613,7 @@ function ChipMultiSelect({
             aria-pressed={active}
             onClick={() => onChange(active ? value.filter((v) => v !== opt.value) : [...value, opt.value])}
             className={cn(
-              'inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-1.5 text-sm transition-colors md:min-h-9 md:px-3.5',
+              'inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-1.5 text-sm transition-colors duration-200 ease-out motion-reduce:transition-none md:min-h-9 md:px-3.5',
               active
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-border bg-card text-foreground hover:border-primary/50 hover:bg-primary/5',
@@ -1621,7 +1635,7 @@ function UploadField({ question, projectId }: { question: ProjectIntakeQuestion;
       <span className="text-sm font-medium">{question.label}</span>
       <Link
         href={`/app/projects/${projectId}/files`}
-        className="inline-flex max-w-md items-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-foreground"
+        className="inline-flex max-w-md items-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/50 hover:bg-primary/5 hover:text-foreground motion-reduce:transition-none"
       >
         <FolderOpen className="size-4 shrink-0 text-primary" aria-hidden />
         <span>{t('intake.upload.hint')}</span>

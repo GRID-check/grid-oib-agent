@@ -48,7 +48,8 @@ export const CopyCitationLinkButton: FC<{ citation: CitationRef; icon?: ReactNod
       aria-label={t('citationPeek.copyLinkAria', { label: citation.document.title })}
       className={cn(
         'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium',
-        'text-muted-foreground transition-colors hover:text-foreground',
+        'text-muted-foreground transition-[color,transform] duration-200 ease-out active:scale-95 hover:text-foreground',
+        'motion-reduce:transition-none motion-reduce:active:scale-100',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
       )}
     >

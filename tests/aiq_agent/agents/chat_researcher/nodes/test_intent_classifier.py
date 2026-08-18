@@ -90,6 +90,21 @@ class TestIntentClassifier:
         assert result["depth_decision"].raw_reasoning == "Simple query"
 
     @pytest.mark.asyncio
+    async def test_archiv_listing_is_forced_meta_even_when_llm_says_research(self, mock_llm):
+        """A shelf-listing question must not become a 5-step research turn."""
+        mock_response = MagicMock()
+        mock_response.content = '{"intent":"research","research_depth":"shallow","depth_reasoning":"Bürowissen lookup"}'
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="welche datein hast du im Bro archiv")])
+
+        result = await classifier.run(state)
+
+        assert result["user_intent"].intent == "meta"
+        mock_llm.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_run_defaults_to_research_on_ambiguous(self, mock_llm):
         """Test run() defaults to research when LLM returns intent that is not meta or research."""
         mock_response = MagicMock()
@@ -223,6 +238,8 @@ class TestIntentClassifier:
         classifier = IntentClassifier(llm=mock_llm)
         meta_bullet = next(line for line in classifier.prompt.splitlines() if '**intent = "meta"**' in line)
         assert "project profile" in meta_bullet
+        assert "which files sit on which shelf" in meta_bullet
+        assert "Büroarchiv" in meta_bullet
 
     def test_default_prompt_has_out_of_scope_bucket(self, mock_llm):
         """Out-of-scope queries are their OWN intent, distinct from meta.

@@ -34,7 +34,10 @@ import {
   type FC,
 } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
-import { AlertTriangle, Crosshair, Loader2, Minus, Plus } from 'lucide-react'
+import { AlertTriangle, Crosshair, Minus, Plus } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ButtonGroup } from '@/components/ui/button-group'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentParameters, loadPdfjs } from '../lib/pdfjs-runtime'
@@ -246,11 +249,14 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
 
   // Opening at a page is the answer when there is no passage to find, and the
   // starting point while the target page's text layer is still being read. A
-  // located passage supersedes it.
+  // located passage supersedes it. Re-apply once `defaultAspect` lands: the
+  // first scroll runs while unrendered pages still have no height, so it
+  // leaves the reader at the top of a document that then grows underneath
+  // them (#430).
   useEffect(() => {
     if (!doc || !page || hit) return
     pageRefs.current.get(page)?.scrollIntoView({ block: 'start' })
-  }, [doc, page, hit])
+  }, [doc, page, hit, defaultAspect])
 
   const pages = useMemo(
     () => (doc ? Array.from({ length: doc.numPages }, (_, index) => index + 1) : []),
@@ -279,36 +285,36 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
         {hit && (
           // After scrolling away — or after a rail jump to another Fundstelle —
           // the way back is one control, not a hunt.
-          <button
-            type="button"
-            onClick={() => revealPassage(hit)}
-            className={toolbarButtonClasses}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={() => revealPassage(hit)}>
             <Crosshair aria-hidden className="size-3.5" />
             {t('viewer.toPassage')}
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          onClick={() => setZoomStep((step) => Math.max(0, step - 1))}
-          disabled={zoomStep === 0}
-          aria-label={t('viewer.zoomOut')}
-          className={toolbarIconClasses}
-        >
-          <Minus aria-hidden className="size-3.5" />
-        </button>
-        <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
-          {Math.round(zoom * 100)}%
-        </span>
-        <button
-          type="button"
-          onClick={() => setZoomStep((step) => Math.min(ZOOM_STEPS.length - 1, step + 1))}
-          disabled={zoomStep === ZOOM_STEPS.length - 1}
-          aria-label={t('viewer.zoomIn')}
-          className={toolbarIconClasses}
-        >
-          <Plus aria-hidden className="size-3.5" />
-        </button>
+        <ButtonGroup>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => setZoomStep((step) => Math.max(0, step - 1))}
+            disabled={zoomStep === 0}
+            aria-label={t('viewer.zoomOut')}
+          >
+            <Minus aria-hidden className="size-3.5" />
+          </Button>
+          <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
+            {Math.round(zoom * 100)}%
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => setZoomStep((step) => Math.min(ZOOM_STEPS.length - 1, step + 1))}
+            disabled={zoomStep === ZOOM_STEPS.length - 1}
+            aria-label={t('viewer.zoomIn')}
+          >
+            <Plus aria-hidden className="size-3.5" />
+          </Button>
+        </ButtonGroup>
       </div>
 
       {/* Focusable on purpose. This scroller holds no focusable children, and a
@@ -325,7 +331,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
       >
         {!doc && (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 aria-hidden className="size-4 animate-spin" />
+            <Spinner size="sm" />
             {t('viewer.loading')}
           </div>
         )}
@@ -352,16 +358,6 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     </div>
   )
 }
-
-const toolbarIconClasses =
-  'inline-flex size-6 items-center justify-center rounded-md border border-border text-muted-foreground ' +
-  'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 ' +
-  'focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40'
-
-const toolbarButtonClasses =
-  'inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium ' +
-  'text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none ' +
-  'focus-visible:ring-2 focus-visible:ring-ring/50'
 
 interface PdfPageCanvasProps {
   doc: PDFDocumentProxy

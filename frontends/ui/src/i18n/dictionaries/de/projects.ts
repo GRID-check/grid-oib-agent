@@ -9,6 +9,16 @@ export const projects: typeof en.projects = {
     loading: 'Projekte werden geladen…',
     searchPlaceholder: 'Projekte durchsuchen…',
     searchAria: 'Projekte nach Namen durchsuchen',
+    resume: {
+      heading: 'Weitermachen',
+      fallbackHeading: 'Ihre Projekte',
+    },
+    more: {
+      heading: 'Weitere Projekte',
+    },
+    results: {
+      heading: 'Treffer',
+    },
     noMatch: {
       title: 'Keine passenden Projekte',
       description: 'Kein Projektname entspricht Ihrer Suche.',
@@ -31,6 +41,7 @@ export const projects: typeof en.projects = {
       active: 'Aktiv',
     },
     lastActivity: 'Letzte Aktivität',
+    yourActivity: 'Zuletzt hier gearbeitet',
     document: 'Dokument',
     documents: 'Dokumente',
     docLabel: '{count} {unit}',

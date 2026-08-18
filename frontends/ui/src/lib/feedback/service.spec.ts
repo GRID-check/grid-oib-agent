@@ -67,6 +67,7 @@ const storedRow = {
   userId: 'user_1',
   verdict: 'up' as const,
   reason: null,
+  comment: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }
@@ -91,10 +92,11 @@ describe('submitAnswerFeedback', () => {
       messageId: 'msg_1',
       verdict: 'up',
       reason: null,
+      comment: null,
       conversationId: 'conv_1',
       projectId: null,
     })
-    expect(view).toEqual({ messageId: 'msg_1', verdict: 'up', reason: null })
+    expect(view).toEqual({ messageId: 'msg_1', verdict: 'up', reason: null, comment: null })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
   })
 
@@ -108,7 +110,7 @@ describe('submitAnswerFeedback', () => {
     })
 
     expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'down', reason: 'inaccurate' }))
-    expect(view).toEqual({ messageId: 'msg_1', verdict: 'down', reason: 'inaccurate' })
+    expect(view).toEqual({ messageId: 'msg_1', verdict: 'down', reason: 'inaccurate', comment: null })
   })
 
   it('accepts a down vote without a reason (reason arrives on chip click)', async () => {
@@ -183,8 +185,8 @@ describe('getOwnConversationFeedback', () => {
 
     expect(mockList).toHaveBeenCalledWith('user_1', 'conv_1', 'org_1')
     expect(views).toEqual([
-      { messageId: 'msg_1', verdict: 'up', reason: null },
-      { messageId: 'msg_2', verdict: 'down', reason: 'too_slow' },
+      { messageId: 'msg_1', verdict: 'up', reason: null, comment: null },
+      { messageId: 'msg_2', verdict: 'down', reason: 'too_slow', comment: null },
     ])
   })
 })

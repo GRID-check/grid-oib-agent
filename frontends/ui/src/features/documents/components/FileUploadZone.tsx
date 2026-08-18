@@ -9,13 +9,15 @@
 'use client'
 
 import { type ChangeEvent, type FC, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, FileText, Loader2, Upload, XCircle } from 'lucide-react'
+import { CheckCircle2, FileText, Upload, XCircle } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { useDocumentsStore } from '../store'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { ACCEPTED_FILE_TYPES, MAX_FILE_SIZE } from '../'
 import { AnimatePresence, motion, springGentle, springSnappy } from '@/components/motion'
+import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 
 // ============================================================================
@@ -126,11 +128,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
 
   return (
     <div className="flex flex-col gap-3">
-      {label ? (
-        <label htmlFor={inputId} className="text-sm font-medium text-foreground">
-          {label}
-        </label>
-      ) : null}
+      {label ? <Label htmlFor={inputId}>{label}</Label> : null}
 
       <motion.div
         {...dragHandlers}
@@ -195,7 +193,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
                 {item.errorMessage ? <p className="text-xs text-destructive">{item.errorMessage}</p> : null}
               </div>
               {item.status === 'uploading' ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+                <Spinner size="sm" className="shrink-0 text-muted-foreground" />
               ) : null}
               {item.status === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden /> : null}
               {item.status === 'error' ? <XCircle className="h-4 w-4 shrink-0 text-destructive" aria-hidden /> : null}

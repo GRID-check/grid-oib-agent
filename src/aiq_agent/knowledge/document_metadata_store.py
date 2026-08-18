@@ -495,7 +495,7 @@ class DocumentMetadataStore:
             return tags or None
         return None
 
-    def _row_to_document(self, row: Any) -> AvailableDocument:
+    def _row_to_document(self, row: Any, collection: str | None = None) -> AvailableDocument:
         from .schema import AvailableDocument
 
         return AvailableDocument(
@@ -504,6 +504,7 @@ class DocumentMetadataStore:
             tags=self._decode_tags(row[2]),
             doc_class=row[3] or None,
             display_title=row[4] or None,
+            collection=collection,
         )
 
     def get_all(self, collection: str) -> list[AvailableDocument]:
@@ -520,7 +521,7 @@ class DocumentMetadataStore:
                     ),
                     {"collection": collection},
                 )
-                return [self._row_to_document(row) for row in result]
+                return [self._row_to_document(row, collection) for row in result]
         except Exception as e:
             logger.warning("Failed to get metadata for %s: %s", collection, e)
             return []
@@ -541,7 +542,7 @@ class DocumentMetadataStore:
                     ),
                     {"collection": collection},
                 )
-                return [self._row_to_document(row) for row in result]
+                return [self._row_to_document(row, collection) for row in result]
         except Exception as e:
             logger.warning("Failed to get metadata async for %s: %s", collection, e)
             # Fallback to sync

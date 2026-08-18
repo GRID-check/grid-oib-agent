@@ -39,7 +39,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { ConfirmDeleteDialog } from '@/features/skills/components/confirm-delete-dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import {
   Select,
@@ -215,7 +215,7 @@ export function PlatformSkillCatalog(): JSX.Element {
                   <div className="flex items-start justify-between gap-3">
                     <div
                       className={cn(
-                        'min-w-0 space-y-1 transition-opacity duration-200 motion-reduce:transition-none',
+                        'min-w-0 space-y-1 transition-opacity duration-200 ease-out motion-reduce:transition-none',
                         !skill.published && 'opacity-60',
                       )}
                     >
@@ -290,9 +290,10 @@ export function PlatformSkillCatalog(): JSX.Element {
         </ul>
       )}
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={confirmDelete !== null}
         onOpenChange={(open) => !open && setConfirmDelete(null)}
+        tone="destructive"
         title={t('skills.deleteTitle')}
         description={t('skills.deleteDescription', { name: confirmDelete?.name ?? '' })}
         confirmLabel={t('skills.deleteConfirm')}

@@ -83,7 +83,7 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
               // pressed things in a read answer, and it was one of the raw
               // `<button>`s that gave no press response at all — so half the chat's
               // controls acknowledged a tap and half sat inert.
-              'transition-[filter,box-shadow,transform] duration-200 ease-out active:scale-95',
+              'transition-[filter,box-shadow,transform] duration-200 ease-out active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
               'hover:brightness-95 dark:hover:brightness-125'
             )}

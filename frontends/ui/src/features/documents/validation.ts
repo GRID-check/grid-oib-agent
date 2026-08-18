@@ -87,6 +87,12 @@ export interface ValidationContext {
   existingFileCount: number
   /** Names of files already in the session (for duplicate detection) */
   existingFileNames: Set<string>
+  /**
+   * Durable project / Archiv corpus. Those shelves are bounded by storage
+   * quota, not by the chat-session file count — applying `maxFileCount` here
+   * made the tenth Dateiablage upload fail (#432).
+   */
+  durableCorpus?: boolean
 }
 
 /** Default file upload configuration (used when AppConfig is not available) */
@@ -305,8 +311,9 @@ export function validateFileUpload(
     })
   }
 
-  // Check file count constraint
-  if (totalCount > config.maxFileCount) {
+  // Check file count constraint. Session attachments only — a project or
+  // Archiv corpus is limited by quota, not by this leftover session cap.
+  if (!context.durableCorpus && totalCount > config.maxFileCount) {
     const availableSlots = Math.max(0, config.maxFileCount - context.existingFileCount)
     batchErrors.push({
       code: 'MAX_FILES_EXCEEDED',

@@ -50,7 +50,7 @@ export function ViewerPanel({
         'flex max-h-[calc(100%-1.5rem)] w-72 flex-col overflow-hidden',
         // Enters from the edge it lives on: a panel that fades in place reads
         // as a layer appearing, one that slides reads as a drawer opening.
-        'animate-in fade-in-0 slide-in-from-right-2 duration-200 motion-reduce:animate-none',
+        'animate-in fade-in-0 slide-in-from-right-2 duration-200 ease-out motion-reduce:animate-none',
         className
       )}
     >

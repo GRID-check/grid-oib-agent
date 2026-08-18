@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   s3Client,
@@ -1256,11 +1256,26 @@ export async function getDocumentThumbnail(
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) return { url: null }
 
-  const signedUrl = buildDocumentImageUrl(session.organizationId, documentId, 'thumb')
-  if (signedUrl) return { url: signedUrl }
-
   const thumbnailKey = buildThumbnailStorageKey(doc.storageKey)
   if (!thumbnailKey) return { url: null }
+
+  // The signed same-origin URL is only useful if the JPEG actually exists.
+  // Returning it blindly sent Next's image optimizer to a 404 / empty body
+  // ("isn't a valid image … received null") for every file that is citable
+  // but has no thumbnail yet (#366, #395).
+  try {
+    await s3Client.send(
+      new HeadObjectCommand({
+        Bucket: resolveDocumentBucket(doc.storageBucket),
+        Key: thumbnailKey,
+      }),
+    )
+  } catch {
+    return { url: null }
+  }
+
+  const signedUrl = buildDocumentImageUrl(session.organizationId, documentId, 'thumb')
+  if (signedUrl) return { url: signedUrl }
 
   try {
     const url = await getSignedUrl(

@@ -199,4 +199,15 @@ describe('DockedPanel', () => {
       expect(document.body.style.overflow).toBe('')
     })
   })
+
+  test('docks a left panel after the global sidebar, not over it', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+
+    await user.click(screen.getByTestId('toggle'))
+
+    const panel = screen.getByRole('dialog', { name: 'Test panel' })
+    // Mobile still uses left-0; desktop docks after the rail width.
+    expect(panel.className).toContain('md:left-[var(--sidebar-current-width,0px)]')
+  })
 })

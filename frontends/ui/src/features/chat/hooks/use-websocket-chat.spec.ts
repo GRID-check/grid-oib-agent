@@ -402,6 +402,7 @@ describe('useWebSocketChat', () => {
         resourceType: 'document',
         resourceId: 'doc-1',
         filename: 'plan.pdf',
+        shelf: 'project',
       },
     }
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
@@ -413,6 +414,7 @@ describe('useWebSocketChat', () => {
     })
     expect(mockWsClient.sendMessage).toHaveBeenCalledWith('About this plan', expect.any(Array), {
       focusFileName: 'plan.pdf',
+      focusShelf: 'project',
     })
 
     mockWsClient.sendMessage.mockClear()
@@ -423,6 +425,7 @@ describe('useWebSocketChat', () => {
     // Hiding the peek keeps the bar, so the next send still names the file.
     expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Still about the plan', expect.any(Array), {
       focusFileName: 'plan.pdf',
+      focusShelf: 'project',
     })
 
     mockWsClient.sendMessage.mockClear()
@@ -433,6 +436,32 @@ describe('useWebSocketChat', () => {
     })
     expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Now a general question', expect.any(Array))
     expect(mockWsClient.sendMessage.mock.calls[0]?.[2]).toBeUndefined()
+  })
+
+  test('sendMessage sends sourcePreset intent, not an expanded shelf list', async () => {
+    mockWsClient.isConnected.mockReturnValue(true)
+    const mockLayoutStore = await import('@/features/layout/store')
+    vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
+      enabledDataSourceIds: ['source-1', 'source-2'],
+      activeSourcePreset: 'project',
+    } as unknown as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
+
+    const { result } = renderWebSocketHook()
+    act(() => {
+      result.current.sendMessage('Nur Projektunterlagen')
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Nur Projektunterlagen',
+      expect.any(Array),
+      { sourcePreset: 'project' },
+    )
+    const extras = mockWsClient.sendMessage.mock.calls[0]?.[2]
+    expect(extras).not.toHaveProperty('includeShelves')
+
+    vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
+      enabledDataSourceIds: ['source-1', 'source-2'],
+    } as unknown as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
   })
 
   test('sendMessage while the existing socket is connecting buffers instead of creating a parallel client', () => {

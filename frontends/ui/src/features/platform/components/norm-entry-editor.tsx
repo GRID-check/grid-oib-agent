@@ -41,6 +41,9 @@ import { useAppForm } from '@/components/form'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { FieldError } from '@/components/ui/field'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { SectionLabel } from '@/components/ui/section-label'
 import { SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
 import { latinize } from '@/lib/text/latinize'
@@ -331,7 +334,7 @@ function Step({
           {index}
         </span>
         <div className="flex flex-col gap-0.5">
-          <h3 className="text-sm font-semibold">{title}</h3>
+          <SectionLabel as="h3">{title}</SectionLabel>
           {description && <p className="text-xs text-muted-foreground">{description}</p>}
         </div>
       </div>
@@ -594,32 +597,34 @@ export function NormEntryEditor({
       >
         {/* ---------------------------------------------- 1 — kind of source */}
         <Step index={1} title={t('norms.kinds.legend')} description={t('norms.kinds.hint')} testId="norm-editor-kind">
-          <div role="radiogroup" aria-label={t('norms.kinds.legend')} className="flex flex-col gap-1.5">
+          <RadioGroup
+            value={rank || undefined}
+            onValueChange={(value) => chooseRank(value as NormRank)}
+            aria-label={t('norms.kinds.legend')}
+            className="flex flex-col gap-1.5"
+          >
             {NORM_RANKS.map((value) => {
               const selected = rank === value
+              const itemId = `norm-rank-${value}`
               return (
-                <button
+                <label
                   key={value}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => chooseRank(value)}
+                  htmlFor={itemId}
                   className={cn(
-                    'flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+                    'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/60',
                     selected ? 'border-primary bg-accent/40' : 'hover:bg-accent/20',
                   )}
                 >
-                  <span className="text-sm font-medium">{t(`norms.kinds.${value}.label`)}</span>
-                  <span className="text-xs text-muted-foreground">{t(`norms.kinds.${value}.description`)}</span>
-                </button>
+                  <RadioGroupItem id={itemId} value={value} className="mt-0.5" />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium">{t(`norms.kinds.${value}.label`)}</span>
+                    <span className="text-xs text-muted-foreground">{t(`norms.kinds.${value}.description`)}</span>
+                  </span>
+                </label>
               )
             })}
-          </div>
-          {rank === '' && (
-            <p role="alert" className="text-xs font-medium text-muted-foreground">
-              {t('norms.kinds.required')}
-            </p>
-          )}
+          </RadioGroup>
+          {rank === '' && <FieldError>{t('norms.kinds.required')}</FieldError>}
         </Step>
 
         {rank !== '' && (
@@ -670,7 +675,7 @@ export function NormEntryEditor({
                               type="button"
                               onClick={() => applyCandidate(candidate)}
                               aria-label={t('norms.verify.candidate', { title: candidate.title })}
-                              className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+                              className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors duration-200 ease-out hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
                             >
                               <span className="text-sm">{candidate.title}</span>
                               <span className="font-mono text-xs text-muted-foreground">
@@ -843,7 +848,10 @@ export function NormEntryEditor({
               <CollapsibleTrigger asChild>
                 <Button type="button" variant="ghost" size="sm" className="w-fit px-2 text-muted-foreground">
                   <ChevronDown
-                    className={cn('size-3.5 transition-transform', advancedOpen && 'rotate-180')}
+                    className={cn(
+                      'size-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                      advancedOpen && 'rotate-180',
+                    )}
                     aria-hidden
                   />
                   {t('norms.steps.advanced')}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { DocumentStatusBadge } from './document-status'
@@ -10,6 +10,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 /**
  * The explorer's detail view — the one a person reaches for when the corpus has
@@ -31,11 +32,16 @@ interface FileListViewProps {
   files: FileItem[]
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
+  /** Per-row file operations. Clicks here must not select the row. */
+  renderActions?: (file: FileItem) => ReactNode
 }
 
 const DEFAULT_SORT: FileSort = { key: 'added', direction: 'desc' }
 
-export function FileListView({ files, selectedFileId, onSelectFile }: FileListViewProps) {
+/** Dense explorer cells — tighter than the admin Table default. */
+const CELL = 'px-2 py-1.5 pointer-coarse:py-3'
+
+export function FileListView({ files, selectedFileId, onSelectFile, renderActions }: FileListViewProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [sort, setSort] = useState<FileSort>(DEFAULT_SORT)
@@ -68,9 +74,13 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
 
   return (
     <div className="px-4 pb-4 pt-1">
-      <table role="grid" className="w-full border-separate border-spacing-0 text-left" data-testid="file-list-view">
-        <thead>
-          <tr>
+      <Table
+        role="grid"
+        className="border-separate border-spacing-0 text-left"
+        data-testid="file-list-view"
+      >
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
             <SortHeader
               label={t('list.columns.name')}
               column="name"
@@ -87,12 +97,12 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
             />
             {/* Below `sm` the row keeps only what identifies and what acts:
                 name and status. Pages, size and date are reference columns. */}
-            <th
+            <TableHead
               scope="col"
-              className="hidden w-[76px] border-b px-2 py-1.5 text-right text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground lg:table-cell"
+              className="hidden h-auto w-[76px] px-2 py-1.5 text-right text-[10.5px] font-semibold tracking-[0.05em] lg:table-cell"
             >
               {t('list.columns.pages')}
-            </th>
+            </TableHead>
             <SortHeader
               label={t('list.columns.size')}
               column="size"
@@ -109,30 +119,33 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
               align="right"
               className="hidden w-[120px] md:table-cell"
             />
-          </tr>
-        </thead>
-        <tbody ref={bodyRef}>
+            {renderActions && <TableHead scope="col" className="h-auto w-10 p-0" />}
+          </TableRow>
+        </TableHeader>
+        <TableBody ref={bodyRef}>
           {rows.map((file, index) => {
             const ext = fileExtensionLabel(file.filename)
             const isSelected = selectedFileId === file.id
             return (
-              <tr
+              <TableRow
                 key={file.id}
                 data-file-row
                 data-testid="file-list-row"
+                data-state={isSelected ? 'selected' : undefined}
                 // Roving tabindex: one stop for the whole list, then arrows.
                 tabIndex={index === 0 ? 0 : -1}
                 aria-selected={isSelected}
                 onClick={() => onSelectFile(file.id)}
                 onKeyDown={(event) => handleKeyDown(event, index)}
                 className={cn(
-                  'cursor-pointer border-b transition-colors focus-visible:outline-none',
-                  isSelected ? 'bg-accent' : 'hover:bg-muted/60',
+                  'cursor-pointer focus-visible:outline-none',
+                  'transition-colors duration-150 ease-out motion-reduce:transition-none',
+                  isSelected ? 'bg-accent hover:bg-accent data-[state=selected]:bg-accent' : 'hover:bg-muted/60',
                   'focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
                 )}
               >
-                <td className="border-b px-2 py-1.5 pointer-coarse:py-3">
-                  <div className="flex min-w-0 items-center gap-2.5">
+                <TableCell className={CELL}>
+                  <div className="flex min-h-8 min-w-0 items-center gap-2.5">
                     <span
                       aria-hidden
                       className="flex size-6 shrink-0 items-center justify-center rounded text-[8.5px] font-bold uppercase leading-none"
@@ -142,7 +155,7 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
                     </span>
                     <span className="min-w-0 flex-1">
                       <span
-                        className="block truncate text-[12.5px] font-medium text-foreground"
+                        className="block truncate text-[12.5px] font-medium leading-[1.4] text-foreground"
                         title={documentDisplayName(file)}
                       >
                         {documentDisplayName(file)}
@@ -158,17 +171,32 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
                       )}
                     </span>
                   </div>
-                </td>
-                <td className="border-b px-2 py-1.5 pointer-coarse:py-3">
+                </TableCell>
+                <TableCell className={CELL}>
                   {file.status && <DocumentStatusBadge status={file.status} className="text-[10px]" />}
-                </td>
-                <td className="hidden border-b whitespace-nowrap px-2 py-1.5 text-right text-[11.5px] text-muted-foreground tabular-nums pointer-coarse:py-3 lg:table-cell">
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    'hidden whitespace-nowrap text-right text-[11.5px] text-muted-foreground tabular-nums lg:table-cell',
+                    CELL
+                  )}
+                >
                   {file.pageCount ?? '—'}
-                </td>
-                <td className="hidden border-b whitespace-nowrap px-2 py-1.5 text-right text-[11.5px] text-muted-foreground tabular-nums pointer-coarse:py-3 sm:table-cell">
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    'hidden whitespace-nowrap text-right text-[11.5px] text-muted-foreground tabular-nums sm:table-cell',
+                    CELL
+                  )}
+                >
                   {formatBytes(file.fileSize, locale)}
-                </td>
-                <td className="hidden border-b whitespace-nowrap px-2 py-1.5 text-right text-[11.5px] text-muted-foreground tabular-nums pointer-coarse:py-3 md:table-cell">
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    'hidden whitespace-nowrap text-right text-[11.5px] text-muted-foreground tabular-nums md:table-cell',
+                    CELL
+                  )}
+                >
                   <time
                     dateTime={file.createdAt}
                     title={formatAbsoluteTime(file.createdAt, locale)}
@@ -176,12 +204,21 @@ export function FileListView({ files, selectedFileId, onSelectFile }: FileListVi
                   >
                     {formatRelativeTime(file.createdAt, locale)}
                   </time>
-                </td>
-              </tr>
+                </TableCell>
+                {renderActions && (
+                  <TableCell
+                    className="px-1 py-1.5 text-right"
+                    onClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    {renderActions(file)}
+                  </TableCell>
+                )}
+              </TableRow>
             )
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   )
 }
@@ -211,16 +248,16 @@ function SortHeader({
   const Arrow = sort.direction === 'asc' ? ArrowUp : ArrowDown
 
   return (
-    <th
+    <TableHead
       scope="col"
       aria-sort={isActive ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={cn('border-b p-0', className)}
+      className={cn('h-auto p-0', className)}
     >
       <button
         type="button"
         onClick={() => onSort(nextSort(sort, column))}
         className={cn(
-          'flex w-full items-center gap-1 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+          'flex w-full items-center gap-1 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 motion-reduce:transition-none',
           align === 'right' && 'justify-end',
           isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
         )}
@@ -228,8 +265,14 @@ function SortHeader({
         {label}
         {/* The arrow is reserved space on every header, so activating a sort
             does not shift the row it lives in. */}
-        <Arrow className={cn('size-3 shrink-0', isActive ? 'opacity-100' : 'opacity-0')} aria-hidden />
+        <Arrow
+          className={cn(
+            'size-3 shrink-0 transition-opacity duration-150 ease-out motion-reduce:transition-none',
+            isActive ? 'opacity-100' : 'opacity-0'
+          )}
+          aria-hidden
+        />
       </button>
-    </th>
+    </TableHead>
   )
 }

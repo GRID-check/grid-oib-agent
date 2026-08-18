@@ -3,24 +3,36 @@
 /**
  * Persistent file preview in the project shell.
  *
- * Files: a modal. Chat: the asked file as a floating frame — inset, the
- * same hairline + shadow-xs language as the toolbar pills. Expand uses
- * the same pane.
+ * Files: a modal. Chat: a second pane in a Resizable split — the file you
+ * are asking about, not an overlay covering the conversation. Expand and
+ * the Files modal still use the same pane as a dialog.
  */
 
-import { useEffect, useRef, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
-import { Maximize2, X } from 'lucide-react'
+import { usePanelRef } from 'react-resizable-panels'
+import { Download, Maximize2, X } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { cn } from '@/lib/utils'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useLayoutStore } from '@/features/layout/store'
+import { useDocumentActions, type DocumentScope } from './document-actions'
 import { FilePreviewPane } from './file-preview-pane'
-import { useFilePreviewStore } from '../stores/file-preview-store'
+import type { FileItem } from './project-file-workspace'
+import {
+  FILE_PEEK_WIDTH_MAX,
+  FILE_PEEK_WIDTH_MIN,
+  useFilePreviewStore,
+} from '../stores/file-preview-store'
 
-export function FilePreviewHost(): JSX.Element | null {
+export function FilePreviewHost({
+  presentation,
+}: {
+  presentation?: 'split'
+} = {}): JSX.Element | null {
   const t = useTranslations('files')
   const pathname = usePathname()
   const isMobile = useIsMobile()
@@ -34,15 +46,15 @@ export function FilePreviewHost(): JSX.Element | null {
   const peek = useFilePreviewStore((state) => state.peek)
   const expand = useFilePreviewStore((state) => state.expand)
   const peekWidth = useFilePreviewStore((state) => state.peekWidth)
-  const setPeekWidth = useFilePreviewStore((state) => state.setPeekWidth)
   const patchFile = useFilePreviewStore((state) => state.patchFile)
-  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
   const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
   const panelRef = useRef<HTMLDivElement>(null)
   const openerRef = useRef<HTMLElement | null>(null)
   const onChat = Boolean(pathname?.includes('/chat'))
+  const inSplit = presentation === 'split'
   const overlay = mode === 'modal' || (mode === 'expanded' && onChat && !hidden)
-  const peeking = mode === 'peek' && onChat && !hidden && !researchOpen && !isMobile
+  const peeking =
+    inSplit || (mode === 'peek' && onChat && !hidden && !researchOpen && !isMobile)
   const chromeVisible = file !== null && (overlay || peeking)
   // Keep the pane mounted across Files → Chat so an IFC viewport is not remounted
   // (and its camera reset) when Ask flips mode to peek while still on /files.
@@ -82,20 +94,6 @@ export function FilePreviewHost(): JSX.Element | null {
   const name = documentDisplayName(file)
   const panePresentation = mode === 'peek' ? 'peek' : mode === 'expanded' ? 'expanded' : 'modal'
 
-  const onResizePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    dragRef.current = { startX: event.clientX, startW: peekWidth }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-  const onResizePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag) return
-    setPeekWidth(drag.startW + (drag.startX - event.clientX))
-  }
-  const onResizePointerUp = () => {
-    dragRef.current = null
-  }
-
   return (
     <>
       {chromeVisible && overlay && (
@@ -118,53 +116,25 @@ export function FilePreviewHost(): JSX.Element | null {
           'flex flex-col overflow-hidden outline-none',
           parked &&
             'invisible pointer-events-none fixed top-0 left-[-120vw] z-[-1] h-[80vh]',
-          !parked && 'group z-40',
-          !parked &&
-            peeking &&
-            'absolute top-14 right-3 bottom-3 rounded-2xl border border-base bg-card/95 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/90',
+          peeking && 'group h-full min-h-0 min-w-0 border-l border-border bg-card',
+          !parked && !peeking && 'group z-40',
           !parked &&
             !peeking &&
             'bg-popover text-popover-foreground fixed left-1/2 top-1/2 z-50 h-[85vh] w-[min(960px,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-2xl border shadow-lg',
         )}
         style={{
-          width: peeking || parked ? peekWidth : undefined,
+          width: parked || (peeking && !inSplit) ? peekWidth : undefined,
           transition: prefersReducedMotion || parked ? 'none' : 'opacity 200ms ease, transform 200ms ease',
         }}
       >
         {peeking && (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t('assignment.resizeFile')}
-            onPointerDown={onResizePointerDown}
-            onPointerMove={onResizePointerMove}
-            onPointerUp={onResizePointerUp}
-            className="hover:bg-foreground/10 absolute inset-y-3 left-0 z-10 w-1.5 cursor-ew-resize rounded-full"
+          <PeekToolbar
+            file={file}
+            scope={context.scope ?? 'files'}
+            name={name}
+            onExpand={expand}
+            onHide={hide}
           />
-        )}
-        {peeking && (
-          <div className="flex h-9 shrink-0 items-center gap-1 px-2.5">
-            <p className="text-foreground min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
-              {name}
-            </p>
-            <button
-              type="button"
-              onClick={expand}
-              aria-label={t('assignment.expandFile')}
-              title={t('assignment.expandFile')}
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100"
-            >
-              <Maximize2 className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={hide}
-              aria-label={t('preview.closePreview')}
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
         )}
         <FilePreviewPane
           file={file}
@@ -199,11 +169,137 @@ export function FilePreviewHost(): JSX.Element | null {
   )
 }
 
-export function FilePreviewBridge({ children }: { children: React.ReactNode }): JSX.Element {
+function useFileAskSplit(): boolean {
+  const pathname = usePathname()
+  const isMobile = useIsMobile()
+  const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
+  const file = useFilePreviewStore((state) => state.file)
+  const mode = useFilePreviewStore((state) => state.mode)
+  const hidden = useFilePreviewStore((state) => state.hidden)
   return (
-    <>
-      {children}
-      <FilePreviewHost />
-    </>
+    file !== null &&
+    mode === 'peek' &&
+    !hidden &&
+    Boolean(pathname?.includes('/chat')) &&
+    !isMobile &&
+    !researchOpen
+  )
+}
+
+/**
+ * Keep FilePreviewHost as the right panel's child whenever a file is open, so
+ * parked → peek (Files → Chat) is a size change rather than a remount.
+ */
+function FilePreviewSplit({
+  split,
+  children,
+}: {
+  split: boolean
+  children: ReactNode
+}): JSX.Element {
+  const peekWidth = useFilePreviewStore((state) => state.peekWidth)
+  const setPeekWidth = useFilePreviewStore((state) => state.setPeekWidth)
+  const filePanelRef = usePanelRef()
+  const peekWidthRef = useRef(peekWidth)
+  peekWidthRef.current = peekWidth
+
+  useLayoutEffect(() => {
+    const panel = filePanelRef.current
+    if (!panel) return
+    if (split) panel.resize(peekWidthRef.current)
+    else panel.collapse()
+  }, [split, filePanelRef])
+
+  return (
+    <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 flex-1" id="grid-file-ask">
+      <ResizablePanel
+        key="grid-file-ask-chat"
+        id="grid-file-ask-chat"
+        defaultSize={split ? '70' : '100'}
+        minSize={split ? '40' : undefined}
+        className="min-h-0 min-w-0 overflow-hidden"
+      >
+        {children}
+      </ResizablePanel>
+      {split ? <ResizableHandle key="grid-file-ask-handle" withHandle /> : null}
+      <ResizablePanel
+        key="grid-file-ask-file"
+        id="grid-file-ask-file"
+        panelRef={filePanelRef}
+        defaultSize={split ? peekWidth : 0}
+        minSize={split ? FILE_PEEK_WIDTH_MIN : 0}
+        maxSize={split ? FILE_PEEK_WIDTH_MAX : 0}
+        collapsible
+        collapsedSize={0}
+        className="min-h-0 min-w-0"
+        groupResizeBehavior="preserve-pixel-size"
+        onResize={(size) => {
+          if (split && size.inPixels > 0) setPeekWidth(size.inPixels)
+        }}
+      >
+        <FilePreviewHost presentation={split ? 'split' : undefined} />
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  )
+}
+
+export function FilePreviewBridge({ children }: { children: ReactNode }): JSX.Element {
+  const split = useFileAskSplit()
+  // Always the same tree. Switching a wrapping <div> for the split remounts
+  // the project page (chat draft, files selection, upload tray).
+  return <FilePreviewSplit split={split}>{children}</FilePreviewSplit>
+}
+
+const peekIconButtonClass =
+  'text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100'
+
+function PeekToolbar({
+  file,
+  scope,
+  name,
+  onExpand,
+  onHide,
+}: {
+  file: FileItem
+  scope: DocumentScope
+  name: string
+  onExpand: () => void
+  onHide: () => void
+}): JSX.Element {
+  const t = useTranslations('files')
+  const actions = useDocumentActions({ document: file, scope })
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-1 px-2.5">
+      <p className="text-foreground min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em]">
+        {name}
+      </p>
+      <button
+        type="button"
+        onClick={() => void actions.download()}
+        disabled={actions.isDownloading}
+        aria-label={t('preview.download')}
+        title={t('preview.download')}
+        className={`${peekIconButtonClass} disabled:opacity-40`}
+      >
+        <Download className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onExpand}
+        aria-label={t('assignment.expandFile')}
+        title={t('assignment.expandFile')}
+        className={peekIconButtonClass}
+      >
+        <Maximize2 className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onHide}
+        aria-label={t('preview.closePreview')}
+        className={peekIconButtonClass}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
   )
 }

@@ -4,8 +4,9 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
+import { SectionLabel } from '@/components/ui/section-label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
@@ -51,6 +52,8 @@ interface FileBrowserPaneProps {
    */
   view?: 'cards' | 'list'
   showAssignment?: boolean
+  /** Per-file rename / delete / download — shown on the card and the list row. */
+  renderActions?: (file: FileItem) => ReactNode
 }
 
 export function FileBrowserPane({
@@ -67,6 +70,7 @@ export function FileBrowserPane({
   projectId,
   view = 'cards',
   showAssignment = false,
+  renderActions,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -242,6 +246,7 @@ export function FileBrowserPane({
                   locale={locale}
                   match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
                   footerLead={showAssignment ? <AssignmentFaces assignees={hit.assignees} /> : undefined}
+                  actions={renderActions?.(hit)}
                 />
               ))}
             </FileGrid>
@@ -268,6 +273,7 @@ export function FileBrowserPane({
             files={filteredFiles}
             selectedFileId={selectedFileId}
             onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+            renderActions={renderActions}
           />
         ) : (
           <div className="p-4">
@@ -275,9 +281,9 @@ export function FileBrowserPane({
                 the click-dummy. Hidden inside a folder view (the chip already
                 names it) and while searching (the query is the context). */}
             {search === '' && selectedFolderId === null && (
-              <p className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+              <SectionLabel as="p" className="mb-3 font-semibold tracking-[0.05em]">
                 {t('browser.recentlyUploaded')}
-              </p>
+              </SectionLabel>
             )}
             <FileGrid>
               {filteredFiles.map((file) => (
@@ -288,6 +294,7 @@ export function FileBrowserPane({
                   onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
                   locale={locale}
                   footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
+                  actions={renderActions?.(file)}
                 />
               ))}
               {uploadCard}

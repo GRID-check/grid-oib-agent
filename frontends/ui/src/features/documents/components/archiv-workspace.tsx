@@ -10,6 +10,7 @@ import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { ArchivLibraryPane } from './archiv-library-pane'
+import { DocumentActionsMenu } from './document-actions'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
@@ -17,6 +18,7 @@ import { UploadTray } from './upload-tray'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 
@@ -255,7 +257,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
           much is in it. The count sits with the title rather than in the grid:
           it is a property of the Archiv, and it is the one number a reader wants
           before they start filtering. */}
-      <div className="flex items-center justify-between gap-4 border-b px-4 py-3.5">
+      <div className="flex min-h-[4rem] items-center justify-between gap-4 border-b px-4 py-3.5">
         <div className="flex min-w-0 items-center gap-3">
           <span
             className="shadow-2xs flex size-9 shrink-0 items-center justify-center rounded-xl"
@@ -269,9 +271,11 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
               <h2 className="text-foreground truncate text-[15px] font-semibold tracking-tight">
                 {t('title')}
               </h2>
-              {!isLoading && !loadError && files.length > 0 && (
-                <CountPill data-testid="archiv-document-count">{files.length}</CountPill>
-              )}
+              <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center">
+                {!isLoading && !loadError && files.length > 0 && (
+                  <CountPill data-testid="archiv-document-count">{files.length}</CountPill>
+                )}
+              </span>
             </div>
             <p className="text-muted-foreground truncate text-xs">{t('subtitle')}</p>
           </div>
@@ -281,7 +285,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
 
       {/* Error banner */}
       {error && (
-        <div className="border-b px-4 py-3">
+        <div className="border-b px-4 py-3 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
             <AlertTitle>{t('workspace.uploadProblem')}</AlertTitle>
@@ -309,31 +313,33 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       />
 
       {/* Library grid; the preview opens in the shared centered-modal dialog. */}
-      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* The last row of cards dissolves at the bottom edge instead of being
             clipped through the middle of a filename — the shared scroll-boundary
             treatment (design language, "Scroll boundaries"). */}
-        <div className="scroll-fade-bottom flex-1 overflow-y-auto">
+        <div className="scroll-fade-bottom min-h-0 min-w-0 flex-1 overflow-y-auto">
           {loadError ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
-              <AlertCircle className="text-destructive size-5" aria-hidden />
-              <p className="text-muted-foreground text-balance text-sm">
-                {t('workspace.loadError')}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                // Not `onClick={loadDocuments}`: the click event would arrive as
-                // the `quiet` flag, so a retry would hide its own skeleton and
-                // swallow a second failure.
-                onClick={() => void loadDocuments()}
-              >
-                <RotateCcw className="size-3.5" aria-hidden />
-                {t('workspace.tryAgain')}
-              </Button>
-            </div>
+            <EmptyState
+              variant="bare"
+              icon={AlertCircle}
+              title={t('workspace.loadError')}
+              className="h-full justify-center"
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  // Not `onClick={loadDocuments}`: the click event would arrive as
+                  // the `quiet` flag, so a retry would hide its own skeleton and
+                  // swallow a second failure.
+                  onClick={() => void loadDocuments()}
+                >
+                  <RotateCcw className="size-3.5" aria-hidden />
+                  {t('workspace.tryAgain')}
+                </Button>
+              }
+            />
           ) : (
             <ArchivLibraryPane
               files={files}
@@ -341,6 +347,15 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
               onSelectFile={setSelectedFileId}
               isLoading={isLoading}
               uploadControl={uploadButton}
+              renderActions={(file) => (
+                <DocumentActionsMenu
+                  document={file}
+                  scope="archiv"
+                  canManage={canManage}
+                  onRenamed={handleRenamed}
+                  onDeleted={handleDeleted}
+                />
+              )}
             />
           )}
         </div>

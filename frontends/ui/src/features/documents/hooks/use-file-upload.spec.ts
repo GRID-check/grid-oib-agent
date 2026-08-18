@@ -238,7 +238,22 @@ describe('useFileUpload', () => {
         existingTotalSize: 3000,
         existingFileCount: 2,
         existingFileNames: new Set(['file1.pdf', 'file2.pdf']),
+        // Chat attachments are session-scoped — the leftover file-count cap
+        // still applies. Project / Archiv uploads flip this (see below).
+        durableCorpus: false,
       })
+    })
+
+    test('marks a project or Archiv upload as a durable corpus', () => {
+      const project = renderHook(() =>
+        useFileUpload({ collectionName: 'proj-1', projectId: 'proj-1' })
+      )
+      expect(project.result.current.validationContext.durableCorpus).toBe(true)
+
+      const archiv = renderHook(() =>
+        useFileUpload({ collectionName: 'archiv_org-1', archiv: true })
+      )
+      expect(archiv.result.current.validationContext.durableCorpus).toBe(true)
     })
   })
 

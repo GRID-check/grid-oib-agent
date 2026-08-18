@@ -17,6 +17,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Kbd, KbdGroup } from '@/components/ui/kbd'
 
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
@@ -34,12 +35,47 @@ const Command = React.forwardRef<
 ))
 Command.displayName = CommandPrimitive.displayName
 
+interface CommandHintLabels {
+  move: string
+  open: string
+  close: string
+}
+
 interface CommandDialogProps extends React.ComponentPropsWithoutRef<typeof Dialog> {
   /** Accessible dialog title (visually hidden). */
   title: string
   /** Accessible dialog description (visually hidden). */
   description: string
   className?: string
+  /** When true, render ↑ ↓ ↵ Esc keycaps under the list. Off by default. */
+  showHints?: boolean
+  /** Visible labels next to the hint keys. Ignored unless `showHints` is set. */
+  hintLabels?: CommandHintLabels
+}
+
+function CommandHints({ labels }: { labels?: CommandHintLabels }) {
+  return (
+    <div
+      data-slot="command-hints"
+      className="text-muted-foreground flex shrink-0 items-center gap-3 border-t bg-muted/40 px-3 py-2 text-xs"
+    >
+      <span className="inline-flex items-center gap-1.5">
+        <KbdGroup>
+          <Kbd>↑</Kbd>
+          <Kbd>↓</Kbd>
+        </KbdGroup>
+        {labels?.move}
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <Kbd>↵</Kbd>
+        {labels?.open}
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <Kbd>Esc</Kbd>
+        {labels?.close}
+      </span>
+    </div>
+  )
 }
 
 function CommandDialog({
@@ -47,6 +83,8 @@ function CommandDialog({
   description,
   children,
   className,
+  showHints = false,
+  hintLabels,
   ...props
 }: CommandDialogProps) {
   return (
@@ -60,6 +98,7 @@ function CommandDialog({
         <Command className="[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-input-wrapper]_svg]:size-4 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2 [&_[cmdk-item]_svg]:size-4">
           {children}
         </Command>
+        {showHints ? <CommandHints labels={hintLabels} /> : null}
       </DialogContent>
     </Dialog>
   )
@@ -69,13 +108,20 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  <div data-slot="command-input-wrapper" cmdk-input-wrapper="" className="flex h-11 items-center gap-2 border-b border-border px-3">
+  <div
+    data-slot="command-input-wrapper"
+    cmdk-input-wrapper=""
+    className="flex h-11 items-center gap-2 border-b border-border px-3 transition-colors duration-200 ease-out has-[:focus-visible]:bg-muted/40"
+  >
     <SearchIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     <CommandPrimitive.Input
       ref={ref}
       data-slot="command-input"
       className={cn(
-        'placeholder:text-muted-foreground flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50',
+        // Ring-less: a focus ring on this field sits on the wrapper's
+        // border-b and reads as a broken top edge. The wrapper wash is
+        // the focus signal instead.
+        'placeholder:text-muted-foreground flex h-10 w-full bg-transparent py-3 text-sm outline-none ring-0 focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}
       {...props}
@@ -152,11 +198,14 @@ const CommandItem = React.forwardRef<
 ))
 CommandItem.displayName = CommandPrimitive.Item.displayName
 
-function CommandShortcut({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
+function CommandShortcut({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
       data-slot="command-shortcut"
-      className={cn('text-muted-foreground ml-auto text-xs tracking-widest', className)}
+      className={cn(
+        'text-muted-foreground ml-auto inline-flex items-center gap-1 text-xs tracking-widest',
+        className,
+      )}
       {...props}
     />
   )

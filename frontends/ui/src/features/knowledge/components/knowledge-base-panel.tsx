@@ -12,13 +12,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, BookOpenCheck, Eye, FileSearch, FileText, FolderOpen, Layers, RotateCcw } from 'lucide-react'
+import { AlertCircle, Eye, FileSearch, FileText, FolderOpen, Layers, RotateCcw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemList,
+  ItemMedia,
+  ItemTitle,
+} from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
+import { StatCard } from '@/components/ui/stat-card'
 import { DocumentStatusBadge, documentStatusVariant, fileTypeIcon } from '@/features/documents/components/document-status'
 import { useLocale, useTranslations } from '@/i18n'
 import type { KnowledgeBaseStatus, KnowledgeFile, KnowledgeFileState } from '@/lib/knowledge/service'
@@ -64,17 +74,6 @@ function useDateFormatter(): (iso: string | null) => string {
   )
 }
 
-function SummaryTile({ label, value, tone }: { label: string; value: number; tone?: 'warning' }) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
-      <p className={tone === 'warning' ? 'text-2xl font-semibold text-warning' : 'text-2xl font-semibold text-foreground'}>
-        {value.toLocaleString()}
-      </p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  )
-}
-
 function CorpusRow({ file, onView }: { file: KnowledgeFile; onView: (fileName: string) => void }) {
   const t = useTranslations('knowledge')
   const { locale } = useLocale()
@@ -82,20 +81,15 @@ function CorpusRow({ file, onView }: { file: KnowledgeFile; onView: (fileName: s
   const checksum = file.currentSha256 ?? file.ingestedSha256
 
   return (
-    <div
-      className="flex items-start justify-between gap-3 px-4 py-3 transition-colors duration-200 ease-out hover:bg-muted/40 sm:items-center sm:gap-4"
-      title={checksum ? t('corpus.checksum', { hash: checksum }) : undefined}
-    >
-      <div className="flex min-w-0 items-start gap-3 sm:items-center">
-        <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground sm:mt-0" aria-hidden />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-foreground">{file.fileName}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {file.summary ?? t(`stateHints.${file.state}`)}
-          </p>
-        </div>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-4">
+    <Item title={checksum ? t('corpus.checksum', { hash: checksum }) : undefined}>
+      <ItemMedia>
+        <FileText className="size-4 text-muted-foreground" aria-hidden />
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle>{file.fileName}</ItemTitle>
+        <ItemDescription>{file.summary ?? t(`stateHints.${file.state}`)}</ItemDescription>
+      </ItemContent>
+      <ItemActions className="flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-4">
         <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
           {file.chunkCount > 0 ? t('corpus.chunkCount', { count: file.chunkCount }) : '—'}
         </span>
@@ -119,8 +113,8 @@ function CorpusRow({ file, onView }: { file: KnowledgeFile; onView: (fileName: s
             <Eye className="size-4" aria-hidden />
           </Button>
         )}
-      </div>
-    </div>
+      </ItemActions>
+    </Item>
   )
 }
 
@@ -130,19 +124,21 @@ function ProjectDocumentRow({ doc }: { doc: ProjectDocument }) {
   const Icon = fileTypeIcon(doc.contentType, doc.filename)
 
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3 transition-colors duration-200 ease-out hover:bg-muted/40 sm:gap-4">
-      <div className="flex min-w-0 items-center gap-3">
-        <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <p className="truncate text-sm font-medium text-foreground">{doc.filename}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-4">
+    <Item>
+      <ItemMedia>
+        <Icon className="size-4 text-muted-foreground" aria-hidden />
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle>{doc.filename}</ItemTitle>
+      </ItemContent>
+      <ItemActions className="gap-4">
         <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
           {doc.fileSize !== null ? formatBytes(doc.fileSize, locale) : '—'}
         </span>
         <span className="hidden text-xs tabular-nums text-muted-foreground lg:inline">{formatDate(doc.createdAt)}</span>
         <DocumentStatusBadge status={doc.status} />
-      </div>
-    </div>
+      </ItemActions>
+    </Item>
   )
 }
 
@@ -205,15 +201,7 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
   const indexed = status ? status.summary.ingested + status.summary.snapshot + readyProjectDocs : 0
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8 md:py-10">
-      <header className="space-y-1.5">
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-foreground">
-          <BookOpenCheck className="size-5 text-muted-foreground" aria-hidden />
-          {t('title')}
-        </h1>
-        <p className="max-w-3xl text-sm text-muted-foreground">{t('subtitle')}</p>
-      </header>
-
+    <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8">
       {isLoading && <LoadingSkeleton />}
 
       {!isLoading && hasError && (
@@ -233,10 +221,14 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
       {!isLoading && !hasError && status && (
         <>
           <section className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={t('title')}>
-            <SummaryTile label={t('summary.documents')} value={status.summary.totalFiles + documents.length} />
-            <SummaryTile label={t('summary.indexed')} value={indexed} />
-            <SummaryTile label={t('summary.chunks')} value={status.summary.totalChunks} />
-            <SummaryTile label={t('summary.attention')} value={attention} tone={attention > 0 ? 'warning' : undefined} />
+            <StatCard label={t('summary.documents')} value={(status.summary.totalFiles + documents.length).toLocaleString()} />
+            <StatCard label={t('summary.indexed')} value={indexed.toLocaleString()} />
+            <StatCard label={t('summary.chunks')} value={status.summary.totalChunks.toLocaleString()} />
+            <StatCard
+              label={t('summary.attention')}
+              value={attention.toLocaleString()}
+              className={attention > 0 ? 'text-warning' : undefined}
+            />
           </section>
 
           <Card>
@@ -260,11 +252,11 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
                   title={status.collectionExists ? t('corpus.empty') : t('corpus.notSynced')}
                 />
               ) : (
-                <div className="divide-y divide-border border-t border-border">
+                <ItemList className="rounded-none border-0">
                   {status.files.map((file) => (
                     <CorpusRow key={file.fileName} file={file} onView={setViewerFile} />
                   ))}
-                </div>
+                </ItemList>
               )}
             </CardContent>
           </Card>
@@ -290,11 +282,11 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
                   }
                 />
               ) : (
-                <div className="divide-y divide-border border-t border-border">
+                <ItemList className="rounded-none border-0">
                   {documents.map((doc) => (
                     <ProjectDocumentRow key={doc.id} doc={doc} />
                   ))}
-                </div>
+                </ItemList>
               )}
             </CardContent>
           </Card>

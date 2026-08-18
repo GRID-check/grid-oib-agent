@@ -24,7 +24,15 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
     // view, and renders. Tenancy scope, FGA filtering and the document counts all
     // belong to the service/repository pair behind this call — see
     // `getProjectsGridData`.
-    const { projects: rows, documentCounts: docCountByProject } = await getProjectsGridData(session, 'oldest')
+    // 'newest' rather than 'oldest': the grid orders itself by recency now (the
+    // resume rail, then the list), and the repository's order decides which
+    // projects survive PROJECT_LIST_LIMIT — at the cap, dropping the oldest is
+    // the right direction to lose them in.
+    const {
+      projects: rows,
+      documentCounts: docCountByProject,
+      viewerActivity,
+    } = await getProjectsGridData(session, 'newest')
 
     const autoOpenCreate = newParam === '1'
 
@@ -42,7 +50,12 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
 
         <main id="main-content" className="flex-1 px-6 pt-[34px] pb-10 md:px-10">
           <div className="mx-auto w-full max-w-[1080px]">
-            <ProjectsGrid projects={rows} docCounts={docCountByProject} autoOpenCreate={autoOpenCreate} />
+            <ProjectsGrid
+              projects={rows}
+              docCounts={docCountByProject}
+              viewerActivity={viewerActivity}
+              autoOpenCreate={autoOpenCreate}
+            />
 
             {/* Org-wide Archiv entry — gated server-side on the `organization-archiv`
                 flag, the same check the /app/archiv page enforces (ADR-0024). */}

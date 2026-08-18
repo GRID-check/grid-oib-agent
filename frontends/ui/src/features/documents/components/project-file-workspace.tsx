@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, X } from 'lucide-react'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
@@ -13,14 +13,17 @@ import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
+import { DocumentActionsMenu } from './document-actions'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
+import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
-import { cn } from '@/lib/utils'
 import { documentDisplayName } from '@/lib/documents/display-name'
 
 interface ProjectFileWorkspaceProps {
@@ -524,55 +527,40 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         />
       )}
 
-      {/* Top action bar */}
-      <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-foreground">{projectName}</h2>
-          {/* The corpus subtitle is helpful context but costs 2–3 wrapped lines
-              on a phone; hide it below sm to keep the action bar to one row. */}
-          <p className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-            <ShieldCheck className="size-3.5 shrink-0" aria-hidden />
-            {t('workspace.corpusSubtitle')}
-          </p>
-        </div>
+      <ProjectSectionActions>
         <div className="flex shrink-0 items-center gap-2">
-          {/* Card grid (dummy default) ⟷ folder-tree workspace toggle. */}
-          <div
-            role="group"
+          <ToggleGroup
+            type="single"
+            value={view}
+            onValueChange={(value) => {
+              if (value === 'cards' || value === 'list' || value === 'tree') selectView(value)
+            }}
+            segmented
+            size="icon-sm"
             aria-label={t('workspace.view.label')}
-            className="flex items-center rounded-lg border bg-card p-0.5 shadow-2xs"
           >
-            <ViewToggleButton
-              active={view === 'cards'}
-              onClick={() => selectView('cards')}
-              label={t('workspace.view.cards')}
-              icon={LayoutGrid}
-            />
-            <ViewToggleButton
-              active={view === 'list'}
-              onClick={() => selectView('list')}
-              label={t('workspace.view.list')}
-              icon={List}
-            />
-            <ViewToggleButton
-              active={view === 'tree'}
-              onClick={() => selectView('tree')}
-              label={t('workspace.view.tree')}
-              icon={ListTree}
-            />
-          </div>
+            <ToggleGroupItem value="cards" aria-label={t('workspace.view.cards')} title={t('workspace.view.cards')}>
+              <LayoutGrid />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="list" aria-label={t('workspace.view.list')} title={t('workspace.view.list')}>
+              <List />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="tree" aria-label={t('workspace.view.tree')} title={t('workspace.view.tree')}>
+              <ListTree />
+            </ToggleGroupItem>
+          </ToggleGroup>
           {canCollaborate && (
-            <div role="group" aria-label={t('assignment.responsible')} className="flex items-center gap-1">
+            <ToggleGroup
+              type="single"
+              value={assignmentFilter}
+              onValueChange={(value) => {
+                if (value === 'all' || value === 'mine' || value === 'unassigned') setAssignmentFilter(value)
+              }}
+              size="sm"
+              aria-label={t('assignment.responsible')}
+            >
               {(['all', 'mine', 'unassigned'] as const).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setAssignmentFilter(key)}
-                  className={cn(
-                    'rounded-md px-2 py-1 text-[11px] font-medium',
-                    assignmentFilter === key ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
+                <ToggleGroupItem key={key} value={key} className="px-2 text-[11px]">
                   {t(
                     key === 'all'
                       ? 'assignment.filterAll'
@@ -580,9 +568,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                         ? 'assignment.filterMine'
                         : 'assignment.filterUnassigned',
                   )}
-                </button>
+                </ToggleGroupItem>
               ))}
-            </div>
+            </ToggleGroup>
           )}
           <ProjectUppyUpload
             projectId={projectId}
@@ -591,11 +579,11 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             isUploading={isUploading}
           />
         </div>
-      </div>
+      </ProjectSectionActions>
 
       {/* Error banner */}
       {error && (
-        <div className="border-b px-4 py-3">
+        <div className="border-b px-4 py-3 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
             <AlertTitle>{t('workspace.uploadProblem')}</AlertTitle>
@@ -624,12 +612,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
       {/* Three-pane layout — stacks on mobile: folders on top, files below,
           preview as a full-screen overlay. */}
-      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* Folder tree — only in the tree view; the card view navigates folders
             through the chip row instead. All tree functionality (expand/collapse,
             selection, drill-in, create) is preserved. */}
         {view === 'tree' && (
-          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
+          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none md:max-h-none md:w-60 md:border-b-0 md:border-r">
             {foldersError ? (
               <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
             ) : (
@@ -645,7 +633,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         )}
 
         {/* File browser */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {filesError ? (
             <PaneLoadError message={t('workspace.documentsLoadError')} onRetry={loadFiles} />
           ) : (
@@ -658,6 +646,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               projectId={projectId}
               view={view === 'list' ? 'list' : 'cards'}
               showAssignment={canCollaborate}
+              renderActions={(file) => (
+                <DocumentActionsMenu
+                  document={file}
+                  scope="files"
+                  onRenamed={handleRenamed}
+                  onDeleted={handleDeleted}
+                />
+              )}
               {...(view !== 'tree'
                 ? {
                     folders,
@@ -714,46 +710,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   )
 }
 
-/** One segment of the card/tree view toggle. */
-export function ViewToggleButton({
-  active,
-  onClick,
-  label,
-  icon: Icon,
-}: {
-  active: boolean
-  onClick: () => void
-  label: string
-  icon: typeof LayoutGrid
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      aria-label={label}
-      title={label}
-      className={cn(
-        'flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:size-11',
-        active ? 'bg-accent text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
-      )}
-    >
-      <Icon className="size-4" aria-hidden />
-    </button>
-  )
-}
-
 /** Inline pane-level load failure with a retry affordance. */
 function PaneLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
   const t = useTranslations('files')
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
-      <AlertCircle className="size-5 text-destructive" aria-hidden />
-      <p className="text-sm text-muted-foreground text-balance">{message}</p>
-      <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={onRetry}>
-        <RotateCcw className="size-3.5" aria-hidden />
-        {t('workspace.tryAgain')}
-      </Button>
-    </div>
+    <EmptyState
+      variant="bare"
+      icon={AlertCircle}
+      title={message}
+      action={
+        <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={onRetry}>
+          <RotateCcw className="size-3.5" aria-hidden />
+          {t('workspace.tryAgain')}
+        </Button>
+      }
+    />
   )
 }

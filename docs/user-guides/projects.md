@@ -4,9 +4,17 @@ Projects group related documents and chat conversations under a shared context. 
 
 ## The projects home
 
-The **Projects** page (`/app/projects`) is the app's home. It shows every project in your organization as a card grid (three columns on desktop, collapsing responsively). Each card is split into a raised header — project name, an **Active** status chip, and the project summary from the brief — and a footer with the **last activity** time (relative, e.g. "2 hours ago", from the most recent brief update) plus a gear icon that jumps straight to that project's settings page. Clicking anywhere else on the card opens the project, resuming the section you last used.
+The **Projects** page (`/app/projects`) is the app's home, and it is ordered by what you were doing rather than by when projects were created.
 
-The header row carries the page title, a search field that filters the grid by project name as you type, and the **New project** button.
+**Pick up where you left off** — the top of the page carries up to three project cards: the projects *you* last worked in, most recent first. "Worked in" means a message you wrote in one of the project's conversations, so a colleague's busy week never reorders your page. These cards show **You were last here** with your own timestamp. If you have not worked in any project yet, the section is headed **Your projects** instead and simply shows the three most recently updated ones, with the neutral **Last activity** label — the page never claims a "continue" that did not happen.
+
+**More projects** — everything else follows as a dense list, most recent first. Each row carries the project's initials, its name and brief, the document count and the timestamp, plus the same settings gear. A project with no brief yet simply has no second line. Rows lift onto the card surface as you point at them; on narrow screens the counts and the initials drop away and the timestamp stays, because that is what you choose a row by. Fewer than four projects and there is no list at all — the cards are the whole page.
+
+The list carries no status chip. Every project you can see is **Active** — the data model has no other state — so on a list it would be the same chip on every row, carrying nothing. It stays on the cards, and returns to the list the day a project can genuinely be something else.
+
+Each card is split into a raised header — project name, an **Active** status chip, and the project summary from the brief — and a footer with the activity time (relative, e.g. "2 hours ago") plus a gear icon that jumps straight to that project's settings page. Clicking anywhere else on a card or row opens the project, resuming the section you last used.
+
+The header row carries the page title, a search field, and the **New project** button. Searching collapses both sections into a single **Matches** list — with a query on screen, "continue where you left off" is not the question being asked.
 
 When the organization-wide Archiv is enabled for your org, a full-width **Archiv** entry card appears below the grid and opens `/app/archiv` — the office's shared, org-wide knowledge.
 
@@ -24,19 +32,22 @@ Source: `frontends/ui/src/components/projects/create-project-dialog.tsx`
 
 ## Project page layout
 
-Opening a project (`/app/projects/{id}`) lands you in **Chat** — the project root redirects there. The left sidebar navigates the project's sections:
+Opening a project (`/app/projects/{id}`) lands you in **Ask Piloti** — the project root redirects there. The left sidebar navigates the project's sections:
 
 | Section | Route | Purpose |
 |-----|-------|---------|
-| **Chat** | `/app/projects/{id}/chat` | Project-scoped conversations (the landing surface) |
+| **Ask Piloti** | `/app/projects/{id}/chat` | Project-scoped conversations (the landing surface) |
 | **Files** | `/app/projects/{id}/files` | List, upload, and manage files |
-| **Skills** | `/app/projects/{id}/skills` | The organization's skill toolbox (feature-flagged) |
-| **Jobs** | `/app/projects/{id}/jobs` | This project's scheduled prompts, and their run history (feature-flagged) |
-| **Archiv** | `/app/archiv` | The org-wide office archive (feature-flagged) |
 | **History** | `/app/projects/{id}/history` | All conversations and deep-research runs; rows reopen in chat |
+| **Jobs** | `/app/projects/{id}/jobs` | This project's scheduled prompts, and their run history (feature-flagged) |
+| **Skills** | `/app/projects/{id}/skills` | The organization's skill toolbox (feature-flagged) |
+| **Archiv** | `/app/archiv` | The org-wide office archive (feature-flagged) |
+| **Inbox** | `/app/inbox` | Mentions, shares, and operational notices (feature-flagged) |
 | **Settings** | `/app/projects/{id}/settings` | Project parameters, members, memory, insights, danger zone (pinned at the bottom of the sidebar) |
 
-The former **Overview** and **Members** pages were consolidated into **Settings**; their old routes redirect there (the root redirects to Chat). The legacy **Research** page redirects to **History**. The wordmark at the top of the sidebar links back to **All projects** (`/app/projects`).
+Every section except **Ask Piloti** shares one page header: a `{project} / {section}` breadcrumb, the section title, a one-line subtitle, and optional actions on the right. Ask Piloti is the exception — it is a full-bleed conversation surface with its own toolbar.
+
+The former **Overview** and **Members** pages were consolidated into **Settings**; their old routes redirect there (the root redirects to Ask Piloti). The legacy **Research** page redirects to **History**. The wordmark at the top of the sidebar links back to **All projects** (`/app/projects`).
 
 Source: `frontends/ui/src/components/shell/app-sidebar.tsx`, `frontends/ui/src/app/app/projects/[id]/layout.tsx`
 
@@ -170,6 +181,6 @@ Source: `frontends/ui/src/lib/authz/projects.ts:7`, `frontends/ui/src/app/api/pr
 
 Go to `/app/projects` (the wordmark in the sidebar links there). The projects home shows all projects in your organization as a card grid; clicking a card opens the project in the section you last used, and each card's gear icon opens that project's settings directly.
 
-On desktop, project sections (Chat, Skills, Jobs, Files, Archiv, History, Settings) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
+On desktop, project sections (Chat, Files, History, Jobs, Skills, Archiv, Settings) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
 
 The user's active project ID is stored in user preferences (upserted via `POST /api/user/preferences`).

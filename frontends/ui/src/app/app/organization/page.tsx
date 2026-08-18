@@ -24,7 +24,9 @@ import {
   type OrganizationOverview,
 } from '@/lib/organizations/service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { EmptyState } from '@/components/ui/empty-state'
 import { PageHeader } from '@/components/ui/page-header'
+import { SectionLabel } from '@/components/ui/section-label'
 import { getLocale, getTranslations } from '@/i18n/server'
 import { OrgSettingsForm } from './org-settings-form'
 
@@ -56,8 +58,8 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
             </CardHeader>
             <CardContent>
               <dl>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">
-                  {t('overview.id')}
+                <dt>
+                  <SectionLabel>{t('overview.id')}</SectionLabel>
                 </dt>
                 <dd className="mt-1 truncate font-mono text-sm">{session.organizationId}</dd>
               </dl>
@@ -117,20 +119,20 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
           <CardContent>
             <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">
-                  {t('overview.name')}
+                <dt>
+                  <SectionLabel>{t('overview.name')}</SectionLabel>
                 </dt>
                 <dd className="mt-1 text-sm">{settings?.displayName || overview?.name || '—'}</dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">
-                  {t('overview.id')}
+                <dt>
+                  <SectionLabel>{t('overview.id')}</SectionLabel>
                 </dt>
                 <dd className="mt-1 truncate font-mono text-sm">{session.organizationId}</dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">
-                  {t('overview.members')}
+                <dt>
+                  <SectionLabel>{t('overview.members')}</SectionLabel>
                 </dt>
                 <dd className="mt-1 flex items-center gap-1.5 text-sm">
                   <Users className="size-3.5 text-muted-foreground" aria-hidden />
@@ -142,8 +144,8 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">
-                  {t('overview.pendingInvites')}
+                <dt>
+                  <SectionLabel>{t('overview.pendingInvites')}</SectionLabel>
                 </dt>
                 <dd className="mt-1 flex items-center gap-1.5 text-sm">
                   <Mail className="size-3.5 text-muted-foreground" aria-hidden />
@@ -151,8 +153,8 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">
-                  {t('overview.domains')}
+                <dt>
+                  <SectionLabel>{t('overview.domains')}</SectionLabel>
                 </dt>
                 <dd className="mt-1 flex items-center gap-1.5 text-sm">
                   <Globe className="size-3.5 text-muted-foreground" aria-hidden />
@@ -163,8 +165,8 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
               </div>
               {createdLabel && (
                 <div>
-                  <dt className="text-xs font-medium uppercase text-muted-foreground">
-                    {t('overview.created')}
+                  <dt>
+                    <SectionLabel>{t('overview.created')}</SectionLabel>
                   </dt>
                   <dd className="mt-1 text-sm">{createdLabel}</dd>
                 </div>
@@ -187,7 +189,7 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
                   initialWebSearchEnabled={settings.settings.webSearchEnabled !== false}
                 />
               ) : (
-                <p className="text-muted-foreground text-sm">{t('settings.loadError')}</p>
+                <EmptyState variant="bare" title={t('settings.loadError')} />
               )}
             </CardContent>
           </Card>

@@ -34,7 +34,7 @@ Before generating the research plan, deeply analyze the user's request:
 {% if enable_source_router %}
 - **Source routing advisory**: First inspect `/shared/` with `ls`. If `/shared/source_routing.json` exists, read it before choosing source tools. Do not call `ls` and `read_file` for `/shared/source_routing.json` in the same assistant turn. If the route file is missing or `read_file` says it is not found, continue planning without source-routing guidance; do not fail, retry indefinitely, or search subdirectories. When a route is available, copy all highest-priority routed recommendations' exact `tool_names` into `preferred_tools` for the final ResearchQuery objects where they fit. Copy route fallback source tool names into `fallback_tools` when useful for corroboration or gaps. Never use tool names that are not listed below.
 {% endif %}
-- **Internal vs external (you must use tools)**: If a knowledge_search or document tool is available, call it first to check whether the topic or named entities are covered in project/user content — do this regardless of whether the "User Uploaded Documents" list below is empty or missing. That list is generated from a summaries index that can lag ingestion and silently omit fully-ingested documents, so it is not proof that no project documents exist; knowledge_search, not the list, is the source of truth. Never conclude "no project documents exist" from the list alone. If knowledge_search finds relevant content, treat it as internal and do not add web/paper queries for those; if not found internally, treat as external and use web/paper search.
+- **Internal vs external (you must use tools)**: If a knowledge_search or document tool is available, call it first to check whether the topic or named entities are covered in project/user content — do this regardless of whether the knowledge-base inventory below is empty or missing. That list is generated from a summaries index that can lag ingestion and silently omit fully-ingested documents, so it is not proof that no project documents exist; knowledge_search, not the list, is the source of truth. Never conclude "no project documents exist" from the list alone. If knowledge_search finds relevant content, treat it as internal and do not add web/paper queries for those; if not found internally, treat as external and use web/paper search.
 - **Discover what exists (you must use tools)**: Call available search tools only enough to identify source coverage, source types, and the research lanes needed for the task. Use the results to shape answer_strategy, constraints, and query list. Do not turn planning into full evidence gathering; the researcher workers will gather depth.
 - **Think**: Once your searches stop changing the plan, use `think` once to consolidate before finalizing — what you learned, internal vs external for each sub-topic, any remaining routing/coverage/query-shaping gaps, and what constraints or answer components to add. Do not call `think` after every individual search.
 - **Evolve**: Refine answer_strategy and constraints based on findings.
@@ -162,11 +162,8 @@ You have access to the following tools. You can ONLY use the tools provided. Do 
 {% for tool in tools %}- **{{ tool.name }}**: {{ tool.description }}
 {% endfor %}
 
-{% if available_documents and available_documents | length > 0 %}
-## User Uploaded Documents
-The following documents are available via knowledge_search:
-{% for doc in available_documents %}- **{{ doc.file_name }}**: {{ doc.summary or "No summary available" }}
-{% endfor %}
+{% if document_inventory %}
+{{ document_inventory }}
 {% endif %}
 
 {% if project_context %}

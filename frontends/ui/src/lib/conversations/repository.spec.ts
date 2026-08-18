@@ -39,6 +39,7 @@ import {
   MESSAGE_LIST_LIMIT,
   deleteConversationInOrg,
   findMessageInConversation,
+  lastProjectActivityByUser,
   listMessagesForConversation,
   listVisibleConversations,
   upsertConversationRead,
@@ -274,5 +275,66 @@ describe('findMessageInConversation', () => {
     expect(sql).toContain('"messages"."id" = $1')
     expect(sql).toContain('"messages"."conversation_id" = $2')
     expect(params.slice(0, 2)).toEqual(['msg_1', 'conv_1'])
+  })
+})
+
+/**
+ * The projects-home rail is ordered by this query, so "whose activity" is the
+ * whole point: a predicate that let another member's messages through would
+ * reorder the rail for everyone in the project, and nothing on the page would
+ * look wrong. Asserted against the generated statement for the same reason as
+ * the visibility rule above.
+ */
+describe('lastProjectActivityByUser', () => {
+  const OTHER_PROJECT = '3f2504e0-4f89-11d3-9a0c-0305e82c3302'
+
+  it('counts only messages this user wrote, plus their own legacy unauthored ones', async () => {
+    await lastProjectActivityByUser('org_1', 'user_me', [PROJECT_ID])
+
+    const { sql, params } = onlyQuery()
+    // Their own authorship, OR an unauthored USER message in a thread they started.
+    expect(sql).toMatch(/"author_user_id" = \$\d+ or \("messages"\."author_user_id" is null/i)
+    expect(sql).toMatch(/"messages"\."role" = \$\d+/i)
+    expect(sql).toMatch(/"conversations"\."created_by" = \$\d+/i)
+    // Assistant/tool rows are NULL-authored forever — the role filter is what
+    // keeps them from crediting the user with the agent's replies.
+    expect(params).toContain('user')
+    expect(params.filter((param) => param === 'user_me')).toHaveLength(2)
+  })
+
+  it('scopes to the organization, the requested projects, and live conversations', async () => {
+    await lastProjectActivityByUser('org_1', 'user_me', [PROJECT_ID, OTHER_PROJECT])
+
+    const { sql, params } = onlyQuery()
+    expect(sql).toMatch(/"conversations"\."organization_id" = \$\d+/i)
+    expect(sql).toMatch(/"conversations"\."project_id" in \(/i)
+    expect(sql).toMatch(/"conversations"\."deleted_at" is null/i)
+    expect(sql).toMatch(/group by "conversations"\."project_id"/i)
+    expect(params).toContain('org_1')
+    expect(params).toContain(PROJECT_ID)
+    expect(params).toContain(OTHER_PROJECT)
+  })
+
+  it('coerces the aggregate at the boundary and keys it by project', async () => {
+    nextRows = [
+      [PROJECT_ID, '2026-08-05T09:00:00.000Z'],
+      [OTHER_PROJECT, new Date('2026-08-01T07:30:00.000Z')],
+    ]
+
+    expect(await lastProjectActivityByUser('org_1', 'user_me', [PROJECT_ID, OTHER_PROJECT])).toEqual({
+      [PROJECT_ID]: '2026-08-05T09:00:00.000Z',
+      [OTHER_PROJECT]: '2026-08-01T07:30:00.000Z',
+    })
+  })
+
+  it('drops an unparseable aggregate rather than emitting an Invalid Date', async () => {
+    nextRows = [[PROJECT_ID, 'not-a-timestamp']]
+
+    expect(await lastProjectActivityByUser('org_1', 'user_me', [PROJECT_ID])).toEqual({})
+  })
+
+  it('asks nothing when there are no projects to ask about', async () => {
+    expect(await lastProjectActivityByUser('org_1', 'user_me', [])).toEqual({})
+    expect(captured).toHaveLength(0)
   })
 })

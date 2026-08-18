@@ -278,7 +278,7 @@ export const files = {
     expandFile: 'Open larger',
     resizeFile: 'Resize file pane',
     welcomeAbout: 'This thread is about {name}. Ask it something — answers will cite the file and the law.',
-    subjectHint: 'Piloti reads this document first, then the rest of the project and the law.',
+    subjectHint: 'Piloti searches this document. Other project files and the office archive stay out.',
     subjectClear: 'Stop focusing on this file',
     loadingPeople: 'Loading people…',
     noPeople: 'No one in this project yet',

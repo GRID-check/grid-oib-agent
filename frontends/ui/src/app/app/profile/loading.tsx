@@ -30,7 +30,7 @@ export default async function ProfileLoading(): Promise<JSX.Element> {
 
         <div className="flex flex-col gap-6">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-40 rounded-xl" />
+            <Skeleton key={i} className="h-44 w-full" />
           ))}
         </div>
       </main>

@@ -10,9 +10,6 @@ All tests are offline: no ChromaDB, no embeddings, no network.
 """
 
 import pytest
-from knowledge_layer.register import KnowledgeRetrievalConfig
-from knowledge_layer.register import _merge_results
-from knowledge_layer.register import _resolve_target_collections
 
 from aiq_agent.knowledge.base import SESSION_COLLECTION_PREFIX
 from aiq_agent.knowledge.base import TTLCleanupMixin
@@ -20,6 +17,10 @@ from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import CollectionInfo
 from aiq_agent.knowledge.schema import ContentType
 from aiq_agent.knowledge.schema import RetrievalResult
+from sources.knowledge_layer.src.register import KnowledgeRetrievalConfig
+from sources.knowledge_layer.src.register import _merge_results
+from sources.knowledge_layer.src.register import _resolve_target_collections
+from sources.knowledge_layer.src.register import _restrict_scope_to_turn
 
 
 def _chunk(score: float, name: str = "doc.pdf") -> Chunk:
@@ -123,6 +124,50 @@ class TestResolveTargetCollections:
 
 
 # =============================================================================
+# Turn-level shelf subtraction
+# =============================================================================
+
+
+class TestRestrictScopeToTurn:
+    def test_session_focus_drops_archiv_and_base(self):
+        from aiq_agent.common.focus_file import set_turn_intent
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.scoping import ScopedCollection
+
+        set_turn_intent(shelf="session")
+        try:
+            entries = [
+                ScopedCollection("oib_knowledge", Shelf.BASE),
+                ScopedCollection("archiv_org", Shelf.ARCHIV),
+                ScopedCollection("s_1", Shelf.SESSION),
+            ]
+            assert [entry.collection for entry in _restrict_scope_to_turn(entries)] == ["s_1"]
+        finally:
+            set_turn_intent()
+
+    def test_project_preset_drops_archiv(self):
+        from aiq_agent.common.focus_file import set_turn_intent
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.scoping import ScopedCollection
+
+        set_turn_intent(source_preset="project")
+        try:
+            entries = [
+                ScopedCollection("oib_knowledge", Shelf.BASE),
+                ScopedCollection("archiv_org", Shelf.ARCHIV),
+                ScopedCollection("proj_1", Shelf.PROJECT),
+                ScopedCollection("s_1", Shelf.SESSION),
+            ]
+            assert [entry.collection for entry in _restrict_scope_to_turn(entries)] == [
+                "oib_knowledge",
+                "proj_1",
+                "s_1",
+            ]
+        finally:
+            set_turn_intent()
+
+
+# =============================================================================
 # Merge-by-score
 # =============================================================================
 
@@ -134,6 +179,19 @@ class TestMergeResults:
         merged = _merge_results([r1, r2], query="q", top_k=5, backend_name="llamaindex")
         assert merged.success is True
         assert [c.score for c in merged.chunks] == [0.9, 0.7, 0.5]
+
+    def test_focused_file_does_not_pad_with_other_corpora(self, monkeypatch):
+        monkeypatch.setattr(
+            "aiq_agent.common.focus_file.get_focused_file_name",
+            lambda: "upload.pdf",
+        )
+        monkeypatch.setattr(
+            "aiq_agent.common.focus_file.get_focused_shelf",
+            lambda: None,
+        )
+        r1 = _result([_chunk(0.95, "upload.pdf"), _chunk(0.9, "archiv-plan.pdf")])
+        merged = _merge_results([r1], query="q", top_k=5, backend_name="llamaindex")
+        assert [c.file_name for c in merged.chunks] == ["upload.pdf"]
 
     def test_truncates_to_top_k(self):
         r1 = _result([_chunk(0.5), _chunk(0.9), _chunk(0.1)])

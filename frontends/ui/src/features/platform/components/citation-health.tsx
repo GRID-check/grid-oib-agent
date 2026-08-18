@@ -33,7 +33,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
+import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { StatCard } from '@/components/ui/stat-card'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { CitationDefectChart } from '@/components/charts/citation-defect-chart'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
 import { useLocale, useTranslations } from '@/i18n'
@@ -201,35 +204,6 @@ function cleanRateTone(rate: number): string {
 const percent = (value: number, locale: string): string =>
   new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(value)
 
-function StatTile({
-  icon,
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: React.ReactNode
-  hint?: string
-  tone?: string
-}): JSX.Element {
-  return (
-    <div className="flex items-center gap-3 rounded-lg border p-4">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-        {icon}
-      </div>
-      {/* Labels wrap rather than truncate: "Without source citation" is the
-          headline finding, and "WITHOUT SOUR…" tells the reader nothing. */}
-      <div className="min-w-0">
-        <p className="text-xs font-medium uppercase leading-tight text-muted-foreground">{label}</p>
-        <p className={`text-lg font-semibold tabular-nums tracking-tight ${tone ?? ''}`}>{value}</p>
-        {hint ? <p className="text-xs leading-tight text-muted-foreground">{hint}</p> : null}
-      </div>
-    </div>
-  )
-}
-
 /**
  * One diagnosis + remedy. The severity icon and the left rule carry the same
  * information as the reserved status color, so severity is never color-alone.
@@ -362,19 +336,21 @@ export function CitationHealth(): JSX.Element {
 
   const windowSwitch = (
     <div className="flex flex-wrap items-center gap-1">
-      <div className="flex gap-1" role="group" aria-label={t('citations.windowAria')}>
+      <ToggleGroup
+        type="single"
+        size="sm"
+        value={String(days)}
+        onValueChange={(value) => {
+          if (value) setDays(Number(value))
+        }}
+        aria-label={t('citations.windowAria')}
+      >
         {WINDOW_OPTIONS.map((option) => (
-          <Button
-            key={option}
-            variant={option === days ? 'secondary' : 'ghost'}
-            size="sm"
-            aria-pressed={option === days}
-            onClick={() => setDays(option)}
-          >
+          <ToggleGroupItem key={option} value={String(option)}>
             {t('citations.windowDays', { count: option })}
-          </Button>
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
       {/* A plain link, not a fetch: the route already sets Content-Disposition,
           so the browser downloads it without buffering the bundle in JS. */}
       <Button asChild variant="outline" size="sm">
@@ -393,13 +369,18 @@ export function CitationHealth(): JSX.Element {
           <CardTitle>{t('citations.title')}</CardTitle>
           <CardDescription>{t('citations.description')}</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col items-center gap-4 py-8 text-center">
-          <AlertTriangle className="size-8 text-muted-foreground" aria-hidden />
-          <p className="text-sm font-medium">{t('citations.loadError')}</p>
-          <Button variant="outline" size="sm" onClick={() => load(days)} disabled={loading}>
-            <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
-            {t('retry')}
-          </Button>
+        <CardContent>
+          <EmptyState
+            variant="bare"
+            icon={AlertTriangle}
+            title={t('citations.loadError')}
+            action={
+              <Button variant="outline" size="sm" onClick={() => load(days)} disabled={loading}>
+                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden />
+                {t('retry')}
+              </Button>
+            }
+          />
         </CardContent>
       </Card>
     )
@@ -422,7 +403,7 @@ export function CitationHealth(): JSX.Element {
           <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {Array.from({ length: 4 }, (_, i) => (
-                <Skeleton key={i} className="h-[74px] w-full" />
+                <Skeleton key={i} className="h-[7.25rem] w-full" />
               ))}
             </div>
             <Skeleton className="h-32 w-full" />
@@ -435,32 +416,39 @@ export function CitationHealth(): JSX.Element {
             description={t('citations.empty.description')}
           />
         ) : (
-          <>
+          <div className="animate-in fade-in-0 flex flex-col gap-6 duration-200 ease-out motion-reduce:animate-none">
             {/* Headline: the clean rate first, then what went wrong. */}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatTile
+              <StatCard
+                className="min-h-[7.25rem]"
                 icon={<ShieldCheck className="size-4" aria-hidden />}
                 label={t('citations.stats.cleanRate')}
-                value={percent(snapshot.totals.cleanRate, locale)}
+                value={
+                  <span className={cleanRateTone(snapshot.totals.cleanRate)}>
+                    {percent(snapshot.totals.cleanRate, locale)}
+                  </span>
+                }
                 hint={t('citations.stats.cleanRateHint', {
                   clean: snapshot.totals.cleanTurns,
                   turns: snapshot.totals.turns,
                 })}
-                tone={cleanRateTone(snapshot.totals.cleanRate)}
               />
-              <StatTile
+              <StatCard
+                className="min-h-[7.25rem]"
                 icon={<SearchX className="size-4" aria-hidden />}
                 label={t('citations.stats.ungrounded')}
                 value={snapshot.totals.ungroundedAnswers}
                 hint={t('citations.stats.ungroundedHint')}
               />
-              <StatTile
+              <StatCard
+                className="min-h-[7.25rem]"
                 icon={<FileWarning className="size-4" aria-hidden />}
                 label={t('citations.stats.removed')}
                 value={snapshot.totals.citationsRemoved}
                 hint={t('citations.stats.removedHint')}
               />
-              <StatTile
+              <StatCard
+                className="min-h-[7.25rem]"
                 icon={<Quote className="size-4" aria-hidden />}
                 label={t('citations.stats.quotes')}
                 value={snapshot.totals.unverifiedQuotes}
@@ -622,9 +610,7 @@ export function CitationHealth(): JSX.Element {
                           ] as const
                         ).map(([label, value]) => (
                           <div key={label} className="flex min-w-14 flex-col items-end">
-                            <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">
-                              {label}
-                            </span>
+                            <SectionLabel>{label}</SectionLabel>
                             <span className="text-sm tabular-nums">{value}</span>
                           </div>
                         ))}
@@ -667,7 +653,7 @@ export function CitationHealth(): JSX.Element {
                 </ul>
               )}
             </section>
-          </>
+          </div>
         )}
       </CardContent>
     </Card>

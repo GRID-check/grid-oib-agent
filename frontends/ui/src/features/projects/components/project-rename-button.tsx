@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Loader2, PencilLine } from 'lucide-react'
+import { PencilLine } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,8 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 
 interface ProjectRenameButtonProps {
@@ -92,8 +93,8 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
               if (canSave) void handleSave()
             }}
           >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="project-rename-input">{t('overview.rename.nameLabel')}</Label>
+            <Field>
+              <FieldLabel htmlFor="project-rename-input">{t('overview.rename.nameLabel')}</FieldLabel>
               <Input
                 id="project-rename-input"
                 value={name}
@@ -101,7 +102,7 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
                 autoFocus
                 onChange={(event) => setName(event.target.value)}
               />
-            </div>
+            </Field>
             <DialogFooter className="mt-5">
               <Button
                 type="button"
@@ -111,8 +112,16 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
               >
                 {t('overview.rename.cancel')}
               </Button>
-              <Button type="submit" disabled={!canSave}>
-                {pending && <Loader2 className="size-4 animate-spin" aria-hidden />}
+              <Button type="submit" disabled={!canSave} className="min-w-24">
+                <Spinner
+                  size="sm"
+                  aria-hidden={!pending}
+                  className={
+                    pending
+                      ? 'transition-opacity duration-150 ease-out motion-reduce:transition-none'
+                      : 'opacity-0'
+                  }
+                />
                 {pending ? t('overview.rename.saving') : t('overview.rename.save')}
               </Button>
             </DialogFooter>

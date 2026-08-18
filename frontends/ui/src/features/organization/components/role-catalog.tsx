@@ -41,6 +41,8 @@
 import { ShieldAlert } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { Item, ItemList } from '@/components/ui/item'
+import { SectionLabel } from '@/components/ui/section-label'
 import { SectionCard } from '@/features/platform/components/section-card'
 import { ROLES, findPermissionSpec, type PermissionTier, type RoleSpec } from '@/lib/authz/catalog'
 import { useTranslations } from '@/i18n'
@@ -97,9 +99,7 @@ export function RoleCatalog({ roles = ROLES }: RoleCatalogProps): JSX.Element {
           return (
             <section key={tier} className="flex flex-col gap-3" data-testid={`role-tier-${tier}`}>
               <div className="flex flex-col gap-1">
-                <h3 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-                  {t(`access.tiers.${tier}`)}
-                </h3>
+                <SectionLabel as="h3">{t(`access.tiers.${tier}`)}</SectionLabel>
                 {restricted ? (
                   <p className="text-muted-foreground flex items-start gap-1.5 text-sm">
                     <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -108,9 +108,9 @@ export function RoleCatalog({ roles = ROLES }: RoleCatalogProps): JSX.Element {
                 ) : null}
               </div>
 
-              <ul className="flex flex-col gap-3">
+              <ItemList as="ul">
                 {items.map((role) => (
-                  <li key={role.slug} className="rounded-lg border p-4">
+                  <Item as="li" key={role.slug} className="flex-col items-stretch gap-0 p-4">
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                       <h4 className="text-sm font-medium">{role.name}</h4>
                       <code className="text-muted-foreground font-mono text-xs">{role.slug}</code>
@@ -119,11 +119,11 @@ export function RoleCatalog({ roles = ROLES }: RoleCatalogProps): JSX.Element {
 
                     {/* The count IS the heading: "0 permissions" is how a role
                         that grants nothing says so, with no empty list under it. */}
-                    <p className="text-muted-foreground mt-3 text-xs font-medium uppercase tracking-wide">
+                    <SectionLabel as="p" className="mt-3">
                       {role.permissions.length === 1
                         ? t('access.roles.permissionCountOne')
                         : t('access.roles.permissionCountOther', { count: role.permissions.length })}
-                    </p>
+                    </SectionLabel>
                     {role.permissions.length > 0 ? (
                       <ul className="mt-1.5 flex flex-col gap-1">
                         {role.permissions.map((slug) => {
@@ -147,9 +147,9 @@ export function RoleCatalog({ roles = ROLES }: RoleCatalogProps): JSX.Element {
                         })}
                       </ul>
                     ) : null}
-                  </li>
+                  </Item>
                 ))}
-              </ul>
+              </ItemList>
             </section>
           )
         })}

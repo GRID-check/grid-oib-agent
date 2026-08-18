@@ -1,8 +1,8 @@
 /**
  * The file that is currently open — one instance, three presentations.
  *
- * Files opens it as a modal. Chat keeps it as a peek of the file you are
- * talking about (not a half-screen split). Expand uses the same pane.
+ * Files opens it as a modal. Chat keeps it as a resizable peek pane of the
+ * file you are talking about. Expand uses the same pane as a dialog.
  *
  * close() drops composerSubject when it is this file. hide() does not —
  * the composer bar is the commitment, and "Show file" restores the peek.

@@ -20,6 +20,20 @@ export const nav = {
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).
     intake: 'Setup',
   },
+  sectionGroups: {
+    work: 'Work',
+    automate: 'Automate',
+    org: 'Organization',
+  },
+  sectionSubtitles: {
+    files: 'Documents that ground Piloti’s answers in this project.',
+    history: 'Every conversation and deep-research run in this project.',
+    skills: 'Reusable instructions the organization writes once.',
+    jobs: 'Prompts this project runs on a timer.',
+    knowledge: 'What the knowledge base currently contains.',
+    settings: 'Project profile, members, memory, and danger zone.',
+    intake: 'Guided briefing for this project.',
+  },
   /**
    * The back control on pages outside the project shell (`BackLink`): `{label}`
    * is the name of the location the reader actually came from, resolved from the

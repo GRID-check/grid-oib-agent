@@ -2,7 +2,13 @@
  * @vitest-environment node
  */
 import { describe, expect, test } from 'vitest'
-import { labelVisit, previousVisit, recordVisit, type ReturnTrail } from './return-trail'
+import {
+  labelVisit,
+  navigationArea,
+  previousVisit,
+  recordVisit,
+  type ReturnTrail,
+} from './return-trail'
 
 /** A trail of plain, unnamed visits — the shape the recorder writes. */
 const visits = (...paths: string[]): ReturnTrail => paths.map((path) => ({ path }))
@@ -46,6 +52,18 @@ describe('recordVisit', () => {
     const trail = visits('/app/archiv')
     expect(recordVisit(trail, '/app/archiv')).toBe(trail)
   })
+
+  test('collapses sibling pages inside a tabbed settings shell into one step', () => {
+    let trail = recordVisit(visits('/app/projects/p1/chat'), '/app/platform')
+    trail = recordVisit(trail, '/app/platform/models')
+    trail = recordVisit(trail, '/app/platform/knowledge')
+    expect(trail).toEqual(visits('/app/projects/p1/chat', '/app/platform/knowledge'))
+  })
+
+  test('does not collapse a project section into the previous project page', () => {
+    const trail = recordVisit(visits('/app/projects/p1/files'), '/app/projects/p1/chat')
+    expect(trail).toEqual(visits('/app/projects/p1/files', '/app/projects/p1/chat'))
+  })
 })
 
 describe('previousVisit', () => {
@@ -69,6 +87,28 @@ describe('previousVisit', () => {
     expect(
       previousVisit(visits('/app/projects', '/app/archiv', '/app/inbox'), '/app/archiv')
     ).toBeNull()
+  })
+
+  test('skips sibling settings tabs and names the project the reader left', () => {
+    // An older trail that still stacked every tab. Back must not return to
+    // the previous settings page — that is a submenu, not a destination.
+    expect(
+      previousVisit(
+        visits('/app/projects/p1/chat', '/app/organization', '/app/organization/models'),
+        '/app/organization/models',
+      ),
+    ).toEqual({ path: '/app/projects/p1/chat' })
+  })
+})
+
+describe('navigationArea', () => {
+  test('groups org, platform, inbox and profile as tabbed shells', () => {
+    expect(navigationArea('/app/platform/models')).toBe('platform')
+    expect(navigationArea('/app/organization')).toBe('organization')
+    expect(navigationArea('/app/inbox')).toBe('inbox')
+    expect(navigationArea('/app/profile')).toBe('profile')
+    expect(navigationArea('/app/projects/p1/chat')).toBeNull()
+    expect(navigationArea('/app/archiv')).toBeNull()
   })
 })
 

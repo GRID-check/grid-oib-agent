@@ -114,7 +114,7 @@ export function DocumentActionsMenu({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-8 shrink-0"
+              className="size-8 shrink-0 bg-background/80 shadow-2xs backdrop-blur-sm"
               aria-label={t('actions.label', { name: documentActions.name })}
               title={t('actions.menuLabel')}
               data-testid="document-actions-trigger"

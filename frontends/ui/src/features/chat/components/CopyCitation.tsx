@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { CITATION_FORMATS, renderCitations, type CitationFormat } from '../lib/citation-export'
-import { toFachtext } from '../lib/source-citation'
+import { toFachtext, toQuoteList } from '../lib/source-citation'
 import type { CitationRef } from '../lib/citations'
 
 /** Write to the clipboard, reporting failure instead of swallowing it. */
@@ -52,7 +52,9 @@ export const CopySourceCitationButton: FC<{ citation: CitationRef }> = ({ citati
 
   const handleCopy = async (): Promise<void> => {
     await copyText(
-      toFachtext(citation, new Date()),
+      citation.locus?.snippet
+        ? toQuoteList([citation], new Date())
+        : toFachtext(citation, new Date()),
       () => {
         setCopied(true)
         window.setTimeout(() => setCopied(false), 1500)
@@ -68,7 +70,8 @@ export const CopySourceCitationButton: FC<{ citation: CitationRef }> = ({ citati
       aria-label={t('answerSources.copyCitationAria', { label: citation.document.title })}
       className={cn(
         'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium',
-        'text-muted-foreground transition-colors hover:text-foreground',
+        'text-muted-foreground transition-[color,transform] duration-200 ease-out active:scale-95 hover:text-foreground',
+        'motion-reduce:transition-none motion-reduce:active:scale-100',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
       )}
     >
@@ -104,7 +107,7 @@ export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations 
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[color,transform] duration-200 ease-out active:scale-95 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[color,transform] duration-200 ease-out active:scale-95 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none motion-reduce:active:scale-100"
         >
           {copied ? (
             <Check aria-hidden="true" className="size-3" />

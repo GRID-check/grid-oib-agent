@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
-import { type ReactElement } from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { type ReactElement, type ReactNode } from 'react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
@@ -16,6 +16,13 @@ function renderWorkspace(ui: ReactElement) {
       <FilePreviewHost />
     </>,
   )
+}
+
+/** The file card/row — not the overflow trigger that also names the file. */
+function findFileButton(name: RegExp) {
+  return screen.findByRole('button', {
+    name: (accessibleName) => name.test(accessibleName) && !/file actions/i.test(accessibleName),
+  })
 }
 
 function resetPreviewStore() {
@@ -88,6 +95,11 @@ vi.mock('../hooks/use-project-documents', () => ({
   })),
 }))
 
+// The real portal lands in the layout header; unit tests have no slot.
+vi.mock('@/components/shell/project-section-frame', () => ({
+  ProjectSectionActions: ({ children }: { children: ReactNode }) => children,
+}))
+
 // useFileDragDrop reads accepted MIME types from AppConfig for its drag affordance.
 vi.mock('@/shared/context', () => ({
   useAppConfig: () => ({
@@ -119,10 +131,11 @@ describe('ProjectFileWorkspace', () => {
     resetPreviewStore()
   })
 
-  it('renders the file workspace with its project name and corpus context', () => {
+  it('renders the file workspace with view controls and upload', () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
-    expect(screen.getByText('Test')).toBeDefined()
-    expect(screen.getByText(/ground Piloti’s answers/i)).toBeDefined()
+    expect(screen.getByRole('radiogroup', { name: 'View' })).toBeDefined()
+    expect(screen.getByTestId('project-upload-input')).toBeDefined()
+    expect(screen.queryByRole('heading', { name: 'Test' })).toBeNull()
   })
 
   it('shows the drop overlay on dragover of a supported file', () => {
@@ -201,7 +214,7 @@ describe('ProjectFileWorkspace — mobile preview overlay', () => {
     )
 
     // Open the preview by selecting the loaded file.
-    const fileRow = await screen.findByRole('button', { name: /notes\.txt/i })
+    const fileRow = await findFileButton(/notes\.txt/i)
     fireEvent.click(fileRow)
 
     // Dialog semantics with an accessible name. Asserted by NAME rather than by
@@ -263,7 +276,7 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
 
     // Open doc-a and add a discipline tag via the inline add-tag input.
-    fireEvent.click(await screen.findByRole('button', { name: /alpha\.txt/i }))
+    fireEvent.click(await findFileButton(/alpha\.txt/i))
     await user.type(await screen.findByRole('textbox', { name: /add tag/i }), 'Brandschutz{Enter}')
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Remove tag Brandschutz' })).toBeDefined()
@@ -272,14 +285,14 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
     // Switch to doc-b (the pane re-seeds from the newly selected file's tags)...
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    fireEvent.click(await screen.findByRole('button', { name: /beta\.txt/i }))
+    fireEvent.click(await findFileButton(/beta\.txt/i))
     await screen.findByRole('dialog')
 
     // ...then back to doc-a: the saved tag must still be there (parent state
     // was updated on save), not reverted to the pre-edit ['Grundriss'].
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    fireEvent.click(await screen.findByRole('button', { name: /alpha\.txt/i }))
+    fireEvent.click(await findFileButton(/alpha\.txt/i))
     await screen.findByRole('dialog')
 
     await waitFor(() =>
@@ -323,8 +336,9 @@ describe('ProjectFileWorkspace — renaming and deleting a document', () => {
     const user = userEvent.setup()
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /alpha\.pdf/i }))
-    await user.click(await screen.findByTestId('document-actions-trigger'))
+    fireEvent.click(await findFileButton(/alpha\.pdf/i))
+    const renameDialog = await screen.findByRole('dialog')
+    await user.click(within(renameDialog).getByTestId('document-actions-trigger'))
     await user.click(await screen.findByRole('menuitem', { name: /rename/i }))
 
     const field = await screen.findByLabelText('Name')
@@ -349,8 +363,9 @@ describe('ProjectFileWorkspace — renaming and deleting a document', () => {
     const user = userEvent.setup()
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /alpha\.pdf/i }))
-    await user.click(await screen.findByTestId('document-actions-trigger'))
+    fireEvent.click(await findFileButton(/alpha\.pdf/i))
+    const deleteDialog = await screen.findByRole('dialog')
+    await user.click(within(deleteDialog).getByTestId('document-actions-trigger'))
     await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
     await user.click(await screen.findByTestId('document-delete-confirm'))
 
@@ -655,7 +670,7 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
         showModels
       />
     )
-    fireEvent.click(await screen.findByRole('button', { name: /Haus-A\.ifc/i }))
+    fireEvent.click(await findFileButton(/Haus-A\.ifc/i))
 
     // The name, not the id: `?model=` is resolved by file name so the link
     // survives a re-ingestion and stays readable in a chat message.
@@ -678,7 +693,7 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
         showModels
       />
     )
-    fireEvent.click(await screen.findByRole('button', { name: /Einreichplan\.pdf/i }))
+    fireEvent.click(await findFileButton(/Einreichplan\.pdf/i))
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(routerReplace).not.toHaveBeenCalled()
@@ -691,7 +706,7 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
     renderWorkspace(
       <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
     )
-    fireEvent.click(await screen.findByRole('button', { name: /Haus-A\.ifc/i }))
+    fireEvent.click(await findFileButton(/Haus-A\.ifc/i))
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(routerReplace).not.toHaveBeenCalled()

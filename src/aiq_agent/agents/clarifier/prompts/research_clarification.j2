@@ -174,12 +174,9 @@ User: "What caused World War I?"
 Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts.
 {% endif %}
 
-{% if available_documents and available_documents | length > 0 %}
-## Uploaded documents (IMPORTANT)
-The user has uploaded the following file(s); they are ingested and will be included in research:{% for doc in available_documents %}
-- **{{ doc.file_name }}**: {{ doc.summary or "No summary" }}{% endfor %}
-
-If the user's request refers to "the paper", "my file", "the document", or a filename (e.g. {{ available_documents[0].file_name }}), treat it as referring to these uploaded files. Do NOT ask which paper or which file — proceed with the understanding that the uploaded file(s) are the subject. Only ask for clarification on other missing dimensions (e.g. comparison criteria), not the document identity.
+{% if document_inventory %}
+{{ document_inventory }}
+If the user's request refers to "the paper", "my file", "the document", or a filename listed under Projektwissen / Büroarchiv / Private Sitzung, treat it as referring to those files — not to Basiswissen (OIB). Do NOT ask which paper or which file. Only ask for clarification on other missing dimensions (e.g. comparison criteria), not the document identity.
 {% endif %}
 
 {% if clarifier_result is defined and clarifier_result %}

@@ -44,13 +44,22 @@ The whole header is hidden on an empty chat that has not started yet, apart from
 
 The composer is a white card with the message field on top and a control row below, separated by a hairline:
 
-- **Asking about … bar**: when this turn is about a project file (Ask Piloti, a surfaced card, or a cited drawing), a bar at the top of the composer names that file. Hiding the peek beside the chat does not drop it — **Show file** brings the viewer back, and the **×** stops asking about the file. The next send follows whatever the bar names.
+- **Asking about … bar**: when this turn is about a project file (**Piloti dazu fragen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Piloti dazu fragen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
 - **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
 - **Attach / file counter / send**: unchanged file-upload and send affordances.
 
-Under the composer, on an empty thread, a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (law sources such as RIS), *Projektunterlagen* (project documents; external sources off), and *Büroarchiv* (office archive). A preset maps onto the data sources the backend actually exposes; the pressed shortcut is the only place the preset is named. Any manual change in the Data Sources panel takes you off the preset again. The composer control row does not repeat the preset as a second chip.
+Under the composer a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (base corpus + RIS), *Projektunterlagen* (this project's files, not the Büroarchiv), and *Büroarchiv* (office archive, not project files). They stay available after the first message. A pressed preset also tells retrieval which knowledge shelves to keep; it is not only an external-source toggle. Any manual change in the Data Sources panel takes you off the preset again. Uploading a file into the chat binds the next send to that file — "Fass den Inhalt zusammen" does not walk the rest of the project or the Archiv.
+
+Documents sit on four nested shelves. Asking **which files** sit where is answered from that shelf only:
+
+- **Basiswissen** — always on the request (OIB / law corpus).
+- **Büroarchiv** — on every project in the organization. Not OIB, not this project's files.
+- **Projektwissen** — on every session of this project.
+- **This chat** — only the current session.
+
+An empty shelf is empty. A question *about the content* of a file is research and searches that file.
 
 ## Invoking a skill (`/name`)
 
@@ -97,7 +106,7 @@ When collaboration is enabled (ADR-0032…0036), a chat can have a named audienc
 
 **Read-only and revoked access.** Someone with view-only access reads along but cannot send; the composer says so instead of silently rejecting, and everything on the composer that would write to the shared chat goes with it — attachments, drag-and-drop, the shortcut chips and every route to the *Datengrundlage*. Opening a file that is already attached still works: reading along is the point. If access to a shared chat is revoked while it is open, a notice explains that what remains is a local copy that no longer updates. While a colleague's turn is running, the composer is locked with a hint rather than letting two people write into one thread at once.
 
-**The inbox.** The inbox (nav entry with a live count badge, and an "Inbox" pill on org-level pages) lists everything that needs a person: mention requests, answers, and shares. Items deep-link into the right chat, highlight the message, and are marked read as you open them; resolved items carry an *Answered* chip, the list can be filtered or archived, and the badge count also rides on the chat's own navigation on phones.
+**The inbox.** The inbox (nav entry with a live count badge, and an "Inbox" pill on org-level pages) lists everything that needs a person: mention requests, answers, and shares. Items deep-link into the right chat, highlight the message, and are marked read as you open them; resolved items carry an *Answered* chip, the list can be filtered or archived, and the badge count also rides on the chat's own navigation on phones. The page lives above projects, so it has the same back control Organisation and Platform do: it returns you to the project you came from, not to a settings tab you clicked through on the way.
 
 ## Chat history panel
 

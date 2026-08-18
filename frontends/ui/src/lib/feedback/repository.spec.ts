@@ -26,6 +26,7 @@ const values = {
   userId: 'user_1',
   verdict: 'up' as const,
   reason: null,
+  comment: null,
 }
 
 beforeEach(() => {

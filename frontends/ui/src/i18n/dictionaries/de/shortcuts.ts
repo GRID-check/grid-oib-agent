@@ -15,6 +15,11 @@ export const shortcuts: typeof en.shortcuts = {
     /** The intake wizard section (labelled "Einrichtung" in the product). */
     intake: 'Einrichtung',
     toggleTheme: 'Design umschalten',
+    hints: {
+      move: 'bewegen',
+      open: 'öffnen',
+      close: 'schließen',
+    },
   },
   cheatsheet: {
     title: 'Tastaturkürzel',

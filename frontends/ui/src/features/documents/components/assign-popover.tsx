@@ -1,8 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { FieldError } from '@/components/ui/field'
+import { Item, ItemActions, ItemContent, ItemTitle } from '@/components/ui/item'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { SearchField } from '@/components/ui/search-field'
+import { Spinner } from '@/components/ui/spinner'
 import { useChatStore } from '@/features/chat'
 import { useTranslations } from '@/i18n'
 import type { FileAssignee } from './project-file-workspace'
@@ -118,36 +124,57 @@ export function AssignPopover({
           </Button>
         )}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 space-y-2 p-3">
+      <PopoverContent
+        align="start"
+        className="w-72 space-y-2 p-3 duration-200 ease-out motion-reduce:animate-none"
+      >
         {!pickOnly &&
-          assignees.map((person) => (
-            <div key={person.userId} className="flex items-center justify-between gap-2 text-sm">
-              <span className="truncate">{person.name || person.email || person.userId}</span>
-              <Button type="button" variant="ghost" size="sm" className="h-7" disabled={busy} onClick={() => void remove(person.userId)}>
-                ×
-              </Button>
-            </div>
-          ))}
+          assignees.map((person) => {
+            const label = person.name || person.email || person.userId
+            return (
+              <Item key={person.userId} className="gap-2 px-0 py-0">
+                <ItemContent>
+                  <ItemTitle className="font-normal">{label}</ItemTitle>
+                </ItemContent>
+                <ItemActions>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    disabled={busy}
+                    aria-label={`${label} · ${t('assignment.unassigned')}`}
+                    onClick={() => void remove(person.userId)}
+                  >
+                    <X className="size-3.5" aria-hidden />
+                  </Button>
+                </ItemActions>
+              </Item>
+            )
+          })}
         {!pickOnly && actorId && !alreadyMine && (
           <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy} onClick={() => void post(actorId)}>
             {t('assignment.assignToMe')}
           </Button>
         )}
-        <input
+        <SearchField
+          type="text"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={setQuery}
+          onClear={() => setQuery('')}
           placeholder={t('assignment.to')}
-          className="h-8 w-full rounded-md border bg-background px-2 text-sm"
-          disabled={busy}
+          label={t('assignment.to')}
+          clearLabel={t('browser.clearSearch')}
+          inputClassName="h-8"
         />
-        <div className="max-h-52 space-y-0.5 overflow-y-auto">
+        <ScrollArea className="h-52 min-h-52">
           {loading && people.length === 0 ? (
-            <p className="text-muted-foreground px-1 py-2 text-xs">{t('assignment.loadingPeople')}</p>
+            <div className="flex h-full min-h-52 items-center justify-center py-6">
+              <Spinner size="sm" label={t('assignment.loadingPeople')} />
+            </div>
           ) : loadError ? (
             <div className="space-y-1.5 px-1 py-2">
-              <p className="text-destructive text-xs" role="alert">
-                {t('assignment.peopleLoadError')}
-              </p>
+              <FieldError>{t('assignment.peopleLoadError')}</FieldError>
               <Button
                 type="button"
                 variant="outline"
@@ -164,29 +191,37 @@ export function AssignPopover({
             filtered.map((person) => {
               const assigned = assignees.some((row) => row.userId === person.userId)
               return (
-                <button
+                <Item
                   key={person.userId}
-                  type="button"
-                  disabled={busy || (!pickOnly && assigned)}
-                  className="hover:bg-accent flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm disabled:opacity-50"
-                  onClick={() => {
-                    if (onPick) {
-                      onPick(person)
-                      setOpen(false)
-                      return
-                    }
-                    void post(person.userId)
-                  }}
+                  asChild
+                  className="w-full rounded-md px-2 py-1.5 transition-opacity duration-150 ease-out disabled:opacity-50 motion-reduce:transition-none"
                 >
-                  <span className="truncate">{person.name || person.email}</span>
-                  {!pickOnly && assigned ? (
-                    <span className="text-muted-foreground text-[11px]">{t('assignment.responsible')}</span>
-                  ) : null}
-                </button>
+                  <button
+                    type="button"
+                    disabled={busy || (!pickOnly && assigned)}
+                    onClick={() => {
+                      if (onPick) {
+                        onPick(person)
+                        setOpen(false)
+                        return
+                      }
+                      void post(person.userId)
+                    }}
+                  >
+                    <ItemContent>
+                      <ItemTitle className="font-normal">{person.name || person.email}</ItemTitle>
+                    </ItemContent>
+                    {!pickOnly && assigned ? (
+                      <ItemActions>
+                        <span className="text-muted-foreground text-[11px]">{t('assignment.responsible')}</span>
+                      </ItemActions>
+                    ) : null}
+                  </button>
+                </Item>
               )
             })
           )}
-        </div>
+        </ScrollArea>
       </PopoverContent>
     </Popover>
   )

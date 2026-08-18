@@ -271,6 +271,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'h1',
   },
   {
+    id: 'project-chrome',
+    mobile: true,
+    path: '/dev/project-chrome',
+    description:
+      'Shared project section chrome — breadcrumb + title + subtitle + actions — every section that uses it, grouped as Work (Files, History), Automate (Jobs, Skills), Project (Knowledge, Settings, Setup) and Organization (Archiv, Inbox). Chat is the documented exception and is not shown.',
+    waitFor: '[data-testid="project-chrome-preview"]',
+  },
+  {
     id: 'shortcuts',
     mobile: true,
     path: '/dev/shortcuts',
@@ -738,5 +746,20 @@ export const SCREENSHOT_TARGETS = [
     description:
       'Ask Piloti from a file: chat is home, the file sits as a right-hand peek of what you are talking about — not a 50/50 split.',
     waitFor: '[data-testid="file-chat-dock"]',
+  },
+  {
+    id: 'projects-home',
+    mobile: true,
+    path: '/dev/projects-home',
+    description:
+      'Projects home at nine projects — the size the page is actually used at. The three the viewer has worked in sit on the resume rail as large cards ordered by their OWN last message (12 minutes, 3 hours, yesterday), and the remaining six are rows: initials tile on the left to index a scan by, brief, status, document count and timestamp in right-aligned tabular columns. The page used to be one uniform card grid sorted oldest-first, so the project touched ten minutes ago rendered below three nobody had opened. The rail is a fixed three regardless of how many projects exist, which is what stops the page changing shape as the list grows.',
+    waitFor: '[data-testid="projects-home-preview"]',
+  },
+  {
+    id: 'projects-home-fresh',
+    path: '/dev/projects-home?variant=fresh',
+    description:
+      'The same page for someone who has not worked in any project yet: the rail is filled by project recency instead, and the heading says "Your projects" rather than "Pick up where you left off". The label is load-bearing — the data cannot support a "continue" claim here, and the row timestamps fall back to the project’s own last movement.',
+    waitFor: '[data-testid="projects-home-preview"]',
   },
 ]

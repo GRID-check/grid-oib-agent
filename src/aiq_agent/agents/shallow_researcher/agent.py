@@ -82,7 +82,15 @@ _INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card"})
 # Tool-name base resolution lives with the retrieval that also needs it
 # (``tool_search.tool_basename``) so both the meta partition and the
 # ``always_include`` pin set resolve a group-qualified name the same way.
+# This replaces the local separator-splitting helper: `TOOL_NAME_SEPARATORS`
+# now lives beside `tool_basename` in `tool_search`, so a NAT-qualified name
+# is decomposed in exactly one place rather than two that can disagree.
 _tool_basename = tool_basename
+
+# File-discovery tools that are NOT data-source registry entries, but still
+# mix shelves if they stay bound on a listing/meta turn (the IFC models in
+# "was hast du im Archiv" never came from available_documents).
+_FILE_DISCOVERY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_measure"})
 
 # Cap on both tool-search caches (query → selection, selection → bound LLM).
 # A shared agent serves many requests, so each map is dropped WHOLE at the cap
@@ -103,6 +111,8 @@ def _is_search_tool(tool_name: str) -> bool:
     """
     if _tool_basename(tool_name) in _INTERACTION_TOOL_BASENAMES:
         return False
+    if _tool_basename(tool_name) in _FILE_DISCOVERY_BASENAMES:
+        return True
     return get_source_id_for_tool(tool_name) is not None
 
 

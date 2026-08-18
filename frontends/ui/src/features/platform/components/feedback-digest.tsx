@@ -28,6 +28,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatRelativeTime } from '@/lib/format'
@@ -107,7 +108,7 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
 
   if (loading && !data) {
     return (
-      <div className={cn('space-y-2 rounded-lg border bg-muted/30 p-4', className)}>
+      <div className={cn('min-h-[8.5rem] space-y-2 rounded-lg border bg-muted/30 p-4', className)}>
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-12 w-full" />
       </div>
@@ -122,22 +123,25 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
   // reason to look at the logs.
   if (!digest) {
     return (
-      <p
-        className={cn('rounded-lg border border-dashed px-4 py-3 text-xs text-muted-foreground', className)}
+      <EmptyState
+        variant="bare"
+        className={cn('min-h-[8.5rem]', className)}
         data-testid="feedback-digest-empty"
-      >
-        {t(
+        title={t(
           error && BENIGN.has(error)
             ? `answerFeedback.digest.${error === 'no_feedback' ? 'emptyNoFeedback' : 'emptyTooFew'}`
             : 'answerFeedback.digest.unavailable',
         )}
-      </p>
+      />
     )
   }
 
   return (
     <section
-      className={cn('space-y-3 rounded-lg border bg-muted/30 p-4', className)}
+      className={cn(
+        'animate-in fade-in-0 min-h-[8.5rem] space-y-3 rounded-lg border bg-muted/30 p-4 duration-200 ease-out motion-reduce:animate-none',
+        className,
+      )}
       data-testid="feedback-digest"
       aria-label={t('answerFeedback.digest.title')}
     >
@@ -155,7 +159,7 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
             })}
           </span>
           <Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={loading}>
-            <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} aria-hidden />
+            <RefreshCw className={cn('size-3.5', loading && 'animate-spin motion-reduce:animate-none')} aria-hidden />
             <span className="sr-only">{t('answerFeedback.digest.regenerate')}</span>
           </Button>
         </div>

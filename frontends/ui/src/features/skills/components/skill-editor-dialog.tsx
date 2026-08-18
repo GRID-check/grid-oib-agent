@@ -24,11 +24,15 @@
  */
 
 import { useCallback, useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { FieldShell, useAppForm } from '@/components/form'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Chip } from '@/components/ui/chip'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   Dialog,
   DialogContent,
@@ -37,9 +41,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Item, ItemContent, ItemDescription, ItemList, ItemTitle } from '@/components/ui/item'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { SearchField } from '@/components/ui/search-field'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
@@ -64,7 +70,6 @@ import {
   type AgentScope,
 } from '../lib/agent-scope'
 import { renderSkillDocument, type ParsedSkillDocument } from '../lib/skill-document'
-import { ConfirmDeleteDialog } from './confirm-delete-dialog'
 import { MarkdownEditor, type MarkdownEditorLabels } from './MarkdownEditor'
 import { SkillRawDocumentSection } from './SkillRawDocumentSection'
 import { SkillDocumentPreview } from './SkillDocumentPreview'
@@ -542,7 +547,11 @@ export function SkillEditorDialog({
                         const last = checked && agents.selected.length === 1
                         const key = agent === 'shallow_researcher' ? 'chat' : 'deep'
                         return (
-                          <div key={agent} className="flex items-start gap-2.5">
+                          <Field
+                            key={agent}
+                            orientation="horizontal"
+                            className="justify-start gap-2.5"
+                          >
                             <Checkbox
                               id={`skill-agent-${agent}`}
                               checked={checked}
@@ -561,33 +570,33 @@ export function SkillEditorDialog({
                               }
                               className="mt-0.5"
                             />
-                            <Label
-                              htmlFor={`skill-agent-${agent}`}
-                              className="flex min-w-0 flex-col items-start gap-0.5 font-normal"
-                            >
-                              <span className="text-sm font-medium">
+                            <div className="flex min-w-0 flex-col gap-0.5">
+                              <FieldLabel
+                                htmlFor={`skill-agent-${agent}`}
+                                className="font-medium"
+                              >
                                 {t(`editor.agents.${key}.label`)}
-                              </span>
-                              <span className="text-muted-foreground text-xs leading-snug">
+                              </FieldLabel>
+                              <FieldDescription className="leading-snug">
                                 {t(`editor.agents.${key}.hint`)}
-                              </span>
-                            </Label>
-                          </div>
+                              </FieldDescription>
+                            </div>
+                          </Field>
                         )
                       })}
                     </div>
 
-                    <div className="flex items-start justify-between gap-3">
+                    <Field orientation="horizontal">
                       <div className="flex min-w-0 flex-col gap-0.5">
-                        <Label htmlFor="skill-enabled" className="text-sm font-medium">
+                        <FieldLabel htmlFor="skill-enabled">
                           {persistence?.switchLabels?.label ?? t('editor.enabledLabel')}
-                        </Label>
-                        <p className="text-muted-foreground text-xs">
+                        </FieldLabel>
+                        <FieldDescription>
                           {persistence?.switchLabels?.hint ?? t('editor.enabledHint')}
-                        </p>
+                        </FieldDescription>
                       </div>
                       <Switch id="skill-enabled" checked={enabled} onCheckedChange={setEnabled} />
-                    </div>
+                    </Field>
                   </section>
 
                   {/* Preferred output cards (`grid-cards`). Deliberately plain:
@@ -602,61 +611,62 @@ export function SkillEditorDialog({
                     </div>
 
                     {preferredCards.length === 0 ? (
-                      <p className="text-muted-foreground text-xs">{t('editor.cards.empty')}</p>
+                      <EmptyState variant="bare" title={t('editor.cards.empty')} className="py-3" />
                     ) : (
-                      <ul className="flex flex-col gap-1">
+                      <ul className="flex flex-col gap-1.5">
                         {preferredCards.map((type) => (
-                          <li
-                            key={type}
-                            className="bg-muted flex items-start justify-between gap-2 rounded-lg px-2 py-1.5"
-                          >
-                            <span className="min-w-0">
-                              <span className="font-mono text-xs">{type}</span>
-                              <span className="text-muted-foreground block text-xs">
-                                {catalogByType.get(type)?.description}
-                              </span>
+                          <li key={type} className="flex flex-col items-start gap-0.5">
+                            <Chip variant="secondary" size="sm">
+                              <span className="font-mono">{type}</span>
+                              <button
+                                type="button"
+                                aria-label={t('editor.cards.removeAria', { type })}
+                                onClick={() => removeCard(type)}
+                                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 rounded-sm leading-none transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2"
+                              >
+                                <X className="size-3" aria-hidden />
+                              </button>
+                            </Chip>
+                            <span className="text-muted-foreground text-xs">
+                              {catalogByType.get(type)?.description}
                             </span>
-                            <button
-                              type="button"
-                              aria-label={t('editor.cards.removeAria', { type })}
-                              onClick={() => removeCard(type)}
-                              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-md px-1 text-sm leading-none focus-visible:outline-none focus-visible:ring-2"
-                            >
-                              ×
-                            </button>
                           </li>
                         ))}
                       </ul>
                     )}
 
-                    <Input
+                    <SearchField
+                      type="text"
                       value={cardQuery}
-                      onChange={(event) => setCardQuery(event.target.value)}
+                      onChange={setCardQuery}
                       placeholder={t('editor.cards.searchPlaceholder')}
-                      aria-label={t('editor.cards.searchPlaceholder')}
-                      className="h-9"
+                      label={t('editor.cards.searchPlaceholder')}
                     />
 
-                    {cardResults.length === 0 ? (
-                      <p className="text-muted-foreground text-xs">{t('editor.cards.noMatches')}</p>
-                    ) : (
-                      <ul className="border-border max-h-44 overflow-y-auto rounded-lg border">
-                        {cardResults.map((entry) => (
-                          <li key={entry.type}>
-                            <button
-                              type="button"
-                              onClick={() => addCard(entry.type)}
-                              className="hover:bg-muted focus-visible:bg-muted flex w-full flex-col items-start gap-0.5 px-2 py-1.5 text-left focus-visible:outline-none"
-                            >
-                              <span className="font-mono text-xs">{entry.type}</span>
-                              <span className="text-muted-foreground text-xs">
-                                {entry.description}
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <div className="h-44">
+                      {cardResults.length === 0 ? (
+                        <EmptyState
+                          variant="bare"
+                          title={t('editor.cards.noMatches')}
+                          className="flex h-full items-center py-3"
+                        />
+                      ) : (
+                        <ScrollArea className="h-full">
+                          <ItemList>
+                            {cardResults.map((entry) => (
+                              <Item key={entry.type} asChild>
+                                <button type="button" onClick={() => addCard(entry.type)}>
+                                  <ItemContent>
+                                    <ItemTitle className="font-mono">{entry.type}</ItemTitle>
+                                    <ItemDescription>{entry.description}</ItemDescription>
+                                  </ItemContent>
+                                </button>
+                              </Item>
+                            ))}
+                          </ItemList>
+                        </ScrollArea>
+                      )}
+                    </div>
                   </section>
                 </aside>
               </div>
@@ -686,9 +696,28 @@ export function SkillEditorDialog({
                   selector={(state) => [state.canSubmit, state.isSubmitting] as const}
                 >
                   {([canSubmit, isSubmitting]) => (
-                    <Button type="submit" disabled={!canSubmit || isSubmitting}>
-                      {isSubmitting && <Spinner size="sm" />}
-                      {isSubmitting ? t('editor.saving') : t('editor.save')}
+                    <Button type="submit" disabled={!canSubmit || isSubmitting} aria-busy={isSubmitting}>
+                      <span className="inline-grid justify-items-start">
+                        <span
+                          className={cn(
+                            'col-start-1 row-start-1 inline-flex items-center gap-2',
+                            isSubmitting && 'invisible',
+                          )}
+                          aria-hidden={isSubmitting}
+                        >
+                          {t('editor.save')}
+                        </span>
+                        <span
+                          className={cn(
+                            'col-start-1 row-start-1 inline-flex items-center gap-2',
+                            !isSubmitting && 'invisible',
+                          )}
+                          aria-hidden={!isSubmitting}
+                        >
+                          <Spinner size="sm" aria-hidden />
+                          {t('editor.saving')}
+                        </span>
+                      </span>
                     </Button>
                   )}
                 </form.Subscribe>
@@ -700,9 +729,10 @@ export function SkillEditorDialog({
 
       {/* Edit-mode delete: removes the skill from the toolbox; schedules keep
           their saved snapshot, so they keep running unchanged. */}
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
+        tone="destructive"
         title={persistence?.deleteCopy?.title ?? t('editor.deleteTitle')}
         description={
           persistence?.deleteCopy?.description ??

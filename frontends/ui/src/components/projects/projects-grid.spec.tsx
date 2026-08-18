@@ -72,4 +72,79 @@ describe('ProjectsGrid', () => {
     expect(screen.getByText('Start your first project')).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: /search projects/i })).not.toBeInTheDocument()
   })
+
+  test('puts the three projects the viewer worked in most recently on the rail, the rest in the list', () => {
+    render(
+      <ProjectsGrid
+        projects={[
+          createProject({ id: 'p1', name: 'Seestadt' }),
+          createProject({ id: 'p2', name: 'Grinzing' }),
+          createProject({ id: 'p3', name: 'Lände 3' }),
+          createProject({ id: 'p4', name: 'Semmering' }),
+          createProject({ id: 'p5', name: 'Floridsdorf' }),
+        ]}
+        docCounts={{}}
+        viewerActivity={{
+          p4: '2026-08-03T09:00:00Z',
+          p2: '2026-08-05T09:00:00Z',
+          p1: '2026-08-04T09:00:00Z',
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Pick up where you left off' })).toBeInTheDocument()
+
+    // The rail is the only place with headings; the list is <li> rows.
+    expect(screen.getAllByRole('heading', { level: 3 }).map((node) => node.textContent)).toEqual([
+      'Grinzing',
+      'Seestadt',
+      'Semmering',
+    ])
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByRole('heading', { level: 2, name: 'More projects' })).toBeInTheDocument()
+  })
+
+  test('fills the rail with any three projects, and says so, when the viewer has no activity', () => {
+    render(
+      <ProjectsGrid
+        projects={[
+          createProject({ id: 'p1', name: 'Older', createdAt: new Date('2026-01-01T00:00:00Z') }),
+          createProject({ id: 'p2', name: 'Newer', createdAt: new Date('2026-05-01T00:00:00Z') }),
+        ]}
+        docCounts={{}}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Your projects' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Pick up where you left off' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 3 }).map((node) => node.textContent)).toEqual([
+      'Newer',
+      'Older',
+    ])
+    // Fewer projects than rail slots — no list section at all.
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
+  })
+
+  test('collapses the rail into a single result list while searching', async () => {
+    render(
+      <ProjectsGrid
+        projects={[
+          createProject({ id: 'p1', name: 'Wohnbau Seestadt' }),
+          createProject({ id: 'p2', name: 'Wohnbau Linz' }),
+          createProject({ id: 'p3', name: 'Betriebsbau Graz' }),
+          createProject({ id: 'p4', name: 'Hotel Semmering' }),
+        ]}
+        docCounts={{}}
+        viewerActivity={{ p1: '2026-08-05T09:00:00Z' }}
+      />,
+    )
+
+    await userEvent.type(screen.getByRole('textbox', { name: /search projects/i }), 'wohnbau')
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Matches' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Pick up where you left off' })).not.toBeInTheDocument()
+    // Both matches are rows, including the one that was on the rail a moment ago.
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument()
+  })
 })

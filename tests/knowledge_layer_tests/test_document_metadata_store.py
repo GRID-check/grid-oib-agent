@@ -134,6 +134,8 @@ class TestAvailableDocument:
             "tags": None,
             "doc_class": None,
             "display_title": None,
+            "collection": None,
+            "shelf": None,
         }
 
     def test_model_dump_without_summary(self):
@@ -146,6 +148,8 @@ class TestAvailableDocument:
             "tags": None,
             "doc_class": None,
             "display_title": None,
+            "collection": None,
+            "shelf": None,
         }
 
     def test_model_validate(self):
@@ -693,6 +697,7 @@ class TestFactoryFunctions:
         docs = get_available_documents("my_collection")
         assert len(docs) == 2
         assert all(isinstance(doc, AvailableDocument) for doc in docs)
+        assert all(doc.collection == "my_collection" for doc in docs)
 
     @pytest.mark.asyncio
     async def test_get_available_documents_async(self, temp_db_url):

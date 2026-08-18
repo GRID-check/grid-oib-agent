@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { toast } from 'sonner'
-import type { ComposerPrefill } from '@/features/chat/types'
+import type { ComposerPrefill, ComposerSubject } from '@/features/chat/types'
 import { InputArea } from './InputArea'
 
 // Transient send failures surface as toasts; spy on them rather than render them.
@@ -42,6 +42,13 @@ let mockConversationMessages: unknown[] | undefined = []
 let mockCurrentSessionId: string | null = 'session-1'
 // One-shot prefill queued from a deep link / chip.
 let mockComposerPrefill: ComposerPrefill | null = null
+// Bound subject (an uploaded file the next send is about). Read via
+// `useChatStore.getState()` when session files land, so the mock must
+// expose getState the way the real zustand store does.
+let mockComposerSubject: ComposerSubject | null = null
+const mockSetComposerSubject = vi.fn((next: ComposerSubject | null) => {
+  mockComposerSubject = next
+})
 // Real-ish per-session draft store, so component tests exercise genuine
 // save/restore/clear behaviour rather than asserting on spy calls alone.
 let mockDrafts: Record<string, string> = {}
@@ -54,6 +61,50 @@ const mockStartNewSessionDraft = vi.fn()
 
 const mockSaveDataSourcesToConversation = vi.fn()
 
+function mockChatState() {
+  return {
+    currentConversation: mockCurrentSessionId
+      ? { id: mockCurrentSessionId, messages: mockConversationMessages }
+      : null,
+    conversations: mockCurrentSessionId
+      ? [{ id: mockCurrentSessionId, messages: mockConversationMessages ?? [] }]
+      : [],
+    saveDataSourcesToConversation: mockSaveDataSourcesToConversation,
+    isStreaming: mockIsStreaming,
+    stopStreaming: mockStopStreaming,
+    ensureSession: vi.fn(() => {
+      if (!mockCurrentSessionId) mockCurrentSessionId = 'session-new'
+      return mockCurrentSessionId
+    }),
+    startNewSessionDraft: mockStartNewSessionDraft,
+    setRespondToInteractionFn: vi.fn(),
+    setChatSendFn: vi.fn(),
+    deepResearchStatus: mockDeepResearchStatus,
+    isDeepResearchStreaming: mockIsDeepResearchStreaming,
+    deepResearchOwnerConversationId: mockDeepResearchOwnerConversationId,
+    composerPrefill: mockComposerPrefill,
+    consumeComposerPrefill: vi.fn(() => {
+      const value = mockComposerPrefill
+      mockComposerPrefill = null
+      return value
+    }),
+    composerSubject: mockComposerSubject,
+    setComposerSubject: mockSetComposerSubject,
+    composerDrafts: mockDrafts,
+    getComposerDraft: (id: string) => mockDrafts[id] ?? '',
+    setComposerDraft: (id: string, text: string) => {
+      if (text === '') {
+        delete mockDrafts[id]
+        return
+      }
+      mockDrafts[id] = text
+    },
+    clearComposerDraft: (id: string) => {
+      delete mockDrafts[id]
+    },
+  }
+}
+
 vi.mock('@/features/chat', () => ({
   useWebSocketChat: vi.fn(() => ({
     sendMessage: mockSendMessage,
@@ -63,45 +114,10 @@ vi.mock('@/features/chat', () => ({
     noteSendIntent: mockNoteSendIntent,
     pendingInteraction: null,
   })),
-  useChatStore: vi.fn((selector) => {
-    const state = {
-      currentConversation: mockCurrentSessionId
-        ? { id: mockCurrentSessionId, messages: mockConversationMessages }
-        : null,
-      saveDataSourcesToConversation: mockSaveDataSourcesToConversation,
-      isStreaming: mockIsStreaming,
-      stopStreaming: mockStopStreaming,
-      ensureSession: vi.fn(() => {
-        if (!mockCurrentSessionId) mockCurrentSessionId = 'session-new'
-        return mockCurrentSessionId
-      }),
-      startNewSessionDraft: mockStartNewSessionDraft,
-      setRespondToInteractionFn: vi.fn(),
-      setChatSendFn: vi.fn(),
-      deepResearchStatus: mockDeepResearchStatus,
-      isDeepResearchStreaming: mockIsDeepResearchStreaming,
-      deepResearchOwnerConversationId: mockDeepResearchOwnerConversationId,
-      composerPrefill: mockComposerPrefill,
-      consumeComposerPrefill: vi.fn(() => {
-        const value = mockComposerPrefill
-        mockComposerPrefill = null
-        return value
-      }),
-      composerDrafts: mockDrafts,
-      getComposerDraft: (id: string) => mockDrafts[id] ?? '',
-      setComposerDraft: (id: string, text: string) => {
-        if (text === '') {
-          delete mockDrafts[id]
-          return
-        }
-        mockDrafts[id] = text
-      },
-      clearComposerDraft: (id: string) => {
-        delete mockDrafts[id]
-      },
-    }
-    return selector(state)
-  }),
+  useChatStore: Object.assign(
+    vi.fn((selector: (s: ReturnType<typeof mockChatState>) => unknown) => selector(mockChatState())),
+    { getState: () => mockChatState() },
+  ),
   useIsCurrentSessionBusy: vi.fn(() => false),
 }))
 
@@ -297,6 +313,7 @@ describe('InputArea', () => {
     mockConversationMessages = []
     mockCurrentSessionId = 'session-1'
     mockComposerPrefill = null
+    mockComposerSubject = null
     mockDrafts = {}
     mockDeepResearchIntent = false
     mockActiveSourcePreset = null
@@ -1205,27 +1222,17 @@ describe('InputArea', () => {
       )
     })
 
-    test('shortcut chips are hidden once the thread has messages', () => {
+    test('hides shortcut chips after the first chat, so they stay onboarding-only', () => {
       mockConversationMessages = [
         { id: 'msg-1', role: 'user', content: 'Hello', messageType: 'user' },
       ]
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
+      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
       expect(
         screen.queryByRole('button', { name: /building law & guidelines/i })
       ).not.toBeInTheDocument()
-    })
-
-    test('an active preset does not linger as a label after the shortcuts go away', () => {
-      mockActiveSourcePreset = 'project'
-      mockConversationMessages = [
-        { id: 'msg-1', role: 'user', content: 'Show me the plan', messageType: 'user' },
-      ]
-
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-
-      expect(screen.queryByText('Project documents')).not.toBeInTheDocument()
     })
   })
 
@@ -1866,6 +1873,12 @@ describe('InputArea', () => {
       expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
       expect(screen.getByRole('group', { name: /shortcuts/i })).toBeInTheDocument()
     })
+
+    test('hides shortcut presets once the project has had a first chat', () => {
+      mockConversationMessages = [{ id: 'm1', role: 'user', content: 'hello' }]
+      render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
+      expect(screen.queryByRole('group', { name: /shortcuts/i })).not.toBeInTheDocument()
+    })
   })
 
   /**
@@ -1955,6 +1968,7 @@ describe('InputArea — intent to send opens the agent socket', () => {
     mockConversationMessages = []
     mockDrafts = {}
     mockComposerPrefill = null
+    mockComposerSubject = null
     mockAwaitingPending = []
     mockIsStreaming = false
     mockAvailableDataSources = [{ id: 'source-1' }, { id: 'source-2' }]

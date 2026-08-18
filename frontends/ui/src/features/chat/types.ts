@@ -37,6 +37,13 @@ export interface ComposerSubject {
   title?: string | null
   /** Stored file name — retrieval identity, not the label. */
   filename?: string | null
+  /**
+   * Which knowledge shelf the file sits on. Sent as ``focus_shelf``; the
+   * agent maps it to the shelves it may keep. "Summarize this upload"
+   * does not walk the Archiv (#429); a project file does not mix in
+   * Büro hits (#436).
+   */
+  shelf?: 'project' | 'archiv' | 'session'
 }
 
 /** A queued composer prefill: the text plus any structured mentions it renders. */

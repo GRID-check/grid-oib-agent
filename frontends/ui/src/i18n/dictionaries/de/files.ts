@@ -284,7 +284,7 @@ export const files: typeof en.files = {
     expandFile: 'Größer öffnen',
     resizeFile: 'Dateiansicht verbreitern',
     welcomeAbout: 'Dieser Chat dreht sich um {name}. Fragen Sie danach — die Antwort zitiert die Unterlage und das Recht.',
-    subjectHint: 'Piloti liest zuerst diese Unterlage, dann das übrige Projektwissen und das Baurecht.',
+    subjectHint: 'Piloti sucht in dieser Unterlage. Andere Projektakten und das Büroarchiv bleiben außen vor.',
     subjectClear: 'Nicht mehr auf diese Datei beschränken',
     loadingPeople: 'Personen werden geladen…',
     noPeople: 'Noch niemand in diesem Projekt',

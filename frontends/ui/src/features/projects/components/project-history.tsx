@@ -3,8 +3,8 @@
 /**
  * Project History body (spec §5, FB-10) — a client list over the existing
  * conversations BFF domain plus the server-truth research-runs list, styled to
- * the click-dummy's Historie screen (title + search pill, provenance-shaped
- * filter chips, one white card of divided rows).
+ * the click-dummy's Historie screen (search in the shared section header,
+ * exclusive type ToggleGroup, ItemList rows).
  *
  * Conversations deep-link into chat via `?session=` (the same query param
  * `useSessionUrl` already reads on the chat page); research rows reuse
@@ -23,7 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, ChevronRight, MessageSquare, Search } from 'lucide-react'
+import { AlertCircle, ChevronRight, MessageSquare } from 'lucide-react'
 import type { Conversation } from '@/lib/db/schema'
 import {
   CONVERSATION_TAG_KEYS,
@@ -31,13 +31,24 @@ import {
   type ConversationTagKey,
 } from '@/lib/conversations/tags'
 import { conversationsClient } from '@/adapters/api/conversations-client'
-import { Stagger, StaggerItem } from '@/components/motion'
+import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Chip } from '@/components/ui/chip'
 import { EmptyState } from '@/components/ui/empty-state'
-import { PageHeader } from '@/components/ui/page-header'
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemList,
+  ItemMedia,
+  ItemTitle,
+} from '@/components/ui/item'
+import { SearchField } from '@/components/ui/search-field'
+import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { useLocale, useTranslations } from '@/i18n'
 import { ResearchRunsList } from './research-runs-list'
@@ -58,6 +69,9 @@ interface ConversationRow {
 
 /** The one honest cross-store signal this page carries: item type. */
 type HistoryFilter = 'all' | 'conversations' | 'research'
+
+const isHistoryFilter = (value: string): value is HistoryFilter =>
+  value === 'all' || value === 'conversations' || value === 'research'
 
 const toRows = (conversations: Conversation[]): ConversationRow[] =>
   conversations
@@ -83,12 +97,6 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
 
   /** Localised label for a topic tag key. */
   const tagLabel = useCallback((key: ConversationTagKey): string => t(`history.tags.${key}`), [t])
-
-  const toggleTag = useCallback((key: ConversationTagKey) => {
-    setSelectedTags((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
-    )
-  }, [])
 
   // Tracks the in-flight fetch (initial or retry) so a newer load or unmount
   // cancels it — a stale response must never overwrite a newer list.
@@ -158,104 +166,71 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
 
   const showConversations = filter === 'all' || filter === 'conversations'
   const showResearch = filter === 'all' || filter === 'research'
+  const showSectionLabels = filter === 'all'
 
   return (
-    <div>
-      {/* ---- Title + search pill (dummy: one row, justify-between) ---- */}
-      <PageHeader
-        className="mb-7 min-h-9 flex-wrap items-center"
-        title={t('sections.history')}
-        action={
-          <div className="relative w-full sm:w-64">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-[15px] -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('history.searchPlaceholder')}
-              aria-label={t('history.searchAria')}
-              className="h-9 w-full rounded-md border-[0.5px] border-border bg-card pl-9 pr-3 text-[13px] shadow-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-            />
-          </div>
-        }
-      />
+    <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8">
+      <ProjectSectionActions>
+        <SearchField
+          type="text"
+          className="w-full sm:w-64"
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder={t('history.searchPlaceholder')}
+          label={t('history.searchAria')}
+        />
+      </ProjectSectionActions>
 
-      {/* ---- Filter chips (dummy shape; real item-type signal, no faked source dots) ---- */}
-      <div className="mb-4 flex flex-wrap gap-[7px]" role="group" aria-label={t('history.filterAria')}>
-        {chips.map((chip) => {
-          const active = filter === chip.key
-          return (
-            <button
-              key={chip.key}
-              type="button"
-              onClick={() => setFilter(chip.key)}
-              aria-pressed={active}
-              className={cn(
-                'inline-flex h-7 items-center rounded-md border-[0.5px] px-3 text-[12.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
-                active
-                  ? 'border-border bg-card font-medium text-foreground shadow-xs'
-                  : 'border-transparent text-muted-foreground hover:bg-accent',
-              )}
-            >
-              {chip.label}
-            </button>
-          )
-        })}
-      </div>
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        value={filter}
+        onValueChange={(value) => {
+          // Radix single-select emits '' when the pressed item is toggled off.
+          if (isHistoryFilter(value)) setFilter(value)
+        }}
+        className="mb-4"
+        aria-label={t('history.filterAria')}
+      >
+        {chips.map((chip) => (
+          <ToggleGroupItem key={chip.key} value={chip.key}>
+            {chip.label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
 
-      {/* ---- Topic tag filter (only tags that appear on this project's chats) ---- */}
       {showConversations && availableTags.length > 0 && (
-        <div
-          className="mb-4 flex flex-wrap items-center gap-[7px]"
-          role="group"
-          aria-label={t('history.tagFilterAria')}
-        >
-          <span className="mr-0.5 text-[12px] text-muted-foreground">{t('history.tagFilterLabel')}</span>
-          {availableTags.map((key) => {
-            const active = selectedTags.includes(key)
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => toggleTag(key)}
-                aria-pressed={active}
-                className={cn(
-                  'inline-flex h-7 items-center gap-1.5 rounded-md border-[0.5px] px-2.5 text-[12.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
-                  active
-                    ? 'border-border bg-card font-medium text-foreground shadow-xs'
-                    : 'border-transparent text-muted-foreground hover:bg-accent',
-                )}
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    'size-[7px] rounded-full',
-                    active ? 'bg-source-auto' : 'bg-muted-foreground/50',
-                  )}
-                />
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <SectionLabel>{t('history.tagFilterLabel')}</SectionLabel>
+          <ToggleGroup
+            type="multiple"
+            variant="outline"
+            size="sm"
+            value={selectedTags}
+            onValueChange={(value) => setSelectedTags(normalizeConversationTags(value))}
+            aria-label={t('history.tagFilterAria')}
+          >
+            {availableTags.map((key) => (
+              <ToggleGroupItem key={key} value={key}>
                 {tagLabel(key)}
-              </button>
-            )
-          })}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
           {selectedTags.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setSelectedTags([])}
-              className="ml-0.5 inline-flex h-7 items-center rounded-md px-2 text-[12px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedTags([])}>
               {t('history.tagFilterClear')}
-            </button>
+            </Button>
           )}
         </div>
       )}
 
-      <div>
-        {/* ---- Conversations ---- */}
+      <div className="space-y-8">
         {showConversations && (
-          <section aria-label={t('history.conversationsHeading')}>
+          <section className="space-y-3" aria-label={t('history.conversationsHeading')}>
+            {showSectionLabels ? (
+              <SectionLabel as="h2">{t('history.conversationsHeading')}</SectionLabel>
+            ) : null}
             {error ? (
               <Alert variant="destructive">
                 <AlertCircle />
@@ -268,21 +243,22 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                 </AlertDescription>
               </Alert>
             ) : conversations === null ? (
-              <div className="overflow-hidden rounded-lg border-[0.5px] border-border bg-card shadow-xs">
+              <ItemList as="ul" className="list-none">
                 {Array.from({ length: 5 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-3 border-b-[0.5px] border-border px-5 py-3.5"
-                  >
-                    <Skeleton className="size-3.5 rounded-full" />
-                    <div className="flex flex-1 flex-col gap-1.5">
+                  <Item as="li" key={index}>
+                    <ItemMedia className="size-3.5">
+                      <Skeleton className="size-3.5 rounded-full" />
+                    </ItemMedia>
+                    <ItemContent>
                       <Skeleton className="h-3.5 w-48" />
-                      <Skeleton className="h-2.5 w-24" />
-                    </div>
-                    <Skeleton className="h-3 w-16" />
-                  </div>
+                      <Skeleton className="mt-1.5 h-2.5 w-24" />
+                    </ItemContent>
+                    <ItemActions>
+                      <Skeleton className="h-3 w-16" />
+                    </ItemActions>
+                  </Item>
                 ))}
-              </div>
+              </ItemList>
             ) : filtered.length === 0 ? (
               searchQuery.trim() || selectedTags.length > 0 ? (
                 <EmptyState
@@ -303,61 +279,64 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                 />
               )
             ) : (
-              <div className="overflow-hidden rounded-lg border-[0.5px] border-border bg-card shadow-xs">
-                <Stagger>
-                  {filtered.map((conversation) => {
-                    const title = conversation.title || t('history.untitledConversation')
-                    return (
-                      <StaggerItem key={conversation.id}>
+              <ItemList as="ul" className="list-none">
+                {filtered.map((conversation) => {
+                  const title = conversation.title || t('history.untitledConversation')
+                  return (
+                    <li key={conversation.id}>
+                      <Item asChild className="group w-full">
                         <Link
                           href={`${chatHref}?session=${encodeURIComponent(conversation.id)}`}
                           aria-label={t('history.openConversation', { title })}
-                          className="flex items-center gap-3 border-b-[0.5px] border-border px-5 py-3.5 outline-none transition-colors duration-200 ease-out hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
                         >
-                          <span
-                            aria-hidden
-                            className="box-border inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed border-source-auto"
-                          >
-                            <span className="size-[5px] rounded-full bg-source-auto" />
-                          </span>
-                          <span className="flex min-w-0 flex-1 flex-col">
-                            <span className="truncate text-[13px] font-medium text-foreground" title={title}>
-                              {title}
+                          <ItemMedia className="size-3.5">
+                            <span
+                              aria-hidden
+                              className="box-border inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed border-source-auto"
+                            >
+                              <span className="size-[5px] rounded-full bg-source-auto" />
                             </span>
-                            <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                              <span className="text-[11.5px] text-muted-foreground">
+                          </ItemMedia>
+                          <ItemContent>
+                            <ItemTitle title={title}>{title}</ItemTitle>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <ItemDescription className="overflow-visible whitespace-normal">
                                 {t('history.typeConversation')}
-                              </span>
+                              </ItemDescription>
                               {conversation.tags.map((tag) => (
-                                <span
-                                  key={tag}
-                                  className="inline-flex h-[18px] items-center rounded-full border-[0.5px] border-border bg-accent/40 px-2 text-[10.5px] font-medium text-muted-foreground"
-                                >
+                                <Chip key={tag} size="sm" variant="muted">
                                   {tagLabel(tag)}
-                                </span>
+                                </Chip>
                               ))}
+                            </div>
+                          </ItemContent>
+                          <ItemActions>
+                            <span
+                              className="text-xs text-muted-foreground"
+                              title={formatAbsoluteTime(conversation.updatedAt, locale)}
+                            >
+                              {formatRelativeTime(conversation.updatedAt, locale)}
                             </span>
-                          </span>
-                          <span
-                            className="shrink-0 text-xs text-muted-foreground"
-                            title={formatAbsoluteTime(conversation.updatedAt, locale)}
-                          >
-                            {formatRelativeTime(conversation.updatedAt, locale)}
-                          </span>
-                          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                            <ChevronRight
+                              className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                              aria-hidden
+                            />
+                          </ItemActions>
                         </Link>
-                      </StaggerItem>
-                    )
-                  })}
-                </Stagger>
-              </div>
+                      </Item>
+                    </li>
+                  )
+                })}
+              </ItemList>
             )}
           </section>
         )}
 
-        {/* ---- Deep research runs (FB-10, server truth) ---- */}
         {showResearch && (
-          <section aria-label={t('history.researchHeading')}>
+          <section className="space-y-3" aria-label={t('history.researchHeading')}>
+            {showSectionLabels ? (
+              <SectionLabel as="h2">{t('history.researchHeading')}</SectionLabel>
+            ) : null}
             <ResearchRunsList projectId={projectId} projectCollection={projectCollection} />
           </section>
         )}

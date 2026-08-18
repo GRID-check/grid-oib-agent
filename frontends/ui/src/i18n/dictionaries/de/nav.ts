@@ -22,6 +22,20 @@ export const nav: typeof en.nav = {
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
     intake: 'Einrichtung',
   },
+  sectionGroups: {
+    work: 'Arbeit',
+    automate: 'Automatisieren',
+    org: 'Organisation',
+  },
+  sectionSubtitles: {
+    files: 'Dokumente, auf die sich Piloti in diesem Projekt stützt.',
+    history: 'Alle Unterhaltungen und Deep-Research-Läufe dieses Projekts.',
+    skills: 'Wiederverwendbare Anweisungen, die die Organisation einmal schreibt.',
+    jobs: 'Prompts, die dieses Projekt zeitgesteuert ausführt.',
+    knowledge: 'Was die Wissensbasis derzeit enthält.',
+    settings: 'Projektprofil, Mitglieder, Gedächtnis und Gefahrenzone.',
+    intake: 'Geführtes Briefing für dieses Projekt.',
+  },
   backTo: 'Zurück zu {label}',
   returnTargets: {
     project: 'zum Projekt',

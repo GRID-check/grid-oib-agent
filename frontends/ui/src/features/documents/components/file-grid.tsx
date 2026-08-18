@@ -2,6 +2,7 @@
 
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { RaisedCard, RaisedCardBody, RaisedCardFooter, RaisedCardMedia } from '@/components/ui/raised-card'
 import { Skeleton } from '@/components/ui/skeleton'
 
 /**
@@ -14,7 +15,9 @@ export function FileGrid({ children, className }: { children: ReactNode; classNa
   return (
     <div
       className={cn(
-        'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(196px,1fr))]',
+        // `items-stretch` keeps every cell as tall as the row so footers sit on
+        // one line; hover must not scale a card (that would shove its neighbours).
+        'grid items-stretch gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(196px,1fr))]',
         className
       )}
     >
@@ -30,18 +33,21 @@ export function FileGrid({ children, className }: { children: ReactNode; classNa
  */
 export function FileCardSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border bg-muted/50">
-      <div className="overflow-hidden rounded-b-[10px] bg-card shadow-2xs">
-        <Skeleton className="h-[124px] w-full rounded-none" />
-        <div className="space-y-2 px-3.5 pb-3 pt-[11px]">
+    <RaisedCard>
+      <RaisedCardBody className="flex-1 p-0">
+        {/* Same reserved well as FileCard — a collapsing thumbnail is a row jump. */}
+        <RaisedCardMedia className="h-[124px] min-h-[124px]">
+          <Skeleton className="absolute inset-0 h-full w-full rounded-none" />
+        </RaisedCardMedia>
+        <div className="min-h-[4.5rem] space-y-2 px-3.5 pb-3 pt-[11px]">
           <Skeleton className="h-4 w-20" />
           <Skeleton className="h-3.5 w-2/3" />
           <Skeleton className="h-3 w-full" />
         </div>
-      </div>
-      <div className="px-3.5 pb-2.5 pt-[9px]">
+      </RaisedCardBody>
+      <RaisedCardFooter className="min-h-[30px] gap-1.5 px-3.5 pb-2.5 pt-[9px]">
         <Skeleton className="ml-auto h-3 w-24" />
-      </div>
-    </div>
+      </RaisedCardFooter>
+    </RaisedCard>
   )
 }

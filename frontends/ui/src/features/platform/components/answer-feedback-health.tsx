@@ -43,13 +43,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Download, MessageSquareWarning, RefreshCw, Search, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { Download, MessageSquareWarning, RefreshCw, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Input } from '@/components/ui/input'
+import { SearchField } from '@/components/ui/search-field'
+import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
 import { FeedbackDigest } from './feedback-digest'
 import { FeedbackTrend } from './feedback-trend'
@@ -268,7 +270,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
         </CardDescription>
         <CardAction className="flex items-center gap-1.5">
           <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} aria-hidden />
+            <RefreshCw className={cn('size-3.5', loading && 'animate-spin motion-reduce:animate-none')} aria-hidden />
             {t('answerFeedback.refresh')}
           </Button>
           {/* A plain link, not a fetch: the route sets Content-Disposition, so the
@@ -287,33 +289,31 @@ export function AnswerFeedbackHealth(): JSX.Element {
         {/* ---- Filters. One row above the content, always present — a control
              that appears only once there is data is a control nobody finds. ---- */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1" role="group" aria-label={t('answerFeedback.windowLabel')}>
+          <ToggleGroup
+            type="single"
+            size="sm"
+            value={String(days)}
+            onValueChange={(value) => {
+              if (value) setDays(Number(value))
+            }}
+            aria-label={t('answerFeedback.windowLabel')}
+          >
             {WINDOWS.map((option) => (
-              <Button
-                key={option}
-                variant={option === days ? 'secondary' : 'ghost'}
-                size="sm"
-                aria-pressed={option === days}
-                onClick={() => setDays(option)}
-              >
+              <ToggleGroupItem key={option} value={String(option)}>
                 {t('answerFeedback.windowDays', { count: option })}
-              </Button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
 
-          <div className="relative min-w-0 flex-1 sm:max-w-xs">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('answerFeedback.searchPlaceholder')}
-              aria-label={t('answerFeedback.searchPlaceholder')}
-              className="h-8 pl-8 text-xs"
-            />
-          </div>
+          <SearchField
+            className="min-w-0 flex-1 sm:max-w-xs"
+            value={query}
+            onChange={setQuery}
+            placeholder={t('answerFeedback.searchPlaceholder')}
+            label={t('answerFeedback.searchPlaceholder')}
+            type="text"
+            inputClassName="h-8 text-xs"
+          />
 
           {/* Active filters as removable chips rather than a form that has to be
               read to know what is applied — the state IS the affordance. */}
@@ -326,9 +326,10 @@ export function AnswerFeedbackHealth(): JSX.Element {
         </div>
 
         {loading && !data ? (
-          <div className="space-y-3">
+          <div className="min-h-[20rem] space-y-3">
             <Skeleton className="h-16 w-full" />
             <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-32 w-full" />
           </div>
         ) : failed ? (
           <EmptyState
@@ -345,7 +346,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
             description={t('answerFeedback.emptyBody')}
           />
         ) : (
-          <>
+          <div className="animate-in fade-in-0 min-h-[20rem] space-y-6 duration-200 ease-out motion-reduce:animate-none">
             {/* ---- The window in sentences, above the figures it is made of.
                  Its own fetch, so a slow model never delays the numbers. ---- */}
             <FeedbackDigest search={search} />
@@ -411,9 +412,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                  value never lives in the colour alone. ---- */}
             {data!.totals.down > 0 && (
               <div className="space-y-2">
-                <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t('answerFeedback.reasonsHeading')}
-                </h4>
+                <SectionLabel as="h3">{t('answerFeedback.reasonsHeading')}</SectionLabel>
                 <ul className="space-y-1.5" data-testid="feedback-reason-bars">
                   {reasonBars.map(({ reason: reasonKey, count, pct }) => (
                     <li key={reasonKey} className="flex items-center gap-3">
@@ -433,7 +432,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         }}
                         aria-pressed={reason === reasonKey}
                         className={cn(
-                          'w-32 shrink-0 truncate rounded text-left text-xs transition-colors',
+                          'w-32 shrink-0 truncate rounded text-left text-xs transition-colors duration-200 ease-out',
                           'underline decoration-dotted decoration-from-font underline-offset-[3px]',
                           // Truncation clips a `touch-target` overlay, so these
                           // text-height filters buy their 44px with padding instead.
@@ -476,9 +475,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                  deciding what to protect needs the top of this list. ---- */}
             {topicRows.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t('answerFeedback.topicsHeading')}
-                </h4>
+                <SectionLabel as="h3">{t('answerFeedback.topicsHeading')}</SectionLabel>
                 <ul className="divide-y rounded-lg border" data-testid="feedback-topics">
                   {topicRows.map(({ topic: topicKey, votes, rate }) => (
                     <li
@@ -486,7 +483,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                       data-testid="feedback-topic"
                       data-selected={topic === topicKey || undefined}
                       className={cn(
-                        'flex items-center gap-3 px-3 py-2 text-xs transition-colors',
+                        'flex items-center gap-3 px-3 py-2 text-xs transition-colors duration-200 ease-out',
                         topic === topicKey && 'bg-accent/40',
                       )}
                     >
@@ -538,9 +535,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                  first row rather than something to hunt for. ---- */}
             {data!.organizations.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t('answerFeedback.orgsHeading')}
-                </h4>
+                <SectionLabel as="h3">{t('answerFeedback.orgsHeading')}</SectionLabel>
                 <ul className="divide-y rounded-lg border" data-testid="feedback-orgs">
                   {data!.organizations.map((o) => {
                     const orgTotal = o.up + o.down
@@ -554,7 +549,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                         data-testid="feedback-org"
                         data-selected={org === o.organizationId || undefined}
                         className={cn(
-                          'flex items-center gap-3 px-3 py-2 text-xs transition-colors',
+                          'flex items-center gap-3 px-3 py-2 text-xs transition-colors duration-200 ease-out',
                           org === o.organizationId && 'bg-accent/40',
                         )}
                       >
@@ -610,39 +605,32 @@ export function AnswerFeedbackHealth(): JSX.Element {
                  month's changes to keep. ---- */}
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+                <SectionLabel as="h3">
                   {t(verdict === 'down' ? 'answerFeedback.missedHeading' : 'answerFeedback.landedHeading')}
-                </h4>
-                <div
-                  className="flex items-center gap-1"
-                  role="group"
+                </SectionLabel>
+                <ToggleGroup
+                  type="single"
+                  size="sm"
+                  value={verdict}
+                  onValueChange={(value) => {
+                    if (value !== 'down' && value !== 'up') return
+                    // The reason filter is a down-vote concept; carrying it
+                    // across would silently empty the list.
+                    if (value === 'up') setReason(null)
+                    setVerdict(value)
+                  }}
                   aria-label={t('answerFeedback.verdictLabel')}
                   data-testid="feedback-verdict-switch"
                 >
-                  <Button
-                    variant={verdict === 'down' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    aria-pressed={verdict === 'down'}
-                    onClick={() => setVerdict('down')}
-                  >
+                  <ToggleGroupItem value="down">
                     <ThumbsDown className="size-3.5" aria-hidden />
                     {t('answerFeedback.showMissed')}
-                  </Button>
-                  <Button
-                    variant={verdict === 'up' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    aria-pressed={verdict === 'up'}
-                    onClick={() => {
-                      // The reason filter is a down-vote concept; carrying it
-                      // across would silently empty the list.
-                      setReason(null)
-                      setVerdict('up')
-                    }}
-                  >
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="up">
                     <ThumbsUp className="size-3.5" aria-hidden />
                     {t('answerFeedback.showLanded')}
-                  </Button>
-                </div>
+                  </ToggleGroupItem>
+                </ToggleGroup>
               </div>
               {data!.turns.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -712,7 +700,7 @@ export function AnswerFeedbackHealth(): JSX.Element {
                 </ul>
               )}
             </div>
-          </>
+          </div>
         )}
       </CardContent>
     </Card>

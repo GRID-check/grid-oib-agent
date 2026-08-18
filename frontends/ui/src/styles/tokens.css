@@ -352,6 +352,16 @@
   --color-ring: var(--ring);
   --color-overlay: var(--overlay);
 
+  /* sidebar primitive — aliases onto the existing paper/ink tokens, not a second palette */
+  --color-sidebar: var(--background-color-surface-sunken);
+  --color-sidebar-foreground: var(--foreground);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-primary-foreground: var(--primary-foreground);
+  --color-sidebar-accent: var(--accent);
+  --color-sidebar-accent-foreground: var(--foreground);
+  --color-sidebar-border: var(--border);
+  --color-sidebar-ring: var(--ring);
+
   /* provenance signal system */
   --color-source-law: var(--source-law);
   --color-source-law-tint: var(--source-law-tint);

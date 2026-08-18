@@ -2,12 +2,12 @@
 
 /**
  * The one back control for pages that live OUTSIDE the project shell — the org
- * Archiv, Organisation, Platform, Profil. Those pages drop the project rail, so
- * this link is the whole way out, and each of them used to hard-code its own
- * guess at where "back" is (`/app/projects`, or the reader's active project).
- * For most readers that guess was wrong: they open the Archiv from the ⌘K
- * palette or the user menu, from whatever page they were working on, and landing
- * somewhere they had not been reads as "back did not work".
+ * Archiv, Organisation, Platform, Inbox, Profil. Those pages drop the project
+ * rail, so this link is the whole way out, and each of them used to hard-code
+ * its own guess at where "back" is (`/app/projects`, or the reader's active
+ * project). For most readers that guess was wrong: they open the Archiv from
+ * the ⌘K palette or the user menu, from whatever page they were working on, and
+ * landing somewhere they had not been reads as "back did not work".
  *
  * So it isn't a guess any more. The tab's return trail
  * (`lib/navigation/return-trail`) knows the location one step back and, when
@@ -16,9 +16,14 @@
  * is what the reader is undoing. For everything else `describeAppPath` names the
  * route from the SAME dictionary entry that destination's nav item uses, so the
  * back control and the rail cannot drift apart. Navigation then goes through
- * `history.back()`, so the reader gets the page they left *as they left it*:
- * scroll position, open panels, and Next's cached payload, none of which a fresh
- * push to the same URL restores.
+ * `history.back()` when that one step *is* the destination, so the reader gets
+ * the page they left *as they left it*: scroll position, open panels, and Next's
+ * cached payload, none of which a fresh push to the same URL restores.
+ *
+ * Tabbed shells (Organisation, Platform, Inbox, Profil) are one place, not a
+ * stack of submenus. The trail already collapses those siblings; if an older
+ * trail still has them stacked, this control follows the href out of the shell
+ * instead of walking one tab at a time.
  *
  * The server-resolved `fallbackHref`/`fallbackLabel` still carry the case with
  * no trail to read — a link opened in a new tab, a restored session, a page
@@ -90,6 +95,12 @@ export function BackLink({ fallbackHref, fallbackLabel, className }: BackLinkPro
       return
     }
     if (typeof window !== 'undefined' && window.history.length <= 1) return
+    // history.back() is only safe when the trail's destination is the page
+    // one step behind. Skipping a settings tab means the href is two or more
+    // history entries away — follow the link instead of landing on Models.
+    const trail = readTrail()
+    const immediate = trail.length >= 2 ? trail[trail.length - 2] : null
+    if (immediate && immediate.path !== previous.path) return
     event.preventDefault()
     router.back()
   }
@@ -100,7 +111,9 @@ export function BackLink({ fallbackHref, fallbackLabel, className }: BackLinkPro
       onClick={handleClick}
       data-testid="back-link"
       className={cn(
-        'text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:ring-ring/60 group inline-flex w-fit items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
+        'text-muted-foreground hover:bg-accent/60 hover:text-foreground group inline-flex w-fit items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm',
+        'transition-[color,background-color,transform] duration-200 ease-out active:scale-[0.98] motion-reduce:transition-none',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         className
       )}
     >

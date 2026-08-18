@@ -36,6 +36,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
@@ -48,7 +49,6 @@ import {
   type SkillListItem,
 } from '@/adapters/api/skills-client'
 import { agentScopeLabelKey } from '../lib/agent-scope'
-import { ConfirmDeleteDialog } from './confirm-delete-dialog'
 import { CuratedSkills } from './curated-skills'
 
 interface SkillToolboxProps {
@@ -134,7 +134,7 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
   const curated = skills?.filter((skill) => skill.origin === 'platform') ?? []
 
   return (
-    <section className="space-y-4" aria-labelledby="skills-heading">
+    <section className="space-y-4" aria-label={t('title')}>
       {skills === null && !error && (
         <div className="space-y-3" data-testid="skills-toolbox-loading">
           <Skeleton className="h-24 w-full rounded-xl" />
@@ -194,7 +194,7 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
       )}
 
       {orgSkills.length > 0 && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid animate-in fade-in-0 gap-4 duration-200 ease-out motion-reduce:animate-none lg:grid-cols-2">
           {orgSkills.map((skill) => (
             // The same card as a job and a file (components/ui/raised-card): a
             // white block laid into a tray, with the quiet provenance and the
@@ -207,7 +207,7 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
                       The card stays legible either way — it is off, not gone. */}
                   <div
                     className={cn(
-                      'min-w-0 space-y-1 transition-opacity duration-200 motion-reduce:transition-none',
+                      'min-w-0 space-y-1 transition-opacity duration-200 ease-out motion-reduce:transition-none',
                       !skill.enabled && 'opacity-45',
                     )}
                   >
@@ -301,13 +301,13 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
                         <BookOpen className="size-3.5" aria-hidden />
                         {t('toolbox.actions.viewBody')}
                         <ChevronDown
-                          className="size-3.5 transition-transform group-data-[state=open]:rotate-180"
+                          className="size-3.5 shrink-0 transition-transform duration-200 ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none"
                           aria-hidden
                         />
                       </Button>
                     </CollapsibleTrigger>
                   </div>
-                  <CollapsibleContent className="pt-2">
+                  <CollapsibleContent className="animate-in fade-in-0 pt-2 duration-200 ease-out motion-reduce:animate-none">
                     <pre className="bg-muted/40 text-foreground max-h-64 overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-xs leading-relaxed">
                       {skill.body}
                     </pre>
@@ -319,9 +319,10 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
         </div>
       )}
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={confirmation !== null}
         onOpenChange={(open) => !open && setConfirmId(null)}
+        tone="destructive"
         title={t('editor.deleteTitle')}
         description={t('editor.deleteDescription', { name: confirmation?.name ?? '' })}
         confirmLabel={t('editor.deleteConfirm')}

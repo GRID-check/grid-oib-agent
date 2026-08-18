@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { forwardRef, type AnchorHTMLAttributes, type ReactNode } from 'react'
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -23,19 +23,32 @@ vi.mock('./research-runs-list', () => ({
 }))
 
 vi.mock('next/link', () => ({
-  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
+  default: forwardRef<
+    HTMLAnchorElement,
+    { href: string; children: ReactNode } & AnchorHTMLAttributes<HTMLAnchorElement>
+  >(function MockLink({ href, children, ...rest }, ref) {
+    return (
+      <a ref={ref} href={href} {...rest}>
+        {children}
+      </a>
+    )
+  }),
 }))
 
-const conversation = (id: string, title: string | null, updatedAt: string) => ({
+// The real portal lands in the layout header; unit tests have no slot.
+vi.mock('@/components/shell/project-section-frame', () => ({
+  ProjectSectionActions: ({ children }: { children: ReactNode }) => children,
+}))
+
+const conversation = (id: string, title: string | null, updatedAt: string, tags: string[] = []) => ({
   id,
   title,
+  tags,
   updatedAt,
   createdAt: updatedAt,
 })
+
+const typeChip = (name: string): HTMLElement => screen.getByRole('radio', { name })
 
 describe('ProjectHistory', () => {
   beforeEach(() => {
@@ -121,15 +134,53 @@ describe('ProjectHistory', () => {
     render(<ProjectHistory projectId="p1" projectCollection="proj_1" />)
     await screen.findByText('Brandschutz EG')
 
-    // Default "All": both the conversation list and the research section show.
+    // Exclusive type chips are a radiogroup. Default "All" shows both sections
+    // and the visible section labels.
     expect(screen.getByTestId('research-runs-list')).toBeInTheDocument()
+    const all = typeChip('All')
+    expect(all).toHaveAttribute('data-state', 'on')
+    expect(all).toHaveAttribute('aria-checked', 'true')
+    expect(typeChip('Conversations')).toHaveAttribute('aria-checked', 'false')
+    expect(typeChip('Deep research')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('heading', { name: 'Conversations' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Deep research' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Deep research' }))
+    await userEvent.click(typeChip('Deep research'))
     expect(screen.queryByText('Brandschutz EG')).not.toBeInTheDocument()
     expect(screen.getByTestId('research-runs-list')).toBeInTheDocument()
+    const research = typeChip('Deep research')
+    expect(research).toHaveAttribute('data-state', 'on')
+    expect(research).toHaveAttribute('aria-checked', 'true')
+    expect(typeChip('All')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.queryByRole('heading', { name: 'Conversations' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Deep research' })).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Conversations' }))
+    await userEvent.click(typeChip('Conversations'))
     expect(await screen.findByText('Brandschutz EG')).toBeInTheDocument()
     expect(screen.queryByTestId('research-runs-list')).not.toBeInTheDocument()
+    const conversations = typeChip('Conversations')
+    expect(conversations).toHaveAttribute('data-state', 'on')
+    expect(conversations).toHaveAttribute('aria-checked', 'true')
+  })
+
+  test('topic chips OR-filter conversations; Clear resets the selection', async () => {
+    listConversations.mockResolvedValue([
+      conversation('c1', 'Brandschutz EG', '2026-07-15T10:00:00Z', ['brandschutz']),
+      conversation('c2', 'Stellplatz Nachweis', '2026-07-14T10:00:00Z', ['energie']),
+    ])
+    render(<ProjectHistory projectId="p1" projectCollection="proj_1" />)
+    await screen.findByText('Brandschutz EG')
+
+    const fire = screen.getByRole('button', { name: 'Fire safety' })
+    expect(fire).toHaveAttribute('data-state', 'off')
+    await userEvent.click(fire)
+    expect(fire).toHaveAttribute('data-state', 'on')
+    expect(fire).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByText('Stellplatz Nachweis')).not.toBeInTheDocument()
+    expect(screen.getByText('Brandschutz EG')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(screen.getByText('Stellplatz Nachweis')).toBeInTheDocument()
+    expect(fire).toHaveAttribute('data-state', 'off')
   })
 })

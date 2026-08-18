@@ -123,52 +123,68 @@ def _available_documents_limit() -> int:
         return 50
 
 
+def _as_scoped_collection(item):
+    """Normalize a scope entry to ``ScopedCollection``.
+
+    Bare strings (legacy tests / names-only callers) state no shelf — unknown,
+    never guessed from the collection-id prefix (ADR-0047).
+    """
+    from aiq_agent.knowledge.scoping import ScopedCollection
+
+    if isinstance(item, ScopedCollection):
+        return item
+    if isinstance(item, str) and item.strip():
+        return ScopedCollection(item.strip())
+    return None
+
+
 async def _aggregate_documents_across_collections(collections, fetch_one, max_documents=None):
     """Concurrently load document summaries for each collection and merge them.
 
     ``fetch_one`` is an async callable ``fetch_one(collection) -> list`` (its
     per-collection round-trip). The reads run concurrently instead of one at a
-    time. Collections are merged in input order and files deduped by
-    ``file_name`` (first-seen winning), then the deduped set is sorted by
-    ``file_name`` and capped to ``max_documents`` (``None`` → the
-    ``GRID_AVAILABLE_DOCUMENTS_MAX`` env default). The sort makes the capped set
-    **stable across turns** — the DB rows have no ordering column, so without it
-    the truncated slice (and the resulting prompt prefix) could differ turn to
-    turn, defeating provider prompt caching.
+    time. Each row is stamped with the collection it came from and the shelf
+    the signed scope stated (unknown when the caller passed a bare name).
+
+    Identity is ``(collection, file_name)`` — the same filename on the
+    Büroarchiv and in a project is two documents (ADR-0047). The cap
+    (``max_documents`` or ``GRID_AVAILABLE_DOCUMENTS_MAX``) keeps user-shelf
+    files first so the OIB corpus cannot evict the archive. ``0``/negative
+    disables the cap.
 
     Fail-open per collection: if ``fetch_one`` raises for a collection, that
     collection contributes an empty list (matching the old ``continue``) rather
     than failing the whole aggregation.
     """
+    from aiq_agent.knowledge.inventory import allocate_inventory
+    from aiq_agent.knowledge.inventory import stamp_document
 
-    async def _guarded(coll):
+    scoped = [entry for item in collections if (entry := _as_scoped_collection(item)) is not None]
+
+    async def _guarded(entry):
         try:
-            return await fetch_one(coll)
+            return entry, await fetch_one(entry.collection)
         except Exception as e:
-            logger.debug("No document summaries for collection %s: %s", coll, e)
-            return []
+            logger.debug("No document summaries for collection %s: %s", entry.collection, e)
+            return entry, []
 
-    # gather preserves input order, so the merge order below matches the old loop.
-    per_collection_docs = await asyncio.gather(*(_guarded(coll) for coll in collections))
+    # gather preserves input order, so stamping still follows the scope order.
+    per_collection = await asyncio.gather(*(_guarded(entry) for entry in scoped))
 
     aggregated = []
-    seen_files: set[str] = set()
-    for docs in per_collection_docs:
+    for entry, docs in per_collection:
         for doc in docs or []:
-            if doc.file_name in seen_files:
-                continue
-            seen_files.add(doc.file_name)
-            aggregated.append(doc)
+            aggregated.append(stamp_document(doc, collection=entry.collection, shelf=entry.shelf))
 
-    aggregated.sort(key=lambda d: d.file_name)
     limit = _available_documents_limit() if max_documents is None else max_documents
-    if limit and limit > 0 and len(aggregated) > limit:
+    before = len(aggregated)
+    aggregated = allocate_inventory(aggregated, limit)
+    if limit and limit > 0 and before > len(aggregated):
         logger.info(
             "Capping available_documents from %d to %d (GRID_AVAILABLE_DOCUMENTS_MAX)",
+            before,
             len(aggregated),
-            limit,
         )
-        aggregated = aggregated[:limit]
     return aggregated
 
 
@@ -746,10 +762,16 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         import uuid
 
         # Read the X-Grid-Collection-Scope header from NAT context, if present.
+        # Prefer the shelf-bearing entries (ADR-0047) so the inventory can
+        # group Büroarchiv / Projekt / session / Basiswissen instead of dumping
+        # every filename into one unlabeled list.
         _collection_scope = None
+        _scoped_collections = None
         try:
             from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+            from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 
+            _scoped_collections = get_scoped_collections_from_context()
             _collection_scope = get_collection_scope_from_context()
         except ImportError:
             pass
@@ -902,12 +924,15 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             """
             available_documents = None
             try:
+                from aiq_agent.common.source_kinds import Shelf
                 from aiq_agent.knowledge import get_available_documents_async
+                from aiq_agent.knowledge.scoping import ScopedCollection
 
-                # Header-based collection scope takes precedence. Reuse the value
-                # already decoded once at the top of the turn (_collection_scope)
-                # instead of re-reading and re-normalizing the same header here.
-                header_scope = _collection_scope
+                # Header-based collection scope takes precedence. Reuse the
+                # shelf-bearing entries decoded at the top of the turn so each
+                # inventory row can be stamped with its shelf.
+
+                header_scope = _scoped_collections or _collection_scope
                 if header_scope:
                     collections_to_check = header_scope
                 else:
@@ -923,10 +948,15 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                         os.environ.get("COLLECTION_NAME") or os.environ.get("OIB_COLLECTION_NAME") or "oib_knowledge"
                     )
                     # Distinct collections to query, preserving order (base first).
-                    collections_to_check: list[str] = []
-                    for coll in (base_collection, session_collection):
-                        if coll and coll not in collections_to_check:
-                            collections_to_check.append(coll)
+                    # The fallback *builds* these layers, so the shelf is known
+                    # structurally — not guessed from the name.
+                    collections_to_check: list[ScopedCollection] = []
+                    for coll, shelf in (
+                        (base_collection, Shelf.BASE),
+                        (session_collection, Shelf.SESSION),
+                    ):
+                        if coll and all(entry.collection != coll for entry in collections_to_check):
+                            collections_to_check.append(ScopedCollection(coll, shelf))
 
                 # Read every collection concurrently (instead of one round-trip
                 # at a time) and merge deterministically; see the helper for the
@@ -935,15 +965,18 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     collections_to_check, get_available_documents_async
                 )
 
+                scope_names = [
+                    entry.collection if hasattr(entry, "collection") else entry for entry in collections_to_check
+                ]
                 if aggregated:
                     available_documents = aggregated
                     logger.info(
                         "Loaded %d document summaries across collections %s",
                         len(aggregated),
-                        collections_to_check,
+                        scope_names,
                     )
                 else:
-                    logger.info("No document summaries in DB for collections %s", collections_to_check)
+                    logger.info("No document summaries in DB for collections %s", scope_names)
             except Exception as e:
                 logger.warning("Could not fetch available documents: %s", e)
             return available_documents

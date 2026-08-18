@@ -136,7 +136,8 @@ export const chat: typeof en.chat = {
     citeAll: 'Zitieren',
     citeAsLabel: 'Alle Quellen kopieren als',
     formats: {
-      fachtext: { label: 'Zitiertext', hint: 'Für Befund, Gutachten, Einreichung' },
+      quotes: { label: 'Zitiertext', hint: 'Die belegten Sätze, als Liste' },
+      fachtext: { label: 'Quellenangabe', hint: 'Für Befund, Gutachten, Einreichung' },
       apa: { label: 'APA', hint: 'Formatiertes Literaturverzeichnis' },
       bibtex: { label: 'BibTeX (.bib)', hint: 'LaTeX, JabRef' },
       ris: { label: 'EndNote/Zotero (.ris)', hint: 'Literaturverwaltung' },
@@ -536,6 +537,9 @@ export const chat: typeof en.chat = {
       other: 'Sonstiges',
     },
     thanks: 'Danke für Ihr Feedback.',
+    commentLabel: 'Noch etwas?',
+    commentPlaceholder: 'Optional — was ist schiefgelaufen?',
+    commentSubmit: 'Hinweis senden',
   },
   // Schaltfläche „Nachricht kopieren" auf den Nutzernachrichtenblasen
   copyMessage: {

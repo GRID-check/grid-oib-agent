@@ -3,47 +3,52 @@
 /**
  * The GRID application sidebar — the product's primary navigation surface.
  *
- * Project-centric IA (click-dummy overhaul §5, FB-9/FB-10): "Piloti" wordmark →
- * project switcher → Ask Piloti / Workflows* / Files / History / Archiv* →
- * (spacer) → Settings → user footer. Archiv sits at the foot of the section
- * nav, just above the spacer/Settings (user feedback: the org-wide Archiv is a
- * cross-project doorway, not a primary project section, so it reads better
- * pinned low rather than mid-list). Overview and Members left the nav — their
- * content lives in the project Settings page; the project root redirects to
- * Chat. Quiet by design: a warm sunken surface, hairline border, and one
- * treatment for the active section — a raised white card, matching the click
- * dummy exactly. The rail collapses to an icon-only strip (persisted per
- * browser) for architects who want more room.
+ * Composes the shadcn Sidebar primitive (Sheet on mobile, icon-collapse on
+ * desktop) rather than owning a drawer, a rail, and collapse itself. IA is
+ * still the click-dummy overhaul: "Piloti" wordmark → project switcher →
+ * grouped section nav → pinned Settings → user footer. Active section is a
+ * raised white card on the sunken rail.
  *
- * Mobile-first: below `md` the rail disappears entirely and the shell becomes
- * a slim top bar with a hamburger that opens the same navigation as a
- * left-docked drawer over a scrim. Same content, same design language —
- * only the container changes.
+ * Mobile open state is owned by the layout store so the chat toolbar's
+ * hamburger can open the same Sheet (`useLayoutStore.setMobileNavOpen`).
+ * Collapse persistence lives in the primitive (`grid.sidebar.collapsed`).
  */
 
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ChevronsLeft, ChevronsRight, Menu, X } from 'lucide-react'
+import { ChevronsLeft, ChevronsRight, Menu } from 'lucide-react'
 
 import { Logo } from '@/components/brand/logo'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  useSidebar,
+} from '@/components/ui/sidebar'
 import { useTranslations } from '@/i18n'
 import { pruneProjectSections, useRecordProjectSection } from '@/hooks/use-last-project-section'
 import { useLayoutStore } from '@/features/layout/store'
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
 import { InboxBadge } from '@/features/collaboration/components'
-import { useBodyScrollLock } from '@/shared/hooks/use-body-scroll-lock'
 import { cn } from '@/lib/utils'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import {
   PROJECT_SETTINGS_SECTION,
-  railSections,
+  railGroups,
   type ProjectSection,
 } from './project-sections'
-
-const COLLAPSE_STORAGE_KEY = 'grid.sidebar.collapsed'
 
 export interface AppSidebarProps {
   projectId: string
@@ -89,7 +94,34 @@ export interface AppSidebarProps {
   canAccessInbox: boolean
 }
 
-export function AppSidebar({
+function itemHref(item: ProjectSection, base: string): string {
+  return item.href ?? `${base}/${item.segment}`
+}
+
+function navLinkHref(item: ProjectSection, base: string): string {
+  const href = itemHref(item, base)
+  // "Frag Piloti" always opens a FRESH chat (new/empty draft), never the last
+  // thread the user left open. `?new=1` is consumed once by the chat client.
+  return item.key === 'chat' ? `${href}?new=1` : href
+}
+
+function sectionLabel(
+  item: ProjectSection,
+  t: (key: string) => string,
+  tCollaboration: (key: string) => string,
+): string {
+  return item.label ? tCollaboration(item.label.key) : t(`sections.${item.i18nKey}`)
+}
+
+export function AppSidebar(props: AppSidebarProps) {
+  return (
+    <SidebarProvider className="h-auto min-h-0 w-full shrink-0 md:h-full md:w-auto">
+      <AppSidebarFrame {...props} />
+    </SidebarProvider>
+  )
+}
+
+function AppSidebarFrame({
   projectId,
   projects,
   user,
@@ -105,257 +137,64 @@ export function AppSidebar({
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
   const t = useTranslations('nav')
-  // The inbox entry's label lives with its own feature rather than in the nav
-  // dictionary (see `ProjectSection.label`), so the rail holds both translators.
   const tCollaboration = useTranslations('collaboration')
-  const [collapsed, setCollapsed] = React.useState(false)
-
-  // The "needs you" count for the Inbox entry (spec IB-18/IB-19). One request on
-  // mount, then it rides the live event channel; disabled for a reader who
-  // cannot reach the inbox, in which case the hook does nothing at all.
+  const { state, isMobile } = useSidebar()
   const { pending: inboxPending } = useInboxBadge(canAccessInbox)
 
-  // The mobile nav drawer's open state lives in the layout store so the chat's
-  // floating toolbar can open it: on the chat route the standalone mobile top
-  // bar is hidden (to give the chat plane the full height), and its hamburger
-  // moves into the chat toolbar's pill.
-  const mobileOpen = useLayoutStore((s) => s.isMobileNavOpen)
-  const setMobileOpen = useLayoutStore((s) => s.setMobileNavOpen)
-
-  // Focus management for the mobile drawer (role="dialog" aria-modal). On open
-  // we move focus into the panel and trap Tab within it; on close we restore
-  // focus to whatever opened it (the top-bar hamburger or the chat toolbar's).
-  const drawerRef = React.useRef<HTMLDivElement>(null)
-  const closeButtonRef = React.useRef<HTMLButtonElement>(null)
-  const drawerOpenerRef = React.useRef<HTMLElement | null>(null)
+  const storeOpen = useLayoutStore((s) => s.isMobileNavOpen)
+  const setStoreOpen = useLayoutStore((s) => s.setMobileNavOpen)
 
   // Chat owns its top chrome (floating pills), so the global mobile top bar is
   // redundant there — hide it and let the chat toolbar host the nav opener.
   const isChatRoute = pathname === `${base}/chat` || pathname.startsWith(`${base}/chat/`)
+  const iconRail = state === 'collapsed' && !isMobile
 
-  // "Resume where you left off": remember the section the user is currently on
-  // for this project so entry points (project card / switcher) can land them
-  // back here next time.
   useRecordProjectSection(projectId)
 
-  // Keep the memory tidy: drop entries for projects that no longer exist
-  // (deleted, or no longer accessible) whenever the known project set changes.
   React.useEffect(() => {
-    pruneProjectSections(projects.map((p) => p.id))
+    pruneProjectSections(projects.map((project) => project.id))
   }, [projects])
 
-  // Restore the persisted rail state after mount (avoids SSR hydration mismatch).
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return
-    setCollapsed(window.localStorage.getItem(COLLAPSE_STORAGE_KEY) === 'true')
-  }, [])
-
-  // Close the mobile drawer whenever navigation lands somewhere new.
-  React.useEffect(() => {
-    setMobileOpen(false)
-  }, [pathname, setMobileOpen])
-
-  // Lock background scroll while the drawer is open (it covers the page modally
-  // below md), so the page behind it does not scroll on touch.
-  useBodyScrollLock(mobileOpen)
-
-  // Escape closes the drawer (it behaves like a modal over the page).
-  React.useEffect(() => {
-    if (!mobileOpen) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileOpen(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mobileOpen, setMobileOpen])
-
-  // Focus trap: on open move focus to the close button, keep Tab cycling inside
-  // the panel, and restore focus to the opener on close. Runs only while the
-  // drawer is open (it is unmounted otherwise), so the cleanup that restores
-  // focus fires on every close.
-  React.useEffect(() => {
-    if (!mobileOpen) return
-    if (typeof document === 'undefined') return
-
-    // Remember what had focus so we can hand it back when the drawer closes.
-    const opener = document.activeElement
-    drawerOpenerRef.current = opener instanceof HTMLElement ? opener : null
-
-    // Move focus into the panel (the close button is the first control).
-    closeButtonRef.current?.focus()
-
-    const focusableSelector =
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab') return
-      const panel = drawerRef.current
-      if (!panel) return
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(focusableSelector))
-      if (focusable.length === 0) {
-        // Nothing to focus but the panel — keep focus from escaping it.
-        event.preventDefault()
-        return
-      }
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      const active = document.activeElement
-      if (event.shiftKey) {
-        if (active === first || !panel.contains(active)) {
-          event.preventDefault()
-          last.focus()
-        }
-      } else if (active === last || !panel.contains(active)) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      // Restore focus to the opener (if it's still in the document).
-      const openerEl = drawerOpenerRef.current
-      if (openerEl && document.contains(openerEl)) openerEl.focus()
-      drawerOpenerRef.current = null
-    }
-  }, [mobileOpen])
-
-  const toggleCollapsed = React.useCallback(() => {
-    setCollapsed((prev) => {
-      const next = !prev
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(COLLAPSE_STORAGE_KEY, String(next))
-      }
-      return next
-    })
-  }, [])
-
-  const itemHref = (item: ProjectSection) => item.href ?? `${base}/${item.segment}`
-
-  const isActive = (item: ProjectSection) => pathname.startsWith(itemHref(item))
-
-  // "Frag Piloti" always opens a FRESH chat (new/empty draft), never the last
-  // thread the user left open. It carries ?new=1, which the chat client consumes
-  // once to reset the store to a new-session draft (reusing startNewSessionDraft)
-  // and then strips from the URL. Active-state detection still keys off the plain
-  // path (itemHref), so the query never breaks the highlight.
-  const navLinkHref = (item: ProjectSection) =>
-    item.key === 'chat' ? `${itemHref(item)}?new=1` : itemHref(item)
-
-  // The rail's section list comes from the shared PROJECT_SECTIONS config
-  // (consumed identically by the ⌘K palette, so the two can never drift).
-  // Skills is feature-flagged (default off); Archiv shows for any member of an
-  // org with the `organization-archiv` flag — the same gate the user menu's
-  // Archiv entry uses (the layout passes both from getNavFlags).
-  const navItems = railSections({ showSkills, showModels, canAccessArchiv, canAccessInbox })
-
-  const activeItem = [...navItems, PROJECT_SETTINGS_SECTION].find(isActive)
-
-  // A nav row — shared by the desktop rail, the collapsed rail (icon-only
-  // tiles) and the mobile drawer. Active = raised white card with a hairline
-  // border and soft shadow; inactive = quiet muted ink with a sidebar hover.
-  const renderNavLink = (item: ProjectSection, variant: 'desktop' | 'mobile') => {
-    const href = navLinkHref(item)
-    const active = isActive(item)
-    const Icon = item.icon
-    const iconOnly = variant === 'desktop' && collapsed
-    const label = item.label ? tCollaboration(item.label.key) : t(`sections.${item.i18nKey}`)
-    // Only the inbox carries a count today; keep the badge data-driven so a
-    // second badged destination is a prop away, not a rewrite.
-    const badgeCount = item.key === 'inbox' ? inboxPending : 0
-    return (
-      <Link
-        key={item.key}
-        href={href}
-        aria-current={active ? 'page' : undefined}
-        title={iconOnly ? label : undefined}
-        className={cn(
-          'relative flex shrink-0 items-center rounded-[10px] transition-colors duration-200 ease-out',
-          'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
-          iconOnly ? 'h-9 w-10 justify-center' : 'gap-[11px] px-3',
-          variant === 'mobile' ? 'h-11 text-sm' : 'h-9 text-[13px]',
-          active
-            ? 'border border-border bg-card font-medium text-foreground shadow-xs'
-            : 'text-muted-foreground hover:bg-accent',
-        )}
-      >
-        <Icon
-          aria-hidden
-          className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')}
-        />
-        {!iconOnly && <span className="truncate">{label}</span>}
-        {/* Collapsed rail: the label is gone, so the count must still be
-            perceivable — it tucks against the icon tile's top-right corner.
-            Expanded: it sits at the end of the row, after the label. */}
-        <InboxBadge
-          pending={badgeCount}
-          className={iconOnly ? 'absolute -top-1 -right-1 shadow-xs' : 'ml-auto'}
-        />
-      </Link>
-    )
-  }
-
-  const renderNav = (variant: 'desktop' | 'mobile') => (
-    <nav
-      className={cn(
-        'flex flex-1 flex-col gap-0.5',
-        variant === 'desktop' && collapsed ? 'items-center' : undefined,
-        variant === 'mobile' ? 'overflow-y-auto overscroll-contain px-3 pt-2' : 'mt-5',
-      )}
-      aria-label={t('projectSections')}
-    >
-      {navItems.map((item) => renderNavLink(item, variant))}
-    </nav>
+  const groups = railGroups({
+    showSkills,
+    showModels,
+    canAccessArchiv,
+    canAccessInbox,
+  })
+  const navItems = groups.flatMap((group) => group.items)
+  const activeItem = [...navItems, PROJECT_SETTINGS_SECTION].find((item) =>
+    pathname.startsWith(itemHref(item, base)),
   )
 
-  // Settings sits pinned at the bottom, separated from the section nav by the
-  // flexible spacer above it (spec §5) — same row anatomy, same active card.
-  const renderSettings = (variant: 'desktop' | 'mobile') => (
-    <div
-      className={cn(
-        'flex flex-col',
-        variant === 'desktop' && collapsed ? 'items-center' : undefined,
-        variant === 'mobile' ? 'px-3 pb-2' : 'mb-2.5',
-      )}
-    >
-      {renderNavLink(PROJECT_SETTINGS_SECTION, variant)}
-    </div>
-  )
+  const openLabel =
+    inboxPending > 0
+      ? `${t('openNavigation')} — ${
+          inboxPending === 1
+            ? tCollaboration('inbox.badgeAriaOne')
+            : tCollaboration('inbox.badgeAria', { count: inboxPending })
+        }`
+      : t('openNavigation')
 
   return (
     <>
-      {/* ---- Mobile top bar (below md) ----
-          Hidden on the chat route: chat's own floating toolbar carries the nav
-          opener there, so this bar would just double the top chrome and cramp
-          the conversation. Every other section still gets it. */}
+      <MobileNavSync pathname={pathname} />
+
+      {/* Slim mobile top bar. Hidden on chat: the toolbar hosts the hamburger. */}
       <header
         className={cn(
-          'h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-sunken px-3 md:hidden',
+          'h-14 w-full shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-sunken px-3 md:hidden',
           isChatRoute ? 'hidden' : 'flex',
         )}
       >
         <div className="flex min-w-0 items-center gap-1">
           <button
             type="button"
-            onClick={() => setMobileOpen(true)}
-            aria-label={
-              inboxPending > 0
-                ? `${t('openNavigation')} — ${
-                    inboxPending === 1
-                      ? tCollaboration('inbox.badgeAriaOne')
-                      : tCollaboration('inbox.badgeAria', { count: inboxPending })
-                  }`
-                : t('openNavigation')
-            }
-            aria-expanded={mobileOpen}
+            onClick={() => setStoreOpen(true)}
+            aria-label={openLabel}
+            aria-expanded={storeOpen}
             className="relative flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <Menu className="size-5" aria-hidden />
-            {/* On mobile the nav is BEHIND this button, so an unopened drawer hid
-                the inbox count completely — the one signal a tagged person has.
-                The pill hugs the icon here for the same reason it does on the
-                collapsed rail. */}
             <InboxBadge
               pending={inboxPending}
               className="absolute top-1 right-1 translate-x-1/3 -translate-y-1/3"
@@ -371,148 +210,215 @@ export function AppSidebar({
         </div>
         {activeItem && (
           <span className="truncate text-sm font-medium text-muted-foreground">
-            {t(`sections.${activeItem.i18nKey}`)}
+            {sectionLabel(activeItem, t, tCollaboration)}
           </span>
         )}
       </header>
 
-      {/* ---- Mobile navigation drawer ---- */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label={t('projectNavigation')}>
-          <div
-            className="absolute inset-0 bg-overlay backdrop-blur-sm animate-in fade-in-0 duration-200"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden
-          />
-          <div
-            ref={drawerRef}
-            className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-border bg-surface-sunken shadow-lg animate-in slide-in-from-left duration-200 motion-reduce:animate-none"
-          >
-            <div className="flex h-14 shrink-0 items-center justify-between px-4">
-              <Link
-                href="/app/projects"
-                aria-label={t('allProjects')}
-                className="rounded-md text-[19px] font-semibold tracking-[-0.015em] text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-              >
-                Piloti
-              </Link>
-              <button
-                ref={closeButtonRef}
-                type="button"
-                onClick={() => setMobileOpen(false)}
-                aria-label={t('closeNavigation')}
-                className="flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-              >
-                <X className="size-5" aria-hidden />
-              </button>
-            </div>
-
-            <div className="px-3 pb-2">
+      <Sidebar collapsible="icon" aria-label={t('projectNavigation')}>
+        <SidebarHeader
+          className={cn('gap-0 p-0 pt-[18px]', iconRail ? 'overflow-hidden px-0' : 'px-3')}
+        >
+          <SidebarBrand iconRail={iconRail} />
+          {!iconRail && (
+            <div className="mt-[18px]">
               <ProjectSwitcher projects={projects} activeProjectId={projectId} collapsed={false} />
             </div>
+          )}
+        </SidebarHeader>
 
-            {renderNav('mobile')}
+        <SidebarContent
+          className={cn(
+            'mt-5 gap-4',
+            // overflow-y-auto here used to replace the primitive's
+            // group-data-[collapsible=icon]:overflow-hidden, so labels kept
+            // painting past the 64px rail.
+            iconRail ? 'overflow-hidden px-0' : 'overflow-y-auto px-3',
+          )}
+        >
+          <nav aria-label={t('projectSections')}>
+            {groups.map((group) => {
+              const label = t(`sectionGroups.${group.group}`)
+              return (
+                <SidebarGroup key={group.group} className="p-0">
+                  {label && !iconRail ? <SidebarGroupLabel>{label}</SidebarGroupLabel> : null}
+                  <SidebarGroupContent>
+                    <SidebarMenu className="gap-0.5" aria-label={label}>
+                      {group.items.map((item) => (
+                        <RailNavItem
+                          key={item.key}
+                          item={item}
+                          href={navLinkHref(item, base)}
+                          active={pathname.startsWith(itemHref(item, base))}
+                          label={sectionLabel(item, t, tCollaboration)}
+                          badgeCount={item.key === 'inbox' ? inboxPending : 0}
+                          tooltip={iconRail}
+                        />
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              )
+            })}
+          </nav>
+        </SidebarContent>
 
-            {renderSettings('mobile')}
-
-            <div className="border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              {/* Ambient connection health — so a dropped socket is visible in
-                  the shell, not discovered when a message silently fails. */}
-              <ConnectionPresenceIndicator className="mb-3 px-1" />
-              <SidebarUserMenu
-                user={user}
-                authRequired={authRequired}
-                compact={false}
-                canManageOrganization={canManageOrganization}
-                canViewOrganization={canViewOrganization}
-                canManagePlatform={canManagePlatform}
-                canAccessArchiv={canAccessArchiv}
+        <SidebarFooter
+          className={cn('gap-0 p-0 pb-[14px]', iconRail ? 'overflow-hidden px-0' : 'px-3')}
+        >
+          <div className={cn('mb-2.5', iconRail && 'flex justify-center')}>
+            <SidebarMenu className="gap-0.5">
+              <RailNavItem
+                item={PROJECT_SETTINGS_SECTION}
+                href={itemHref(PROJECT_SETTINGS_SECTION, base)}
+                active={pathname.startsWith(itemHref(PROJECT_SETTINGS_SECTION, base))}
+                label={sectionLabel(PROJECT_SETTINGS_SECTION, t, tCollaboration)}
+                badgeCount={0}
+                tooltip={iconRail}
               />
-            </div>
+            </SidebarMenu>
           </div>
-        </div>
-      )}
 
-      {/* ---- Desktop rail (md and up) ---- */}
-      <aside
-        className={cn(
-          'hidden h-full shrink-0 flex-col border-r border-border bg-surface-sunken px-3 pt-[18px] pb-[14px] transition-[width] duration-200 ease-out md:flex',
-          collapsed ? 'w-16 items-center' : 'w-[236px]',
-        )}
-        aria-label={t('projectNavigation')}
-      >
-        {/* Wordmark + collapse toggle */}
-        {collapsed ? (
-          <>
-            <Link
-              href="/app/projects"
-              aria-label={t('allProjects')}
-              className="flex h-7 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-            >
-              <Logo kind="logo-only" size="small" />
-            </Link>
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              aria-label={t('expandSidebar')}
-              className="mt-[18px] flex h-9 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-            >
-              <ChevronsRight className="size-4" aria-hidden />
-            </button>
-          </>
-        ) : (
-          <div className="flex items-center px-1.5">
-            <Link
-              href="/app/projects"
-              aria-label={t('allProjects')}
-              className="rounded-md text-[19px] font-semibold tracking-[-0.015em] text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-            >
-              Piloti
-            </Link>
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              aria-label={t('collapseSidebar')}
-              className="ml-auto flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-            >
-              <ChevronsLeft className="size-4" aria-hidden />
-            </button>
+          <div className={cn('pb-2.5', iconRail ? 'flex justify-center' : 'px-1.5')}>
+            <ConnectionPresenceIndicator compact={iconRail} />
           </div>
-        )}
 
-        {/* Project switcher — hidden on the collapsed rail (matches the dummy). */}
-        {!collapsed && (
-          <div className="mt-[18px]">
-            <ProjectSwitcher projects={projects} activeProjectId={projectId} collapsed={false} />
+          <div className={cn('border-t border-border pt-3', iconRail && 'flex w-full justify-center')}>
+            <SidebarUserMenu
+              user={user}
+              authRequired={authRequired}
+              compact={iconRail}
+              canManageOrganization={canManageOrganization}
+              canViewOrganization={canViewOrganization}
+              canManagePlatform={canManagePlatform}
+              canAccessArchiv={canAccessArchiv}
+            />
           </div>
-        )}
-
-        {/* Section nav (flex-1 — doubles as the spacer above Settings) */}
-        {renderNav('desktop')}
-
-        {/* Pinned Settings entry */}
-        {renderSettings('desktop')}
-
-        {/* Ambient connection health — so a dropped socket is visible in the
-            shell, not discovered when a message silently fails. Dot-only on the
-            collapsed rail. */}
-        <div className={cn('pb-2.5', collapsed ? 'flex justify-center' : 'px-1.5')}>
-          <ConnectionPresenceIndicator compact={collapsed} />
-        </div>
-
-        {/* Footer: user (avatar + name) with a hairline top border */}
-        <div className={cn('border-t border-border pt-3', collapsed ? 'flex w-full justify-center' : undefined)}>
-          <SidebarUserMenu
-            user={user}
-            authRequired={authRequired}
-            compact={collapsed}
-            canManageOrganization={canManageOrganization}
-            canViewOrganization={canViewOrganization}
-            canManagePlatform={canManagePlatform}
-            canAccessArchiv={canAccessArchiv}
-          />
-        </div>
-      </aside>
+        </SidebarFooter>
+        <SidebarRail />
+      </Sidebar>
     </>
+  )
+}
+
+/**
+ * Two-way bind the layout store (chat toolbar hamburger) to the primitive's
+ * mobile Sheet. Store changes open/close the Sheet; Sheet dismissals (scrim,
+ * Escape, the primitive's close) write back so the store never lies.
+ */
+function MobileNavSync({ pathname }: { pathname: string }) {
+  const storeOpen = useLayoutStore((s) => s.isMobileNavOpen)
+  const setStoreOpen = useLayoutStore((s) => s.setMobileNavOpen)
+  const { openMobile, setOpenMobile } = useSidebar()
+  const prev = React.useRef<{ storeOpen: boolean; openMobile: boolean } | null>(null)
+
+  React.useEffect(() => {
+    setStoreOpen(false)
+  }, [pathname, setStoreOpen])
+
+  React.useEffect(() => {
+    const previous = prev.current
+    if (previous === null) {
+      prev.current = { storeOpen, openMobile }
+      if (storeOpen !== openMobile) setOpenMobile(storeOpen)
+      return
+    }
+    const storeChanged = storeOpen !== previous.storeOpen
+    const mobileChanged = openMobile !== previous.openMobile
+    prev.current = { storeOpen, openMobile }
+
+    if (storeChanged && storeOpen !== openMobile) {
+      setOpenMobile(storeOpen)
+    } else if (mobileChanged && openMobile !== storeOpen) {
+      setStoreOpen(openMobile)
+    }
+  }, [storeOpen, openMobile, setOpenMobile, setStoreOpen])
+
+  return null
+}
+
+function SidebarBrand({ iconRail }: { iconRail: boolean }) {
+  const t = useTranslations('nav')
+  const { state, toggleSidebar, isMobile } = useSidebar()
+  const collapsed = state === 'collapsed'
+
+  return (
+    <div className={cn('flex items-center', iconRail ? 'flex-col' : 'px-1.5')}>
+      <Link
+        href="/app/projects"
+        aria-label={t('allProjects')}
+        className={cn(
+          'rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+          iconRail
+            ? 'flex h-7 items-center justify-center'
+            : 'text-[19px] font-semibold tracking-[-0.015em] text-foreground',
+        )}
+      >
+        {iconRail ? <Logo kind="logo-only" size="small" /> : 'Piloti'}
+      </Link>
+      {!isMobile && (
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
+          className={cn(
+            'flex items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+            iconRail ? 'mt-[18px] h-9 w-10' : 'ml-auto size-7',
+          )}
+        >
+          {collapsed ? (
+            <ChevronsRight className="size-4" aria-hidden />
+          ) : (
+            <ChevronsLeft className="size-4" aria-hidden />
+          )}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function RailNavItem({
+  item,
+  href,
+  active,
+  label,
+  badgeCount,
+  tooltip,
+}: {
+  item: ProjectSection
+  href: string
+  active: boolean
+  label: string
+  badgeCount: number
+  tooltip: boolean
+}) {
+  const Icon = item.icon
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        asChild
+        isActive={active}
+        tooltip={tooltip ? label : undefined}
+        className={cn(
+          'h-9 gap-[11px] rounded-[10px] px-3 text-[13px]',
+          'group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!',
+          active
+            ? 'border border-border bg-card font-medium text-foreground shadow-xs hover:bg-card hover:text-foreground data-[active=true]:bg-card data-[active=true]:font-medium data-[active=true]:text-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-muted-foreground',
+        )}
+      >
+        <Link href={href} aria-current={active ? 'page' : undefined}>
+          <Icon
+            aria-hidden
+            className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')}
+          />
+          <span className={cn('truncate', tooltip && 'sr-only')}>{label}</span>
+          <InboxBadge
+            pending={badgeCount}
+            className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:ml-0"
+          />
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   )
 }

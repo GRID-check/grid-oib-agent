@@ -32,7 +32,6 @@ import {
   Eye,
   FileText,
   Layers,
-  Loader2,
   Paperclip,
   RotateCw,
   Sparkles,
@@ -370,7 +369,7 @@ const FileChip: FC<{
       : t('inputArea.fileReadyStatus')
 
   const statusIcon = isPending ? (
-    <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
+    <Spinner size="xs" className="text-muted-foreground" />
   ) : isFailed ? (
     // A distinct glyph (not a bare red dot) so the failure carries a shape, not
     // color alone — plus an sr-only label so it isn't inferred only from color.
@@ -510,6 +509,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Attached-file preview (read-only): a successful chip opens the shared
   // FilePreviewDialog for its file. Also the primary file-access path on mobile.
   const [previewFile, setPreviewFile] = useState<TrackedFile | null>(null)
+  /** Last session upload this composer auto-bound, so clearing the bar does not re-bind. */
+  const boundSessionUploadRef = useRef<string | null>(null)
   // Manage-files dialog/sheet open state — driven by BOTH the desktop button and
   // the mobile "N Dateien verwalten" text entry, so it is controlled (not
   // trigger-bound) and one dialog instance serves both breakpoints.
@@ -544,6 +545,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
+  const hasHadAChat = useChatStore((state) =>
+    state.conversations.some((conversation) => conversation.messages.length > 0),
+  )
   const ensureSession = useChatStore((state) => state.ensureSession)
   // The real "new session" action — the same one the logo / new-session path in
   // MainLayout uses (startNewSessionDraft). Wired to the post-research
@@ -634,6 +638,31 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (f) => f.status === 'uploading' || f.status === 'ingesting'
   ).length
 
+  // An upload into this chat IS the thing the next send is about. Without a
+  // subject the agent never receives focus_file_name and walks project +
+  // Archiv instead (#429). Bind the latest ready file; do not re-bind after
+  // the user clears the bar.
+  useEffect(() => {
+    const ready = sessionFiles.filter((file) => file.status === 'success' || file.status === 'ingesting')
+    if (ready.length === 0) {
+      boundSessionUploadRef.current = null
+      return
+    }
+    const latest = ready[ready.length - 1]
+    const id = latest.serverFileId ?? latest.id
+    if (boundSessionUploadRef.current === id) return
+    const current = useChatStore.getState().composerSubject
+    if (current && current.resourceId !== boundSessionUploadRef.current) return
+    boundSessionUploadRef.current = id
+    setComposerSubject({
+      resourceType: 'document',
+      resourceId: id,
+      title: latest.fileName,
+      filename: latest.fileName,
+      shelf: 'session',
+    })
+  }, [sessionFiles, setComposerSubject])
+
   const { sendMessage, isLoading, respondToInteraction, pendingInteraction, noteSendIntent } =
     wsChat
 
@@ -692,9 +721,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   useEffect(() => {
     if (!composerSubject) return
+    // A session/Archiv subject is not "Projektunterlagen" — applying that
+    // preset only switched RIS off and still mixed every knowledge shelf.
+    if (composerSubject.shelf && composerSubject.shelf !== 'project') return
     const sources = useLayoutStore.getState().availableDataSources ?? []
     applySourcePreset('project', computePresetSourceIds('project', sources))
-  }, [composerSubject?.resourceId, applySourcePreset])
+  }, [composerSubject?.resourceId, composerSubject?.shelf, applySourcePreset])
 
   // Persist source selection per conversation, exactly like the panel does.
   const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
@@ -1223,6 +1255,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // instead of being stuck at a locked composer with a no-op explanation.
   const handleStartNewSession = useCallback(() => {
     startNewSessionDraft()
+    useFilePreviewStore.getState().close()
     setMessage('')
   }, [startNewSessionDraft])
 
@@ -1364,8 +1397,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const enabledSourcesCount = enabledDataSourceIds.length
   const totalSourcesCount = availableDataSources?.length ?? 0
 
-  // Empty thread → the shortcut preset chips render under the composer.
+  // Empty thread → the shortcut preset chips render under the composer,
+  // and only until the project has had its first real chat. After that
+  // they are onboarding noise on every new draft.
   const isEmptyThread = !currentConversation || currentConversation.messages.length === 0
+  const showSourcePresets = !cannotContribute && isEmptyThread && !hasHadAChat
 
   // Scope chip label: the active project (display-only scope; cross-project
   // search does not exist yet — spec §2.3, honest disabled option).
@@ -1479,7 +1515,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               <FileChip
                 key={file.id}
                 file={file}
-                onOpen={setPreviewFile}
+                onOpen={(opened) => {
+                  setPreviewFile(opened)
+                  const id = opened.serverFileId ?? opened.id
+                  boundSessionUploadRef.current = id
+                  setComposerSubject({
+                    resourceType: 'document',
+                    resourceId: id,
+                    title: opened.fileName,
+                    filename: opened.fileName,
+                    shelf: 'session',
+                  })
+                }}
                 onRemove={deleteFile}
                 onRetry={retryFile}
                 readOnly={cannotContribute}
@@ -2087,7 +2134,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           and the one the user guide claims is closed. "Empty thread" is not the
           protection it looks like either: `isEmptyThread` is also true on any
           shared thread for as long as its messages are still loading. */}
-      {isEmptyThread && !cannotContribute && (
+      {showSourcePresets && (
         <div
           // Shortcuts are a desktop affordance — hidden on mobile, where they
           // only add vertical bulk under an already space-constrained composer.

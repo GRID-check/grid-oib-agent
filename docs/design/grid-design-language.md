@@ -110,7 +110,18 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 
 ## Component patterns
 
-**Page header** — every content page opens with:
+**Project card** — "a project, listed" has ONE component: `ProjectCard`
+(`components/projects/project-card.tsx`). Rails, grids, pickers and any future
+project surface render that card; a surface that genuinely needs another
+arrangement (the dense projects-home row) is composed from
+`components/projects/project-atoms.tsx`, the same material the card is made of.
+Never hand-roll a lookalike — two of them drift on the first token retune. The
+inventory, the honesty constraints on status and timestamps, and the decision
+procedure are in **`docs/design/project-surfaces.md`**.
+
+**Page header** — every content page opens with `PageHeader`
+(`components/ui/page-header.tsx`), so the title stays on-spec (`text-xl`)
+instead of drifting:
 ```tsx
 <header className="flex items-end justify-between gap-4">
   <div>
@@ -121,6 +132,16 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 </header>
 ```
 
+**Project section chrome** — every project section except **Ask Piloti**
+(chat) opens with the same block: a muted `{project} / {section}` breadcrumb
+trail, then the `PageHeader` title + one-line subtitle, then optional actions
+on the right. The three shapes are an action button (Files, Jobs, Skills),
+a search field (History), and title-only (Settings). The intake wizard is a
+content page too — `PageHeader` plus a `SectionLabel` eyebrow, never a second
+`text-2xl` title. Projects home (above a project) uses the same `PageHeader`.
+Chat is the documented exception: it is a full-bleed conversation surface with
+its own toolbar, not a content page. Evidence: `/dev/project-chrome`.
+
 **Section** — eyebrow label + content, no heavy chrome:
 ```tsx
 <section className="space-y-3">
@@ -129,11 +150,19 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 </section>
 ```
 
-**Back navigation** — pages outside the project shell (Archiv, Organisation, Platform, Profil) drop the rail, so their back control is the whole way out. It is `BackLink` (`components/shell/back-link.tsx`), never a hand-rolled `<Link>`: an arrow in a raised disc plus a label that **names where the reader actually came from**, read from the tab's return trail (`lib/navigation/return-trail`, recorded by `NavigationTrail` in the root layout). Out of a project the name is the PROJECT'S — "Zurück zu Stadthaus Wien" — written into the trail by `NavigationTrailLabel` in the project shell while the reader was there, because a path holds an id and an id is not a name, and leaving that project is what the reader is undoing. Everywhere else the label comes from the destination's own `nav.sections.*` entry, so the wording cannot drift from the rail's. Navigation goes through `history.back()`, which restores the page as it was left — scroll position and open panels included — where a push to the same URL would not. Each page still passes a server-resolved `fallbackHref`/`fallbackLabel` for the case with no trail (new tab, direct link). A back control that guesses a destination is worse than none: it teaches the reader that back does not work.
+**Back navigation** — pages outside the project shell (Archiv, Organisation, Platform, Inbox, Profil) drop the rail, so their back control is the whole way out. It is `BackLink` (`components/shell/back-link.tsx`), never a hand-rolled `<Link>`: an arrow in a raised disc plus a label that **names where the reader actually came from**, read from the tab's return trail (`lib/navigation/return-trail`, recorded by `NavigationTrail` in the root layout). Out of a project the name is the PROJECT'S — "Zurück zu Stadthaus Wien" — written into the trail by `NavigationTrailLabel` in the project shell while the reader was there, because a path holds an id and an id is not a name, and leaving that project is what the reader is undoing. Everywhere else the label comes from the destination's own `nav.sections.*` entry, so the wording cannot drift from the rail's. Navigation goes through `history.back()`, which restores the page as it was left — scroll position and open panels included — where a push to the same URL would not. Each page still passes a server-resolved `fallbackHref`/`fallbackLabel` for the case with no trail (new tab, direct link). A back control that guesses a destination is worse than none: it teaches the reader that back does not work.
+
+Tabbed shells (Organisation, Platform, and the same pattern on Inbox) are **one place**, not a stack of submenus. Switching Models → Knowledge `replace`s the URL and collapses those siblings on the trail, so Back leaves the shell and returns to the project — it does not walk the previous settings tab. Project sections stay a real stack: Files → Chat is a step.
 
 **Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
 
-**List container** — one `rounded-lg border bg-card`, rows `divide-y`, each row `flex items-center justify-between gap-4 px-5 py-3`.
+**Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Files and Archiv compose it inside `FileSearchBar` (sticky band + semantic run). Admin lists compose it inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
+
+**Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row.
+
+**Form field** — `Field` + `FieldLabel` + `FieldDescription` + `FieldError`. TanStack-backed forms wrap the same anatomy through `FieldShell`. Raw `<label>` next to an `Input` is a leftover.
+
+**List container** — `ItemList` (`rounded-lg border divide-y`) with `Item` / `ItemMedia` / `ItemContent` / `ItemTitle` / `ItemDescription` / `ItemActions`. That is the list molecule for History, Inbox, Settings rosters, and admin pickers. Do not hand-roll a second `rounded-lg border` + `divide-y` row. The raised product card (Files tiles, project cards) is `RaisedCard`, not `Item`.
 
 **Empty state** — crafted, never bare text:
 ```tsx
@@ -160,8 +189,8 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 ## Motion vocabulary
 
 - Content entrance: `animate-in fade-in-0` (+ `slide-in-from-bottom-1` for cards — the dummy's `nodeIn` fade-rise) via tw-animate-css.
-- **Chat turn entrance** — every block that arrives in the transcript uses the same 200ms fade-and-rise as the message bubbles: `animate-in fade-in-0 slide-in-from-bottom-1 duration-200`. That includes `AgentPrompt` (the HITL question) and the `DeepResearchBanner` / `ErrorBanner` / `NoSourcesBanner` notices — a banner that pops in unanimated reads as a different class of object than the answer it sits beside.
-- **State changes inside an arrived turn are transitions, not entrances**: `AgentPrompt` dims to `opacity-75` via `transition-opacity duration-300 motion-reduce:transition-none` once answered; the answer's meta row fades in on a short `[animation-delay:120ms]` (with `[animation-fill-mode:backwards]`, so nothing flashes before its delay) and the source chips cascade on a 40ms per-chip stagger, capped.
+- **Chat turn entrance** — every block that arrives in the transcript uses the same 200ms fade-and-rise as the message bubbles: `animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out motion-reduce:animate-none`. That includes `AgentPrompt` (the HITL question) and the `DeepResearchBanner` / `ErrorBanner` / `NoSourcesBanner` notices — a banner that pops in unanimated reads as a different class of object than the answer it sits beside.
+- **State changes inside an arrived turn are transitions, not entrances**: `AgentPrompt` dims to `opacity-75` via `transition-opacity duration-200 ease-out motion-reduce:transition-none` once answered; the answer's meta row is reserved at chip height (`min-h-6`) so late chips cannot grow the footer, then fades in on a short `[animation-delay:120ms]` (with `[animation-fill-mode:backwards]`, so nothing flashes before its delay) and the source chips cascade on a 40ms per-chip stagger, capped.
 - Height changes (accordions, thinking steps): CSS grid-rows or Radix Collapsible transitions, ~200ms ease-out.
 - Hover: `transition-colors` on interactive rows/links; never transform on hover for dense UI.
 - Skeleton pulse is the only ambient motion.

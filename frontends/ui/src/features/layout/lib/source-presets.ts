@@ -10,10 +10,10 @@
  * Important honesty note: project documents and the org Archiv are retrieved
  * through the knowledge layer, which is NOT a toggleable data source (the API
  * client filters `knowledge_layer` out of the list). So the "Projektunterlagen"
- * and "Büroarchiv" presets legitimately resolve to an empty external-source
- * subset — meaning "answers ground in the document corpus, external search
- * off" — unless the registry grows matching sources, in which case they are
- * picked up automatically.
+ * and "Büroarchiv" presets resolve to an empty *external*-source subset
+ * (RIS/web off). The chip itself (`source_preset`) is what the agent
+ * maps to shelves via `shelves_for_turn` — otherwise both chips still
+ * searched every corpus (#436). The TS twin lives in `lib/retrieval-scope.ts`.
  */
 
 import type { DataSourceFromAPI } from '@/adapters/api'

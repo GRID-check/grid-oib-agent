@@ -46,6 +46,8 @@ interface ArchivLibraryPaneProps {
   isLoading: boolean
   /** Upload control rendered inside the first-run empty state (managers only). */
   uploadControl?: ReactNode
+  /** Per-file rename / delete / download on the card. */
+  renderActions?: (file: FileItem) => ReactNode
 }
 
 export function ArchivLibraryPane({
@@ -54,6 +56,7 @@ export function ArchivLibraryPane({
   onSelectFile,
   isLoading,
   uploadControl,
+  renderActions,
 }: ArchivLibraryPaneProps) {
   const t = useTranslations('archiv')
   const { locale } = useLocale()
@@ -137,11 +140,11 @@ export function ArchivLibraryPane({
     return (
       <div className="flex h-full flex-col" aria-busy="true">
         <div className="border-b px-4 py-2.5">
-          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 min-h-9 w-full" />
         </div>
-        <div className="flex gap-1.5 border-b px-4 py-2">
+        <div className="flex min-h-12 gap-1.5 border-b px-4 py-2">
           {['all', 'one', 'two', 'three'].map((key) => (
-            <Skeleton key={key} className="h-8 w-20 rounded-lg" />
+            <Skeleton key={key} className="h-8 w-20 shrink-0 rounded-lg" />
           ))}
         </div>
         <div className="p-4">
@@ -158,7 +161,7 @@ export function ArchivLibraryPane({
   // First-run empty state — the Archiv holds no documents yet.
   if (files.length === 0) {
     return (
-      <div className="animate-in fade-in-0 flex h-full items-center justify-center p-8 duration-200 motion-reduce:animate-none">
+      <div className="animate-in fade-in-0 flex h-full items-center justify-center p-8 duration-200 ease-out motion-reduce:animate-none">
         <EmptyState
           icon={Archive}
           title={t('library.emptyTitle')}
@@ -170,7 +173,7 @@ export function ArchivLibraryPane({
   }
 
   return (
-    <div className="animate-in fade-in-0 flex h-full flex-col duration-200 motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 flex h-full flex-col duration-200 ease-out motion-reduce:animate-none">
       {/* Search bar — instant substring filter as you type; Enter (or the search
           button) runs the semantic search over the Archiv collection. */}
       <FileSearchBar
@@ -202,7 +205,7 @@ export function ArchivLibraryPane({
           semantic mode (the query is the context). */}
       {!semantic.active && categories.length > 0 && (
         <div
-          className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2"
+          className="flex min-h-12 flex-wrap items-center gap-1.5 border-b px-4 py-2"
           role="group"
           aria-label={t('library.categoriesLabel')}
         >
@@ -235,7 +238,7 @@ export function ArchivLibraryPane({
           their thumbnails. */}
       <div
         key={view}
-        className="animate-in fade-in-0 duration-200 motion-reduce:animate-none"
+        className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
         data-testid="archiv-results"
         data-view={view}
       >
@@ -275,6 +278,7 @@ export function ArchivLibraryPane({
                   onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
                   locale={locale}
                   match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
+                  actions={renderActions?.(hit)}
                 />
               ))}
             </FileGrid>
@@ -304,6 +308,7 @@ export function ArchivLibraryPane({
                   isSelected={selectedFileId === file.id}
                   onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
                   locale={locale}
+                  actions={renderActions?.(file)}
                 />
               ))}
             </FileGrid>
@@ -327,12 +332,14 @@ function ArchivDocumentCard({
   onSelect,
   locale,
   match,
+  actions,
 }: {
   file: FileItem
   isSelected: boolean
   onSelect: () => void
   locale: string
   match?: { snippet: string; page: number | null; score: number }
+  actions?: ReactNode
 }) {
   const t = useTranslations('archiv')
   const kind = inferDocumentKind(file)
@@ -349,6 +356,7 @@ function ArchivDocumentCard({
       testId="archiv-document-card"
       source="buero"
       sourceLabel={kindLabel}
+      actions={actions}
       footerLead={
         provenance !== '' ? (
           <span

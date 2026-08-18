@@ -4,7 +4,6 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import Image from 'next/image'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import type { FileItem } from './project-file-workspace'
-import { motion, springSnappy } from '@/components/motion'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
@@ -14,6 +13,7 @@ import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
+import { RaisedCard, RaisedCardBody, RaisedCardFooter, RaisedCardMedia } from '@/components/ui/raised-card'
 import { Skeleton } from '@/components/ui/skeleton'
 
 /** Provenance tint per corpus, from the shared `--source-*` token family. */
@@ -183,6 +183,12 @@ export interface FileCardProps {
   hideFooter?: boolean
   /** Override the card's test id (e.g. the Archiv surface keeps its own). */
   testId?: string
+  /**
+   * Rename / delete / download, rendered on the card so the reader does not
+   * have to open the preview to act on a file (#435). Must be a control of
+   * its own — this card is a `<button>`, so the slot sits beside it.
+   */
+  actions?: ReactNode
 }
 
 /**
@@ -207,6 +213,7 @@ export function FileCard({
   footerLead,
   hideFooter,
   testId = 'file-card',
+  actions,
 }: FileCardProps) {
   const t = useTranslations('files')
   const name = documentDisplayName(file)
@@ -221,12 +228,19 @@ export function FileCard({
   const isAwaitingSummary = !match && !isFailed && !file.summary && isSettlingStatus(file.status)
 
   return (
-    <motion.div
-      className="h-full min-w-0"
-      whileHover={{ y: -3 }}
-      whileTap={{ scale: 0.985 }}
-      transition={springSnappy}
+    <RaisedCard
+      interactive
+      className={cn('group/card', isSelected && 'ring-2 ring-ring', isBusy && 'cursor-progress opacity-70')}
     >
+      {actions && (
+        <div
+          className="absolute left-1.5 top-1.5 z-[1]"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {actions}
+        </div>
+      )}
       <button
         type="button"
         onClick={onSelect}
@@ -234,11 +248,7 @@ export function FileCard({
         aria-label={ariaLabel}
         aria-busy={isBusy}
         data-testid={testId}
-        className={cn(
-          'group relative flex h-full w-full min-w-0 flex-col overflow-hidden rounded-xl border bg-muted/50 text-left shadow-xs transition-shadow duration-200 ease-out hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none',
-          isSelected && 'ring-2 ring-ring',
-          isBusy && 'cursor-progress opacity-70'
-        )}
+        className="group relative flex h-full w-full min-w-0 flex-col overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {/* Raised inner block — white surface, rounded bottom, soft divider shadow.
             `flex-1` because a grid row is only as tall as its tallest card and
@@ -248,14 +258,8 @@ export function FileCard({
             leftover height showed as a band of dead surface underneath. Growing
             the white block instead puts every footer on the bottom edge, so the
             row reads as one strip whatever each card carries above it. */}
-        <div
-          className={cn(
-            'w-full flex-1 overflow-hidden bg-card shadow-xs',
-            // The inner radius only exists to reveal the muted footer tab.
-            !hideFooter && 'rounded-b-[10px]',
-          )}
-        >
-          <div className="relative h-[124px] w-full overflow-hidden border-b bg-card">
+        <RaisedCardBody className={cn('flex-1 p-0', hideFooter && 'rounded-none')}>
+          <RaisedCardMedia className="h-[124px]">
             <ThumbnailWithFallback file={file} />
             {showStatus && (
               <DocumentStatusBadge
@@ -263,7 +267,7 @@ export function FileCard({
                 className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-[10px] font-medium leading-4 shadow-2xs backdrop-blur-sm"
               />
             )}
-          </div>
+          </RaisedCardMedia>
 
           <div className="px-3.5 pb-3 pt-[11px]">
             <div className="flex items-center gap-2">
@@ -314,10 +318,10 @@ export function FileCard({
               )
             )}
           </div>
-        </div>
+        </RaisedCardBody>
 
         {!hideFooter && (
-          <div className="flex w-full items-center gap-1.5 px-3.5 pb-2.5 pt-[9px] text-[11px] text-muted-foreground/80">
+          <RaisedCardFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-[11px] text-muted-foreground/80">
             {footerLead ?? <span className="flex-1" />}
             <span className="shrink-0 tabular-nums">{formatBytes(file.fileSize, locale)}</span>
             <span aria-hidden className="text-muted-foreground/40">
@@ -331,9 +335,9 @@ export function FileCard({
             >
               {formatRelativeTime(file.createdAt, locale)}
             </time>
-          </div>
+          </RaisedCardFooter>
         )}
       </button>
-    </motion.div>
+    </RaisedCard>
   )
 }

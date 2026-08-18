@@ -146,6 +146,7 @@ export const chat = {
     citeAll: 'Cite',
     citeAsLabel: 'Copy all sources as',
     formats: {
+      quotes: { label: 'Quoted passages', hint: 'The cited sentences, as a list' },
       fachtext: { label: 'Citation text', hint: 'For a report or submission' },
       apa: { label: 'APA', hint: 'Formatted bibliography' },
       bibtex: { label: 'BibTeX (.bib)', hint: 'LaTeX, JabRef' },
@@ -550,6 +551,9 @@ export const chat = {
       other: 'Other',
     },
     thanks: 'Thanks for your feedback.',
+    commentLabel: 'Anything else?',
+    commentPlaceholder: 'Optional — tell us what went wrong',
+    commentSubmit: 'Send note',
   },
   // Copy message button on user message bubbles
   copyMessage: {

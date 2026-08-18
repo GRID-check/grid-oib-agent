@@ -23,6 +23,7 @@
  *     link's accessible name include the button's.
  */
 
+import { forwardRef } from 'react'
 import Link from 'next/link'
 import {
   Archive,
@@ -44,8 +45,20 @@ import {
   type InboxItemView,
 } from '@/lib/inbox/types'
 import { Badge } from '@/components/ui/badge'
-import { easeQuiet, motion } from '@/components/motion'
+import { Button } from '@/components/ui/button'
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from '@/components/ui/item'
+import { motion } from '@/components/motion'
 import { cn } from '@/lib/utils'
+
+/** Exit + layout only — transform/opacity, 180ms ease-out. */
+const ROW_MOTION = { duration: 0.18, ease: 'easeOut' } as const
 
 /**
  * The ONE place the registry's icon names become components. Keeping the map here
@@ -87,7 +100,10 @@ export interface InboxItemRowProps {
   onArchive?: (itemId: string) => void
 }
 
-export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JSX.Element {
+export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(function InboxItemRow(
+  { item, onOpen, onArchive },
+  ref,
+): JSX.Element {
   const t = useTranslations('collaboration')
   const { dictionary } = useI18n()
   const { locale } = useLocale()
@@ -163,131 +179,150 @@ export function InboxItemRow({ item, onOpen, onArchive }: InboxItemRowProps): JS
        from the list would nest <li> in <li>, and a `display: contents` wrapper has
        no box for a transform to act on. Exit + layout so archiving closes the gap
        rather than snapping it shut; `AnimatePresence` lives in InboxList. */
-    <motion.li
-      layout
-      exit={{ opacity: 0, x: 12 }}
-      transition={easeQuiet}
-      data-testid="inbox-item"
-      data-state={item.state}
-      data-type={item.type}
+    <Item
+      asChild
       className={cn(
-        'relative flex items-start gap-3 px-4 py-3.5 transition-colors duration-200 ease-out md:px-5',
-        inert ? 'bg-muted/25' : 'hover:bg-accent/40',
+        'relative items-start py-3.5',
+        inert && 'bg-muted/25 hover:bg-muted/25',
       )}
     >
-      {/* Type icon. A live request carries the "needs attention" tint; colour
-          never travels alone here — the icon and the title text say the same. */}
-      <span
-        aria-hidden
-        className={cn(
-          'mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full border',
-          needsAttention
-            ? 'border-transparent bg-warning-subtle text-warning'
-            : 'border-border bg-card text-muted-foreground',
-          inert && 'opacity-60',
-        )}
+      <motion.li
+        ref={ref}
+        layout
+        exit={{ opacity: 0, x: 12 }}
+        transition={ROW_MOTION}
+        data-testid="inbox-item"
+        data-state={item.state}
+        data-type={item.type}
       >
-        <Icon className="size-4" />
-      </span>
-
-      <div className={cn('min-w-0 flex-1', inert && 'opacity-70')}>
-        <div className="flex min-w-0 items-start gap-2">
-          {/* Unread marker — the row is also heavier, so this is decoration. */}
-          {unread && (
-            <span aria-hidden className="mt-[7px] size-1.5 shrink-0 rounded-full bg-foreground" />
-          )}
-          {item.href && !inert ? (
-            // Stretched link: the whole row is the target without nesting the
-            // archive button inside the anchor (that button is lifted above the
-            // overlay with `z-10`).
-            <Link
-              href={item.href}
-              // Only a plain primary click counts as "opened". Cmd/ctrl/middle
-              // click is the natural triage gesture — open three rows in
-              // background tabs — and it used to spend the read state of all
-              // three and, under the "needs me" filter, delete them from under
-              // the cursor while the user was still clicking.
-              onClick={(event) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-                if (event.button !== 0) return
-                onOpen?.(item)
-              }}
-              onAuxClick={(event) => event.stopPropagation()}
-              className={cn(
-                'min-w-0 rounded-sm text-sm leading-snug outline-none',
-                'after:absolute after:inset-0 after:content-[""]',
-                'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
-                unread ? 'font-semibold text-foreground' : 'text-foreground',
-              )}
-            >
-              {title}
-            </Link>
-          ) : (
-            <span
-              className={cn(
-                'min-w-0 text-sm leading-snug',
-                unread ? 'font-semibold text-foreground' : 'text-foreground',
-              )}
-            >
-              {title}
-            </span>
-          )}
-        </div>
-
-        {body && <p className="mt-0.5 truncate text-sm text-muted-foreground">{body}</p>}
-
-        {item.excerpt && (
-          <p className="mt-1.5 line-clamp-2 border-l border-border pl-2.5 text-sm leading-relaxed text-muted-foreground">
-            {item.excerpt}
-          </p>
-        )}
-
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          {/* `updatedAt`, which is what the list is ORDERED by. A grouped row
-              that just absorbed a new message sorts to the top, and showing its
-              `createdAt` put "5 days ago" at the head of the list. The title
-              carries the absolute moment for both. */}
-          <time
-            className="text-xs text-muted-foreground"
-            dateTime={item.updatedAt}
-            title={formatAbsoluteTime(item.updatedAt, locale)}
-          >
-            {formatRelativeTime(item.updatedAt, locale)}
-          </time>
-          {resolved && item.actionable && (
-            <Badge variant="success" className="gap-1">
-              <CheckCircle2 aria-hidden />
-              {t('inbox.resolved')}
-            </Badge>
-          )}
-          {inert && (
-            <>
-              <Badge variant="secondary" className="gap-1">
-                <EyeOff aria-hidden />
-                {t('inbox.inert')}
-              </Badge>
-              <span className="text-xs text-muted-foreground">{t('inbox.inertHint')}</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {onArchive && (
-        <button
-          type="button"
-          // z-10 keeps this above the stretched link's overlay so it stays
-          // clickable; it is a sibling of the anchor, never a child.
+        {/* Type icon. A live request carries the "needs attention" tint; colour
+            never travels alone here — the icon and the title text say the same. */}
+        <ItemMedia
+          aria-hidden
           className={cn(
-            'relative z-10 mt-0.5 inline-flex size-8 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-lg',
-            'text-muted-foreground outline-none transition-colors duration-200 ease-out',
-            'hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+            'mt-0.5 rounded-full border',
+            needsAttention
+              ? 'border-transparent bg-warning-subtle text-warning'
+              : 'border-border bg-card text-muted-foreground',
+            inert && 'opacity-60',
           )}
-          aria-label={t('inbox.archive')}
-          onClick={() => onArchive(item.id)}
         >
-          <Archive className="size-4" aria-hidden />
-        </button>
-      )}
-    </motion.li>
+          <Icon className="size-4" />
+        </ItemMedia>
+
+        <ItemContent className={cn(inert && 'opacity-70')}>
+          <ItemTitle
+            className={cn(
+              // overflow-visible: `truncate` on ItemTitle would clip the
+              // stretched-link overlay to the title box.
+              'flex min-w-0 items-start gap-2 overflow-visible whitespace-normal',
+              unread ? 'font-semibold' : 'font-normal',
+            )}
+          >
+            {/* Unread marker — reserved always so marking read does not shove
+                the title. Opacity only; the row is also heavier, so this is
+                decoration. */}
+            <span
+              aria-hidden
+              className={cn(
+                'mt-[7px] size-1.5 shrink-0 rounded-full bg-foreground',
+                'transition-opacity duration-150 ease-out motion-reduce:transition-none',
+                unread ? 'opacity-100' : 'opacity-0',
+              )}
+            />
+            {item.href && !inert ? (
+              // Stretched link: the whole row is the target without nesting the
+              // archive button inside the anchor (that button is lifted above the
+              // overlay with `z-10`).
+              <Link
+                href={item.href}
+                // Only a plain primary click counts as "opened". Cmd/ctrl/middle
+                // click is the natural triage gesture — open three rows in
+                // background tabs — and it used to spend the read state of all
+                // three and, under the "needs me" filter, delete them from under
+                // the cursor while the user was still clicking.
+                onClick={(event) => {
+                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                  if (event.button !== 0) return
+                  onOpen?.(item)
+                }}
+                onAuxClick={(event) => event.stopPropagation()}
+                className={cn(
+                  'min-w-0 rounded-sm leading-snug outline-none',
+                  'after:absolute after:inset-0 after:content-[""]',
+                  'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+                  unread ? 'font-semibold text-foreground' : 'text-foreground',
+                )}
+              >
+                {title}
+              </Link>
+            ) : (
+              <span
+                className={cn(
+                  'min-w-0 leading-snug',
+                  unread ? 'font-semibold text-foreground' : 'text-foreground',
+                )}
+              >
+                {title}
+              </span>
+            )}
+          </ItemTitle>
+
+          {body && <ItemDescription className="mt-0.5">{body}</ItemDescription>}
+
+          {item.excerpt && (
+            <p className="mt-1.5 line-clamp-2 border-l border-border pl-2.5 text-sm leading-relaxed text-muted-foreground">
+              {item.excerpt}
+            </p>
+          )}
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {/* `updatedAt`, which is what the list is ORDERED by. A grouped row
+                that just absorbed a new message sorts to the top, and showing its
+                `createdAt` put "5 days ago" at the head of the list. The title
+                carries the absolute moment for both. */}
+            <time
+              className="text-xs text-muted-foreground"
+              dateTime={item.updatedAt}
+              title={formatAbsoluteTime(item.updatedAt, locale)}
+            >
+              {formatRelativeTime(item.updatedAt, locale)}
+            </time>
+            {resolved && item.actionable && (
+              <Badge variant="success" className="gap-1">
+                <CheckCircle2 aria-hidden />
+                {t('inbox.resolved')}
+              </Badge>
+            )}
+            {inert && (
+              <>
+                <Badge variant="secondary" className="gap-1">
+                  <EyeOff aria-hidden />
+                  {t('inbox.inert')}
+                </Badge>
+                <span className="text-xs text-muted-foreground">{t('inbox.inertHint')}</span>
+              </>
+            )}
+          </div>
+        </ItemContent>
+
+        {onArchive && (
+          <ItemActions>
+            {/* z-10 keeps this above the stretched link's overlay so it stays
+                clickable; it is a sibling of the anchor, never a child. */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="relative z-10 mt-0.5 text-muted-foreground"
+              aria-label={t('inbox.archive')}
+              onClick={() => onArchive(item.id)}
+            >
+              <Archive className="size-4" aria-hidden />
+            </Button>
+          </ItemActions>
+        )}
+      </motion.li>
+    </Item>
   )
-}
+})
