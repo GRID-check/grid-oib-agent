@@ -554,6 +554,16 @@ export interface WireCitationSource {
   lane?: string | null
   lane_label?: string | null
   binding_note?: string | null
+  /**
+   * Coarse binding status the backend classified this source as:
+   * `bindend` (statute/ordinance) | `verbindlich_erklaert` (OIB-Richtlinie /
+   * the lane a Land declares binding) | `auslegend` (Leitfaden/ÖNORM,
+   * interpretive) | `unbekannt` (matched no catalogued norm — the honest
+   * default, never a guess). Rides the `sources` schema's `.passthrough()`;
+   * declared here so the renderer can badge it. Structured companion to the
+   * prose `binding_note`.
+   */
+  binding_status?: string | null
 }
 
 /** Plan message for chat/HITL display and restore flows */

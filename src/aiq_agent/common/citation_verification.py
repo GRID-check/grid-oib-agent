@@ -48,6 +48,7 @@ from aiq_agent.common.source_kinds import shelf_for_qualifier
 from aiq_agent.common.source_kinds import shelf_qualifier
 
 if TYPE_CHECKING:
+    from aiq_agent.common.norm_registry import NormRank
     from aiq_agent.common.norm_registry import NormRegistry
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,20 @@ class SourceEntry:
     # the same (filename, page) key their bodies are joined (see ``add``). None
     # for URL/web sources and for output produced before this field was threaded.
     chunk_text: str | None = None
+    # BINDING CLASSIFICATION carried to the client (see
+    # ``binding_classification_for_entry``). Both default to the honest-unknown
+    # value on purpose: a source that matched no catalogued norm must NEVER claim
+    # to bind — a fabricated "bindend" badge would be a false legal claim, so the
+    # safe default is "we don't know". ``rank`` is the :data:`NormRank` of the
+    # registry entry the source resolved to, or None when it matched none (an OIB
+    # corpus document, or any unrecognised file — those carry no RIS rank).
+    # ``binding_status`` is the coarse bindingness the UI badges: ``bindend`` /
+    # ``verbindlich_erklaert`` / ``auslegend`` / ``unbekannt``. These are optional
+    # carriers; the wire recomputes the classification fresh (it needs the
+    # registry + Bundesland the raw entry lacks) and they round-trip through the
+    # session-registry cache like the other fields.
+    rank: str | None = None
+    binding_status: str = "unbekannt"
 
 
 @dataclass
@@ -544,6 +559,8 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             shelf=item.get("shelf"),
                             doc_class=item.get("doc_class"),
                             chunk_text=item.get("chunk_text"),
+                            rank=item.get("rank"),
+                            binding_status=item.get("binding_status", "unbekannt"),
                         )
                     )
                 except Exception:
@@ -1434,6 +1451,185 @@ def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = N
     return None
 
 
+# ---------------------------------------------------------------------------
+# Binding classification: carry a source's BINDING STATUS to the client.
+#
+# ``binding_note`` (above) is prose and only ever matched RIS URLs, so a
+# KB-retrieved OIB-Richtlinie carried NOTHING and the UI could not tell binding
+# law from interpretive guidance. This adds a small STRUCTURED signal — a
+# ``NormRank`` (when the source resolves to a catalogued norm) and a coarse
+# ``binding_status`` — that the renderer badges. It is purely additive:
+# ``binding_note`` keeps working unchanged.
+# ---------------------------------------------------------------------------
+
+# NormRank -> coarse binding status. The exact partition the spec fixes:
+#   bundesgesetz/landesgesetz/verordnung -> bindend         (statute / ordinance)
+#   behoerdliche_info                    -> verbindlich_erklaert
+#     (the lane by which a Land declares OIB binding — e.g. the Wiener WBTV;
+#      OIB-Richtlinien themselves are treated as this, see ``_oib_binding_status``)
+#   norm_extern                          -> auslegend        (ÖNORM/Leitfaden: interpretive)
+_STATUS_FOR_RANK: dict[str, str] = {
+    "bundesgesetz": "bindend",
+    "landesgesetz": "bindend",
+    "verordnung": "bindend",
+    "behoerdliche_info": "verbindlich_erklaert",
+    "norm_extern": "auslegend",
+}
+
+# Explicit "Dokumentart" (doc_class) keys for the OIB corpus, which is NOT in the
+# registry (the knowledge base is its source of truth). The Richtlinie itself is
+# the normative text a Bundesland declares binding; its Leitfäden, Erläuterungen,
+# Begriffsbestimmungen, referenced-norm lists and change docs only interpret or
+# accompany it and never found a new requirement.
+_OIB_RICHTLINIE_DOC_CLASSES = frozenset({"oib_richtlinie"})
+_OIB_INTERPRETIVE_DOC_CLASSES = frozenset(
+    {"oib_leitfaden", "oib_erlaeuterung", "oib_begriffe", "oib_referenz", "oib_aenderung"}
+)
+
+
+@dataclass
+class BindingClassification:
+    """A source's structured binding status.
+
+    ``rank`` is the :data:`NormRank` of the registry entry the source resolved
+    to (``None`` when it matched none — an OIB corpus document, or an
+    unrecognised file). ``binding_status`` is the coarse bindingness the UI
+    badges: ``bindend`` / ``verbindlich_erklaert`` / ``auslegend`` /
+    ``unbekannt``. The default is ``unbekannt`` with no rank — the honest
+    "we don't know" that a source matching nothing MUST get, because a
+    fabricated binding badge would be a false legal claim.
+    """
+
+    rank: NormRank | None = None
+    binding_status: str = "unbekannt"
+
+
+def _source_document_identifier(entry: SourceEntry) -> str | None:
+    """The text to match a source against catalogued norms: its filename, else title.
+
+    The RIS ``document_number`` is matched separately (against the URL); this is
+    the WIDENED signal — a KB/upload source names its document by FILENAME
+    (``oib-rl_2_ausgabe_mai_2023.pdf``), which an entry's ``short``/``alias``/
+    ``title`` can be found within. The raw URL is deliberately NOT used here: a
+    bare web URL's host/path text is noise that would produce spurious alias
+    hits, and the only URL that carries a real norm identity (RIS) is already
+    matched precisely by ``document_number``.
+    """
+    if entry.citation_key:
+        filename, _page = _parse_citation_key(entry.citation_key)
+        if filename:
+            return filename
+    return entry.title or None
+
+
+def _match_registry_entry(
+    entry: SourceEntry,
+    registry: NormRegistry | None,
+    bundesland: str | None,
+) -> Any:
+    """The catalogued norm a source resolves to, or ``None``.
+
+    Matching is WIDENED beyond the old RIS-only path because that path left every
+    non-RIS source (KB docs, uploads) unclassifiable:
+
+    1. RIS URL -> precise ``document_number`` substring (the pre-existing signal).
+    2. Otherwise the source's filename/title against each entry's
+       ``short``/``title``/``alias``/``topic`` (via :func:`match_entries`).
+
+    Bundesland is respected via :func:`focus_entries`: a Wien entry is dropped
+    for a Tirol project, so its rank is never claimed for the wrong jurisdiction
+    (the classification then falls through to ``unbekannt`` rather than lying).
+    """
+    from aiq_agent.common.norm_registry import focus_entries
+    from aiq_agent.common.norm_registry import load_registry
+    from aiq_agent.common.norm_registry import match_entries
+
+    # Only a source that could name a catalogued norm is worth a registry load:
+    # a RIS URL, or a document identifier (citation_key/title). A bare web URL
+    # never matches, so it never pays the load — mirroring ``binding_note_for_entry``.
+    is_ris = bool(entry.url and "ris.bka.gv.at" in entry.url)
+    identifier = _source_document_identifier(entry)
+    if not (is_ris or identifier):
+        return None
+    if registry is None:
+        registry = load_registry()
+    if registry is None or not registry.entries:
+        return None
+
+    if is_ris:
+        for norm in focus_entries(registry.entries, bundesland):
+            if norm.document_number and norm.document_number in entry.url:  # type: ignore[operator]
+                return norm
+    if identifier:
+        candidates = focus_entries(match_entries(registry, identifier), bundesland)
+        if candidates:
+            return candidates[0]
+    return None
+
+
+def _oib_binding_status(entry: SourceEntry) -> str | None:
+    """Binding status for an OIB CORPUS document (not in the registry), or ``None``.
+
+    The OIB corpus lives in the knowledge base, so it never matches a registry
+    entry — yet its Richtlinien are exactly what a Land declares binding, and its
+    Leitfäden/Erläuterungen are exactly the interpretive guidance the UI must
+    distinguish. The document ROLE is read deterministically from the explicit
+    ``Dokumentart`` (doc_class) first, then the corpus filename convention
+    (:func:`oib_doc_class`) — the same non-guessed signals ``lane_for_hit`` uses.
+    ``rank`` stays ``None`` (the OIB corpus carries no RIS rank); only the coarse
+    role is asserted. ``None`` when the source is not an OIB corpus document.
+    """
+    from aiq_agent.common.norm_registry import oib_doc_class
+
+    if entry.doc_class in _OIB_RICHTLINIE_DOC_CLASSES:
+        return "verbindlich_erklaert"
+    if entry.doc_class in _OIB_INTERPRETIVE_DOC_CLASSES:
+        return "auslegend"
+    if entry.citation_key:
+        filename, _page = _parse_citation_key(entry.citation_key)
+        basename = filename.rsplit("/", 1)[-1] if filename else ""
+        oib_class = oib_doc_class(basename) if basename else None
+        if oib_class == "richtlinie":
+            return "verbindlich_erklaert"
+        if oib_class is not None:
+            return "auslegend"
+    return None
+
+
+def binding_classification_for_entry(
+    entry: SourceEntry,
+    registry: NormRegistry | None = None,
+    bundesland: str | None = None,
+) -> BindingClassification:
+    """Resolve a source to a structured :class:`BindingClassification`.
+
+    Order: a catalogued-norm match (RIS ``document_number`` or widened
+    filename/title vs ``short``/``alias``/``title``) yields that entry's rank and
+    the coarse status it maps to; an OIB corpus document (no registry entry)
+    yields the status its Richtlinie/Leitfaden role implies with ``rank=None``;
+    anything else is ``unbekannt``.
+
+    Fail-open EXACTLY like :func:`binding_note_for_entry`: a missing/invalid
+    registry (or any error) yields ``unbekannt``, never an exception — a binding
+    classification must never take a turn down. ``unbekannt`` is also the honest
+    default for a source that matched nothing: emitting a guessed "bindend" would
+    be a false legal claim, so the safe direction is always "we don't know".
+    """
+    try:
+        norm = _match_registry_entry(entry, registry, bundesland)
+        if norm is not None:
+            return BindingClassification(
+                rank=norm.rank,
+                binding_status=_STATUS_FOR_RANK.get(norm.rank, "unbekannt"),
+            )
+        status = _oib_binding_status(entry)
+        if status is not None:
+            return BindingClassification(rank=None, binding_status=status)
+    except Exception:  # registry unavailable/invalid — bindingness is best-effort
+        return BindingClassification()
+    return BindingClassification()
+
+
 def document_key(entry: SourceEntry) -> str:
     """Stable identity of the DOCUMENT an entry belongs to.
 
@@ -1550,10 +1746,26 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
     # (only for RIS entries, mirroring both helpers' guard) and hand the same
     # instance to source_lane and binding_note_for_entry so neither reloads it.
     from aiq_agent.common.norm_registry import load_registry
+    from aiq_agent.common.norm_registry import resolve_bundesland
 
-    registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
+    # Load the registry once for anything that could resolve to a catalogued norm:
+    # a RIS URL (source_lane/binding_note) OR a document identifier (the WIDENED
+    # binding classification matches KB/upload filenames against aliases too). A
+    # bare web URL still skips the load. The instance is shared across all three
+    # helpers so none reloads it. Passing it to source_lane/binding_note_for_entry
+    # is behaviour-neutral: both only read the registry on the RIS branch.
+    registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) or entry.citation_key else None
     lane_key, lane_label = source_lane(entry, registry)
     kind = kind_for_lane(lane_key)
+
+    # Binding classification (rank + coarse status) for the client. Bundesland is
+    # resolved structured-first (signed request context, then prompt text) so a
+    # Wien entry is never claimed for a Tirol project; the resolution is fail-open.
+    try:
+        bundesland = resolve_bundesland(None)
+    except Exception:  # bundesland resolution must never break wire serialization
+        bundesland = None
+    classification = binding_classification_for_entry(entry, registry, bundesland)
 
     payload: dict[str, Any] = {
         # The [N] marker this source carries in the answer prose (when known).
@@ -1582,6 +1794,12 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         # Bindingness fact for the popover ("does this bind me?") — only present
         # for RIS sources the norm registry catalogues with a binding_note.
         "binding_note": binding_note_for_entry(entry, registry),
+        # Structured binding status alongside the prose ``binding_note``. ``rank``
+        # is dropped by the None-filter below when the source matched no catalogued
+        # norm; ``binding_status`` is ALWAYS emitted (``unbekannt`` included) — the
+        # honest "we don't know" is a signal the UI needs, not an absence.
+        "rank": classification.rank,
+        "binding_status": classification.binding_status,
         "file_name": file_name,
         "page": page,
     }
