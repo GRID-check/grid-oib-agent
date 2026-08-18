@@ -126,7 +126,7 @@
       "type": "object"
     },
     "BuildingSectionCard": {
-      "description": "A to-scale building cross-section (schematic) drawn from storey heights.\n\nEmit for height/Geb\u00e4udeklasse/Fluchtniveau questions where seeing the\nbuilding against threshold lines helps (e.g. 'liege ich unter der GK4-Grenze?\nFluchtniveau bei 9,8 m'). Draws stacked storeys, the ground line, and dashed\nmarker lines (Fluchtniveau, GK/Hochhaus limits) with labels.",
+      "description": "A to-scale building cross-section (schematic) drawn from storey heights.\n\nEmit for height/Geb\u00e4udeklasse/Fluchtniveau questions where seeing the\nbuilding against threshold lines helps (e.g. 'am I below the GK4 limit with\na Fluchtniveau of 9.8 m?'). Draws stacked storeys, the ground line, and\ndashed marker lines (Fluchtniveau, GK/Hochhaus limits) with labels.",
       "properties": {
         "markers": {
           "anyOf": [
@@ -543,7 +543,7 @@
       "type": "object"
     },
     "DimensionCheck": {
-      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nThis block used to be `label / value / required / unit / comparator /\nstatus` and nothing else, and that made the card the least honest surface in\nthe product. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so the surface that dropped the\nqualifier was the surface most likely to be forwarded without it.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \u201enot stated\", never \u201edeclared\".",
+      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nThis block used to be `label / value / required / unit / comparator /\nstatus` and nothing else, and that made the card the least honest surface in\nthe product. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so the surface that dropped the\nqualifier was the surface most likely to be forwarded without it.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \"not stated\", never \"declared\".",
       "properties": {
         "comparator": {
           "anyOf": [
@@ -773,7 +773,7 @@
       "type": "object"
     },
     "EgressDiagramCard": {
-      "description": "A schematic escape-route (Fluchtweg) path with the total length checked.\n\nEmit for escape-route-length questions ('ist der Fluchtweg mit 12 m + 26 m\nzul\u00e4ssig?'). Draws the path segment-by-segment from the worst-case point to\nthe exit and checks the total against the OIB 2 limit (typically 40 m).",
+      "description": "A schematic escape-route (Fluchtweg) path with the total length checked.\n\nEmit for escape-route-length questions ('is a Fluchtweg of 12 m + 26 m\npermitted?'). Draws the path segment-by-segment from the worst-case point to\nthe exit and checks the total against the OIB 2 limit (typically 40 m).",
       "properties": {
         "exit_label": {
           "anyOf": [
@@ -1410,7 +1410,7 @@
       "type": "object"
     },
     "IfcComplianceCard": {
-      "description": "The Pr\u00fcfbuch: OIB requirements with their verdict against this model.\n\nCarries only WHICH requirements to show; the frontend runs the catalogue and\nrenders the counts, the thresholds and the failing elements itself. The\nmodel therefore cannot state that a building complies, because it never\nsupplies a verdict \u2014 the same reason the schedule card carries no areas.\n\nUse when the user asks whether the model meets a requirement, what is still\nopen, or what they have to add to the model. Prefer it over prose whenever\nthe answer is a list of requirements: the card stays correct after the model\nchanges, and a sentence does not.\n\nNEVER present this as a Nachweis. The catalogue reads only published\nproperty values, it reads no geometry, and Fluchtwegl\u00e4ngen, Gel\u00e4nderh\u00f6hen\nund Brandabschnittsgr\u00f6\u00dfen are not in it at all.",
+      "description": "The Pr\u00fcfbuch: OIB requirements with their verdict against this model.\n\nCarries only WHICH requirements to show; the frontend runs the catalogue and\nrenders the counts, the thresholds and the failing elements itself. The\nmodel therefore cannot state that a building complies, because it never\nsupplies a verdict \u2014 the same reason the schedule card carries no areas.\n\nUse when the user asks whether the model meets a requirement, what is still\nopen, or what they have to add to the model. Prefer it over prose whenever\nthe answer is a list of requirements: the card stays correct after the model\nchanges, and a sentence does not.\n\nNEVER present this as a Nachweis. The catalogue reads only published\nproperty values, it reads no geometry, and Fluchtwegl\u00e4ngen, Gel\u00e4nderh\u00f6hen\nand Brandabschnittsgr\u00f6\u00dfen are not in it at all.",
       "properties": {
         "model_file": {
           "anyOf": [
@@ -2317,7 +2317,7 @@
       "type": "object"
     },
     "RequirementChecklistCard": {
-      "description": "A requirement checklist: several pass/fail criteria for one question.\n\nEmit when an answer boils down to a list of criteria read against the\nproject ('Was muss ich f\u00fcr GK 4 erf\u00fcllen?', 'Ist das Bauansuchen\nvollst\u00e4ndig?'). Each item carries its own verdict and, where possible, its\nown norm reference; unknown items use status 'needs_input' \u2014 never a guess.",
+      "description": "A requirement checklist: several pass/fail criteria for one question.\n\nEmit when an answer boils down to a list of criteria read against the\nproject ('what do I have to meet for GK 4?', 'is the Bauansuchen\ncomplete?'). Each item carries its own verdict and, where possible, its own\nnorm reference; unknown items use status 'needs_input' \u2014 never a guess.",
       "properties": {
         "items": {
           "description": "The requirements, in reading order",
@@ -2436,7 +2436,7 @@
       "type": "object"
     },
     "SetbackPlanCard": {
-      "description": "A top-down site plan (schematic): parcel, footprint, and setback envelopes.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('h\u00e4lt das Geb\u00e4ude die Abst\u00e4nde\nein?'). Draws the parcel, the required-setback envelope, and the building\nfootprint, with a distance arrow per side coloured by status.",
+      "description": "A top-down site plan (schematic): parcel, footprint, and setback envelopes.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('does the building keep the\nrequired Abst\u00e4nde?'). Draws the parcel, the required-setback envelope, and\nthe building footprint, with a distance arrow per side coloured by status.",
       "properties": {
         "building_depth_m": {
           "description": "Building footprint depth in metres",
@@ -2552,7 +2552,7 @@
       "type": "object"
     },
     "StairDiagramCard": {
-      "description": "A staircase drawn to scale (schematic section) with step-geometry checks.\n\nEmit for stair questions (e.g. 'passt eine Treppe mit 17 Stufen, 18 cm\nSteigung, 27 cm Auftritt, 100 cm breit?'). Draws the step profile to scale\nand checks riser/going/width and the comfort rule (2\u00d7Steigung + Auftritt \u2248\n59\u201365 cm) against OIB 4.",
+      "description": "A staircase drawn to scale (schematic section) with step-geometry checks.\n\nEmit for stair questions (e.g. 'does a flight of 17 steps with 18 cm\nSteigung, 27 cm Auftritt and 100 cm width fit?'). Draws the step profile to\nscale and checks riser/going/width and the comfort rule (2\u00d7Steigung +\nAuftritt \u2248 59\u201365 cm) against OIB 4.",
       "properties": {
         "comfort_note": {
           "anyOf": [

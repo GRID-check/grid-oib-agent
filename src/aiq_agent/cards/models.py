@@ -185,7 +185,7 @@ class DimensionCheck(BaseModel):
 
     Three fields close that, and all three are OPTIONAL: a card built from the
     Bestimmung alone (a limit with no model behind it) has nothing to put in
-    them, and a null here means „not stated", never „declared".
+    them, and a null here means "not stated", never "declared".
     """
 
     label: str = Field(min_length=1, description="What is measured, e.g. 'lichte Durchgangsbreite'")
@@ -265,9 +265,9 @@ class BuildingSectionCard(BaseModel):
     """A to-scale building cross-section (schematic) drawn from storey heights.
 
     Emit for height/Gebäudeklasse/Fluchtniveau questions where seeing the
-    building against threshold lines helps (e.g. 'liege ich unter der GK4-Grenze?
-    Fluchtniveau bei 9,8 m'). Draws stacked storeys, the ground line, and dashed
-    marker lines (Fluchtniveau, GK/Hochhaus limits) with labels.
+    building against threshold lines helps (e.g. 'am I below the GK4 limit with
+    a Fluchtniveau of 9.8 m?'). Draws stacked storeys, the ground line, and
+    dashed marker lines (Fluchtniveau, GK/Hochhaus limits) with labels.
     """
 
     type: Literal["building_section"]
@@ -281,10 +281,10 @@ class BuildingSectionCard(BaseModel):
 class StairDiagramCard(BaseModel):
     """A staircase drawn to scale (schematic section) with step-geometry checks.
 
-    Emit for stair questions (e.g. 'passt eine Treppe mit 17 Stufen, 18 cm
-    Steigung, 27 cm Auftritt, 100 cm breit?'). Draws the step profile to scale
-    and checks riser/going/width and the comfort rule (2×Steigung + Auftritt ≈
-    59–65 cm) against OIB 4.
+    Emit for stair questions (e.g. 'does a flight of 17 steps with 18 cm
+    Steigung, 27 cm Auftritt and 100 cm width fit?'). Draws the step profile to
+    scale and checks riser/going/width and the comfort rule (2×Steigung +
+    Auftritt ≈ 59–65 cm) against OIB 4.
     """
 
     type: Literal["stair_diagram"]
@@ -319,9 +319,9 @@ class DimensionDiagramCard(BaseModel):
 class SetbackPlanCard(BaseModel):
     """A top-down site plan (schematic): parcel, footprint, and setback envelopes.
 
-    Emit for Abstandsflächen/Bauwich questions ('hält das Gebäude die Abstände
-    ein?'). Draws the parcel, the required-setback envelope, and the building
-    footprint, with a distance arrow per side coloured by status.
+    Emit for Abstandsflächen/Bauwich questions ('does the building keep the
+    required Abstände?'). Draws the parcel, the required-setback envelope, and
+    the building footprint, with a distance arrow per side coloured by status.
     """
 
     type: Literal["setback_plan"]
@@ -337,8 +337,8 @@ class SetbackPlanCard(BaseModel):
 class EgressDiagramCard(BaseModel):
     """A schematic escape-route (Fluchtweg) path with the total length checked.
 
-    Emit for escape-route-length questions ('ist der Fluchtweg mit 12 m + 26 m
-    zulässig?'). Draws the path segment-by-segment from the worst-case point to
+    Emit for escape-route-length questions ('is a Fluchtweg of 12 m + 26 m
+    permitted?'). Draws the path segment-by-segment from the worst-case point to
     the exit and checks the total against the OIB 2 limit (typically 40 m).
     """
 
@@ -605,9 +605,9 @@ class RequirementChecklistCard(BaseModel):
     """A requirement checklist: several pass/fail criteria for one question.
 
     Emit when an answer boils down to a list of criteria read against the
-    project ('Was muss ich für GK 4 erfüllen?', 'Ist das Bauansuchen
-    vollständig?'). Each item carries its own verdict and, where possible, its
-    own norm reference; unknown items use status 'needs_input' — never a guess.
+    project ('what do I have to meet for GK 4?', 'is the Bauansuchen
+    complete?'). Each item carries its own verdict and, where possible, its own
+    norm reference; unknown items use status 'needs_input' — never a guess.
     """
 
     type: Literal["requirement_checklist"]
@@ -899,7 +899,7 @@ class IfcComplianceCard(BaseModel):
 
     NEVER present this as a Nachweis. The catalogue reads only published
     property values, it reads no geometry, and Fluchtweglängen, Geländerhöhen
-    und Brandabschnittsgrößen are not in it at all.
+    and Brandabschnittsgrößen are not in it at all.
     """
 
     type: Literal["ifc_compliance"]

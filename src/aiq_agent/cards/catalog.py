@@ -557,7 +557,7 @@ def _measured_note() -> str:
         "  provenance, and for a 'computed' one set `tolerance` to the ± band in the SAME unit.\n"
         "  Copy them; never infer them. Marking our own measurement 'declared' turns our tolerance\n"
         "  into the architect's claim, and a measured dimension shown without its band reads as\n"
-        "  exact — which is what decides whether 2,47 m clears a 2,50 m minimum.\n"
+        "  exact — which is what decides whether 2.47 m clears a 2.50 m minimum.\n"
         "  Leave both null for a number that did not come from the model: a figure the user typed,\n"
         "  or a limit read out of the Bestimmung. Null means 'not stated', never 'declared'.\n"
         "  When the answer came back `decidable: false`, the dimension is status 'needs_input' with\n"
