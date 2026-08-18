@@ -38,6 +38,8 @@ class ChatResearcherState(BaseModel):
         clarifier_result: Log from clarifier agent dialog.
         original_query: The latest user query, preserved for deep research.
         available_documents: User-uploaded documents with summaries for context.
+        focus_file_name: Filename of the composer's "Asking about <file>" subject.
+        focus_shelf: Shelf that focused file sits on (session/project/archiv).
         cards: Structured response cards generated from the final research context.
         skip_clarifier: When True the clarifier node is bypassed regardless of
             ``enable_clarifier``.  Set automatically for API-key and anonymous
@@ -55,6 +57,14 @@ class ChatResearcherState(BaseModel):
     original_query: str | None = None
     available_documents: list[AvailableDocument] | None = None
     collection_scope: list[str] | None = None
+    # The composer's "Asking about <file>" subject, as stated on the wire
+    # (``focus_file_name`` / ``focus_shelf``). Retrieval already reads it from
+    # the turn ContextVars; the state carries it so the ANSWERING prompts can
+    # resolve a deictic question ("summarize this document") to a filename.
+    # Without it a bare "fass zusammen" has no antecedent and the model asks
+    # which file instead of retrieving the one the user is looking at.
+    focus_file_name: str | None = None
+    focus_shelf: str | None = None
     cards: list[dict[str, Any]] | None = None
     skip_clarifier: bool = False
     project_context: str | None = None

@@ -222,7 +222,7 @@ expanded collection list:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `focus_file_name` | `string` | Filename of the file this send is about (the composer "Asking about …" subject). Retrieval prefers it. |
+| `focus_file_name` | `string` | Filename of the file this send is about (the composer "Asking about …" subject). Retrieval prefers it, AND it is named in the prompts. |
 | `focus_shelf` | `"session"` \| `"project"` \| `"archiv"` | Shelf that file sits on. Wins over `source_preset`. |
 | `source_preset` | `"law"` \| `"project"` \| `"office"` | Composer shortcut chip. Used only when no subject shelf is set. |
 
@@ -247,6 +247,22 @@ leaves the signed scope intact (ADR-0024). See
 Absence of every field is the unscoped project turn: the signed header stands
 as-is. An old backend ignores the unknown keys and searches the full authorized
 scope — the pre-#429 behaviour, never a dropped frame.
+
+`focus_file_name` is not only a retrieval hint. It is lifted onto
+`ChatResearcherState` and rendered into both the routing prompt
+(`intent_classification.j2`) and the answering prompt (`researcher.j2`), because
+a turn that says "fass zusammen" carries its subject in the composer bar and
+nowhere in its text: with retrieval scoped correctly but the model told nothing,
+the answer was "which document do you mean?" over an open PDF. A bound subject
+also keeps the search tools on a turn the classifier called conversational —
+otherwise the one tool that can read that file is not offered. The grounding
+contract still follows the classified intent, not the subject.
+
+`focus_shelf` is optional even when a subject is set: a conversation persists
+only the subject's resource id, so a thread reopened after a reload re-reads the
+filename and shelf from the document (`GET /api/documents/[id]/status` returns
+`filename` and `scope`). Until that lookup returns, the turn carries the file
+name without a shelf and retrieval keeps the signed scope.
 
 #### user_interaction_message
 

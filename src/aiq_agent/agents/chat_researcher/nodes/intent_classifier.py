@@ -222,6 +222,7 @@ class IntentClassifier:
             user_info=user_info,
             tools=tools_info if tools_info is not None else self.tools_info,
             project_context=state.project_context,
+            focus_file_name=state.focus_file_name,
         )
         trimmed_conversation = trim_message_history(list(state.messages), max_tokens=self.max_history_tokens)
         messages: list[BaseMessage] = (

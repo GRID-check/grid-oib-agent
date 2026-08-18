@@ -18,36 +18,70 @@ import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
 import type { ComposerSubject } from '@/features/chat/types'
 import { documentFilesHref } from '../lib/document-question'
 
+/** Shelves a composer subject can sit on; `documents.scope` uses these names. */
+const SUBJECT_SHELVES = ['project', 'archiv', 'session'] as const
+
+/** The fields of `/api/documents/[id]/status` this bar reads. */
+interface DocumentSubjectStatus {
+  filename?: string
+  displayName?: string | null
+  scope?: string | null
+}
+
+/** What the status lookup recovered for a subject restored from an id alone. */
+export interface ResolvedSubjectIdentity {
+  title: string | null
+  filename: string | null
+  shelf?: ComposerSubject['shelf']
+}
+
 export function ComposerSubjectBar({
   subject,
   projectId,
   onClear,
-  onTitle,
+  onResolved,
   onShowFile,
 }: {
   subject: ComposerSubject | null
   projectId: string | null
   onClear: () => void
-  onTitle: (title: string) => void
+  onResolved: (identity: ResolvedSubjectIdentity) => void
   onShowFile?: () => void
 }): JSX.Element {
   const t = useTranslations('files')
 
+  /*
+    Recover what a restored subject cannot carry.
+
+    A conversation persists only the subject's resource id, so after a reload
+    the bar is handed an id and nothing else — no stored filename (which IS the
+    retrieval identity sent as `focus_file_name`) and no shelf. Asking the
+    document for them beats writing a copy onto the conversation: a copy would
+    also have to be kept in step with a rename, and the row is the authority
+    either way.
+
+    The guard is "anything missing", not "no title": a subject restored with a
+    title but no filename used to skip this fetch entirely and send the title
+    as the filename.
+  */
   useEffect(() => {
-    if (!subject || subject.title) return
+    if (!subject) return
+    if (subject.title && subject.filename && subject.shelf) return
     let cancelled = false
     fetch(`/api/documents/${encodeURIComponent(subject.resourceId)}/status`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((body: { filename?: string; displayName?: string | null } | null) => {
+      .then((body: DocumentSubjectStatus | null) => {
         if (cancelled || !body) return
-        const title = body.displayName?.trim() || body.filename?.trim()
-        if (title) onTitle(title)
+        const filename = body.filename?.trim() || null
+        const title = body.displayName?.trim() || filename
+        const shelf = SUBJECT_SHELVES.find((value) => value === body.scope)
+        if (title || filename || shelf) onResolved({ title, filename, shelf })
       })
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [subject, onTitle])
+  }, [subject, onResolved])
 
   const name = subject?.title?.trim() || t('assignment.thisFile')
   const href = subject && projectId ? documentFilesHref(projectId, subject.resourceId) : null

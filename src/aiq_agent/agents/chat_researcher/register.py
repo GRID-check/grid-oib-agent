@@ -907,6 +907,19 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         logger.info("skip_clarifier=%s", skip_clarifier)
 
         query_text, data_sources, force_skills = _extract_query_and_sources(query)
+        # The extraction above is what SETS the turn intent ContextVars, so the
+        # focus is read after it, not before. Retrieval reads the same vars;
+        # lifting them onto the state is what puts the subject in front of the
+        # classifier and the answering model as well.
+        try:
+            from aiq_agent.common.focus_file import get_focused_file_name
+            from aiq_agent.common.focus_file import get_focused_shelf
+
+            _focus_file_name = get_focused_file_name()
+            _focus_shelf = get_focused_shelf()
+        except Exception:
+            _focus_file_name = None
+            _focus_shelf = None
         logger.info("ChatDeepResearcherAgent: %s", query_text)
         logger.info("ChatDeepResearcherAgent: Data sources: %s", data_sources)
 
@@ -1041,6 +1054,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 force_skills=force_skills,
                 available_documents=available_documents,
                 collection_scope=_collection_scope,
+                focus_file_name=_focus_file_name,
+                focus_shelf=_focus_shelf,
                 skip_clarifier=skip_clarifier,
                 project_context=_project_context,
             )

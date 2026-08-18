@@ -525,6 +525,21 @@ A subject shelf wins over a preset. Absence of both leaves the signed scope
 intact (ADR-0024: Archiv stays in every unscoped project turn). The TS twin
 is `includeShelvesForTurn` in `frontends/ui/src/features/layout/lib/retrieval-scope.ts`.
 
+**The subject is also a prompt fact, not only a retrieval hint.** Scoping
+retrieval to the right file answers "where do I look"; it does not answer "what
+is *this document*". `register.py` lifts the turn ContextVars onto
+`ChatResearcherState.focus_file_name` / `.focus_shelf`, the graph carries them
+into `ShallowResearchAgentState`, and both the routing prompt
+(`intent_classification.j2`) and the answering prompt (`researcher.j2` §"This
+turn's subject") name the file — so a bare "fass zusammen" has an antecedent.
+Without that the model asked which document the user meant while the composer
+bar on screen said exactly which one, and retrieval's correct scoping was never
+reached. A bound subject additionally keeps the search tools on a turn the
+classifier called `meta`: the meta partition exists to stop a weak model firing
+search at a greeting, and stripping it from a file turn removes the only tool
+that can read the file. `requires_sources` is untouched — the grounding contract
+follows the classified intent, not the subject.
+
 ### Document summaries & `available_documents` (SQL side-table, distinct from the vector index)
 
 Two separate stores back "documents" and are **architecturally distinct**:

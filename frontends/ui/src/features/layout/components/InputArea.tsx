@@ -1278,9 +1278,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               ? () => useFilePreviewStore.getState().peek()
               : undefined
           }
-          onTitle={(title) => {
-            if (!composerSubject) return
-            setComposerSubject({ ...composerSubject, title })
+          onResolved={({ title, filename, shelf }) => {
+            // Read from the store, not the closure: the lookup is async and the
+            // user may have cleared or re-bound the bar while it was in flight.
+            const current = useChatStore.getState().composerSubject
+            if (!current) return
+            setComposerSubject({
+              ...current,
+              ...(title ? { title } : {}),
+              ...(filename ? { filename } : {}),
+              ...(shelf ? { shelf } : {}),
+            })
           }}
         />
 

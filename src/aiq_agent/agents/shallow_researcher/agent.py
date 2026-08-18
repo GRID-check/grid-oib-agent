@@ -70,6 +70,23 @@ logger = logging.getLogger(__name__)
 AGENT_DIR = Path(__file__).parent
 
 
+def _shelf_label(shelf: str | None) -> str | None:
+    """Reader-facing German shelf name for the focused file, or None.
+
+    The prompt names the shelf the same way the inventory block does, so the
+    subject line and the inventory cannot disagree about where a file sits.
+    An unparseable shelf yields None: the focus line then names the file
+    alone rather than inventing a shelf for it.
+    """
+    if not shelf:
+        return None
+    from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
+    from aiq_agent.common.source_kinds import parse_shelf
+
+    parsed = parse_shelf(shelf)
+    return SHELF_QUALIFIERS.get(parsed) if parsed is not None else None
+
+
 # Interaction tools the model still needs on conversational/meta turns —
 # `remember` (durable memory) and `emit_card` (UI cards). Matched on the tool's
 # base name so an MCP/group-qualified variant (e.g. ``mcp__remember``) is still
@@ -599,7 +616,14 @@ class ShallowResearcherAgent:
             # configured, in which case the bound set is narrowed by retrieval
             # BEFORE this LLM call — no discovery turn, no extra node, no
             # change to the iteration budget.
-            if state.requires_sources:
+            # A bound composer subject widens the binding: the meta partition
+            # exists so a weak model cannot fire search at a greeting, but a
+            # file the user is looking at is an explicit statement that a file
+            # is in play. Stripping search from that turn is why "fass das
+            # zusammen" over an open PDF could only ever answer "which file?".
+            # `requires_sources` itself is untouched — the grounding contract
+            # still follows the classified intent, not the subject.
+            if state.requires_sources or state.focus_file_name:
                 active_llm_with_tools, tools_info = self._research_tool_binding(messages, tools_info)
             else:
                 active_llm_with_tools, tools_info = self._meta_tool_binding(tools_info)
@@ -647,6 +671,8 @@ class ShallowResearcherAgent:
                     current_datetime=current_datetime,
                     available_documents=_documents_dump,
                     project_context=state.project_context,
+                    focus_file_name=state.focus_file_name,
+                    focus_shelf_label=_shelf_label(state.focus_shelf),
                     ris_catalog=render_block_for_prompt(state.project_context) if state.requires_sources else None,
                     norm_doctrine=doctrine_for(state.project_context) if state.requires_sources else None,
                     parcel_note=parcel_note(_documents_dump) if state.requires_sources else None,
