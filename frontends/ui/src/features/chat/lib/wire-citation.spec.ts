@@ -60,6 +60,19 @@ describe('citationFromWire', () => {
     expect(citationFromWire({ ...KB_WIRE, number: 0 }).number).toBeUndefined()
     expect(citationFromWire({ ...KB_WIRE, number: 1.5 }).number).toBeUndefined()
   })
+
+  test('keeps a real binding classification', () => {
+    expect(citationFromWire({ ...KB_WIRE, binding_status: 'verbindlich_erklaert' }).bindingStatus).toBe(
+      'verbindlich_erklaert',
+    )
+  })
+
+  test('drops unbekannt to undefined so it renders as no badge, not a hedge', () => {
+    // The one direction a legal signal must not fail in: absence reads as
+    // "not known", never as "not binding".
+    expect(citationFromWire({ ...KB_WIRE, binding_status: 'unbekannt' }).bindingStatus).toBeUndefined()
+    expect(citationFromWire(KB_WIRE).bindingStatus).toBeUndefined()
+  })
 })
 
 describe('sameCitation', () => {

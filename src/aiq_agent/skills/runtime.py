@@ -136,6 +136,26 @@ class SkillRuntime:
     def activated(self) -> tuple[str, ...]:
         return tuple(self._activated)
 
+    @property
+    def hidden_activated(self) -> tuple[str, ...]:
+        """Activated skills whose `grid-hidden` metadata is set.
+
+        The disclosure names every activated skill (the transparency doctrine),
+        but a skill that runs on EVERY answer — the house voice — is noise there
+        as much as on the live line. This is the subset the frontend de-emphasises
+        until the reader opens the reasoning view, so the panel is not dominated
+        by an instruction the reader cannot act on. Resolved HERE rather than
+        client-side because only the runtime holds each skill's metadata; a
+        standard skill is excluded from the invocable list the disclosure reads.
+        """
+        from .models import skill_hidden
+
+        return tuple(
+            name
+            for name in self._activated
+            if (skill := self._by_name.get(name)) is not None and skill_hidden(skill.metadata)
+        )
+
     def _record_activation(self, name: str, *, forced: bool = False) -> None:
         """Record ONE activation, first-wins, and announce it.
 

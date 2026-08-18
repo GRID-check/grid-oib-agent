@@ -152,7 +152,11 @@ vorgeschrieben, und eine Frage, die in einen Satz passt, bekommt einen Satz.
 
 Eine lange Antwort auf eine kurze Frage ist kein Service, sondern Arbeit, die an
 den Leser weitergegeben wird.',
-  '{"grid-agents": "shallow_researcher,deep_researcher"}'::jsonb,
+  -- grid-hidden: the voice runs on EVERY answer, so "piloti-voice ran" is
+  -- noise on the live line. Hidden routes its activation event to the technical
+  -- channel — still fired, still recorded, still named in the reasoning view
+  -- when the reader opens it — rather than announcing itself every turn.
+  '{"grid-agents": "shallow_researcher,deep_researcher", "grid-hidden": "true"}'::jsonb,
   true,
   'standard',
   'system',

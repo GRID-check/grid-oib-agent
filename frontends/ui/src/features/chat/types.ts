@@ -135,6 +135,8 @@ export interface AnswerTransparency {
    * reportable, only the decision to load one is.
    */
   skillsActivated?: string[]
+  /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
+  skillsHidden?: string[]
 }
 
 /** File card data for file messages */
@@ -349,6 +351,8 @@ export interface ChatMessage {
    * the turn activated none.
    */
   skillsActivated?: string[]
+  /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
+  skillsHidden?: string[]
 }
 
 /** Intermediate thinking step from agent */
@@ -530,6 +534,15 @@ export interface CitationSource {
    * architect can see whether the source actually binds their project.
    */
   bindingNote?: string
+  /**
+   * Coarse binding classification the backend derived from the norm registry
+   * (`bindend` / `verbindlich_erklaert` / `auslegend` / `unbekannt`). Distinct
+   * from `authority`, which names the TIER (OIB / RIS); this names whether the
+   * source BINDS. `unbekannt` is dropped to undefined at the wire boundary so a
+   * missing classification reads as "not known", never as "not binding" — the
+   * one direction a legal signal must not fail in.
+   */
+  bindingStatus?: string
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */

@@ -1086,6 +1086,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           answerConfidenceReason={message.answerConfidenceReason}
           citationsRemoved={message.citationsRemoved}
           skillsActivated={message.skillsActivated}
+          skillsHidden={message.skillsHidden}
           showConfidenceChip={showConfidenceChip}
           messageId={message.id}
           showAnswerFeedback={showAnswerFeedback}

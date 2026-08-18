@@ -399,3 +399,29 @@ def test_the_forced_doctrine_says_when_a_writing_skill_binds() -> None:
     # prose exists, which is the one moment it cannot affect anything.
     runtime = SkillRuntime(skills=(STANDARD,))
     assert "before you write" in (runtime.forced_block() or "")
+
+
+HIDDEN_STD = Skill(
+    name="haus-stimme",
+    description="Die Hausstimme.",
+    body="voice body",
+    metadata={"grid-hidden": "true"},
+    origin="org",
+    standard=True,
+)
+
+
+def test_hidden_activated_is_the_grid_hidden_subset() -> None:
+    # The disclosure NAMES every activated skill, but a skill that runs on every
+    # answer is noise there too — this subset is what the frontend mutes until
+    # the reasoning view is open. Resolved here because only the runtime holds a
+    # standard skill's metadata; the invocable list the disclosure reads excludes it.
+    runtime = SkillRuntime(skills=(S1, HIDDEN_STD))
+    assert "haus-stimme" in runtime.activated
+    assert runtime.hidden_activated == ("haus-stimme",)
+
+
+def test_an_ordinary_activated_skill_is_not_hidden() -> None:
+    runtime = SkillRuntime(skills=(S1, STANDARD))  # STANDARD carries no grid-hidden
+    assert "haus-stil" in runtime.activated
+    assert runtime.hidden_activated == ()

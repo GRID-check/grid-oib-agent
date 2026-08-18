@@ -18,6 +18,7 @@
 import { type FC } from 'react'
 import { ExternalLink, FileSearch, Link2 } from 'lucide-react'
 import { useTranslations } from '@/i18n'
+import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import {
@@ -36,6 +37,41 @@ interface CitationPeekProps {
   onOpen?: () => void
   /** Outbound link, for web/RIS sources. */
   url?: string
+}
+
+/**
+ * Whether the source BINDS, as a compact pill beside the tier label.
+ *
+ * Orthogonal to the authority badge (which names OIB/RIS): `bindend` for
+ * statute and ordinance, `verbindlich_erklaert` for an OIB-Richtlinie a Land
+ * declared binding, `auslegend` for interpretive material. The classification
+ * the reader most wants — "does this actually apply to me?" — and the reason
+ * the backend went to the trouble of carrying rank onto every source.
+ *
+ * `unbekannt` never reaches here: it is dropped to undefined at the wire, so an
+ * unclassified source shows no pill rather than a hedged one. Colour is never
+ * the only carrier — the German word is always spelled out (the a11y rule the
+ * rest of this file follows).
+ */
+const BINDING_TONE: Record<string, string> = {
+  bindend: 'border-transparent bg-[var(--source-law,var(--foreground))] text-[var(--background)]',
+  verbindlich_erklaert: 'border-[var(--source-law,var(--foreground))] text-foreground',
+  auslegend: 'border-border text-muted-foreground',
+}
+
+const BindingStatusChip: FC<{ status?: string }> = ({ status }) => {
+  const t = useTranslations('chat')
+  if (!status || !(status in BINDING_TONE)) return null
+  return (
+    <span
+      className={cn(
+        'rounded-full border px-1.5 py-0.5 text-[0.65rem] font-medium leading-none',
+        BINDING_TONE[status]
+      )}
+    >
+      {t(`sourcePreview.binding.${status}`)}
+    </span>
+  )
 }
 
 /**
@@ -76,6 +112,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
         {doc.laneLabel && (
           <span className="text-xs font-medium text-muted-foreground">{doc.laneLabel}</span>
         )}
+        <BindingStatusChip status={doc.bindingStatus} />
       </div>
 
       <div>

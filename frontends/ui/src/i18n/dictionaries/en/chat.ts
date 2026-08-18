@@ -17,6 +17,14 @@ export const chat = {
     loadFailed: 'The source preview could not be loaded. Please try again.',
     // Bindingness note (how a RIS source binds the project) in the info popover.
     bindingLabel: 'Binding effect',
+    // The German legal terms are kept even in the English UI — they are the
+    // terms of art an Austrian architect works in, and translating "verbindlich
+    // erklärt" to "declared binding" loses the phrase they would search for.
+    binding: {
+      bindend: 'Bindend',
+      verbindlich_erklaert: 'Verbindlich erklärt',
+      auslegend: 'Auslegend',
+    },
     openExternal: 'Open in RIS',
     // Coarse source kind (ADR-0026) shown in the info popover. Preferred
     // over `origins` because the origin token is kb/ris/web only, so a

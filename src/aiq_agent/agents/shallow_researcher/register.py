@@ -199,6 +199,9 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             result = await active_agent.run(state)
             if skill_runtime is not None:
                 result.skills_activated = list(skill_runtime.activated)
+                hidden = list(skill_runtime.hidden_activated)
+                if hidden:
+                    result.skills_hidden = hidden
             return result
         except EmptySourceRegistryError:
             # A scoped miss (this-file / this-shelf) is a valid empty

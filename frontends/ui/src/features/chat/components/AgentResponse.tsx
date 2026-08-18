@@ -32,6 +32,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { answerSourceAnchorPrefix, buildCitationModel, splitAnswerBody } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
+import { useShowReasoningSkills } from '@/lib/user-preferences/use-show-reasoning-skills'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
@@ -90,6 +91,12 @@ export interface AgentResponseProps {
    * which is the common case — availability is not activation.
    */
   skillsActivated?: string[]
+  /**
+   * The `grid-hidden` subset of `skillsActivated` — a skill that runs on every
+   * answer (the house voice), muted in the disclosure until the reader turns on
+   * the reasoning view. Named there, never dropped.
+   */
+  skillsHidden?: string[]
   /**
    * Whether the self-assessment ConfidenceChip renders (WorkOS
    * `chat-confidence-chip` flag, FB-6). Defaults to true so the feature stays
@@ -209,6 +216,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   answerConfidenceReason,
   citationsRemoved,
   skillsActivated,
+  skillsHidden,
   showConfidenceChip = true,
   messageId,
   showAnswerFeedback = true,
@@ -216,6 +224,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   routingDecision,
 }) => {
   const t = useTranslations('chat')
+  // The reader's reasoning-view preference: hidden skills are muted in the
+  // disclosure until this is on. Default-closed, so the house voice does not
+  // clutter the panel on every answer.
+  const { showReasoningSkills } = useShowReasoningSkills()
   // Without the locale `formatTime` uses the RUNTIME default, so a German user on
   // an en-US browser got "03:35 PM" beside cards that all say "15:35".
   const { locale } = useLocale()
@@ -441,7 +453,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           isStreaming={isStreaming}
         />
         <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-        <SkillsUsedDisclosure skillsActivated={skillsActivated} />
+        <SkillsUsedDisclosure
+          skillsActivated={skillsActivated}
+          hiddenSkills={skillsHidden}
+          showReasoning={showReasoningSkills}
+        />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
         <div className="flex flex-wrap items-center gap-2">
@@ -587,7 +603,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             withDivider={false}
           />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-          <SkillsUsedDisclosure skillsActivated={skillsActivated} />
+          <SkillsUsedDisclosure
+          skillsActivated={skillsActivated}
+          hiddenSkills={skillsHidden}
+          showReasoning={showReasoningSkills}
+        />
           {reserveMetaRow && (
             <div
               className={

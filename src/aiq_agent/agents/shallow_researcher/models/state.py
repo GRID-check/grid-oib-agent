@@ -93,6 +93,12 @@ class ShallowResearchAgentState(BaseModel):
     # meta turns / disabled config — the chat node lifts it onto the terminal
     # ChatResponse only when present.
     skills_activated: list[str] | None = None
+    # The subset of ``skills_activated`` marked ``grid-hidden`` — a skill that
+    # runs on every answer (the house voice) is named in the disclosure but
+    # de-emphasised there until the reader opens the reasoning view. Named, never
+    # dropped: the transparency doctrine forbids a class of instruction the
+    # product declines to admit ran.
+    skills_hidden: list[str] | None = None
     # Transparency summary of citations dropped by ``verify_citations`` this turn
     # (``{"count": int, "reasons": [str, ...]}``). Populated by ``run()`` ONLY
     # when ≥1 citation was removed; None otherwise. The chat orchestrator lifts

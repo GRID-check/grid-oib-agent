@@ -14,6 +14,13 @@ export const chat: typeof en.chat = {
     cited: 'Zitiert',
     loadFailed: 'Die Quellenvorschau konnte nicht geladen werden. Bitte versuchen Sie es erneut.',
     bindingLabel: 'Bindungswirkung',
+    // Coarse binding classification beside the tier badge. `unbekannt` has no
+    // entry on purpose — an unclassified source shows no pill at all.
+    binding: {
+      bindend: 'Bindend',
+      verbindlich_erklaert: 'Verbindlich erklärt',
+      auslegend: 'Auslegend',
+    },
     openExternal: 'Im RIS öffnen',
     // Coarse source kind (ADR-0026) shown in the info popover. Preferred
     // over `origins` because the origin token is kb/ris/web only, so a
