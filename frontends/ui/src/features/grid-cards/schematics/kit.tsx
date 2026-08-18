@@ -30,6 +30,7 @@ import {
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useTranslations } from '@/i18n'
+import { AskAboutChip } from '../components/AskAboutChip'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
 import { useCorpusFiles } from '@/features/knowledge/lib/use-corpus-files'
@@ -502,7 +503,9 @@ interface DimChecksListProps {
  * A `needs_input` row prints the CAD remedy underneath instead of leaving an
  * empty slot. „fehlende Angabe" on its own reads as a fact about the building;
  * „Fenster ohne IfcOpeningElement — im CAD als Öffnung modellieren" reads as
- * what it is, a finding about the export, with the fix attached.
+ * what it is, a finding about the export, with the fix attached — and, since
+ * the row holds every word the question needs, an {@link AskAboutChip} that
+ * puts that question in the composer instead of making the reader type it.
  */
 export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => {
   if (checks.length === 0) return null
@@ -545,6 +548,13 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
             </div>
             {check.status === 'needs_input' && check.missing && (
               <p className="pl-5.5 text-[0.92em] leading-snug text-muted-foreground">{check.missing}</p>
+            )}
+            {/* The remedy is stated; the question about it is one click away.
+                Everything the sentence needs is already in this row, so the
+                chip builds it and puts it in the composer — no turn is fired
+                and nothing is fetched. */}
+            {check.status === 'needs_input' && (
+              <AskAboutChip className="ml-5.5 mt-0.5" subject={check.label} missing={check.missing} />
             )}
           </li>
         )

@@ -206,6 +206,33 @@ export const chat = {
     verifyRis: 'Verify in RIS',
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
+    conditionTree: {
+      eyebrow: 'Condition tree',
+      dependsOn: 'Depends on',
+      applies: 'applies here',
+      basis: 'Basis',
+      // Lead-in over the outcome of the case that DOES apply to this project.
+      appliesHere: 'For this project the following applies:',
+      // Lead-in over any other case, in the subjunctive: the grammar itself
+      // says this is a what-if, so a screenshot of the panel cannot be read
+      // as this project's answer.
+      previewLead: 'Under {condition} the following would apply:',
+      // Same lead-in where no branch is marked as this project's: nothing is
+      // being contrasted, so nothing is put in the subjunctive.
+      caseLead: 'Under {condition} the following applies:',
+      // Rides INSIDE the previewed panel, so it travels with a screenshot.
+      previewNotice: 'For comparison only — this project is {condition}: {outcome}',
+      backToActive: 'Back to {condition}',
+      caseAria: 'Case {condition}',
+    },
+    askAbout: {
+      chip: 'Ask about this',
+      chipAria: 'Put a question about "{subject}" into the message box',
+      missingWithDetail:
+        '"{subject}" is missing a figure: {missing}. How can I supply it, and what applies until then?',
+      missingOnly:
+        '"{subject}" is missing a figure. Which figure is needed here, and where do I get it?',
+    },
   },
   agentPrompt: {
     needsInput: 'Piloti needs your input',

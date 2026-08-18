@@ -59,10 +59,15 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // Presentation only — no commitment is started, nothing to remember.
   summary: 'presentational',
   legal_basis: 'presentational',
+  // Still presentational with the „Dazu fragen" chip on an undecided row: like
+  // the follow-up chips below, it only PREFILLS the composer with a question
+  // built from the row's own words. A queued draft is not a commitment.
   requirement_checklist: 'presentational',
   comparison_table: 'presentational',
   // The verdict, the decision tree, the typed table and the norm chain all only
   // render what the agent already wrote in the answer — nothing is committed.
+  // Reading a non-active case of the tree is view state for one reader: every
+  // case was already on the client, and picking one decides nothing.
   verdict_header: 'presentational',
   condition_tree: 'presentational',
   typed_table: 'presentational',

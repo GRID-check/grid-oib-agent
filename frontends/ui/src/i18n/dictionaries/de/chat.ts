@@ -194,6 +194,35 @@ export const chat: typeof en.chat = {
     legalBasis: 'Rechtsgrundlage',
     viewOib: 'OIB-Richtlinie ansehen',
     verifyRis: 'In RIS prüfen',
+    conditionTree: {
+      eyebrow: 'Bedingungsbaum',
+      dependsOn: 'Abhängig von',
+      applies: 'trifft zu',
+      basis: 'Grundlage',
+      // Überschrift über dem Ergebnis des Falls, der für dieses Projekt gilt.
+      appliesHere: 'Für dieses Projekt gilt:',
+      // Überschrift über jedem anderen Fall — im Konjunktiv, damit schon die
+      // Grammatik sagt, dass hier ein anderer Fall angesehen wird. Ein
+      // Bildschirmfoto dieses Abschnitts kann so nicht als Ergebnis dieses
+      // Projekts gelesen werden.
+      previewLead: 'Bei {condition} würde gelten:',
+      // Dieselbe Überschrift, wenn kein Fall als der zutreffende ausgewiesen
+      // ist: dann steht nichts dagegen, was in den Konjunktiv zu setzen wäre.
+      caseLead: 'Bei {condition} gilt:',
+      // Steht INNERHALB des angesehenen Abschnitts, damit der Hinweis auf
+      // jedem Bildschirmfoto mitgeht.
+      previewNotice: 'Nur zum Vergleich — für dieses Projekt gilt {condition}: {outcome}',
+      backToActive: 'Zurück zu {condition}',
+      caseAria: 'Fall {condition}',
+    },
+    askAbout: {
+      chip: 'Dazu fragen',
+      chipAria: 'Frage zu „{subject}“ ins Eingabefeld übernehmen',
+      missingWithDetail:
+        'Bei „{subject}“ fehlt eine Angabe: {missing}. Wie kann ich das nachreichen, und was gilt bis dahin?',
+      missingOnly:
+        'Bei „{subject}“ fehlt eine Angabe. Welche Angabe wird dafür benötigt, und woher bekomme ich sie?',
+    },
   },
   agentPrompt: {
     awaitingOther: 'Piloti wartet auf {name}',

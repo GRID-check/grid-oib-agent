@@ -6,9 +6,11 @@
  * norm chain distinguishes binding from interpretive links in words, not colour.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
+import { I18nProvider } from '@/i18n'
 import { VerdictHeaderCard } from './VerdictHeaderCard'
 import { ConditionTreeCard } from './ConditionTreeCard'
 import { TypedTableCard } from './TypedTableCard'
@@ -34,6 +36,19 @@ describe('VerdictHeaderCard', () => {
   })
 })
 
+/**
+ * The tree renders in German because the reader is Austrian; `fixedLocale`
+ * pins it so the copy is the same on every machine, and skips the provider's
+ * preference reconciliation (which would be a fetch, and this file asserts
+ * there is none).
+ */
+const renderDe = (ui: ReactElement) =>
+  render(
+    <I18nProvider initialLocale="de" fixedLocale>
+      {ui}
+    </I18nProvider>,
+  )
+
 describe('ConditionTreeCard', () => {
   const branches = [
     { condition: 'GK 1–3', outcome: 'REI 30' },
@@ -45,47 +60,117 @@ describe('ConditionTreeCard', () => {
     },
   ]
 
-  it('renders the deciding factor, every branch, and marks the active one', () => {
-    render(
-      <ConditionTreeCard
-        title="Erforderliche Feuerwiderstandsklasse"
-        question="Gebäudeklasse"
-        branches={branches}
-        reference={{ document: 'OIB-Richtlinie 2', edition: 'Ausgabe Mai 2023' }}
-      />,
-    )
+  const tree = (
+    <ConditionTreeCard
+      title="Erforderliche Feuerwiderstandsklasse"
+      question="Gebäudeklasse"
+      branches={branches}
+      reference={{ document: 'OIB-Richtlinie 2', edition: 'Ausgabe Mai 2023' }}
+    />
+  )
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, json: async () => ({}) })))
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('renders the deciding factor, every case, and marks the one that applies', () => {
+    renderDe(tree)
 
     expect(screen.getByText('Gebäudeklasse')).toBeInTheDocument()
-    // Every case is present, collapsed or not.
+    // Every case is present, open or not.
     expect(screen.getByText('GK 1–3')).toBeInTheDocument()
     expect(screen.getByText('GK 4')).toBeInTheDocument()
     expect(screen.getByText('GK 5')).toBeInTheDocument()
-    expect(screen.getByText('REI 60')).toBeInTheDocument()
-    // The matching branch is called out in words, not by colour alone.
+    // The matching case is called out in words, not by colour alone — and in
+    // the semantics, so the marking survives a screen reader too.
     expect(screen.getByText('trifft zu')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: new RegExp('^GK 4') })).toHaveAttribute('aria-current', 'true')
+    // It starts open, in the indicative: this is the reader's answer.
+    expect(screen.getByText('Für dieses Projekt gilt:')).toBeInTheDocument()
+    expect(screen.getAllByText('REI 60').length).toBeGreaterThan(0)
   })
 
-  it('expands a branch on click to reveal its norm (hidden while collapsed)', async () => {
+  it('opens another case from data already on screen — no turn, no fetch', async () => {
     const user = userEvent.setup()
-    render(
+    renderDe(tree)
+
+    // GK 5 starts closed, so the norm it rests on is not in the document yet.
+    // The section (unique to the branch) stands in for the whole reference
+    // block; the bare document name also rides in the card footer.
+    expect(screen.queryByText('Tabelle 1b')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: new RegExp('^GK 5') }))
+
+    // „Ich klick das und sehe mehr" — the case is answered from what was
+    // already in the browser: its outcome large, its Grundlage revealed.
+    expect(screen.getAllByText('REI 90').length).toBe(2)
+    expect(screen.getByText('Tabelle 1b')).toBeInTheDocument()
+    expect(screen.getByText('Grundlage')).toBeInTheDocument()
+    // Nothing left the client. This is the whole promise of the interaction.
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('keeps the case that applies marked while another one is being read', async () => {
+    const user = userEvent.setup()
+    renderDe(tree)
+
+    await user.click(screen.getByRole('button', { name: new RegExp('^GK 5') }))
+
+    // One at a time: the indicative lead-in belongs to the active case only,
+    // and it went away with it.
+    expect(screen.queryByText('Für dieses Projekt gilt:')).not.toBeInTheDocument()
+    // The Konjunktiv says in the grammar itself that this is a what-if.
+    expect(screen.getByText('Bei GK 5 würde gelten:')).toBeInTheDocument()
+    // The correction rides inside the opened panel, naming the case that DOES
+    // apply and its outcome — this is what a cropped screenshot still carries.
+    expect(
+      screen.getByText('Nur zum Vergleich — für dieses Projekt gilt GK 4: REI 60'),
+    ).toBeInTheDocument()
+    // And the marking on the active row never moved.
+    expect(screen.getByText('trifft zu')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: new RegExp('^GK 4') })).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByRole('button', { name: new RegExp('^GK 5') })).not.toHaveAttribute('aria-current')
+  })
+
+  it('goes back to the case that applies from inside the previewed one', async () => {
+    const user = userEvent.setup()
+    renderDe(tree)
+
+    await user.click(screen.getByRole('button', { name: new RegExp('^GK 5') }))
+    await user.click(screen.getByRole('button', { name: 'Zurück zu GK 4' }))
+
+    expect(screen.getByText('Für dieses Projekt gilt:')).toBeInTheDocument()
+    expect(screen.queryByText('Bei GK 5 würde gelten:')).not.toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('opens a case from the keyboard alone', async () => {
+    const user = userEvent.setup()
+    renderDe(tree)
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: new RegExp('^GK 1–3') })).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    expect(screen.getByText('Bei GK 1–3 würde gelten:')).toBeInTheDocument()
+  })
+
+  it('contrasts nothing, and opens nothing, when no case is marked as applying', () => {
+    renderDe(
       <ConditionTreeCard
         title="Erforderliche Feuerwiderstandsklasse"
         question="Gebäudeklasse"
-        branches={branches}
-        reference={{ document: 'OIB-Richtlinie 2', edition: 'Ausgabe Mai 2023' }}
+        branches={[{ condition: 'GK 1–3', outcome: 'REI 30' }]}
+        reference={null}
       />,
     )
 
-    // GK 5 starts collapsed, so the norm it rests on is not in the document yet.
-    // The section (unique to the branch) stands in for the whole reference block;
-    // the bare document name also rides in the card footer, so it is not a proof.
-    expect(screen.queryByText('Tabelle 1b')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /GK 5/ }))
-
-    // „Ich klick das und sehe mehr" — the branch's Grundlage is now revealed.
-    expect(screen.getByText('Tabelle 1b')).toBeInTheDocument()
-    expect(screen.getByText('Grundlage')).toBeInTheDocument()
+    expect(screen.queryByText('trifft zu')).not.toBeInTheDocument()
+    // Nothing opens on the reader's behalf, and nothing is contrasted.
+    expect(screen.queryByText('Bei GK 1–3 gilt:')).not.toBeInTheDocument()
   })
 })
 
