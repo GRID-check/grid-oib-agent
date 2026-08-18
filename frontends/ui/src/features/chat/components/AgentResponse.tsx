@@ -33,7 +33,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { answerSourceAnchorPrefix, buildCitationModel, splitAnswerBody } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
-import { useShowReasoningSkills } from '@/lib/user-preferences/use-show-reasoning-skills'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
@@ -98,6 +97,15 @@ export interface AgentResponseProps {
    * the reasoning view. Named there, never dropped.
    */
   skillsHidden?: string[]
+  /**
+   * The reader's `showReasoningSkills` preference. Passed in from the list
+   * parent rather than read here, because this component renders once PER
+   * MESSAGE — a hook that fetches the preference on mount would fire one GET per
+   * answer in the thread and re-render every message when it settled. Defaults
+   * to closed, so the muted rows stay muted for the SpectatedTurn and dev
+   * surfaces that do not thread it.
+   */
+  showReasoning?: boolean
   /**
    * Whether the self-assessment ConfidenceChip renders (WorkOS
    * `chat-confidence-chip` flag, FB-6). Defaults to true so the feature stays
@@ -218,6 +226,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   citationsRemoved,
   skillsActivated,
   skillsHidden,
+  showReasoning = false,
   showConfidenceChip = true,
   messageId,
   showAnswerFeedback = true,
@@ -225,10 +234,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   routingDecision,
 }) => {
   const t = useTranslations('chat')
-  // The reader's reasoning-view preference: hidden skills are muted in the
-  // disclosure until this is on. Default-closed, so the house voice does not
-  // clutter the panel on every answer.
-  const { showReasoningSkills } = useShowReasoningSkills()
   // Without the locale `formatTime` uses the RUNTIME default, so a German user on
   // an en-US browser got "03:35 PM" beside cards that all say "15:35".
   const { locale } = useLocale()
@@ -457,7 +462,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         <SkillsUsedDisclosure
           skillsActivated={skillsActivated}
           hiddenSkills={skillsHidden}
-          showReasoning={showReasoningSkills}
+          showReasoning={showReasoning}
         />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
@@ -607,7 +612,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           <SkillsUsedDisclosure
           skillsActivated={skillsActivated}
           hiddenSkills={skillsHidden}
-          showReasoning={showReasoningSkills}
+          showReasoning={showReasoning}
         />
           {reserveMetaRow && (
             <div
