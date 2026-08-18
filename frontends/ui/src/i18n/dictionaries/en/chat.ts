@@ -550,6 +550,7 @@ export const chat = {
       other: 'Other',
     },
     thanks: 'Thanks for your feedback.',
+    voteRecorded: 'Rating saved.',
     commentLabel: 'Anything else?',
     commentPlaceholder: 'Optional — tell us what went wrong',
     commentSubmit: 'Send note',

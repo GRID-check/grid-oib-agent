@@ -47,7 +47,7 @@ describe('AnswerFeedback', () => {
       expect(downThumb()).toHaveAttribute('aria-pressed', 'false')
 
       // No confirmation, no reasons, no note: the transaction has not started.
-      expect(screen.queryByText('Thanks for your feedback.')).not.toBeInTheDocument()
+      expect(screen.queryByText('Rating saved.')).not.toBeInTheDocument()
       expect(screen.queryByText('What was the problem?')).not.toBeInTheDocument()
       expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
@@ -75,7 +75,7 @@ describe('AnswerFeedback', () => {
       await user.click(upThumb())
 
       expect(upThumb()).toHaveAttribute('aria-pressed', 'true')
-      expect(screen.getByRole('status')).toHaveTextContent('Thanks for your feedback.')
+      expect(screen.getByRole('status')).toHaveTextContent('Rating saved.')
       // The vote IS the transaction: nothing is left pending beside the thanks.
       expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
@@ -130,7 +130,7 @@ describe('AnswerFeedback', () => {
       await user.click(downThumb())
 
       // Step 1: the vote is committed and said so.
-      expect(screen.getByRole('status')).toHaveTextContent('Thanks for your feedback.')
+      expect(screen.getByRole('status')).toHaveTextContent('Rating saved.')
       await waitFor(() => expect(postCalls()).toHaveLength(1))
       expect(JSON.parse((postCalls()[0] as [string, RequestInit])[1].body as string)).toMatchObject({
         verdict: 'down',
@@ -212,7 +212,7 @@ describe('AnswerFeedback', () => {
       // The note is done; the vote and its reason stay on screen.
       await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
       expect(screen.getByRole('radio', { name: 'Inaccurate' })).toHaveAttribute('aria-checked', 'true')
-      expect(screen.getByRole('status')).toHaveTextContent('Thanks for your feedback.')
+      expect(screen.getByRole('status')).toHaveTextContent('Rating saved.')
     })
 
     test('retracting the down-vote takes the whole second act with it', async () => {

@@ -537,6 +537,11 @@ export const chat: typeof en.chat = {
       other: 'Sonstiges',
     },
     thanks: 'Danke für Ihr Feedback.',
+    // States what the press COMMITTED rather than thanking: the vote is
+    // persisted on the press, so the reason and note are a second, optional
+    // act, and "danke" beside an open "Was war das Problem?" reads as if
+    // the exchange were already over.
+    voteRecorded: 'Bewertung gespeichert.',
     commentLabel: 'Noch etwas?',
     commentPlaceholder: 'Optional — was ist schiefgelaufen?',
     commentSubmit: 'Hinweis senden',

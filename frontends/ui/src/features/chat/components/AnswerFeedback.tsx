@@ -197,7 +197,12 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
               >
                 <Check className="size-3" />
               </motion.span>
-              {t('feedback.thanks')}
+              {/* What the press COMMITTED, not gratitude. The vote is persisted
+                  on the press, so this line is the receipt for it — while the
+                  reason and the note below are a second, optional act. Thanking
+                  here read as if the exchange were over, directly under an open
+                  "Was war das Problem?". */}
+              {t('feedback.voteRecorded')}
             </>
           )}
         </p>
