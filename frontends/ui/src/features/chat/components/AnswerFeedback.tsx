@@ -248,10 +248,13 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
                   placeholder={t('feedback.commentPlaceholder')}
                   rows={2}
                   maxLength={2000}
+                  // `md:text-xs` is not redundant: Textarea's own `md:text-sm`
+                  // survives the merge (different variant), and 14px in a
+                  // footnote out-weighs the answer it is about.
                   className="min-h-14 resize-none rounded-lg py-2 text-xs md:text-xs"
                 />
-                {/* Ink when it will do something, 50% ink when it will not —
-                    the two states are never a question of grey vs. grey. */}
+                {/* Full ink when it will do something, 40% when it will not:
+                    the difference is a contrast jump, not grey vs. grey. */}
                 <Button
                   type="submit"
                   size="sm"
