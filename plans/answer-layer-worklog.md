@@ -305,7 +305,23 @@ write its replacement is invisible in review.
   probably to drop the stat.
 
 ## Sprint 6 — in flight
-- **S6-A · the deep path was never taught to choose.** `cards/prompt.py` still
+- **S6-A landed `297e574f`.** The doctrine now lives in `catalog.py` as named
+  constants assembled by `render_card_doctrine(include_ifc_triggers=...)`,
+  mirroring `render_card_catalog(include_model_backed=...)`. `register.py`'s
+  `_CARD_DOCTRINE` is byte-identical to before, so no test moved. Withheld
+  post-hoc: the `[[card:N]]` contract (the job runner emits the report unchanged
+  and attaches the list — there is no text to place into, so list order IS
+  render order and got a three-line ordering rule instead), `describe_card`, and
+  the `ifc_model_picker` TRIGGER but not its shape. The picker deliberately does
+  NOT join `MODEL_BACKED_CARD_TYPES`: that set means "copy the fields from an
+  `ifc_query` row", and the picker names no file and invents nothing —
+  conflating "cannot fill" with "should not trigger" would put the wrong reason
+  on the wrong set. Craft: inlining the skill body was rejected on cost (~2,600
+  tok) AND on truth — most of it teaches how a card and the prose beside it
+  divide the work, and this path cannot edit the prose. What went in is the
+  subset that is a TEST OVER A FINISHED TEXT, 503 tok. Post-hoc prompt
+  6,972 → 8,168 (once per report, not per turn); `emit_card` unchanged at 1,745.
+- **S6-A original finding:** `cards/prompt.py` still
   says "Only include a card when it adds real value" — the exact disclaimer that
   left fifteen diagram renderers unused on the shallow path until `6302033a`
   replaced it with a trigger table. It is still standing on the surface that
