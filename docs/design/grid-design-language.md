@@ -12,7 +12,7 @@ The visual language is **warm paper monochrome + provenance signal colors** (ado
 2. **Provenance is the only color.** The one place chroma exists is the source signal system (`--source-law` blue, `--source-project` green, `--source-office` gold, `--source-auto` gray, `--signal-error` red). It runs through composer, citations, history filters, and insights — it is the product's trust affordance. **Color never travels alone: every signal is always icon + label + color together** (a11y and legibility). Green doubles as status "Aktiv"; red is for errors only.
 3. **Authority through precision.** This tool cites Austrian building law. Citations, legal-basis, and document provenance must look verifiable and exact — monospace for identifiers, clear source attribution, never decorative.
 4. **Hierarchy over density.** Dense is fine (architects handle complex data), but every screen has ONE clear focal point and a legible reading order. Whitespace does the separating, not boxes-within-boxes.
-5. **Quiet motion.** Entrance fades (`nodeIn`-style fade + slight rise for cards/trace nodes), smooth height transitions (thinking steps, accordions), skeleton→content. 150–250ms, ease-out. No bounce, no spring, no decoration. Respect `prefers-reduced-motion`.
+5. **Motion with a reason.** Movement here is an argument, not an ornament: it says where something came from, that a press landed, or that a change took. Entrance fades with a slight rise for arriving content; smooth height for accordions and thinking steps; skeleton→content. **Springs are allowed where the motion's trajectory carries information the endpoint does not** — a panel arriving from an edge, a toggle thumb clicking into its detent, a dropped file landing, a row gliding to its new group. They are physics, not personality: the overshoot budget is **1–2 pixels of visible travel**, so the spring is chosen by distance, never by taste. Everything else — colour, opacity, hover, system-initiated entrance — is a tween, 120–240ms. Never a spring on colour, on legal content, on errors, or on anything repeating more than about five times per screen. Respect `prefers-reduced-motion` absolutely: motion must be droppable with no loss of information.
 6. **Every state is designed.** Loading, empty, error, partial, success. Empty states especially are craft opportunities, not afterthoughts — they orient and invite the next action.
 
 ## Tokens (already defined in src/styles/tokens.css)
@@ -188,13 +188,120 @@ Tabbed shells (Organisation, Platform, and the same pattern on Inbox) are **one 
 
 ## Motion vocabulary
 
-- Content entrance: `animate-in fade-in-0` (+ `slide-in-from-bottom-1` for cards — the dummy's `nodeIn` fade-rise) via tw-animate-css.
-- **Chat turn entrance** — every block that arrives in the transcript uses the same 200ms fade-and-rise as the message bubbles: `animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out motion-reduce:animate-none`. That includes `AgentPrompt` (the HITL question) and the `DeepResearchBanner` / `ErrorBanner` / `NoSourcesBanner` notices — a banner that pops in unanimated reads as a different class of object than the answer it sits beside.
-- **State changes inside an arrived turn are transitions, not entrances**: `AgentPrompt` dims to `opacity-75` via `transition-opacity duration-200 ease-out motion-reduce:transition-none` once answered; the answer's meta row is reserved at chip height (`min-h-6`) so late chips cannot grow the footer, then fades in on a short `[animation-delay:120ms]` (with `[animation-fill-mode:backwards]`, so nothing flashes before its delay) and the source chips cascade on a 40ms per-chip stagger, capped.
-- Height changes (accordions, thinking steps): CSS grid-rows or Radix Collapsible transitions, ~200ms ease-out.
-- Hover: `transition-colors` on interactive rows/links; never transform on hover for dense UI.
-- Skeleton pulse is the only ambient motion.
-- **Every animation carries `motion-reduce:animate-none`, every non-hover transition `motion-reduce:transition-none`.** `prefers-reduced-motion` is not a nice-to-have here: motion is decoration in this product, so it must be droppable with no loss of information. (Hover `transition-colors` is exempt — a colour change on pointer intent is feedback, not motion.)
+One scale, one set of curves, three springs. Durations and easings are tokens
+in `src/styles/tokens.css`; the springs and tweens live in
+`src/components/motion/index.tsx`. **Never write a literal duration or
+cubic-bezier in a component.**
+
+### Durations
+
+| Token / class | ms | For |
+|---|---|---|
+| `--motion-snap` / `duration-snap` | 120 | Press, checkbox tick, hover on dense rows |
+| `--motion-quick` / `duration-quick` | 180 | **Default.** Colour, opacity, small transforms, chip in/out, row exit |
+| `--motion-base` / `duration-base` | 240 | Content entrance (fade+rise), popover open, accordion height, skeleton→content |
+| `--motion-deliberate` / `duration-deliberate` | 320 | **Ceiling.** Sheet, drawer, wizard step, panel open/close |
+| `--motion-ambient` / `duration-ambient` | 1600 | Indeterminate loops: progress sweep, typing dots, connection ping |
+| `--motion-ambient-slow` | 2600 | Text shimmer |
+
+Exits run **one step shorter** than their entrance. Nobody wants to watch a
+thing they just dismissed.
+
+### Easings
+
+| Token / class | cubic-bezier | For |
+|---|---|---|
+| `--ease-out` / `ease-out` | `0, 0, 0.2, 1` | Colour, opacity, hover, press |
+| `--ease-entrance` / `ease-entrance` | `0.16, 1, 0.3, 1` | Anything that **moves** on arrival |
+| `--ease-exit` / `ease-exit` | `0.4, 0, 1, 1` | Anything **leaving** — departure accelerates away |
+| `--ease-cycle` / `ease-cycle` | `0.65, 0, 0.35, 1` | **Only** looping / indeterminate motion |
+
+No `linear`, no `ease-in-out` on a one-shot, no bare `ease`. An eslint rule
+(`grid/motion-vocabulary`) flags `transition-all`, `ease-linear` and
+transitions on layout-triggering properties.
+
+### Springs
+
+| Name | stiffness / damping / mass | ζ | Overshoot | For |
+|---|---|---|---|---|
+| `springPress` | 600 / 38 / 0.6 | 1.00 | **0%** | Press and release, tap scale, checkbox. Chosen for interruptibility and velocity carry-over, not bounce — a tween cannot resolve a press interrupted mid-flight. |
+| `springSnap` | 520 / 30 / 1 | 0.658 | **6.4%** | **Travel ≤ 24px only.** Toggle thumb, segmented indicator, icon swap, landing file, snap-back. |
+| `springDrawer` | 260 / 26 / 1 | 0.806 | **1.4%** | Large surfaces: drawer, sheet, research panel, wizard step, shared-layout row moves. |
+
+`springSnapLinear` / `springDrawerLinear` are CSS `linear()` equivalents for
+Radix-driven, class-only cases (`Switch`, `Sheet`). A zero-overshoot spring
+needs none — it *is* an ease-out.
+
+**Overshoot is budgeted in pixels, not percent.** 6.4% of an 18px toggle thumb
+is 1.2px — a detent you feel. 6.4% of a 400px drawer is 26px — a trampoline.
+Same number, opposite verdict. That is why `springSnap` carries a 24px ceiling
+as part of its contract rather than as advice.
+
+### When a spring is earned
+
+A spring is earned when **the motion's trajectory carries information the
+endpoint does not.** Three ways:
+
+1. **Continuation** — the element is completing an input the user made in the
+   last ~400ms. The spring is their gesture's momentum, handed back.
+2. **Direction of travel** — it came from somewhere and the reader must know
+   where, so it can be found again.
+3. **Snap-back** — it failed to reach a destination and returned. The overshoot
+   *is* the message "that didn't take."
+
+Everything else is a tween. **Three vetoes override all of the above:** travel
+over 24px never uses `springSnap`; anything carrying legal, evidentiary,
+provenance or error content is tween-only; and anything appearing more than
+about five times per screenful is tween-only, because a spring repeated thirty
+times stops being a physical cue and becomes texture.
+
+### Fixed choreography
+
+- Content entrance: `animate-in fade-in-0` (+ `slide-in-from-bottom-1` for
+  cards) via tw-animate-css.
+- **Chat turn entrance** — every block arriving in the transcript uses the same
+  fade-and-rise: `animate-in fade-in-0 slide-in-from-bottom-1 duration-base
+  ease-entrance motion-reduce:animate-none`. That includes `AgentPrompt` and the
+  `DeepResearchBanner` / `ErrorBanner` / `NoSourcesBanner` notices — a banner
+  that pops in unanimated reads as a different class of object than the answer
+  beside it.
+- **State changes inside an arrived turn are transitions, not entrances**:
+  `AgentPrompt` dims to `opacity-75`; the answer's meta row is reserved at chip
+  height (`min-h-6`) so late chips cannot grow the footer, then fades in on a
+  short delay with `[animation-fill-mode:backwards]`, and the source chips
+  cascade on a 40ms per-chip stagger.
+- **Staggers are always capped** — `Stagger` ships a ceiling
+  (`staggerMaxSteps`), because an uncapped stagger delayed one screen's seventh
+  row by 350ms. Never on a list the reader opened to reach one specific row.
+- Height changes (accordions, thinking steps): CSS grid-rows or Radix
+  Collapsible, `--motion-base`.
+- Hover: `transition-colors` on interactive rows and links; never transform on
+  hover for dense UI. The raised card's lift is the documented exception, and it
+  is a tween.
+- Skeleton pulse is the only ambient motion at rest, and never more than one
+  ambient loop per viewport.
+
+### Binding constraints
+
+- **Transform and opacity only.** Never animate `width`, `height`, `margin`,
+  `padding`, `top/left/right/bottom`, `gap` or `grid-template-*`. A panel that
+  changes size sets its size in one pass and **translates** its content.
+- **`prefers-reduced-motion` flattens everything.** `<MotionConfig
+  reducedMotion="user">` covers motion/react; the global rule in `globals.css`
+  clamps `animation-duration`, `transition-duration` **and the delays**. The
+  delay is not optional: a staggered element that keeps its delay is simply
+  invisible for that long, which is the opposite of what the reader asked for.
+  Every animation still carries `motion-reduce:animate-none` and every non-hover
+  transition `motion-reduce:transition-none`. (Hover `transition-colors` is
+  exempt — a colour change on pointer intent is feedback, not motion.)
+- **No chroma from motion.** Springs overshoot, and an overshooting colour lands
+  outside its token — so colour never springs.
+
+### Never
+
+Numbers counting up. Shaking an error. Morphing a skeleton. Fading a focus ring.
+Animating a citation, a legal basis, a § reference or a knowledge gap on its own.
+More than one ambient loop on screen. `ease-linear`. `transition-all`.
 
 ## Domain-specific treatments
 
