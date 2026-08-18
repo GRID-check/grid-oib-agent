@@ -164,13 +164,23 @@ Tabbed shells (Organisation, Platform, and the same pattern on Inbox) are **one 
 
 **List container** — `ItemList` (`rounded-lg border divide-y`) with `Item` / `ItemMedia` / `ItemContent` / `ItemTitle` / `ItemDescription` / `ItemActions`. That is the list molecule for History, Inbox, Settings rosters, and admin pickers. Do not hand-roll a second `rounded-lg border` + `divide-y` row. The raised product card (Files tiles, project cards) is `RaisedCard`, not `Item`.
 
-**Empty state** — crafted, never bare text:
+**Empty state** — `EmptyState` (`components/ui/empty-state.tsx`), never bare
+text and never hand-rolled. The icon sits in a **raised disc** — border, card
+surface, soft shadow — because a disc that catches the light reads as
+considered where a flat muted circle reads as a placeholder. `variant="panel"`
+adds the dashed container; the bare variant is for an empty region inside a
+surface that already has a border.
+
 ```tsx
-<div className="rounded-lg border border-dashed bg-muted/40 p-10 text-center">
-  <Icon className="mx-auto size-8 text-muted-foreground/60" />
-  <p className="mt-3 text-sm font-medium">{headline}</p>
-  <p className="mt-1 text-sm text-muted-foreground">{oneLine why + what to do}</p>
-  <Button className="mt-4">{primaryCTA}</Button>
+<div className="flex w-full min-w-0 flex-col items-center justify-center text-center
+                rounded-lg border border-dashed bg-muted/25 px-6 py-12">
+  <div className="mb-4 flex size-12 items-center justify-center rounded-full
+                  border bg-card text-muted-foreground/70 shadow-sm">
+    <Icon className="size-5" aria-hidden />
+  </div>
+  <p className="text-balance text-[15px] font-semibold tracking-tight text-foreground">{title}</p>
+  <p className="mt-1.5 max-w-sm text-pretty text-sm leading-relaxed text-muted-foreground">{whyAndWhatToDo}</p>
+  <div className="mt-5">{primaryAction}</div>
 </div>
 ```
 

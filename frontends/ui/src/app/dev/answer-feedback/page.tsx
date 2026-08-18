@@ -255,30 +255,38 @@ const FOOTNOTE_STATES = [
     id: 'af-rest',
     label: 'In Ruhe',
     caption: 'Unter jeder Antwort — quiet bis zum Hover.',
+    wide: false,
     answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
   },
   {
     id: 'af-up',
     label: 'Hilfreich',
     caption: 'Die Stimme ist gespeichert — und damit fertig.',
+    wide: false,
     answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
   },
   {
     id: 'af-down',
     label: 'Nicht hilfreich — Grund wählen',
     caption: 'Die Stimme steht bereits; der Grund ist der zweite, freiwillige Akt.',
+    // The down states run full width: the thread column they ship in is ~680px,
+    // and a half-width preview card would wrap the reason row for reasons that
+    // have nothing to do with the design.
+    wide: true,
     answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
   },
   {
     id: 'af-note',
     label: 'Hinweis offen',
-    caption: 'Erst nach dem Grund — Senden bleibt bis zum ersten Zeichen ink-grau deaktiviert.',
+    caption: 'Erst nach dem Grund — Senden bleibt bis zum ersten Zeichen deaktiviert und blass.',
+    wide: true,
     answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
   },
   {
     id: 'af-sent',
     label: 'Hinweis gesendet',
     caption: 'Der zweite Akt schließt sich; Stimme und Grund bleiben stehen.',
+    wide: true,
     answer: 'Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.',
   },
 ] as const
@@ -307,12 +315,15 @@ export default function AnswerFeedbackPreviewPage() {
           </h2>
           <div className="grid gap-3 md:grid-cols-2">
             {FOOTNOTE_STATES.map((state) => (
-              <div key={state.id} className="flex flex-col gap-2 rounded-lg border bg-card p-4">
+              <div
+                key={state.id}
+                className={`flex flex-col gap-2 rounded-lg border bg-card p-4 ${state.wide ? 'md:col-span-2' : ''}`}
+              >
                 <p className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
                   {state.label}
                 </p>
                 <div className="rounded-lg border bg-background px-4 py-3">
-                  <p className="text-sm leading-relaxed">{state.answer}</p>
+                  <p className="text-sm leading-relaxed text-foreground">{state.answer}</p>
                   <div className="mt-2.5">
                     <AnswerFeedback messageId="af-msg" conversationId={state.id} />
                   </div>
@@ -328,7 +339,7 @@ export default function AnswerFeedbackPreviewPage() {
                 Kompakt — in der Meta-Zeile der Antwort
               </p>
               <div className="rounded-lg border bg-background px-4 py-3">
-                <p className="text-sm leading-relaxed">
+                <p className="text-sm leading-relaxed text-foreground">
                   Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.
                 </p>
                 <div className="mt-2.5 flex min-h-6 flex-wrap items-center gap-2">

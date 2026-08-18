@@ -252,7 +252,12 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
                 />
                 {/* Ink when it will do something, 50% ink when it will not —
                     the two states are never a question of grey vs. grey. */}
-                <Button type="submit" size="sm" className="h-7 w-fit px-3 text-xs" disabled={comment.trim() === ''}>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-7 w-fit px-3 text-xs disabled:opacity-40"
+                  disabled={comment.trim() === ''}
+                >
                   {t('feedback.commentSubmit')}
                 </Button>
               </Field>
