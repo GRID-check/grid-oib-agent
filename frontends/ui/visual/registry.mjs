@@ -769,6 +769,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-chat-dock"]',
   },
   {
+    id: 'file-ask-split',
+    path: '/dev/file-ask-split/chat',
+    description:
+      'The file-ask split as the project layout actually mounts it: FilePreviewBridge wrapping the chat column inside the shell\u2019s scrolling <main>. Distinct from file-chat-dock, which hand-rolls the peek and therefore stays green no matter what the real split does \u2014 the pane was never the broken half.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
     id: 'projects-home',
     mobile: true,
     path: '/dev/projects-home',

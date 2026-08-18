@@ -5,6 +5,7 @@ import { MainLayout } from './MainLayout'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { LayoutStore } from '../types'
 import type { ChatStoreWithHydration } from '@/features/chat/store'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 
 const mockUpdateSessionUrl = vi.fn()
 const mockClearSessionUrl = vi.fn()
@@ -119,6 +120,10 @@ describe('MainLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     chatStoreOverrides = {}
+    // The file-preview store is the real zustand module here, not a mock, so
+    // it is module state shared across this file's tests. Reset it or the peek
+    // test below leaks a file into every test declared after it.
+    useFilePreviewStore.setState({ file: null, mode: 'modal', hidden: false })
   })
 
   test('renders authenticated main sections', () => {
@@ -274,6 +279,34 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('session-item-legacy')).toBeInTheDocument()
     expect(screen.queryByTestId('session-item-other-project')).not.toBeInTheDocument()
     expect(screen.queryByTestId('session-item-other-user')).not.toBeInTheDocument()
+  })
+
+  // The regression the file-ask split shipped with: `FilePreviewSplit` puts the
+  // peeked file in its own resizable panel BESIDE this whole subtree, so the
+  // room is already made one level up. This column used to subtract the peek
+  // width again — out of a panel that had already shrunk — which at 1440px left
+  // the chat 539px inside an 883px panel and a 344px dead band between the
+  // conversation and the file it is about. Visual proof: `/dev/file-ask-split`.
+  test('keeps full width while a file is peeked — the split already made the room', () => {
+    useFilePreviewStore.setState({
+      file: { id: 'doc-1', filename: 'Brandschutzplan_EG.pdf' } as never,
+      mode: 'peek',
+      hidden: false,
+    })
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
+        rightPanel: null,
+        isSessionsPanelOpen: false,
+        setSessionsPanelOpen: vi.fn(),
+        enabledDataSourceIds: ['source-1', 'source-2'],
+      }
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
+    })
+
+    const { container } = render(<MainLayout />)
+
+    const chatContainer = container.querySelector('[style*="width"]')
+    expect(chatContainer).toHaveStyle({ width: '100%' })
   })
 
   test('shows full width when details panel is closed', () => {
