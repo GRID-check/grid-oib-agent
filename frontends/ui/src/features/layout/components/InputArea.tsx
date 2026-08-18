@@ -1510,7 +1510,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <PopoverTrigger asChild>
               <SourceBasisTrigger disabled={cannotContribute} pickerOpen={sourcesOpen} />
             </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="w-88 p-3">
+            <PopoverContent side="top" align="start" className="w-88 max-w-[calc(100vw-2rem)] p-3">
               <SourceBasisPicker />
             </PopoverContent>
           </Popover>

@@ -69,42 +69,6 @@ export const research = {
     loadingEllipsis: 'Loading data sources...',
     unableToLoad: 'Unable to load data sources',
     retryAria: 'Retry loading data sources',
-    none: 'No data sources available',
-    changesDisabledBusy: 'Data source changes disabled during active operations',
-  },
-
-  dataConnectionCard: {
-    enabled: 'enabled',
-    disabled: 'disabled',
-    disabledParenthetical: '(disabled)',
-    noPermission: "You don't have permission to access this data source",
-    enableName: 'Enable {name}',
-    disableName: 'Disable {name}',
-    nameDisabled: '{name} (disabled)',
-  },
-
-  dataConnectionsTab: {
-    availableSources: 'Available Sources ({count})',
-  },
-
-  dataSourcesPanel: {
-    title: 'Data Sources',
-    footerConnections:
-      '{enabled} of {available} available connections enabled. Enabled connections will be available to the AI assistant.',
-    footerFiles: 'Attached files will be always available to agents until deleted.',
-    tabConnections: 'Connections',
-    tabFiles: 'Files',
-    enableAuthBanner: 'Enable authentication to access additional data sources.',
-    signInBanner: 'Sign in to access additional data sources.',
-    allConnections: 'All Connections',
-    allAvailableDisabledOps: 'All available connections (disabled during operations)',
-    allAvailableState: 'All available connections: {state}',
-    disableEnableAll: 'Disable / Enable All',
-    toggleAllDisabled: 'Toggle all connections (disabled)',
-    disableAll: 'Disable all connections',
-    enableAll: 'Enable all connections',
-    individualConnections: 'Individual Connections ({count})',
-    signInRequiredSource: 'Sign in required to access this data source',
   },
 
   /**
@@ -272,8 +236,6 @@ export const research = {
     unsupportedFileType: 'Unsupported file type',
     dropToUpload: 'Drop files to upload',
     accepts: 'Accepts: {types}',
-    toggleDataSources: 'Toggle data sources connections',
-    selectedConnections: 'Selected data connections',
     openFiles: 'Open uploaded files',
     availableFiles: 'Available files',
     uploadNotAvailable: 'File upload not available',
@@ -305,7 +267,6 @@ export const research = {
     fileUploadingStatus: 'Uploading',
     fileFailedStatus: 'Upload failed',
     fileReadyStatus: 'Ready',
-    sourcesPopoverAllHint: 'Enabled connections are available to the AI assistant.',
   },
 
   reportCard: {

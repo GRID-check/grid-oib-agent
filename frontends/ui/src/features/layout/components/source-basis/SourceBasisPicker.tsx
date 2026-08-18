@@ -27,8 +27,8 @@
 
 'use client'
 
-import { type FC, useCallback, useMemo } from 'react'
-import { Info, Layers } from 'lucide-react'
+import { type FC, type ReactNode, useCallback, useMemo } from 'react'
+import { AlertTriangle, Layers } from 'lucide-react'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -51,7 +51,7 @@ const PRESETS: readonly SourcePresetId[] = ['law', 'office', 'project']
 /** Sentinel value for the "Alle Quellen" option — not a preset id in the store. */
 const ALL = 'all'
 
-const SectionLabel: FC<{ children: React.ReactNode }> = ({ children }) => (
+const SectionLabel: FC<{ children: ReactNode }> = ({ children }) => (
   <h3 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
     {children}
   </h3>
@@ -214,8 +214,8 @@ export const SourceBasisPicker: FC = () => {
                 short-circuits on `knowledgeLayerAvailable`, so switching off
                 every external source is completely silent today. */}
             {nothingExternal && (
-              <Alert variant="info">
-                <Info aria-hidden="true" />
+              <Alert variant="warning">
+                <AlertTriangle aria-hidden="true" />
                 <AlertDescription>{t('sourceBasis.noExternalWarning')}</AlertDescription>
               </Alert>
             )}

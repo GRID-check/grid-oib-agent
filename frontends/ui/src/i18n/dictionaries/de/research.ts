@@ -71,42 +71,6 @@ export const research: typeof en.research = {
     loadingEllipsis: 'Datenquellen werden geladen...',
     unableToLoad: 'Datenquellen konnten nicht geladen werden',
     retryAria: 'Laden der Datenquellen erneut versuchen',
-    none: 'Keine Datenquellen verfügbar',
-    changesDisabledBusy: 'Änderungen an Datenquellen sind während aktiver Vorgänge deaktiviert',
-  },
-
-  dataConnectionCard: {
-    enabled: 'aktiviert',
-    disabled: 'deaktiviert',
-    disabledParenthetical: '(deaktiviert)',
-    noPermission: 'Sie haben keine Berechtigung, auf diese Datenquelle zuzugreifen',
-    enableName: '{name} aktivieren',
-    disableName: '{name} deaktivieren',
-    nameDisabled: '{name} (deaktiviert)',
-  },
-
-  dataConnectionsTab: {
-    availableSources: 'Verfügbare Quellen ({count})',
-  },
-
-  dataSourcesPanel: {
-    title: 'Datenquellen',
-    footerConnections:
-      '{enabled} von {available} verfügbaren Verbindungen aktiviert. Aktivierte Verbindungen stehen dem KI-Assistenten zur Verfügung.',
-    footerFiles: 'Angehängte Dateien stehen den Agenten bis zur Löschung dauerhaft zur Verfügung.',
-    tabConnections: 'Verbindungen',
-    tabFiles: 'Dateien',
-    enableAuthBanner: 'Aktivieren Sie die Authentifizierung, um auf weitere Datenquellen zuzugreifen.',
-    signInBanner: 'Melden Sie sich an, um auf weitere Datenquellen zuzugreifen.',
-    allConnections: 'Alle Verbindungen',
-    allAvailableDisabledOps: 'Alle verfügbaren Verbindungen (während Vorgängen deaktiviert)',
-    allAvailableState: 'Alle verfügbaren Verbindungen: {state}',
-    disableEnableAll: 'Alle deaktivieren / aktivieren',
-    toggleAllDisabled: 'Alle Verbindungen umschalten (deaktiviert)',
-    disableAll: 'Alle Verbindungen deaktivieren',
-    enableAll: 'Alle Verbindungen aktivieren',
-    individualConnections: 'Einzelne Verbindungen ({count})',
-    signInRequiredSource: 'Anmeldung erforderlich, um auf diese Datenquelle zuzugreifen',
   },
 
   /**
@@ -285,8 +249,6 @@ export const research: typeof en.research = {
     unsupportedFileType: 'Nicht unterstützter Dateityp',
     dropToUpload: 'Dateien zum Hochladen ablegen',
     accepts: 'Akzeptiert: {types}',
-    toggleDataSources: 'Datenquellen-Verbindungen umschalten',
-    selectedConnections: 'Ausgewählte Datenverbindungen',
     openFiles: 'Hochgeladene Dateien öffnen',
     availableFiles: 'Verfügbare Dateien',
     uploadNotAvailable: 'Datei-Upload nicht verfügbar',
@@ -318,7 +280,6 @@ export const research: typeof en.research = {
     fileUploadingStatus: 'Wird hochgeladen',
     fileFailedStatus: 'Upload fehlgeschlagen',
     fileReadyStatus: 'Bereit',
-    sourcesPopoverAllHint: 'Aktivierte Verbindungen stehen dem KI-Assistenten zur Verfügung.',
   },
 
   reportCard: {

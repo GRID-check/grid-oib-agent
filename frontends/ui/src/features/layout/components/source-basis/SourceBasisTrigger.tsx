@@ -84,7 +84,7 @@ const StratumUnit = ({ signal, label }: { signal: SourceSignal; label: string })
       className={cn('inline-flex items-center gap-1', SIGNAL_TEXT[signal])}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-      <span>{label}</span>
+      <span className="truncate">{label}</span>
     </motion.span>
   )
 }
@@ -154,7 +154,7 @@ export const SourceBasisTrigger = forwardRef<HTMLButtonElement, SourceBasisTrigg
         type="button"
         variant="outline"
         size="sm"
-        className={cn('shrink-0 gap-2 text-muted-foreground', className)}
+        className={cn('max-w-[min(15rem,60vw)] shrink-0 gap-2 text-muted-foreground', className)}
         aria-label={t('sourceBasis.triggerAria', { summary: label })}
         {...props}
       >
@@ -171,7 +171,7 @@ export const SourceBasisTrigger = forwardRef<HTMLButtonElement, SourceBasisTrigg
             // "Everything" is not a provenance claim, so it gets no chroma.
             <span className="inline-flex items-center gap-1.5">
               <Layers className="size-3.5 shrink-0" aria-hidden="true" />
-              <span>{t('sourceBasis.allSources')}</span>
+              <span className="truncate">{t('sourceBasis.allSources')}</span>
             </span>
           ) : summary.kind === 'preset' && summary.preset ? (
             <StratumUnit

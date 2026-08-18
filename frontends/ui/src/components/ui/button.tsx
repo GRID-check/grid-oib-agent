@@ -69,24 +69,36 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading = false, disabled, children, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
     const showSpinner = loading && !asChild
+    // `children` is passed through UNTOUCHED unless the spinner is actually
+    // rendered: under `asChild`, Slot demands exactly one element child, and
+    // wrapping it in a fragment — even one whose other half is `null` — is what
+    // makes Slot throw "Expected a single React element child".
+    const content = showSpinner ? (
+      <>
+        <Spinner size="sm" aria-hidden="true" className="shrink-0" />
+        {children}
+      </>
+    ) : (
+      children
+    )
     return (
       <Comp
         data-slot="button"
         className={cn(
           buttonVariants({ variant, size }),
-          // Hide the caller's own leading glyph rather than sitting the spinner
-          // beside it — two icons is a busier button, not a busy one.
+          // Hide the caller's first `<svg>` child — the leading icon at every
+          // current call site — rather than sitting the spinner beside it: two
+          // icons is a busier button, not a busy one, and dropping the glyph is
+          // what keeps the width identical to the resting state.
           showSpinner && '[&>svg:first-of-type]:hidden',
           className
         )}
         ref={ref}
         disabled={disabled || loading || undefined}
         aria-busy={loading || undefined}
-        data-loading={loading || undefined}
         {...props}
       >
-        {showSpinner ? <Spinner size="sm" aria-hidden="true" className="shrink-0" /> : null}
-        {children}
+        {content}
       </Comp>
     )
   }

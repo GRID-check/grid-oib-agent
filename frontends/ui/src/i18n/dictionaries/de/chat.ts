@@ -235,7 +235,7 @@ export const chat: typeof en.chat = {
     elapsedAria: 'Vergangen: {seconds} Sekunden',
     // Live-Einzeiler, was der Assistent gerade tut — aus dem neuesten OFFENEN
     // Schritt, der sich für Lesende formulieren lässt. Bewusst ohne Eintrag
-    // „zeig den Schrittnamen": ein interner Bezeichner im Status-Gewand ist
+    // „zeig den Schrittnamen“: ein interner Bezeichner im Status-Gewand ist
     // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
     // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
     activity: {

@@ -981,13 +981,6 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 logger.warning("Could not fetch available documents: %s", e)
             return available_documents
 
-        # Run the independent per-turn I/O paths concurrently: the live
-        # memory-digest fetch, the available-documents aggregation, and the
-        # session-registry hydration. None depends on the others, and each fails
-        # open on its own (see the helpers), so gather cannot let one failure
-        # lose the others' results. The registry hydration's blocking Dragonfly
-        # GET (cold-cache, ~0.5s socket timeout) is offloaded via asyncio.to_thread
-        # so it overlaps the gather instead of blocking the loop serially after it.
         # Say what is happening in the FIRST hole of the turn. Nothing at all
         # reached the client before the intent classifier's LLM call, so a turn
         # scoped to an archive or a project sat silent through every one of
@@ -1007,6 +1000,13 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         except Exception:  # noqa: BLE001 — transparency must never take a turn down
             logger.debug("Document-loading status not emitted", exc_info=True)
 
+        # Run the independent per-turn I/O paths concurrently: the live
+        # memory-digest fetch, the available-documents aggregation, and the
+        # session-registry hydration. None depends on the others, and each fails
+        # open on its own (see the helpers), so gather cannot let one failure
+        # lose the others' results. The registry hydration's blocking Dragonfly
+        # GET (cold-cache, ~0.5s socket timeout) is offloaded via asyncio.to_thread
+        # so it overlaps the gather instead of blocking the loop serially after it.
         (
             (
                 _project_context,
