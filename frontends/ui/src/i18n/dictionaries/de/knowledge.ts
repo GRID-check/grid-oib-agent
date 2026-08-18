@@ -25,7 +25,7 @@ export const knowledge: typeof en.knowledge = {
       size: 'Größe',
       ingestedAt: 'Indexiert am',
     },
-    chunkCount: '{count} Abschnitte',
+    chunkCount: '{count, plural, one {# Abschnitt} other {# Abschnitte}}',
     checksum: 'SHA-256-Prüfsumme: {hash}',
   },
   project: {
@@ -59,7 +59,7 @@ export const knowledge: typeof en.knowledge = {
     description: 'Originales Quelldokument.',
     openInTab: 'In neuem Tab öffnen',
     loading: 'Dokument wird geladen…',
-    pageCount: '{count} Seiten',
+    pageCount: '{count, plural, one {# Seite} other {# Seiten}}',
     toPassage: 'Zur Fundstelle',
     zoomIn: 'Vergrößern',
     zoomOut: 'Verkleinern',

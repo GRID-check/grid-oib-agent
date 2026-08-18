@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { DeepResearchToolCall } from '@/features/chat/types'
+import { getWorkflowTitle } from '../lib/workflow-names'
 
 /** Maximum characters for truncated query display */
 const MAX_QUERY_LENGTH = 120
@@ -37,7 +38,13 @@ const PLANNING_TOOL_PATTERNS = ['write_todo', 'todo', 'plan']
 export interface AgentInfo {
   /** Unique identifier for this agent instance */
   id: string
-  /** Agent/workflow name (e.g., "planner-agent", "researcher-agent") */
+  /**
+   * The raw agent/workflow name off the SSE stream ("researcher-agent").
+   *
+   * An identifier, not prose — named for the reader by `getWorkflowTitle`, the
+   * same map the thought and tool-call cards resolve their origin through, so
+   * one role cannot be worded two ways across the research panel.
+   */
   name: string
   /** Current execution status */
   status: 'pending' | 'running' | 'complete' | 'error'
@@ -145,6 +152,12 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
   const t = useTranslations('research')
   const { locale } = useLocale()
 
+  // The reader-facing name of this part of the run. A role the map has no entry
+  // for reads „Interner Schritt" rather than leaking `researcher-agent` into
+  // the Agenten tab; the row itself always stays, because the tab counts its
+  // agents and a dropped row would make the count and the list disagree.
+  const agentName = getWorkflowTitle(agent.name, t)
+
   const isRunning = agent.status === 'running'
   const isComplete = agent.status === 'complete'
   const isError = agent.status === 'error'
@@ -190,7 +203,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when running */}
           {isRunning ? (
-            <Spinner size="sm" label={t('agentCard.isRunning', { name: agent.name })} className="shrink-0" />
+            <Spinner size="sm" label={t('agentCard.isRunning', { name: agentName })} className="shrink-0" />
           ) : (
             <span className={cn('shrink-0', statusTextClass)} aria-hidden="true">
               {isComplete ? (
@@ -206,7 +219,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
           {/* Agent Info */}
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex items-center gap-2">
-              <span className={cn('text-sm font-semibold', statusTextClass)}>{agent.name}</span>
+              <span className={cn('text-sm font-semibold', statusTextClass)}>{agentName}</span>
               {hasToolCalls && (
                 <span className="text-xs text-muted-foreground">{toolCountLabel}</span>
               )}

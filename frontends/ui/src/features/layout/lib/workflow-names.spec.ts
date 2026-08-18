@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'vitest'
 import { de, en } from '@/i18n/dictionaries'
 import { createTranslator } from '@/i18n/translate'
-import { getWorkflowLabel } from './workflow-names'
+import { getWorkflowLabel, getWorkflowTitle } from './workflow-names'
 
 const tDe = createTranslator(de, 'research')
 const tEn = createTranslator(en, 'research')
@@ -36,5 +36,22 @@ describe('getWorkflowLabel', () => {
 
   test('is not confused by the casing or the padding the wire may carry', () => {
     expect(getWorkflowLabel('  Researcher-Agent ', tDe)).toBe('Recherche')
+  })
+})
+
+describe('getWorkflowTitle', () => {
+  test('names the known roles exactly as the sentence form does', () => {
+    // One role, one wording, whether it heads a card in the Agenten tab or
+    // completes „Schritt: …" on a thought card.
+    expect(getWorkflowTitle('planner-agent', tDe)).toBe('Planung')
+    expect(getWorkflowTitle('writer-agent', tDe)).toBe('Berichtstext')
+    expect(getWorkflowTitle('source-router-agent', tEn)).toBe('Source selection')
+    expect(getWorkflowTitle('  Researcher-Agent ', tDe)).toBe('Recherche')
+  })
+
+  test('spells the noun out for an unknown role, because a heading has no sentence', () => {
+    // „intern läuft" is not something anybody says.
+    expect(getWorkflowTitle('some-new-agent', tDe)).toBe('Interner Schritt')
+    expect(getWorkflowTitle('ClassificationAssistant', tEn)).toBe('Internal step')
   })
 })

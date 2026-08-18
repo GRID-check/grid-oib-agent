@@ -59,7 +59,6 @@ export type LiveActivityKey =
   | 'researching'
   | 'reading'
   | 'composing'
-  | 'usingSkillUnnamed'
 
 /**
  * Graph scaffolding: the root workflow node and the deep-research container.
@@ -113,10 +112,18 @@ const legacyPhrase = (step: ThinkingStep, t: StepEventTranslator): string | null
   const name = (step.functionName || '').trim()
   if (!name) return null
 
-  // `use_skill` names the MECHANISM, and title-cased it read "Use Skill …" —
-  // English, in a German UI. Honest and unnamed instead. (Superseded entirely
-  // once the backend emits `skill:<id>` events, which carry the skill's title.)
-  if (isUseSkillStepName(name)) return t('thinking.activity.usingSkillUnnamed')
+  // The legacy `use_skill` frame names the MECHANISM, not the skill. It used to
+  // produce „Skill wird angewendet …", which says the word "Skill" to a reader
+  // who may never have opened the Skills page and gives them nothing to do with
+  // it: they cannot tell WHICH skill, and the line is gone by the time they
+  // could ask. So it produces no line at all, which is this module's standing
+  // rule for a name it has no reader-facing phrase for. Nothing is lost by the
+  // silence — the header holds the enclosing step's phrase, or the generic
+  // „Piloti arbeitet …" — because this line replaces rather than accumulates
+  // and nothing counts it. A skill the reader NAMED with `/` is a different
+  // case entirely: the backend's `skill:<id>` events carry its title, and those
+  // say "Skill" with every right to.
+  if (isUseSkillStepName(name)) return null
 
   if (SCAFFOLD_RE.test(name)) return null
 

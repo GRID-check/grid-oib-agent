@@ -187,7 +187,8 @@ export const projects = {
     back: 'Back',
     stepCounter: 'Step {current} of {total}',
     saving: 'Saving…',
-    saveSuccess: 'Project profile saved — {count} details captured',
+    saveSuccess:
+      'Project profile saved — {count, plural, one {# detail} other {# details}} captured',
     saveChanges: 'Save changes',
     saveAndSee: 'Save & see my standards',
     next: 'Next',

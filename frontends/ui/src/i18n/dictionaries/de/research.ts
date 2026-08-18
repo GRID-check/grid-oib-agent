@@ -92,7 +92,7 @@ export const research: typeof en.research = {
       'Worin Piloti suchen darf. Was tatsächlich verwendet wurde, steht in der Herleitung.',
     allSources: 'Alle Quellen',
     internalOnly: 'Nur Projektwissen',
-    overflowAria: '{count} weitere Quellenarten',
+    overflowAria: '{count, plural, one {# weitere Quellenart} other {# weitere Quellenarten}}',
     alwaysOn: 'Immer dabei',
     alwaysOnChip: 'Immer aktiv',
     external: 'Externe Quellen',
@@ -140,7 +140,8 @@ export const research: typeof en.research = {
       ' zu löschen. Dabei gehen sämtliche Fortschritte verloren und alle von Ihnen angehängten Dateien werden entfernt.',
     all: {
       title: 'Alle Chats dieses Projekts löschen?',
-      countSessions: 'alle {count} Chats dieses Projekts',
+      countSessions:
+        '{count, plural, one {der eine Chat dieses Projekts} other {alle # Chats dieses Projekts}}',
       allSessions: 'JEDEN Chat dieses Projekts',
       scopeNote:
         'Es werden nur Chats dieses Projekts gelöscht. Ihre Chats in anderen Projekten sind nicht betroffen.',
@@ -197,7 +198,7 @@ export const research: typeof en.research = {
   },
 
   fileCard: {
-    lines: '{count} Zeilen',
+    lines: '{count, plural, one {# Zeile} other {# Zeilen}}',
     content: 'Inhalt',
   },
 
@@ -281,7 +282,7 @@ export const research: typeof en.research = {
     retryUpload: 'Upload erneut versuchen',
     manageFiles: 'Dateien verwalten',
     manageFilesCount: 'Angehängte Dateien verwalten ({count})',
-    manageFilesMobile: '{count} Dateien verwalten',
+    manageFilesMobile: '{count, plural, one {# Datei} other {# Dateien}} verwalten',
     openFile: 'Datei öffnen: {name}',
     fileUploadingStatus: 'Wird hochgeladen',
     fileFailedStatus: 'Upload fehlgeschlagen',
@@ -292,7 +293,7 @@ export const research: typeof en.research = {
     reportWhenComplete: 'Der Bericht erscheint hier, sobald die Recherche abgeschlossen ist.',
     exportAsMdPdf: 'Sie können ihn als Markdown oder PDF exportieren.',
     draft: 'Entwurf',
-    words: '{count} Wörter',
+    words: '{count, plural, one {# Wort} other {# Wörter}}',
   },
 
   reportTab: {
@@ -314,7 +315,7 @@ export const research: typeof en.research = {
   reportOutline: {
     label: 'Gliederung des Berichts',
     title: 'Gliederung',
-    sectionCount: '{count} Abschnitte',
+    sectionCount: '{count, plural, one {# Abschnitt} other {# Abschnitte}}',
     show: 'Gliederung einblenden',
     hide: 'Gliederung ausblenden',
   },
@@ -344,7 +345,7 @@ export const research: typeof en.research = {
   sessionsPanel: {
     title: 'Chatverlauf',
     /** Steht neben dem Titel, damit der Bereich seinen eigenen Umfang nennt. */
-    countLabel: '{count} Chats',
+    countLabel: '{count, plural, one {# Chat} other {# Chats}}',
     countLabelOne: '1 Chat',
     // Der Speicher wird erst eingeblendet, wenn er relevant wird — und sagt dann,
     // was zu tun ist, statt nur eine Zahl zu melden.
@@ -466,6 +467,8 @@ export const research: typeof en.research = {
     sourceSelection: 'Quellenauswahl',
     writing: 'Berichtstext',
     internal: 'intern',
+    // Dieselbe Sache als Überschrift, wo kein Satz das Substantiv liefert.
+    internalStep: 'Interner Schritt',
   },
 
   thoughtCard: {

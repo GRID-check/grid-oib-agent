@@ -23,7 +23,7 @@ export const knowledge = {
       size: 'Size',
       ingestedAt: 'Indexed on',
     },
-    chunkCount: '{count} sections',
+    chunkCount: '{count, plural, one {# section} other {# sections}}',
     checksum: 'SHA-256 checksum: {hash}',
   },
   project: {
@@ -57,7 +57,7 @@ export const knowledge = {
     description: 'Original source document.',
     openInTab: 'Open in new tab',
     loading: 'Loading document…',
-    pageCount: '{count} pages',
+    pageCount: '{count, plural, one {# page} other {# pages}}',
     toPassage: 'Go to passage',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',

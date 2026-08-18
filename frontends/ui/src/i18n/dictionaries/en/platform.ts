@@ -50,15 +50,18 @@ export const platform = {
     selectedCount: '{count} selected',
     clearSelection: 'Clear',
     bulkReclassify: 'Change document type',
-    bulkReclassifyDone: 'Document type of {count} document(s) set to “{label}”',
-    bulkReclassifyFailed: 'Document type of {count} document(s) could not be changed',
+    bulkReclassifyDone:
+      'Document type of {count, plural, one {# document} other {# documents}} set to “{label}”',
+    bulkReclassifyFailed:
+      'Document type of {count, plural, one {# document} other {# documents}} could not be changed',
     bulkDelete: 'Remove',
-    bulkDeleteTitle: 'Remove {count} documents?',
+    bulkDeleteTitle: 'Remove {count, plural, one {# document} other {# documents}}?',
     bulkDeleteDescription:
       'Uploaded documents are deleted together with all of their indexed content; documents shipped with the corpus are excluded from it and will not be re-ingested on the next sync. Answers can no longer ground on any of them.',
-    bulkDeleteConfirm: 'Remove {count} documents',
-    bulkDeleteDone: '{count} documents removed',
-    bulkDeleteFailed: '{count} documents could not be removed',
+    bulkDeleteConfirm: 'Remove {count, plural, one {# document} other {# documents}}',
+    bulkDeleteDone: '{count, plural, one {# document} other {# documents}} removed',
+    bulkDeleteFailed:
+      '{count, plural, one {# document could} other {# documents could}} not be removed',
     // Detail sheet.
     detailClose: 'Close',
     detailOrigin: 'Origin',

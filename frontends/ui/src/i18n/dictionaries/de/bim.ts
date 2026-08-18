@@ -307,7 +307,8 @@ export const bim: typeof en.bim = {
   },
   timeline: {
     title: 'Revisionen',
-    description: '{count} Revisionen von {name}, neueste zuerst.',
+    description:
+      '{count, plural, one {# Revision} other {# Revisionen}} von {name}, neueste zuerst.',
     revision: 'Revision {index}',
     latest: 'Aktuell',
     compare: 'Mit {previous} vergleichen',

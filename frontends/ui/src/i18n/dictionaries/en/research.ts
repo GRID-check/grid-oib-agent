@@ -85,7 +85,7 @@ export const research = {
     description: 'Where Piloti may search. What it actually used is in the derivation.',
     allSources: 'All sources',
     internalOnly: 'Project knowledge only',
-    overflowAria: '{count} more source types',
+    overflowAria: '{count, plural, one {# more source type} other {# more source types}}',
     alwaysOn: 'Always included',
     alwaysOnChip: 'Always on',
     external: 'External sources',
@@ -131,7 +131,8 @@ export const research = {
     lossSuffix: '. You will lose all progress and any files you have attached will be removed.',
     all: {
       title: 'Delete all chats in this project?',
-      countSessions: 'all {count} chats in this project',
+      countSessions:
+        '{count, plural, one {the one chat in this project} other {all # chats in this project}}',
       allSessions: 'EVERY chat in this project',
       scopeNote: 'Only chats in this project are deleted. Your chats in other projects are not affected.',
       confirm: 'Delete all chats',
@@ -187,7 +188,7 @@ export const research = {
   },
 
   fileCard: {
-    lines: '{count} lines',
+    lines: '{count, plural, one {# line} other {# lines}}',
     content: 'Content',
   },
 
@@ -268,7 +269,7 @@ export const research = {
     retryUpload: 'Retry upload',
     manageFiles: 'Manage files',
     manageFilesCount: 'Manage attached files ({count})',
-    manageFilesMobile: 'Manage {count} files',
+    manageFilesMobile: 'Manage {count, plural, one {# file} other {# files}}',
     openFile: 'Open file: {name}',
     fileUploadingStatus: 'Uploading',
     fileFailedStatus: 'Upload failed',
@@ -279,7 +280,7 @@ export const research = {
     reportWhenComplete: 'The report will appear here once research is complete.',
     exportAsMdPdf: 'You can export it as Markdown or PDF.',
     draft: 'Draft',
-    words: '{count} words',
+    words: '{count, plural, one {# word} other {# words}}',
   },
 
   reportTab: {
@@ -302,7 +303,7 @@ export const research = {
   reportOutline: {
     label: 'Report outline',
     title: 'Outline',
-    sectionCount: '{count} sections',
+    sectionCount: '{count, plural, one {# section} other {# sections}}',
     show: 'Show outline',
     hide: 'Hide outline',
   },
@@ -333,7 +334,7 @@ export const research = {
   sessionsPanel: {
     title: 'Chat history',
     /** Shown beside the title so the panel states its own size. */
-    countLabel: '{count} chats',
+    countLabel: '{count, plural, one {# chat} other {# chats}}',
     countLabelOne: '1 chat',
     // Storage is surfaced only once it is close enough to matter, and then it
     // says what to do about it rather than reporting a number.
@@ -452,6 +453,8 @@ export const research = {
     sourceSelection: 'Source selection',
     writing: 'Report writing',
     internal: 'internal',
+    // The same thing as a heading, where no sentence supplies the noun.
+    internalStep: 'Internal step',
   },
 
   thoughtCard: {

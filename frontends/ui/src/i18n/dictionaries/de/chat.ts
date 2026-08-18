@@ -78,7 +78,7 @@ export const chat: typeof en.chat = {
     scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
     // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
     // tiny one-line hint under the composer keeps the active source count legible.
-    sourcesActiveMobile: '{count} Quellen aktiv',
+    sourcesActiveMobile: '{count, plural, one {# Quelle} other {# Quellen}} aktiv',
   },
   shortcuts: {
     label: 'Schnellzugriff',
@@ -152,7 +152,8 @@ export const chat: typeof en.chat = {
     },
     // Hinweis unter der Quellenzeile, wenn die Zitatprüfung nicht belegbare
     // Quellenangaben entfernt hat (WP-A `citations_removed`).
-    citationsRemoved: '{count} Quellenangabe(n) entfernt (nicht verifizierbar)',
+    citationsRemoved:
+      '{count, plural, one {# Quellenangabe entfernt} other {# Quellenangaben entfernt}} (nicht verifizierbar)',
     citationsRemovedReasonsLabel: 'Gründe',
   },
   // Die Antwort aus Piloti herausbekommen — für Prüfvermerk, Mail, Einreichung.
@@ -176,7 +177,7 @@ export const chat: typeof en.chat = {
     copyLink: 'Link kopieren',
     copyLinkAria: 'Link zu dieser Fundstelle kopieren: {label}',
     markerAria: 'Quelle {number}: {label} — Vorschau öffnen',
-    lociLabel: '{count} Fundstellen',
+    lociLabel: '{count, plural, one {# Fundstelle} other {# Fundstellen}}',
     lociAria: 'Fundstellen in diesem Dokument',
     lociPosition: '{index}/{count}',
     previousLocus: 'Vorherige Fundstelle',
@@ -282,7 +283,7 @@ export const chat: typeof en.chat = {
     inProgress: 'Denkvorgang läuft',
     working: 'Antwort wird erstellt …',
     waiting: 'Warten auf Antwort',
-    elapsedAria: 'Vergangen: {seconds} Sekunden',
+    elapsedAria: 'Vergangen: {seconds, plural, one {# Sekunde} other {# Sekunden}}',
     // Live-Einzeiler, was der Assistent gerade tut — aus dem neuesten OFFENEN
     // Schritt, der sich für Lesende formulieren lässt. Bewusst ohne Eintrag
     // „zeig den Schrittnamen“: ein interner Bezeichner im Status-Gewand ist
@@ -298,13 +299,6 @@ export const chat: typeof en.chat = {
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
       composing: 'Antwort wird formuliert …',
-      // Das alte `use_skill`-Frame benennt den Mechanismus, nicht den Skill.
-      // Lieber ehrlich unbenannt als falsch konkret. Bewusst ohne benanntes
-      // Gegenstück: sobald das Backend `skill:<id>`-Events sendet, formuliert
-      // es diesen Satz selbst — mit dem Titel des Skills und mit dem
-      // Unterschied zwischen „vom Modell gewählt“ und „von Ihnen angefordert“,
-      // den eine Vorlage hier nicht kennen kann.
-      usingSkillUnnamed: 'Skill wird angewendet …',
     },
     // ── Turn-Events: die Worte zu dem, was das Backend GEMELDET hat ───────
     //
@@ -443,7 +437,17 @@ export const chat: typeof en.chat = {
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
-    herleitungSummary: 'Herleitung · {steps} Schritte · {sources} Quellen',
+    // Die Kopfzeile der Herleitung, aus zwei Klauseln gebaut. Die Quellen-
+    // Klausel FEHLT, wenn es keine gibt: „0 Quellen“ ist eine wahre Zahl, die
+    // sich wie ein Fehlschlag liest, und eine Antwort aus einer Messung am
+    // Modell hat zu Recht keine Zitate. Gezählt wird, was da ist; über das,
+    // was nicht da ist, sagt die Zeile nichts.
+    herleitungSummary: 'Herleitung · {count, plural, one {# Schritt} other {# Schritte}}',
+    herleitungSummaryWithSources:
+      '{summary} · {count, plural, one {# Quelle} other {# Quellen}}',
+    // Der Zug hat noch keinen Schritt gemeldet — dann nennt die Zeile nur, was
+    // sie ist, statt „0 Schritte“ zu zählen.
+    herleitungSummaryNoSteps: 'Herleitung',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Herleitung',
     stepsLabel: 'Denkschritte',
@@ -501,8 +505,7 @@ export const chat: typeof en.chat = {
   },
   deepResearch: {
     stats: {
-      tokens: 'Textmenge {count}',
-      toolCalls: '{count} Werkzeugaufrufe',
+      toolCalls: '{count, plural, one {# Werkzeugaufruf} other {# Werkzeugaufrufe}}',
     },
     success: {
       heading: 'Bericht abgeschlossen!{stats}',
@@ -596,7 +599,8 @@ export const chat: typeof en.chat = {
       title: 'Recherche ausgelastet',
       message:
         'Die Recherche-Warteschlange ist gerade voll. Bitte senden Sie Ihre Anfrage in einem Moment erneut.',
-      retryHint: 'Bitte in etwa {seconds} Sekunden erneut senden.',
+      retryHint:
+        'Bitte in etwa {seconds, plural, one {# Sekunde} other {# Sekunden}} erneut senden.',
     },
   },
   deepResearchErrors: {
@@ -635,7 +639,7 @@ export const chat: typeof en.chat = {
   },
   memory: {
     noted: 'Piloti hat sich gemerkt',
-    notedAria: 'Piloti hat sich {count} Notizen gemerkt',
+    notedAria: 'Piloti hat sich {count, plural, one {# Notiz} other {# Notizen}} gemerkt',
     addedToMemory: 'In das Projektgedächtnis aufgenommen',
     manageHint: 'Diese Einträge können Sie im Projektgedächtnis verwalten und löschen.',
     kinds: {

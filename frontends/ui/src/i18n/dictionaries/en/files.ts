@@ -151,7 +151,7 @@ export const files = {
       searchPlaceholder: 'Search files — press Enter for semantic search…',
       run: 'Search',
       reset: 'Show all files',
-      banner: 'Semantic search: {count} results for “{query}”',
+      banner: 'Semantic search: {count, plural, one {# result} other {# results}} for “{query}”',
       searching: 'Searching your files for “{query}”…',
       noResults: 'No semantic matches for “{query}”',
       noResultsDescription:

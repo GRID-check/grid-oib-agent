@@ -185,7 +185,8 @@ export const projects: typeof en.projects = {
     back: 'Zurück',
     stepCounter: 'Schritt {current} von {total}',
     saving: 'Wird gespeichert…',
-    saveSuccess: 'Projektprofil gespeichert — {count} Angaben erfasst',
+    saveSuccess:
+      'Projektprofil gespeichert — {count, plural, one {# Angabe} other {# Angaben}} erfasst',
     saveChanges: 'Änderungen speichern',
     saveAndSee: 'Speichern & meine Standards ansehen',
     next: 'Weiter',

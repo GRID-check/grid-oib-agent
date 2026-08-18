@@ -26,34 +26,45 @@ describe('AgentCard', () => {
   })
 
   describe('basic rendering', () => {
-    test('renders agent name', () => {
+    test('names the part of the run, never the role id', () => {
       render(<AgentCard agent={createAgent({ name: 'planner-agent' })} />)
 
-      expect(screen.getByText('planner-agent')).toBeInTheDocument()
+      expect(screen.getByText('Planning')).toBeInTheDocument()
+      expect(screen.queryByText('planner-agent')).not.toBeInTheDocument()
+    })
+
+    test('a role this build cannot name keeps its row and says so', () => {
+      // The backend attributes work to any enclosing chain whose name merely
+      // contains "agent", so a name this map predates really does arrive. The
+      // row stays — the tab counts its agents — but the id does not.
+      render(<AgentCard agent={createAgent({ name: 'some-new-agent' })} />)
+
+      expect(screen.getByText('Internal step')).toBeInTheDocument()
+      expect(screen.queryByText('some-new-agent')).not.toBeInTheDocument()
     })
 
     test('renders with running status', () => {
       render(<AgentCard agent={createAgent({ status: 'running' })} />)
 
-      expect(screen.getByLabelText('test-agent is running')).toBeInTheDocument()
+      expect(screen.getByLabelText('Internal step is running')).toBeInTheDocument()
     })
 
     test('renders with complete status', () => {
       render(<AgentCard agent={createAgent({ status: 'complete' })} />)
 
-      expect(screen.queryByLabelText('test-agent is running')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Internal step is running')).not.toBeInTheDocument()
     })
 
     test('renders with error status', () => {
       render(<AgentCard agent={createAgent({ status: 'error' })} />)
 
-      expect(screen.queryByLabelText('test-agent is running')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Internal step is running')).not.toBeInTheDocument()
     })
 
     test('renders with pending status', () => {
       render(<AgentCard agent={createAgent({ status: 'pending' })} />)
 
-      expect(screen.queryByLabelText('test-agent is running')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Internal step is running')).not.toBeInTheDocument()
     })
   })
 

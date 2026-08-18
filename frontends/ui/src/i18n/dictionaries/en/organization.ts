@@ -247,7 +247,7 @@ export const organization = {
     rotated: 'Key rotated — the previous key was revoked.',
     saveError: 'Could not save the key.',
     verify: 'Verify',
-    verified: 'Key verified — {count} models visible.',
+    verified: 'Key verified — {count, plural, one {# model} other {# models}} visible.',
     verifyError: 'Verification failed.',
     revoke: 'Revoke',
     revokeConfirm:
@@ -291,7 +291,7 @@ export const organization = {
     trendTitle: 'Last 30 days',
     trendEmpty: 'No usage recorded in the last 30 days.',
     otherModels: 'Other models',
-    tooltipRequests: '{count} requests',
+    tooltipRequests: '{count, plural, one {# request} other {# requests}}',
     limitsTitle: 'Organization limits',
     limitsDescription:
       'Defaults are €10 per day and €100 per month until you set your own. EUR limits are compared against USD costs at a deployment-configured rate.',

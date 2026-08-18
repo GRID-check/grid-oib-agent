@@ -87,7 +87,7 @@ export const chat = {
     scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
     // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
     // tiny one-line hint under the composer keeps the active source count legible.
-    sourcesActiveMobile: '{count} sources active',
+    sourcesActiveMobile: '{count, plural, one {# source} other {# sources}} active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
   shortcuts: {
@@ -163,7 +163,8 @@ export const chat = {
     },
     // Note under the sources row when citation verification dropped one or more
     // unverifiable citations (WP-A `citations_removed`).
-    citationsRemoved: '{count} citation(s) removed (not verifiable)',
+    citationsRemoved:
+      '{count, plural, one {# citation} other {# citations}} removed (not verifiable)',
     citationsRemovedReasonsLabel: 'Reasons',
   },
   // Getting the answer OUT of the app — the paste into a report, a mail, a
@@ -188,7 +189,7 @@ export const chat = {
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',
-    lociLabel: '{count} passages',
+    lociLabel: '{count, plural, one {# passage} other {# passages}}',
     lociAria: 'Passages in this document',
     lociPosition: '{index}/{count}',
     previousLocus: 'Previous passage',
@@ -311,7 +312,7 @@ export const chat = {
     recovering: 'Reconnecting',
     recoveringNotice: 'Reconnecting — checking for a finished answer …',
     done: 'Done',
-    elapsedAria: 'Elapsed: {seconds} seconds',
+    elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
     // Live one-liners describing what the assistant is doing right now, chosen
     // from the newest OPEN step that can be phrased for a reader. There is
     // deliberately no "show the step's own name" entry: an internal identifier
@@ -327,13 +328,6 @@ export const chat = {
       researching: 'Researching …',
       reading: 'Reading the results …',
       composing: 'Composing the answer …',
-      // The legacy `use_skill` tool frame, which names the mechanism and not
-      // the skill. Honest and unnamed rather than wrong and specific. There is
-      // no named peer here on purpose: once the backend emits `skill:<id>`
-      // events it authors that sentence itself, carrying the skill's title and
-      // the difference between a skill the model chose and one the user asked
-      // for — neither of which a template here could know.
-      usingSkillUnnamed: 'Applying a skill …',
     },
     // ── Turn events: the words for what the backend REPORTED ──────────────
     //
@@ -454,7 +448,17 @@ export const chat = {
     },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
-    herleitungSummary: 'Trace · {steps} steps · {sources} sources',
+    // The trace's header line, built from two clauses. The sources clause is
+    // ABSENT when there are none: "0 sources" is a true number that reads as a
+    // failure, and an answer grounded in a measurement of the model rightly has
+    // no citations. The line counts what is there and says nothing about what
+    // is not.
+    herleitungSummary: 'Trace · {count, plural, one {# step} other {# steps}}',
+    herleitungSummaryWithSources:
+      '{summary} · {count, plural, one {# source} other {# sources}}',
+    // The turn has reported no step yet, so the line says what it is instead of
+    // counting to zero.
+    herleitungSummaryNoSteps: 'Trace',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',
@@ -499,8 +503,8 @@ export const chat = {
       findingsHits: 'Hits in: {lanes}',
       // The proof-of-work tally, stated where the fan converges: what was
       // actually read, before naming which strata it came from.
-      findingsTally: '{hits} hits across {docs} documents',
-      findingsTallyOne: '{hits} hits in 1 document',
+      findingsTally: '{hits, plural, one {# hit} other {# hits}} across {docs} documents',
+      findingsTallyOne: '{hits, plural, one {# hit} other {# hits}} in 1 document',
       // While the turn streams there is no assessment yet, but the graph still
       // needs its converge point — otherwise the source columns dangle and the
       // shape jumps when the answer lands.
@@ -512,8 +516,7 @@ export const chat = {
   },
   deepResearch: {
     stats: {
-      tokens: 'text volume {count}',
-      toolCalls: '{count} tool calls',
+      toolCalls: '{count, plural, one {# tool call} other {# tool calls}}',
     },
     success: {
       heading: 'Report Completed!{stats}',
@@ -604,7 +607,8 @@ export const chat = {
     researchQueueFull: {
       title: 'Research is busy',
       message: 'The research queue is currently full. Please resend your request in a moment.',
-      retryHint: 'Please try again in about {seconds} seconds.',
+      retryHint:
+        'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
     },
   },
   // User-facing deep-research error copy raised from the SSE hook and the
@@ -646,7 +650,7 @@ export const chat = {
   },
   memory: {
     noted: 'Piloti noted',
-    notedAria: 'Piloti noted {count} items',
+    notedAria: 'Piloti noted {count, plural, one {# item} other {# items}}',
     addedToMemory: 'Added to project memory',
     manageHint: 'You can manage and delete these entries in the project memory.',
     kinds: {

@@ -239,12 +239,24 @@ describe('ChatThinking', () => {
   })
 
   describe('collapse/expand toggle', () => {
-    test('shows Herleitung summary with step and source counts', () => {
+    test('a single step is one step, and no source is no clause', () => {
+      // Both halves of the old line were wrong at these values: it counted
+      // "1 steps", and it announced "0 sources" for an answer that rests on a
+      // measurement rather than on a citation — a true number that reads as a
+      // failure to find anything.
       const steps = [createStep()]
 
       render(<ChatThinking steps={steps} />)
 
-      expect(screen.getByText('Trace · 1 steps · 0 sources')).toBeInTheDocument()
+      expect(screen.getByText('Trace · 1 step')).toBeInTheDocument()
+      expect(screen.queryByText(/source/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/0 sources/)).not.toBeInTheDocument()
+    })
+
+    test('several steps count as several', () => {
+      render(<ChatThinking steps={[createStep(), createStep({ id: 'step-2' })]} />)
+
+      expect(screen.getByText('Trace · 2 steps')).toBeInTheDocument()
     })
 
     test('step list is collapsed by default', () => {
@@ -252,7 +264,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      expect(screen.getByText('Trace · 1 steps · 0 sources')).toBeInTheDocument()
+      expect(screen.getByText('Trace · 1 step')).toBeInTheDocument()
       expect(screen.queryByText('Intent Classifier')).not.toBeInTheDocument()
     })
 
@@ -330,7 +342,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={false} />)
 
-      expect(screen.getByText('Trace · 1 steps · 1 sources')).toBeInTheDocument()
+      expect(screen.getByText('Trace · 1 step · 1 source')).toBeInTheDocument()
 
       await user.click(screen.getByText(/Trace ·/))
 

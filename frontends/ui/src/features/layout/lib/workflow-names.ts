@@ -65,10 +65,41 @@ const WORKFLOW_LABEL_KEYS: Record<string, string> = {
 const UNKNOWN_WORKFLOW_KEY = 'internal'
 
 /**
- * The name of the part of the run a card belongs to.
+ * The fallback for a name that has to stand on its own.
+ *
+ * `internal` is written for the slot it was made for — „Schritt: intern",
+ * "Step: internal" — where the sentence supplies the noun. The Agenten tab has
+ * no such sentence: the same word is a card's heading and the subject of
+ * „{name} läuft", and „intern läuft" is not something anybody says. So the
+ * standalone form spells the noun out. It is the same wording
+ * `chat.thinking.nodeName.internal` already gives an unrecognised trace row,
+ * which is the same situation one surface away — a step that ran and that this
+ * build has no name for.
+ */
+const UNKNOWN_WORKFLOW_TITLE_KEY = 'internalStep'
+
+const workflowKey = (workflow: string): string | undefined =>
+  WORKFLOW_LABEL_KEYS[workflow.trim().toLowerCase()]
+
+/**
+ * The name of the part of the run a card belongs to, for use INSIDE a sentence
+ * that already names what it is („Schritt: Recherche").
  *
  * @param workflow - The raw `metadata.workflow` value (e.g. "researcher-agent")
  * @param t        - A `research`-namespace translator
  */
 export const getWorkflowLabel = (workflow: string, t: Translator): string =>
-  t(`workflowName.${WORKFLOW_LABEL_KEYS[workflow.trim().toLowerCase()] ?? UNKNOWN_WORKFLOW_KEY}`)
+  t(`workflowName.${workflowKey(workflow) ?? UNKNOWN_WORKFLOW_KEY}`)
+
+/**
+ * The same name, as the HEADING of the row for that part of the run.
+ *
+ * The four roles read identically either way — „Recherche" is as good a card
+ * title as it is a sentence complement — so only the unknown case differs, and
+ * it differs because a heading has no sentence around it to lean on.
+ *
+ * @param workflow - The raw agent/workflow name off the SSE stream
+ * @param t        - A `research`-namespace translator
+ */
+export const getWorkflowTitle = (workflow: string, t: Translator): string =>
+  t(`workflowName.${workflowKey(workflow) ?? UNKNOWN_WORKFLOW_TITLE_KEY}`)
