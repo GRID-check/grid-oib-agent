@@ -1101,6 +1101,21 @@ def _format_results(retrieval_result, query: str) -> str:
             lines.append(f"Dokumentart: {doc_class} — {label}")
         if chunk.page_number and chunk.page_number > 0:
             lines.append(f"Page: {chunk.page_number}")
+        # The Punkt this excerpt belongs to, when the chunker established one. An
+        # Austrian building-law answer cites a requirement number ("OIB-RL 2, Pkt.
+        # 5.1.1"), and without this line the model has to read that number out of the
+        # excerpt text. That works for a Punkt that starts its own chunk and fails
+        # exactly where it matters: an over-long Punkt is split downstream by
+        # SentenceSplitter, and its continuation chunks inherit `punkt_id` in metadata
+        # while presenting to the model as anonymous prose with a page number. The
+        # model then guesses a number, and the prompt tells it to produce one.
+        #
+        # Stating it is also what makes the chunker's verified `punkt_id` reachable by
+        # anything downstream: until now it was computed, measured exactly against the
+        # corpus's contents pages, and then dropped before the citation the user reads.
+        punkt_id = (chunk.metadata or {}).get("punkt_id")
+        if punkt_id:
+            lines.append(f"Punkt: {punkt_id}")
         lines.append(f"Citation: {citation}")
         lines.append(f"Content Type: {chunk.content_type.value}")
         lines.append(f"Relevance Score: {chunk.score:.2f}")

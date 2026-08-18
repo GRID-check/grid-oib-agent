@@ -497,6 +497,16 @@ def _sync_locked() -> tuple[int, int]:
         logger.warning("No PDF files found in %s", OIB_DIR)
         return 0, 0
 
+    # Set when the stored chunk format is stale, and consulted at the delete-then-upload
+    # step below. Emptying the registry is what triggers the re-ingest, and it is ALSO
+    # what would make that re-ingest additive: the delete step is guarded by
+    # `str(pdf) in registry`, which is false for every file once the registry is empty,
+    # so each PDF's new chunks would be written alongside its old ones rather than
+    # replacing them. The collection would end up holding both formats of all 39 PDFs,
+    # both retrievable, both scored on the same scale and both rendering as a valid
+    # citation, until somebody reset it by hand. This flag is the delete's other reason
+    # to run. (The version gate has never fired before, so the bug has never executed.)
+    format_changed = False
     with _REGISTRY_LOCK:
         registry = _load_registry()
         if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:
@@ -507,6 +517,7 @@ def _sync_locked() -> tuple[int, int]:
                 CHUNK_FORMAT_VERSION,
             )
             registry = {}
+            format_changed = True
         registry.setdefault(_FORMAT_KEY, CHUNK_FORMAT_VERSION)
         _save_registry(registry)
 
@@ -577,7 +588,12 @@ def _sync_locked() -> tuple[int, int]:
             lock = _file_lock(pdf.name)
             lock.acquire()
             try:
-                if str(pdf) in registry:
+                # `format_changed` stands in for the registry entry the version reset
+                # just discarded: the collection still holds this file's old-format
+                # chunks even though the registry no longer says so. Deleting a file
+                # that is not there is already tolerated, so the extra call on a fresh
+                # collection costs one no-op per PDF, once.
+                if format_changed or str(pdf) in registry:
                     try:
                         ingestor.delete_file(pdf.name, COLLECTION_NAME)
                     except Exception as exc:

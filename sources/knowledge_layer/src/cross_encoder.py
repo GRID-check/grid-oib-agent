@@ -118,7 +118,11 @@ DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 10.0)
 # Per-document character budget sent to the reranker. Current cross-encoders take
 # 8k-32k tokens per document, so a full 1024-token chunk fits comfortably; the cap
 # exists to bound a pathological chunk, not to summarise.
-DEFAULT_MAX_DOC_CHARS = int(_env_float("AIQ_RERANKER_MAX_DOC_CHARS", 4000.0))
+#: At least one character. `_env_float` accepts any positive finite value, so
+#: AIQ_RERANKER_MAX_DOC_CHARS=0.5 truncated to 0 and every document was sliced to
+#: "" — the provider then ranked empty strings and returned a meaningless order,
+#: with a successful HTTP status and nothing in the logs.
+DEFAULT_MAX_DOC_CHARS = max(1, int(_env_float("AIQ_RERANKER_MAX_DOC_CHARS", 4000.0)))
 
 
 @dataclass(frozen=True)
@@ -313,7 +317,10 @@ class CrossEncoderReranker:
             }
         else:
             body = {"model": self.model, "query": query, "documents": documents}
-        if top_n:
+        # Non-positive means "no trim", matching `_trim` in rerank.py. `if top_n:` was
+        # true for a negative value and `min()` kept it negative, so the provider was
+        # asked for top_n=-1.
+        if top_n and top_n > 0:
             body[spec.top_param] = min(top_n, len(documents))
         return body
 

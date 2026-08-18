@@ -75,11 +75,19 @@ def _matchable(text: str) -> str:
     return _PUNCTUATION_RE.sub(" ", text).strip().lower()
 
 
-def _load_concepts() -> list[tuple[tuple[str, ...], tuple[str, ...]]]:
-    """Load ``(english_forms, german_terms)`` pairs, longest English form first.
+def _load_concepts() -> list[tuple[str, re.Pattern[str], tuple[str, ...]]]:
+    """Load ``(form, matcher, german_terms)`` triples, longest English form first.
 
-    Longest-first is what stops ``building class`` being matched only as ``class``,
-    and ``external wall`` degrading to ``wall``.
+    Flat rather than grouped by concept, and that is the fix for a real defect: sorting
+    *concepts* by their longest form still tried each concept's forms in declaration
+    order, so a short form of an earlier concept could claim a span before a long form of
+    a later one. Sorting the forms themselves makes longest-first mean what it says --
+    ``building class`` before ``class``, ``external wall`` before ``wall``.
+
+    Each form is compiled to a word-boundary matcher with an optional plural. A raw
+    substring test was wrong in both directions: ``roof`` matched *fire p-roof-ing* and
+    prepended ``Dach``, ``lift`` matched *up-lift*, ``stair`` matched *stair-well* — while
+    a bare boundary match would lose ``garages`` for a glossary that says ``garage``.
 
     Fail-open: a missing or malformed glossary disables expansion rather than
     breaking retrieval, because expansion is an enhancement and retrieval is not.
@@ -88,21 +96,24 @@ def _load_concepts() -> list[tuple[tuple[str, ...], tuple[str, ...]]]:
     with _lock:
         if _concepts is not None:
             return _concepts
-        pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+        forms: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = []
         try:
             import yaml
 
             data = yaml.safe_load(VOCABULARY_PATH.read_text(encoding="utf-8")) or {}
             for concept in data.get("concepts") or []:
-                english = tuple(_matchable(str(form)) for form in concept.get("en") or [] if str(form).strip())
+                english = [_matchable(str(form)) for form in concept.get("en") or [] if str(form).strip()]
                 german = tuple(str(term).strip() for term in concept.get("de") or [] if str(term).strip())
-                if english and german:
-                    pairs.append((english, german))
+                if not german:
+                    continue
+                for form in english:
+                    if form:
+                        forms.append((form, re.compile(rf"(?<!\w){re.escape(form)}(?:e?s)?(?!\w)"), german))
         except Exception as e:
             logger.warning("Query-expansion vocabulary unavailable (%s: %s); expansion disabled", type(e).__name__, e)
-            pairs = []
-        pairs.sort(key=lambda pair: -max(len(form) for form in pair[0]))
-        _concepts = pairs
+            forms = []
+        forms.sort(key=lambda entry: -len(entry[0]))
+        _concepts = forms
         return _concepts
 
 
@@ -145,19 +156,17 @@ def expansion_terms(query: str | None) -> list[str]:
     haystack = _matchable(query)
     terms: list[str] = []
     consumed: list[str] = []
-    for english_forms, german_terms in _load_concepts():
-        for form in english_forms:
-            if form not in haystack:
-                continue
-            # A longer concept already claimed this span (`building class` before
-            # `class`), so the shorter one would only restate it.
-            if any(form in previous for previous in consumed):
-                break
-            consumed.append(form)
-            for term in german_terms:
-                if term not in terms:
-                    terms.append(term)
-            break
+    for form, matcher, german_terms in _load_concepts():
+        if not matcher.search(haystack):
+            continue
+        # A longer form already claimed this span (`building class` before `class`), so
+        # the shorter one would only restate it.
+        if any(form in previous for previous in consumed):
+            continue
+        consumed.append(form)
+        for term in german_terms:
+            if term not in terms:
+                terms.append(term)
     return terms
 
 

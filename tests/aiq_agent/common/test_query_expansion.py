@@ -62,6 +62,34 @@ def test_an_english_question_the_glossary_does_not_know_is_unchanged() -> None:
     assert augmented_query(question) == question
 
 
+def test_a_glossary_term_inside_a_longer_word_is_not_a_match() -> None:
+    """A raw substring test fires on the wrong word and prepends the wrong topic.
+
+    Measured before the fix: `roof` matched *fire p-roof-ing*, `lift` matched *up-lift*,
+    `stair` matched *stair-well*. Each one spends query budget to steer retrieval at a
+    subject the user did not raise.
+    """
+    assert expansion_terms("What fire proofing is required?") == []
+    assert expansion_terms("Is uplift resistance covered?") == []
+    assert expansion_terms("What about stairwell pressurisation?") == []
+
+
+def test_a_plural_the_glossary_does_not_list_still_matches() -> None:
+    """Word boundaries must not cost the plural, which is how people actually type."""
+    assert "Dach" in expansion_terms("What about roofs?")
+    assert "Garage" in expansion_terms("Requirements for garages?")
+
+
+def test_the_longest_form_wins_across_concepts_not_only_within_one() -> None:
+    """Sorting concepts by their longest form still tried forms in declaration order.
+
+    A short form of an earlier concept could then claim a span before a long form of a
+    later one, which is the bug that ordering by form length removes.
+    """
+    terms = expansion_terms("How far is the fire brigade access road?")
+    assert "Aufstellfläche" in terms, "the longer `fire brigade access` must claim the span"
+
+
 def test_the_longest_concept_wins_so_a_broader_one_cannot_shadow_it() -> None:
     """`building class` must not degrade to `class`, `external wall` not to `wall`."""
     terms = expansion_terms("What are the external wall requirements for building class 4?")
@@ -75,7 +103,7 @@ def test_a_hyphenated_compound_matches_the_spaced_glossary_form() -> None:
     Measured: "How far may the most remote necessary building entrance be from the
     fire-brigade access road?" expanded to nothing at all and ranked its answer 119th.
     """
-    assert "Feuerwehr" in expansion_terms("How far is the fire-brigade access road?")
+    assert "Feuerwehrzufahrt" in expansion_terms("How far is the fire-brigade access road?")
     assert "U-Wert" in expansion_terms("What u-value applies to an external wall?")
     assert "barrierefrei" in expansion_terms("Is a step-free entrance required?")
 

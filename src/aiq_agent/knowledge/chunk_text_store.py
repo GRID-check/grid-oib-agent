@@ -603,6 +603,12 @@ class ChunkTextStore:
                     frequencies.total,
                 )
                 return []
+            if self._sync_engine is None:
+                # The same guard every other public method carries. Without it the
+                # AttributeError below is caught and logged as "Lexical chunk-text search
+                # failed" on every single query, which reads as a fault rather than as an
+                # unconfigured optional channel.
+                return []
             return self._search_terms(collection, kept, limit, frequencies)
         except Exception as e:  # noqa: BLE001 — retrieval must never break on the lexical channel
             logger.warning("Lexical chunk-text search failed for %s: %s", collection, e)

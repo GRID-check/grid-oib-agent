@@ -289,6 +289,25 @@ def test_a_heading_the_corpus_opens_in_lowercase_is_still_a_heading() -> None:
     assert "ENERGIEAUSWEIS" not in punkte["4.1"].get_content(), "it was merged into the Punkt above"
 
 
+def test_every_chunk_opens_with_the_punkt_it_claims_to_be() -> None:
+    """`punkt_id` is emitted into the grounding block, so it is a citation.
+
+    A runtime assertion of this was written and then deleted: the id is parsed out of
+    the very line it would be compared against, so the check cannot fail by
+    construction, and a guard that can never fire is worse than none — it reads as a
+    safety net. The property is real and worth pinning; what protects it in production
+    is `_contradicts_contents`, which compares against a source the chunk text does not
+    supply. Asserted here so a refactor that decouples id from heading is caught.
+    """
+    docs = punkt_documents(_pages(COVER, OUTLINE, UWERT_TABLE + OUTLINE_TAIL), "oib-rl_6.pdf", 1)
+    assert docs is not None
+    punkte = _punkte(docs)
+    assert punkte
+    for punkt_id, doc in punkte.items():
+        body = doc.get_content().split("\n\n", 1)[-1].lstrip()
+        assert body.startswith(f"{punkt_id} "), f"chunk {punkt_id} does not open with its own number"
+
+
 # ===========================================================================
 # The ingestion seam
 #

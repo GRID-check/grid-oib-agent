@@ -178,12 +178,6 @@ def _is_monotonic(candidate: tuple[int, ...], previous: tuple[int, ...] | None) 
 #: magnitude of headroom while still bounding a pathological input to ~4M comparisons.
 _MAX_CHAIN_CANDIDATES = 2000
 
-#: How much of the chosen chain the contents page must already account for before it is
-#: trusted to exclude what it omits. At 0.9 the twelve Punkt-structured Richtlinien all
-#: qualify -- the weakest is OIB-Richtlinie 2 at 214 listed of 217 -- while a document
-#: whose contents page covers only its top level lands far below and keeps every heading.
-_MIN_TOC_AGREEMENT = 0.9
-
 #: Characters of normalised title that must agree for a heading to be judged the one the
 #: contents page names. Long enough to be decisive, short enough to survive the hyphenated
 #: line wrap a PDF puts inside a heading ("…für die Konditionie-").
@@ -294,7 +288,7 @@ def _heading_candidates(
 
     Only the *shape* filters run here, plus the one contradiction the document states
     outright. Which of the survivors are real headings is decided by
-    :func:`_select_punkt_chain`, which needs to see them all at once.
+    :func:`_best_chain`, which needs to see them all at once.
     """
     candidates: list[tuple[int, tuple[int, ...], re.Match[str]]] = []
     for index in range(body_end):
@@ -383,39 +377,6 @@ def _contradicts_contents(match: re.Match[str], listed: dict[str, str]) -> bool:
     return not expected.startswith(actual) and not actual.startswith(expected)
 
 
-def _select_punkt_chain(
-    candidates: list[tuple[int, tuple[int, ...], re.Match[str]]],
-    listed: dict[str, str],
-) -> list[tuple[int, tuple[int, ...], re.Match[str]]]:
-    """The candidates that open a Punkt, in document order.
-
-    Two readings, and the second is only attempted when the document has earned it.
-    :func:`_best_chain` first picks the best chain out of everything on offer, preferring
-    headings the contents page lists. Some table rows survive that: OIB-Richtlinie 2's
-    Tabelle 2 contributes ``9.1``, ``9.2`` and ``9.3`` between the genuine Punkte ``9``
-    and ``10``, and since they cost no listed heading to include, preferring listed ones
-    does not exclude them. A fabricated ``Punkt 9.1`` is exactly the kind of citation this
-    system must not emit, so they have to go.
-
-    Restricting the candidates to listed ids removes them, but as a blanket rule it would
-    silently swallow every genuine Punkt that a partial contents page omits. So it is
-    applied only when this document's own contents page has just demonstrated that it is
-    complete -- ``_MIN_TOC_AGREEMENT`` of the unrestricted chain already listed -- and the
-    restricted chain is then kept only if it recovers every listed heading the
-    unrestricted one found. That second check is what makes the trade safe rather than
-    hopeful: filtering can break outline succession where an unlisted heading sat between
-    two listed ones, and when it does, this notices and keeps the unrestricted reading.
-    """
-    chain = _best_chain(candidates, listed)
-    if not listed or not chain:
-        return chain
-    anchored = [candidate for candidate in chain if candidate[2].group(1) in listed]
-    if len(anchored) < _MIN_TOC_AGREEMENT * len(chain):
-        return chain
-    restricted = _best_chain([candidate for candidate in candidates if candidate[2].group(1) in listed], listed)
-    return restricted if len(restricted) >= len(anchored) else chain
-
-
 def _best_chain(
     candidates: list[tuple[int, tuple[int, ...], re.Match[str]]],
     listed: dict[str, str],
@@ -446,7 +407,28 @@ def _best_chain(
 
     The order matters more than it may look: an unlisted heading still enters the chain
     freely, so a Richtlinie whose contents page is partial keeps the Punkte it omits.
-    ``listed`` empty -- no contents page found -- degrades exactly to counting.
+    That is not a hypothetical safeguard -- **eleven of the twelve contents pages list
+    only depth-1 ids**, so between 6% and 14% of the chosen chain is listed on most files,
+    and a rule that *required* listing would discard nearly the whole corpus. ``listed``
+    empty -- no contents page found -- degrades exactly to counting.
+
+    Each part earns its place, measured against the 946 Punkte the contents pages name:
+
+    ========================================  ======  =======  ========  ==========
+    variant                                   chunks  missing  spurious  mistitled
+    ========================================  ======  =======  ========  ==========
+    greedy, no contents page                     898       64        16          6
+    greedy + contradiction filter                929       18         1          0
+    best-chain, no contents page                 953        4        11          3
+    best-chain + contradiction filter            949        1         4          0
+    best-chain + filter + listed-first (this)    946        0         0          0
+    ========================================  ======  =======  ========  ==========
+
+    A further pass restricting candidates to listed ids once agreement was high enough was
+    written, measured and deleted: it fired on 1 of 12 files and was a no-op there. Its
+    docstring justified it with table rows ``9.1``-``9.3`` in OIB-Richtlinie 2 that the
+    shipped chunker never emits. Recorded because the plausible-sounding justification
+    outlived the mechanism being useful, which is the failure this table exists to prevent.
 
     O(n²) in candidates, which the corpus bounds at 345.
     """
@@ -494,7 +476,7 @@ def _split_into_segments(
 
     listed = listed or {}
     candidates = _heading_candidates(lines, body_end, listed)
-    openings = {candidate[0]: candidate for candidate in _select_punkt_chain(candidates, listed)}
+    openings = {candidate[0]: candidate for candidate in _best_chain(candidates, listed)}
 
     preamble: list[tuple[int, str]] = []
     postamble: list[tuple[int, str]] = list(lines[body_end:])
@@ -562,7 +544,7 @@ def _apply_exclusions(document: Any) -> None:
         setattr(document, attribute, merged)
 
 
-def _richtlinie_key(file_name: str) -> str:
+def richtlinie_key(file_name: str) -> str:
     """``oib-rl_2.1_ausgabe_mai_2023.pdf`` -> ``"2.1"``; ``oib-rl_2_leitfaden_…`` -> ``"2-leitfaden"``.
 
     The metadata key a filter matches on, which is NOT the human heading the breadcrumb
@@ -580,6 +562,16 @@ def _richtlinie_key(file_name: str) -> str:
     stem = re.sub(r"^(oib-rl|oib_rl)[_-]", "", stem)
     stem = re.sub(r"[_-]ausgabe[_-][^_-]+[_-]\d{4}.*$", "", stem, flags=re.IGNORECASE)
     return stem.replace("_", "-") or file_name
+
+
+#: Private alias kept for callers inside this module and its tests. The public name is
+#: what `scripts/build_punkt_index.py` imports: the eval index and the chunk metadata
+#: MUST derive the same key for the same file, because the golden set joins on it, and
+#: two copies of this function had already drifted apart -- the script stripped only
+#: `ausgabe_mai_<year>`, so `oib-rl_2_ausgabe_april_2019.pdf` keyed as
+#: "2-ausgabe-april-2019" there and "2" here, and every golden label for that file
+#: resolved to nothing.
+_richtlinie_key = richtlinie_key
 
 
 def punkt_documents(text_pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Document] | None:
@@ -624,7 +616,7 @@ def punkt_documents(text_pages: list[dict[str, Any]], file_name: str, file_size:
     label = _document_label(raw_lines)
     subject = _document_subject(raw_lines)
     heading = f"{label} — {subject}" if label and subject else (label or subject or file_name)
-    richtlinie = _richtlinie_key(file_name)
+    richtlinie = richtlinie_key(file_name)
 
     documents: list[Document] = []
     base_metadata = {"file_name": file_name, "file_size": file_size}

@@ -376,18 +376,28 @@ def extract_file(pages: list[dict[str, Any]], file_name: str) -> FileExtraction:
 def richtlinie_key(file_name: str) -> str:
     """``oib-rl_2.1_ausgabe_mai_2023.pdf`` -> ``"2.1"``; ``oib-rl_2_leitfaden_…`` -> ``"2-leitfaden"``.
 
-    The edition suffix is dropped on purpose: the golden set names a Richtlinie,
-    not an edition, and a corpus re-sync to a later Ausgabe should not invalidate
-    every label. Documents whose stem carries no Richtlinie number (Begriffs-
-    bestimmungen, zitierte Normen) keep their descriptive stem as the key.
+    Delegates to the production chunker's implementation, and that is a correctness
+    requirement rather than tidiness: this index and the chunk metadata must derive the
+    SAME key for the same file, because the golden set joins on it. Two copies existed
+    and had already drifted -- this one stripped only ``ausgabe_mai_<year>``, so
+    ``oib-rl_2_ausgabe_april_2019.pdf`` keyed as ``"2-ausgabe-april-2019"`` here and
+    ``"2"`` in the chunker, and every golden label for that file would have resolved to
+    nothing the moment the corpus moved off the May 2023 edition.
+
+    The local fallback keeps this script runnable when the knowledge layer is not
+    importable, and it is the drift-prone path, so it is deliberately the exception.
     """
-    stem = file_name
-    for suffix in (".pdf", ".PDF"):
-        if stem.endswith(suffix):
-            stem = stem[: -len(suffix)]
-    stem = re.sub(r"^(oib-rl|oib_rl)[_-]", "", stem)
-    stem = re.sub(r"[_-]ausgabe[_-]mai[_-]\d{4}.*$", "", stem)
-    return stem.replace("_", "-") or file_name
+    try:
+        from knowledge_layer.llamaindex.punkt_chunking import richtlinie_key as shared_key
+    except ImportError:
+        stem = file_name
+        for suffix in (".pdf", ".PDF"):
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+        stem = re.sub(r"^(oib-rl|oib_rl)[_-]", "", stem)
+        stem = re.sub(r"[_-]ausgabe[_-][^_-]+[_-]\d{4}.*$", "", stem, flags=re.IGNORECASE)
+        return stem.replace("_", "-") or file_name
+    return shared_key(file_name)
 
 
 # =============================================================================

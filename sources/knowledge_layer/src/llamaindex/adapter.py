@@ -2170,11 +2170,23 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     new_metadata[key] = value
 
             new_metadata["updated_at"] = datetime.utcnow().isoformat()
-            # Stamp (or adopt) the embedding identity while we already hold the merged
-            # metadata. This runs at the end of every ingestion job, so a collection
-            # created by the ingest path -- which cannot carry metadata, since Chroma
-            # ignores it for an existing collection -- still acquires a fingerprint.
-            new_metadata.update(self._embed_fingerprint_metadata())
+            # Stamp the embedding identity while we already hold the merged metadata, so
+            # a collection created by the ingest path -- which cannot carry metadata,
+            # since Chroma ignores it for an existing collection -- still acquires one.
+            #
+            # ONLY WHEN ABSENT. Writing it unconditionally erases the mismatch this
+            # feature exists to detect: a collection written with model A, then ingested
+            # into by a process misconfigured for model B, would have its fingerprint
+            # rewritten to B. Retrieval's check is blocked only until that ingestion, and
+            # afterwards the collection holds vectors from two spaces while reporting no
+            # conflict -- back to silently wrong retrieval, with the evidence destroyed.
+            # A stored fingerprint is a fact about vectors already written; nothing this
+            # process does can make it untrue.
+            mismatch = embed_fingerprint_mismatch(existing_metadata, self.embed_model_name, self.embed_base_url)
+            if mismatch:
+                logger.error("Collection %s: %s", collection_name, mismatch)
+            elif not existing_metadata.get(EMBED_FINGERPRINT_KEY):
+                new_metadata.update(self._embed_fingerprint_metadata())
 
             # ChromaDB's modify() only updates the metadata fields we provide
             collection.modify(metadata=new_metadata)
@@ -2862,6 +2874,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 name=collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
+
+            # Refuse to add vectors from a different embedding space to an existing
+            # collection. Retrieval performs the same check, but only on the read path
+            # and only in the retriever class -- so a misconfigured process could still
+            # WRITE foreign vectors here, and the collection would then hold two spaces
+            # permanently. Failing the job instead leaves the corpus consistent and the
+            # cause named. Absent fingerprint is adopted, as everywhere else.
+            mismatch = embed_fingerprint_mismatch(
+                chroma_collection.metadata, self.embed_model_name, self.embed_base_url
+            )
+            if mismatch:
+                raise ValueError(f"Refusing to ingest into {collection_name}: {mismatch}")
 
             # Set up vector store
             vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
@@ -3719,9 +3743,18 @@ class LlamaIndexRetriever(BaseRetriever):
             # is how one replica keeps answering from a corpus another replica has
             # already changed. Read through instead -- the cache is an optimisation,
             # the version is a correctness invariant.
-            version = collection_version(collection_name)
+            #
+            # Membership is tested FIRST because resolving the version is a shared-cache
+            # round trip. Every query also fans out across the per-conversation session
+            # collection and any project collections, and none of those is cacheable, so
+            # resolving first spent one EVAL per non-cacheable collection per query on the
+            # retrieval hot path -- and grew a permanent memo entry for each -- to discard
+            # the answer immediately afterwards.
             cache_key: tuple[str, int, str, int, str] | None = None
-            if version is not None and collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS:
+            version = (
+                collection_version(collection_name) if collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS else None
+            )
+            if version is not None:
                 cache_key = (
                     collection_name,
                     version,
@@ -3761,6 +3794,15 @@ class LlamaIndexRetriever(BaseRetriever):
 
             if self.hybrid_search:
                 chunks = self._hybrid_lexical_boost(query, collection_name, top_k, filters, chunks)
+
+            # State each hit's rank in this collection's FINAL order, after the lexical
+            # fusion has had its say. `_rank_channel` in register.py documents reading it
+            # here and nothing ever wrote it, so every cross-collection merge fell back to
+            # list position. That fallback happens to be correct today -- position is the
+            # final order -- but it made the field dead weight and the docstring false,
+            # and it left the fuser unable to tell a genuine rank from a coincidence.
+            for rank, chunk in enumerate(chunks):
+                chunk.retrieval_rank = rank
 
             logger.info(f"LlamaIndex retrieval returned {len(chunks)} chunks")
 
