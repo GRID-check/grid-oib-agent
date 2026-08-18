@@ -214,7 +214,7 @@ while eight lines away in `researcher.j2` the IFC block named a trigger and gave
 a reason, which is exactly why the IFC cards were emitted and the schematics
 were not.
 
-`_CARD_DOCTRINE` now states the default positively and names the trigger for
+The doctrine now states the default positively and names the trigger for
 each card: a riser, tread or stair width → `stair_diagram`; a clear width, ramp
 or turning circle → `dimension_diagram`; an escape route with segments →
 `egress_diagram`; a fall height, railing or opening → `guardrail_check`; a
@@ -226,6 +226,45 @@ travels with the rule: an answer that turns on a dimension gets its card by
 default rather than on request, because a measurement written as a sentence
 makes the reader re-draw it in their head, and the card is the drawing they
 would have made.
+
+### Where the doctrine lives, and which surface gets which half
+
+The text is assembled by `render_card_doctrine()` in `cards/catalog.py` — the
+framing-free module that already owns `render_card_index` / `render_card_details`
+— because there are TWO surfaces that produce cards and only one of them used to
+be taught how to choose.
+
+`register.py` composes `render_card_doctrine()` with the `[[card:N]]` placement
+contract and exports the result as `_CARD_DOCTRINE`, which is what `emit_card`'s
+description carries.
+
+`cards/prompt.py` composes `render_card_doctrine(include_ifc_triggers=False)`
+for the post-hoc path that derives cards from a finished deep-research report.
+That path used to carry the disclaimer this section describes replacing — on the
+surface producing the LONGEST answers, the ones that most need a takeaway block,
+a callout and follow-ups. Three parts are deliberately withheld from it, and the
+reason is the same each time: they are not true there.
+
+- The **`[[card:N]]` placement contract**. The job runner emits the report
+  unchanged and attaches the returned list, so there is no text to place into.
+  List order is render order, and the doctrine's "put `follow_ups` last" gets an
+  ordering rule to refer to instead.
+- **`describe_card`**. There is no tool loop; the shapes are already inline.
+- The **`ifc_model_picker` trigger**, though not its shape. That trigger fires on
+  a live "zeig mir das Modell" intent and says to emit the card *instead of*
+  writing the file names as prose — a trade that is no longer available once the
+  prose is written. Note the picker is still NOT in `MODEL_BACKED_CARD_TYPES`:
+  that set means "every identifying field must be copied from an `ifc_query`
+  row", and the picker names no file and invents nothing. Withholding a trigger
+  and withholding a shape are different decisions with different reasons, and
+  conflating them would put the wrong reason on the wrong set.
+
+The CRAFT — which of the generic cards actually improves an ordinary answer, and
+how `verdict_header` divides the ruling with the answer's first sentence — is in
+neither. It lives in the `piloti-cards` platform skill, a database row applied on
+every answering turn and editable without a deploy. The post-hoc path cannot
+reach a skill runtime, so it carries the subset of that judgement which is a test
+over a finished text rather than an instruction about how to write one.
 
 A positive trigger that strong needs an **explicit negative default** beside it
 or it produces card spam, so the doctrine states that too: a one-line factual
@@ -439,20 +478,24 @@ without re-plumbing generation or transport.
    dispatcher (interactive cards get `messageId={messageId} cardKey={key}`).
 5. Add a fixture to the `/dev/cards` gallery and a `visual/registry.mjs` target,
    then capture screenshot evidence (`npm run screenshots`).
-6. **Give it a trigger in `_CARD_DOCTRINE`** (`cards/register.py`) — which
-   question calls for it, in the same "trigger → card" form as the rest. A type
-   that is only listed in the index is a renderer nobody is asked for, which is
-   a renderer nobody sees; that is exactly how fifteen schematic cards sat
-   behind a disclaimer.
+6. **Give it a trigger in the doctrine** (`render_card_doctrine` in
+   `cards/catalog.py`) — which question calls for it, in the same
+   "trigger → card" form as the rest. A type that is only listed in the index is
+   a renderer nobody is asked for, which is a renderer nobody sees; that is
+   exactly how fifteen schematic cards sat behind a disclaimer. A trigger line,
+   and only a trigger line: the paragraph explaining when the card earns its
+   place belongs in the `piloti-cards` skill. Both halves are asserted against
+   each other, and a token ceiling on the tool description fails if the doctrine
+   drifts back into carrying craft.
 7. For a **system** card (tool-emitted, never model-emitted): add it to
    `SYSTEM_CARD_TYPES` and register the emitting tool in the agent's `tools:`
    list in the config.
 
 ## Card catalog
 
-The catalog is the twenty-seven types tabulated under
-[Current card types](#current-card-types) — five structured, fifteen schematic,
-five model-backed and two system — and that is the only place in this document
+The catalog is the thirty-five types tabulated under
+[Current card types](#current-card-types) — twelve structured, fifteen schematic,
+six model-facing IFC and two system — and that is the only place in this document
 where they are listed, on purpose: a card type appearing in two tables means one
 of them is already wrong. See
 [ADR-0012](../adr/0012-cards-as-rich-ui-layer.md).
