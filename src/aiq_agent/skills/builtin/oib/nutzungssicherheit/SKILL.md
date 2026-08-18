@@ -1,48 +1,50 @@
 ---
 name: nutzungssicherheit
 description: >
-  Bei Fragen zu Nutzungssicherheit und Barrierefreiheit laden: Treppe, Stiege,
-  Steigung und Auftritt, Schrittmaßregel, Laufbreite, Podest, Geländer,
+  Safety in use and accessibility. Load when the question involves Treppe or
+  Stiege, Steigung and Auftritt, Schrittmaßregel, Laufbreite, Podest, Geländer,
   Brüstung, Absturzsicherung, Öffnungsweite, Rampe, Neigung, Bewegungsfläche,
   Wendekreis, lichte Durchgangsbreite, Türbreite, barrierefreier Aufzug,
-  Kabinenmaße, Anforderungen der OIB-Richtlinie 4.
+  Kabinenmaße, or any requirement of OIB Richtlinie 4.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: stair_diagram,guardrail_check,dimension_diagram,elevator_requirement,legal_basis
 ---
 
-# Nutzungssicherheit und Barrierefreiheit beantworten
+# Answering a safety-in-use or accessibility question
 
-## Maße gehören gezeichnet, nicht beschrieben
+## A dimension belongs drawn, not described
 
-Das ist die eine Genre-Regel, die alles andere trägt: Eine Antwort, die auf
-einem Maß beruht, bekommt die Card zu diesem Maß. Ein Auftritt von 27 cm gegen
-eine Mindestanforderung ist als Satz eine Zahl, die der Leser im Kopf
-nachzeichnen muss, und als Zeichnung sofort lesbar. Schreiben Sie den Satz
-trotzdem — die Card ergänzt die Antwort, sie ersetzt sie nicht.
+This is the one genre rule everything else rests on: an answer that turns on a
+dimension gets the card for that dimension. An Auftritt of 27 cm against a
+minimum is, as a sentence, a number the reader has to redraw in their head, and
+as a drawing it is legible at once. Write the sentence anyway — the card is in
+addition to the answer, never instead of it.
 
 - Steigung, Auftritt, Laufbreite, Schrittmaß → `stair_diagram`.
-- Absturzhöhe, Geländerhöhe, Öffnungsweite, unterer Spalt → `guardrail_check`.
-  Die Absturzhöhe entscheidet den Grenzwert, also muss sie in der Card stehen.
-- Lichte Breite, Rampe, Wendekreis, Bewegungsfläche, Stellplatz →
-  `dimension_diagram`, `shape` passend zum Gegenstand.
-- Aufzugspflicht und Kabinenmaße → `elevator_requirement`.
+- Absturzhöhe, Geländerhöhe, Öffnungsweite, the gap underneath →
+  `guardrail_check`. The Absturzhöhe decides the limit, so it has to be in the
+  card.
+- Clear width, Rampe, Wendekreis, Bewegungsfläche, Stellplatz →
+  `dimension_diagram`, with `shape` matching the subject.
+- Aufzugspflicht and Kabinenmaße → `elevator_requirement`.
 
-## Gemessen, gerechnet oder behauptet
+## Measured, computed, or merely asserted
 
-Wenn eine Zahl aus `ifc_measure` kommt, tragen Sie ihre Provenienz und ihre
-Toleranz mit in die Card. Ein berechnetes Maß ohne sein ± Band liest sich wie
-ein exaktes, und genau daran entscheidet sich, ob 2,47 m eine 2,50-m-Grenze
-hält. Eine Zahl aus der Frage des Nutzers ist weder gemessen noch berechnet —
-dort bleiben beide Felder leer.
+When a number comes from `ifc_measure`, carry its provenance and its tolerance
+into the card. A computed dimension without its ± band reads like an exact one,
+and that is precisely what decides whether 2,47 m holds a 2,50 m limit. A number
+taken from the user's question is neither measured nor computed — leave both
+fields empty there.
 
-Fehlt ein Maß, setzen Sie den Prüfpunkt auf `needs_input` und schreiben hinein,
-was im Plan fehlt. Schätzen Sie nie. Ein geschätztes Maß in einer Card ist die
-schlechteste Ausgabe, die dieses Produkt erzeugen kann, weil es genau die
-Darstellung ist, die ohne den umgebenden Text weitergereicht wird.
+When a dimension is missing, set that check to `needs_input` and write into it
+what the plan is missing. Never estimate. An estimated dimension inside a card
+is the worst output this product can produce, because a card is exactly the
+representation that gets forwarded without its surrounding text.
 
-## Barrierefreiheit ist nicht nur ein Maß
+## Accessibility is not only a dimension
 
-Die Maße sind das Prüfbare; die Anforderung ist meist, dass etwas erreichbar
-und benutzbar ist. Wo die Richtlinie ein Ziel formuliert und nicht ein Maß,
-sagen Sie das, statt ein Maß zu nennen, das nur ein üblicher Weg zum Ziel ist.
+The dimensions are what can be checked; the requirement is usually that
+something be reachable and usable. Where the Richtlinie states a goal rather
+than a dimension, say so instead of quoting a dimension that is only one
+customary way of reaching the goal.

@@ -1,44 +1,46 @@
 ---
 name: bebauung
 description: >
-  Bei Fragen zu Bebauung und Städtebau laden: Abstand, Bauwich,
-  Abstandsfläche, Grundgrenze, Fluchtlinie, Baulinie, Baufluchtlinie,
-  Bebauungsplan, Flächenwidmung, Widmung, Bebauungsgrad, Bebauungsdichte,
-  Geschoßflächenzahl, GFZ, Grundflächenzahl, Bruttogeschoßfläche,
-  Gebäudehöhe, Traufenhöhe, Stellplatzverpflichtung, Stellplatzregulativ.
+  Site planning and urban-development rules. Load when the question involves
+  Abstand, Bauwich, Abstandsfläche, Grundgrenze, Fluchtlinie, Baulinie,
+  Baufluchtlinie, Bebauungsplan, Flächenwidmung or Widmung, Bebauungsgrad,
+  Bebauungsdichte, Geschoßflächenzahl or GFZ, Grundflächenzahl,
+  Bruttogeschoßfläche, Gebäudehöhe, Traufenhöhe, Stellplatzverpflichtung, or
+  Stellplatzregulativ.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: setback_plan,density_check,building_section,parking_requirement,legal_basis
 ---
 
-# Bebauung beantworten
+# Answering a site-planning question
 
-## Das steht nicht in der OIB-Richtlinie
+## This is not in the OIB Richtlinien
 
-Das ist die wichtigste Eigenschaft dieses Genres und der häufigste Fehlgriff.
-Abstände, Höhen, Dichte, Widmung und Stellplätze sind **Landes- und
-Gemeinderecht**: Bauordnung des Landes, Bebauungsplan, Flächenwidmungsplan,
-Stellplatzregulativ. Die OIB-Richtlinien regeln sie nicht.
+That is the defining property of this genre and the most common wrong turn.
+Setbacks, heights, density, Widmung and parking are **Landes- und
+Gemeinderecht**: the Bauordnung of the Land, the Bebauungsplan, the
+Flächenwidmungsplan, the Stellplatzregulativ. The OIB Richtlinien do not govern
+them.
 
-Zwei Konsequenzen. Erstens: Die Antwort hängt am Bundesland, immer. Ist es im
-Projektkontext gesetzt, antworten Sie dafür und sagen es dazu. Ist es nicht
-gesetzt, ist das die Frage, die Sie stellen — eine allgemein-österreichische
-Antwort gibt es hier nicht. Zweitens: Was im Bebauungsplan des konkreten
-Grundstücks steht, kennen Sie nicht. Sie können sagen, welche Regel greift und
-was sie üblicherweise bestimmt; Sie können nicht sagen, was für dieses
-Grundstück festgesetzt ist. Sagen Sie, wo es nachzusehen ist, statt eine
-plausible Zahl zu nennen.
+Two consequences follow. First, the answer depends on the Bundesland, always. If
+the project context sets it, answer for that Land and say which one. If it does
+not, that is the question to ask — there is no Austria-wide answer here. Second,
+what the Bebauungsplan says for this particular Grundstück is not something you
+know. You can say which rule applies and what it customarily fixes; you cannot
+say what has been fixed for this plot. Say where to look it up rather than
+producing a plausible number.
 
-## Welche Card wozu
+## Which card for what
 
-- Grundstück, Baukörper und Abstände je Seite → `setback_plan`.
-- Bebauungsgrad, GFZ, Flächen gegen Grenzwerte → `density_check`.
-- Höhenprüfung über die Geschoße, Fluchtniveau → `building_section`.
-- Stellplätze erforderlich gegen vorhanden → `parking_requirement`, mit der
-  Bemessungsgrundlage im `basis`-Feld: ohne sie ist die Zahl nicht prüfbar.
+- Plot, building footprint and setbacks per side → `setback_plan`.
+- Bebauungsgrad, GFZ, areas against their limits → `density_check`.
+- A height check across the storeys, Fluchtniveau → `building_section`.
+- Required against available parking → `parking_requirement`, with the
+  Bemessungsgrundlage in the `basis` field: without it the number cannot be
+  checked.
 
-## Die Normenkette gehört in die Antwort
+## The chain of norms belongs in the answer
 
-Wo eine Frage sowohl Landesrecht als auch eine OIB-Richtlinie berührt, sagen
-Sie, welche Ebene welchen Teil regelt. Der Leser muss unterscheiden können, was
-bindend ist und was auslegt — in diesem Genre ist genau das die Information.
+Where a question touches both Landesrecht and an OIB Richtlinie, say which level
+governs which part. The reader has to be able to tell what binds from what
+interprets — in this genre that distinction *is* the information.
