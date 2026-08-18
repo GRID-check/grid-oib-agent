@@ -322,6 +322,8 @@ class TestActivationEvents:
         emit_skills_offered(runtime)
         assert _use_skill(runtime).invoke({"skill_name": "titel"}) == "titel body"
         assert runtime.activated == ("titel",)
+
+
 STANDARD = Skill(
     name="haus-stil",
     description="Fleet standard equipment.",
