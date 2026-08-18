@@ -144,3 +144,54 @@ second model turn. This is the pattern every new card should follow.
 | # | item | why it is here | owner |
 |---|---|---|---|
 | B9 | **report outline for deep-research reports** — a section list built from the markdown headings, sticky beside `ReportTab`, click to jump | a deep report is a long document rendered in a side panel with NO navigation at all. Every long-form legal/research surface (Harvey, Perplexity Pages) has an outline; ours makes the reader scroll to find out what is in it. Note: needs i18n keys, so it serialises after the answer-actions agent releases the dictionaries | — |
+
+---
+
+# Sprints
+
+The loop runs in sprints from here. A sprint is 2 subagents max (the session
+limit killed a third once), each with a disjoint OWN-ONLY file list, launched
+together, landed together, pushed together, then the next sprint is planned from
+what they found. I plan and verify; the agents implement.
+
+## Sprint 3 — in flight
+- `follow_ups` card (chips that prefill the composer)
+- answer action row (copy answer / copy with citations)
+
+## Sprint 4 — planned
+**S4-A · the hidden presentation skill.** `piloti-cards`: DB-owned like
+`piloti-voice` (migration, `delivery: 'standard'` so it is always applied,
+`grid-hidden: "true"` so it never shows in the skills disclosure but still emits
+its activation event). Its `grid-cards` metadata names the GENERIC cards —
+`key_takeaways`, `callout`, `follow_ups`, `verdict_header`, `condition_tree`,
+`typed_table`, `norm_chain` — which makes `_preferred_cards_block` inline those
+SHAPES on every turn, so the cards that fire on an ordinary answer never pay a
+`describe_card` round-trip. Body is the presentation procedure: when an answer
+earns a takeaway block, when it earns exactly one callout, when it earns
+follow-ups, and — the open conflict — how `verdict_header` and the new lede
+divide the ruling between them without saying it twice.
+Why DB-owned rather than builtin: this is output STYLE, tunable without a
+deploy, which is the same argument that put `piloti-voice` in the database.
+The genre skills stay builtin because they encode domain procedure.
+
+**S4-B · no internal vocabulary reaches a reader.** "Shelf" is a dev word.
+`chat.thinking.status.documents.several` says „Unterlagen aus Ihren Ablagen"
+/ "Reviewing documents from your shelves" — the only real leak in the
+dictionaries, but the agent can also say it in prose, because
+`<knowledge_shelves>` in `researcher.j2` opens "four nested document shelves".
+The four have real user-facing names (Basiswissen, Büroarchiv, Projektwissen,
+Private Sitzung); those are what a reader may see. Sweep the whole user-facing
+surface for the same class of leak (corpus/Korpus, registry, payload, node,
+marker, card type names) and add a prompt line forbidding the container word.
+
+## Backlog — the follow-ups DIRECTION (user: "exactly the idea we were going for")
+What made `follow_ups` right: the reader gets a way forward without having to
+phrase it, the app already had the mechanism (`setComposerPrefill`), and the
+click costs nothing. Same shape, other surfaces:
+
+| # | item | why |
+|---|---|---|
+| B10 | **`condition_tree` branch switching** — click a branch that is NOT the active one and see its outcome, already authored, no round-trip | the card already carries every branch's outcome and shows only one. "Was gilt bei GK 3?" is answered by data on screen |
+| B11 | **`needs_input` rows become a question** — a checklist or schematic row the answer could not decide gets a chip that prefills "Das fehlende Maß ist …" | the card already names exactly what is missing; today the reader has to retype it |
+| B12 | **any card row → composer** — generalise the follow-up mechanism so a row that names a term can ask about it | one mechanism, many surfaces; this is the reusable version of B10/B11 |
+| B13 | **measurement provenance peek** — click a number that came from `ifc_measure` to see method, tolerance and the GlobalIds, the way `[N]` peeks a citation | citations already peek; measured numbers do not, and they are the ones a reader most needs to defend |
