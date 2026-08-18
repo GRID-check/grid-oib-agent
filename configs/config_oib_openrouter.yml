@@ -453,6 +453,14 @@ functions:
   emit_card:
     _type: emit_card
 
+  # Blocking multiple-choice question the answering agent can put mid-turn,
+  # for a choice it can enumerate but cannot decide (which of two IFC models,
+  # which Bundesland). Goes through the same HITL channel as the clarifier, so
+  # the addressee guard and reconnect handling apply; degrades to "answer with
+  # a stated assumption" wherever no HITL channel is bound.
+  ask_user:
+    _type: ask_user
+
   # L2 of the card vocabulary. `emit_card` advertises one line per card type;
   # this returns the exact nesting and a worked example for the type actually
   # being emitted. Rendering all 27 shapes up front costs ~5,200 tokens on every
@@ -532,7 +540,8 @@ functions:
     _type: shallow_research_agent
     llm: shallow_llm
     # Explicit list (replaces registry inheritance) so the non-data-source
-    # `remember` and `emit_card` tools are included alongside search/knowledge.
+    # `remember`, `emit_card` and `ask_user` tools are included alongside
+    # search/knowledge.
     tools:
       - web_search_tool
       - knowledge_search
@@ -545,6 +554,7 @@ functions:
       - surface_documents
       - ifc_query
       - ifc_measure
+      - ask_user
     verbose: true
     max_llm_turns: 10
     max_tool_iterations: 5
