@@ -132,7 +132,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={420} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* ground line with hatch ticks */}
         {sketchLine(wallX - 22, baseY, X(extentM) + 18, baseY, 'daylight-ground', {
           strokeWidth: 1.6,

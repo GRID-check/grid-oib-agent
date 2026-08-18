@@ -108,7 +108,7 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
         <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{requirementNote}</p>
       )}
 
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={300} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* one contiguous building outline */}
         {sketchRect(bx, top, bw, buildingH, 'lift-building', { strokeWidth: 1.5 })}
 

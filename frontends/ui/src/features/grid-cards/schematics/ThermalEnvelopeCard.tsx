@@ -119,7 +119,7 @@ export const ThermalEnvelopeCard: FC<ThermalEnvelopeCardProps> = ({
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={320} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* ground line + hatch ticks */}
         <line
           x1={xL - 34}

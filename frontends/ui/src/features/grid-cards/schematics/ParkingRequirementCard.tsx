@@ -90,7 +90,7 @@ const SlotGrid: FC<{ check: DimensionCheckData }> = ({ check }) => {
   }
 
   return (
-    <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={Math.min(viewW, 240)} label={check.label}>
+    <SchematicCanvas viewW={viewW} viewH={viewH} label={check.label}>
       {cells}
     </SchematicCanvas>
   )

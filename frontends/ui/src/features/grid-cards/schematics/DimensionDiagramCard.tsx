@@ -41,7 +41,6 @@ interface DimensionDiagramCardProps {
 interface Template {
   viewW: number
   viewH: number
-  minWidth?: number
   node: ReactNode
 }
 
@@ -389,7 +388,10 @@ const turningCircleTemplate = (dims: DimensionCheckData[]): Template => {
       <g>
         {/* room corner: top + left cut walls */}
         {sketchRect(x0 - 26, y0 - 26, D + 62, wallT, 'tc-wall-top', POCHE)}
-        {sketchRect(x0 - 26, y0 - 26 + wallT, wallT, D + 44, 'tc-wall-left', POCHE)}
+        {/* The left wall stops inside the viewBox: an SVG clips at its own
+            viewBox, and a poché that runs past the bottom edge is cut off
+            square rather than ending as a wall. */}
+        {sketchRect(x0 - 26, y0 - 26 + wallT, wallT, D + 32, 'tc-wall-left', POCHE)}
         {/* turning circle */}
         {sketchCircle(cx, cy, D, 'tc-circle', {
           stroke: diaDim ? statusColor(diaDim.status) : 'var(--foreground)',
@@ -607,12 +609,7 @@ export const DimensionDiagramCard: FC<DimensionDiagramCardProps> = ({
       note={note}
       reference={reference}
     >
-      <SchematicCanvas
-        viewW={template.viewW}
-        viewH={template.viewH}
-        minWidth={template.minWidth ?? Math.min(template.viewW, 380)}
-        label={title}
-      >
+      <SchematicCanvas viewW={template.viewW} viewH={template.viewH} label={title}>
         {template.node}
       </SchematicCanvas>
       <DimChecksList checks={dimensions} />

@@ -123,7 +123,7 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={340} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* parcel, area to scale */}
         {sketchRect(px, py, PW, PD, 'density-parcel', { strokeWidth: 1.5 })}
         <SvgLabel x={px} y={py - 11} size={9}>

@@ -327,6 +327,43 @@ function Gallery() {
         />
       </Section>
 
+      {/* The three remaining shapes, so the gallery photographs every template
+          the renderer can produce rather than half of them: a corridor plan, a
+          threshold detail at centimetre scale, and a parking bay in plan. */}
+      <Section id="dimension_diagram_corridor">
+        <DimensionDiagramCard
+          title="Gang – nutzbare Breite"
+          shape="corridor"
+          dimensions={[
+            { label: 'nutzbare Breite', value: 110, required: 120, unit: 'cm', comparator: '>=', status: 'fail' },
+          ]}
+          reference={{ document: 'ÖNORM B 1600', section: 'Pkt. 4.2' }}
+        />
+      </Section>
+
+      <Section id="dimension_diagram_threshold">
+        <DimensionDiagramCard
+          title="Türschwelle – Anschlaghöhe"
+          shape="threshold"
+          dimensions={[
+            { label: 'Schwellenhöhe', value: 2, required: 2, unit: 'cm', comparator: '<=', status: 'pass' },
+          ]}
+          reference={{ document: 'ÖNORM B 1600', section: 'Pkt. 5.1.3' }}
+        />
+      </Section>
+
+      <Section id="dimension_diagram_parking_space">
+        <DimensionDiagramCard
+          title="Stellplatz barrierefrei"
+          shape="parking_space"
+          dimensions={[
+            { label: 'Breite', value: 350, required: 350, unit: 'cm', comparator: '>=', status: 'pass' },
+            { label: 'Länge', value: 500, required: 500, unit: 'cm', comparator: '>=', status: 'pass' },
+          ]}
+          reference={{ document: 'ÖNORM B 1600', section: 'Pkt. 3.3' }}
+        />
+      </Section>
+
       <Section id="setback_plan">
         <SetbackPlanCard
           title="Abstandsflächen – Lageplan"

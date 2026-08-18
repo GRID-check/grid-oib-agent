@@ -116,7 +116,7 @@ export const EgressDiagramCard: FC<EgressDiagramCardProps> = ({
       verdict={total_length.status}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={440} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* corridor underlay */}
         <polyline
           points={points.map((p) => p.join(',')).join(' ')}

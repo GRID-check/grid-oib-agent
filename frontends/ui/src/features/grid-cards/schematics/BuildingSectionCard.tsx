@@ -153,7 +153,7 @@ export const BuildingSectionCard: FC<BuildingSectionCardProps> = ({
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={430} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* below-grade block behind the ground line */}
         {belowBands}
 

@@ -114,7 +114,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
       verdict={worstStatus(sides.map((s) => s.status))}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={420} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* parcel */}
         {sketchRect(px, py, PW, PD, 'parcel', { strokeWidth: 1.5 })}
         <SvgLabel x={px} y={py - 11} size={9}>

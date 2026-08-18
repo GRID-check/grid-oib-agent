@@ -332,37 +332,53 @@ export const DimensionArrow: FC<DimensionArrowProps> = ({
 
 /* ── canvas wrapper ───────────────────────────────────────────────────────── */
 
+/**
+ * Largest allowed blow-up of a drawing: rendered pixels per viewBox unit.
+ *
+ * Every template is authored in units that behave like pixels — an 8-unit
+ * eyebrow, a 9.5-unit dimension label, a 1.1-unit dimension line — so a
+ * drawing is in proportion when one unit renders at roughly one pixel. The
+ * templates that read correctly in the wide column already sit just above
+ * that (building section 1.24, stair 1.19, ramp 1.35, guardrail 1.36); the
+ * ones that read as a wall of picture were being stretched two and three
+ * times over (door 2.97, turning circle 2.26) purely because they are narrow
+ * drawings inside a wide card, and `width: 100%` asked them to fill it. The
+ * cap is set just above the widest scale any drawing that looked right was
+ * already using, so those are untouched and the rest stop growing past the
+ * proportion they were drawn at.
+ */
+const MAX_CANVAS_SCALE = 1.4
+
 interface SchematicCanvasProps {
   viewW: number
   viewH: number
-  /** Below this width the canvas scrolls horizontally instead of shrinking. */
-  minWidth?: number
   label: string
   children: ReactNode
 }
 
 /**
- * Responsive SVG stage: scales down with the chat column, and past `minWidth`
- * scrolls horizontally inside the card so the column never scrolls sideways.
+ * Responsive SVG stage.
+ *
+ * The drawing always fits the card: it scales down with the column and is
+ * never given a pixel floor that would push it past the card edge, because a
+ * schematic that overflows is not scrolled to on a phone — it is read as if
+ * the missing part were not there, and the part that goes missing is the
+ * right-hand gutter where a dimension arrow and its number live. Scaling up
+ * is capped at `MAX_CANVAS_SCALE` so a narrow drawing in a wide column keeps
+ * its authored proportion instead of becoming the tallest thing on screen.
+ * The scale is uniform in both axes, so no ratio the drawing asserts changes.
  */
-export const SchematicCanvas: FC<SchematicCanvasProps> = ({
-  viewW,
-  viewH,
-  minWidth,
-  label,
-  children,
-}) => (
-  <div className="w-full overflow-x-auto">
-    <svg
-      viewBox={`0 0 ${viewW} ${viewH}`}
-      role="img"
-      aria-label={label}
-      className="block h-auto w-full"
-      style={{ minWidth: minWidth ?? Math.min(viewW, 360) }}
-    >
-      {children}
-    </svg>
-  </div>
+export const SchematicCanvas: FC<SchematicCanvasProps> = ({ viewW, viewH, label, children }) => (
+  <svg
+    viewBox={`0 0 ${viewW} ${viewH}`}
+    preserveAspectRatio="xMidYMid meet"
+    role="img"
+    aria-label={label}
+    className="block h-auto w-full"
+    style={{ maxWidth: Math.round(viewW * MAX_CANVAS_SCALE) }}
+  >
+    {children}
+  </svg>
 )
 
 /* ── value-vs-limit bar ───────────────────────────────────────────────────── */

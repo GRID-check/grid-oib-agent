@@ -316,9 +316,10 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'cards-gallery',
+    mobile: true,
     path: '/dev/cards',
     description:
-      'Full Grid card gallery — every card type with fixture data, pinned to German so a translated string cannot render in English beside the cards whose copy is hardcoded.',
+      'Full Grid card gallery — every card type with fixture data, pinned to German so a translated string cannot render in English beside the cards whose copy is hardcoded. Captured on a phone as well, because the schematics are drawn geometry rather than styled boxes: a drawing that outgrows the card is clipped at its edge with the dimension number on the wrong side of the cut, and only the mobile shot shows it.',
     waitFor: 'main',
   },
   {

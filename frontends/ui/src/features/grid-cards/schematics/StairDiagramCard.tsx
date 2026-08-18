@@ -118,7 +118,7 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
       verdict={worstStatus([riser_height.status, tread_depth.status, width.status])}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={440} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* section caption + stepped profile */}
         <SvgLabel x={padL} y={padTop - 8} size={8} weight={600}>
           SCHNITT

@@ -138,7 +138,7 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
     >
       <div className={SCALE_SCOPE}>
         <EnergyScaleStyle />
-        <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={300} label={title}>
+        <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
           {BANDS.map((band, i) => {
             const y = 7 + i * (rowH + gap)
             const w = baseW + i * stepW

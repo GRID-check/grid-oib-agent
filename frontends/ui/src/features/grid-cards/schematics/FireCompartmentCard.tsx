@@ -139,7 +139,7 @@ export const FireCompartmentCard: FC<FireCompartmentCardProps> = ({
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={340} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         <SvgLabel x={px} y={py - 12} size={9}>
           {storeyLabel ? `Geschoss ${storeyLabel}` : 'Grundriss'}
           {gebaeudeklasse ? ` · ${gebaeudeklasse}` : ''}

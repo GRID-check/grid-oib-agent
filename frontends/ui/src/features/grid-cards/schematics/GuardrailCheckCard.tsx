@@ -127,7 +127,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={420} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         <SvgLabel x={x0} y={padTop - 8} size={8} weight={600}>
           ANSICHT · {CONTEXT_LABEL[context].toUpperCase()}
         </SvgLabel>

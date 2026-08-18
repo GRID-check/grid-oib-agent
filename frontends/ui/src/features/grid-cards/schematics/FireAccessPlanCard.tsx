@@ -159,7 +159,7 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={440} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* parcel */}
         {sketchRect(px, py, PW, PD, 'fire-parcel', { strokeWidth: 1.5 })}
         <SvgLabel x={px} y={py - 11} size={9}>
