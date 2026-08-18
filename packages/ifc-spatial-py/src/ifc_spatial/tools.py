@@ -277,6 +277,148 @@ MEASURE_FN: dict[str, Callable[[SpatialModel, str], Answer[Any]]] = {
     "clearApproach": acc.clear_approach,
 }
 
+#: Which IFC types each measure is ABOUT, read off the operators' own
+#: signatures — `clear_height(model, space_global_id)` takes a space, and
+#: `threshold_height(model, door_global_id)` takes a door.
+#:
+#: An empty tuple means the measure is about geometry as such and applies to
+#: anything with a shape (`extent`, `elevation`, `orientedExtent`, `floorArea`).
+#:
+#: This is deliberately NOT wired into `measure` as a refusal. Asking for the
+#: floor area of a wall is odd but answerable, and a guard here would turn a
+#: type this table happens not to list — IfcSpatialZone, a proxy standing in for
+#: a room — into a refusal for a measurement that would have worked. The table
+#: exists to CHOOSE, in `profile`, not to forbid.
+MEASURE_SUBJECT: dict[str, tuple[str, ...]] = {
+    "extent": (),
+    "elevation": (),
+    "orientedExtent": (),
+    "floorArea": (),
+    "clearHeight": ("IfcSpace",),
+    "lightEntryArea": ("IfcSpace",),
+    "egressPath": ("IfcSpace",),
+    "reachableFrom": ("IfcSpace",),
+    "roomDepth": ("IfcSpace",),
+    "turningCircle": ("IfcSpace",),
+    "balustrade": ("IfcSpace",),
+    "sillAndHead": ("IfcWindow", "IfcDoor"),
+    "clearWidth": ("IfcOpeningElement", "IfcDoor", "IfcWindow"),
+    "azimuth": ("IfcWall", "IfcWallStandardCase", "IfcCurtainWall", "IfcPlate", "IfcWindow", "IfcDoor"),
+    "thresholdHeight": ("IfcDoor",),
+    "clearApproach": ("IfcDoor",),
+    "stairGeometry": ("IfcStair", "IfcStairFlight"),
+    "rampSlope": ("IfcRamp", "IfcRampFlight"),
+    "headroom": ("IfcStair", "IfcStairFlight", "IfcRamp", "IfcRampFlight"),
+    "stepsOf": ("IfcStair", "IfcStairFlight", "IfcRamp", "IfcRampFlight"),
+}
+
+#: Measures that walk the door graph or sample a raster over the whole model.
+#: `profile` runs them only when asked, because a profile is meant to be the
+#: cheap „was ist das für ein Bauteil" call and these are seconds, not
+#: milliseconds — the same budget argument that motivates `survey`.
+MEASURE_EXPENSIVE: frozenset[str] = frozenset({"egressPath", "reachableFrom", "turningCircle", "clearApproach"})
+
+#: A DIFFERENT expensive, and the distinction is the point.
+#:
+#: `MEASURE_EXPENSIVE` names measures with a large fixed setup — the door graph,
+#: a raster over the model — which a profile pays once and a survey amortises
+#: over the whole set. These are the opposite: cheap to start and costly PER
+#: ELEMENT, so a survey multiplies them. Measured on AC20-Institute-Var-2:
+#: `balustrade` over 50 rooms is 53 s and `headroom` over FOUR stairs is 50 s,
+#: while `egressPath` — nominally the expensive one — is 0.03 s over 50 rooms.
+#:
+#: A tool call that takes a minute is a broken tool at a budget of five turns,
+#: so the default set is smaller for these and the narrowing is stated. A caller
+#: who wants all fifty says so with an explicit `limit`.
+MEASURE_SLOW_PER_ELEMENT: frozenset[str] = frozenset({"balustrade", "headroom", "roomDepth", "thresholdHeight"})
+SLOW_DEFAULT_LIMIT = 12
+
+#: The one number a caller means when a measure returns a dict.
+#:
+#: Most measures answer with a structure — `clearWidth` returns width, height,
+#: area and rectangularity — and a survey over fifty of them could report no
+#: spread at all, because there was no single number to disperse. Eighteen of
+#: the twenty measures were in that state: the tool sold „die Spanne ist der
+#: Befund" and produced a Spanne for `floorArea` and `clearHeight` only.
+#:
+#: The key is NAMED in the output (`summary.spreadOf`) rather than assumed, so
+#: „Spanne 0.13" cannot be read as being about the height when it is about the
+#: width.
+MEASURE_HEADLINE: dict[str, str] = {
+    "clearWidth": "width",
+    "turningCircle": "diameter",
+    "lightEntryArea": "percent",
+    "headroom": "headroom",
+    "sillAndHead": "sill",
+    "roomDepth": "depth",
+    "thresholdHeight": "threshold",
+    "azimuth": "degrees",
+    "rampSlope": "percent",
+    "elevation": "heightAboveStorey",
+    "egressPath": "length",
+}
+
+
+def _measure_one(
+    run: Callable[[Callable[[], Any]], Any],
+    fn: Callable[..., Any],
+    model: SpatialModel,
+    global_id: str,
+) -> Any:
+    """One element's measurement, where a thrown exception is that element's
+    answer rather than the whole call's.
+
+    `run()` converts the two failures this package models — an unknown id and a
+    wrong kind — into `ToolError`. It does not convert a kernel-level failure: a
+    `RuntimeError` out of the tessellator propagates, and in a batch that aborts
+    the other forty-nine measurements. That is precisely the defect `survey` and
+    the multi-id `measure` were added to remove, so catching only `ToolError`
+    here reintroduces it one layer down. `element_profile` already caught
+    `Exception` for this reason; all three paths now share the rule.
+    """
+    try:
+        return run(lambda: fn(model, global_id))
+    except Exception as exc:  # noqa: BLE001
+        return {"decidable": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _headline(measure: str, answer: dict[str, Any] | None) -> float | None:
+    """The scalar a summary should disperse over, or None if there isn't one."""
+    value = (answer or {}).get("value")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    key = MEASURE_HEADLINE.get(measure)
+    if key and isinstance(value, dict):
+        inner = value.get(key)
+        if isinstance(inner, (int, float)) and not isinstance(inner, bool):
+            return float(inner)
+    return None
+
+
+#: Audit fields a profile drops. Not because they do not matter — they are the
+#: reason this package exists — but because a profile is the ORIENTATION call,
+#: and `from`/`method` for sixteen measures at once is several thousand tokens
+#: of provenance for numbers the caller has not yet decided to care about. One
+#: `measure` call brings the full answer back for the one that mattered.
+_PROFILE_DROPS = ("from", "method", "because")
+_PROFILE_LIST_CAP = 3
+
+
+def _compact(value: Any) -> Any:
+    """Shorten the nested lists inside a measure's value, saying how many were cut."""
+    if isinstance(value, list):
+        if len(value) > _PROFILE_LIST_CAP:
+            return [_compact(item) for item in value[:_PROFILE_LIST_CAP]] + [
+                f"… {len(value) - _PROFILE_LIST_CAP} weitere (measure aufrufen für die vollständige Liste)"
+            ]
+        return [_compact(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _compact(inner) for key, inner in value.items()}
+    return value
+
+
 #: The `what` values `fire` accepts.
 FIRE_ASPECTS: dict[str, str] = {
     "fluchtniveau": (
@@ -329,6 +471,15 @@ ENVELOPE_ASPECTS: dict[str, str] = {
         "unterschreibt, nicht geprüft werden kann. V ist das NETTO-Volumen (Summe der IfcSpace-Körper)"
     ),
 }
+
+#: How many elements one `measure` call may take.
+#:
+#: The cap exists because the geometry is real work — a `clearHeight` is a
+#: 25-ray raster per room — and an agent that pastes a whole building into
+#: the field would sit inside one tool call for minutes with no way to see
+#: progress. Fifty covers every storey in the corpus (the largest is 22
+#: rooms) and refuses the paste.
+MAX_BATCH = 50
 
 KINDS = ["project", "site", "building", "storey", "space", "element", "opening", "group"]
 
@@ -459,9 +610,19 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
 
     # ── find_elements ───────────────────────────────────────────────────────
 
-    def find_elements(args: dict[str, Any]) -> Any:
-        model = resolve(args.get("model"))
-        limit = _clamp(args.get("limit", 50), 1, 500)
+    def _select(
+        model: SpatialModel,
+        args: dict[str, Any],
+        limit: int,
+        subject_types: tuple[str, ...] = (),
+    ) -> tuple[list[Any], int]:
+        """The selection half of `find_elements`, shared with `survey`.
+
+        Kept as one function so the two tools cannot drift: a caller who scopes
+        a survey with `storey="Keller"` has to get exactly the set that
+        `find_elements(storey="Keller")` lists, or the names beside the numbers
+        would be answering a different question than the numbers.
+        """
         wanted_type = _lower(args.get("ifcType"))
         wanted_name = _lower(args.get("nameContains"))
         wanted_storey = _lower(args.get("storey"))
@@ -471,6 +632,12 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         total = 0
         for element in _nodes(model):
             if wanted_type and element.is_a().lower() != wanted_type:
+                continue
+            # Subtype-aware, unlike `ifcType`, because this filter is the
+            # measure's own definition of its subject rather than the caller's
+            # spelling: `IfcWallStandardCase` IS an `IfcWall`, and an ArchiCAD
+            # export writes only the former.
+            if subject_types and not any(element.is_a(subject) for subject in subject_types):
                 continue
             if wanted_kind and model.kind_of(element) != wanted_kind:
                 continue
@@ -485,6 +652,12 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
             total += 1
             if len(matches) < limit:
                 matches.append(element)
+        return matches, total
+
+    def find_elements(args: dict[str, Any]) -> Any:
+        model = resolve(args.get("model"))
+        limit = _clamp(args.get("limit", 50), 1, 500)
+        matches, total = _select(model, args, limit)
 
         out: dict[str, Any] = {
             "elements": [model.ref(e).to_dict() for e in matches],
@@ -567,12 +740,340 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         return run(lambda: fn(model, str(args.get("globalId") or "")))
 
     def measure(args: dict[str, Any]) -> Any:
+        """One measurement, of one element or of MANY.
+
+        `globalId` takes a comma-separated list, the way `view` and
+        `fire/compartmentArea` already do. That is not a convenience — it is
+        what makes the common question answerable inside a caller's budget.
+
+        „Wie hoch ist der Keller?" is one question and seventeen rooms. Asked
+        one call at a time it costs seventeen tool calls, and the agent that
+        reported this had a budget of FIVE: it spent them on two briefings and
+        a storey table, was cut off before the first `clearHeight`, and fell
+        back to the declared storey pitch of 3.00 m for rooms whose measured
+        clear height is 2.70 m. The measurement was available and correct the
+        whole time; nothing in the answer was wrong except which number it
+        reached for, and it ran out of turns before it could reach the right
+        one.
+
+        A list also answers a question a single measurement cannot: whether the
+        rooms AGREE. „Alle 17 Kellerräume 2.70 m" is a different and much
+        stronger statement than one room measured and sixteen assumed, and it
+        is the statement a Raumhöhennachweis actually needs.
+        """
         model = resolve(args.get("model"))
         name = str(args.get("measure") or "")
         fn = MEASURE_FN.get(name)
         if fn is None:
             raise ToolError(f'measure "{name}" gibt es nicht. Erlaubt: {", ".join(MEASURES)}')
-        return run(lambda: fn(model, str(args.get("globalId") or "")))
+
+        ids = [part.strip() for part in str(args.get("globalId") or "").split(",") if part.strip()]
+        if not ids:
+            raise ToolError("globalId fehlt — eine GlobalId angeben (aus find_elements)")
+        if len(ids) == 1:
+            return run(lambda: fn(model, ids[0]))
+        if len(ids) > MAX_BATCH:
+            raise ToolError(
+                f"höchstens {MAX_BATCH} GlobalIds je Aufruf — {len(ids)} übergeben. "
+                "In mehreren Aufrufen messen, oder mit find_elements eingrenzen."
+            )
+
+        # Each element keeps its OWN answer, with its own provenance, tolerance
+        # and refusal. A batch that merged them into one number would be the
+        # error this package exists to prevent: seventeen rooms measured and
+        # one of them undecidable is not „the basement is 2.70 m", and the
+        # caller has to be able to see which one.
+        results = [{"globalId": gid, "answer": _jsonable(_measure_one(run, fn, model, gid))} for gid in ids]
+        decided = [r for r in results if (r["answer"] or {}).get("decidable")]
+        # `_headline`, not `answer["value"]`: eighteen of the twenty measures
+        # answer with a DICT, and reading `value` off those yields nothing to
+        # disperse. The batch path used to do exactly that, so a comma-separated
+        # `clearWidth` returned `measured`/`of` and no range while the same
+        # measure through `survey` returned the spread — one renderer branch,
+        # two different answers to the same question.
+        numeric = [value for value in (_headline(name, r["answer"]) for r in decided) if value is not None]
+        agreement: dict[str, Any] = {
+            "measured": len(decided),
+            "of": len(ids),
+            "undecidable": [r["globalId"] for r in results if not (r["answer"] or {}).get("decidable")],
+        }
+        # Two measurements or none — the same rule `survey` keeps, and for the
+        # same reason: `spread: 0.0` off a single element reads as „they all
+        # agree", which is the strongest claim this tool can make, produced from
+        # one sample.
+        if len(numeric) >= 2:
+            low, high = min(numeric), max(numeric)
+            agreement |= {
+                "min": round(low, 6),
+                "max": round(high, 6),
+                "spread": round(high - low, 6),
+                "spreadOver": len(numeric),
+                "spreadOf": MEASURE_HEADLINE.get(name) or "value",
+            }
+        elif len(numeric) == 1:
+            agreement["note"] = (
+                "Nur ein Bauteil lieferte eine Zahl — daraus folgt keine Spanne und keine Aussage über die übrigen."
+            )
+        return {"measure": name, "results": results, "summary": agreement}
+
+    def survey(args: dict[str, Any]) -> Any:
+        """One measurement over a NAMED SET — selection, measurement and names
+        in a single call.
+
+        This exists because of the shape of the questions, not the shape of the
+        code. „Wie hoch ist der Keller?" is not a question about a room; it is a
+        question about seventeen rooms, and the honest answer is a range with an
+        outlier in it. Composed from primitives it costs `find_elements` +
+        `measure` + a GlobalId→Name join the caller has to carry in its head —
+        four turns of a five-turn budget, which is exactly how a real query came
+        back quoting the declared storey pitch of 3.00 m for rooms that measure
+        2.70 m, with one at 0.25 m nobody saw.
+
+        `find_elements` and `measure` stay: a caller who needs an unusual set,
+        or one element, should not pay for a survey. This is the composition of
+        the two, not a replacement for either — and it deliberately reports the
+        same set `find_elements` would, because names beside numbers are only
+        useful if they belong to the same rooms.
+        """
+        model = resolve(args.get("model"))
+        name = str(args.get("measure") or "")
+        fn = MEASURE_FN.get(name)
+        if fn is None:
+            raise ToolError(f'measure "{name}" gibt es nicht. Erlaubt: {", ".join(MEASURES)}')
+
+        # A limit that cannot be read is a limit nobody set. `_clamp` floors to
+        # its low bound, and flooring to 1 turns „limit": 0" — or a stray string
+        # — into a survey of ONE room out of eighty-two that still reports a
+        # spread of 0.0. That is a machine-generated „alle Räume gleich", which
+        # is the single sentence this tool exists to make impossible.
+        requested = args.get("limit")
+        slow = name in MEASURE_SLOW_PER_ELEMENT
+        default = SLOW_DEFAULT_LIMIT if slow else MAX_BATCH
+        limit = _clamp(default if requested is None else requested, 1, MAX_BATCH)
+        if requested is not None:
+            try:
+                if int(requested) < 1:
+                    raise ToolError(
+                        f'limit muss mindestens 1 sein — "{requested}" übergeben. Ohne limit werden '
+                        f"bis zu {MAX_BATCH} Bauteile gemessen."
+                    )
+            except (TypeError, ValueError):
+                raise ToolError(
+                    f'limit muss eine ganze Zahl sein — "{requested}" übergeben. Ohne limit werden '
+                    f"bis zu {MAX_BATCH} Bauteile gemessen."
+                ) from None
+
+        # When the caller has not pinned a type, the MEASURE picks it. „Wie hoch
+        # ist der Keller" scopes by storey, and a storey holds annotations,
+        # walls, slabs and doors alongside its rooms — so without this the first
+        # fifty nodes of the Institute's basement are annotations and the survey
+        # measures nothing at all while 17 rooms sit behind the cap. Making the
+        # caller name `ifcType` would work and is exactly the ambiguity this
+        # tool exists to remove: `clearHeight` already knows it is about rooms.
+        subjects = MEASURE_SUBJECT.get(name, ())
+        auto_scoped = bool(subjects) and not _lower(args.get("ifcType"))
+        matches, total = _select(model, args, limit, subjects if auto_scoped else ())
+        if not matches:
+            return {
+                "measure": name,
+                "results": [],
+                "summary": {"measured": 0, "of": 0, "undecidable": []},
+                "hint": (
+                    "Kein Bauteil passt zu dieser Auswahl — gemessen wurde daher nichts. "
+                    + (
+                        f"Gesucht wurde nach {', '.join(subjects)}, weil {name} darüber definiert ist. "
+                        if auto_scoped
+                        else ""
+                    )
+                    + "Geschoßnamen und Typen stehen im Briefing; sie stammen aus diesem Export "
+                    "und lauten selten so, wie die Frage sie nennt."
+                ),
+            }
+
+        # Elements this measure is not ABOUT are set aside before anything runs,
+        # not discovered by crashing into them. „wie hoch ist der Keller" scopes
+        # by storey, a storey holds IfcAnnotation and IfcWall as well as rooms,
+        # and `clearHeight` refuses a wall by raising — so the flagship call of
+        # this very tool used to die on the first annotation and return NOTHING
+        # about the seventeen rooms behind it. The caller loses the turn and
+        # learns nothing, which at a budget of five is most of the question.
+        results: list[dict[str, Any]] = []
+        not_applicable: list[dict[str, Any]] = []
+        for element in matches:
+            ref = model.ref(element).to_dict()
+            global_id = str(ref.get("globalId") or "")
+            if subjects and not any(element.is_a(subject) for subject in subjects):
+                not_applicable.append({"globalId": global_id, "name": ref.get("name"), "ifcType": element.is_a()})
+                continue
+            # One element the geometry kernel chokes on must not cost the
+            # caller the other forty-nine — see `_measure_one`, which all three
+            # batch paths share so the rule cannot drift between them.
+            answer = _jsonable(_measure_one(run, fn, model, global_id))
+            results.append(
+                {
+                    "globalId": global_id,
+                    # The name is the whole point of surveying rather than
+                    # batching: a caller that has to report WHICH room is the
+                    # outlier cannot do it from a GlobalId.
+                    "name": ref.get("name"),
+                    "storey": getattr(model.storey_of(element), "Name", None),
+                    "answer": answer,
+                }
+            )
+
+        decided = [r for r in results if (r["answer"] or {}).get("decidable")]
+        numeric = [value for value in (_headline(name, r["answer"]) for r in decided) if value is not None]
+        summary: dict[str, Any] = {
+            "measured": len(decided),
+            "of": len(results),
+            "undecidable": [
+                {"globalId": r["globalId"], "name": r["name"]}
+                for r in results
+                if not (r["answer"] or {}).get("decidable")
+            ],
+        }
+        # A spread is a claim about a POPULATION. Derived from one element it is
+        # not a weak claim, it is a false one: `spread: 0.0` off a single room
+        # reads as „they all agree", and agreement is the strongest thing this
+        # tool can say. Below two measurements there is nothing to disperse, so
+        # the keys are absent rather than zero.
+        if len(numeric) >= 2:
+            low, high = min(numeric), max(numeric)
+            summary |= {
+                "min": round(low, 6),
+                "max": round(high, 6),
+                "spread": round(high - low, 6),
+                "spreadOver": len(numeric),
+                "spreadOf": MEASURE_HEADLINE.get(name) or "value",
+            }
+        elif len(numeric) == 1:
+            summary["note"] = (
+                "Nur ein Bauteil lieferte eine Zahl — daraus folgt keine Spanne und keine Aussage über die übrigen."
+            )
+        if not_applicable:
+            kinds = sorted({entry["ifcType"] for entry in not_applicable})
+            summary["notApplicable"] = {
+                "count": len(not_applicable),
+                "ifcTypes": kinds,
+                "why": (
+                    f"{name} ist über {', '.join(subjects)} definiert; diese Bauteile sind "
+                    f"{', '.join(kinds)}. Sie wurden übergangen, nicht gemessen und nicht als "
+                    "unentscheidbar gewertet — das ist eine Aussage über die Auswahl."
+                ),
+            }
+
+        # Where the numbers CAME FROM, counted. A set answered half from the
+        # file's own declarations and half from geometry is not one finding, and
+        # the split is the caller's business: a declared value is wrong only if
+        # the export is wrong, a computed one carries a tolerance. `disagree`
+        # counts the elements where an operator ran both routes and they did not
+        # match — those are export defects, and they are the reason a reviewer
+        # asked in the first place.
+        provenances = [(r["answer"] or {}).get("provenance") for r in decided]
+        summary["provenance"] = {
+            kind: provenances.count(kind) for kind in ("declared", "computed", "inferred") if provenances.count(kind)
+        }
+        disagreeing = [r for r in decided if (r["answer"] or {}).get("agreement") == "disagree"]
+        if disagreeing:
+            summary["disagree"] = [{"globalId": r["globalId"], "name": r["name"]} for r in disagreeing]
+
+        out: dict[str, Any] = {"measure": name, "results": results, "summary": summary}
+        if auto_scoped:
+            # Said out loud: the caller asked about a storey and got its rooms,
+            # which is a narrowing they did not write and must be able to see.
+            out["scopedTo"] = list(subjects)
+        # `not_applicable` elements were SELECTED but never measured, so they
+        # widen `total` without being a truncation: a caller who pins
+        # `ifcType="IfcWall"` and asks for `clearHeight` has every wall land
+        # there, and reporting „gemessen wurden die ersten N" would name a limit
+        # that never bound. Truncation is what the LIMIT cut off, and that is
+        # what the hint must be about.
+        if total - len(not_applicable) > len(results):
+            # Said out loud, never inferred. A survey of 50 of 200 rooms
+            # reported as „the rooms" is the one error this package exists to
+            # prevent, and silence would produce it every time.
+            out["truncated"] = True
+            measurable = total - len(not_applicable)
+            out["summary"]["selected"] = measurable
+            out["hint"] = (
+                f"{measurable} messbare Bauteile passen zur Auswahl, gemessen wurden die ersten {len(results)}. "
+                "Die Spanne gilt NUR für diese; enger auswählen (storey, nameContains) und erneut messen."
+                + (
+                    f" {name} kostet je Bauteil spürbar Zeit, deshalb liegt die Voreinstellung hier bei "
+                    f"{SLOW_DEFAULT_LIMIT} statt {MAX_BATCH} — mit einem ausdrücklichen limit messbar."
+                    if slow and requested is None
+                    else ""
+                )
+            )
+        return out
+
+    def element_profile(args: dict[str, Any]) -> Any:
+        """Every measure that applies to ONE element — the inverse of `survey`.
+
+        `survey` is one measure over many elements; this is many measures over
+        one. Both exist for the same reason: the expensive thing is not the
+        measurement, it is the turn. „Erzähl mir alles über diesen Raum" is a
+        normal opening move for a reviewer who has just been pointed at an
+        outlier, and composed from primitives it costs one `measure` call per
+        kind — twenty turns for a question that has one answer.
+
+        Which measures apply is read from `MEASURE_SUBJECT`, so a door is not
+        asked for its lichte Raumhöhe and a room is not asked for its
+        Schwellenhöhe. The refusals that would produce are not useful output;
+        they are noise that pushes the real numbers out of the context window.
+        """
+        model = resolve(args.get("model"))
+        global_id = _require(args, "globalId")
+        try:
+            subject = model.file.by_guid(global_id)
+        except (RuntimeError, KeyError):
+            raise ToolError(
+                f"GlobalId {global_id} steht nicht in diesem Modell. "
+                "Mit find_elements suchen — GlobalIds sind exakt 22 Zeichen und gelten je Datei."
+            ) from None
+
+        ifc_type = subject.is_a()
+        applicable = [
+            name
+            for name in MEASURES
+            if not MEASURE_SUBJECT.get(name, ())
+            or any(subject.is_a(subject_type) for subject_type in MEASURE_SUBJECT[name])
+        ]
+        if not _lower(args.get("include")) == "expensive":
+            applicable = [name for name in applicable if name not in MEASURE_EXPENSIVE]
+
+        measures: dict[str, Any] = {}
+        for name in applicable:
+            fn = MEASURE_FN[name]
+            try:
+                answer = _jsonable(run(lambda fn=fn: fn(model, global_id)))
+            except Exception as exc:  # noqa: BLE001
+                # One measure that throws must not cost the caller the other
+                # fifteen. The failure is reported in place, as a failure, and
+                # the profile still comes back — the alternative is a dead call
+                # and another turn spent finding out which kind was to blame.
+                measures[name] = {"decidable": False, "error": f"{type(exc).__name__}: {exc}"}
+                continue
+            if isinstance(answer, dict):
+                answer = {key: _compact(val) for key, val in answer.items() if key not in _PROFILE_DROPS}
+            measures[name] = answer
+
+        skipped = [name for name in MEASURES if name not in applicable]
+        out: dict[str, Any] = {
+            "element": model.ref(subject).to_dict(),
+            "storey": getattr(model.storey_of(subject), "Name", None),
+            "measures": measures,
+        }
+        if skipped:
+            out["notMeasured"] = {
+                "kinds": skipped,
+                "why": (
+                    f"Diese Kennwerte sind nicht über ein {ifc_type} definiert (oder sind teuer und "
+                    'wurden übersprungen — dann include="expensive" setzen). Kein Befund über das '
+                    "Bauteil, sondern über die Frage."
+                ),
+            }
+        return out
 
     def distance(args: dict[str, Any]) -> Any:
         model = resolve(args.get("model"))
@@ -998,19 +1499,86 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
                 "und sie tragen immer eine Toleranz. Genau deshalb sind Raumflächen und Brüstungshöhen hier "
                 "beantwortbar, wo eine reine Property-Abfrage leer zurückkommt.\n\n"
                 + "\n".join(f"  {name} — {meaning}" for name, meaning in MEASURES.items())
-                + "\n\nDer erste Aufruf tesselliert das Modell (~2 s für ein Einfamilienhaus), danach sind "
+                + "\n\nGilt für EIN Bauteil. Für ein ganzes Geschoß oder eine Raumgruppe `survey` nehmen — "
+                "gleiche Kennwerte, aber mit Namen und Spanne, und in einem Aufruf statt in zwanzig. "
+                "(globalId nimmt hier auch eine kommagetrennte Liste, wenn die Menge schon feststeht.)\n\n"
+                "Der erste Aufruf tesselliert das Modell (~2 s für ein Einfamilienhaus), danach sind "
                 "die Maße Millisekunden."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
                     "model": {"type": "string"},
-                    "globalId": {"type": "string"},
+                    "globalId": {
+                        "type": "string",
+                        "description": (
+                            f"Eine GlobalId, oder bis zu {MAX_BATCH} kommagetrennt für eine Messung über "
+                            "mehrere Bauteile."
+                        ),
+                    },
                     "measure": {"type": "string", "enum": list(MEASURES)},
                 },
                 "required": ["model", "globalId", "measure"],
             },
             handler=measure,
+        ),
+        ToolDef(
+            name="survey",
+            title="Eine Messung über ein ganzes Geschoß",
+            description=(
+                "Misst EINEN Kennwert an ALLEN Bauteilen einer Auswahl und nennt sie beim Namen. "
+                "Der erste Griff, sobald die Frage im Plural steht — „wie hoch ist der Keller“, „wie groß "
+                "sind die Büros“, „haben alle Aufenthaltsräume genug Licht“: das ist je eine Frage über "
+                "viele Räume, und sie ist erst beantwortet, wenn alle gemessen sind.\n\n"
+                "Ausgewählt wird wie bei find_elements (storey, ifcType, nameContains, kind); gemessen wird "
+                "mit den Kennwerten aus `measure`, die dort erklärt sind. Zurück kommen Name, Geschoß und "
+                "eigene Antwort je Bauteil, dazu die Spanne.\n\n"
+                "Die Spanne ist der eigentliche Befund. „Alle 17 Kellerräume 2,70 m“ und „16 davon 2,70 m, "
+                "einer 0,25 m“ sind verschiedene Antworten auf dieselbe Frage, und aus einem einzeln "
+                "gemessenen Raum folgt keine von beiden."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "measure": {"type": "string", "enum": list(MEASURES)},
+                    "storey": {"type": "string", "description": "Geschoßname exakt wie im Briefing"},
+                    "ifcType": {"type": "string", "description": "z. B. IfcSpace, IfcWindow, IfcDoor"},
+                    "nameContains": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "limit": {"type": "integer", "description": f"höchstens {MAX_BATCH}"},
+                },
+                "required": ["model", "measure"],
+            },
+            handler=survey,
+        ),
+        ToolDef(
+            name="element_profile",
+            title="Alles Messbare an einem Bauteil",
+            description=(
+                "Misst ALLE Kennwerte, die für dieses eine Bauteil definiert sind, in einem Aufruf — "
+                "welche das sind, ergibt sich aus seinem IFC-Typ. Der Griff, sobald ein Bauteil "
+                "interessant geworden ist: der Ausreißer aus einem survey, der Raum aus der Frage, die "
+                "Tür, um die es geht. Statt zwanzig Mal `measure` mit geratenem Kennwert.\n\n"
+                "Teure Kennwerte (Fluchtweg, Erreichbarkeit, Bewegungsfläche, Türvorfeld) laufen nur mit "
+                'include="expensive" mit; sie brauchen den Türgraph oder ein Raster über das Modell. '
+                "Was NICHT gemessen wurde, steht mit Begründung in der Antwort — das ist eine Aussage "
+                "über die Frage, nicht über das Gebäude."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "globalId": {"type": "string"},
+                    "include": {
+                        "type": "string",
+                        "enum": ["expensive"],
+                        "description": "Teure Kennwerte mitmessen (Sekunden statt Millisekunden).",
+                    },
+                },
+                "required": ["model", "globalId"],
+            },
+            handler=element_profile,
         ),
         ToolDef(
             name="distance",

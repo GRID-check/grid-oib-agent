@@ -112,15 +112,92 @@ boundary in `ChatResearcherAgent.run()`:
   (fail-open: an invalid level discards level AND reason, the reason is trimmed
   and capped), and `_finalize_shallow_answer` carries it as
   `answer_confidence_reason` alongside the level. Escalated turns drop it.
-- `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified"`) — set
-  when `surface_answer_confidence` downgraded the self-report: `"ungrounded"` when
-  citation verification left the answer without grounding, `"quote_unverified"`
-  when a quoted span failed the deterministic quote-vs-source check
-  (`verify_quoted_spans`, difflib coverage over the registry's captured
-  `chunk_text`, fail-open; the offending span is annotated inline with
-  `[nicht wörtlich in der Quelle belegt]` and the answer is never otherwise
-  altered). Gives the confidence chip a machine-readable reason the UI can
-  explain.
+- `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified" |
+  "normative_claim_uncited" | "measurement_only" | "citation_fallback"`) — set when
+  `surface_answer_confidence` downgraded the self-report. Gives the confidence
+  chip a machine-readable reason the UI can explain.
+  - `"ungrounded"` — citation verification left the answer without grounding and
+    nothing was measured.
+  - `"quote_unverified"` — a quoted span failed the deterministic
+    quote-vs-source check (`verify_quoted_spans`, difflib coverage over the
+    registry's captured `chunk_text`, fail-open; the offending span is annotated
+    inline with `[nicht wörtlich in der Quelle belegt]` and the answer is never
+    otherwise altered).
+  - `"normative_claim_uncited"` / `"measurement_only"` — the two reasons about
+    the SECOND kind of grounding, below.
+  - `"citation_fallback"` — the answer's only citation is the single registry
+    source the shallow agent appended when nothing the model wrote survived
+    verification (`_append_minimal_citation`). The registry is cumulative across
+    the conversation, so that source may have been retrieved on an earlier turn
+    for a different question: it is treated exactly like a measurement (ceiling
+    `"medium"`, and the normative brake still applies), never as the verified
+    citation that "high" is reserved for.
+
+  **Two kinds of grounding.** The guard was written against one form of
+  evidence: a citation the verifier can resolve to a retrieved passage. An IFC
+  measurement has no passage to quote — it carries a `provenance`, a `tolerance`,
+  a readable `method` and the GlobalIds it was derived from
+  (`ifc_spatial.envelope.Answer`) — so a correctly measured number was capped to
+  `"low"` for lacking evidence it structurally cannot have. Two extra signals
+  travel from the shallow researcher alongside `answer_citation_grounded`:
+  - `answer_measurement_grounded` — this turn produced at least one
+    `declared`/`computed` `ifc_measure` answer. Written by the shallow agent's
+    tools node (a sticky OR across the tool loop; `shallow_researcher/grounding.py`
+    decides what counts — a refusal, an outage, an `inferred` guess and a
+    `decidable: false` finding all do not). Lifts the surfaced confidence off the
+    `"low"` floor to at most `"medium"`; `"high"` still requires a verified
+    citation.
+  - `answer_normative_claim_uncited` — the anti-laundering brake. A single answer
+    routinely mixes „Der Keller ist 2,70 m hoch" (reproducible) with „…und
+    erfüllt damit OIB 4 Punkt 2.1" (a legal claim needing a quote). If the
+    measurement satisfied the gate for the whole answer, the legal claim would
+    ride out confidently on evidence that says nothing about it — worse than the
+    over-hedging it replaces. So when a non-citation-grounded answer mentions
+    regulatory material or passes a verdict at all, the measurement grounding is
+    withheld and the answer keeps its `"low"`, reported as
+    `"normative_claim_uncited"` rather than resolved silently. The `"medium"`
+    ceiling is the structural half of the same defence and does not depend on
+    that text heuristic. The vocabulary is two-tier: named instruments and
+    deontic modals („muss", „darf", `must`, `shall`) fire wherever they appear,
+    while the handful of stems `ifc_measure`'s own renderers use about the
+    APPARATUS („für eine Messung geeignet", „für die Ermittlung … erforderlich",
+    „die Datei ist zu groß") fire only in a sentence that does not name the
+    apparatus — a false fire re-floors exactly the measured answers the signal
+    above exists to un-hedge. The brake reads the answer's PROSE — a trailing
+    reference list is stripped first (`_prose_without_references`), because a
+    source title is a pointer, not a claim the answer makes. Only a GENUINELY
+    trailing list is cut: every line after the heading must be a link, a list
+    entry or blank, or the „**Quellen:**" line is just something the model wrote
+    in the middle of an answer and the verdict after it would be dropped before
+    the brake ever read it.
+  - `answer_citation_fallback_used` — which citation did the grounding. A
+    fallback citation does not disarm the normative brake and does not reach
+    `"high"`: one stale session source used to do both, and „Der Keller ist
+    2,70 m hoch und erfüllt damit OIB 4 Punkt 2.1" surfaced at the model's own
+    self-report with an unrelated Bauordnung link attached to the verdict.
+
+  **What counts as a measurement.** `ifc_measure`'s renderer states it: a result
+  from an operation that could measure something ends with a line reporting how
+  many QUANTITIES in it carry a `declared`/`computed` provenance
+  (`agents/bim/measurement_evidence.py`), and the gate reads that count. It used
+  to search the result for „gemessen" / „deklariert" instead, which three
+  renderers write into prose explaining why NOTHING could be measured
+  („gemessen: raumhoehe an 0 von 3 Bauteilen") — so a refusal granted
+  measurement grounding, and a model that invented a number on top of one
+  surfaced at `"medium"`.
+
+  A provenance alone does not make a Messwert. `relations` answers a topology
+  question with a list of GlobalIds in a decidable `Answer` marked
+  `declared`, and it counted as one measurement until the count was gated on a
+  `unit` or a `tolerance` — the fields that make a value a quantity. Not on
+  scalar-ness: `storey_heights` measures every storey and answers with a list
+  carrying `unit: "m"`. The operations that answer with something other than a
+  quantity at all (`NON_MEASURING_OPERATIONS` — briefing, find_elements,
+  element, draw, view, shopping_list) carry no trailer, because „Messwerte in
+  diesem Ergebnis: 0" on a `draw` reads to the model as a measurement that
+  failed and invites a retry that costs one of five tool iterations. Suppression
+  is safe in the same direction as everything else here: no trailer reads as no
+  measurement, so an operation nobody thought to list still grants nothing.
 - `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
   result's `verify_citations` summary when ≥1 citation was removed.
 - `job_admission_rejected` + `retry_after_seconds` — set in the deep-research

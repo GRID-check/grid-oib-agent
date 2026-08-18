@@ -7,6 +7,7 @@
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
+import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { Shelf, SourceKind } from './lib/source-kinds'
 
 /** Message role types */
@@ -125,7 +126,7 @@ export interface AnswerTransparency {
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
   routingReason?: string
   escalationReason?: string
-  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /** The model's own one-clause justification for its self-assessment, shown verbatim in the chip tooltip. */
   answerConfidenceReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
@@ -315,13 +316,11 @@ export interface ChatMessage {
    */
   answerConfidence?: 'low' | 'medium' | 'high'
   /**
-   * Why the self-assessed confidence was capped (WP-A transparency extra).
-   * `'ungrounded'` means the answer was not grounded in verified citations;
-   * `'quote_unverified'` means a quoted span could not be confirmed verbatim
-   * against its source — surfaced as an extra sentence in the ConfidenceChip
-   * tooltip (PB-9).
+   * Why the self-assessed confidence was capped (WP-A transparency extra),
+   * surfaced as an extra sentence in the ConfidenceChip tooltip (PB-9). See
+   * {@link AnswerConfidenceCappedReason} for the causes it can carry.
    */
-  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /**
    * The model's own one-clause justification for its confidence level
    * (`[CONFIDENCE:level | reason]`). Shown verbatim in the ConfidenceChip

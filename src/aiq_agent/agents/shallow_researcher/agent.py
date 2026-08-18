@@ -43,6 +43,8 @@ from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
+from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
+from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.norm_registry import doctrine_for
 from aiq_agent.common.norm_registry import parcel_note
 from aiq_agent.common.norm_registry import render_block_for_prompt
@@ -50,10 +52,16 @@ from aiq_agent.common.norm_registry import render_block_for_prompt
 from ...common import LLMProvider
 from ...common import LLMRole
 from .dsml import strip_and_salvage_dsml_tool_calls
+from .grounding import answer_mentions_normative_claim
+from .grounding import tool_result_is_measurement
 from .markers import answer_confidence_capped_reason
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
 from .models import ShallowResearchAgentState
+from .tool_search import ToolSearchIndex
+from .tool_search import ToolSearchSettings
+from .tool_search import build_query_parts
+from .tool_search import tool_basename
 
 logger = logging.getLogger(__name__)
 
@@ -71,23 +79,25 @@ AGENT_DIR = Path(__file__).parent
 # never loses the tool it was routed here to use.
 _INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card"})
 
+# Tool-name base resolution lives with the retrieval that also needs it
+# (``tool_search.tool_basename``) so both the meta partition and the
+# ``always_include`` pin set resolve a group-qualified name the same way.
+# This replaces the local separator-splitting helper: `TOOL_NAME_SEPARATORS`
+# now lives beside `tool_basename` in `tool_search`, so a NAT-qualified name
+# is decomposed in exactly one place rather than two that can disagree.
+_tool_basename = tool_basename
+
 # File-discovery tools that are NOT data-source registry entries, but still
 # mix shelves if they stay bound on a listing/meta turn (the IFC models in
 # "was hast du im Archiv" never came from available_documents).
 _FILE_DISCOVERY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_measure"})
 
-# Function-group separators used by NAT-qualified tool names, mirroring
-# ``data_source_registry._GROUP_SEPARATORS``.
-_TOOL_NAME_SEPARATORS = ("__", ".")
-
-
-def _tool_basename(tool_name: str) -> str:
-    """Return the final segment of a (possibly group-qualified) tool name."""
-    base = tool_name
-    for sep in _TOOL_NAME_SEPARATORS:
-        if sep in base:
-            base = base.rsplit(sep, 1)[-1]
-    return base
+# Cap on both tool-search caches (query → selection, selection → bound LLM).
+# A shared agent serves many requests, so each map is dropped WHOLE at the cap
+# rather than grown or LRU-tracked: a miss costs one re-rank (0.05 ms) or one
+# bind_tools (pure CPU, no network), while an unbounded dict on a long-lived
+# worker costs memory forever.
+_MAX_CACHED_BINDINGS = 32
 
 
 def _is_search_tool(tool_name: str) -> bool:
@@ -165,6 +175,105 @@ def _append_minimal_citation(report_text: str, source: SourceEntry) -> str:
     return f"{content}\n\n**References:**\n{reference}"
 
 
+#: A trailing reference list, in the headings this agent and the models it runs
+#: actually produce.
+_REFERENCES_SECTION_RE = re.compile(
+    r"\n\s*(?:\*\*(?:References|Sources|Quellen):?\*\*|#{2,3}\s+(?:References|Sources|Quellen))\s*(?:\n|$)",
+    re.IGNORECASE,
+)
+
+
+#: What a reference list is allowed to consist of: a blank line, or a line that
+#: carries an actual REFERENCE — a URL or a „[n]" citation marker. List
+#: punctuation is not enough and never was: „- " is available to any sentence,
+#: so accepting it let „- Damit ist der Raum unzulässig …" under a
+#: „**Quellen:**" heading count as a bibliography entry and leave the text
+#: before the brake ever read it. A bullet, a numbered entry and a nested item
+#: are all still references when they point at something.
+_REFERENCE_LINE_RE = re.compile(r"^\s*$|\[\d+\]|<?https?://")
+
+
+def _prose_without_references(content: str) -> str:
+    """The answer's own sentences, with any trailing reference list removed.
+
+    The normative brake judges what the ANSWER asserts, and a bibliography
+    asserts nothing — „- [1] Wiener Bauordnung — https://ris…" is a pointer to a
+    source, not a claim about the law. It matters because of where that line
+    comes from: the single-source fallback appends it, so leaving it in made
+    every fallback-grounded answer read as normative and floored measured,
+    purely descriptive answers to "low" under a reason („normative_claim_uncited")
+    that was not true of a single sentence the model wrote.
+
+    Only a genuinely TRAILING list is cut. Taking everything before the last
+    heading match assumed the heading was the last thing in the answer, and a
+    model that writes „**Quellen:** …" and then carries on — or that puts a
+    ``## Sources`` line inside a fenced example — had the rest of its answer
+    dropped before the brake ever read it:
+
+        kept:    „Die Höhe beträgt 2,20 m."
+        dropped: „…erfüllt die Anforderung nicht und ist unzulässig."
+
+    That is the laundering this module exists to prevent, arriving through the
+    door marked "bibliography". So a heading is a cut point only when every line
+    after it POINTS AT A SOURCE — carries a URL or a „[n]" marker — or is blank;
+    otherwise the search moves to the previous heading, and failing that nothing
+    is removed. Erring towards keeping text is the safe direction here — a
+    reference line that survives costs a hedge, a verdict that is dropped costs
+    a claim about the law.
+
+    Known gap: the test above is „does this line POINT AT A SOURCE", so ANY
+    tail line carrying a URL or a „[n]" marker is cut — whatever else it says.
+    A markdown link title is the tidiest example („- [Damit ist der Raum
+    unzulässig](https://ris…)"), but the rule is wider than that, and a verdict
+    that merely carries a „[1]" or trails a bare URL is cut the same way:
+
+        cut:  „- Damit ist der Raum unzulässig [1]"
+        cut:  „- Damit ist der Raum unzulässig, siehe https://ris…"
+        kept: „- Damit ist der Raum unzulässig"          (no pointer)
+        kept: „1. Damit ist der Raum unzulässig"         (no pointer)
+
+    Nothing structural separates any of them from „- [Wiener Bauordnung](https://ris…)".
+    The asymmetry that LOOKS like it should — a bibliography entry is a noun
+    phrase, a verdict has a finite verb — is real, but the cheap proxy for it is
+    not. Running :func:`~.grounding.answer_mentions_normative_claim` over the
+    stripped tail and keeping the lines it fires on was measured, because the
+    strong tier has changed since it was first dismissed, and it is still wrong
+    — by more than the original note claimed. Over the reference shapes this
+    repo actually emits (``_append_minimal_citation``'s own output plus the
+    fixtures pinned in ``tests/…/test_grounding.py``) the brake fires on 11 of
+    14 GENUINE entries, against 5 of 5 smuggled verdicts:
+
+        FIRES  - [1] Wiener Bauordnung - https://…        ← appended by US
+        FIRES  - [1] OIB-Richtlinie 4, Punkt 2.1 - https://…
+        FIRES  - [5] ÖNORM B 1600 - https://…
+        FIRES  - [Damit ist der Raum unzulässig](https://…)
+
+    That is not a weak signal, it is an inverted one. The brake's strong tier is
+    a list of the NAMES of Austrian legal instruments — „bauordnung", „oib",
+    „richtlinie", „verordnung", „§", „norm" — and a compliance bibliography is a
+    list of exactly those names, so the tail is the densest patch of strong
+    stems in the whole answer. The three silent entries are the three that name
+    no instrument („[RIS] BauO", a bare URL, a tool name). Adopting the rule
+    would retain the reference line this module appends ITSELF, re-floor every
+    single-source-fallback answer to "low", and reintroduce precisely the
+    regression the paragraph above describes.
+
+    A real finite-verb test needs a POS tagger or the hand-written verb list
+    that was ruled out for guessing. So this stays open. It also takes a model
+    that writes an ALL-references tail under a „**Quellen:**"/„## Sources"
+    heading and smuggles the verdict into it; one ordinary prose line in that
+    tail and nothing is cut at all. Left open deliberately rather than fixed
+    with a heuristic that cuts the wrong way.
+    """
+    if not isinstance(content, str):
+        return ""
+    for match in reversed(list(_REFERENCES_SECTION_RE.finditer(content))):
+        tail = content[match.end() :]
+        if all(_REFERENCE_LINE_RE.search(line) for line in tail.splitlines()):
+            return content[: match.start()]
+    return content
+
+
 class ShallowResearcherAgent:
     """
     Shallow research agent for fast, bounded research with tool-calling.
@@ -199,6 +308,8 @@ class ShallowResearcherAgent:
         max_llm_turns: int = 10,
         max_tool_iterations: int = 5,
         callbacks: list[Any] | None = None,
+        tool_search: ToolSearchSettings | None = None,
+        deferred_tool_loading: DeferredToolLoadingSettings | None = None,
     ) -> None:
         """
         Initialize the shallow researcher agent.
@@ -212,12 +323,25 @@ class ShallowResearcherAgent:
             max_tool_iterations: Maximum tool-calling iterations before forcing
                                 synthesis (default 5).
             callbacks: Optional list of LangGraph callbacks.
+            tool_search: Optional retrieval-based tool narrowing. None (or a
+                disabled settings object) leaves every path below exactly as it
+                was: the full binding, the full prompt tool list, the full
+                ToolNode.
+            deferred_tool_loading: Optional OpenRouter server-side tool search.
+                None (or disabled) binds tool schemas the way it always has.
+                Orthogonal to ``tool_search``: that one decides WHICH tools are
+                bound, this one decides whether their schemas travel with the
+                request — a narrowed set is deferred exactly like a full one.
         """
         self.llm_provider = llm_provider
         self.tools = list(tools)
         self.max_llm_turns = max_llm_turns
         self.max_tool_iterations = max_tool_iterations
         self.callbacks = callbacks or []
+        self.tool_search = tool_search if (tool_search is not None and tool_search.enabled) else None
+        self.deferred_tool_loading = (
+            deferred_tool_loading if (deferred_tool_loading is not None and deferred_tool_loading.enabled) else None
+        )
 
         # Load prompts
         self.system_prompt = system_prompt or self._load_system_prompt()
@@ -238,7 +362,7 @@ class ShallowResearcherAgent:
         # its OpenAI JSON schema, so hoisting it out of `agent_node` removes that
         # pure-CPU conversion from every tool-loop iteration. Request payloads are
         # byte-identical; only when the conversion happens changes.
-        self._llm_with_tools = self._get_llm().bind_tools(self.tools, parallel_tool_calls=True)
+        self._llm_with_tools = self._bind_research_tools(self.tools)
 
         # Conversational/meta turns use a NARROWER tool set: only interaction
         # tools (`remember`, `emit_card`), never the data-source search tools.
@@ -252,6 +376,22 @@ class ShallowResearcherAgent:
         self._llm_with_meta_tools: Any = None
         self._meta_tool_names: set[str] | None = None
         self._meta_tool_node: ToolNode | None = None
+
+        # Retrieval-based tool narrowing (off unless configured). The index is
+        # built HERE, once, off the hot path: it is a pure in-process BM25 over
+        # tool name + description, so construction touches no network and no
+        # model, and a turn never pays for it. Nothing is built at all when the
+        # feature is off, so a deployment that does not ask for it does not
+        # even tokenize its tool descriptions.
+        self._tool_search_index: ToolSearchIndex | None = ToolSearchIndex(self.tools) if self.tool_search else None
+        # Selected-tool-set → bound LLM. Keyed by the SELECTION rather than the
+        # query so two questions that retrieve the same tools share one
+        # binding.
+        self._narrowed_bindings: dict[frozenset[str], Any] = {}
+        # Query string → selection, so the retrieval runs once per run instead
+        # of once per tool-loop iteration (the query is built from human turns
+        # only, which do not change while the loop appends AI/Tool messages).
+        self._tool_search_selections: dict[str, Any] = {}
 
     def _load_system_prompt(self) -> str:
         """Load the default system prompt."""
@@ -278,6 +418,26 @@ class ShallowResearcherAgent:
     def _get_llm(self) -> BaseChatModel:
         """Get the LLM for shallow research."""
         return self.llm_provider.get(LLMRole.RESEARCHER)
+
+    def _bind_research_tools(self, tools: Sequence[BaseTool]) -> Any:
+        """Bind a RESEARCH-turn tool set, deferring the schemas when configured.
+
+        The single binding seam for research turns — the construction-time full
+        binding and every narrowed one go through it, so the deferral cannot
+        apply to one and silently miss the other.
+
+        Meta turns deliberately do NOT go through here. They bind only the
+        interaction tools (``remember``, ``emit_card``), whose schemas are a few
+        hundred characters, and OpenRouter's tool-search apparatus costs input
+        tokens of its own (~600 measured on an otherwise empty request) — so
+        deferring there would spend more than it withholds.
+        """
+        return bind_tools_deferred(
+            self._get_llm(),
+            list(tools),
+            settings=self.deferred_tool_loading,
+            parallel_tool_calls=True,
+        )
 
     def _ensure_meta_partition(self) -> None:
         """Lazily compute the meta-turn tool partition (binding, names, ToolNode).
@@ -326,6 +486,98 @@ class ShallowResearcherAgent:
         narrowed = [ti for ti in tools_info if ti.get("name") in meta_names]
         return self._llm_with_meta_tools, narrowed
 
+    def _select_tools_for_query(self, messages: Sequence[Any]) -> Any:
+        """Run (or replay) the tool-search retrieval for this run's question.
+
+        Cached on the query string: the query is built from HUMAN turns only,
+        so it is identical across every iteration of one run, and the retrieval
+        runs once per run rather than once per LLM call. That stability also
+        keeps the per-run ``cached_system_prompt`` honest — the prompt's tool
+        list cannot disagree with the binding on iteration two.
+
+        Returns ``None`` when the feature is off or the retrieval could not
+        produce a decision; both mean "use the full set".
+        """
+        settings = self.tool_search
+        index = self._tool_search_index
+        if settings is None or index is None:
+            return None
+        try:
+            query_parts = build_query_parts(messages)
+            if not query_parts:
+                return None
+            cache_key = "\n<<part>>\n".join(f"{part.weight}:{part.text}" for part in query_parts)
+            cached = self._tool_search_selections.get(cache_key)
+            if cached is not None:
+                return cached
+            selection = index.select(
+                query_parts,
+                top_k=settings.top_k,
+                always_include=settings.always_include,
+            )
+        except Exception:
+            # A ranking is a convenience; the tool set is the contract. Any
+            # failure here falls back to binding everything, which is the
+            # behaviour this agent had before tool search existed.
+            logger.warning("[ToolSearch] retrieval failed; binding the full tool set", exc_info=True)
+            return None
+
+        # ADR-0045: the shape of the call, never the building. Tool names are
+        # code identifiers from our own config — no user text, no model output,
+        # no element names, no property values.
+        logger.info(
+            "[ToolSearch] %s: bound %d/%d tool(s) — selected=%s withheld=%s",
+            selection.reason,
+            len(selection.selected),
+            len(index.tool_names),
+            list(selection.selected),
+            list(selection.withheld),
+        )
+        if len(self._tool_search_selections) >= _MAX_CACHED_BINDINGS:
+            self._tool_search_selections.clear()
+        self._tool_search_selections[cache_key] = selection
+        return selection
+
+    def _research_tool_binding(
+        self,
+        messages: Sequence[Any],
+        tools_info: list[dict[str, str]],
+    ) -> tuple[Any, list[dict[str, str]]]:
+        """LLM + prompt tool list for a RESEARCH turn, narrowed if configured.
+
+        With tool search off this returns the prebuilt full binding and the
+        caller's tool list untouched — the same two objects the agent used
+        before this method existed.
+
+        With it on, the narrowing happens HERE: around the LLM call, not inside
+        the tool loop. The model is offered fewer tools; it is not asked to
+        find them. No node is added to the graph, no message is added to the
+        history, and ``tool_iterations`` is not touched, so a narrowed turn
+        costs exactly what an unnarrowed one costs. That is the whole point —
+        an agent that force-synthesizes after five tool calls cannot afford to
+        spend one of them on discovery.
+
+        The prompt's tool list is narrowed to match the binding, so the model
+        is never told about a tool it has not been given.
+        """
+        selection = self._select_tools_for_query(messages)
+        if selection is None or not selection.narrowed:
+            return self._llm_with_tools, tools_info
+
+        chosen = frozenset(selection.selected)
+        bound = self._narrowed_bindings.get(chosen)
+        if bound is None:
+            narrowed_tools = [t for t in self.tools if t.name in chosen]
+            if not narrowed_tools:
+                # Belt and braces over ``select``'s own empty guard: an empty
+                # binding would leave the model with no way to answer at all.
+                return self._llm_with_tools, tools_info
+            bound = self._bind_research_tools(narrowed_tools)
+            if len(self._narrowed_bindings) >= _MAX_CACHED_BINDINGS:
+                self._narrowed_bindings.clear()
+            self._narrowed_bindings[chosen] = bound
+        return bound, [ti for ti in tools_info if ti.get("name") in chosen]
+
     def _build_graph(self) -> CompiledStateGraph:
         """Build the LangGraph StateGraph."""
 
@@ -342,8 +594,13 @@ class ShallowResearcherAgent:
             # search tools, so a greeting or memory request cannot fire a web or
             # knowledge-base search. This also narrows the prompt's tool list
             # below so the model is not told it has search it must not use.
+            #
+            # Research turns take the full binding unless tool search is
+            # configured, in which case the bound set is narrowed by retrieval
+            # BEFORE this LLM call — no discovery turn, no extra node, no
+            # change to the iteration budget.
             if state.requires_sources:
-                active_llm_with_tools: Any = self._llm_with_tools
+                active_llm_with_tools, tools_info = self._research_tool_binding(messages, tools_info)
             else:
                 active_llm_with_tools, tools_info = self._meta_tool_binding(tools_info)
 
@@ -500,6 +757,20 @@ class ShallowResearcherAgent:
             invalid-tool error instead of running. Falls back to the full
             ToolNode on research turns (and when no interaction tool exists,
             where the meta path binds no tools and this node is unreachable).
+
+            Tool search deliberately does NOT get the same second defense. The
+            meta partition has two arms because firing a web search on a
+            greeting is a POLICY violation: refusing to execute it is the
+            correct outcome even though the refusal costs a turn. Tool-search
+            narrowing is not a policy, it is a GUESS about relevance, and its
+            one real failure mode is withholding the tool that would have
+            answered. If the model calls a withheld tool anyway — it can, by
+            copying a name out of an earlier turn's history — then the guess
+            was wrong and the model is right. Executing it spends a turn and
+            produces evidence; refusing it spends the same turn and produces an
+            error, out of a budget of five. So research turns keep the full
+            ToolNode, and execution stays the escape hatch that makes a
+            recall-biased retrieval safe to run at all.
             """
             active_tool_node = tool_node
             if not state.requires_sources:
@@ -510,9 +781,18 @@ class ShallowResearcherAgent:
             # Resolve registry at call time (not build time) so each request
             # writes to its own session-scoped registry when available.
             active_registry = get_session_registry() or self.source_registry
+            # The second kind of grounding, captured on the same pass. STICKY:
+            # OR-ed with what the loop already saw, so a later refused call
+            # cannot un-measure an earlier successful one. Recorded BEFORE the
+            # data-source filter below, because `ifc_measure` is deliberately not
+            # a data source — it produces no citable passage, which is exactly
+            # why the citation gate could never see it.
+            measurement_grounded = state.answer_measurement_grounded
             for msg in result.get("messages", []):
                 if isinstance(msg, ToolMessage) and msg.content:
                     tool_name = getattr(msg, "name", "") or ""
+                    if tool_result_is_measurement(tool_name, str(msg.content)):
+                        measurement_grounded = True
                     if tool_name not in source_tool_names:
                         continue
                     source_id = get_source_id_for_tool(tool_name)
@@ -535,6 +815,8 @@ class ShallowResearcherAgent:
                             tool_name,
                             [s.url or s.citation_key for s in sources],
                         )
+            if measurement_grounded:
+                return {**result, "answer_measurement_grounded": True}
             return result
 
         builder.add_node("agent", agent_node)
@@ -607,6 +889,12 @@ class ShallowResearcherAgent:
         # Same signal as a count, for the citation-health ledger (how MANY spans
         # failed, not just whether any did).
         unverified_quote_count = 0
+        # Whether the answer asserts something normative without a verified
+        # citation — the brake that stops measurement grounding from laundering a
+        # legal claim (see ``shallow_researcher.grounding``). Computed below on
+        # the final answer text; False when there is no answer message to read,
+        # which is safe because measurement grounding alone never reaches "high".
+        answer_normative_claim_uncited = False
         # Whether the single-source fallback below had to supply the citation
         # because nothing the model wrote survived verification. Grounded, but
         # not by the model's own choice — recorded as its own ledger event.
@@ -835,6 +1123,26 @@ class ShallowResearcherAgent:
                         cb.emit_final_report(content)
                         break
 
+                # The anti-laundering brake, read off the FINAL user-visible text
+                # (post-verification, post-sanitization) so it judges the answer
+                # the reader actually gets. Only meaningful when the citation gate
+                # already failed: with no verified citation, "mentions the law"
+                # and "asserts the law without support" are the same thing. A
+                # measurement grounds the measurement — it must not carry
+                # „…und erfüllt damit OIB 4 Punkt 2.1" out at "medium".
+                #
+                # The single-source FALLBACK does not count as the citation that
+                # switches this brake off. It fires when nothing the model cited
+                # survived verification, and the source it appends comes from the
+                # cumulative session registry — one Bauordnung link captured two
+                # turns ago was enough to disarm the brake AND to hand the whole
+                # mixed answer the model's own "high", with that unrelated link
+                # attached to the verdict.
+                model_cited_grounding = citation_grounded and not citation_fallback_used
+                answer_normative_claim_uncited = not model_cited_grounding and answer_mentions_normative_claim(
+                    _prose_without_references(content)
+                )
+
                 if hasattr(answer_msg, "model_copy"):
                     messages_list[answer_index] = answer_msg.model_copy(update={"content": content})
                 else:
@@ -842,6 +1150,17 @@ class ShallowResearcherAgent:
 
         # Carry the grounding signal to the chat node's overconfidence guard.
         validated_result["answer_citation_grounded"] = citation_grounded
+        # The second kind of grounding and its brake. ``answer_measurement_grounded``
+        # was written by the tools node (it is the only place that sees the raw
+        # tool results); it is echoed here rather than recomputed so both signals
+        # reach the chat node by the same path as ``answer_citation_grounded``.
+        measurement_grounded = bool(validated_result.get("answer_measurement_grounded", False))
+        validated_result["answer_measurement_grounded"] = measurement_grounded
+        validated_result["answer_normative_claim_uncited"] = answer_normative_claim_uncited
+        # …and WHICH citation grounded it. The guard needs the difference between
+        # "the model cited a source and the verifier resolved it" and "we
+        # attached the one source in the registry because nothing else survived".
+        validated_result["answer_citation_fallback_used"] = citation_fallback_used
         # Carry the quote-verification signal too: False iff a quoted span could
         # not be verified against a retrieved passage this turn. The chat node
         # composes it with grounding to cap confidence (reason quote_unverified).
@@ -894,7 +1213,12 @@ class ShallowResearcherAgent:
                 grounded=citation_grounded,
                 fallback_used=citation_fallback_used,
                 confidence_capped_reason=answer_confidence_capped_reason(
-                    answer_confidence_marker, citation_grounded, answer_quotes_verified
+                    answer_confidence_marker,
+                    citation_grounded,
+                    answer_quotes_verified,
+                    measurement_grounded=measurement_grounded,
+                    normative_claim_uncited=answer_normative_claim_uncited,
+                    citation_fallback_used=citation_fallback_used,
                 ),
                 source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources],
                 source_lanes=[source.get("lane") for source in wire_sources],

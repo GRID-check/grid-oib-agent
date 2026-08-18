@@ -167,6 +167,12 @@ llms:
     # a simple meta-ish query). Shallow retrieval+synthesis does not need deep
     # deliberation; deep_* roles keep medium for the genuinely hard reasoning.
     reasoning_effort: low
+    # Uncomment TOGETHER WITH shallow_research_agent.deferred_tool_loading below
+    # — that feature needs the Responses API and fails the workflow build without
+    # it, deliberately, rather than sending the tool schemas anyway (ADR-0048).
+    # Nothing else in this file needs it; the default (chat_completion) is what
+    # every other role runs on.
+    # api_type: responses
 
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
@@ -539,11 +545,161 @@ functions:
       - ifc_measure
     verbose: true
     max_llm_turns: 10
-    max_tool_iterations: 5
+    # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain
+    # this surface documents, plus one repair.
+    #
+    # The accounting is `new_iterations += len(response.tool_calls)` in
+    # `shallow_researcher/agent.py`, charged when the model EMITS the call and
+    # never refunded. Three consequences that are not obvious from the name:
+    #   * a call that comes back with 0 hits costs what one that answers costs;
+    #   * PARALLEL calls each cost one, so a model emitting three per turn gets
+    #     two round trips out of five, not five — and this surface runs frontier
+    #     models, which emit parallel calls routinely;
+    #   * `use_skill` is a real tool call, so the BIM budget is one below the
+    #     number written here before any measurement happens.
+    #
+    # Floors traced against the tool surface as it now stands (survey landed
+    # since the number was last touched, and it shortened exactly one shape):
+    #   „wie hoch ist der Keller"  use_skill + survey                       = 2
+    #     ...plus a storey-name miss repaired by briefing, plus emit_card    = 5
+    #   OIB 3 Lichteinfall         use_skill + knowledge_search (the clause
+    #     supplies angle_deg/swivel_deg, which light_incidence refuses to
+    #     default) + find_elements + relations + overhang + light_incidence  = 6
+    #   OIB 2 Fluchtweg            use_skill + knowledge_search + find_elements
+    #     + egressPath + clearWidth over the door list + fire/doorGraph      = 6
+    #
+    # At 5 the two multi-element chains truncate AT OR BEFORE the measurement
+    # that answers the question, and forced synthesis then writes an answer from
+    # declared values — the 3,00-m-instead-of-2,70-m failure this whole branch
+    # started from. Truncation is also SILENT: the synthesis anchor says
+    # „exhausted your research budget" to the MODEL and asks for no disclosure to
+    # the reader, and `[CONFIDENCE:…]` grades SOURCE grounding, not whether
+    # evidence-gathering was cut off.
+    #
+    # 6 is the bare floor with no repair budget, and a storey-name miss is the
+    # commonest repair on this surface. 7 = floor + one repair. Higher buys a
+    # second repair nothing traced here needs, and every iteration is a full
+    # round trip carrying ~9 000 tokens of tool schema plus the grown history.
+    #
+    # Raising a ceiling costs nothing on a query that never reaches it — the
+    # short shapes above still stop at 2. The only new cost is a confused model
+    # wandering, bounded at two extra round trips. Set against that, truncation
+    # before the measurement is the worst failure this product has.
+    #
+    # 7 serial iterations = 15 node visits + forced synthesis, well under
+    # `recursion_limit` 30 (`max_llm_turns * 2 + 10`), so this does not need
+    # max_llm_turns moved with it.
+    max_tool_iterations: 7
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true
     skill_allowlist: []
+    # Retrieval-based tool narrowing. OFF, deliberately — the block below is the
+    # tested configuration, not a suggestion, and it is commented out because on
+    # THIS surface the trade is not yet worth taking.
+    #
+    # The two BIM tools are 81 % of the ~9 000 tokens of tool schema that ride on
+    # every call here, so narrowing to four tools saves ~24 % of that payload on
+    # average and 81 % on a pure-Normen question. But tokens are not what this
+    # agent runs out of — TURNS are, and narrowing does not buy one back. What it
+    # can spend is an answer: measured against these eleven tools, a lexical rank
+    # over the user's turn alone keeps the answering tool for only 71 % of a
+    # realistic German question set. The pins below carry that to 100 %, because
+    # they cover the two shapes a query-time ranking structurally cannot see —
+    # tools named by INTENT rather than subject (`remember`, `emit_card`,
+    # `use_skill`, `surface_documents`) and tools that are SEQUENCED, whose turn
+    # comes from what a previous tool returned (`ris_fetch_tool` after
+    # `ris_search_tool`). Both are guarded by tests.
+    #
+    # Turn it on when the surface grows past what a prompt can hold — an MCP
+    # server with thirty tools — not to shave tokens off eleven.
+    #
+    # tool_search:
+    #   enabled: true
+    #   top_k: 4
+    #   always_include:
+    #     - remember
+    #     - emit_card
+    #     - use_skill
+    #     - surface_documents
+    #     - ris_fetch_tool
+    #
+    # OpenRouter server-side tool search (ADR-0048). OFF, and the block below is
+    # the measured configuration rather than a suggestion. Orthogonal to
+    # `tool_search` above: that one decides WHICH tools are bound, this one
+    # decides whether their schemas travel with the request. Requires
+    # `api_type: responses` on shallow_llm — enabling it without that fails the
+    # workflow build instead of quietly sending the schemas.
+    #
+    # Measured live against openai/gpt-5.6-luna with the real ifc_query +
+    # ifc_measure + emit_card schemas (59 805 chars, ≈14 000 input tokens):
+    #
+    #                                          control   deferred     delta
+    #   turn 1, model loads a tool               14 032     14 650      +618
+    #   turn 1, no tool needed at all            14 023        437   -13 586
+    #   turn 2, answering from a tool result     14 163        591   -13 572
+    #
+    # Deferral does NOT save anything on the turn where the model loads a
+    # schema — it pays the tool-search apparatus (~620 tokens) on top of a
+    # schema that enters the context anyway. What it saves is every OTHER turn,
+    # and on a five-iteration agent that calls one or two tools those are the
+    # majority: the synthesis turn, the meta turns, and every turn answered from
+    # a tool already loaded. Read the trade that way round before enabling it.
+    #
+    # Deferral is gated PER MODEL as well as per endpoint, because the per-org
+    # override seam (ADR-0014) can hand a single research turn a model this
+    # workflow was never built against. Two independent conditions must hold:
+    # the model is cleared for the tool_search + namespace shape, AND it scores
+    # at least `min_intelligence_index` on Artificial Analysis's
+    # intelligence_index. Neither implies the other — x-ai/grok-4.6 scores 60.9
+    # and cannot defer at all; anthropic/claude-sonnet-4.6 defers (it was one of
+    # six models seen emitting a real function_call) and is excluded on SCORE
+    # alone, at 48.4. Do not re-add sonnet-4.6 or minimax/minimax-m3 (45.4) to
+    # the allowlist without also moving the threshold — their absence is a
+    # threshold decision, not a missing measurement.
+    #
+    # A "no" from either condition means BIND THE FULL SCHEMAS. It is never a
+    # refused request or a failed build, so a sub-floor model runs exactly as it
+    # did before this existed.
+    #
+    # The defaults ship the measured lists (see `deferred_tool_loading.py`), so
+    # `enabled: true` alone is the normal configuration. Verified = the provider
+    # echoed `defer_loading` back on every function, NOT merely HTTP 200 — a
+    # provider that accepts and normalizes the deferral away is the silent
+    # failure this whole feature guards against.
+    #
+    # An unlisted model is probed ONCE, off the request path, and the verdict
+    # cached; until it lands that model gets full schemas. So a new model costs
+    # one background request, never a wasted round trip on a live turn.
+    #
+    # deferred_tool_loading:
+    #   enabled: true
+    #   # Floor on Artificial Analysis intelligence_index. 0 disables it.
+    #   min_intelligence_index: 50
+    #   models:
+    #     # Only override these to add a model the shipped lists do not know.
+    #     # Every list REPLACES its seeded counterpart rather than extending it
+    #     # — `deny` no less than `allow`. So an override has to restate the
+    #     # shipped entries it still wants, or it silently re-enables them: the
+    #     # three-line example below would readmit the four denied ids it omits,
+    #     # and each of those would then cost a wasted round trip per tool
+    #     # subset before the fallback latched. The shipped `deny` is:
+    #     #   x-ai/grok-4.6, x-ai/grok-4.5, deepseek/deepseek-v4-pro-0813,
+    #     #   deepseek/deepseek-v4-flash-0731, moonshotai/kimi-k3,
+    #     #   meta-llama/llama-3.3-70b-instruct, openai/gpt-4o-mini
+    #     deny:
+    #       - x-ai/grok-4.6                    # 422, and scores 60.9 — capability is not quality
+    #       - deepseek/deepseek-v4-flash-0731  # routing-flaky: two sweeps disagreed
+    #       - meta-llama/llama-3.3-70b-instruct  # routing-flaky: 5 of 6 defer, the 6th 422s
+    #     provisional:
+    #       # Permitted on request, capability UNVERIFIED — OpenRouter answers 403
+    #       # "requires 18+ age confirmation", an ACCOUNT gate that fires before
+    #       # the payload is read, so nobody knows whether it takes the shape.
+    #       # Yields to whatever the probe or a real request learns (unlike
+    #       # `allow`, which is an assertion). Deliberate and informed: if it
+    #       # cannot defer, the fallback costs one round trip per tool subset,
+    #       # then latches. Not a precedent for listing unverified models.
+    #       - meta/muse-spark-1.1
 
   deep_research_agent:
     _type: deep_research_agent

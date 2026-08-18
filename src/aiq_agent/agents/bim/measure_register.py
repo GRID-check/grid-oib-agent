@@ -49,8 +49,12 @@ import logging
 import math
 import re
 from typing import Any
+from typing import Literal
 
+from pydantic import BaseModel
 from pydantic import Field
+from pydantic import field_validator
+from pydantic import model_validator
 
 # Shared with `ifc_query` so the two halves of the BIM surface fail identically:
 # an agent that learns this sentence from one tool reads it correctly from the
@@ -58,6 +62,8 @@ from pydantic import Field
 # stays loadable on a deployment without the spatial engine — which is the
 # independence the two entry points in pyproject.toml exist to preserve.
 from aiq_agent.agents.bim.capability_gaps import record_gap
+from aiq_agent.agents.bim.measurement_evidence import EVIDENCE_PROVENANCES
+from aiq_agent.agents.bim.measurement_evidence import measurement_evidence_line
 from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
@@ -66,12 +72,21 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
-VALID_OPERATIONS = {
+#: The operations, in the order the description teaches them.
+#:
+#: ORDERED, and that is not cosmetic. This tuple becomes the ``enum`` on the
+#: ``operation`` field of the wire schema, and a set's iteration order varies
+#: between processes because string hashing is randomised. A schema whose enum
+#: reorders on every restart is a different schema to every prefix cache in
+#: front of the model.
+OPERATIONS: tuple[str, ...] = (
     "briefing",
     "find_elements",
     "element",
     "relations",
     "measure",
+    "survey",
+    "element_profile",
     "distance",
     "clearance",
     "sun_position",
@@ -84,7 +99,35 @@ VALID_OPERATIONS = {
     "envelope",
     "overhang",
     "light_incidence",
-}
+)
+
+VALID_OPERATIONS = frozenset(OPERATIONS)
+
+#: Operations that answer with something other than a quantity, and therefore
+#: carry no measurement-evidence trailer (:func:`_render`).
+#:
+#: A briefing, a hit list, an element's index metadata, a written IDS file and a
+#: drawing's path are all real results and none of them measures the building.
+#: Telling the model „Messwerte in diesem Ergebnis: 0" about a `draw` reads as a
+#: measurement that failed and invites a retry that costs one of five tool
+#: iterations.
+#:
+#: This is an allow-list of SUPPRESSION, not of grounding, so it fails in the
+#: safe direction: an operation missing from this set gets a trailer stating its
+#: true count, and an operation wrongly IN it gets no trailer — which the
+#: confidence gate reads as no measurement either way. `relations` is
+#: deliberately absent: „0 Messwerte" is exactly what the model needs to hear
+#: before it turns a list of bounding walls into „rund 2,7 m".
+NON_MEASURING_OPERATIONS: frozenset[str] = frozenset(
+    {
+        "briefing",
+        "find_elements",
+        "element",
+        "draw",
+        "view",
+        "shopping_list",
+    }
+)
 
 # ── the enums, mirrored ──────────────────────────────────────────────────────
 #
@@ -277,9 +320,357 @@ KINDS = ("project", "site", "building", "storey", "space", "element", "opening",
 #: `room_kind` on room_inventory.
 ROOM_KINDS = ("aufenthaltsraum", "nebenraum", "erschliessung")
 
+#: `ifc_spatial.tools.MAX_BATCH` — the most GlobalIds one `measure` may carry.
+#: Mirrored for the same reason the vocabularies above are, and pinned against
+#: the package by the same test.
+MAX_BATCH = 50
+
+#: The one value `kind` takes on `element_profile`, where it is an opt-in to the
+#: expensive measures rather than a vocabulary.
+PROFILE_KINDS = ("expensive",)
+
 
 def _enum_lines(entries: dict[str, str], indent: str = "    ") -> str:
     return "\n".join(f"{indent}{name} — {meaning}" for name, meaning in entries.items())
+
+
+# ── the input schema ─────────────────────────────────────────────────────────
+#
+# This tool used to be declared to the model as sixteen bare strings: no enums,
+# no per-parameter text, nothing required. Every fact needed to call it
+# correctly lived in the description and none of it lived where a schema would
+# put it, so „measure" and „measure_room" were equally well-formed calls as far
+# as anything between the model and this function could tell.
+#
+# That is a TURN problem before it is a token problem. The agent runs with
+# `max_tool_iterations: 5` and force-synthesises at the limit, so an invented
+# operation or a misspelled measure name cost one call in five: the request was
+# accepted, reached `_build_call`, and came back as a sentence the model had to
+# read and retry.
+#
+# What the schema buys, precisely — and it is NOT the turn back. The budget is
+# charged when the model EMITS the call (`shallow_researcher.agent` adds one per
+# tool call in the response) and nothing refunds it, so a call refused by the
+# validator spends the same iteration a call refused by `_build_call` does; the
+# ToolNode returns the ValidationError as the tool result and the loop carries
+# on. What the schema changes is how often a bad call is EMITTED at all — an
+# enum in the args schema is the one place a model reliably reads a vocabulary
+# from, and most models will not emit a value it forbids. The refusal that does
+# happen is cheaper (the tool body never runs, so nothing resolves a project or
+# opens a model) and it is better: the permitted set travels with it, out of the
+# schema, rather than being retyped in a sentence that can drift from it.
+#
+# FLAT, with each overloaded field naming the operations it belongs to — NOT a
+# discriminated union, although `operation` is a perfect discriminator and the
+# union is the cleaner model. The reason is what the union becomes on the wire.
+# NAT hands `input_schema` to LangChain as `args_schema`, and a
+# `RootModel[Annotated[Union[...], Field(discriminator=...)]]` comes out of
+# `convert_to_openai_tool` as a single property called `root` holding an
+# `anyOf` — so the model would have to nest every call inside `{"root": {…}}`,
+# a wrapper it has no way to learn about except by guessing. Measured, not
+# assumed; `tests/aiq_agent/agents/test_ifc_measure_tool.py` keeps the
+# measurement so a later NAT can be re-checked rather than re-argued. A flat
+# model with operation-scoped descriptions carries the same facts in a shape the
+# wire can actually express.
+#
+# The enums are BUILT from the vocabularies above rather than retyped beside
+# them. A hand-copied literal list is a second copy of a copy, and the one thing
+# this file already knows about copies is that they drift.
+
+
+def _literal(*groups) -> Any:
+    """A ``Literal`` over these vocabularies, in the order they were written.
+
+    Order is part of the contract: the tuple becomes the ``enum`` array in the
+    schema the model is handed, and an enum that reshuffles between restarts
+    invalidates every prefix cache in front of it.
+    """
+    names: list[str] = []
+    for group in groups:
+        for name in group:
+            if name not in names:
+                names.append(name)
+    return Literal[tuple(names)]  # type: ignore[valid-type]
+
+
+#: Which vocabulary a bad `kind` is recorded AGAINST — the ledger entry, not the
+#: check. `kind` is one field over four vocabularies, and the `Literal` accepts
+#: the union of all of them because `_build_call` has always been the one that
+#: knows which applies: `element_profile` ignores a `kind` that is not
+#: 'expensive', and narrowing the type here would turn that shrug into a
+#: refusal. What IS scoped is the backlog line: „fire kind='brandabschnitt'" and
+#: „find_elements kind='brandabschnitt'" are different requests, and a ledger
+#: that merged them would rank neither.
+_KIND_FIELD: dict[str, str] = {
+    "fire": "fire.kind",
+    "envelope": "envelope.kind",
+    "element_profile": "element_profile.kind",
+}
+
+#: Every spelling `kind` accepts, across all four of its vocabularies.
+_ALL_KINDS: tuple[str, ...] = (*KINDS, *FIRE_ASPECTS, *ENVELOPE_ASPECTS, *PROFILE_KINDS)
+
+#: The fields `_build_call` has always matched case-insensitively, and their
+#: canonical spellings.
+#:
+#: Preserved deliberately. `_build_call` lower-cases `operation`, `room_kind`,
+#: `kind` and `mode`, and case-folds the fire and envelope aspects, so
+#: kind='Compactness' has always been a working call. A `Literal` is
+#: case-SENSITIVE, so without this the schema would start refusing calls the
+#: tool used to answer — a refactor breaking the thing it was meant to make
+#: cheaper. `measure` and `relation` are absent on purpose: `_build_call`
+#: requires those exact, and the schema says exactly what the tool does.
+_CASE_FOLDED: dict[str, tuple[str, ...]] = {
+    "operation": OPERATIONS,
+    "room_kind": ROOM_KINDS,
+    "kind": _ALL_KINDS,
+    "mode": (*DISTANCE_MODES, *VIEW_MODES),
+}
+
+
+class IfcMeasureInput(BaseModel):
+    """The arguments of one ``ifc_measure`` call, as the model sees them."""
+
+    operation: _literal(OPERATIONS) = Field(
+        description=(
+            "WHICH question to ask. The only required argument — every other field is scoped by this "
+            "one. On a model you have not looked at yet, 'briefing'."
+        )
+    )
+    global_id: str | list[str] = Field(
+        default="",
+        description=(
+            "The element's IFC GlobalId, from 'find_elements', from 'element', or from an ifc_query "
+            "result in THIS turn — an invented id is refused by name, not guessed at. Usually ONE id. "
+            "A list (or one comma-separated string) where the question is about a set: 'measure' over "
+            f"an already-known selection (at most {MAX_BATCH}, each element keeping its own answer, "
+            "tolerance and refusal), 'view' to mark several at once, 'fire' with kind='compartmentArea' "
+            "for the rooms of the compartment — and exactly two rooms for kind='separatingElements'. "
+            "'envelope' takes none: an envelope is not a property of an element. The selecting "
+            "operations ('find_elements', 'survey', 'draw') and the whole-model ones need none either."
+        ),
+    )
+    other_global_id: str | list[str] = Field(
+        default="",
+        description=(
+            "The SECOND element, and it means a different thing per operation. 'distance' and "
+            "'clearance': the element to measure against. 'overhang': the element whose outer face is "
+            "the REFERENCE plane, while global_id is the projecting one (get it from "
+            "relations/hostedIn on the window). 'light_incidence': the elements EXCLUDED from the test "
+            "— a list, or several ids separated by commas. Unused by every other operation."
+        ),
+    )
+    relation: _literal(RELATIONS) | None = Field(
+        default=None,
+        description=(
+            "'relations' only — which topological question to ask about global_id:\n"
+            f"{_enum_lines(RELATIONS)}\n"
+            "The ones marked [geometry] cost seconds on a cold model — see COST."
+        ),
+    )
+    measure: _literal(MEASURES) | None = Field(
+        default=None,
+        description=(
+            f"'measure' (one element) and 'survey' (a whole selection) — WHICH quantity:\n{_enum_lines(MEASURES)}"
+        ),
+    )
+    mode: _literal(DISTANCE_MODES, VIEW_MODES) | None = Field(
+        default=None,
+        description=(
+            "Two vocabularies on one field, scoped by operation.\n"
+            "  'distance' (default 'min'):\n"
+            f"{_enum_lines(DISTANCE_MODES, indent='    ')}\n"
+            "  NONE of those four is a clear dimension. For a lichte Breite use measure='clearWidth' on "
+            "the opening, for a lichte Höhe measure='clearHeight' on the room, and for the smallest "
+            "surface-to-surface gap between two elements operation='clearance'.\n"
+            "  'view' (default 'highlight'):\n"
+            f"{_enum_lines(VIEW_MODES, indent='    ')}\n"
+            "Unused by every other operation."
+        ),
+    )
+    ifc_type: str = Field(
+        default="",
+        description=(
+            "'find_elements', 'survey' and 'draw' — the IFC CLASS, e.g. IfcSpace, IfcWindow, IfcDoor. "
+            "The spatial role goes in 'kind' instead."
+        ),
+    )
+    name_contains: str = Field(
+        default="",
+        description=(
+            "'find_elements' and 'survey' — a substring of the element's name. Take it from the "
+            "briefing or from an earlier result; an invented fragment matches nothing."
+        ),
+    )
+    storey: str = Field(
+        default="",
+        description=(
+            "'find_elements', 'survey', 'draw' and 'view' — the storey name EXACTLY as the briefing "
+            "spells it. A storey name you invented matches nothing, and an empty result reads like "
+            "'the building has none'."
+        ),
+    )
+    kind: _literal(KINDS, FIRE_ASPECTS, ENVELOPE_ASPECTS, PROFILE_KINDS) | None = Field(
+        default=None,
+        description=(
+            "Three vocabularies on one field, scoped by operation.\n"
+            "  'find_elements' and 'survey' — the spatial ROLE, not the IFC type (a room is 'space'): "
+            f"{', '.join(KINDS)}.\n"
+            "  'fire' — which OIB 2 (Brandschutz) geometry, default 'fluchtniveau':\n"
+            f"{_enum_lines(FIRE_ASPECTS, indent='    ')}\n"
+            "  'envelope' — which OIB 6 (Wärmeschutz) geometry of the WHOLE building, default "
+            "'thermalEnvelope':\n"
+            f"{_enum_lines(ENVELOPE_ASPECTS, indent='    ')}\n"
+            "  'element_profile' — 'expensive' to include escape route, reachability, turning circle "
+            "and door approach, which are left out otherwise.\n"
+            "Unused by every other operation."
+        ),
+    )
+    room_kind: _literal(ROOM_KINDS) | None = Field(
+        default=None,
+        description=(
+            "'room_inventory' only — which SUSPECTED use to group the rooms by. Inferred from their "
+            "names: a proposal for a human to confirm, never a finding."
+        ),
+    )
+    model_name: str = Field(
+        default="",
+        description=(
+            "A substring of the file name, to pick one model when the project has several. Leave it "
+            "empty when there is only one."
+        ),
+    )
+    limit: int = Field(
+        default=0,
+        description=(
+            "How many rows: 'find_elements' up to 500, 'survey' up to 50 — every row there is a real "
+            "geometric measurement and not an index lookup. 0 leaves the server's default."
+        ),
+    )
+    # `None`, not `0.0`, and the bounds are the ones `_build_call` enforces.
+    # Two defects came out of the old `default=0.0, ge=0.0, le=90.0`: it made
+    # „not given" indistinguishable from „zero degrees" — the same
+    # default-in-two-places defect the `mode` field was fixed for — and it
+    # declared a range the tool does not accept, so `angle_deg=90` passed
+    # validation and then spent one of five turns on `_build_call`'s refusal.
+    angle_deg: float | None = Field(
+        default=None,
+        gt=0.0,
+        lt=90.0,
+        description=(
+            "'light_incidence' only — the Lichteinfallswinkel in degrees, strictly between 0 and 90. "
+            "It is a fact about the BESTIMMUNG and not about the model (OIB 3: 45, with swivel_deg 30). "
+            "This tool refuses without it rather than defaulting, because supplying it would be "
+            "applying the clause."
+        ),
+    )
+    swivel_deg: float | None = Field(
+        default=None,
+        ge=0.0,
+        lt=90.0,
+        description=(
+            "'light_incidence' only — the lateral Verschwenkung in degrees, from 0 to under 90. From "
+            "the Bestimmung as well (OIB 3: 30)."
+        ),
+    )
+    when: str = Field(
+        default="",
+        description=(
+            "'sun_position' only — an ISO 8601 instant WITH a time zone, e.g. "
+            "'2026-06-21T12:00:00+02:00' (Austrian summer time) or '2026-06-21T10:00:00Z'. A timestamp "
+            "without a zone is refused rather than read as UTC: Austria runs UTC+1 and UTC+2, so "
+            "reading 12:00 as UTC moves the sun 30° east of where it stood."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fold_case_and_keep_the_ledger(cls, data: Any) -> Any:
+        """Two jobs the ``Literal`` cannot do for itself, both before it runs.
+
+        FIRST, the case-folding `_build_call` has always done. It lower-cases
+        `operation`, `room_kind`, `kind` and `mode` and matches the fire and
+        envelope aspects case-insensitively, so kind='Compactness' is a call
+        this tool has always answered. A `Literal` is case-sensitive; without
+        this, tightening the schema would start refusing calls that used to
+        work, which is the opposite of the point.
+
+        SECOND, the capability ledger. `capability_gaps` exists because
+        ``measure="wandstaerke"`` is not really a mistake — it is somebody
+        asking for a wall thickness this surface has no operator for, said in
+        one word, and it is the most useful signal the BIM surface produces.
+        `_build_call` wrote those entries. Once the enum is on the wire the
+        value never reaches `_build_call`: pydantic refuses it first, and the
+        backlog would go quiet exactly as the refusals got cheaper — which
+        reads as „nobody asks for anything we lack".
+
+        Nothing here raises. Whatever is still unknown after the folding is left
+        for the ``Literal`` to refuse, so there is one error message and it is
+        the one that lists the permitted values.
+        """
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        for name, vocabulary in _CASE_FOLDED.items():
+            asked = data.get(name)
+            if not isinstance(asked, str) or not asked.strip():
+                continue
+            canonical = next((known for known in vocabulary if known.lower() == asked.strip().lower()), None)
+            if canonical is not None:
+                data[name] = canonical
+
+        operation = str(data.get("operation") or "").strip().lower()
+        for name, asked, known in (
+            ("operation", data.get("operation"), VALID_OPERATIONS),
+            ("measure", data.get("measure"), MEASURES),
+            ("relation", data.get("relation"), RELATIONS),
+            ("room_kind", data.get("room_kind"), ROOM_KINDS),
+            # Against the WHOLE of `kind`, because that is what the field
+            # accepts. Checking against the operation's own vocabulary would
+            # file `element_profile kind='space'` as a missing capability, and
+            # `_build_call` answers that call by ignoring the field.
+            (_KIND_FIELD.get(operation, "kind"), data.get("kind"), _ALL_KINDS),
+        ):
+            wanted = asked.strip() if isinstance(asked, str) else ""
+            if wanted and wanted not in known:
+                record_gap(surface="ifc_measure", field=name, asked_for=wanted, known=known)
+        return data
+
+    @field_validator("global_id", "other_global_id", mode="after")
+    @classmethod
+    def _ids_on_one_line(cls, value: str | list[str]) -> str:
+        """A real array where the wire can carry one, a comma string underneath.
+
+        The engine's `highlight`, `only` and `exclude` have always been arrays,
+        and this field was narrower than they were: a caller who had a list had
+        to know to join it. `list[str]` is expressible in the wire schema — it
+        is an ordinary `type: array` and needs no `anyOf` gymnastics — so it is
+        offered, and the comma-separated string every existing caller and the
+        whole description already use is normalised onto it rather than
+        deprecated. Both arrive at `_build_call` as the one shape it parses.
+        """
+        parts = value if isinstance(value, list) else str(value).split(",")
+        return ",".join(str(part).strip() for part in parts if str(part).strip())
+
+    @model_validator(mode="after")
+    def _a_batch_fits_in_one_call(self) -> "IfcMeasureInput":
+        """The engine's own ceiling, applied before the model is downloaded.
+
+        `measure` over more than :data:`MAX_BATCH` ids is refused by the engine
+        — but only after the file has been resolved, fetched and tessellated,
+        which is seconds and one of five turns spent to be told to count. Every
+        other operation that takes a list has no such ceiling, so none is
+        invented for them here.
+        """
+        if self.operation == "measure":
+            count = len([part for part in str(self.global_id).split(",") if part])
+            if count > MAX_BATCH:
+                raise ValueError(
+                    f"operation='measure' takes at most {MAX_BATCH} GlobalIds in one call — "
+                    f"{count} were given. Measure in several calls, or narrow the selection with "
+                    "operation='survey', which selects and measures in one."
+                )
+        return self
 
 
 _TOOL_DESCRIPTION = (
@@ -301,71 +692,67 @@ _TOOL_DESCRIPTION = (
     "this file cannot answer at all. Storey and property names come from THERE, copied verbatim. A "
     "storey name you invented matches nothing, and an empty result reads like 'the building has none'.\n"
     "\n"
-    "operation:\n"
-    "  'briefing'       — the building briefing for this model. Free, no geometry. START HERE.\n"
-    "  'find_elements'  — GlobalIds by ifc_type / name_contains / storey / kind. The input every other "
+    "The parameter list says WHICH arguments each operation takes and what every enum value means. "
+    "What follows is what each operation is FOR — the judgement the schema cannot carry.\n"
+    "\n"
+    "  'briefing'       — this file speaking about itself. Free, no geometry. START HERE.\n"
+    "  'find_elements'  — GlobalIds by type, name, storey or spatial role. The input every other "
     "operation needs. Free, no geometry.\n"
-    "  'element'        — everything about ONE element: type, name, storey, container, and which "
-    "relations it actually has. Free, no geometry.\n"
-    "  'relations'      — one topological question about one element. Set 'relation':\n"
-    f"{_enum_lines(RELATIONS)}\n"
-    "  'measure'        — one measurement of one element. Set 'measure':\n"
-    f"{_enum_lines(MEASURES)}\n"
-    "  'distance'       — the distance between TWO elements. Set 'global_id' and 'other_global_id', "
-    "and 'mode':\n"
-    f"{_enum_lines(DISTANCE_MODES)}\n"
+    "  'element'        — everything about ONE element, including which relations it actually has, so "
+    "a relation that would come back empty need not be guessed at. Free, no geometry.\n"
+    "  'relations'      — one topological question about one element.\n"
+    "  'measure'        — one measurement of one element, or of an already-known set of them.\n"
+    "  'survey'         — ONE measure across ALL elements of a selection, each named, with the SPREAD "
+    "over the set. Reach for this the moment the question is plural — 'wie hoch ist der Keller' names "
+    "one room and means seventeen, and 'all 17 at 2.70 m' and '16 at 2.70 m, one at 0.25 m' are "
+    "different answers to it. Measuring one element and generalising supports neither, whichever "
+    "element you picked. The spread IS the finding; report it.\n"
+    "  'element_profile' — the reverse: EVERY measure that applies to ONE element, in one call. Which "
+    "measures apply follows from the element's IFC type, so a door is not asked for its lichte "
+    "Raumhöhe. Reach for it once an element has become interesting — the outlier a survey named — "
+    "instead of guessing one measure at a time.\n"
+    "  'distance'       — the distance between TWO elements, along an axis, between centroids or "
+    "boxes. An Achsabstand, never a clear dimension.\n"
     "  'clearance'      — the LICHTE dimension between TWO elements: the smallest SURFACE-to-SURFACE "
-    "gap, in metres. Set 'global_id' and 'other_global_id'. This is the number 'distance' does not "
-    "have — its 'min' is a gap between BOUNDING BOXES, and on the sample house's pitched roof against "
-    "the interior partition that reads 0.000 m where the clear dimension is 0.995 m, because the "
-    "roof's box swallows the wall's. A box gap is a lower bound on a clearance and never an upper one, "
-    "so it errs in the direction where too tight passes as free. For the clear width of ONE opening "
-    "use measure/clearWidth — an opening has two reveals but is one element. The answer carries both "
-    "measured points and the box gap beside the clear one.\n"
+    "gap. This is the number 'distance' does not have — its 'min' is a gap between BOUNDING BOXES, and "
+    "on the sample house's pitched roof against the interior partition that reads 0.000 m where the "
+    "clear dimension is 0.995 m, because the roof's box swallows the wall's. A box gap is a lower "
+    "bound on a clearance and never an upper one, so it errs in the direction where too tight passes "
+    "as free. For the clear width of ONE opening use 'measure' with clearWidth instead — an opening "
+    "has two reveals but is one element.\n"
     "  'sun_position'   — where the sun stood over this building at an instant: azimuth, altitude, and "
-    "the direction TOWARDS the sun in THIS model's coordinates. Set 'when' to an ISO 8601 instant WITH "
-    "a time zone. NOT a Besonnungsstudie: it says where the sun was, never whether the neighbour's "
-    "gable was in the way — that needs everything outside the property line, which is not in the file, "
-    "and the caveat says so. Undecidable without IfcSite.RefLatitude/RefLongitude, and no latitude is "
-    "assumed: an assumed Vienna on a Vorarlberg project is 1.4° out in altitude and would come back as "
-    "a measured number with a tolerance. This tool therefore takes no coordinates at all.\n"
+    "the direction TOWARDS the sun in THIS model's coordinates. NOT a Besonnungsstudie: it says where "
+    "the sun was, never whether the neighbour's gable was in the way — that needs everything outside "
+    "the property line, which is not in the file, and the caveat says so. Undecidable without "
+    "IfcSite.RefLatitude/RefLongitude, and no latitude is assumed: an assumed Vienna on a Vorarlberg "
+    "project is 1.4° out in altitude and would come back as a measured number with a tolerance. This "
+    "tool therefore takes no coordinates at all.\n"
     "  'storey_heights' — the storey pitch (slab top to slab top) for every storey. This is the "
-    "STRUCTURAL height, NOT the lichte Raumhöhe — never use it for a Raumhöhennachweis, use "
-    "measure/clearHeight.\n"
-    "  'room_inventory' — rooms grouped by a SUSPECTED use (room_kind: aufenthaltsraum, nebenraum, "
-    "erschliessung), inferred from their names. A proposal for a human to confirm, never a finding.\n"
-    "  'fire'           — the OIB 2 (Brandschutz) geometry. Set 'kind':\n"
-    f"{_enum_lines(FIRE_ASPECTS)}\n"
-    "                     NO Gebäudeklasse. fluchtniveau returns a HEIGHT; which class follows from it "
-    "is a legal classification under OIB 2 plus Landesrecht. compartmentArea takes the storey or the "
-    "rooms in 'global_id' (comma-separated); separatingElements takes exactly TWO rooms there.\n"
-    "  'envelope'       — the OIB 6 (Wärmeschutz) geometry of the whole building. Set 'kind':\n"
-    f"{_enum_lines(ENVELOPE_ASPECTS)}\n"
-    "                     Takes NO global_id — an envelope is not a property of an element but the set "
-    "of elements bounding the heated volume, and asking wall by wall is how the wall that was left out "
-    "stays invisible. No U-value is CALCULATED: a declared one is repeated, a missing one is missing "
-    "and is never derived from the layer set, because a U-value computed from a material list is a "
-    "different number from the one the architect signed and looks identical. Costs geometry (seconds).\n"
-    "  'overhang'       — how far one element projects past another's facade plane, in metres. The "
-    "Dachüberstand, the balcony, the canopy. global_id is the projecting element, other_global_id the "
-    "one whose outer face is the reference — get that from relations/hostedIn on the window.\n"
+    "STRUCTURAL height, NOT the lichte Raumhöhe — never use it for a Raumhöhennachweis, use 'measure' "
+    "with clearHeight.\n"
+    "  'room_inventory' — rooms grouped by a SUSPECTED use, inferred from their names. A proposal for "
+    "a human to confirm, never a finding.\n"
+    "  'fire'           — the OIB 2 (Brandschutz) geometry. NO Gebäudeklasse: fluchtniveau returns a "
+    "HEIGHT, and which class follows from it is a legal classification under OIB 2 plus Landesrecht.\n"
+    "  'envelope'       — the OIB 6 (Wärmeschutz) geometry of the WHOLE building. Asking wall by wall "
+    "is how the wall that was left out stays invisible, so it takes no element. No U-value is "
+    "CALCULATED: a declared one is repeated, a missing one is missing and is never derived from the "
+    "layer set, because a U-value computed from a material list is a different number from the one the "
+    "architect signed and looks identical. Costs geometry (seconds).\n"
+    "  'overhang'       — how far one element projects past another's facade plane. The Dachüberstand, "
+    "the balcony, the canopy.\n"
     "  'light_incidence' — builds the light prism over an opening's lower edge and reports which "
-    "elements reach into it and how deep. angle_deg and swivel_deg come from the BESTIMMUNG, not from "
-    "the model (OIB 3: 45 and 30) and the tool refuses without them rather than defaulting, because "
-    "supplying the angle would be applying the clause. The result is GEOMETRY: a cut prism enlarges "
-    "the required Lichteintrittsflaeche under OIB 3, it does not ban the window. Report what intrudes "
-    "and how far, then apply the clause yourself. other_global_id EXCLUDES elements from the test — one "
-    "GlobalId, or several separated by commas. The host wall is deliberately not excluded on its own, "
-    "because a window set deep in a thick wall genuinely is shaded by its own reveal — but if the wall "
-    "comes back as an obstruction, re-run with it excluded (keeping any other exclusion you already "
-    "had), and say in the answer that you did and why.\n"
+    "elements reach into it and how deep. The result is GEOMETRY: a cut prism enlarges the required "
+    "Lichteintrittsfläche under OIB 3, it does not ban the window. Report what intrudes and how far, "
+    "then apply the clause yourself. The host wall is deliberately not excluded on its own, because a "
+    "window set deep in a thick wall genuinely is shaded by its own reveal — but if the wall comes "
+    "back as an obstruction, re-run with it excluded (keeping any other exclusion you already had), "
+    "and say in the answer that you did and why.\n"
     "  'view'           — LOOK at a floor plan. Returns the storey as an IMAGE you can actually see, "
-    "cut at 1.2 m so door and window openings appear as gaps. global_id takes one GlobalId or several "
-    "separated by commas; mode='highlight' (default) marks them red on the full plan ('where is this'), "
-    "mode='only' draws nothing else ('what does this look like'). Use it to settle which element is "
-    "meant, to sanity-check that a measured arrangement looks the way the numbers imply, or before "
-    "measuring at all. ~6 s. NEVER read a number off it — a dimension taken from a picture is guessed "
-    "even when it happens to be right.\n"
+    "cut at 1.2 m so door and window openings appear as gaps. Use it to settle which element is meant, "
+    "to sanity-check that a measured arrangement looks the way the numbers imply, or before measuring "
+    "at all. ~6 s. NEVER read a number off it — a dimension taken from a picture is guessed even when "
+    "it happens to be right.\n"
     "  'draw'           — the same plan as an SVG FILE for the USER (~5 s). It returns a path, not an "
     "image: you cannot see it. Use 'view' when YOU need to look, 'draw' when the user wants the file.\n"
     "  'shopping_list'  — writes the model's blind spots as a buildingSMART IDS 1.0 file the architect "
@@ -396,32 +783,30 @@ _TOOL_DESCRIPTION = (
     "together, do not derive a third dimension from two others, do not restate a millimetre value in "
     "centimetres. If a question needs a number that was not returned, make another call — arithmetic "
     "done in an answer is a guess wearing the tool's authority. And NEVER read a measurement off a "
-    "drawing: 'draw' shows the arrangement, measure/distance give the numbers, and a value read off an "
-    "image is guessed even when it happens to be right.\n"
+    "drawing: 'draw' shows the arrangement, 'measure' and 'distance' give the numbers, and a value "
+    "read off an image is guessed even when it happens to be right.\n"
     "\n"
     "COST — plan the calls before making them. 'briefing', 'find_elements' and 'element' are free "
     "(pure topology). The first 'measure' or 'distance' on a model tessellates it (~2 s for a "
-    "single-family house). relations opensTo / bounds / enclosedBy / adjacentSpaces build a "
-    "space-contact map on first use — around 7 seconds on a cold model — because most exports write no "
-    "IfcRelSpaceBoundary and it has to be derived. 'draw' is ~5 s. After that everything is "
+    "single-family house). The geometric relations opensTo / bounds / enclosedBy / adjacentSpaces "
+    "build a space-contact map on first use — around 7 seconds on a cold model — because most exports "
+    "write no IfcRelSpaceBoundary and it has to be derived. 'draw' is ~5 s. After that everything is "
     "milliseconds, because the model stays parsed. Do NOT call the geometric relations speculatively "
     "or 'to see what is there' — call them when the answer needs them.\n"
     "\n"
-    "Every GlobalId you pass must come from find_elements, from element, or from an ifc_query result "
-    "in THIS turn. An invented GlobalId is refused by name, not guessed at.\n"
+    "Every GlobalId you pass must come from 'find_elements', from 'element', or from an ifc_query "
+    "result in THIS turn. An invented GlobalId is refused by name, not guessed at.\n"
     "\n"
     "A typical chain — 'ist die Raumhöhe im Wohnzimmer ausreichend?':\n"
-    "  1. operation='briefing'  → the storey names and what this file cannot answer\n"
+    "  1. operation='briefing' → the storey names and what this file cannot answer\n"
     "  2. operation='find_elements' ifc_type='IfcSpace' name_contains='Wohn' storey='Erdgeschoss'\n"
-    "  3. operation='measure' global_id='<the GlobalId from step 2>' measure='clearHeight'\n"
+    "  3. operation='measure' global_id='<the GlobalId from step 2>' measure='clearHeight' — or, if the "
+    "question is really about the storey and not that one room, operation='survey' measure='clearHeight' "
+    "storey='Erdgeschoss', which measures all of them and gives the spread\n"
     "  4. report the rendered line as it stands — gemessen, with its tolerance and its caveat\n"
-    "For a distance: operation='distance' global_id='<a>' other_global_id='<b>' mode='horizontal'. "
-    "For a room's suspected use: operation='room_inventory' room_kind='aufenthaltsraum'. "
-    "For a plan: operation='draw' storey='Erdgeschoss'.\n"
     "\n"
-    "model_name selects one model when the project has several (a substring of the file name); leave "
-    "it empty when there is only one. When the model cannot be resolved the tool says so in German — "
-    "report that sentence rather than answering from the model's own knowledge.\n"
+    "When the model cannot be resolved the tool says so in German — report that sentence rather than "
+    "answering from your own knowledge of buildings.\n"
     "\n"
     "A measurement that contradicts a declared quantity is reported as a contradiction ('Widerspruch'), "
     "and that is a FINDING an architect wants before submission: their schedule and their geometry "
@@ -612,6 +997,36 @@ def _build_call(
             args["include"] = [_clean(ifc_type)]
         return "draw", args
 
+    if op == "survey":
+        # Sits with `find_elements` and `draw`, ABOVE the subject guard, because
+        # it takes no element: its subject IS the selection. The selection half
+        # is `find_elements` and the measuring half is `measure`, and the reason
+        # the two are fused into one operation is the turn budget — composed
+        # from primitives, „wie hoch ist der Keller" costs find_elements +
+        # measure + a GlobalId→Name join the agent has to carry in its head,
+        # three of five turns for a question that has one call in it.
+        wanted = _clean(measure)
+        if wanted not in MEASURES:
+            record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
+            return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
+        # Capped at 50 rather than find_elements' 500: every row here is a real
+        # geometric measurement, not an index lookup.
+        args = {"measure": wanted, "limit": max(1, min(int(limit or 50), 50))}
+        if _clean(ifc_type):
+            args["ifcType"] = _clean(ifc_type)
+        if _clean(name_contains):
+            args["nameContains"] = _clean(name_contains)
+        if _clean(storey):
+            args["storey"] = _clean(storey)
+        if _clean(kind):
+            if _clean(kind).lower() not in KINDS:
+                return (
+                    f"Error: kind '{kind}' does not exist. Use one of: {', '.join(KINDS)}. "
+                    "'kind' is the spatial ROLE (a room is 'space'); an IFC type goes in 'ifc_type'."
+                )
+            args["kind"] = _clean(kind).lower()
+        return "survey", args
+
     # Everything below needs a subject element.
     if not subject:
         return (
@@ -635,6 +1050,17 @@ def _build_call(
             record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
             return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
         return "measure", {"globalId": subject, "measure": wanted}
+
+    if op == "element_profile":
+        # Below the subject guard, correctly: this one IS about a single
+        # element. `kind` carries the expensive opt-in rather than a new
+        # parameter, because the field is already the tool's catch-all
+        # vocabulary slot and one more boolean on a sixteen-parameter signature
+        # buys less than it costs.
+        args = {"globalId": subject}
+        if _clean(kind).lower() == "expensive":
+            args["include"] = "expensive"
+        return "element_profile", args
 
     if op == "clearance":
         if not _clean(other_global_id):
@@ -1016,7 +1442,11 @@ def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]
         prism = answer.get("prism") or {}
         angles = (
             f" (Prisma {_angle(prism.get('angleDeg'))}°"
-            + (f", seitlich {_angle(prism.get('swivelDeg'))}°" if prism.get("swivelDeg") else "")
+            # `is not None`, not truthiness: a swivel of 0° is a STATED
+            # parameter from the Bestimmung („senkrecht, kein seitlicher
+            # Schwenk"), and dropping the phrase leaves a reader unable to tell
+            # it from a prism that was never given one.
+            + (f", seitlich {_angle(prism.get('swivelDeg'))}°" if prism.get("swivelDeg") is not None else "")
             + ")"
             if prism
             else ""
@@ -1163,6 +1593,59 @@ def _render_unresolved(result: dict[str, Any]) -> str:
     return f"{message} {heading}: {listed}."
 
 
+def _measured_count(payload: Any) -> int:
+    """How many QUANTITIES in one payload carry a ``declared``/``computed`` provenance.
+
+    Read off the envelope's own fields — ``decidable``, ``provenance``, ``unit``
+    and ``tolerance`` — and never off the German the renderer wraps them in.
+    This is the number the result states about itself
+    (:mod:`.measurement_evidence`), and it is what the confidence gate stands
+    on, so it counts EVIDENCE and nothing else: an undecidable finding, a
+    heuristic ``inferred`` guess and a measure that raised are all zero.
+
+    A provenance alone is NOT enough, and that distinction is the whole point.
+    ``relations`` answers a topology question — „welche Bauteile begrenzen
+    diesen Raum" — and returns a decidable ``Answer`` whose ``value`` is a LIST
+    of GlobalIds with ``provenance: declared``. Nothing in it was measured, yet
+    it used to report one Messwert, and an answer that ran a `relations` lookup
+    and then invented „rund 2,7 m" surfaced at "medium" as a measurement.
+    ``find_elements`` was already excluded for exactly this reason; a hit list
+    does not stop being a hit list by arriving in an ``Answer`` wrapper.
+
+    So the test is whether the value is a QUANTITY: a ``unit`` or a
+    ``tolerance``. Not scalar-ness — ``storey_heights`` measures every storey
+    and legitimately answers with a list carrying ``unit: "m"`` — and not both
+    fields either, since ``envelope`` reports areas in m² without a tolerance.
+    Verified against all 19 operations over the repository's IFC fixtures: the
+    only count this changes is ``relations``.
+    """
+
+    def _one(answer: Any) -> int:
+        if not isinstance(answer, dict) or answer.get("error"):
+            return 0
+        if not answer.get("decidable"):
+            return 0
+        if answer.get("provenance") not in EVIDENCE_PROVENANCES:
+            return 0
+        return 1 if answer.get("unit") is not None or answer.get("tolerance") is not None else 0
+
+    if not isinstance(payload, dict):
+        return 0
+    # `element_profile`: many measures over one element.
+    if "measures" in payload and "element" in payload:
+        return sum(_one(answer) for answer in (payload.get("measures") or {}).values())
+    # `survey` / a batch `measure`: one measure over many elements.
+    if "results" in payload and "summary" in payload:
+        return sum(_one((entry or {}).get("answer")) for entry in (payload.get("results") or []))
+    # A single `Answer`.
+    if "decidable" in payload:
+        return _one(payload)
+    # Everything else — a briefing, a find_elements hit list, an element's
+    # index metadata, a written IDS file, a drawing's path. Those are real
+    # results and none of them is a measurement of the building.
+    return 0
+
+
 def _render(
     operation: str,
     payload: Any,
@@ -1170,7 +1653,37 @@ def _render(
     source: dict[str, Any] | None = None,
     handle: str = "",
 ) -> str:
-    """The engine's result as the string the model reads."""
+    """The engine's result as the string the model reads.
+
+    Ends with the evidence trailer (:func:`.measurement_evidence_line`) on every
+    path that could carry a measurement, because "how many values did this
+    actually measure" is a question the result has to answer about itself — the
+    confidence gate reads that line, and a reader who sees „gemessen: raumhoehe
+    an 0 von 3 Bauteilen" needs the same fact stated rather than implied.
+
+    :data:`NON_MEASURING_OPERATIONS` get no trailer at all. „Messwerte in diesem
+    Ergebnis: 0" is true of a `draw` and useless to the model: it reads as a
+    measurement that failed and invites a retry, and with
+    ``max_tool_iterations`` at 5 a wasted turn is expensive. Suppressing the
+    line cannot open the gate, because the gate needs a trailer stating a
+    NON-ZERO count and an absent trailer is False either way
+    (:func:`measurement_evidence.result_carries_measurement`) — so an operation
+    nobody thought to list here still yields no grounding.
+    """
+    body = _render_body(operation, payload, source=source, handle=handle)
+    if operation in NON_MEASURING_OPERATIONS:
+        return body
+    return body + "\n" + measurement_evidence_line(_measured_count(payload))
+
+
+def _render_body(
+    operation: str,
+    payload: Any,
+    *,
+    source: dict[str, Any] | None = None,
+    handle: str = "",
+) -> str:
+    """The result itself, one branch per operation shape."""
     lines: list[str] = []
     header = _model_line(source or {}, handle)
     if header:
@@ -1243,6 +1756,99 @@ def _render(
             "Die Zeichnung liegt als Datei auf dem Server. Maße NICHT aus dem Bild ablesen — dafür "
             "operation='measure' oder 'distance' verwenden."
         )
+        return "\n".join(line for line in lines if line)
+
+    # Every measure that applies to one element. Without this branch the payload
+    # falls through to `str(payload)` at the bottom of this function and dumps a
+    # raw Python dict — thousands of tokens of `{'value': {...}, 'tolerance':
+    # 0.005, ...}` with the German provenance verbs stripped out, which is the
+    # rendering defect this whole module exists to prevent, at the largest
+    # payload on the surface.
+    if isinstance(payload, dict) and "measures" in payload and "element" in payload:
+        element = payload.get("element") or {}
+        head = f"gemessen an {element.get('name') or element.get('globalId')} ({element.get('ifcType')}"
+        if payload.get("storey"):
+            head += f", {payload['storey']}"
+        lines.append(head + "):")
+        for name, answer in (payload.get("measures") or {}).items():
+            answer = answer or {}
+            if answer.get("error"):
+                lines.append(f"- {name}: FEHLER — {answer['error']}")
+            elif answer.get("decidable"):
+                value = _value_text(answer.get("value"))
+                unit = answer.get("unit") or ""
+                lines.append(f"- {name}: {value} {unit}".rstrip())
+            else:
+                missing = (answer.get("missing") or {}).get("what") or "nicht entscheidbar"
+                lines.append(f"- {name}: NICHT ENTSCHEIDBAR — {missing}")
+        skipped = payload.get("notMeasured") or {}
+        if skipped.get("kinds"):
+            lines.append(f"Nicht gemessen: {', '.join(skipped['kinds'])}. {skipped.get('why') or ''}".strip())
+        lines.append(
+            "Verkürzte Übersicht: Toleranz, Herkunft und Methode je Kennwert liefert operation='measure' "
+            "für den einen, auf den es ankommt. Lange Listen sind gekürzt."
+        )
+        return "\n".join(line for line in lines if line)
+
+    # A batch measurement — one `measure` call over several elements. Rendered
+    # as a table with the SPREAD first, because that is the finding: „alle 17
+    # Kellerräume 2.70 m" and „16 davon 2.70 m, einer 0.25 m" are different
+    # answers to the same question, and only the second is true of the
+    # Institute's basement. Flattening this through `_value_text` would print
+    # „results=17 Einträge, summary=(…)" — seventeen measurements and not one
+    # number, the same defect the door graph had.
+    if isinstance(payload, dict) and "results" in payload and "summary" in payload:
+        summary = payload.get("summary") or {}
+        results = payload.get("results") or []
+        measured, of = summary.get("measured", 0), summary.get("of", len(results))
+        spread = summary.get("spread")
+        head = f"gemessen: {payload.get('measure')} an {measured} von {of} Bauteilen"
+        if spread is not None and spread > 0:
+            head += f" — von {_num(summary.get('min'), 3)} bis {_num(summary.get('max'), 3)}, Spanne {_num(spread, 3)}"
+        elif spread == 0:
+            head += f" — durchgehend {_num(summary.get('min'), 3)}"
+        if payload.get("truncated"):
+            head += f" (von {summary.get('selected')} passenden — NUR diese Auswahl)"
+        lines.append(head + ".")
+        for entry in results[:40]:
+            answer = entry.get("answer") or {}
+            # `survey` carries the name; a bare `measure` over a list of ids does
+            # not. Preferring the name matters more than it looks: a reviewer who
+            # has to act on „einer dieser Räume ist 0,25 m hoch" needs to know
+            # WHICH, and a 22-character GlobalId is not something a person can
+            # carry to a CAD window.
+            label = entry.get("name") or entry.get("globalId")
+            if entry.get("name") and entry.get("storey"):
+                label = f"{entry['name']} ({entry['storey']})"
+            if answer.get("decidable"):
+                value = _num(answer.get("value"), _decimals(answer.get("tolerance")))
+                lines.append(f"- {label}: {value} {answer.get('unit') or ''}".rstrip())
+            else:
+                missing = (answer.get("missing") or {}).get("what") or "nicht entscheidbar"
+                lines.append(f"- {label}: NICHT ENTSCHEIDBAR — {missing}")
+        if len(results) > 40:
+            lines.append(f"… {len(results) - 40} weitere nicht gezeigt.")
+        if summary.get("undecidable"):
+            count = len(summary["undecidable"])
+            noun = "Bauteil konnte" if count == 1 else "Bauteile konnten"
+            lines.append(
+                f"{count} {noun} nicht gemessen werden — sie sind oben einzeln genannt und dürfen "
+                "nicht als „wie die anderen“ berichtet werden."
+            )
+        if summary.get("disagree"):
+            named = ", ".join(entry.get("name") or entry.get("globalId") for entry in summary["disagree"])
+            lines.append(
+                f"WIDERSPRUCH zwischen deklariertem und gemessenem Wert bei: {named}. "
+                "Das ist ein Befund über den Export, nicht über das Gebäude."
+            )
+        if payload.get("hint"):
+            lines.append(str(payload["hint"]))
+        if spread:
+            # Only when there IS a spread. Printing „die Spanne ist die Aussage"
+            # under a survey that measured nothing was advice about a number the
+            # caller does not have, and the sentence has to keep meaning
+            # something for the cases where it fires.
+            lines.append("Die Spanne ist die Aussage: ein einzeln gemessener Raum belegt nichts über die übrigen.")
         return "\n".join(line for line in lines if line)
 
     if isinstance(payload, dict) and "decidable" in payload:
@@ -1391,25 +1997,20 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
         handle = open_model(source)
         return source, call_spatial_tool(handle, name, args), handle
 
-    async def _ifc_measure(
-        operation: str = "briefing",
-        global_id: str = "",
-        other_global_id: str = "",
-        relation: str = "",
-        measure: str = "",
-        mode: str = "min",
-        ifc_type: str = "",
-        name_contains: str = "",
-        storey: str = "",
-        kind: str = "",
-        room_kind: str = "",
-        model_name: str = "",
-        limit: int = 0,
-        angle_deg: float = 0.0,
-        swivel_deg: float = 0.0,
-        when: str = "",
-    ) -> list[dict] | str:
-        """Measure the project's IFC/BIM model and report the provenance."""
+    async def _ifc_measure(arguments: IfcMeasureInput) -> list[dict] | str:
+        """Measure the project's IFC/BIM model and report the provenance.
+
+        One validated argument rather than sixteen loose ones. The defaults used
+        to be written twice — once in this signature and once in the prose that
+        told the model what they were — and the two disagreed: `mode` defaulted
+        to 'min' here, so every `view` call that took the description at its
+        word and omitted the field arrived as mode='min', which `view` does not
+        have, and was refused. The description said the default was 'highlight'
+        and it was telling the truth about `_build_call`; nothing between them
+        was. :class:`IfcMeasureInput` is now the only place a default is
+        written, and 'not given' reaches `_build_call` as 'not given', where the
+        per-operation default has always lived.
+        """
         organization_id = get_organization_id_from_context()
         if not organization_id:
             return "Error: organization unknown for this session — the BIM model cannot be read. Do not retry."
@@ -1419,40 +2020,42 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
             # needs a project to scope the model list to, this tool never sends
             # a modelId, and the 400 that results reads as a correctable
             # argument error. Refused here, where the reason is knowable.
-            _trace((operation or "").strip().lower(), "", outcome="no_project")
+            _trace(arguments.operation, "", outcome="no_project")
             return NO_PROJECT_TEXT
 
+        limit = arguments.limit
         built = _build_call(
-            operation=operation or "briefing",
-            global_id=global_id or "",
-            other_global_id=other_global_id or "",
-            relation=relation or "",
-            measure=measure or "",
-            mode=mode or "",
-            ifc_type=ifc_type or "",
-            name_contains=name_contains or "",
-            storey=storey or "",
-            kind=kind or "",
-            room_kind=room_kind or "",
+            operation=arguments.operation,
+            global_id=str(arguments.global_id),
+            other_global_id=str(arguments.other_global_id),
+            relation=arguments.relation or "",
+            measure=arguments.measure or "",
+            mode=arguments.mode or "",
+            ifc_type=arguments.ifc_type,
+            name_contains=arguments.name_contains,
+            storey=arguments.storey,
+            kind=arguments.kind or "",
+            room_kind=arguments.room_kind or "",
             limit=limit if limit and limit > 0 else tool_config.default_limit,
-            # Zero is "not given" for both, which is safe because neither is a
-            # usable angle: `light_incidence` refuses a missing or out-of-range
-            # one by name rather than defaulting to 45, since the angle is a
-            # fact about the clause and supplying it would be applying the law.
-            angle_deg=angle_deg if angle_deg else None,
-            swivel_deg=swivel_deg if swivel_deg else None,
-            when=when or "",
+            # Passed through as they arrived. "Not given" is `None` in the
+            # schema itself, so nothing here has to re-decide what a missing
+            # angle looks like — and `swivel_deg=0` (a real, legal value: no
+            # lateral Verschwenkung) reaches `_build_call` as 0 instead of being
+            # laundered into "absent" by a falsiness test.
+            angle_deg=arguments.angle_deg,
+            swivel_deg=arguments.swivel_deg,
+            when=arguments.when,
         )
         if isinstance(built, str):
             # Rejected before anything was resolved, downloaded or parsed.
-            _trace((operation or "").strip().lower(), "", outcome="rejected")
+            _trace(arguments.operation, "", outcome="rejected")
             return built
         name, args = built
         detail = str(args.get("relation") or args.get("measure") or args.get("mode") or "")
 
         try:
             source, payload, handle = await asyncio.to_thread(
-                _run, organization_id, project_id, model_name or "", name, args
+                _run, organization_id, project_id, arguments.model_name, name, args
             )
         except BimQueryRejectedError as exc:
             logger.info("ifc_measure was rejected: %s", exc)
@@ -1498,4 +2101,9 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
             return _image_blocks(payload, source=source, handle=handle)
         return _render(name, payload, source=source, handle=handle)
 
-    yield FunctionInfo.from_fn(_ifc_measure, description=_TOOL_DESCRIPTION)
+    # `input_schema` is passed rather than inferred, which is the whole point:
+    # NAT hands it to the framework wrapper as the tool's `args_schema`, and
+    # that is what becomes the JSON schema the model is shown. Inferred from the
+    # signature it was sixteen bare strings; declared, it carries the enums, the
+    # per-parameter text and the one required field.
+    yield FunctionInfo.from_fn(_ifc_measure, input_schema=IfcMeasureInput, description=_TOOL_DESCRIPTION)

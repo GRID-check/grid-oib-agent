@@ -91,6 +91,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0046](0046-agent-skills.md) | Agent skills — user-selected, progressive-disclosure instruction packages | Proposed |
 | [0047](0047-document-shelf-travels-as-data.md) | A document's shelf travels as data, not as a name or a label | Proposed |
 | [0047](0047-assignment-is-not-access.md) | Assignment is not access (and not provenance) | Proposed |
+| [0048](0048-tool-schemas-stay-with-the-provider.md) | Tool schemas stay with the provider, and a namespace is what makes that true | Proposed |
 
 > Note: two ADRs were independently numbered 0027, two more 0039, and two more
 > 0047. Each collision is recorded rather than renumbered so existing links
