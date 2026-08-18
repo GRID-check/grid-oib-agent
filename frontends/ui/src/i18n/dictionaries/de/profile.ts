@@ -37,7 +37,7 @@ export const profile: typeof en.profile = {
     title: 'Herleitung',
     description: 'Wie viel von Pilotis Denkweg in der Antwort gezeigt wird.',
     label: 'Technische Herleitung anzeigen',
-    hint: 'Zeigt die einzelnen technischen Schritte (welcher Agent bzw. welches Werkzeug lief). Standardmäßig aus — normal siehst du die verständliche Herleitung.',
+    hint: 'Zeigt die einzelnen technischen Schritte (welcher Agent bzw. welches Werkzeug lief). Standardmäßig aus — normalerweise sehen Sie die verständliche Herleitung.',
   },
   security: {
     title: 'Sicherheit & Sitzungen',

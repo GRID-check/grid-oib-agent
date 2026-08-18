@@ -80,7 +80,7 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
   return (
     <SchematicCard
       icon={ArrowUpDown}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}

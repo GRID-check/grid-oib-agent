@@ -35,7 +35,7 @@ export const onboarding = {
       'Expecting to join an existing organization? Ask its admin for an invitation instead — invited members never see this step.',
   },
   features: {
-    privateTenant: 'Private tenant',
+    privateTenant: 'Private environment',
     adminAccess: 'Admin access',
     projectsReady: 'Projects ready',
   },

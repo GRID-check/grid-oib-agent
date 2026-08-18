@@ -28,7 +28,7 @@ describe('ThoughtTracesTab', () => {
     test('shows empty state when no thought traces', () => {
       render(<ThoughtTracesTab thoughtTraces={[]} />)
 
-      expect(screen.getByText('No thought traces available.')).toBeInTheDocument()
+      expect(screen.getByText('No train of thought available.')).toBeInTheDocument()
       expect(
         screen.getByText(
           'These details appear during active research and may not be available for completed reports.'
@@ -39,7 +39,7 @@ describe('ThoughtTracesTab', () => {
     test('shows empty state when thoughtTraces prop is undefined', () => {
       render(<ThoughtTracesTab />)
 
-      expect(screen.getByText('No thought traces available.')).toBeInTheDocument()
+      expect(screen.getByText('No train of thought available.')).toBeInTheDocument()
     })
   })
 
@@ -47,7 +47,7 @@ describe('ThoughtTracesTab', () => {
     test('renders header', () => {
       render(<ThoughtTracesTab thoughtTraces={[createThought()]} />)
 
-      expect(screen.getByText('Thought Traces')).toBeInTheDocument()
+      expect(screen.getByText('Train of thought')).toBeInTheDocument()
     })
 
     test('renders thought cards', () => {

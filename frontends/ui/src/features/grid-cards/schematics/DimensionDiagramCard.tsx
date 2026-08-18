@@ -601,7 +601,7 @@ export const DimensionDiagramCard: FC<DimensionDiagramCardProps> = ({
   return (
     <SchematicCard
       icon={Ruler}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(dimensions.map((d) => d.status))}
       note={note}

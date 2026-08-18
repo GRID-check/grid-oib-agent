@@ -111,7 +111,7 @@ export const EgressDiagramCard: FC<EgressDiagramCardProps> = ({
   return (
     <SchematicCard
       icon={Route}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={total_length.status}
       reference={reference}

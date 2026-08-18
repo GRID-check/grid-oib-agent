@@ -75,7 +75,7 @@ export const projects: typeof en.projects = {
       oibBrandschutzAudit: { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
     },
     footnote:
-      'Erstellen Sie einen fokussierten Arbeitsbereich für Dokumente, Retrieval, Mitglieder und Chat, fundiert im OIB/RIS-Korpus.',
+      'Erstellen Sie einen fokussierten Arbeitsbereich für Dokumente, Recherche, Mitglieder und Chat — fundiert in den OIB-Richtlinien und im RIS.',
     submit: 'Projekt erstellen',
   },
   applicableStandards: {

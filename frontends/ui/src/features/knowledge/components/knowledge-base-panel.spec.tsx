@@ -97,7 +97,7 @@ describe('KnowledgeBasePanel', () => {
     await screen.findByText('oib-rl_1_ausgabe_mai_2023.pdf')
     // 128 searchable chunks and 2 files needing attention (1 stale + 1 pending).
     expect(screen.getByText('128')).toBeDefined()
-    expect(screen.getByText('Searchable chunks')).toBeDefined()
+    expect(screen.getByText('Searchable sections')).toBeDefined()
     expect(screen.getByText('Needs attention')).toBeDefined()
   })
 

@@ -20,7 +20,7 @@ export const members: typeof en.members = {
     'project-viewer':
       'Kann Projektinhalte, Dateien und Unterhaltungen ansehen, aber nichts ändern.',
     'project-editor':
-      'Kann außerdem Dokumente bearbeiten, Workflows ausführen und das Projektprofil aktualisieren.',
+      'Kann außerdem Dokumente bearbeiten, Recherchen starten und das Projektprofil aktualisieren.',
     'project-admin': 'Kann außerdem Projekteinstellungen, Mitglieder und Rollen verwalten.',
   },
   validation: {

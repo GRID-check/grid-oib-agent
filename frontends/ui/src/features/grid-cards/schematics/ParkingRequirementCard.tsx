@@ -130,7 +130,7 @@ export const ParkingRequirementCard: FC<ParkingRequirementCardProps> = ({
   return (
     <SchematicCard
       icon={SquareParking}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus([car.status, ...(bike ? [bike.status] : [])])}
       note={note}

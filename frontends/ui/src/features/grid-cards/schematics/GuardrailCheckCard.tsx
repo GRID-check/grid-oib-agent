@@ -121,7 +121,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
   return (
     <SchematicCard
       icon={Fence}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}

@@ -5,7 +5,7 @@ export const organization: typeof en.organization = {
   title: 'Organisation',
   subtitle: 'Verwalten Sie Ihre Organisation, ihre Mitglieder und Zugriffe.',
   loading: 'Organisation wird geladen…',
-  memberSubtitle: 'Ihr LLM-Verbrauch und Ihre Organisation auf einen Blick.',
+  memberSubtitle: 'Ihr Verbrauch und Ihre Organisation auf einen Blick.',
   backToApp: 'Zurück zu den Projekten',
   nav: {
     label: 'Organisationsbereiche',
@@ -94,7 +94,7 @@ export const organization: typeof en.organization = {
       platform: 'Plattform',
     },
     notAllowed: {
-      title: 'Du kannst hier keine Personen verwalten',
+      title: 'Sie können hier keine Personen verwalten',
       description:
         'Für die Verwaltung von Personen und Rollen wird die Berechtigung „Personen und Rollen verwalten“ benötigt. Ein Organisations-Admin kann sie vergeben.',
     },
@@ -282,7 +282,7 @@ export const organization: typeof en.organization = {
       'LLM-Ausgaben pro Modell im Verhältnis zu Ihren Organisationslimits. Die Kosten stammen aus dem OpenRouter-Usage-Accounting; Limits werden vor jeder Anfrage durchgesetzt.',
     memberTitle: 'Ihr Verbrauch',
     memberDescription:
-      'Ihre eigenen LLM-Ausgaben im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
+      'Ihre eigenen Ausgaben im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
     today: 'Heute',
     thisMonth: 'Dieser Monat',
     ofLimit: '{spent} von {limit}',

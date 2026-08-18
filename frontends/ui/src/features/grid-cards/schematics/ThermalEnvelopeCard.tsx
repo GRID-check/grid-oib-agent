@@ -113,7 +113,7 @@ export const ThermalEnvelopeCard: FC<ThermalEnvelopeCardProps> = ({
   return (
     <SchematicCard
       icon={Thermometer}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(components.map((c) => c.u_value.status))}
       note={note}

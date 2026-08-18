@@ -485,7 +485,7 @@ describe('ChatThinking', () => {
       expect(screen.queryByText('Web search')).not.toBeInTheDocument()
       expect(screen.queryByText('Web Search')).not.toBeInTheDocument()
       expect(screen.queryByText('RIS')).not.toBeInTheDocument()
-      expect(screen.queryByText('OIB corpus')).not.toBeInTheDocument()
+      expect(screen.queryByText('OIB knowledge')).not.toBeInTheDocument()
       expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
       expect(screen.queryByText('Attached files:')).not.toBeInTheDocument()
     })

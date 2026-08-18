@@ -246,7 +246,7 @@ describe('ReportTab', () => {
     render(<ReportTab />)
 
     // Localized badges render for each origin…
-    expect(screen.getByText('Knowledge Base')).toBeInTheDocument()
+    expect(screen.getByText('Knowledge base')).toBeInTheDocument()
     expect(screen.getByText('Web')).toBeInTheDocument()
     expect(screen.getByText('RIS')).toBeInTheDocument()
     // …and the origin token is stripped from the displayed source text.
@@ -280,7 +280,7 @@ describe('ReportTab', () => {
     render(<ReportTab showSourceBadges={false} />)
 
     // No localized badges render…
-    expect(screen.queryByText('Knowledge Base')).not.toBeInTheDocument()
+    expect(screen.queryByText('Knowledge base')).not.toBeInTheDocument()
     expect(screen.queryByText('Web')).not.toBeInTheDocument()
     expect(screen.queryByText('RIS')).not.toBeInTheDocument()
     // …but the source entries still render as plain text with the raw origin
@@ -310,7 +310,7 @@ describe('ReportTab', () => {
     render(<ReportTab />)
 
     expect(document.getElementById('report-source-1')).toBeInTheDocument()
-    expect(screen.queryByText('Knowledge Base')).not.toBeInTheDocument()
-    expect(screen.queryByText('Wissensdatenbank')).not.toBeInTheDocument()
+    expect(screen.queryByText('Knowledge base')).not.toBeInTheDocument()
+    expect(screen.queryByText('Wissensbasis')).not.toBeInTheDocument()
   })
 })

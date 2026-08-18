@@ -4,7 +4,7 @@ import type { en } from '../en'
 export const knowledge: typeof en.knowledge = {
   title: 'Wissensbasis',
   subtitle:
-    'Alle Dokumente, auf die sich der Assistent stützen kann — der gemeinsame OIB-Richtlinien-Korpus plus die in diesem Projekt hochgeladenen Dateien. Nichts anderes wird verwendet.',
+    'Alle Dokumente, auf die sich der Assistent stützen kann — die gemeinsamen OIB-Richtlinien plus die in diesem Projekt hochgeladenen Dateien. Nichts anderes wird verwendet.',
   summary: {
     documents: 'Dokumente',
     indexed: 'Indexiert',
@@ -13,11 +13,11 @@ export const knowledge: typeof en.knowledge = {
     lastUpdated: 'Index zuletzt aktualisiert am {date}',
   },
   corpus: {
-    title: 'OIB-Richtlinien-Korpus',
+    title: 'Gemeinsame OIB-Richtlinien',
     description:
       'Die österreichischen OIB-Richtlinien, die alle Projekte teilen. Als „Indexiert“ markierte Dokumente sind für den Assistenten vollständig durchsuchbar.',
-    empty: 'Keine Korpus-Dokumente gefunden. Die erste Ingestion läuft möglicherweise noch.',
-    notSynced: 'Der Wissensindex wurde noch nicht aufgebaut. Dokumente erscheinen hier, sobald die erste Ingestion abgeschlossen ist.',
+    empty: 'Keine Richtlinien-Dokumente gefunden. Die erste Verarbeitung läuft möglicherweise noch.',
+    notSynced: 'Die Wissensbasis wurde noch nicht aufgebaut. Dokumente erscheinen hier, sobald die erste Verarbeitung abgeschlossen ist.',
     columns: {
       document: 'Dokument',
       status: 'Status',
@@ -31,7 +31,7 @@ export const knowledge: typeof en.knowledge = {
   project: {
     title: 'Projektdokumente',
     description:
-      'In diesem Projekt hochgeladene Dateien. Nach der Verarbeitung sind sie in den Chats dieses Projekts zusätzlich zum gemeinsamen Korpus durchsuchbar.',
+      'In diesem Projekt hochgeladene Dateien. Nach der Verarbeitung sind sie in den Chats dieses Projekts zusätzlich zu den gemeinsamen Richtlinien durchsuchbar.',
     empty: 'Noch keine Projektdokumente. Unter „Dateien“ hochgeladene Dateien werden Teil des Wissens des Assistenten.',
     goToFiles: 'Dateien verwalten',
   },
@@ -39,17 +39,17 @@ export const knowledge: typeof en.knowledge = {
     ingested: 'Indexiert',
     stale: 'Veraltet',
     pending: 'Noch nicht indexiert',
-    snapshot: 'Indexiert (Snapshot)',
+    snapshot: 'Indexiert (ohne Original)',
     removed: 'Quelle entfernt',
     inconsistent: 'Index fehlt',
   },
   stateHints: {
     ingested: 'Für den Assistenten vollständig durchsuchbar.',
     stale: 'Die Datei wurde seit der Indexierung geändert; Antworten spiegeln bis zur nächsten Synchronisierung die vorherige Version wider.',
-    pending: 'Auf der Festplatte vorhanden, aber noch nicht ingestiert — der Assistent kann sie erst nach der nächsten Synchronisierung verwenden.',
-    snapshot: 'Aus einem vorgefertigten Index wiederhergestellt; vollständig durchsuchbar, aber die Quell-PDF liegt nicht auf diesem Server.',
+    pending: 'Hochgeladen, aber noch nicht verarbeitet — der Assistent kann sie erst nach der nächsten Synchronisierung verwenden.',
+    snapshot: 'Aus einem vorbereiteten Bestand übernommen; vollständig durchsuchbar, aber die Quell-PDF liegt nicht auf diesem Server.',
     removed: 'Die Quelldatei wurde entfernt; indexierte Inhalte können bis zur Bereinigung weiterhin auffindbar sein.',
-    inconsistent: 'Als ingestiert vermerkt, aber es wurden keine indexierten Inhalte gefunden. Synchronisierung erneut ausführen.',
+    inconsistent: 'Als verarbeitet vermerkt, aber es wurden keine durchsuchbaren Inhalte gefunden. Synchronisierung erneut ausführen.',
   },
   origin: {
     uploaded: 'Hochgeladen',
@@ -68,7 +68,7 @@ export const knowledge: typeof en.knowledge = {
   },
   error: {
     title: 'Wissensbasis nicht verfügbar',
-    description: 'Der Wissensstatus konnte nicht vom Backend geladen werden.',
+    description: 'Der Wissensstatus konnte nicht geladen werden.',
     retry: 'Erneut versuchen',
   },
   loading: 'Wissensbasis wird geladen…',

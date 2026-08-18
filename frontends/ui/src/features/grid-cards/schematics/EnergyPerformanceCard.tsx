@@ -130,7 +130,7 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
   return (
     <SchematicCard
       icon={Gauge}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={hwbCheck.status}
       note={note}

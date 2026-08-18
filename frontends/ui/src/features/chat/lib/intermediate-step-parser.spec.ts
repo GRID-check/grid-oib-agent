@@ -17,8 +17,8 @@ describe('getStepLabel', () => {
     // The words are this side's job. A label derived from the id can only be
     // English, and this UI is German first — which is how "Use Skill" ended up
     // in front of a German reader.
-    expect(getStepLabel(step('knowledge_search'), tDe)).toBe('OIB-Korpus')
-    expect(getStepLabel(step('knowledge_search'), tEn)).toBe('OIB corpus')
+    expect(getStepLabel(step('knowledge_search'), tDe)).toBe('OIB-Wissen')
+    expect(getStepLabel(step('knowledge_search'), tEn)).toBe('OIB knowledge')
     expect(getStepLabel(step('intent_classifier'), tDe)).toBe('Einordnung')
     expect(getStepLabel(step('intent_classifier'), tEn)).toBe('Classification')
     expect(getStepLabel(step('<workflow>'), tDe)).toBe('Ablauf')

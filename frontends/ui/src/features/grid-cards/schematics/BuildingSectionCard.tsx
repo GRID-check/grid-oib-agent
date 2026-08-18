@@ -148,7 +148,7 @@ export const BuildingSectionCard: FC<BuildingSectionCardProps> = ({
   return (
     <SchematicCard
       icon={Building2}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       note={note}
       reference={reference}

@@ -80,7 +80,7 @@ describe('ThoughtCard', () => {
         />
       )
 
-      expect(screen.getByText('Tokens: 100 in / 50 out')).toBeInTheDocument()
+      expect(screen.getByText('Text volume: 100 in / 50 out')).toBeInTheDocument()
     })
 
     test('does not show token usage when streaming', () => {
@@ -93,13 +93,13 @@ describe('ThoughtCard', () => {
         />
       )
 
-      expect(screen.queryByText(/Tokens:/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Text volume:/)).not.toBeInTheDocument()
     })
 
     test('does not show token usage when not provided', () => {
       render(<ThoughtCard thought={createThought({ usage: undefined })} />)
 
-      expect(screen.queryByText(/Tokens:/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Text volume:/)).not.toBeInTheDocument()
     })
   })
 

@@ -45,7 +45,7 @@ export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
   return (
     <SchematicCard
       icon={Volume2}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(checks.map((c) => c.check.status))}
       note={note}

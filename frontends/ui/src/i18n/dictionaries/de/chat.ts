@@ -111,7 +111,7 @@ export const chat: typeof en.chat = {
   },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
-    private: 'Privater Workspace',
+    private: 'Privater Arbeitsbereich',
   },
   roles: {
     input: 'Eingabe',
@@ -198,8 +198,8 @@ export const chat: typeof en.chat = {
   agentPrompt: {
     awaitingOther: 'Piloti wartet auf {name}',
     awaitingSomeone: 'Piloti wartet auf eine andere Person',
-    needsInput: 'Der Agent benötigt Ihre Eingabe',
-    receivedInput: 'Der Agent hat Ihre Eingabe erhalten',
+    needsInput: 'Piloti benötigt Ihre Eingabe',
+    receivedInput: 'Piloti hat Ihre Eingabe erhalten',
     approve: 'Genehmigen',
     reject: 'Ablehnen',
     approvePlan: 'Plan genehmigen',
@@ -301,14 +301,19 @@ export const chat: typeof en.chat = {
       // Verbindet zwei Korpora in einer Zeile. Grammatik, also auch hier.
       corpusJoin: ' und ',
       status: {
-        // Welche Ablage der Lesenden gerade gesichtet wird. Ein Schlüssel pro
-        // Ablage statt einer Vorlage mit `{shelf}`-Platzhalter: Deutsch braucht
-        // den Dativ („aus dem Büroarchiv“), Englisch gar keinen Artikel.
+        // Welche der eigenen Unterlagen gerade gesichtet werden. Ein
+        // Schlüssel pro Ebene statt einer Vorlage mit Platzhalter: Deutsch
+        // braucht den Dativ („aus dem Büroarchiv“), Englisch gar keinen
+        // Artikel, also lässt sich der Name nicht in EINEN Satz einsetzen.
+        // Jede Zeile nennt den Namen, den die Lesenden im Produkt sehen —
+        // Büroarchiv, Projekt, Unterhaltung. Für mehrere Ebenen zugleich gibt
+        // es keinen: der Sammelbegriff dafür ist unser Wort, nicht ihres, also
+        // sagt `several` schlicht, WAS gelesen wird.
         documents: {
           archiv: 'Unterlagen aus dem Büroarchiv werden gesichtet …',
           project: 'Unterlagen aus dem Projekt werden gesichtet …',
           session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
-          several: 'Unterlagen aus Ihren Ablagen werden gesichtet …',
+          several: 'Ihre Unterlagen werden gesichtet …',
         },
         // Die Routing-ENTSCHEIDUNG aus einer festen Auswahl. Die Begründung des
         // Klassifikators ist Freitext in der Sprache des Modells und steht
@@ -354,7 +359,7 @@ export const chat: typeof en.chat = {
       routing: 'Rechercheweg',
       webSearch: 'Websuche',
       ris: 'RIS',
-      corpus: 'OIB-Korpus',
+      corpus: 'OIB-Wissen',
       assistant: 'Assistent',
       reading: 'Lesen',
       // Ein Chip pro Skill, den dieser Turn tatsächlich angewendet hat.
@@ -443,7 +448,7 @@ export const chat: typeof en.chat = {
     node: {
       framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
-      framingQuestion: 'Du fragst: „{question}“',
+      framingQuestion: 'Sie fragen: „{question}“',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
@@ -462,13 +467,13 @@ export const chat: typeof en.chat = {
       findingsPendingTab: 'Einschätzung',
       findingsPending: 'Quellen werden abgewogen …',
       branchesTab: 'Folgewege',
-      branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
+      branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },
   },
   deepResearch: {
     stats: {
-      tokens: '{count} Tokens',
-      toolCalls: '{count} Tool-Aufrufe',
+      tokens: 'Textmenge {count}',
+      toolCalls: '{count} Werkzeugaufrufe',
     },
     success: {
       heading: 'Bericht abgeschlossen!{stats}',
@@ -561,7 +566,7 @@ export const chat: typeof en.chat = {
     researchQueueFull: {
       title: 'Recherche ausgelastet',
       message:
-        'Die Recherche-Warteschlange ist gerade voll. Bitte sende deine Anfrage in einem Moment erneut.',
+        'Die Recherche-Warteschlange ist gerade voll. Bitte senden Sie Ihre Anfrage in einem Moment erneut.',
       retryHint: 'Bitte in etwa {seconds} Sekunden erneut senden.',
     },
   },
@@ -585,9 +590,9 @@ export const chat: typeof en.chat = {
   budgetExhausted: {
     title: 'Budget aufgebraucht',
     memberMessage:
-      'Ihr LLM-Budget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Ihren eigenen Verbrauch finden Sie unter Organisation → Verbrauch & Budgets. Bitten Sie eine Organisations-Administratorin oder einen -Administrator, Ihr Limit zu erhöhen.',
+      'Ihr Nutzungsbudget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Ihren eigenen Verbrauch finden Sie unter Organisation → Verbrauch & Budgets. Bitten Sie eine Organisations-Administratorin oder einen -Administrator, Ihr Limit zu erhöhen.',
     adminMessage:
-      'Das LLM-Budget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Erhöhen Sie die Limits unter Organisation → Verbrauch & Budgets.',
+      'Das Nutzungsbudget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Erhöhen Sie die Limits unter Organisation → Verbrauch & Budgets.',
   },
   fileUpload: {
     uploading:

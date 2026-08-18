@@ -457,6 +457,6 @@ export const bim: typeof en.bim = {
   },
   modelPicker: {
     failed: 'Die Modelle dieses Projekts konnten nicht geladen werden.',
-    openAria: '{name} im Modell-Viewer öffnen',
+    openAria: '{name} im Modellbereich öffnen',
   },
 }

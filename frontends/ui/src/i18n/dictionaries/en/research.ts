@@ -37,7 +37,7 @@ export const research = {
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
-      'Sign in to unlock project-scoped OIB research, document ingestion, and member access controls.',
+      'Sign in to unlock project-scoped OIB research, document reading, and member access controls.',
     signInSso: 'Sign in with SSO',
     welcomeTitle: 'How can Piloti help with your project?',
     usePrompt: 'Use suggestion: {prompt}',
@@ -176,8 +176,14 @@ export const research = {
     title: 'Agents',
     runningCount: '{count} running',
     queriesProgress: '{completed}/{total} queries',
-    description: 'Active planner, researcher, and writer agents executing tasks.',
+    description: 'Piloti plans, researches, and writes — this is what is running right now.',
     empty: 'No agent activity available.',
+  },
+
+  filesTab: {
+    title: 'Files',
+    description: 'Drafts, reports and other files this research produced.',
+    empty: 'No files produced yet.',
   },
 
   fileCard: {
@@ -187,7 +193,7 @@ export const research = {
 
   fileSourceCard: {
     statusUploading: 'Uploading...',
-    statusIngesting: 'Ingesting...',
+    statusIngesting: 'Processing...',
     statusAvailable: 'Available',
     statusError: 'Error',
     statusDeleting: 'Deleting...',
@@ -203,16 +209,16 @@ export const research = {
 
   fileSourcesTab: {
     uploadTo: 'Upload To',
-    targetProject: 'Project corpus',
+    targetProject: 'Project knowledge',
     targetSession: 'Private session',
-    targetProjectLower: 'project corpus',
+    targetProjectLower: 'project knowledge',
     targetSessionLower: 'private session',
     availableInProject: 'Available in this project.',
-    preparingCorpus: 'Preparing project corpus...',
+    preparingCorpus: 'Preparing project knowledge...',
     onlyThisSession: 'Only available in this chat session.',
     loadingFiles: 'Loading files',
     checkingFiles: 'Checking for files...',
-    setupBackend: 'Setup backend to enable files.',
+    setupBackend: 'Files become available once the connection to Piloti is up.',
     noAttachedFiles: 'No Attached Files',
     filesGoTo: 'Files uploaded here go to {target} unless removed.',
     filesCount: '{target} Files ({count})',
@@ -229,7 +235,7 @@ export const research = {
     signInToStart: 'Sign in to start researching',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
     researchFailedFollowUp: 'Research didn’t finish. Ask a follow-up or try again.',
-    typeResponse: 'Type your response to the agent...',
+    typeResponse: 'Type your response to Piloti...',
     pleaseWait: 'Please wait...',
     messageNotSent: 'Message not sent',
     messageNotSentDesc: 'Something went wrong sending your message. Please try again.',
@@ -278,14 +284,14 @@ export const research = {
 
   reportTab: {
     contentWhenAvailable: 'Report content will appear here when available.',
-    notesBanner: 'Research notes from agents — final report is still being generated.',
+    notesBanner: 'Working notes from the research — the final report is still being written.',
     // Heading for the sources list appended from run citations when the
     // report markdown itself has no sources section.
     sourcesTitle: 'Sources',
     // Per-source origin badges: whether a cited source came from the trusted
     // knowledge base, the official Austrian legal system (RIS), or the web.
     sourceBadge: {
-      kb: 'Knowledge Base',
+      kb: 'Knowledge base',
       web: 'Web',
       ris: 'RIS',
     },
@@ -392,12 +398,12 @@ export const research = {
     // Coarse elapsed-time indicator for a live run (updates every 30s).
     elapsed: 'Running for {minutes} min',
     writingReport: 'Writing final report... This may take a few minutes.',
-    stalledTitle: 'No progress updates for a while',
+    stalledTitle: 'Nothing reported for a while',
     stalledBody:
-      'Research hasn’t sent an update recently. It may still be running — reconnect to resume the live stream.',
-    connectionLostTitle: 'Connection to the research job lost',
+      'The research has not reported back in a while. It may still be running — reconnect to resume the live view.',
+    connectionLostTitle: 'Connection to the running research lost',
     connectionLostBody:
-      'We lost the live connection, but the job may still be running on the server. Reconnect to resume, or stop it from the toolbar above.',
+      'We lost the live connection, but the research may still be running on the server. Reconnect to resume, or stop it from the toolbar above.',
     reconnect: 'Reconnect',
     // Outcome of a run followed here without a chat thread of its own (a
     // workflow run) — it has no thread banner to report the ending.
@@ -426,15 +432,15 @@ export const research = {
     detailsWhenComplete: 'Details available when generation completes',
     generating: 'Generating',
     via: 'via {workflow}',
-    tokens: 'Tokens: {prompt} in / {completion} out',
+    tokens: 'Text volume: {prompt} in / {completion} out',
     output: 'Output',
   },
 
   thoughtTracesTab: {
-    title: 'Thought Traces',
+    title: 'Train of thought',
     runningCount: '{count} running',
-    description: 'LLM chain-of-thought reasoning and inference activity.',
-    empty: 'No thought traces available.',
+    description: 'How Piloti reasoned while researching.',
+    empty: 'No train of thought available.',
   },
 
   toolCallCard: {
@@ -449,7 +455,7 @@ export const research = {
   toolCallsTab: {
     title: 'Tool Calls',
     runningCount: '{count} running',
-    description: 'Web searches, file operations, and other tool invocations.',
+    description: 'Web searches, file lookups, and other tool calls.',
     empty: 'No tool calls available.',
   },
 

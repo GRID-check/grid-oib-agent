@@ -126,7 +126,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
   return (
     <SchematicCard
       icon={Sun}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}

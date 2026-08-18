@@ -117,7 +117,7 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
   return (
     <SchematicCard
       icon={Grid2x2}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus([coverageCheck.status, densityCheck.status])}
       note={note}

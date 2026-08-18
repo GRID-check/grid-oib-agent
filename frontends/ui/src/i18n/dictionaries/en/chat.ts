@@ -208,8 +208,8 @@ export const chat = {
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
   },
   agentPrompt: {
-    needsInput: 'Agent needs your input',
-    receivedInput: 'Agent received your input',
+    needsInput: 'Piloti needs your input',
+    receivedInput: 'Piloti received your input',
     /**
      * Shown to a colleague in a shared thread instead of the buttons: the agent
      * asked one person, and the agent tier refuses an answer from anybody else, so
@@ -332,15 +332,19 @@ export const chat = {
       // Joins two corpora in one line. Grammar, so it lives here too.
       corpusJoin: ' and ',
       status: {
-        // Which shelf of the reader's OWN files is being read. One key per
-        // shelf rather than one template with a `{shelf}` slot: German needs
-        // the dative ("aus dem Büroarchiv") and English needs no article, so a
-        // shelf name cannot be interpolated into one shared sentence.
+        // Which of the reader's OWN files are being read. One key per level
+        // rather than one template with a slot: German needs the dative ("aus
+        // dem Büroarchiv") and English needs no article, so the level's name
+        // cannot be interpolated into one shared sentence. Every line names
+        // the level the way the product names it to the reader — office
+        // archive, project, conversation. There is no line for several at
+        // once, because the collective noun for them is OURS, not theirs, so
+        // `several` states plainly WHAT is being read.
         documents: {
           archiv: 'Reviewing documents from the office archive …',
           project: 'Reviewing documents from the project …',
           session: 'Reviewing documents from this conversation …',
-          several: 'Reviewing documents from your shelves …',
+          several: 'Reviewing your documents …',
         },
         // The routing DECISION, from a closed enum. The classifier's own
         // reason for it is free-text prose in whatever language the model
@@ -381,10 +385,10 @@ export const chat = {
     executedSteps: 'Ran:',
     stepName: {
       understanding: 'Classification',
-      routing: 'Routing',
+      routing: 'Research path',
       webSearch: 'Web search',
       ris: 'RIS',
-      corpus: 'OIB corpus',
+      corpus: 'OIB knowledge',
       assistant: 'Assistant',
       reading: 'Reading',
       // One chip per skill the turn actually applied. `{name}` is resolved by
@@ -401,7 +405,7 @@ export const chat = {
     // names reuse `stepName.*` above: one node, one wording, everywhere.
     nodeName: {
       // The root frame that is open for the whole turn, not a step within it.
-      workflow: 'Turn',
+      workflow: 'Whole exchange',
       clarification: 'Clarifying question',
       deepResearch: 'Deep research',
       dataSources: 'Data sources',
@@ -431,7 +435,7 @@ export const chat = {
     sourcesFanOut: 'Sources',
     hitCount: '{count} hits',
     hitCountOne: '1 hit',
-    gapHit: 'Not in corpus',
+    gapHit: 'Nothing found',
     // A document the research read but the answer never cited — a real
     // research outcome, not a gap.
     readNotUsed: 'read, not used',
@@ -481,7 +485,7 @@ export const chat = {
   },
   deepResearch: {
     stats: {
-      tokens: '{count} tokens',
+      tokens: 'text volume {count}',
       toolCalls: '{count} tool calls',
     },
     success: {
@@ -599,9 +603,9 @@ export const chat = {
   budgetExhausted: {
     title: 'Budget exhausted',
     memberMessage:
-      'Your LLM budget is used up, so new messages can’t be sent right now. You can review your own usage under Organization → Usage & budgets. Ask an organization admin to raise your limit.',
+      'Your usage budget is used up, so new messages can’t be sent right now. You can review your own usage under Organization → Usage & budgets. Ask an organization admin to raise your limit.',
     adminMessage:
-      'The LLM budget is used up, so new messages can’t be sent right now. Raise the limits under Organization → Usage & budgets.',
+      'The usage budget is used up, so new messages can’t be sent right now. Raise the limits under Organization → Usage & budgets.',
   },
   fileUpload: {
     uploading:

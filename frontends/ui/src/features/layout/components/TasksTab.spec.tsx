@@ -227,7 +227,7 @@ describe('TasksTab', () => {
       render(<TasksTab />)
 
       expect(screen.getByTestId('deep-research-recovery-notice')).toBeInTheDocument()
-      expect(screen.getByText('No progress updates for a while')).toBeInTheDocument()
+      expect(screen.getByText('Nothing reported for a while')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument()
     })
 
@@ -238,8 +238,8 @@ describe('TasksTab', () => {
 
       render(<TasksTab />)
 
-      expect(screen.getByText('Connection to the research job lost')).toBeInTheDocument()
-      expect(screen.queryByText('No progress updates for a while')).not.toBeInTheDocument()
+      expect(screen.getByText('Connection to the running research lost')).toBeInTheDocument()
+      expect(screen.queryByText('Nothing reported for a while')).not.toBeInTheDocument()
     })
 
     test('does not show the notice when not streaming', () => {

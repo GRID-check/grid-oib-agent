@@ -113,7 +113,7 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
   return (
     <SchematicCard
       icon={TrendingUp}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus([riser_height.status, tread_depth.status, width.status])}
       reference={reference}

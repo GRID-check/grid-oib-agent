@@ -59,7 +59,7 @@ describe('AgentsTab', () => {
       render(<AgentsTab />)
 
       expect(
-        screen.getByText('Active planner, researcher, and writer agents executing tasks.')
+        screen.getByText('Piloti plans, researches, and writes — this is what is running right now.')
       ).toBeInTheDocument()
     })
   })

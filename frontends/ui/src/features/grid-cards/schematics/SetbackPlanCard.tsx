@@ -109,7 +109,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
   return (
     <SchematicCard
       icon={LandPlot}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(sides.map((s) => s.status))}
       reference={reference}

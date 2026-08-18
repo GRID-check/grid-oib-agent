@@ -541,6 +541,6 @@ export const bim = {
     // "Could not look" is not "the project has no models" — the picker says
     // which, rather than quietly rendering nothing when the list request failed.
     failed: 'The models for this project could not be loaded.',
-    openAria: 'Open {name} in the model viewer',
+    openAria: 'Open {name} in the model workspace',
   },
 }

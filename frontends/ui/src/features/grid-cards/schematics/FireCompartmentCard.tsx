@@ -133,7 +133,7 @@ export const FireCompartmentCard: FC<FireCompartmentCardProps> = ({
   return (
     <SchematicCard
       icon={Flame}
-      eyebrow="Schematic"
+      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(compartments.map((c) => c.area.status))}
       note={note}

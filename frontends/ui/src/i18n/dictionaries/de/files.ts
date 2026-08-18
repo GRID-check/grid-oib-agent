@@ -155,7 +155,7 @@ export const files: typeof en.files = {
       run: 'Suchen',
       reset: 'Alle Dateien anzeigen',
       banner: 'Semantische Suche: {count} Treffer für „{query}“',
-      searching: 'Korpus wird nach „{query}“ durchsucht …',
+      searching: 'Ihre Dateien werden nach „{query}“ durchsucht …',
       noResults: 'Keine semantischen Treffer für „{query}“',
       noResultsDescription:
         'Nichts in diesem Projekt entsprach dem Sinn Ihrer Anfrage. Versuchen Sie eine andere Formulierung oder löschen Sie die Suche, um alle Dateien zu durchsuchen.',
@@ -174,7 +174,7 @@ export const files: typeof en.files = {
     newFolder: 'Neuer Ordner',
   },
   workspace: {
-    corpusSubtitle: 'Projektkorpus – diese Dokumente untermauern Pilotis Antworten',
+    corpusSubtitle: 'Projektwissen – diese Dokumente untermauern Pilotis Antworten',
     uploadDocuments: 'Dokumente hochladen',
     uploadProblem: 'Upload-Problem',
     dismissError: 'Fehler ausblenden',
@@ -249,7 +249,7 @@ export const files: typeof en.files = {
     cannotRetryServerFile:
       'Vom Server geladene Dateien können nicht erneut versucht werden. Bitte laden Sie die Datei erneut hoch.',
     imageVlmUnavailable:
-      'Das Hochladen von Bildern erfordert ein konfiguriertes Vision-Modell (VLM) in dieser Umgebung.',
+      'Bilder können hier nicht hochgeladen werden: In dieser Umgebung ist keine Bilderkennung eingerichtet.',
     fileSingular: 'Datei',
     filePlural: 'Dateien',
   },
