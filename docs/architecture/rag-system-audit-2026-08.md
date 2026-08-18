@@ -732,6 +732,36 @@ titles** — an id-only comparison is what hid defect 3 for a full cycle.
 Exact, every file. The residual 18-page span is one genuinely long Punkt in
 `oib-rl_1_leitfaden`, not a mis-cut.
 
+### What that 946/946 is not
+
+**It is a re-implementation agreement test, not a correctness test**, and the
+distinction is not academic. An independent review ran the experiment this section
+should have run: disable the contents-page rules in *both* the chunker and the index
+builder, and re-compare.
+
+| | index | chunker | missing | spurious | mistitled |
+|---|---|---|---|---|---|
+| contents page on (ships) | 946 | 946 | 0 | 0 | 0 |
+| **contents page off in both** | **953** | **953** | **0** | **0** | **0** |
+
+With the shared signal removed the two still agree **perfectly, while both are wrong** —
+they jointly emit annex table rows (`5.1`–`5.4` in RL 2.3, `9.1`–`9.3` in RL 2) as
+Punkte and jointly lose real ones. **The metric cannot see correlated error**, because
+both programs are the same design: same heading regex family, same outline-succession
+rule, same chain search, same PDF extractor. What they share is not the contents page —
+it is the algorithm.
+
+The contents pages independently corroborate **152 of 946 ids (16%)**, and turning the
+rules on or off moves **18 entries (1.9%)**. Those 18 were checked by hand against the
+PDFs. **Coverage against the documents' true structure is unverified: no human has
+confirmed a single heading**, and a heading pdfplumber mangles is invisible to both
+implementations and to the `sequence_gaps` report, which only detects *numeric* skips.
+
+The honest phrasing, which supersedes the table above wherever the two conflict: *the
+chunker reproduces the committed index exactly on all 946 ids and titles; both derive
+from the same text by the same class of algorithm, so this bounds re-implementation
+divergence rather than extraction error.*
+
 Structural retrievability over the same index (model-free, absolute):
 
 | property | page-cut | punkt-cut, greedy | punkt-cut, best-chain |
@@ -740,8 +770,36 @@ Structural retrievability over the same index (model-free, absolute):
 | Punkt contiguous in one chunk | 95.8% | 97.9% | **98.3%** |
 | leaf Punkte blended per chunk | 4.14 | 1.03 | **1.00** |
 
+**Only the page-cut column of that table is independent.** Page chunking knows nothing
+about the index's spans, so its 5.2% is a real measurement. The punkt-cut column is
+near-tautological — the chunker's Document boundaries *are* the index's spans by shared
+derivation, which is why `contiguous` and `isolated` come out equal to the entry on
+every file. A heading both implementations miss folds into the preceding span in the
+index *and* into the same Document in production, and is scored as a **pass**. The
+load-bearing claim here is the page-cut number and the size of the gap, not the 98.3%.
+
 Dense A/B, 52 golden entries, `intfloat/multilingual-e5-small` (relative only —
-production embeds with `openai/text-embedding-3-large`):
+production embeds with `openai/text-embedding-3-large`). Read "52 entries" with its real
+weight: they are **25 distinct needs** (24 written twice, once per language, with
+identical qrels), labelling **45 distinct Punkte — 4.8% of the corpus** — and every one
+is `calibration_pending`, meaning no qualified human has reviewed a single question,
+label or grade:
+
+**And the instrument is biased toward the conclusion it is testing.** `e5-small` truncates
+at 512 tokens, which does not hit both arms equally — it hits the arm made of long chunks:
+
+| arm | chunks | over 512 tokens | share of text never embedded |
+|---|---|---|---|
+| page-cut (baseline) | 1,053 | 41.2% | **17.0%** |
+| punkt-cut (treatment) | 2,476 | 11.6% | 9.6% |
+
+So "both arms see the same model" is false in the way that matters: the baseline is
+scored with a sixth of its text amputated, and the amputated tail is exactly where a page
+chunk's later requirements sit. Part of every page-cut number below is truncation rather
+than structure. Production's embedder has an 8,191-token window and imposes none of this.
+The direction of the German win is not in doubt — the **structural** table above is
+model-free and does not depend on the embedder at all — but its *magnitude* here is
+inflated, and the honest bound needs the page arm re-run hard-capped at 512 tokens.
 
 | arm | n | R@1 | R@5 | R@16 | MRR |
 |---|---|---|---|---|---|
@@ -840,7 +898,12 @@ lacked and the work queue for extending it.
 
 ## 20. Abstention cannot be built from a similarity threshold
 
-The golden set carries six questions the OIB corpus genuinely cannot answer —
+The golden set carries six *entries* the OIB corpus genuinely cannot answer, but they
+are **three distinct needs** (`bauwich-wien`, `grunderwerbsteuer`,
+`stellplatz-garagengesetz`), each written once in German and once in English with
+identical empty qrels. So the sample below is **n=3**, not n=6, and the 0.066 overlap
+rests on a single question at 0.865. Three adversarially chosen adjacent-domain items
+generalise in neither direction. What n=3 *does* support is the mechanism —
 Wiener Garagengesetz parking counts, the Bauordnung's side setback, property
 transfer tax. Measured fill@16 is **1.000**: retrieval hands the answer model
 sixteen chunks for every one of them. `knowledge.relevance_floor_pct` was added as
@@ -866,8 +929,14 @@ Grundgrenzen. Dense similarity measures "the corpus discusses parking spaces",
 which is true, not "the corpus states Vienna's parking requirement", which is what
 was asked.
 
-So the floor stays at **0 by default**, now for a measured reason rather than an
-unexamined one, and abstention is not a retrieval-layer problem. It needs a judge
+And the conclusion is right for a reason stronger than the measurement: cosine measures
+topical proximity, not answerhood, so no threshold on it can express "the corpus
+discusses parking spaces but does not state Vienna's rule". The three questions
+illustrate that; they do not establish it. `fill@16 = 1.000` is the part that is simply
+a fact about the mechanism — with no floor, top-k is always full.
+
+So the floor stays at **0 by default**, now for a reasoned and illustrated reason rather
+than an unexamined one, and abstention is not a retrieval-layer problem. It needs a judge
 that reads the question against the text — the reranker's 0–10 rubric is the
 natural place, and validating that needs a live LLM this environment does not
 have. Recorded as the next measurement, not as a fix.

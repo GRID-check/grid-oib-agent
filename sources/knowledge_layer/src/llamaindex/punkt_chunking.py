@@ -5,10 +5,14 @@ Ingestion builds one llama-index ``Document`` per pdfplumber page and lets
 is the wrong unit of meaning twice over:
 
 * A *Punkt* -- the numbered requirement (``3.1.3``) an Austrian building-law answer must
-  cite -- has a median length of 62 tokens across the 1360 Punkte in the 15 base
-  Richtlinien, and only 10 of those 1360 exceed the splitter's ~977-token effective
-  budget. A 1024-token window therefore blends roughly 15 unrelated requirements into
-  one vector, so the embedding describes none of them.
+  cite -- has a median length of 128 tokens across the 946 Punkte the twelve
+  Punkt-structured Richtlinien contain, and only 11 of those 946 exceed the splitter's
+  ~977-token effective budget. A 1024-token window therefore blends roughly eight
+  unrelated requirements into one vector, so the embedding describes none of them.
+  (An earlier draft of this docstring said 1360 Punkte at a median of 62 tokens, from an
+  exploratory count taken with a bare heading regex before any of the guards below
+  existed. It was 44% above the real inventory and nobody reconciled it against the
+  committed index; these figures are re-measured from what this module actually emits.)
 * 150 of 262 body pages (57%) *begin* mid-Punkt, and the splitter's 128-token overlap
   cannot repair that because each page is its own ``Document`` -- overlap never crosses
   the boundary. 92% of today's chunks do not start on a Punkt-numbered line.
@@ -407,10 +411,11 @@ def _best_chain(
 
     The order matters more than it may look: an unlisted heading still enters the chain
     freely, so a Richtlinie whose contents page is partial keeps the Punkte it omits.
-    That is not a hypothetical safeguard -- **eleven of the twelve contents pages list
-    only depth-1 ids**, so between 6% and 14% of the chosen chain is listed on most files,
-    and a rule that *required* listing would discard nearly the whole corpus. ``listed``
-    empty -- no contents page found -- degrades exactly to counting.
+    That is not a hypothetical safeguard: of the twelve Punkt-structured Richtlinien,
+    **eight list only depth-1 ids, three go deeper (the Leitfäden, to depth 2 and 3), and
+    OIB-Richtlinie 1 offers no usable contents page at all**. On the eight, 6-14% of the
+    chosen chain is listed, so a rule that *required* listing would discard nearly the
+    whole corpus. ``listed`` empty degrades exactly to counting.
 
     Each part earns its place, measured against the 946 Punkte the contents pages name:
 
