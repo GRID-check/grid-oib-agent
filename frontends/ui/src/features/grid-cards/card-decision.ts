@@ -97,6 +97,10 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // a card, which has no project-scoped edit affordance and would strand the
   // decision on a message.
   ifc_compliance: 'presentational',
+  // Lists the project's models as tiles that open the viewer on click. Opening
+  // a model is plain navigation — it starts no commitment and nothing is
+  // written, so there is nothing to remember.
+  ifc_model_picker: 'presentational',
 }
 
 /** The card types whose user decisions must be persisted (see the map above). */

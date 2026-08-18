@@ -56,6 +56,13 @@ drawing they would have made. The trigger, then the card:
   the answer's single headline number or ruling, at the top -> verdict_header
   an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
   a tabular answer no purpose-built card covers -> typed_table
+  the user wants to SEE or OPEN the building and the project may hold several models
+                                           -> ifc_model_picker
+
+The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
+emit it INSTEAD of writing the file names as a prose bullet list. It renders the project's models
+as tiles the user clicks to open the viewer directly — you supply only the heading, never the file
+names, so there is nothing to get wrong. You do not need to call ifc_query first to list them.
 
 WHEN NOT TO. A one-line factual answer gets no card: one that repeats the sentence above it costs
 the reader a second pass over the same fact. Never fabricate a field, a reference or a number to

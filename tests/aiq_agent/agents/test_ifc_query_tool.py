@@ -712,6 +712,7 @@ class TestTheDescriptionDescribesTheRealTool:
             "ifc_compliance",
             "ifc_schedule",
             "ifc_diff",
+            "ifc_model_picker",
             # A field of `IfcHighlight`, not of this tool. Pinned as a real one
             # by `test_the_highlight_selectors_it_names_are_real_fields`.
             "global_ids",

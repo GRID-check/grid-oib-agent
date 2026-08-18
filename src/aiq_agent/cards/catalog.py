@@ -110,6 +110,14 @@ CARD_EXAMPLES: dict[str, dict] = {
         ],
         "note": "Die hervorgehobenen Wände stammen aus der Modellabfrage, nicht aus dem Plan.",
     },
+    # Carries no file names on purpose — the renderer lists the project's real
+    # models. The example exists to show that the payload is just a heading, so
+    # the model does not try to fill in a `models` array that does not exist.
+    "ifc_model_picker": {
+        "type": "ifc_model_picker",
+        "title": "Welches Modell möchten Sie öffnen?",
+        "note": "Ein Klick öffnet das Modell im 3D-Viewer.",
+    },
     "daylight_incidence": {
         "type": "daylight_incidence",
         "title": "Belichtung – freier Lichteinfall (Gästezimmer)",

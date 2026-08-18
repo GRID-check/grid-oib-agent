@@ -64,6 +64,8 @@ export const ifcElementCardSchema = z.object({ "global_id": z.string().min(1).de
 
 export const ifcDiffCardSchema = z.object({ "base_model_file": z.string().min(1).describe("The OLDER revision's file name"), "model_file": z.union([z.string(), z.null()]).describe("The NEWER revision's file name. Empty uses the project's current model.").default(null), "note": z.union([z.string(), z.null()]).describe("Optional one-line clarification").default(null), "title": z.string().min(1).describe("Short heading, e.g. 'Änderungen seit Einreichung'"), "type": z.literal("ifc_diff") }).describe("What changed between two revisions of the model.\n\nNames the two files; the frontend computes the comparison by IFC GlobalId.\nUse for \"what changed since the last submission\" — the question a pair of\nplan PDFs cannot answer.")
 
+export const ifcModelPickerCardSchema = z.object({ "note": z.union([z.string(), z.null()]).describe("Optional one-line clarification under the tiles").default(null), "title": z.string().min(1).describe("Short heading, e.g. 'Welches Modell möchten Sie öffnen?'"), "type": z.literal("ifc_model_picker") }).describe("A clickable list of the project's IFC models — pick one to open in the viewer.\n\nEmit for \"zeig mir das Modell\" / \"welches Modell\" when the user wants to SEE\nor OPEN the building and the project may hold several models. The old answer\nto that was a prose bullet list of file names the user had to read and retype;\nthis card renders each model as a tile that opens the BIM viewer on click,\nclient-side, with no second turn.\n\nIt carries only WHICH view to offer — never a list of file names. The renderer\nreads the project's actual models from the live model list (the same source\nthe viewer resolves against), so the model here cannot name a file that does\nnot exist: there is nothing to invent. An empty project renders nothing and\nthe written answer stands on its own, which is the fail-open the prose gave.")
+
 export const acousticCheckItemSchema = z.object({ "check": z.any().describe("Measured vs required in dB (comparator differs by metric)"), "metric": z.enum(["DnTw","LnTw","Rw_res"]).describe("Airborne / impact / resulting metric"), "path_label": z.string().min(1).describe("What is separated, e.g. 'Wohnungstrennwand Top 3/Top 4'"), "reference": z.any().describe("Source of the dB limit (OIB 5 / ÖNORM B 8115-2)") }).describe("One sound-insulation check between two building parts.")
 
 export const aufstellflaechePlanSchema = z.object({ "distance_to_facade": z.union([z.any(), z.null()]).describe("Distance to the facade (m)").default(null), "length": z.any().describe("Aufstellfläche length (m)"), "width": z.any().describe("Aufstellfläche width (m)") }).describe("The fire-brigade Aufstellfläche geometry.")
@@ -140,4 +142,5 @@ export const gridCardSchema = z.discriminatedUnion('type', [
   ifcScheduleCardSchema,
   ifcElementCardSchema,
   ifcDiffCardSchema,
+  ifcModelPickerCardSchema,
 ])

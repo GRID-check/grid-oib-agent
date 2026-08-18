@@ -1109,6 +1109,27 @@ class IfcDiffCard(BaseModel):
     note: str | None = Field(default=None, description="Optional one-line clarification")
 
 
+class IfcModelPickerCard(BaseModel):
+    """A clickable list of the project's IFC models — pick one to open in the viewer.
+
+    Emit for "zeig mir das Modell" / "welches Modell" when the user wants to SEE
+    or OPEN the building and the project may hold several models. The old answer
+    to that was a prose bullet list of file names the user had to read and retype;
+    this card renders each model as a tile that opens the BIM viewer on click,
+    client-side, with no second turn.
+
+    It carries only WHICH view to offer — never a list of file names. The renderer
+    reads the project's actual models from the live model list (the same source
+    the viewer resolves against), so the model here cannot name a file that does
+    not exist: there is nothing to invent. An empty project renders nothing and
+    the written answer stands on its own, which is the fail-open the prose gave.
+    """
+
+    type: Literal["ifc_model_picker"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Welches Modell möchten Sie öffnen?'")
+    note: str | None = Field(default=None, description="Optional one-line clarification under the tiles")
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -1141,6 +1162,7 @@ GridCard = (
     | IfcScheduleCard
     | IfcElementCard
     | IfcDiffCard
+    | IfcModelPickerCard
 )
 
 # Discriminated-union adapter — the canonical validator for a raw card dict.
@@ -1160,6 +1182,7 @@ __all__ = [
     "IfcScheduleCard",
     "IfcElementCard",
     "IfcDiffCard",
+    "IfcModelPickerCard",
     "LegalBasisCard",
     "MemoryProposalCard",
     "NormChainCard",

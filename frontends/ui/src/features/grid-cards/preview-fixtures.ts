@@ -53,6 +53,10 @@ export const PREVIEW_EXCLUDED: Record<string, 'needsModel' | 'needsDocuments'> =
   ifc_schedule: 'needsModel',
   ifc_element: 'needsModel',
   ifc_diff: 'needsModel',
+  // The picker lists the project's real models from the live list — a gallery
+  // with no project has none to draw, the same reason the other IFC cards are
+  // here.
+  ifc_model_picker: 'needsModel',
   document_grid: 'needsDocuments',
 }
 

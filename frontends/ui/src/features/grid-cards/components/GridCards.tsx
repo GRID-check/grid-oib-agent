@@ -28,6 +28,7 @@ import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
 import { IfcViewerCard } from './IfcViewerCard'
+import { IfcModelPickerCard } from './IfcModelPickerCard'
 import { cardHighlightSpecs } from '@/features/bim/lib/card-highlights'
 import {
   IfcComplianceCard,
@@ -512,6 +513,18 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
           title={card.title}
           modelFile={card.model_file ?? null}
           ruleIds={card.rule_ids ?? []}
+          note={card.note ?? null}
+          projectId={projectId ?? null}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'ifc_model_picker') {
+    return (
+      <FadeIn distance={6}>
+        <IfcModelPickerCard
+          title={card.title}
           note={card.note ?? null}
           projectId={projectId ?? null}
         />
