@@ -201,3 +201,31 @@ click costs nothing. Same shape, other surfaces:
 | B11 | **`needs_input` rows become a question** — a checklist or schematic row the answer could not decide gets a chip that prefills "Das fehlende Maß ist …" | the card already names exactly what is missing; today the reader has to retype it |
 | B12 | **any card row → composer** — generalise the follow-up mechanism so a row that names a term can ask about it | one mechanism, many surfaces; this is the reusable version of B10/B11 |
 | B13 | **measurement provenance peek** — click a number that came from `ifc_measure` to see method, tolerance and the GlobalIds, the way `[N]` peeks a citation | citations already peek; measured numbers do not, and they are the ones a reader most needs to defend |
+
+## Context budget — measure it every sprint, it creeps
+Taken at `d4f5ced0`:
+
+| what | ~tokens, every turn |
+|---|---|
+| `_CARD_DOCTRINE` | 1,194 |
+| `render_card_index()` | 892 |
+| `emit_card` HOW preamble | ~190 |
+| **`emit_card` description total** | **2,272** |
+| `render_card_details()` for the seven generic types | 1,482 |
+
+The L1/L2 split cut this from 5,209 to ~700. It is back at 2,272 because every
+card added a trigger line AND a paragraph of craft, and `piloti-cards` would add
+1,482 more. **Rule from here: the tool description holds the CONTRACT (trigger
+table, negative default, `[[card:N]]` placement) and nothing else; the craft
+lives in `piloti-cards`, which is DB-owned and editable without a deploy.**
+Follow-up commit after S4-A lands: move the craft paragraphs out of
+`_CARD_DOCTRINE` and re-measure.
+
+## Sprint 5 — planned
+- **S5-A · the follow-ups mechanism, generalised** (grid-cards). Branch
+  switching on `condition_tree` (every branch's outcome is already on the card,
+  only one is shown), and a reusable "ask about this" affordance so a
+  `needs_input` row — which already names exactly what is missing — becomes a
+  prefilled question instead of something to retype.
+- **S5-B · report outline** (B9, `layout/ReportTab`). A deep report is a long
+  document in a side panel with no navigation at all.
