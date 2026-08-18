@@ -25,6 +25,13 @@
  * `status:retrieval:0` would even match the corpus rule and duplicate the chip
  * belonging to the retrieval tool it was describing. Their home is the live
  * line.
+ *
+ * Which is why nothing here resolves a turn event's `key`: the only turn event
+ * that earns a chip is a skill, and a skill chip is not a sentence — it is the
+ * skill's NAME in a frontend-owned template (`thinking.stepName.skill`), read
+ * off the structured `title`/`name` fields through the one label authority.
+ * Every word on this row already comes from the dictionary, in the reader's
+ * locale, and no backend-authored prose has ever reached it.
  */
 
 import {

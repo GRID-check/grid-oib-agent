@@ -237,14 +237,20 @@ describe('deriveExecutedSteps — turn status events', () => {
   test.each([['routing'], ['retrieval:0'], ['documents'], ['citations'], ['escalation']])(
     'status:%s earns no chip',
     (slot) => {
-      expect(deriveExecutedSteps([statusStep(slot, { text: 'x' })], t)).toEqual([])
+      expect(
+        deriveExecutedSteps([statusStep(slot, { key: 'status.citations', values: {} })], t)
+      ).toEqual([])
     }
   )
 
   test('the retrieval status does not duplicate the tool chip it describes', () => {
     const chips = deriveExecutedSteps(
       [
-        statusStep('retrieval:0', { text: 'Sucht im OIB-Wissen: „GK4“', tools: ['knowledge_search'] }),
+        statusStep('retrieval:0', {
+          key: 'status.retrieval.withQuery',
+          values: { corpus: 'knowledge', query: 'GK4' },
+          tools: ['knowledge_search'],
+        }),
         step({ id: 'tool', functionName: 'knowledge_search_tool' }),
       ],
       t

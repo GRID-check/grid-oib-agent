@@ -12,15 +12,22 @@
  *
  * Two eras, and the newer one wins wherever it exists:
  *
- * **Turn events (`status:<slot>`, `skill:<id>`).** The backend states, in
- * German, what it is doing at the moment it does it, and only marks `live` what
- * a reader can use. Those sentences carry things the frontend cannot know — the
- * corpus and the actual query (*Sucht im OIB-Wissen: „Fluchtweglänge GK4“*),
- * the routing decision WITH the classifier's reason, the skill's authored
- * title. So once a turn carries any turn event, the line is driven by those
- * events ALONE: a generic *Quellen werden durchsucht …* derived from a tool
- * name would otherwise overwrite the better sentence a second later, purely
- * because the tool span opens after the status that announced it.
+ * **Turn events (`status:<slot>`, `skill:<id>`).** The backend states what it
+ * is doing at the moment it does it, and only marks `live` what a reader can
+ * use. It states it as a stable KEY plus interpolation VALUES — never as a
+ * sentence, because a sentence has a language and the reader picked theirs —
+ * and the phrasing comes from this side's dictionary. What those events carry
+ * that the frontend cannot know is the FACTS: which corpus, and the actual
+ * query (*Sucht im OIB-Wissen: „Fluchtweglänge GK4“*), the routing decision,
+ * the skill's authored title. So once a turn carries any turn event, the line
+ * is driven by those events ALONE: a generic *Quellen werden durchsucht …*
+ * derived from a tool name would otherwise overwrite the better sentence a
+ * second later, purely because the tool span opens after the status that
+ * announced it.
+ *
+ * A turn event whose key this UI cannot phrase resolves to nothing and the loop
+ * keeps walking back to the newest event that CAN be phrased — the same
+ * silence-over-noise rule as below, applied to the newer era.
  *
  * **Legacy classification.** Without turn events (an older backend, a turn that
  * emitted none) the line falls back to matching the function name, exactly as
@@ -35,6 +42,7 @@
  * One line at a time. It replaces; it never accumulates.
  */
 
+import type { StepEventTranslator } from '@/adapters/api/step-event-schemas'
 import { isUseSkillStepName } from '@/features/skills/lib/skill-activity'
 import type { ThinkingStep } from '../types'
 import { isLLMModel } from './intermediate-step-parser'
@@ -101,7 +109,7 @@ const classify = (functionName: string): LiveActivityKey | null => {
  * `null` is the filter doing its job — a scaffolding node or an internal name
  * we refuse to dress up as a status.
  */
-const legacyPhrase = (step: ThinkingStep, t: (key: string) => string): string | null => {
+const legacyPhrase = (step: ThinkingStep, t: StepEventTranslator): string | null => {
   const name = (step.functionName || '').trim()
   if (!name) return null
 
@@ -135,7 +143,7 @@ const legacyPhrase = (step: ThinkingStep, t: (key: string) => string): string | 
  */
 export const deriveLiveActivity = (
   steps: ThinkingStep[],
-  t: (key: string) => string
+  t: StepEventTranslator
 ): string | null => {
   // ── The turn narrated itself ────────────────────────────────────────────
   // Newest first, and completeness is irrelevant here: a turn event is pushed
@@ -146,7 +154,7 @@ export const deriveLiveActivity = (
     for (let i = steps.length - 1; i >= 0; i -= 1) {
       const step = steps[i]
       if (!isTurnEventStepName(step.functionName || '')) continue
-      const text = turnEventLiveText(step)
+      const text = turnEventLiveText(step, t)
       if (text) return text
     }
     return null

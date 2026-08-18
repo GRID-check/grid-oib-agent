@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+from aiq_agent.skills.events import ALL_SKILL_KEYS
 from aiq_agent.skills.events import emit_skills_offered
 from aiq_agent.skills.models import Skill
 from aiq_agent.skills.runtime import SkillRuntime
@@ -231,11 +232,17 @@ class TestActivationEvents:
         by_name = {e["name"]: e for e in events if e["phase"] == "activated"}
         assert by_name["titel"]["forced"] is True
         assert by_name["titel-zwei"]["forced"] is False
-        # Both are LIVE and both speak the human title, never the id.
+        # Who decided is a different KEY, not a different verb inside one
+        # sentence: that difference is not one word in every language.
+        assert by_name["titel"]["key"] == "skill.forced"
+        assert by_name["titel-zwei"]["key"] == "skill.activated"
+        # Both are LIVE, and the only value either carries is the human title —
+        # never the id, and never a finished sentence.
         for event in by_name.values():
             assert event["channel"] == "live"
-            assert event["title"] in event["text"]
-            assert event["name"] not in event["text"]
+            assert "text" not in event
+            assert event["values"] == {"skill": event["title"]}
+            assert event["name"] not in event["values"]["skill"]
 
     def test_a_skill_without_a_title_gets_no_live_sentence(self, context_state) -> None:
         """An id in a status line is worse than silence; the event still records it."""
@@ -244,6 +251,8 @@ class TestActivationEvents:
 
         activation = next(e for e in events if e["phase"] == "activated")
         assert activation["channel"] == "technical"
+        assert "key" not in activation
+        assert "values" not in activation
         assert "text" not in activation
         assert "title" not in activation
 
@@ -254,6 +263,7 @@ class TestActivationEvents:
         loaded = next(e for e in events if e["phase"] == "loaded")
         assert loaded["channel"] == "technical"
         assert loaded["body_chars"] == len(body)
+        assert "key" not in loaded
         assert "text" not in loaded
 
     def test_offered_reports_the_catalog_but_never_as_activity(self, context_state) -> None:
@@ -279,6 +289,31 @@ class TestActivationEvents:
         emit_skills_offered(runtime)
         _use_skill(runtime).invoke({"skill_name": "titel"})
         assert context_state.active_span_id_stack.get() == ["root"]
+
+    def test_no_skill_event_carries_a_sentence_in_any_language(self, context_state) -> None:
+        """Emitted data has no language — the frontend owns every word.
+
+        This module used to ship *Skill „Brandschutznachweis“ wird angewendet*
+        in a ``text`` field and the live line rendered it verbatim, so an
+        English-locale reader read German. What may travel now is a stable key
+        from ``ALL_SKILL_KEYS`` and the tenant's own authored title, which is
+        the same word in every locale.
+        """
+        events = self._sink(context_state)
+        runtime = SkillRuntime(skills=(TITLED, TITLED_TWO), force_names=["titel"])
+        emit_skills_offered(runtime)
+        _use_skill(runtime).invoke({"skill_name": "titel"})
+        _use_skill(runtime).invoke({"skill_name": "titel-zwei"})
+
+        assert events
+        for event in events:
+            assert "text" not in event, event
+            key = event.get("key")
+            if key is None:
+                continue
+            assert key in ALL_SKILL_KEYS, key
+            # One value, and it is the office's own name for its own method.
+            assert set(event["values"]) == {"skill"}
 
     def test_a_broken_event_never_takes_the_turn_down(self, context_state, monkeypatch) -> None:
         """Transparency is worth less than the answer it describes."""

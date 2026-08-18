@@ -2,6 +2,8 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
+import { de, en } from '@/i18n/dictionaries'
+import { createTranslator } from '@/i18n/translate'
 import { deriveLiveActivity } from './live-activity'
 import { getDisplayName } from './intermediate-step-parser'
 import type { ThinkingStep } from '../types'
@@ -152,7 +154,19 @@ describe('deriveLiveActivity', () => {
  *   • `loaded` follows `activated` under the SAME step name, so taking the
  *     newest payload would blank the line the instant the skill loaded.
  */
+/**
+ * Turn events on the live line.
+ *
+ * The newer era: the backend states what it is doing as a stable KEY plus
+ * interpolation VALUES, and every word is written on this side, in the reader's
+ * locale. These tests run the real dictionaries rather than an echo translator,
+ * because the regression they guard — German prose reaching an English reader —
+ * is invisible to a translator that returns its key.
+ */
 describe('deriveLiveActivity — turn events', () => {
+  const tDe = createTranslator(de, 'chat')
+  const tEn = createTranslator(en, 'chat')
+
   const eventStep = (name: string, ...payloads: Array<Record<string, unknown>>) =>
     step({
       id: name,
@@ -163,25 +177,67 @@ describe('deriveLiveActivity — turn events', () => {
       content: payloads.map((p) => JSON.stringify(p)).join('\n'),
     })
 
-  const status = (slot: string, text: string, extra: Record<string, unknown> = {}) =>
-    eventStep(`status:${slot}`, { kind: 'status', channel: 'live', slot, text, ...extra })
+  const status = (slot: string, key: string, values: Record<string, string> = {}) =>
+    eventStep(`status:${slot}`, { kind: 'status', channel: 'live', slot, key, values })
+
+  const activated = {
+    kind: 'skill',
+    channel: 'live',
+    phase: 'activated',
+    name: 'oib-brandschutznachweis',
+    title: 'Brandschutznachweis',
+    key: 'skill.activated',
+    values: { skill: 'Brandschutznachweis' },
+  }
 
   test('a status one-liner speaks even though it is already complete', () => {
-    const phrase = deriveLiveActivity(
-      [status('retrieval:0', 'Sucht im OIB-Wissen: „Fluchtweglänge GK4“', { tools: ['knowledge_search'] })],
-      t
+    const steps = [
+      status('retrieval:0', 'status.retrieval.withQuery', {
+        corpus: 'knowledge',
+        query: 'Fluchtweglänge GK4',
+      }),
+    ]
+    expect(deriveLiveActivity(steps, tDe)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+    expect(deriveLiveActivity(steps, tEn)).toBe(
+      'Searching the OIB knowledge base: “Fluchtweglänge GK4”'
     )
-    expect(phrase).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+  })
+
+  test('an English reader never sees German — the whole point of the change', () => {
+    const steps = [
+      status('documents', 'status.documents.archiv'),
+      status('routing', 'status.routing.shallow'),
+      status('retrieval:0', 'status.retrieval.plain', { corpus: 'ris' }),
+      status('citations', 'status.citations'),
+      status('escalation', 'status.escalation'),
+    ]
+    // Walk the turn one event at a time, in both locales.
+    const english = steps.map((_, i) => deriveLiveActivity(steps.slice(0, i + 1), tEn))
+    expect(english).toEqual([
+      'Reviewing documents from the office archive …',
+      'Preparing a quick lookup',
+      'Searching RIS (Austrian law) …',
+      'Checking the citations …',
+      'A quick lookup is not enough — starting deep research',
+    ])
+    const german = steps.map((_, i) => deriveLiveActivity(steps.slice(0, i + 1), tDe))
+    expect(german).toEqual([
+      'Unterlagen aus dem Büroarchiv werden gesichtet …',
+      'Kurzrecherche wird vorbereitet',
+      'Sucht im RIS …',
+      'Belege werden geprüft …',
+      'Kurzrecherche reicht nicht — Tiefenrecherche startet',
+    ])
   })
 
   test('the newest event wins — the line replaces, it never accumulates', () => {
     const phrase = deriveLiveActivity(
       [
-        status('routing', 'Kurzrecherche: Frage betrifft OIB 2'),
-        status('retrieval:0', 'Sucht im RIS: „§ 3 BO Wien“'),
-        status('citations', 'Belege werden geprüft …'),
+        status('routing', 'status.routing.shallow'),
+        status('retrieval:0', 'status.retrieval.withQuery', { corpus: 'ris', query: '§ 3 BO Wien' }),
+        status('citations', 'status.citations'),
       ],
-      t
+      tDe
     )
     expect(phrase).toBe('Belege werden geprüft …')
   })
@@ -191,15 +247,18 @@ describe('deriveLiveActivity — turn events', () => {
     // `knowledge_search_tool` span opens a moment later and would otherwise
     // replace it with a generic "searching your sources".
     const steps = [
-      status('retrieval:0', 'Sucht im OIB-Wissen: „Fluchtweglänge GK4“'),
+      status('retrieval:0', 'status.retrieval.withQuery', {
+        corpus: 'knowledge',
+        query: 'Fluchtweglänge GK4',
+      }),
       step({ id: 'tool', functionName: 'knowledge_search_tool', isComplete: false }),
     ]
-    expect(deriveLiveActivity(steps, t)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+    expect(deriveLiveActivity(steps, tDe)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
   })
 
-  test('a technical event is never rendered, and carries no text to render', () => {
+  test('a technical event is never rendered, and carries no key to render', () => {
     const steps = [
-      status('routing', 'Kurzrecherche: Frage betrifft OIB 2'),
+      status('routing', 'status.routing.shallow'),
       eventStep('skill_selection', {
         kind: 'skill',
         channel: 'technical',
@@ -209,52 +268,42 @@ describe('deriveLiveActivity — turn events', () => {
       }),
     ]
     // Falls back to the newest event that MAY speak.
-    expect(deriveLiveActivity(steps, t)).toBe('Kurzrecherche: Frage betrifft OIB 2')
+    expect(deriveLiveActivity(steps, tDe)).toBe('Kurzrecherche wird vorbereitet')
+  })
+
+  test('an unknown key falls back to the previous phrase, never to the key', () => {
+    // The specific failure this guards: a backend one release ahead adds a
+    // slot, and the live line prints `status.somethingNew` at the reader.
+    const steps = [
+      status('routing', 'status.routing.shallow'),
+      status('somethingNew', 'status.somethingNew'),
+    ]
+    expect(deriveLiveActivity(steps, tEn)).toBe('Preparing a quick lookup')
+    // And with nothing older to fall back to, the caller's generic copy wins.
+    expect(deriveLiveActivity([status('somethingNew', 'status.somethingNew')], tEn)).toBeNull()
   })
 
   test('an activated skill says which skill, by its authored title', () => {
-    const phrase = deriveLiveActivity(
-      [
-        eventStep('skill:oib-brandschutznachweis', {
-          kind: 'skill',
-          channel: 'live',
-          phase: 'activated',
-          name: 'oib-brandschutznachweis',
-          title: 'Brandschutznachweis',
-          text: 'Skill „Brandschutznachweis“ wird angewendet',
-        }),
-      ],
-      t
-    )
-    expect(phrase).toBe('Skill „Brandschutznachweis“ wird angewendet')
+    const steps = [eventStep('skill:oib-brandschutznachweis', activated)]
+    expect(deriveLiveActivity(steps, tDe)).toBe('Skill „Brandschutznachweis“ wird angewendet')
+    expect(deriveLiveActivity(steps, tEn)).toBe('Applying the “Brandschutznachweis” skill')
   })
 
   test('the loaded phase does not blank the line it followed', () => {
     // Both phases land on the SAME step name; `loaded` is technical and has no
-    // text, so reading only the newest payload would erase the sentence.
+    // key, so reading only the newest payload would erase the sentence.
     const phrase = deriveLiveActivity(
       [
-        eventStep(
-          'skill:oib-brandschutznachweis',
-          {
-            kind: 'skill',
-            channel: 'live',
-            phase: 'activated',
-            name: 'oib-brandschutznachweis',
-            title: 'Brandschutznachweis',
-            text: 'Skill „Brandschutznachweis“ wird angewendet',
-          },
-          {
-            kind: 'skill',
-            channel: 'technical',
-            phase: 'loaded',
-            name: 'oib-brandschutznachweis',
-            title: 'Brandschutznachweis',
-            body_chars: 4096,
-          }
-        ),
+        eventStep('skill:oib-brandschutznachweis', activated, {
+          kind: 'skill',
+          channel: 'technical',
+          phase: 'loaded',
+          name: 'oib-brandschutznachweis',
+          title: 'Brandschutznachweis',
+          body_chars: 4096,
+        }),
       ],
-      t
+      tDe
     )
     expect(phrase).toBe('Skill „Brandschutznachweis“ wird angewendet')
     expect(phrase).not.toContain('4096')
@@ -273,24 +322,25 @@ describe('deriveLiveActivity — turn events', () => {
         name: 'oib-2024',
       }),
     ]
-    expect(deriveLiveActivity(steps, t)).toBeNull()
+    expect(deriveLiveActivity(steps, tDe)).toBeNull()
   })
 
-  test('the raw wire payload is html-escaped, and the sentence survives it', () => {
+  test('the raw wire payload is html-escaped, and the query survives it', () => {
     // NAT runs `html.escape(…, quote=False)`, and `&` is not JSON-structural —
     // so `JSON.parse` SUCCEEDS on the escaped form and quietly hands back
-    // "Brand &amp; Rauch" as the sentence. `content` has already been decoded
+    // "Brand &amp; Rauch" as the query. `content` has already been decoded
     // once by `formatPayload`; `rawPayload` has not, and is decoded here.
     const wire = JSON.stringify({
       kind: 'status',
       channel: 'live',
       slot: 'retrieval:0',
-      text: 'Sucht im OIB-Wissen: „Brand & Rauch“',
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Brand & Rauch' },
     }).replace(/&/g, '&amp;')
 
     const phrase = deriveLiveActivity(
       [step({ functionName: 'status:retrieval:0', isComplete: true, content: '', rawPayload: wire })],
-      t
+      tDe
     )
     expect(phrase).toBe('Sucht im OIB-Wissen: „Brand & Rauch“')
   })
@@ -302,13 +352,26 @@ describe('deriveLiveActivity — turn events', () => {
       kind: 'status',
       channel: 'live',
       slot: 'retrieval:0',
-      text: 'Sucht nach „&amp; Co“',
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: '&amp; Co' },
     })
     const phrase = deriveLiveActivity(
       [step({ functionName: 'status:retrieval:0', isComplete: true, content: decodedOnce })],
-      t
+      tDe
     )
-    expect(phrase).toBe('Sucht nach „&amp; Co“')
+    expect(phrase).toBe('Sucht im OIB-Wissen: „&amp; Co“')
+  })
+
+  test('a pre-key backend still speaks, for one release', () => {
+    // Backward compatibility, one-directional: `text` is read and never
+    // written. See `turn-events.spec.ts` for the contract.
+    const legacy = eventStep('status:citations', {
+      kind: 'status',
+      channel: 'live',
+      slot: 'citations',
+      text: 'Belege werden geprüft …',
+    })
+    expect(deriveLiveActivity([legacy], tEn)).toBe('Belege werden geprüft …')
   })
 
   test('legacy bare use_skill still says a skill is being applied — never "Use Skill"', () => {

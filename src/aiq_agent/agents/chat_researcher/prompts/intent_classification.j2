@@ -25,10 +25,13 @@ Respond with ONLY the raw JSON object below — no markdown code fences, no expl
   "depth_reasoning": "One sentence explanation for depth if research, otherwise null"
 }
 
-`depth_reasoning` is READ BY THE USER, not only by the graph: it is shown as the
-routing explanation while the turn runs and again on the finished answer. Write
-it in GERMAN, in one short plain sentence addressed to an architect ("Einzelne
-Fachfrage, eine Rechercherunde genügt."), never in English and never naming
+`depth_reasoning` is READ BY THE USER, not only by the graph: it is quoted back
+as the model's own wording in the "why this route" row of the reasoning panel.
+It is NOT product chrome — the running status line states the routing decision
+in the reader's own interface language and never uses this sentence — so write
+it in THE SAME LANGUAGE AS THE USER'S QUERY, in one short plain sentence
+addressed to an architect ("Einzelne Fachfrage, eine Rechercherunde genügt." /
+"Single technical question, one research round is enough."), never naming
 internals like nodes, tools or depth literals.
 
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}

@@ -9,8 +9,52 @@ edge cases — they are the longest stretches of the turn: context loading befor
 the graph starts, the routing decision (known one second in, shipped only on
 the terminal frame), and the whole answer phase behind a generic label.
 
-This module is the other direction: the agent states, in German, what it is
-doing at the moment it does it.
+This module is the other direction: the agent states what it is doing at the
+moment it does it.
+
+Keys, not sentences
+-------------------
+
+It states it as a **stable key plus interpolation values**, never as a finished
+sentence. The first cut of this module emitted German prose in a ``text``
+field and the frontend rendered it verbatim, so an English-locale reader got
+German — a regression the whole product rule exists to prevent: **nothing in
+emitted data is language-specific**. What travels now is
+
+``key``
+    a stable dotted id (``status.retrieval.withQuery``, ``status.routing.deep``)
+    that the frontend resolves against its own dictionary. It is an identifier,
+    not copy: renaming one is a wire change.
+``values``
+    the interpolation data ONLY, ``dict[str, str]``. Everything else the event
+    knows (an intent, a depth, a source count, the classifier's reason) travels
+    as its own field, because those are telemetry for the details panel and not
+    slots in a sentence.
+
+Which means every value in ``values`` must survive being dropped into an
+English sentence. Three rules, applied per value:
+
+1. **A proper noun travels as itself.** A skill's authored ``grid-title``
+   ("Brandschutznachweis") is that office's name for their own working method;
+   it is the same word in every locale, and translating it would be inventing a
+   name nobody uses.
+2. **A name the PRODUCT chose travels as an id.** "OIB-Wissen", "Ihre
+   Unterlagen", "im Gebäudemodell" are product copy wearing a proper noun's
+   clothes — and the preposition and the conjunction joining two of them are
+   pure German grammar. So a corpus travels as ``knowledge``/``ris``/``web``/
+   ``documents``/``ifc`` and the frontend both names and joins them.
+3. **Prose is never a value.** The routing ``reason`` is a free-text sentence an
+   LLM wrote; it cannot be interpolated into an English line without smuggling
+   a German clause into it. The live line therefore says only the routing
+   DECISION, from a fixed enum, phrased entirely by the frontend. The reason
+   still travels — as the ``reason`` FIELD, which the Herleitung already renders
+   as the model's own words, attributed and secondary. (Because it is still
+   read by a user there, ``intent_classification.j2`` no longer pins it to
+   German: it asks for the language of the user's own query.)
+
+The user query quoted in a retrieval line is the reader's own words echoed
+back, so it is neither prose we wrote nor a name we chose — it goes back out
+exactly as it came in.
 
 What earns a line
 -----------------
@@ -84,17 +128,68 @@ STATUS_STEP_PREFIX = "status:"
 CHANNEL_LIVE = "live"
 CHANNEL_TECHNICAL = "technical"
 
-#: A status line is a glance, not a paragraph: it is read while something else
-#: is happening and it sits on one line in a narrow panel.
-MAX_STATUS_CHARS = 60
-
 #: Room for the quoted retrieval query inside a status line, after the label
-#: and the punctuation around it.
+#: and the punctuation around it. Budgeted here rather than in the frontend
+#: because the backend is the only side that sees the untruncated query, and a
+#: status that overflows its one line is worse than one that says slightly
+#: less. (The line as a whole is budgeted by the dictionary copy: every
+#: template under ``chat.thinking.turnStatus`` is written to fit one narrow
+#: row with this much query in it.)
 MAX_QUERY_CHARS = 32
 
 #: Reason strings (routing, escalation) travel in full-ish as a separate field
 #: rather than being crammed into the one-liner.
 MAX_REASON_CHARS = 160
+
+
+# --- The keys ---------------------------------------------------------------
+#
+# Stable dotted ids. The frontend owns the words; these own the meaning. Each
+# has a German and an English string under ``chat.thinking.turnStatus.*``, and
+# a key with no dictionary entry renders NOTHING — never the key itself.
+
+#: ``status.documents.<shelf>`` — which shelf of the reader's own files is
+#: being read. The shelf is in the KEY rather than in ``values`` because German
+#: needs the dative ("aus dem Büroarchiv") and English needs no article at all:
+#: a shelf name cannot be interpolated into one shared template.
+KEY_DOCUMENTS_PREFIX = "status.documents."
+
+#: ``status.routing.<decision>`` — the routing decision, as an enum. Never the
+#: classifier's prose; see the module docstring.
+KEY_ROUTING_PREFIX = "status.routing."
+
+#: Retrieval, with and without a query to quote.
+KEY_RETRIEVAL_WITH_QUERY = "status.retrieval.withQuery"
+KEY_RETRIEVAL_PLAIN = "status.retrieval.plain"
+
+#: Non-retrieval tools the reader asked for by name.
+KEY_ACTION_REMEMBER = "status.action.remember"
+KEY_ACTION_CARD = "status.action.card"
+
+KEY_CITATIONS = "status.citations"
+KEY_ESCALATION = "status.escalation"
+
+#: EVERY key this module can emit, exhaustively. Two tests hang off it: the
+#: Python one asserts nothing is emitted that is not in here, and the UI one
+#: (``features/chat/lib/turn-events.spec.ts``) reads this tuple out of this
+#: file and asserts each id has a German AND an English string. Drift in either
+#: direction is a failing build rather than a reader seeing a blank line.
+ALL_STATUS_KEYS: tuple[str, ...] = (
+    "status.documents.archiv",
+    "status.documents.project",
+    "status.documents.session",
+    "status.documents.several",
+    "status.routing.meta",
+    "status.routing.outOfScope",
+    "status.routing.shallow",
+    "status.routing.deep",
+    "status.retrieval.withQuery",
+    "status.retrieval.plain",
+    "status.action.remember",
+    "status.action.card",
+    "status.citations",
+    "status.escalation",
+)
 
 
 def clip(text: str, limit: int) -> str:
@@ -151,68 +246,87 @@ def push_custom_step(step_name: str, payload: dict[str, Any]) -> None:
         logger.debug("Transparency step %r not emitted", step_name, exc_info=True)
 
 
-def emit_status(slot: str, text: str, *, channel: str = CHANNEL_LIVE, **extra: Any) -> None:
-    """Emit one German status line into the run's step stream.
+def emit_status(
+    slot: str,
+    key: str,
+    *,
+    values: dict[str, Any] | None = None,
+    channel: str = CHANNEL_LIVE,
+    **extra: Any,
+) -> None:
+    """Emit one status event into the run's step stream.
 
     Args:
         slot: The status slot (``context``, ``routing``, …). Becomes the step
             name, so it is also the frontend's dedupe key.
-        text: The sentence the user reads, clipped to :data:`MAX_STATUS_CHARS`.
+        key: The stable dotted id the frontend resolves to a sentence. NOT
+            copy — see the module docstring.
+        values: Interpolation data ONLY, stringified. Empty values are dropped
+            so a template placeholder is either filled or the frontend can see
+            that it was not.
         channel: :data:`CHANNEL_LIVE` or :data:`CHANNEL_TECHNICAL`.
-        extra: Structured detail alongside the sentence (a routing decision, a
-            corpus, the retrieval query). ``None`` values are omitted so an
-            absent detail is absent rather than null.
+        extra: Structured detail that is NOT part of the sentence (the intent,
+            the depth, the classifier's reason, a source count). ``None``
+            values are omitted so an absent detail is absent rather than null.
     """
+    clean: dict[str, str] = {}
+    for name, value in (values or {}).items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            clean[name] = text
     payload: dict[str, Any] = {
         "kind": "status",
         "channel": channel,
         "slot": slot,
-        "text": clip(text, MAX_STATUS_CHARS),
+        "key": key,
+        "values": clean,
     }
-    payload.update({key: value for key, value in extra.items() if value is not None})
+    payload.update({name: value for name, value in extra.items() if value is not None})
     push_custom_step(f"{STATUS_STEP_PREFIX}{slot}", payload)
 
 
-# --- The copy ---------------------------------------------------------------
+# --- What each moment is called ---------------------------------------------
 #
-# German, formal register, present tense — the same voice as the frontend's
-# activity dictionary ("Frage wird erfasst …", "Antwort wird formuliert …"), so
-# a backend-authored line and a frontend-authored one read as one product
-# rather than two. Kept here rather than at each call site so the tone has one
-# home and drifts as a unit or not at all.
+# Ids only. No copy lives in this file any more: the German and the English
+# sentences sit side by side in the frontend dictionary, which is the only
+# place that knows who is reading.
 
-STATUS_CITATIONS = "Belege werden geprüft …"
-
-#: Routing: what the classifier decided, said as a decision rather than a label.
-_ROUTING_LEAD = {
-    "meta": "Gespräch — keine Recherche nötig",
-    "out_of_scope": "Frage außerhalb des Fachgebiets",
-    "shallow": "Kurzrecherche",
-    "deep": "Tiefenrecherche wird vorbereitet",
+#: Routing: the decision, as a closed enum. ``outOfScope`` is camelCase because
+#: the key is a dictionary path, and the dictionary is TypeScript.
+_ROUTING_DECISIONS = {
+    "meta": "meta",
+    "out_of_scope": "outOfScope",
+    "shallow": "shallow",
+    "deep": "deep",
 }
 
-#: Retrieval tools, by basename prefix, in match order. The value is a
-#: prepositional phrase naming the CORPUS an architect recognises — "im
-#: OIB-Wissen", not "knowledge_search_tool" — and matches the wording the
-#: frontend's own activity dictionary already uses for the same corpora.
+#: Retrieval tools, by basename prefix, in match order. The value is the CORPUS
+#: ID — not its display name: "im OIB-Wissen" is product copy and a German
+#: preposition, and two corpora are joined by a German "und". The frontend owns
+#: both (``chat.thinking.turnStatus.corpus.*``).
 #:
 #: Deliberately the corpus and not a specific Richtlinie: the retrieval tools
 #: take a query and nothing else, so naming "OIB-Richtlinie 2" here would be
 #: claiming a narrowing the system did not perform.
-_SEARCH_PHRASES: tuple[tuple[str, str], ...] = (
-    ("knowledge_search", "im OIB-Wissen"),
-    ("ris_", "im RIS"),
-    ("advanced_web_search", "im Web"),
-    ("web_search", "im Web"),
-    ("surface_documents", "in Ihren Unterlagen"),
-    ("ifc_", "im Gebäudemodell"),
+_SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
+    ("knowledge_search", "knowledge"),
+    ("ris_", "ris"),
+    ("advanced_web_search", "web"),
+    ("web_search", "web"),
+    ("surface_documents", "documents"),
+    ("ifc_", "ifc"),
 )
 
 #: Non-retrieval tools that still deserve a line, because the user asked for
-#: the thing they do and can see whether it happened.
-_ACTION_TEXT = {
-    "remember": "Notiz wird gespeichert …",
-    "emit_card": "Ergebniskarte wird erstellt …",
+#: the thing they do and can see whether it happened. A tool that is on neither
+#: this list nor :data:`_SEARCH_CORPORA` gets NO line: the only thing left to
+#: say about it is its internal name, and an identifier dressed up as a status
+#: is the noise this whole module exists to remove.
+_ACTION_KEYS = {
+    "remember": KEY_ACTION_REMEMBER,
+    "emit_card": KEY_ACTION_CARD,
 }
 
 #: Argument names a retrieval query hides behind, in preference order.
@@ -232,10 +346,10 @@ def tool_basename(tool_name: str) -> str:
     return base
 
 
-def _search_phrase(base: str) -> str | None:
-    for prefix, phrase in _SEARCH_PHRASES:
+def _search_corpus(base: str) -> str | None:
+    for prefix, corpus in _SEARCH_CORPORA:
         if base.startswith(prefix):
-            return phrase
+            return corpus
     return None
 
 
@@ -259,15 +373,18 @@ def _query_text(args: Any) -> str | None:
     return None
 
 
-#: Where the reader's own documents live, named the way they are named in the
-#: product (ADR-0047's shelves). ``base`` is absent on purpose: the OIB corpus
-#: is read on every research turn, so announcing it would be announcing a
-#: constant — and it is not "your documents" in any case.
-_SHELF_PHRASES = {
-    "archiv": "dem Büroarchiv",
-    "project": "dem Projekt",
-    "session": "dieser Unterhaltung",
+#: Where the reader's own documents live, as SHELF IDS. ``base`` is absent on
+#: purpose: the OIB corpus is read on every research turn, so announcing it
+#: would be announcing a constant — and it is not "your documents" in any case.
+_SHELF_IDS = {
+    "archiv": "archiv",
+    "project": "project",
+    "session": "session",
 }
+
+#: More than one shelf collapses into one line rather than listing them: a
+#: conjunction of three dative noun phrases is a sentence, not a status.
+_SHELF_SEVERAL = "several"
 
 
 def emit_documents_loading(shelves: list[str] | None = None) -> None:
@@ -284,29 +401,39 @@ def emit_documents_loading(shelves: list[str] | None = None) -> None:
     """
     named: list[str] = []
     for shelf in shelves or ():
-        phrase = _SHELF_PHRASES.get(str(shelf))
-        if phrase and phrase not in named:
-            named.append(phrase)
+        shelf_id = _SHELF_IDS.get(str(shelf))
+        if shelf_id and shelf_id not in named:
+            named.append(shelf_id)
     if not named:
         return
-    where = named[0] if len(named) == 1 else "Ihren Ablagen"
-    emit_status("documents", f"Unterlagen aus {where} werden gesichtet …", shelves=list(shelves or ()))
+    where = named[0] if len(named) == 1 else _SHELF_SEVERAL
+    emit_status(
+        "documents",
+        f"{KEY_DOCUMENTS_PREFIX}{where}",
+        shelves=list(shelves or ()),
+    )
 
 
 def emit_routing(*, intent: str, depth: str | None, reason: str | None) -> None:
     """The routing decision, the moment it is parsed.
 
     Known roughly a second into the turn and, before this, shipped only on the
-    TERMINAL frame — i.e. announced after the answer it explains. The reason is
-    the model's own words for why, which is the part a reader can disagree with.
+    TERMINAL frame — i.e. announced after the answer it explains.
+
+    The live line carries the DECISION and nothing else. The classifier's own
+    words for why are the part a reader can disagree with, and they are worth
+    showing — but they are a free-text sentence in whatever language the model
+    wrote, so pasting them into the running one-liner is exactly how German
+    reached an English reader. They travel as ``reason``, which the Herleitung
+    renders in its own secondary "Warum dieser Weg?" row, attributed to the
+    model rather than presented as the product's voice.
     """
-    key = intent if intent in ("meta", "out_of_scope") else (depth or "shallow")
-    lead = _ROUTING_LEAD.get(key, _ROUTING_LEAD["shallow"])
+    decision = intent if intent in ("meta", "out_of_scope") else (depth or "shallow")
+    slug = _ROUTING_DECISIONS.get(decision, _ROUTING_DECISIONS["shallow"])
     reason_text = " ".join(str(reason).split()) if reason else ""
-    text = f"{lead}: {reason_text}" if reason_text else lead
     emit_status(
         "routing",
-        text,
+        f"{KEY_ROUTING_PREFIX}{slug}",
         intent=intent,
         depth=depth,
         reason=clip(reason_text, MAX_REASON_CHARS) or None,
@@ -319,6 +446,8 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
     "Sucht im OIB-Wissen: „Fluchtweglänge GK4“" is a different sentence from
     "searching": it names the body of law being read and shows the reader
     whether the question was understood, while there is still time to say no.
+    What is emitted here is the ingredients of that sentence — the corpus ids
+    and the user's own query — never the sentence.
 
     Aggregated per round rather than per call because the model emits its calls
     in parallel batches — three separate lines in the same instant would be a
@@ -329,10 +458,10 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
     if not calls:
         return
 
-    phrases: list[str] = []
+    corpora: list[str] = []
     tools: list[str] = []
     query: str | None = None
-    action: str | None = None
+    action_key: str | None = None
     for call in calls:
         base = tool_basename(str(call.get("name") or ""))
         if not base or base == "use_skill":
@@ -341,25 +470,29 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
             # thing twice, worse.
             continue
         tools.append(base)
-        phrase = _search_phrase(base)
-        if phrase is not None:
-            if phrase not in phrases:
-                phrases.append(phrase)
+        corpus = _search_corpus(base)
+        if corpus is not None:
+            if corpus not in corpora:
+                corpora.append(corpus)
             query = query or _query_text(call.get("args"))
-        elif action is None:
-            action = _ACTION_TEXT.get(base)
+        elif action_key is None:
+            action_key = _ACTION_KEYS.get(base)
 
-    if not tools:
-        return
-    if phrases:
-        where = " und ".join(phrases)
-        text = f"Sucht {where}: „{clip(query, MAX_QUERY_CHARS)}“" if query else f"Sucht {where} …"
-    elif action is not None:
-        text = action
+    if corpora:
+        values: dict[str, Any] = {"corpus": ",".join(corpora)}
+        if query:
+            values["query"] = clip(query, MAX_QUERY_CHARS)
+            key = KEY_RETRIEVAL_WITH_QUERY
+        else:
+            key = KEY_RETRIEVAL_PLAIN
+    elif action_key is not None:
+        key = action_key
+        values = {}
     else:
-        text = f"Werkzeug „{tools[0]}“ wird ausgeführt …"
+        # Nothing left to say but an internal tool name. Say nothing.
+        return
 
-    emit_status(f"retrieval:{round_index}", text, tools=tools, query=query)
+    emit_status(f"retrieval:{round_index}", key, values=values, tools=tools)
 
 
 def emit_citation_check(*, source_count: int | None = None) -> None:
@@ -370,14 +503,7 @@ def emit_citation_check(*, source_count: int | None = None) -> None:
     citation in the answer is checked against what was actually retrieved
     before the reader sees it.
     """
-    emit_status("citations", STATUS_CITATIONS, source_count=source_count)
-
-
-#: Shallow → deep. Fixed copy, and deliberately NOT the internal
-#: ``escalation_reason`` ("Shallow agent emitted insufficiency marker"), which
-#: names a marker in a message and tells an architect nothing. The internal
-#: string still travels as the ``reason`` field for the details panel.
-STATUS_ESCALATION = "Kurzrecherche reicht nicht — Tiefenrecherche startet"
+    emit_status("citations", KEY_CITATIONS, source_count=source_count)
 
 
 def emit_escalation(reason: str | None = None) -> None:
@@ -386,6 +512,11 @@ def emit_escalation(reason: str | None = None) -> None:
     Deep research is minutes, not seconds. A reader who is told the short
     answer was not good enough is waiting; one who is not is wondering whether
     the turn broke.
+
+    The key is fixed and deliberately NOT built from the internal
+    ``escalation_reason`` ("Shallow agent emitted insufficiency marker"), which
+    names a marker in a message and tells an architect nothing. The internal
+    string still travels as the ``reason`` field for the details panel.
     """
     reason_text = " ".join(str(reason).split()) if reason else ""
-    emit_status("escalation", STATUS_ESCALATION, reason=clip(reason_text, MAX_REASON_CHARS) or None)
+    emit_status("escalation", KEY_ESCALATION, reason=clip(reason_text, MAX_REASON_CHARS) or None)

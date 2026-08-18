@@ -3,11 +3,16 @@
  *
  * Everything else in the thinking stream is observability: NAT turns LangChain
  * spans into frames and the UI guesses an activity by regex-matching internal
- * function names. These steps are the other direction — the backend authors one
- * German sentence per moment (`aiq_agent/common/turn_status.py`,
+ * function names. These steps are the other direction — the backend names one
+ * moment per step (`aiq_agent/common/turn_status.py`,
  * `aiq_agent/skills/events.py`) and ships it as an ordinary intermediate step.
  *
- * Three things about them break naive handling, and this module exists so each
+ * It names it with a stable KEY plus interpolation VALUES, never with a
+ * sentence: the words are this side's job, in whichever locale is reading. A
+ * previous cut shipped finished German and rendered it verbatim, which is how
+ * an English-locale reader ended up reading German.
+ *
+ * Four things about them break naive handling, and this module exists so each
  * is dealt with in one place:
  *
  * 1. **They are statuses, not work.** `status:retrieval:0` is a sentence about
@@ -22,9 +27,13 @@
  *    exempt.
  * 3. **`channel` is a hard rule.** `technical` events belong to the opt-in
  *    panel and never to the live line. The backend enforces it structurally by
- *    omitting `text` on them; `stepEventLiveText` checks both.
+ *    omitting `key` on them; `stepEventLiveText` checks both.
+ * 4. **An unknown key says nothing.** Keys are resolved against a closed set
+ *    (`TURN_EVENT_KEYS` in the wire module). A key we cannot phrase renders
+ *    NOTHING and the live line falls back to the previous meaningful phrase —
+ *    never the raw key, never a title-cased identifier.
  *
- * A fourth trap is quieter: NAT runs `html.escape(…, quote=False)` over the
+ * A fifth trap is quieter: NAT runs `html.escape(…, quote=False)` over the
  * payload, and `&`, `<`, `>` are not JSON-structural — so `JSON.parse` succeeds
  * on the escaped form and hands back `Brand &amp; Rauch` as if it were the
  * sentence. It never throws, which is why `stepEventPayload` decides where the
@@ -35,6 +44,7 @@ import {
   parseStepEventPayloads,
   stepEventLiveText,
   unescapeStepPayload,
+  type StepEventTranslator,
 } from '@/adapters/api/step-event-schemas'
 import {
   isSkillSelectionStepName,
@@ -87,18 +97,24 @@ export const stepEventPayload = (step: TurnEventStep): string | undefined => {
 /**
  * The sentence this step may show on the live line, or `null` for silence.
  *
- * Status slots hand over the backend's own German line verbatim: it names the
- * corpus being searched and quotes the query, which is information the frontend
- * simply does not have — `status:retrieval:0` says *Sucht im OIB-Wissen:
- * „Fluchtweglänge GK4“* where the old regex could only manage *Quellen werden
- * durchsucht …*.
+ * A status slot hands over the key and the values; the dictionary supplies the
+ * wording. The event still carries what the frontend cannot know — WHICH corpus
+ * is being read and WHAT was asked — so `status:retrieval:0` still resolves to
+ * *Sucht im OIB-Wissen: „Fluchtweglänge GK4“* (or *Searching the OIB knowledge
+ * base: “Fluchtweglänge GK4”*) where the old regex could only manage *Quellen
+ * werden durchsucht …*.
  *
  * Skills go through `skillLiveText`, which additionally refuses a titleless
  * activation.
+ *
+ * @param t a `chat`-namespace translator
  */
-export const turnEventLiveText = (step: TurnEventStep): string | null => {
+export const turnEventLiveText = (
+  step: TurnEventStep,
+  t: StepEventTranslator
+): string | null => {
   const name = step.functionName || ''
-  if (isSkillStepName(name)) return skillLiveText(stepEventPayload(step))
+  if (isSkillStepName(name)) return skillLiveText(stepEventPayload(step), t)
   // The catalogue event is availability by definition and is emitted on the
   // technical channel; the guard below would already refuse it, but saying so
   // here keeps the rule visible where the reader of this file looks for it.
@@ -107,7 +123,7 @@ export const turnEventLiveText = (step: TurnEventStep): string | null => {
 
   const payloads = parseStepEventPayloads(stepEventPayload(step))
   for (let i = payloads.length - 1; i >= 0; i -= 1) {
-    const text = stepEventLiveText(payloads[i])
+    const text = stepEventLiveText(payloads[i], t)
     if (text) return text
   }
   return null

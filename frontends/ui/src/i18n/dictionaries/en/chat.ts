@@ -286,6 +286,74 @@ export const chat = {
       // for — neither of which a template here could know.
       usingSkillUnnamed: 'Applying a skill …',
     },
+    // ── Turn events: the words for what the backend REPORTED ──────────────
+    //
+    // The agent narrates itself with `status:<slot>` steps, and it narrates in
+    // KEYS: a stable dotted id plus interpolation values. Everything a reader
+    // sees is written here, in their locale. It used to be written in the
+    // Python and shipped as a finished German sentence, which is how an
+    // English-locale reader read German.
+    //
+    // A key with no entry here renders NOTHING — the live line falls back to
+    // the previous meaningful phrase. Never the key, never an identifier.
+    turnStatus: {
+      // Corpus NAMES, because "im OIB-Wissen" is product copy with a German
+      // preposition welded on, not a proper noun. The backend sends the id.
+      // Each entry is the prepositional phrase the templates below slot in.
+      corpus: {
+        knowledge: 'the OIB knowledge base',
+        ris: 'RIS (Austrian law)',
+        web: 'the web',
+        documents: 'your documents',
+        ifc: 'the building model',
+      },
+      // Joins two corpora in one line. Grammar, so it lives here too.
+      corpusJoin: ' and ',
+      status: {
+        // Which shelf of the reader's OWN files is being read. One key per
+        // shelf rather than one template with a `{shelf}` slot: German needs
+        // the dative ("aus dem Büroarchiv") and English needs no article, so a
+        // shelf name cannot be interpolated into one shared sentence.
+        documents: {
+          archiv: 'Reviewing documents from the office archive …',
+          project: 'Reviewing documents from the project …',
+          session: 'Reviewing documents from this conversation …',
+          several: 'Reviewing documents from your shelves …',
+        },
+        // The routing DECISION, from a closed enum. The classifier's own
+        // reason for it is free-text prose in whatever language the model
+        // wrote, so it never appears here — it is quoted, attributed, in the
+        // secondary `routing.line` row below.
+        routing: {
+          meta: 'A conversation — no research needed',
+          outOfScope: 'Question outside the subject area',
+          shallow: 'Preparing a quick lookup',
+          deep: 'Preparing deep research',
+        },
+        // `{query}` is the reader's own words echoed back — never translated,
+        // and clipped by the backend so the line still fits one narrow row.
+        retrieval: {
+          withQuery: 'Searching {corpus}: “{query}”',
+          plain: 'Searching {corpus} …',
+        },
+        // Non-retrieval tools the user asked for by name. A tool with no entry
+        // gets no line at all: its internal name is not a status.
+        action: {
+          remember: 'Saving the note …',
+          card: 'Building the result card …',
+        },
+        citations: 'Checking the citations …',
+        escalation: 'A quick lookup is not enough — starting deep research',
+      },
+    },
+    // The one skill event a reader sees, keyed on WHO decided. Two sentences
+    // rather than one with a swapped verb — that difference is not a word in
+    // every language. `{skill}` is the office's authored `grid-title` and
+    // travels verbatim: it is their name for their own method.
+    skill: {
+      activated: 'Applying the “{skill}” skill',
+      forced: 'Applying the “{skill}” skill you asked for',
+    },
     // Compact "what actually ran" chips in the Herleitung basis — one chip per
     // executed agent/tool, without the technical-steps opt-in.
     executedSteps: 'Ran:',

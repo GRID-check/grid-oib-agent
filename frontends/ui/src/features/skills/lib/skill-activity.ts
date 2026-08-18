@@ -22,16 +22,24 @@
  * `oib-brandschutznachweis-2024` in a status line is worse than silence, and
  * synthesising a title from it would make a missing name indistinguishable
  * from a real one — so the backend marks a titleless activation `technical`
- * and withholds its `text`, and `liveSkillActivity` honours that rather than
+ * and withholds its `key`, and `liveSkillActivity` honours that rather than
  * second-guessing it.
+ *
+ * The sentence itself is NOT the backend's to write. An activation ships the
+ * key `skill.activated` or `skill.forced` plus `{ skill: <title> }`, and this
+ * side renders it from `chat.thinking.skill.*` in whichever locale is reading.
+ * The title travels verbatim because it is the office's own name for their own
+ * method — the one value here that is the same word in every language.
  */
 
 import {
   parseStepEventPayloads,
+  renderTurnEventKey,
   stepEventLiveText,
   type SkillPhase,
   type StepEventChannel,
   type StepEventPayload,
+  type StepEventTranslator,
 } from '@/adapters/api/step-event-schemas'
 
 /** Prefix of the per-skill intermediate step: `skill:<skillname>`. */
@@ -56,7 +64,11 @@ export type SkillActivityPhase = SkillPhase
 export interface SkillActivity {
   phase: SkillActivityPhase
   channel?: StepEventChannel
-  /** The backend's German sentence. Present only on live events. */
+  /** The stable dotted id of the sentence. Present only on live events. */
+  key?: string
+  /** Interpolation data for `key` — `{ skill: <authored title> }`. */
+  values?: Record<string, string>
+  /** LEGACY: a finished German sentence from a pre-`key` backend. */
   text?: string
   name?: string
   title?: string
@@ -102,6 +114,8 @@ const toActivity = (payload: StepEventPayload): SkillActivity | null => {
   return {
     phase: payload.phase,
     ...(payload.channel ? { channel: payload.channel } : {}),
+    ...(payload.key?.trim() ? { key: payload.key.trim() } : {}),
+    ...(payload.values ? { values: payload.values } : {}),
     ...(payload.text?.trim() ? { text: payload.text.trim() } : {}),
     ...(payload.name?.trim() ? { name: payload.name.trim() } : {}),
     ...(payload.title?.trim() ? { title: payload.title.trim() } : {}),
@@ -150,8 +164,9 @@ export const liveSkillActivity = (payload: string | null | undefined): SkillActi
     if (activity.phase !== 'activated') continue
     if (activity.channel === 'technical') continue
     // A titleless activation is telemetry by contract; the backend withholds
-    // its text, and we do not invent one.
-    if (!activity.title?.trim()) continue
+    // its key, and we do not invent one. (`text` is the legacy backend's
+    // finished sentence — see the module header.)
+    if (!activity.key && !activity.text?.trim()) continue
     return activity
   }
   return null
@@ -202,12 +217,20 @@ export const skillLabelForStep = (
   })
 }
 
-/** The live sentence for a skill step, or `null` when it must stay silent. */
-export const skillLiveText = (payload: string | null | undefined): string | null => {
+/**
+ * The live sentence for a skill step, or `null` when it must stay silent.
+ *
+ * @param t a `chat`-namespace translator
+ */
+export const skillLiveText = (
+  payload: string | null | undefined,
+  t: StepEventTranslator
+): string | null => {
   const activity = liveSkillActivity(payload)
   if (!activity) return null
-  const text = activity.text?.trim()
-  return text ? text : null
+  if (activity.key) return renderTurnEventKey(activity.key, activity.values, t)
+  const legacy = activity.text?.trim()
+  return legacy ? legacy : null
 }
 
 export { stepEventLiveText }

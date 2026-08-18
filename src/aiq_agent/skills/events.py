@@ -13,10 +13,21 @@ What is said, and what is only recorded
 
 One event is for the reader:
 
-- ``activated`` — *Skill „Brandschutznachweis" wird angewendet*. It completes
+- ``activated`` — *Skill „Brandschutznachweis" wird angewendet*, or *Applying
+  the "Brandschutznachweis" skill*, depending on who is reading. It completes
   "…so the reader knows that **this answer is being written the office's way,
-  and which way that is**". It carries the skill's :func:`~.models.skill_title`
-  — never the hyphenated id, which is a routing key and not a name.
+  and which way that is**".
+
+  What is EMITTED is never that sentence. It is a stable key
+  (``skill.activated`` / ``skill.forced``) plus one value — the skill's
+  :func:`~.models.skill_title` — and the frontend owns the words in both
+  locales. This module used to ship a finished German sentence in a ``text``
+  field, which an English-locale reader then saw verbatim; nothing in emitted
+  data may be language-specific.
+
+  The title is the one thing that does travel as itself: it is the office's own
+  name for their own working method, the same word in every locale, and the
+  hyphenated id is a routing key and not a name.
 
 Two are telemetry, and are marked :data:`~aiq_agent.common.turn_status.CHANNEL_TECHNICAL`
 so they can only reach the opt-in details panel:
@@ -79,10 +90,22 @@ SKILL_STEP_PREFIX = "skill:"
 #: here is an excerpt, for an operator reading the details panel.
 MAX_EVENT_DESCRIPTION_CHARS = 160
 
-#: German copy for the one skill event a reader actually sees. Formal register,
-#: matching the frontend's activity dictionary.
-_ACTIVATED_TEMPLATE = "Skill „{title}“ wird angewendet"
-_ACTIVATED_FORCED_TEMPLATE = "Skill „{title}“ wurde angefordert"
+#: Stable dotted ids for the one skill event a reader actually sees. Two keys
+#: rather than one plus a flag, because the difference between a skill the
+#: MODEL chose and one the USER named is a different sentence in every
+#: language, not a word swapped inside one. Both resolve under
+#: ``chat.thinking.skill.*`` in the frontend dictionary; a key with no entry
+#: there renders nothing at all.
+KEY_SKILL_ACTIVATED = "skill.activated"
+KEY_SKILL_FORCED = "skill.forced"
+
+#: EVERY key this module can emit — the counterpart of
+#: :data:`~aiq_agent.common.turn_status.ALL_STATUS_KEYS`, and read by the same
+#: two tests.
+ALL_SKILL_KEYS: tuple[str, ...] = (
+    "skill.activated",
+    "skill.forced",
+)
 
 
 class SkillEvent(BaseModel):
@@ -94,8 +117,13 @@ class SkillEvent(BaseModel):
             into context through ``use_skill``).
         channel: ``live`` if this may be shown as the running one-liner,
             ``technical`` if it belongs in the opt-in details panel only.
-        text: The German sentence for a reader. Present on ``live`` events;
-            ``None`` on telemetry, so nothing can accidentally render one.
+        key: The stable dotted id the frontend resolves to a sentence. Present
+            on ``live`` events; ``None`` on telemetry, so nothing can
+            accidentally render one.
+        values: Interpolation data for ``key``, and nothing else — for
+            ``activated`` that is ``{"skill": <the authored title>}``. The
+            other fields below are telemetry for the details panel, not slots
+            in a sentence.
         name: The skill id — a routing key, never a label.
         title: The skill's ``grid-title``. ``None`` when the author gave none;
             the surface decides how to degrade, and no title is invented here.
@@ -112,7 +140,8 @@ class SkillEvent(BaseModel):
 
     phase: Literal["offered", "activated", "loaded"]
     channel: str = CHANNEL_TECHNICAL
-    text: str | None = None
+    key: str | None = None
+    values: dict[str, str] | None = None
     name: str | None = None
     title: str | None = None
     description: str | None = None
@@ -166,21 +195,23 @@ def emit_skill_activated(skill: Skill, *, forced: bool) -> None:
 
     Fires from the single activation site in ``SkillRuntime``, so a skill the
     user forced and a skill the model chose are announced by the same code in
-    the same words — the only difference is the verb ("wurde angefordert" vs
-    "wird angewendet"), which is a fact about who decided, not about what runs.
+    the same words — the only difference is which KEY it is (``skill.forced`` vs
+    ``skill.activated``), which is a fact about who decided, not about what
+    runs.
 
-    A skill with no ``grid-title`` gets no live sentence: an id like
+    A skill with no ``grid-title`` gets no live key: an id like
     ``oib-brandschutznachweis-2024`` in a status line is worse than silence,
     and inventing a title from it would make a missing name indistinguishable
     from a real one. The event is still recorded on the technical channel.
     """
     try:
         title = skill_title(skill)
-        template = _ACTIVATED_FORCED_TEMPLATE if forced else _ACTIVATED_TEMPLATE
+        key = (KEY_SKILL_FORCED if forced else KEY_SKILL_ACTIVATED) if title else None
         event = SkillEvent(
             phase="activated",
             channel=CHANNEL_LIVE if title else CHANNEL_TECHNICAL,
-            text=template.format(title=title) if title else None,
+            key=key,
+            values={"skill": title} if title else None,
             name=skill.name,
             title=title,
             description=_describe(skill),
@@ -197,8 +228,9 @@ def emit_skill_loaded(skill: Skill, *, body_chars: int) -> None:
 
     Kept because an operator debugging "why did the answer ignore the skill"
     needs to know the instructions actually arrived, and because it is the only
-    place the delivered size is knowable. Not a live line: the reader was told
-    the skill is being applied at activation, and nothing here is new to them.
+    place the delivered size is knowable. Not a live line — and so carrying no
+    ``key`` at all: the reader was told the skill is being applied at
+    activation, and nothing here is new to them.
     """
     try:
         event = SkillEvent(

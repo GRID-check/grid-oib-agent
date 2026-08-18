@@ -256,6 +256,75 @@ export const chat: typeof en.chat = {
       // den eine Vorlage hier nicht kennen kann.
       usingSkillUnnamed: 'Skill wird angewendet …',
     },
+    // ── Turn-Events: die Worte zu dem, was das Backend GEMELDET hat ───────
+    //
+    // Der Agent erzählt sich selbst über `status:<slot>`-Schritte — und zwar in
+    // SCHLÜSSELN: eine stabile Punkt-ID plus Interpolationswerte. Alles, was
+    // Lesende sehen, steht hier, in ihrer Sprache. Früher stand es im Python
+    // und ging als fertiger deutscher Satz über die Leitung — genau so las eine
+    // englische Oberfläche Deutsch.
+    //
+    // Ein Schlüssel ohne Eintrag hier zeigt NICHTS — die Live-Zeile fällt auf
+    // die vorige sinnvolle Phrase zurück. Nie den Schlüssel, nie einen
+    // internen Bezeichner.
+    turnStatus: {
+      // Korpus-NAMEN: „im OIB-Wissen“ ist Produkttext mit angeschweißter
+      // Präposition, kein Eigenname. Das Backend schickt die ID.
+      corpus: {
+        knowledge: 'im OIB-Wissen',
+        ris: 'im RIS',
+        web: 'im Web',
+        documents: 'in Ihren Unterlagen',
+        ifc: 'im Gebäudemodell',
+      },
+      // Verbindet zwei Korpora in einer Zeile. Grammatik, also auch hier.
+      corpusJoin: ' und ',
+      status: {
+        // Welche Ablage der Lesenden gerade gesichtet wird. Ein Schlüssel pro
+        // Ablage statt einer Vorlage mit `{shelf}`-Platzhalter: Deutsch braucht
+        // den Dativ („aus dem Büroarchiv“), Englisch gar keinen Artikel.
+        documents: {
+          archiv: 'Unterlagen aus dem Büroarchiv werden gesichtet …',
+          project: 'Unterlagen aus dem Projekt werden gesichtet …',
+          session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
+          several: 'Unterlagen aus Ihren Ablagen werden gesichtet …',
+        },
+        // Die Routing-ENTSCHEIDUNG aus einer festen Auswahl. Die Begründung des
+        // Klassifikators ist Freitext in der Sprache des Modells und steht
+        // deshalb nie hier — sie wird zitiert, zugeschrieben, in der
+        // nachgeordneten Zeile `routing.line` weiter unten.
+        routing: {
+          meta: 'Gespräch — keine Recherche nötig',
+          outOfScope: 'Frage außerhalb des Fachgebiets',
+          shallow: 'Kurzrecherche wird vorbereitet',
+          deep: 'Tiefenrecherche wird vorbereitet',
+        },
+        // `{query}` sind die eigenen Worte der Lesenden, zurückgespiegelt —
+        // nie übersetzt, und vom Backend gekürzt, damit die Zeile passt.
+        retrieval: {
+          withQuery: 'Sucht {corpus}: „{query}“',
+          plain: 'Sucht {corpus} …',
+        },
+        // Werkzeuge, die keine Recherche sind, aber vom Nutzer gewollt waren.
+        // Ein Werkzeug ohne Eintrag bekommt gar keine Zeile: sein interner
+        // Name ist kein Status.
+        action: {
+          remember: 'Notiz wird gespeichert …',
+          card: 'Ergebniskarte wird erstellt …',
+        },
+        citations: 'Belege werden geprüft …',
+        escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
+      },
+    },
+    // Das eine Skill-Ereignis, das Lesende sehen, danach unterschieden, WER
+    // entschieden hat. Zwei Sätze statt eines mit getauschtem Verb — dieser
+    // Unterschied ist nicht in jeder Sprache ein Wort. `{skill}` ist der vom
+    // Büro vergebene `grid-title` und reist unverändert: es ist ihr Name für
+    // ihre eigene Arbeitsweise.
+    skill: {
+      activated: 'Skill „{skill}“ wird angewendet',
+      forced: 'Skill „{skill}“ wurde angefordert',
+    },
     // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —
     // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
     executedSteps: 'Ausgeführt:',

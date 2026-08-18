@@ -13,6 +13,8 @@
  */
 
 import { describe, test, expect } from 'vitest'
+import { de, en } from '@/i18n/dictionaries'
+import { createTranslator } from '@/i18n/translate'
 import {
   isSkillSelectionStepName,
   isSkillStepName,
@@ -191,18 +193,27 @@ describe('skillLabelForStep', () => {
  * The live line is stricter than the label ladder.
  *
  * A bare id in a status sentence is worse than silence, so the backend marks a
- * titleless activation `technical` and withholds its `text`. These tests pin
+ * titleless activation `technical` and withholds its `key`. These tests pin
  * that we honour that rather than falling back to the id — and that `loaded`,
  * which lands on the SAME step a moment later, does not erase the sentence.
+ *
+ * They also pin the half of the contract this module now owns outright: the
+ * backend ships `skill.activated` / `skill.forced` plus the authored title, and
+ * the SENTENCE is built here, from the reader's dictionary. Both locales are
+ * asserted, because the bug this replaces was invisible in exactly one of them.
  */
 describe('liveSkillActivity / skillLiveText', () => {
+  const tDe = createTranslator(de, 'chat')
+  const tEn = createTranslator(en, 'chat')
+
   const activated = {
     kind: 'skill',
     channel: 'live',
     phase: 'activated',
     name: 'oib-brandschutznachweis',
     title: 'Brandschutznachweis',
-    text: 'Skill „Brandschutznachweis“ wird angewendet',
+    key: 'skill.activated',
+    values: { skill: 'Brandschutznachweis' },
   }
   const loaded = {
     kind: 'skill',
@@ -213,22 +224,39 @@ describe('liveSkillActivity / skillLiveText', () => {
     body_chars: 4096,
   }
 
-  test('an activation with a title speaks, in the backend\'s own words', () => {
-    expect(skillLiveText(JSON.stringify(activated))).toBe(
+  test('an activation with a title speaks — in the READER\'s language', () => {
+    expect(skillLiveText(JSON.stringify(activated), tDe)).toBe(
       'Skill „Brandschutznachweis“ wird angewendet'
+    )
+    expect(skillLiveText(JSON.stringify(activated), tEn)).toBe(
+      'Applying the “Brandschutznachweis” skill'
     )
   })
 
-  test('the forced wording is carried through rather than re-derived', () => {
-    // "wurde angefordert" vs "wird angewendet" is a fact about WHO decided; a
-    // frontend template could not know it, so the sentence is not rebuilt here.
-    const forced = { ...activated, forced: true, text: 'Skill „Brandschutznachweis“ wurde angefordert' }
-    expect(skillLiveText(JSON.stringify(forced))).toBe('Skill „Brandschutznachweis“ wurde angefordert')
+  test('the authored title travels verbatim into both locales', () => {
+    // It is the office's own name for their own working method, so it is the
+    // one thing here that is the same word everywhere.
+    for (const t of [tDe, tEn]) {
+      expect(skillLiveText(JSON.stringify(activated), t)).toContain('Brandschutznachweis')
+    }
+  })
+
+  test('who decided is a different KEY, not a swapped verb', () => {
+    // "wurde angefordert" vs "wird angewendet" is one word in German and a
+    // whole clause in English, so the backend names the case and this side
+    // writes each sentence.
+    const forced = { ...activated, forced: true, key: 'skill.forced' }
+    expect(skillLiveText(JSON.stringify(forced), tDe)).toBe(
+      'Skill „Brandschutznachweis“ wurde angefordert'
+    )
+    expect(skillLiveText(JSON.stringify(forced), tEn)).toBe(
+      'Applying the “Brandschutznachweis” skill you asked for'
+    )
   })
 
   test('loaded arriving on the same step does not blank the line', () => {
     const blob = [JSON.stringify(activated), JSON.stringify(loaded)].join('\n')
-    expect(skillLiveText(blob)).toBe('Skill „Brandschutznachweis“ wird angewendet')
+    expect(skillLiveText(blob, tDe)).toBe('Skill „Brandschutznachweis“ wird angewendet')
     // The state is still the newest phase — only the LIVE line skips backwards.
     expect(parseSkillActivity(blob)?.phase).toBe('loaded')
   })
@@ -236,7 +264,7 @@ describe('liveSkillActivity / skillLiveText', () => {
   test('a titleless activation is silent, and no title is invented', () => {
     const untitled = { kind: 'skill', channel: 'technical', phase: 'activated', name: 'oib-2024' }
     expect(liveSkillActivity(JSON.stringify(untitled))).toBeNull()
-    expect(skillLiveText(JSON.stringify(untitled))).toBeNull()
+    expect(skillLiveText(JSON.stringify(untitled), tDe)).toBeNull()
     // …but the chip and the disclosure may still name it by its id.
     expect(skillLabelForStep('skill:oib-2024', JSON.stringify(untitled))).toEqual({
       text: 'oib-2024',
@@ -246,6 +274,39 @@ describe('liveSkillActivity / skillLiveText', () => {
 
   test('an offered event never reaches the live line', () => {
     const offered = { kind: 'skill', channel: 'technical', phase: 'offered', offered_count: 6 }
-    expect(skillLiveText(JSON.stringify(offered))).toBeNull()
+    expect(skillLiveText(JSON.stringify(offered), tDe)).toBeNull()
+  })
+
+  test('an unknown key renders NOTHING — never the key itself', () => {
+    // `createTranslator` falls back to the key on a miss, so a naive lookup
+    // would put `skill.retired` on the live line dressed as a status. That is
+    // the same class of bug as title-casing `use_skill` into "Use Skill".
+    const future = { ...activated, key: 'skill.retiredInAnotherRelease' }
+    expect(skillLiveText(JSON.stringify(future), tDe)).toBeNull()
+    expect(skillLiveText(JSON.stringify(future), tEn)).toBeNull()
+  })
+
+  test('a pre-key backend still speaks, for one release', () => {
+    // Backward compatibility, deliberately one-directional: `text` is read and
+    // never written. Blank is worse than a German sentence for the days it
+    // takes a deployment to roll forward.
+    const legacy = {
+      kind: 'skill',
+      channel: 'live',
+      phase: 'activated',
+      name: 'oib-brandschutznachweis',
+      title: 'Brandschutznachweis',
+      text: 'Skill „Brandschutznachweis“ wird angewendet',
+    }
+    expect(skillLiveText(JSON.stringify(legacy), tEn)).toBe(
+      'Skill „Brandschutznachweis“ wird angewendet'
+    )
+  })
+
+  test('key beats text wherever a backend sends both', () => {
+    const both = { ...activated, text: 'Skill „Brandschutznachweis“ wird angewendet' }
+    expect(skillLiveText(JSON.stringify(both), tEn)).toBe(
+      'Applying the “Brandschutznachweis” skill'
+    )
   })
 })
