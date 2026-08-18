@@ -386,7 +386,25 @@ write its replacement is invisible in review.
   "reject click-to-expand" decision assumed exactly that.
 
 ## Sprint 8 — in flight
-- **S8-A · schematics at phone width.** Drawings overflow right below ~400px
+- **S8-A landed `f7d76627`.** Worse than reported: **13 of 19 schematics were
+  cut at the card edge on a phone.** `SchematicCanvas` had a per-card `minWidth`
+  pixel floor (440 stair, 430 section, 420 guardrail…) and the gallery card
+  interior is 582px at desktop but **300px at a 390px viewport** — so the SVG
+  stopped shrinking and was clipped. `building_section` printed "G" and "F"
+  where it should have said „GK4-Grenze +11 m" and „Fluchtniveau +9,2 m" — the
+  two numbers that card exists to state. Guardrail lost its Bodenspalt arrow and
+  „3 cm" entirely. Fix: no floor at all (`width: 100%`), plus a 1.4× blow-up cap
+  — the generalisation of the cards that already looked right, which were
+  rendering at 1.19–1.36 units-per-pixel, while the door was being stretched to
+  2.97×. Section/stair/ramp/guardrail come out byte-identical. Uniform scale in
+  both axes, so no ratio a drawing asserts about itself moved. Door 905px → 546,
+  turning circle 713 → 518, both now SHORTER than the median schematic card.
+  One real geometry bug found on the way: the turning circle's wall poché ran
+  4 units past its own viewBox. `cards-gallery` now has a mobile target, which
+  is why this class of defect was invisible.
+  **Verified the mobile capture myself** — the section's two marker labels read
+  whole at 390px.
+- **S8-A original finding:** Drawings overflow right below ~400px
   (guardrail, ramp) — a dimension arrow with a number on it can be clipped off.
   Door and turning-circle render 700–800px tall for two numbers. Undetected
   because `cards-gallery` has no mobile target; adding one is part of the fix.
@@ -434,3 +452,14 @@ feature. Either way the metadata stops lying.
 
 **Note this does NOT undo `297e574f`:** the deep path's CARD doctrine lives in
 `cards/prompt.py`, not in a skill, so that half does reach it.
+
+## Sprint 9 — in flight
+- **S9-A · can platform skills reach the deep writer?** See THE FINDING above.
+  Explicit fallback authorised: if it needs a new DB dependency inside the Dask
+  worker, stop promising it instead. Either way the metadata stops lying.
+- **S9-B · the card layer's strings.** The layer grew fast and some of it is
+  hardcoded German literals (`FollowUpsCard`'s „Weiterfragen"), which cannot be
+  translated, cannot be reviewed by whoever edits copy, and are invisible to
+  `key-coverage.spec.ts`. Plus the `ThoughtCard` token euphemism `cc7a860f`
+  deleted one surface away, and the mobile answer footer wrapping the copy
+  actions away from the thumbs they borrow their language from.
