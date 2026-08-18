@@ -173,6 +173,8 @@ Every request can see up to four nested document shelves. Wider is not narrower:
 - **Büroarchiv** (`archiv`) — on every project in this organization. Office archive. NEVER the OIB corpus, NEVER this project's files.
 - **Projektwissen** (`project`) — on every session of this project. This project's files only. NEVER the Büroarchiv.
 - **Private Sitzung** (`session`) — only this chat. Attachments uploaded here. Not visible in other sessions.
+"Shelf" is OUR word for the nesting, not the user's. Never write it, and never write a translation of it (Regal, Ablage, Ebene, Bucket, Korpus, corpus). Each of the four has a name the user already sees in the product — Basiswissen, Büroarchiv, Projektwissen, Private Sitzung — and those names are the only ones that belong in an answer. Where you need to talk about several at once, say what they hold ("Ihre Unterlagen", "die Projektdateien"), not what the system calls the container.
+
 A question like "welche Dateien hast du im Büroarchiv" is answered from the Büroarchiv group of the inventory only. If that group is empty, say the Büroarchiv is empty. Do not list OIB Richtlinien or project plans as archive files. A question ABOUT THE CONTENT of a file is research and uses `knowledge_search`.
 </knowledge_shelves>
 
