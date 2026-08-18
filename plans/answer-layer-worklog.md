@@ -390,10 +390,47 @@ write its replacement is invisible in review.
   (guardrail, ramp) — a dimension arrow with a number on it can be clipped off.
   Door and turning-circle render 700–800px tall for two numbers. Undetected
   because `cards-gallery` has no mobile target; adding one is part of the fix.
-- **S8-B · answer shape has THREE homes.** `<answer_shape>` (330 tok, English,
+- **S8-B landed `8afd1cf8`.** `piloti-voice` OWNS answer shape. The
+  tenant-editability counter-argument I offered was checked and does not hold:
+  a `delivery: 'standard'` name resolves to the platform row or to nothing
+  (`lib/skills/service.ts:634-650` — `createSkill` refuses the name and the
+  resolver deletes a legacy org row that shadows it), and `platform_skills` sits
+  behind `grid_secure_platform_table`. So craft in that row is exactly as
+  un-tenant-editable as craft in the prompt, AND editable without a deploy.
+  `<answer_shape>` survives as 97 tokens of ROUTING. Shipping it needed a new
+  migration `0055` with an `ON CONFLICT DO UPDATE … WHERE md5(body) = <hash of
+  what 0053 seeded>` — the hash, not `created_by`, is the guard that works,
+  because the dashboard patches `body` and never touches `created_by`, so an
+  edited row still reads `system`. Validated on a real Postgres across all five
+  cases. Per-turn cost +278 tok (German is ~2× its English equivalent); 337 tok
+  left the prompt permanently.
+- **S8-B original finding:** `<answer_shape>` (330 tok, English,
   prompt), `piloti-voice`'s „Der erste Satz ist die Antwort" (inside 1,717 tok of
   German skill body, forced every turn), and the deep writer's own "open with the
   answer" paragraph from `47ecc019`. Same class as the card doctrine/craft split
   — resolve it the same way, and note that editing seed `0053` does NOT change a
   database that already ran it (`ON CONFLICT DO NOTHING`), so shipping a body
   change needs more than an edit.
+
+## THE FINDING (biggest of the run) — a promise nothing keeps
+`grid-agents: "shallow_researcher,deep_researcher"` is **inert on the deep half**.
+`SkillResolver(agent=…)` is constructed in exactly one place — `shallow_researcher/register.py:170` —
+always with `"shallow_researcher"`. Nothing ever asks for the deep agent.
+
+The deep path has a SEPARATE skills mechanism: `deepagents_runtime.py` mounts
+builtin skill FILES into a sandbox at `/skills/`, selected per DeepAgents agent
+by YAML. It never reads `platform_skills`.
+
+So **`piloti-voice` and `piloti-cards` have never reached the surface that writes
+the LONGEST answers.** Deep reports get their shape from one paragraph in
+`writer.j2` and nothing else. Both seeds declare `deep_researcher` and neither
+gets it.
+
+Sprint 9-A is investigating whether platform skills can be materialised into the
+deep sandbox (a platform skill IS a name + description + body, i.e. a SKILL.md),
+with an explicit fallback: if that needs a new DB dependency inside the Dask
+worker, stop promising it instead — an honest limitation beats a half-working
+feature. Either way the metadata stops lying.
+
+**Note this does NOT undo `297e574f`:** the deep path's CARD doctrine lives in
+`cards/prompt.py`, not in a skill, so that half does reach it.
