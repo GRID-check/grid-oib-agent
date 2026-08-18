@@ -154,11 +154,15 @@ limit killed a third once), each with a disjoint OWN-ONLY file list, launched
 together, landed together, pushed together, then the next sprint is planned from
 what they found. I plan and verify; the agents implement.
 
-## Sprint 3 — in flight
-- `follow_ups` card (chips that prefill the composer)
-- answer action row (copy answer / copy with citations)
+## Sprint 3 — landed
+- `ea18a437` `follow_ups` — 2–4 chips, each anchored to something the answer
+  introduced, click prefills the composer via `setComposerPrefill`. Nothing is
+  sent; `presentational` in `CARD_INTERACTIVITY`. The product owner's verdict:
+  "truly something new and exactly the idea we were going for" — so this is the
+  SHAPE to look for, not a one-off. See the follow-ups-direction backlog.
+- `5bd4a04c` answer actions — the answer can leave the app.
 
-## Sprint 4 — planned
+## Sprint 4 — in flight
 **S4-A · the hidden presentation skill.** `piloti-cards`: DB-owned like
 `piloti-voice` (migration, `delivery: 'standard'` so it is always applied,
 `grid-hidden: "true"` so it never shows in the skills disclosure but still emits
@@ -174,7 +178,9 @@ Why DB-owned rather than builtin: this is output STYLE, tunable without a
 deploy, which is the same argument that put `piloti-voice` in the database.
 The genre skills stay builtin because they encode domain procedure.
 
-**S4-B · no internal vocabulary reaches a reader.** "Shelf" is a dev word.
+**S4-B · no internal vocabulary reaches a reader.** (Prompt half landed as
+`674a6510`: the agent may no longer write "shelf" or any translation of it; the
+four levels keep their product names.) "Shelf" is a dev word.
 `chat.thinking.status.documents.several` says „Unterlagen aus Ihren Ablagen"
 / "Reviewing documents from your shelves" — the only real leak in the
 dictionaries, but the agent can also say it in prose, because
