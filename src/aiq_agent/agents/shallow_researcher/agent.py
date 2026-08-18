@@ -21,6 +21,11 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt import tools_condition
 
+from aiq_agent.agents.bim.measurement_sources import MeasurementSource
+from aiq_agent.agents.bim.measurement_sources import begin_measurement_capture
+from aiq_agent.agents.bim.measurement_sources import end_measurement_capture
+from aiq_agent.agents.bim.measurement_sources import get_measurement_captures
+from aiq_agent.agents.bim.measurement_sources import measurement_sources_to_wire
 from aiq_agent.common import citation_events
 from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
@@ -892,10 +897,21 @@ class ShallowResearcherAgent:
         # citation-health row — see ``get_turn_captures``.
         turn_sources: list[SourceEntry] = []
         turn_capture_token = begin_turn_capture()
+        # …and what THIS turn MEASURED. A separate log, not the registry, and
+        # that separation is the safety property: `citation_grounded` is derived
+        # from the registry's contents and is the only route to a surfaced
+        # "high", while the normative brake is gated on its ABSENCE. A
+        # measurement in there would hand an uncited legal verdict the evidence
+        # of the basement measurement standing next to it, and would change what
+        # an empty registry means. See `bim.measurement_sources`.
+        turn_measurements: list[MeasurementSource] = []
+        measurement_capture_token = begin_measurement_capture()
         try:
             result = await self._graph.ainvoke(state, config=config)
             turn_sources = get_turn_captures()
+            turn_measurements = get_measurement_captures()
         finally:
+            end_measurement_capture(measurement_capture_token)
             end_turn_capture(turn_capture_token)
             if registry_token is not None:
                 reset_session_registry(registry_token)
@@ -1216,7 +1232,19 @@ class ShallowResearcherAgent:
                     entry.url or entry.citation_key,
                     exc_info=True,
                 )
-        validated_result["verified_sources"] = wire_sources or None
+        # This turn's MEASUREMENTS, appended to the same wire so the chips, the
+        # Herleitung fan-out and the report pick them up off their coarse
+        # ``kind`` exactly as they pick up a retrieved passage — which is the
+        # whole reason ``messung`` is a source kind and not a bespoke payload.
+        #
+        # Appended AFTER ``wire_sources`` is closed and read for the ledger
+        # below, and kept in its own variable, because the two are different
+        # claims. ``cited_count`` is measured against the turn's RETRIEVAL, and
+        # a measurement counted there would report a cited source out of zero
+        # retrieved ones — the same category error, one layer down, that putting
+        # a measurement in the registry would be.
+        measurement_wire = measurement_sources_to_wire(turn_measurements)
+        validated_result["verified_sources"] = (wire_sources + measurement_wire) or None
         # Transparency: only present when ≥1 citation was actually removed.
         if citations_removed_summary is not None:
             validated_result["citations_removed"] = citations_removed_summary

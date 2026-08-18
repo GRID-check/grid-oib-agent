@@ -17,10 +17,20 @@
 
 import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-presets'
 
-/** The four coarse source kinds every source renders through. */
-export type SourceKind = 'baurecht' | 'buero' | 'projekt' | 'web'
+/**
+ * The five coarse source kinds every source renders through.
+ *
+ * `messung` is the odd one out: the other four are RETRIEVED PASSAGES, a
+ * measurement is a value read off the project's BIM model. It carries no page,
+ * no document and nothing to preview — and instead carries the GlobalIds it was
+ * derived from, the operator expression, a tolerance and a provenance, which is
+ * a stronger audit trail than a quotation. It is a kind here so every surface
+ * that already renders off `kind` picks it up; it is deliberately NOT a
+ * citation on the backend (`aiq_agent/agents/bim/measurement_sources.py`).
+ */
+export type SourceKind = 'baurecht' | 'buero' | 'projekt' | 'web' | 'messung'
 
-const SOURCE_KINDS: ReadonlySet<SourceKind> = new Set(['baurecht', 'buero', 'projekt', 'web'])
+const SOURCE_KINDS: ReadonlySet<SourceKind> = new Set(['baurecht', 'buero', 'projekt', 'web', 'messung'])
 
 /** Narrow an untrusted wire value to a SourceKind, else undefined. */
 export const asSourceKind = (value: string | null | undefined): SourceKind | undefined =>
@@ -36,6 +46,11 @@ export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
   buero: 'office',
   projekt: 'project',
   web: 'auto',
+  // Its own family, not `project`. A measurement is about the BUILDING, not
+  // about a document filed under the project, and painting it in the project
+  // green would put a reproducible number in the same colour as the PDF it
+  // contradicts.
+  messung: 'model',
 }
 
 
@@ -49,6 +64,8 @@ const LANE_KIND_PREFIXES: ReadonlyArray<readonly [string, SourceKind]> = [
   ['buero', 'buero'],
   ['projekt', 'projekt'],
   ['web', 'web'],
+  // Stamped by the measurement channel itself; no retrieval lane produces it.
+  ['messung', 'messung'],
 ]
 
 /** Map a fine lane stratum-key to its coarse SourceKind (fail-open to web). */

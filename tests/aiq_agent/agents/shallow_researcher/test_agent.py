@@ -2194,3 +2194,307 @@ class TestTheModelCardsAreActuallyAskedFor:
     def test_the_card_does_not_replace_the_written_answer(self):
         rendered = self._render()
         assert "always write the prose reply too" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Measurements in the Herleitung — and the wall between them and the gate
+# ---------------------------------------------------------------------------
+
+
+#: One decidable, computed, quantity-shaped envelope answer — the shape the
+#: engine returns for „wie hoch ist der Keller". Written out rather than built
+#: through ``ifc_spatial.envelope`` because the backend CI job does not install
+#: the spatial engine, and a module-level import of it takes this whole file
+#: down at collection (see the fix in commit 3ec4a3b3). Every field here is a
+#: field of ``ifc_spatial.envelope.Answer``; ``test_ifc_measure_tool.py`` is
+#: where the two are pinned against each other.
+_MEASURED_BASEMENT = {
+    "value": 2.703,
+    "unit": "m",
+    "tolerance": 0.005,
+    "provenance": "computed",
+    "from": ["3xR9kQvB7Fp8sT2mW1nZdY"],
+    "method": "clearHeight(space 3xR9kQvB7Fp8sT2mW1nZdY)",
+    "decidable": True,
+    "caveat": "Nur die Räume mit exportierter Geschoßebene.",
+}
+
+_MEASURED_MODEL = {"model": {"filename": "Institut.ifc", "schemaVersion": "IFC4", "elements": 12043}}
+
+
+@tool
+def ifc_measure(operation: str = "measure") -> str:
+    """Measure the project's IFC/BIM model and report the provenance."""
+    from aiq_agent.agents.bim.measure_register import _render
+
+    return _render(
+        "measure",
+        dict(_MEASURED_BASEMENT),
+        source=dict(_MEASURED_MODEL),
+        handle="0f1e2d3c4b5a",  # pragma: allowlist secret - an IFC model handle, not a credential
+        detail="clearHeight",
+    )
+
+
+class TestMeasurementSourcesDoNotGroundCitations:
+    """A measurement reaches the Herleitung; it never reaches the citation gate.
+
+    The reason this class exists is the mixed answer:
+
+        (a) „Der Keller ist 2,70 m hoch"            — measured, reproducible
+        (b) „…und erfüllt damit OIB 4 Punkt 2.1"    — a legal claim, uncited
+
+    Giving measurements a derivation trail means they now travel on the citation
+    WIRE, beside the retrieved sources. If that also put them in the
+    ``SourceRegistry``, ``citation_grounded`` would flip true off (a) and the
+    normative brake — which is gated on its ABSENCE — would never run, so (b)
+    would ride out at the model's own "high" on the strength of a basement
+    measurement. That is the laundering path ``grounding`` exists to close, and
+    these tests are what keep the Herleitung from re-opening it.
+    """
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=mock_llm)
+        return provider
+
+    def _measuring_turn(self, mock_llm, answer: str, *, tools=None):
+        """An agent whose one tool call is a measurement, then the given answer."""
+        mock_llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": "ifc_measure", "args": {"operation": "measure"}, "id": "m1"}],
+                ),
+                AIMessage(content=answer),
+            ]
+        )
+        return tools or [ifc_measure]
+
+    @staticmethod
+    def _measurement_sources(result):
+        return [s for s in (result.verified_sources or []) if s.get("kind") == "messung"]
+
+    # -- the property that must not regress -----------------------------------
+
+    @pytest.mark.asyncio
+    async def test_measured_answer_with_uncited_normative_claim_still_surfaces_low(self, mock_llm_provider, mock_llm):
+        """THE mixed case, after measurements appear in the Herleitung.
+
+        Named so a reviewer looking for the laundering guard finds it. The
+        assertion is deliberately the whole chain the chat node walks — the
+        measurement IS in the derivation trail, and the answer is STILL "low"
+        for ``normative_claim_uncited``.
+        """
+        from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason
+        from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
+
+        tools = self._measuring_turn(
+            mock_llm,
+            "Der Keller ist 2,70 m hoch und erfüllt damit die Mindestraumhöhe nach OIB-Richtlinie 4.",
+        )
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch ist der Keller?")],
+            requires_sources=True,
+        )
+        result, registry = await _run_with_captured_registry(agent, state)
+
+        # The measurement really did reach the Herleitung…
+        assert self._measurement_sources(result), "the measurement produced no Herleitung source"
+        assert result.answer_measurement_grounded is True
+        # …and the registry — the thing `citation_grounded` is derived from —
+        # never saw it.
+        assert registry.all_sources() == []
+        assert result.answer_citation_grounded is False
+        assert result.answer_normative_claim_uncited is True
+
+        # The composition the chat node performs, on this turn's own signals.
+        assert (
+            surface_answer_confidence(
+                "high",
+                result.answer_citation_grounded,
+                True,
+                measurement_grounded=result.answer_measurement_grounded,
+                normative_claim_uncited=result.answer_normative_claim_uncited,
+                citation_fallback_used=result.answer_citation_fallback_used,
+            )
+            == "low"
+        )
+        assert (
+            answer_confidence_capped_reason(
+                "high",
+                result.answer_citation_grounded,
+                True,
+                measurement_grounded=result.answer_measurement_grounded,
+                normative_claim_uncited=result.answer_normative_claim_uncited,
+                citation_fallback_used=result.answer_citation_fallback_used,
+            )
+            == "normative_claim_uncited"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_lone_measurement_is_never_a_minimal_citation(self, mock_llm_provider, mock_llm):
+        """The single-source fallback must not find a measurement to attach.
+
+        ``len(sources) == 1`` appends that source as „[1]" and sets
+        ``citation_grounded``. A measurement in the registry would BE that one
+        source on a purely measured turn — the shortest path from a card in the
+        Herleitung to a laundered verdict.
+        """
+        tools = self._measuring_turn(mock_llm, "Der Keller ist 2,70 m hoch.")
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch ist der Keller?")],
+            requires_sources=True,
+        )
+        result, registry = await _run_with_captured_registry(agent, state)
+
+        assert self._measurement_sources(result)
+        assert registry.all_sources() == []
+        assert result.answer_citation_grounded is False
+        assert result.answer_citation_fallback_used is False
+        answer = next(m for m in reversed(result.messages) if isinstance(m, AIMessage) and not m.tool_calls)
+        assert "[1]" not in answer.content
+
+    @pytest.mark.asyncio
+    async def test_measured_descriptive_answer_still_reaches_medium(self, mock_llm_provider, mock_llm):
+        """The signal this work must not weaken: measured + descriptive → medium.
+
+        Same turn as above minus the legal claim. ``measurement_only`` is the
+        reason, exactly as before measurements had a Herleitung.
+        """
+        from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason
+        from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
+
+        tools = self._measuring_turn(mock_llm, "Der Keller ist 2,70 m hoch.")
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch ist der Keller?")],
+            requires_sources=True,
+        )
+        result, _ = await _run_with_captured_registry(agent, state)
+
+        assert result.answer_measurement_grounded is True
+        assert result.answer_normative_claim_uncited is False
+        assert (
+            surface_answer_confidence(
+                "high",
+                result.answer_citation_grounded,
+                True,
+                measurement_grounded=True,
+                normative_claim_uncited=False,
+                citation_fallback_used=result.answer_citation_fallback_used,
+            )
+            == "medium"
+        )
+        assert (
+            answer_confidence_capped_reason(
+                "high",
+                result.answer_citation_grounded,
+                True,
+                measurement_grounded=True,
+                normative_claim_uncited=False,
+                citation_fallback_used=result.answer_citation_fallback_used,
+            )
+            == "measurement_only"
+        )
+
+    @pytest.mark.asyncio
+    async def test_failed_retrieval_still_raises_even_when_the_turn_measured(self, mock_llm_provider, mock_llm):
+        """``EmptySourceRegistryError`` keeps its meaning.
+
+        The error asks "did retrieval capture anything to cite?", and it is
+        raised from the branch guarded by ``if registry.all_sources()``. A
+        measurement in the registry would answer that question with a value that
+        was never retrieved, so a turn whose web search came back empty would
+        quietly stop reporting the failure it exists to report.
+        """
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["empty_web_search_tool"],
+                }
+            ],
+        )
+        mock_llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "ifc_measure", "args": {"operation": "measure"}, "id": "m1"},
+                        {"name": "empty_web_search_tool", "args": {"query": "OIB 4 Raumhöhe"}, "id": "w1"},
+                    ],
+                ),
+                AIMessage(content="Der Keller ist 2,70 m hoch."),
+            ]
+        )
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[ifc_measure, empty_web_search_tool],
+        )
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch ist der Keller?")],
+            requires_sources=True,
+        )
+        with pytest.raises(EmptySourceRegistryError):
+            await _run_with_captured_registry(agent, state)
+
+    # -- what the card actually carries ---------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_the_card_carries_the_audit_trail_the_envelope_had(self, mock_llm_provider, mock_llm):
+        """Value, tolerance, German provenance, method, GlobalIds, model, caveat."""
+        tools = self._measuring_turn(mock_llm, "Der Keller ist 2,70 m hoch.")
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch ist der Keller?")],
+            requires_sources=True,
+        )
+        result, _ = await _run_with_captured_registry(agent, state)
+
+        (card,) = self._measurement_sources(result)
+        assert card["lane"] == "messung"
+        assert card["title"] == "clearHeight"
+        measurement = card["measurement"]
+        assert measurement["provenance"] == "computed"
+        # The renderer's own verb, so the card and the prose agree.
+        assert measurement["provenance_label"] == "gemessen"
+        assert measurement["value_text"] == "2.703 m"
+        assert measurement["tolerance_text"] == "±0.005 m"
+        assert measurement["method"] == _MEASURED_BASEMENT["method"]
+        assert [e["global_id"] for e in measurement["elements"]] == _MEASURED_BASEMENT["from"]
+        assert measurement["model"] == "Institut.ifc (IFC4, 12043 Bauteile)"
+        assert measurement["caveat"] == _MEASURED_BASEMENT["caveat"]
+
+    @pytest.mark.asyncio
+    async def test_the_measurement_does_not_count_as_a_cited_source(self, mock_llm_provider, mock_llm):
+        """The citation-health ledger counts CITATIONS, not measurements.
+
+        ``cited_count`` is measured against ``source_count`` — this turn's
+        retrieval. A measurement appended to the wire and then counted as a
+        citation would report one cited source out of zero retrieved.
+        """
+        tools = self._measuring_turn(mock_llm, "Der Keller ist 2,70 m hoch.")
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch ist der Keller?")],
+            requires_sources=True,
+        )
+        with patch("aiq_agent.agents.shallow_researcher.agent.citation_events") as events:
+            result, _ = await _run_with_captured_registry(agent, state)
+
+        assert self._measurement_sources(result)
+        assert events.record_turn.call_args.kwargs["cited_count"] == 0
+        assert events.record_turn.call_args.kwargs["source_count"] == 0

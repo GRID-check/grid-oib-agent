@@ -2,8 +2,8 @@
 rendered through (the "Belegt durch" chips, the Herleitung fan-out, the report
 sources section).
 
-The product surfaces four *coarse* source kinds, mirroring the click-dummy
-``TYPES`` registry:
+The product surfaces five *coarse* source kinds, four of them mirroring the
+click-dummy ``TYPES`` registry:
 
 - ``baurecht`` — authoritative building law: the OIB Richtlinien corpus **and**
   RIS (Bauordnung, Verordnungen, Bundes-/Landesrecht) **and** external Normen.
@@ -12,6 +12,28 @@ The product surfaces four *coarse* source kinds, mirroring the click-dummy
 - ``buero`` — Büroarchiv (the organization's standards, details, experience).
 - ``projekt`` — Projektwissen (this project's plans, Bescheide, uploads).
 - ``web`` — web-search results.
+- ``messung`` — a value measured off the project's BIM model.
+
+``messung`` is the odd one out and deliberately so. The first four are
+RETRIEVED PASSAGES: a chunk of a document that a citation resolves to, captured
+into :class:`~aiq_agent.common.citation_verification.SourceRegistry` and
+verifiable by reading the passage back. A measurement has no passage. It
+carries something else — the GlobalIds it was derived from, the operator
+expression, an absolute tolerance and a provenance
+(:class:`ifc_spatial.envelope.Answer`) — and it is REPRODUCIBLE, which no
+quotation is.
+
+That difference is why a measurement is a KIND here and is **not** a
+``SourceEntry``. ``citation_grounded`` is derived from the registry's contents,
+and it is the one signal that lets an answer surface "high"; the normative
+brake in ``shallow_researcher.grounding`` is gated on its ABSENCE. A
+measurement that entered the registry would therefore hand an answer's uncited
+legal verdict the evidence of its own basement measurement — the laundering
+path the grounding module exists to close. So measurements travel their own
+channel (:mod:`aiq_agent.agents.bim.measurement_sources`) and meet the
+retrieved sources only on the wire, where this taxonomy is all that is left of
+either. See ``tests/aiq_agent/agents/shallow_researcher/test_agent.py::
+TestMeasurementSourcesDoNotGroundCitations``.
 
 ``auto`` exists in the click-dummy as a *selection mode* ("Piloti wählt die
 passende Quelle selbst") — it is never a rendered citation and so is not part of
@@ -75,7 +97,24 @@ SOURCE_KINDS: dict[str, SourceKind] = {
         description="Rechercheergebnisse aus dem Web.",
         css_token="web",
     ),
+    "messung": SourceKind(
+        key="messung",
+        label="Modellmessung",
+        description="Am BIM-Modell gemessen — mit Herkunft, Toleranz und Methode.",
+        # The one kind whose ``css_token`` is honest about the promise this
+        # field's docstring makes: ``--source-model`` really exists on the
+        # frontend. The older four predate the `--source-*` families and name
+        # the KIND (`baurecht`) where the token names the SIGNAL (`law`); they
+        # are left alone rather than renamed, because the tokens are what
+        # `KIND_TO_SIGNAL` resolves to and nothing reads this field.
+        css_token="model",
+    ),
 }
+
+#: The kind a model-derived measurement renders as. Named rather than spelled
+#: out at the call sites so the one place that decides "this is a measurement,
+#: not a retrieved passage" is greppable.
+MEASUREMENT_SOURCE_KIND = "messung"
 
 #: Fail-open kind for an unclassifiable source, matching ``lane_for_hit``'s
 #: ``("web", "Web")`` fallback.
@@ -98,6 +137,10 @@ _LANE_KIND_PREFIXES: tuple[tuple[str, str], ...] = (
     ("buero", "buero"),
     ("projekt", "projekt"),
     ("web", "web"),
+    # No retrieval lane maps here — ``lane_for_hit`` cannot produce it, because
+    # nothing retrieves a measurement. The measurement channel stamps this lane
+    # on itself, and the entry exists so the two ends agree when it does.
+    ("messung", "messung"),
 )
 
 

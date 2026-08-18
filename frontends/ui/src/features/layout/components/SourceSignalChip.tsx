@@ -12,7 +12,7 @@
 'use client'
 
 import { forwardRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react'
-import { Archive, FileText, Globe, Scale } from 'lucide-react'
+import { Archive, FileText, Globe, Ruler, Scale } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SourceSignal, SourceTint } from '../lib/source-presets'
 
@@ -22,6 +22,8 @@ const SIGNAL_ICON: Record<SourceSignal, typeof Globe> = {
   project: FileText,
   office: Archive,
   auto: Globe,
+  // A ruler, not a document glyph: nothing was read, something was measured.
+  model: Ruler,
 }
 
 /**

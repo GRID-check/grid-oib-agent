@@ -48,6 +48,7 @@ import asyncio
 import logging
 import math
 import re
+from collections.abc import Sequence
 from typing import Any
 from typing import Literal
 
@@ -64,6 +65,9 @@ from pydantic import model_validator
 from aiq_agent.agents.bim.capability_gaps import record_gap
 from aiq_agent.agents.bim.measurement_evidence import EVIDENCE_PROVENANCES
 from aiq_agent.agents.bim.measurement_evidence import measurement_evidence_line
+from aiq_agent.agents.bim.measurement_sources import MeasuredElement
+from aiq_agent.agents.bim.measurement_sources import MeasurementSource
+from aiq_agent.agents.bim.measurement_sources import record_measurements
 from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
@@ -1264,30 +1268,44 @@ def _provenance_line(answer: dict[str, Any]) -> str:
             f" Abhilfe: {remedy}" if remedy else ""
         )
 
+    text = _value_with_unit(answer)
+    tolerance = answer.get("tolerance")
+    unit = answer.get("unit")
+    provenance = answer.get("provenance")
+
+    if provenance == "declared":
+        return f"deklariert: {text} — so steht es in der Datei."
+    if provenance == "inferred":
+        confidence = answer.get("confidence")
+        band = f" (Konfidenz {_num(confidence)})" if confidence is not None else ""
+        return f"vermutlich: {text}{band} — ein Vorschlag zur Bestätigung, keine Feststellung."
+    # The tolerance is always a scalar in the value's unit, whatever shape the
+    # value itself has — so it takes the plain unit, not the parenthesised one.
+    band = f" (±{_tolerance_text(tolerance)}{' ' + unit if unit else ''})" if tolerance is not None else ""
+    return f"gemessen{band}: {text} — aus der Geometrie berechnet, nicht deklariert."
+
+
+def _value_with_unit(answer: dict[str, Any]) -> str:
+    """The answer's value, rounded to its band and carrying its unit.
+
+    Split out of :func:`_provenance_line` so the Herleitung card and the
+    sentence the agent reads are formatted by ONE function. A card that
+    re-derives „2,70 m" from the same envelope is a second implementation of a
+    rounding rule, and the first time the two disagree the surface that exists
+    to prove the derivation is the one contradicting it.
+    """
     unit = answer.get("unit")
     value = answer.get("value")
-    tolerance = answer.get("tolerance")
     # A declared figure is the file's own statement and is never re-rounded; a
     # measured one is shown to its band and no further.
-    decimals = _decimals(tolerance) if answer.get("provenance") == "computed" else None
+    decimals = _decimals(answer.get("tolerance")) if answer.get("provenance") == "computed" else None
     text = _value_text(value, decimals)
     # A unit belongs after a NUMBER. Appended to a list or to a set of named
     # numbers it produces "2 Einträge m" and "sill=0.9, head=2.11 m", the second
     # of which reads as though only the last figure carried the unit.
     scalar = isinstance(value, (int, float)) and not isinstance(value, bool)
     suffix = (f" {unit}" if scalar else f" ({unit})") if unit else ""
-    provenance = answer.get("provenance")
-
-    if provenance == "declared":
-        return f"deklariert: {text}{suffix} — so steht es in der Datei."
-    if provenance == "inferred":
-        confidence = answer.get("confidence")
-        band = f" (Konfidenz {_num(confidence)})" if confidence is not None else ""
-        return f"vermutlich: {text}{suffix}{band} — ein Vorschlag zur Bestätigung, keine Feststellung."
-    # The tolerance is always a scalar in the value's unit, whatever shape the
-    # value itself has — so it takes the plain unit, not the parenthesised one.
-    band = f" (±{_tolerance_text(tolerance)}{' ' + unit if unit else ''})" if tolerance is not None else ""
-    return f"gemessen{band}: {text}{suffix} — aus der Geometrie berechnet, nicht deklariert."
+    return f"{text}{suffix}"
 
 
 def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]:
@@ -1593,6 +1611,23 @@ def _render_unresolved(result: dict[str, Any]) -> str:
     return f"{message} {heading}: {listed}."
 
 
+def _is_evidence(answer: Any) -> bool:
+    """Whether one envelope answer is EVIDENCE — see :func:`_measured_count`.
+
+    The predicate, extracted so the count the result states about itself and the
+    Herleitung cards it produces are the same decision made once. „N Messwerte
+    in diesem Ergebnis" and N cards under the answer disagreeing would be a
+    derivation trail contradicting the number the confidence gate stands on.
+    """
+    if not isinstance(answer, dict) or answer.get("error"):
+        return False
+    if not answer.get("decidable"):
+        return False
+    if answer.get("provenance") not in EVIDENCE_PROVENANCES:
+        return False
+    return answer.get("unit") is not None or answer.get("tolerance") is not None
+
+
 def _measured_count(payload: Any) -> int:
     """How many QUANTITIES in one payload carry a ``declared``/``computed`` provenance.
 
@@ -1621,13 +1656,7 @@ def _measured_count(payload: Any) -> int:
     """
 
     def _one(answer: Any) -> int:
-        if not isinstance(answer, dict) or answer.get("error"):
-            return 0
-        if not answer.get("decidable"):
-            return 0
-        if answer.get("provenance") not in EVIDENCE_PROVENANCES:
-            return 0
-        return 1 if answer.get("unit") is not None or answer.get("tolerance") is not None else 0
+        return 1 if _is_evidence(answer) else 0
 
     if not isinstance(payload, dict):
         return 0
@@ -1646,12 +1675,157 @@ def _measured_count(payload: Any) -> int:
     return 0
 
 
+def _model_identity(source: dict[str, Any] | None) -> str | None:
+    """Which file this was measured in, without the „Modell: " label.
+
+    The card puts its own label in front, and the prose header
+    (:func:`_model_line`) is the one place the filename, schema and element
+    count are assembled — so this reuses it rather than reassembling them.
+
+    Without the ``Kennung``: the handle identifies an OPEN MODEL inside one
+    process and is meaningless to the reviewer the card is written for, who
+    needs to know which FILE was measured. It stays in the prose header, where
+    the agent may need it to make a second call against the same model.
+    """
+    header = _model_line(source or {})
+    if not header:
+        return None
+    prefix = "Modell: "
+    return header[len(prefix) :] if header.startswith(prefix) else header
+
+
+def _measured_elements(answer: dict[str, Any], names: dict[str, MeasuredElement]) -> tuple[MeasuredElement, ...]:
+    """The elements a value was derived from, in the order the operator used them.
+
+    ``from`` is the envelope's own list of GlobalIds and is authoritative about
+    the ORDER; ``names`` is whatever the surrounding payload happened to know
+    about those ids. An id the payload cannot name still travels — a GlobalId
+    the reviewer can paste into a CAD window is worth more than a card that
+    omits it for want of a label.
+    """
+    ids = answer.get("from")
+    if not isinstance(ids, list):
+        return ()
+    return tuple(
+        names.get(str(global_id), MeasuredElement(global_id=str(global_id)))
+        for global_id in ids
+        if isinstance(global_id, (str, int))
+    )
+
+
+def _measurement_source(
+    answer: dict[str, Any],
+    *,
+    headline: str,
+    names: dict[str, MeasuredElement],
+    model: str | None,
+) -> MeasurementSource:
+    """One evidence-bearing envelope answer as a Herleitung source."""
+    tolerance = answer.get("tolerance")
+    unit = answer.get("unit")
+    tolerance_text = f"±{_tolerance_text(tolerance)}{' ' + unit if unit else ''}" if tolerance is not None else None
+    return MeasurementSource(
+        headline=headline,
+        statement=_provenance_line(answer),
+        provenance=str(answer.get("provenance") or ""),
+        value_text=_value_with_unit(answer),
+        tolerance_text=tolerance_text,
+        method=str(answer.get("method") or ""),
+        elements=_measured_elements(answer, names),
+        model=model,
+        caveat=str(answer["caveat"]) if answer.get("caveat") else None,
+    )
+
+
+def _element_index(entries: Sequence[dict[str, Any]]) -> dict[str, MeasuredElement]:
+    """GlobalId → the element as the payload names it."""
+    index: dict[str, MeasuredElement] = {}
+    for entry in entries:
+        global_id = (entry or {}).get("globalId")
+        if not global_id:
+            continue
+        index[str(global_id)] = MeasuredElement(
+            global_id=str(global_id),
+            name=(entry.get("name") or None),
+            ifc_type=(entry.get("ifcType") or None),
+        )
+    return index
+
+
+def _measurement_sources(
+    operation: str,
+    payload: Any,
+    *,
+    source: dict[str, Any] | None,
+    detail: str,
+) -> list[MeasurementSource]:
+    """The measurements in one payload, as sources for the Herleitung.
+
+    Walks exactly the shapes :func:`_measured_count` walks and admits exactly
+    what :func:`_is_evidence` admits, so the cards under an answer and the
+    „Messwerte in diesem Ergebnis" trailer are the same statement twice. An
+    undecidable finding and an ``inferred`` guess therefore produce no card —
+    the first is a fact about the export and the second is „ein Vorschlag zur
+    Bestätigung, keine Feststellung", and neither belongs under a heading that
+    reads „Belegt durch".
+
+    Headlines are the register's own vocabulary — the measure key, qualified by
+    the element the payload names — because the agent's prose quotes those same
+    keys and a card that renamed them into prettier German would stop matching
+    the sentence it sits beside.
+    """
+    if operation in NON_MEASURING_OPERATIONS or not isinstance(payload, dict):
+        return []
+    model = _model_identity(source)
+    out: list[MeasurementSource] = []
+
+    # `element_profile`: many measures over ONE element.
+    if "measures" in payload and "element" in payload:
+        element = payload.get("element") or {}
+        names = _element_index([element])
+        label = element.get("name") or element.get("globalId") or ""
+        for measure, answer in (payload.get("measures") or {}).items():
+            if not _is_evidence(answer):
+                continue
+            headline = f"{measure} · {label}" if label else str(measure)
+            out.append(_measurement_source(answer, headline=headline, names=names, model=model))
+        return out
+
+    # `survey` / a batch `measure`: ONE measure over many elements.
+    if "results" in payload and "summary" in payload:
+        measure = str(payload.get("measure") or detail or operation)
+        for entry in payload.get("results") or []:
+            answer = (entry or {}).get("answer")
+            if not _is_evidence(answer):
+                continue
+            names = _element_index([entry])
+            label = entry.get("name") or entry.get("globalId") or ""
+            headline = f"{measure} · {label}" if label else measure
+            out.append(_measurement_source(answer, headline=headline, names=names, model=model))
+        return out
+
+    # A single `Answer`. The payload names no element, so the headline falls
+    # back to what the CALL asked for — the measure/relation/mode the agent
+    # chose — and the GlobalIds come from the envelope's own `from`.
+    if "decidable" in payload and _is_evidence(payload):
+        out.append(
+            _measurement_source(
+                payload,
+                headline=str(detail or operation),
+                names={},
+                model=model,
+            )
+        )
+    return out
+
+
 def _render(
     operation: str,
     payload: Any,
     *,
     source: dict[str, Any] | None = None,
     handle: str = "",
+    detail: str = "",
 ) -> str:
     """The engine's result as the string the model reads.
 
@@ -1669,8 +1843,17 @@ def _render(
     NON-ZERO count and an absent trailer is False either way
     (:func:`measurement_evidence.result_carries_measurement`) — so an operation
     nobody thought to list here still yields no grounding.
+
+    It is also where a measurement becomes a SOURCE. The rendered string is what
+    the agent reads; the envelope behind it is what a reviewer has to be able to
+    audit, and it is thrown away one line below. Recording it here — the last
+    point at which the structured ``Answer`` still exists — is what gives a
+    measured answer a Herleitung (:mod:`.measurement_sources`). Recording is a
+    no-op unless a turn is capturing, so the CLI, the tests and every other
+    caller of this formatting function are unaffected.
     """
     body = _render_body(operation, payload, source=source, handle=handle)
+    record_measurements(_measurement_sources(operation, payload, source=source, detail=detail))
     if operation in NON_MEASURING_OPERATIONS:
         return body
     return body + "\n" + measurement_evidence_line(_measured_count(payload))
@@ -2099,7 +2282,11 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
         )
         if name == "view" and isinstance(payload, dict) and payload.get("pngBase64"):
             return _image_blocks(payload, source=source, handle=handle)
-        return _render(name, payload, source=source, handle=handle)
+        # `detail` — the measure/relation/mode the CALL asked for — is the only
+        # name a single-`Answer` payload has: the envelope carries the method
+        # but not the vocabulary word the agent chose, and „measure" alone is
+        # not a headline anybody can act on.
+        return _render(name, payload, source=source, handle=handle, detail=detail)
 
     # `input_schema` is passed rather than inferred, which is the whole point:
     # NAT hands it to the framework wrapper as the tool's `args_schema`, and

@@ -149,6 +149,7 @@ const COARSE_TAB: Record<SourceSignal, string> = {
   project: 'Projektwissen',
   office: 'Büroarchiv',
   auto: 'Web',
+  model: 'Modellmessung',
 }
 
 /**
