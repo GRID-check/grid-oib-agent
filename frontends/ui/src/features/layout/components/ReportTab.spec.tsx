@@ -1,4 +1,5 @@
-import { render, screen } from '@/test-utils'
+import { render, screen, within } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect } from 'vitest'
 import { ReportTab } from './ReportTab'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
@@ -312,5 +313,119 @@ describe('ReportTab', () => {
     expect(document.getElementById('report-source-1')).toBeInTheDocument()
     expect(screen.queryByText('Knowledge base')).not.toBeInTheDocument()
     expect(screen.queryByText('Wissensbasis')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The outline over the finished report. What is asserted here is when it
+ * appears at all and that the section ReportTab renders itself — the sources
+ * list — is reachable from it; that the ids match the ones the renderer writes
+ * is `report-outline.spec`'s job, against the real renderer.
+ */
+describe('ReportTab report outline', () => {
+  const LONG_REPORT = [
+    '# Brandschutz in Gebäudeklasse 4',
+    '',
+    'Einleitung [1].',
+    '',
+    '## Ausgangslage',
+    'Text.',
+    '',
+    '### Rechtsgrundlagen',
+    'Text.',
+    '',
+    '## Bewertung',
+    'Text.',
+    '',
+    '## Quellen',
+    '1. OIB Richtlinie 2 — https://oib.or.at',
+  ].join('\n')
+
+  const SHORT_REPORT = [
+    '# Kurzbericht',
+    '',
+    '## Ausgangslage',
+    'Text.',
+    '',
+    '## Quellen',
+    '1. OIB Richtlinie 2 — https://oib.or.at',
+  ].join('\n')
+
+  const showReport = (state: DeepPartial<ChatStoreWithHydration>) => {
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const full: DeepPartial<ChatStoreWithHydration> = {
+          reportContentCategory: 'final_report',
+          isStreaming: false,
+          currentStatus: null,
+          deepResearchCards: [],
+          deepResearchCitations: [],
+          ...state,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(full)) : full
+      }
+    )
+  }
+
+  test('lists the sections of a finished report, sources included', async () => {
+    const user = userEvent.setup()
+    showReport({ reportContent: LONG_REPORT })
+
+    render(<ReportTab />)
+    await user.click(screen.getByRole('button', { name: /outline/i }))
+
+    expect(
+      within(screen.getByTestId('report-outline'))
+        .getAllByRole('link')
+        .map((link) => link.textContent)
+    ).toEqual(['Ausgangslage', 'Rechtsgrundlagen', 'Bewertung', 'Quellen'])
+  })
+
+  test('the sources entry points at the heading this component renders', async () => {
+    const user = userEvent.setup()
+    showReport({ reportContent: LONG_REPORT })
+
+    render(<ReportTab />)
+    await user.click(screen.getByRole('button', { name: /outline/i }))
+
+    const href = screen.getByRole('link', { name: 'Quellen' }).getAttribute('href')
+    expect(href).toBe('#quellen')
+    // The sources section is lifted out of the markdown and rendered here, so
+    // this is the one entry whose target ReportTab has to supply itself.
+    expect(document.getElementById('quellen')).toHaveTextContent('Quellen')
+  })
+
+  test('the sources section is listed once, not once per rendering of it', async () => {
+    const user = userEvent.setup()
+    showReport({ reportContent: LONG_REPORT })
+
+    render(<ReportTab />)
+    await user.click(screen.getByRole('button', { name: /outline/i }))
+
+    expect(screen.getAllByRole('link', { name: 'Quellen' })).toHaveLength(1)
+  })
+
+  test('a report with too little to navigate gets no outline', () => {
+    showReport({ reportContent: SHORT_REPORT })
+
+    render(<ReportTab />)
+
+    expect(screen.queryByTestId('report-outline')).not.toBeInTheDocument()
+  })
+
+  test('no outline while the report is still being written', () => {
+    showReport({ reportContent: LONG_REPORT, isStreaming: true, currentStatus: 'writing' })
+
+    render(<ReportTab />)
+
+    expect(screen.queryByTestId('report-outline')).not.toBeInTheDocument()
+  })
+
+  test('research notes get no outline', () => {
+    showReport({ reportContent: LONG_REPORT, reportContentCategory: 'research_notes' })
+
+    render(<ReportTab />)
+
+    expect(screen.queryByTestId('report-outline')).not.toBeInTheDocument()
   })
 })

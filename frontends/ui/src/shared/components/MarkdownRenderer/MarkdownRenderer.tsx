@@ -7,12 +7,11 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
-import { transliterateGerman } from '@/lib/text/latinize'
 import type { MarkdownRendererProps } from './types'
 import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
 import { MARKDOWN_SLOT_TAG, useMarkdownSlotRenderer } from './slot-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
-import { getLanguageFromClassName } from './utils'
+import { getLanguageFromClassName, headingAnchorId } from './utils'
 
 function getTextFromChildren(node: ReactNode): string {
   if (typeof node === 'string') return node
@@ -22,30 +21,6 @@ function getTextFromChildren(node: ReactNode): string {
     return getTextFromChildren((node as React.ReactElement).props.children)
   }
   return ''
-}
-
-/**
- * Heading anchor ids.
- *
- * German letters are spelled out rather than dropped: `[^\w\s-]` below treats
- * every one of them as punctuation, so "Gebäude" slugified to "gebude" and
- * "Außenwand" to "auenwand" — ids no in-page link ever names. The content this
- * renders is German (chat answers, OIB reports), so that is the common
- * heading, not an edge case, and a missed anchor is silent: `scrollToAnchor`
- * returns when `getElementById` finds nothing.
- *
- * Deliberately `transliterateGerman` and NOT `latinize`: folding every other
- * diacritic would change ids that are already published in links, where today
- * an `é` is simply dropped. Everything from the trim down is likewise
- * unchanged, so every ASCII id already in use (and the `1.2` → `12`
- * punctuation shape) stays byte-identical.
- */
-function slugify(text: string): string {
-  return transliterateGerman(text.toLowerCase())
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/^-+|-+$/g, '')
 }
 
 /**
@@ -178,7 +153,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
         // Headings — include id for in-page anchor navigation
         h1: ({ children }) => {
-          const id = slugify(getTextFromChildren(children))
+          const id = headingAnchorId(getTextFromChildren(children))
           return (
             <h1 id={id} className="mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight text-foreground">
               {children}
@@ -186,7 +161,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           )
         },
         h2: ({ children }) => {
-          const id = slugify(getTextFromChildren(children))
+          const id = headingAnchorId(getTextFromChildren(children))
           return (
             <h2 id={id} className="mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight text-foreground">
               {children}
@@ -194,7 +169,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           )
         },
         h3: ({ children }) => {
-          const id = slugify(getTextFromChildren(children))
+          const id = headingAnchorId(getTextFromChildren(children))
           return (
             <h3 id={id} className="mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight text-foreground">
               {children}
@@ -202,7 +177,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           )
         },
         h4: ({ children }) => {
-          const id = slugify(getTextFromChildren(children))
+          const id = headingAnchorId(getTextFromChildren(children))
           return (
             <h4 id={id} className="mb-1 mt-3 block scroll-mt-4 text-sm font-semibold text-foreground">
               {children}

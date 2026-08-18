@@ -306,6 +306,19 @@ export const research: typeof en.research = {
     },
   },
 
+  /**
+   * Die Gliederung über dem fertigen Bericht: die Überschriften des Berichts
+   * als Sprungliste, mit einer Markierung auf dem Abschnitt, den die Leserin
+   * gerade liest.
+   */
+  reportOutline: {
+    label: 'Gliederung des Berichts',
+    title: 'Gliederung',
+    sectionCount: '{count} Abschnitte',
+    show: 'Gliederung einblenden',
+    hide: 'Gliederung ausblenden',
+  },
+
   researchPanel: {
     closePanel: 'Recherchebereich schließen',
     openPanel: 'Recherchebereich öffnen',

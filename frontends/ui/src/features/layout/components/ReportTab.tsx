@@ -12,17 +12,23 @@
  *   - when the markdown has no sources section but the run collected cited
  *     sources, a localized "Sources"/"Quellen" list is appended from the store.
  *
+ * A finished report also gets an OUTLINE: its `##`/`###` headings as a sticky,
+ * collapsible list that jumps to a section and marks the one being read. See
+ * {@link ReportOutline} for the layout reasoning and
+ * {@link extractReportOutline} for where the headings come from.
+ *
  * Shows streaming indicator when report is being generated.
  * Includes export footer for Markdown and PDF export (final report only).
  */
 
 'use client'
 
-import { type FC, type ReactNode, useMemo } from 'react'
+import { type FC, type ReactNode, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { PluggableList } from 'unified'
 import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
+import { headingAnchorId } from '@/shared/components/MarkdownRenderer/utils'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { useChatStore } from '@/features/chat'
 import { ReportSourcePreviewChip, SourcePreviewChip } from '@/features/chat/components/SourcePreview'
@@ -36,7 +42,14 @@ import {
   type ReportSourceKind,
 } from '../lib/report-citations'
 import { remarkCitationMarkers } from '../lib/citation-markers'
+import {
+  MIN_REPORT_OUTLINE_ENTRIES,
+  extractReportOutline,
+  reportOutlineEntry,
+  type ReportOutlineEntry,
+} from '../lib/report-outline'
 import { ExportFooter } from './ExportFooter'
+import { ReportOutline } from './ReportOutline'
 
 /**
  * Badge variant per source origin. The knowledge base carries the single blue
@@ -68,13 +81,26 @@ interface ReportTabProps {
  */
 const ReportSourcesList: FC<{
   heading: string
+  /**
+   * DOM id for the heading. The sources section is lifted out of the markdown
+   * and rendered here, so react-markdown never sees it and never gives its
+   * heading an id — which would leave the outline's "Quellen" entry as the one
+   * dead link in the list. The caller spells the id with the same function the
+   * renderer uses.
+   */
+  headingId: string
   entries: ReportSourceEntry[]
   sourceBadgeLabel: (kind: ReportSourceKind) => string
   /** Whether the origin badges are rendered (WorkOS `source-origin-badges`). */
   showSourceBadges: boolean
-}> = ({ heading, entries, sourceBadgeLabel, showSourceBadges }) => (
+}> = ({ heading, headingId, entries, sourceBadgeLabel, showSourceBadges }) => (
   <section aria-label={heading}>
-    <h2 className="mb-2 mt-5 text-xl font-semibold tracking-tight text-foreground">{heading}</h2>
+    <h2
+      id={headingId}
+      className="mb-2 mt-5 scroll-mt-12 text-xl font-semibold tracking-tight text-foreground"
+    >
+      {heading}
+    </h2>
     <ol className="list-none space-y-1 pl-0">
       {entries.map((entry) => (
         <li
@@ -194,10 +220,60 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
     )
   }, [isResearchNotes, sourceEntries.length, isGeneratingReport, deepResearchCitations])
 
+  // The sources heading, whatever produced it — the report's own „## Quellen“,
+  // or the localized one this component appends when the markdown has none.
+  // Named once here so the rendered heading and the outline entry that links to
+  // it cannot disagree.
+  const sourcesSectionHeading =
+    sourceEntries.length > 0
+      ? (sourcesHeading ?? t('reportTab.sourcesTitle'))
+      : citedFallbackSources.length > 0
+        ? t('reportTab.sourcesTitle')
+        : null
+
+  /**
+   * The outline of the finished report.
+   *
+   * WHILE WRITING, THERE IS NO OUTLINE. Headings are still arriving, the last
+   * one is usually half a word, and the slug of half a word is an id that stops
+   * existing a moment later — so an entry clicked mid-stream would scroll
+   * nowhere. Marking a current section is meaningless too while the document is
+   * still growing under the reader. The reader watching a report being written
+   * is watching, not navigating; the outline appears when the report settles.
+   *
+   * Research notes never get one. They are the intermediate working document,
+   * shown behind a banner that says as much and replaced wholesale by the
+   * report — a reader does not arrive at them with a question to look up.
+   *
+   * The entries come from `body`, which is the markdown after the sources
+   * section has been lifted out, plus one synthesized entry for the sources
+   * section itself. That is what keeps the list honest in both directions: the
+   * sources section is rendered by this component rather than by the markdown,
+   * so extracting from the full text would list it while the rendered heading
+   * carried no id, and extracting from the body alone would drop the entry
+   * readers reach for most.
+   */
+  const outline = useMemo((): ReportOutlineEntry[] => {
+    if (isResearchNotes || isGeneratingReport || !body.trim()) return []
+    const entries = extractReportOutline(body)
+    const sources = sourcesSectionHeading
+      ? reportOutlineEntry(sourcesSectionHeading, 2, entries.length)
+      : null
+    if (sources) entries.push(sources)
+    return entries.length >= MIN_REPORT_OUTLINE_ENTRIES ? entries : []
+  }, [isResearchNotes, isGeneratingReport, body, sourcesSectionHeading])
+
+  // The outline observes headings against the panel's own scroll box, not the
+  // window: a heading in the middle of a scrolled-away panel is not in view.
+  const scrollRef = useRef<HTMLDivElement>(null)
+
   return (
     <div className="flex h-full flex-col">
       {/* Scrollable content area */}
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto overscroll-contain">
+      <div
+        ref={scrollRef}
+        className="flex flex-1 flex-col gap-4 overflow-y-auto overscroll-contain"
+      >
         {children ? (
           children
         ) : isEmpty ? (
@@ -227,6 +303,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
         ) : (
           /* Final report: full prominence, with Grid cards when available */
           <div className="flex flex-1 flex-col gap-4">
+            <ReportOutline entries={outline} scrollRootRef={scrollRef} />
             {/* No `messageId`: report cards are rendered from transient
                 `deepResearchCards`, which has no reliable owning message —
                 `activeDeepResearchMessageId` is null after a session switch +
@@ -237,15 +314,20 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
                 behaviour until the report owns a stable message id.
                 See ADR-0030 §Open Questions. */}
             {cards.length > 0 && <GridCards cards={cards} projectId={projectId} />}
+            {/* The outline bar is sticky at the top of this scroll box, so a
+                heading jumped to with `block: 'start'` would land underneath
+                it. The renderer's own `scroll-mt-4` is sized for a container
+                with nothing on top; this raises it to clear the bar. */}
             <MarkdownRenderer
               content={body}
               isStreaming={isGeneratingReport}
-              className="max-w-none"
+              className="max-w-none [&_h2]:scroll-mt-12 [&_h3]:scroll-mt-12"
               remarkPlugins={markerPlugins}
             />
             {sourceEntries.length > 0 && (
               <ReportSourcesList
-                heading={sourcesHeading ?? t('reportTab.sourcesTitle')}
+                heading={sourcesSectionHeading ?? t('reportTab.sourcesTitle')}
+                headingId={headingAnchorId(sourcesSectionHeading ?? t('reportTab.sourcesTitle'))}
                 entries={sourceEntries}
                 sourceBadgeLabel={(kind) => t(`reportTab.sourceBadge.${kind}`)}
                 showSourceBadges={showSourceBadges}
@@ -253,7 +335,10 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
             )}
             {citedFallbackSources.length > 0 && (
               <section aria-label={t('reportTab.sourcesTitle')}>
-                <h2 className="mb-2 mt-5 text-xl font-semibold tracking-tight text-foreground">
+                <h2
+                  id={headingAnchorId(t('reportTab.sourcesTitle'))}
+                  className="mb-2 mt-5 scroll-mt-12 text-xl font-semibold tracking-tight text-foreground"
+                >
                   {t('reportTab.sourcesTitle')}
                 </h2>
                 {/* Rendered through the same citation component as every other

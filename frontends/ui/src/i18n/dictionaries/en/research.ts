@@ -297,6 +297,16 @@ export const research = {
     },
   },
 
+  // The outline above a finished report: its headings as a jump list, with the
+  // section the reader is in marked.
+  reportOutline: {
+    label: 'Report outline',
+    title: 'Outline',
+    sectionCount: '{count} sections',
+    show: 'Show outline',
+    hide: 'Hide outline',
+  },
+
   researchPanel: {
     closePanel: 'Close research panel',
     openPanel: 'Open research panel',
