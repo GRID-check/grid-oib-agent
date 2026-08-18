@@ -72,7 +72,7 @@ describe('feature gate (answer-feedback)', () => {
   it('passes when enforcement is on and the flag is granted', async () => {
     process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
     mockSession.mockResolvedValue({ ...session, featureFlags: ['answer-feedback'] } as never)
-    mockSubmit.mockResolvedValue({ messageId: 'msg_1', verdict: 'up', reason: null })
+    mockSubmit.mockResolvedValue({ messageId: 'msg_1', verdict: 'up', reason: null, comment: null })
 
     const res = await POST(postReq({ messageId: 'msg_1', verdict: 'up' }))
     expect(res.status).toBe(200)
@@ -81,17 +81,38 @@ describe('feature gate (answer-feedback)', () => {
 
 describe('POST /api/feedback/answers', () => {
   it('upserts a vote and returns the stored view', async () => {
-    mockSubmit.mockResolvedValue({ messageId: 'msg_1', verdict: 'down', reason: 'wrong_source' })
+    mockSubmit.mockResolvedValue({
+      messageId: 'msg_1',
+      verdict: 'down',
+      reason: 'wrong_source',
+      comment: 'the cited clause is from the wrong OIB guideline',
+    })
 
     const res = await POST(
-      postReq({ messageId: 'msg_1', verdict: 'down', reason: 'wrong_source', conversationId: 'conv_1' }),
+      postReq({
+        messageId: 'msg_1',
+        verdict: 'down',
+        reason: 'wrong_source',
+        comment: 'the cited clause is from the wrong OIB guideline',
+        conversationId: 'conv_1',
+      }),
     )
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ messageId: 'msg_1', verdict: 'down', reason: 'wrong_source' })
+    expect(await res.json()).toEqual({
+      messageId: 'msg_1',
+      verdict: 'down',
+      reason: 'wrong_source',
+      comment: 'the cited clause is from the wrong OIB guideline',
+    })
     expect(mockSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org_1' }),
-      expect.objectContaining({ messageId: 'msg_1', verdict: 'down', reason: 'wrong_source' }),
+      expect.objectContaining({
+        messageId: 'msg_1',
+        verdict: 'down',
+        reason: 'wrong_source',
+        comment: 'the cited clause is from the wrong OIB guideline',
+      }),
     )
   })
 
@@ -133,12 +154,14 @@ describe('DELETE /api/feedback/answers', () => {
 
 describe('GET /api/feedback/answers', () => {
   it('returns the caller\'s own feedback for a conversation', async () => {
-    mockGetFeedback.mockResolvedValue([{ messageId: 'msg_1', verdict: 'up', reason: null }])
+    mockGetFeedback.mockResolvedValue([{ messageId: 'msg_1', verdict: 'up', reason: null, comment: null }])
 
     const res = await GET(new Request(`${base}?conversationId=conv_1`))
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ feedback: [{ messageId: 'msg_1', verdict: 'up', reason: null }] })
+    expect(await res.json()).toEqual({
+      feedback: [{ messageId: 'msg_1', verdict: 'up', reason: null, comment: null }],
+    })
     expect(mockGetFeedback).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user_1' }), 'conv_1')
   })
 
