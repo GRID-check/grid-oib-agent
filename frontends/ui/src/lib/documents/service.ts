@@ -1371,6 +1371,11 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     id: reconciled.id,
     status: reconciled.status,
     filename: reconciled.filename,
+    // The label, next to the identity. Every other surface renders a renamed
+    // document through `documentDisplayName`; this payload omitted the column,
+    // so the one caller that reads `displayName` here always fell back to the
+    // raw filename and a renamed file was named two different ways in one view.
+    displayName: reconciled.displayName,
     // The shelf, straight off the row. The composer's "Asking about <file>"
     // bar re-reads it after a reload, where the client no longer holds one —
     // the DB column is the authority, so nothing has to infer a shelf from a

@@ -2,6 +2,7 @@ import json
 from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
+from typing import NamedTuple
 
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import trim_messages
@@ -268,3 +269,34 @@ def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None, lis
     query_text = str(payload)
     inline_query, inline_sources, inline_skills = _extract_query_from_text(query_text)
     return (inline_query, inline_sources, inline_skills)
+
+
+class TurnInputs(NamedTuple):
+    """Everything one user message states about how to answer it.
+
+    The focus fields are read from the turn ContextVars, which
+    :func:`_extract_query_and_sources` is what SETS — so reading them is bound
+    to the extraction here rather than left as an ordering the caller has to
+    remember. Read before it, they carry the PREVIOUS turn's subject.
+    """
+
+    query_text: str
+    data_sources: list[str] | None
+    force_skills: list[str] | None
+    focus_file_name: str | None
+    focus_shelf: str | None
+
+
+def extract_turn_inputs(payload: Any) -> TurnInputs:
+    """Parse one user message into the inputs a turn is built from."""
+    query_text, data_sources, force_skills = _extract_query_and_sources(payload)
+    try:
+        from aiq_agent.common.focus_file import get_focused_file_name
+        from aiq_agent.common.focus_file import get_focused_shelf
+
+        focus_file_name = get_focused_file_name()
+        focus_shelf = get_focused_shelf()
+    except Exception:
+        focus_file_name = None
+        focus_shelf = None
+    return TurnInputs(query_text, data_sources, force_skills, focus_file_name, focus_shelf)

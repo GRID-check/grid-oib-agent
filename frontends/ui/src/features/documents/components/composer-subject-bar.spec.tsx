@@ -25,7 +25,7 @@ const STATUS_BODY = {
 }
 
 function renderBar(subject: ComposerSubject, onResolved = vi.fn()) {
-  render(
+  const view = render(
     <I18nProvider initialLocale="de" fixedLocale>
       <ComposerSubjectBar
         subject={subject}
@@ -35,7 +35,20 @@ function renderBar(subject: ComposerSubject, onResolved = vi.fn()) {
       />
     </I18nProvider>
   )
-  return onResolved
+  /** Re-render with a NEW handler identity, as a keystroke in the composer does. */
+  const rerenderWithFreshHandler = (): void => {
+    view.rerender(
+      <I18nProvider initialLocale="de" fixedLocale>
+        <ComposerSubjectBar
+          subject={subject}
+          projectId="proj-1"
+          onClear={() => undefined}
+          onResolved={(identity) => onResolved(identity)}
+        />
+      </I18nProvider>
+    )
+  }
+  return Object.assign(onResolved, { rerenderWithFreshHandler })
 }
 
 describe('ComposerSubjectBar identity recovery', () => {
@@ -87,6 +100,28 @@ describe('ComposerSubjectBar identity recovery', () => {
 
     await screen.findByTestId('composer-subject-bar')
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  test('looks a document up once, not once per composer re-render', async () => {
+    // The bar's lookup used to depend on the caller's handler identity, and the
+    // composer above it passes an inline arrow and re-renders on every
+    // keystroke. A document that never completes the subject — deleted, or no
+    // longer readable — therefore meant one request per character typed.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => null }))
+    const onResolved = renderBar({
+      resourceType: 'document',
+      resourceId: 'doc-gone',
+      title: null,
+    })
+
+    await screen.findByTestId('composer-subject-bar')
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    onResolved.rerenderWithFreshHandler()
+    onResolved.rerenderWithFreshHandler()
+    onResolved.rerenderWithFreshHandler()
+
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   test('ignores a scope the client does not know rather than passing it through', async () => {

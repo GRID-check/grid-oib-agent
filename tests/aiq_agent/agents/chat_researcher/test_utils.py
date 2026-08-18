@@ -343,3 +343,62 @@ class TestExtractQueryAndSources:
         query, _sources, skills = _extract_query_and_sources(payload)
         assert query == "Query"
         assert skills == ["forecast-analysis", "42", "None"]
+
+
+class TestExtractTurnInputs:
+    """The wire → state lift.
+
+    Retrieval reads the turn focus from ContextVars that the query parse is
+    what sets. Reading them was previously a separate step in the register
+    layer, ordered only by a comment, and nothing in the suite noticed when it
+    was removed entirely — so the one seam that makes the composer subject
+    reachable in production was the one seam with no test.
+    """
+
+    def test_lifts_the_focus_the_parse_just_set(self):
+        from aiq_agent.agents.chat_researcher.utils import extract_turn_inputs
+
+        text = '{"query": "fass zusammen", "focus_file_name": "Aufsicht.pdf", "focus_shelf": "project"}'
+        inputs = extract_turn_inputs(text)
+
+        assert inputs.query_text == "fass zusammen"
+        assert inputs.focus_file_name == "Aufsicht.pdf"
+        assert inputs.focus_shelf == "project"
+
+    def test_lifts_it_from_a_nested_chat_payload(self):
+        from aiq_agent.agents.chat_researcher.utils import extract_turn_inputs
+
+        text = '{"query": "was steht drin", "focus_file_name": "Protokoll.pdf", "focus_shelf": "session"}'
+        inputs = extract_turn_inputs(
+            {"content": {"messages": [{"role": "user", "content": [{"type": "text", "text": text}]}]}}
+        )
+
+        assert inputs.query_text == "was steht drin"
+        assert inputs.focus_file_name == "Protokoll.pdf"
+        assert inputs.focus_shelf == "session"
+
+    def test_a_turn_without_a_subject_clears_the_previous_one(self):
+        """The vars outlive one turn; a plain message must not inherit a subject."""
+        from aiq_agent.agents.chat_researcher.utils import extract_turn_inputs
+
+        extract_turn_inputs('{"query": "fass zusammen", "focus_file_name": "Aufsicht.pdf"}')
+        inputs = extract_turn_inputs('{"query": "welche OIB-Richtlinien gelten in Wien?"}')
+
+        assert inputs.focus_file_name is None
+        assert inputs.focus_shelf is None
+
+    def test_an_unparseable_shelf_is_dropped_not_forwarded(self):
+        from aiq_agent.agents.chat_researcher.utils import extract_turn_inputs
+
+        inputs = extract_turn_inputs('{"query": "x", "focus_file_name": "a.pdf", "focus_shelf": "buero"}')
+
+        assert inputs.focus_file_name == "a.pdf"
+        assert inputs.focus_shelf is None
+
+    def test_data_sources_and_skills_still_come_through(self):
+        from aiq_agent.agents.chat_researcher.utils import extract_turn_inputs
+
+        inputs = extract_turn_inputs('{"query": "x", "data_sources": ["web_search"], "skills": ["oib"]}')
+
+        assert inputs.data_sources == ["web_search"]
+        assert inputs.force_skills == ["oib"]

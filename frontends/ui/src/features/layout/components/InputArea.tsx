@@ -71,6 +71,7 @@ import type { TrackedFile } from '@/features/documents'
 import { trackedFileToFileItem } from '@/features/documents/types'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 import { ComposerSubjectBar } from '@/features/documents/components/composer-subject-bar'
+import type { ResolvedSubjectIdentity } from '@/features/documents/components/composer-subject-bar'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import {
@@ -483,6 +484,25 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       shelf: 'session',
     })
   }, [sessionFiles, setComposerSubject])
+
+  // Stable across renders: this composer re-renders on every keystroke, and the
+  // subject bar holds this in an effect. An inline arrow here made the bar's
+  // document lookup a function of how often the user typed.
+  const handleSubjectResolved = useCallback(
+    ({ title, filename, shelf }: ResolvedSubjectIdentity) => {
+      // Read from the store, not a closure: the lookup is async and the user
+      // may have cleared or re-bound the bar while it was in flight.
+      const current = useChatStore.getState().composerSubject
+      if (!current) return
+      setComposerSubject({
+        ...current,
+        ...(title ? { title } : {}),
+        ...(filename ? { filename } : {}),
+        ...(shelf ? { shelf } : {}),
+      })
+    },
+    [setComposerSubject]
+  )
 
   const { sendMessage, isLoading, respondToInteraction, pendingInteraction, noteSendIntent } =
     wsChat
@@ -1278,18 +1298,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               ? () => useFilePreviewStore.getState().peek()
               : undefined
           }
-          onResolved={({ title, filename, shelf }) => {
-            // Read from the store, not the closure: the lookup is async and the
-            // user may have cleared or re-bound the bar while it was in flight.
-            const current = useChatStore.getState().composerSubject
-            if (!current) return
-            setComposerSubject({
-              ...current,
-              ...(title ? { title } : {}),
-              ...(filename ? { filename } : {}),
-              ...(shelf ? { shelf } : {}),
-            })
-          }}
+          onResolved={handleSubjectResolved}
         />
 
         {/* Inline file chips — one per attached file, above the textarea.

@@ -86,6 +86,7 @@ import {
   reingestDocument,
   deleteDocument,
   renameDocument,
+  getDocumentStatus,
   searchProjectDocuments,
   joinHitsToFiles,
   deriveSearchTopK,
@@ -827,5 +828,50 @@ describe('renameDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiv.document.renamed' }),
     )
+  })
+})
+
+describe('getDocumentStatus', () => {
+  // The composer's "Asking about <file>" bar rebuilds a restored subject from
+  // this payload alone, so a field missing here is a field that silently stops
+  // reaching the agent: no `scope` means no `focus_shelf` on the wire, and no
+  // `displayName` means a renamed document is labelled by its raw filename in
+  // the composer while every other surface shows the new name.
+  const projectDoc = makeDocument({ displayName: 'Aufsicht 1:100' })
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(reconcileDocumentStatuses).mockImplementation(
+      async (rows) => rows.map((row) => ({ ...row })) as never,
+    )
+  })
+
+  it('projects the identity, the label and the shelf', async () => {
+    await expect(getDocumentStatus(session, 'doc-1')).resolves.toMatchObject({
+      id: projectDoc.id,
+      filename: projectDoc.filename,
+      displayName: 'Aufsicht 1:100',
+      scope: 'project',
+    })
+  })
+
+  it('carries the shelf for a document that is not on the project shelf', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({
+      ...projectDoc,
+      projectId: null,
+      scope: 'archiv',
+      collectionName: 'archiv_org-1',
+    })
+
+    await expect(getDocumentStatus(session, 'doc-1')).resolves.toMatchObject({ scope: 'archiv' })
+  })
+
+  it('reports a null displayName rather than omitting the key', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, displayName: null })
+
+    const status = await getDocumentStatus(session, 'doc-1')
+
+    expect(status).toHaveProperty('displayName', null)
   })
 })
