@@ -269,3 +269,36 @@ def test_the_generic_card_seed_inlines_only_generic_cards():
         "callout",
         "follow_ups",
     )
+
+
+def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
+    """The craft moved OUT of ``_CARD_DOCTRINE`` and has to have landed here.
+
+    ``emit_card``'s description is paid on every turn whether or not a card is
+    emitted, so it holds the tool's contract — which trigger takes which card,
+    when to emit none, where a card lands — and the judgement moved into this
+    skill, which is applied on every answering turn anyway and can be edited
+    without a deploy.
+
+    The move is only safe if both halves hold. Deleting a paragraph from the
+    description and forgetting to write its replacement here would cost nothing
+    visible in review and would quietly take the judgement out of the product,
+    so the two are asserted against each other rather than separately.
+    """
+    from aiq_agent.cards.register import _CARD_DOCTRINE
+
+    body = next(row for _, row in SEEDS if row["name"] == "piloti-cards")["body"]
+
+    # What a follow-up set has to be: anchored to this answer, and four
+    # different moves rather than one question four times.
+    assert "Anschlussfragen" in body
+    # When a takeaway block is earned, and the one-callout rule.
+    assert "Kernaussagen" in body
+    assert "Hinweis" in body
+    # The conflict this skill exists to settle: the ruling is either the card's
+    # value or the lede's sentence, never both in the same words.
+    assert "Urteilskarte" in body
+
+    # And the description is no longer carrying them.
+    assert "GENERIC ones" not in _CARD_DOCTRINE
+    assert "NAME something" not in _CARD_DOCTRINE

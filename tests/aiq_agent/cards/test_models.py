@@ -567,18 +567,23 @@ class TestFollowUpsCard:
         assert '"follow_ups"' in detail
         assert "FollowUp = {" in detail
 
-    def test_the_doctrine_states_the_trigger_and_the_two_rules(self):
-        # A trigger nobody is pointed at is a card that never gets emitted, and
-        # the two rules (anchored, diverse) are the whole difference between a
-        # chip a reader clicks and one they learn to ignore.
+    def test_the_doctrine_keeps_the_contract_and_not_the_craft(self):
+        # The trigger and the placement rules are the TOOL'S contract and are
+        # paid on every turn, so they stay here. What makes a *good* set of
+        # follow-ups — anchored to what the answer introduced, four different
+        # kinds of move — is craft, and craft lives in the `piloti-cards` skill
+        # (asserted in tests/aiq_agent/skills/test_seeded_platform_skills.py).
+        # A trigger nobody is pointed at is a card that never gets emitted.
         from aiq_agent.cards.register import _CARD_DOCTRINE
 
         assert "follow_ups" in _CARD_DOCTRINE
-        assert "NAME something" in _CARD_DOCTRINE
-        assert "DIFFERENT KINDS" in _CARD_DOCTRINE
-        # And when NOT to: a chat turn has no subject to go deeper into, and an
-        # answer that already asked a question would be asking twice.
+        # Placement, and when NOT to: a chat turn has no subject to go deeper
+        # into, and an answer that already asked a question would be asking twice.
+        assert "put it LAST" in _CARD_DOCTRINE
         assert "conversational or off-topic" in _CARD_DOCTRINE
+        # The craft paragraphs are gone from the always-loaded description.
+        assert "NAME something" not in _CARD_DOCTRINE
+        assert "DIFFERENT KINDS" not in _CARD_DOCTRINE
 
 
 class TestTheCatalogTellsTheModelToCopyNotGuess:

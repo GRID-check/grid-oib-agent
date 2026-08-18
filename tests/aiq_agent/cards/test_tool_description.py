@@ -144,3 +144,42 @@ class TestShapeHint:
 
     def test_unknown_type_returns_none(self):
         assert _shape_hint_for("not_a_real_card") is None
+
+
+class TestTheDescriptionStaysAffordable:
+    """A ceiling on what `emit_card` costs before the model has done anything.
+
+    This description is prepended to every turn on the cost-optimised tier,
+    whether or not the answer ends up emitting a card. It was 5,209 tokens when
+    every shape and worked example was rendered inline; splitting the catalog
+    into an index plus `describe_card` cut it to roughly 700, and it then crept
+    back to 2,126 because each new card type added a trigger line AND a
+    paragraph of craft — a drift nobody could see in a diff, because every
+    individual paragraph was worth its own hundred tokens.
+
+    The ceiling is the guard against that specific failure. It is deliberately
+    slack: it does not pin today's number, it fails only when the description
+    has grown by roughly a third, which is far too much to arrive by accident.
+    A new card type is expected to add its trigger line here and put its
+    paragraph in the `piloti-cards` skill, which is applied on every answering
+    turn anyway and is a database row rather than a deploy.
+
+    Raising this number is a decision, not a fix. It should come with a
+    measurement of what the turn now costs in total.
+    """
+
+    #: cl100k_base tokens. Measured at 1,745 when this was written.
+    MAX_TOKENS = 2_300
+
+    def test_the_tool_description_stays_under_the_ceiling(self):
+        tiktoken = pytest.importorskip("tiktoken")
+        encoding = tiktoken.get_encoding("cl100k_base")
+
+        cost = len(encoding.encode(_build_tool_description()))
+
+        assert cost <= self.MAX_TOKENS, (
+            f"emit_card's description is {cost} tokens, over the {self.MAX_TOKENS} ceiling. "
+            "Every turn pays this whether or not a card is emitted. If you added a card type, "
+            "its trigger line belongs here and its craft paragraph belongs in the `piloti-cards` "
+            "platform skill."
+        )
