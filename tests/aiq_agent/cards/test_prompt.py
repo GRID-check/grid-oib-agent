@@ -2,6 +2,7 @@
 
 from aiq_agent.cards.catalog import MODEL_BACKED_CARD_TYPES
 from aiq_agent.cards.catalog import render_card_catalog
+from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.prompt import build_card_generation_prompt
 from aiq_agent.cards.register import _build_tool_description
 
@@ -57,10 +58,20 @@ class TestCatalogSharedAcrossSurfaces:
     handed only the question and the finished answer text.
     """
 
-    def test_the_tool_embeds_the_whole_catalog(self):
+    def test_the_tool_embeds_the_card_index(self):
         # The `emit_card` caller has the `ifc_query` rows in context, so it is
-        # the surface that may be told about the cards those rows feed.
-        assert render_card_catalog() in _build_tool_description()
+        # the surface that may be told about the cards those rows feed — but it
+        # gets the INDEX, not every shape. Shapes cost ~5,200 tokens on every
+        # turn whether or not a card is emitted; `describe_card` fetches the one
+        # that is actually needed.
+        description = _build_tool_description()
+        assert render_card_index() in description
+        assert render_card_catalog() not in description
+
+    def test_the_tool_points_at_the_shape_lookup(self):
+        # Without this pointer the model guesses the nesting and burns a turn on
+        # a validation error, which costs more than the shapes it saved.
+        assert "describe_card" in _build_tool_description()
 
     def test_post_hoc_generation_embeds_the_catalog_minus_the_model_cards(self):
         assert render_card_catalog(include_model_backed=False) in build_card_generation_prompt()

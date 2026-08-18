@@ -83,7 +83,7 @@ def test_no_skills_yields_no_prompt_and_no_tools() -> None:
 def test_prompt_block_lists_descriptions_only() -> None:
     block = _runtime().prompt_block()
     assert block is not None
-    assert block.startswith("## Verfügbare Skills")
+    assert block.startswith("## Available skills")
     assert "use_skill" in block
     assert "`alpha`: Erster Skill." in block
     # Progressive disclosure: bodies NEVER leak into the prompt.
@@ -108,7 +108,7 @@ def test_forced_names_come_first_in_activation_order() -> None:
 def test_forced_block_names_only_forced_skills() -> None:
     block = _runtime(forced=["beta"]).forced_block()
     assert block is not None
-    assert block.startswith("## Aktive Skills (vom Nutzer erzwungen)")
+    assert block.startswith("## Active skills (required for this turn)")
     assert "`beta`" in block
     assert "`alpha`" not in block
 
@@ -117,7 +117,7 @@ def test_force_unknown_skill_is_ignored() -> None:
     runtime = SkillRuntime(skills=(S1,), force_names=["ghost", "alpha"])
     assert runtime.forced == ("alpha",)
     assert runtime.activated == ("alpha",)
-    assert runtime.forced_block().startswith("## Aktive Skills")
+    assert runtime.forced_block().startswith("## Active skills")
 
 
 def test_forced_block_none_when_nothing_forced() -> None:
@@ -128,7 +128,7 @@ def test_unknown_skill_message_lists_available_names() -> None:
     tools = _runtime().build_tools()
     tool = next(t for t in tools if t.name == "use_skill")
     result = tool.invoke({"skill_name": "nope"})
-    assert "Unbekannter Skill 'nope'" in result
+    assert "Unknown skill 'nope'" in result
     assert "alpha" in result and "beta" in result
     # A failed load never activates the skill.
     assert _runtime().activated == ()
@@ -138,14 +138,14 @@ def test_preferred_cards_are_appended_on_activation_only() -> None:
     runtime = SkillRuntime(skills=(S1, CARDS))
     body = _use_skill(runtime).invoke({"skill_name": "gamma"})
     assert body.startswith("gamma body")
-    assert "## Bevorzugte Cards" in body
+    assert "## Preferred cards" in body
     # Author order is preserved, and the types are named verbatim so the model
     # can copy them into `type` without translating a prose paraphrase.
     assert "`comparison_table`, `summary`" in body
     # A preference, not a command — the wording must leave an out.
-    assert "keine Vorgabe" in body
+    assert "not a requirement" in body
     # The whole point of the feature: it costs nothing until activation.
-    assert "Bevorzugte Cards" not in (runtime.prompt_block() or "")
+    assert "Preferred cards" not in (runtime.prompt_block() or "")
 
 
 def test_skill_without_preferred_cards_returns_the_bare_body() -> None:

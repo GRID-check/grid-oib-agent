@@ -10,6 +10,7 @@ import pytest
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
+from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.models import GridCard
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.register import _CARD_EXAMPLES
@@ -94,18 +95,29 @@ class TestToolDescription:
             assert f'"{card_type}"' not in desc
         assert "memory_proposal" not in desc
 
-    def test_expands_nested_building_blocks(self):
-        # The whole point: nested object shapes must be spelled out, not hidden
-        # behind a bare field name like `glass_area`.
-        desc = _build_tool_description()
-        assert "DimensionCheck = {" in desc
-        assert "NormReference = {" in desc
-        assert "needs_input" in desc  # enum options surfaced
+    def test_expands_nested_building_blocks_on_demand(self):
+        # Nested object shapes must be spelled out, not hidden behind a bare
+        # field name like `glass_area`. They moved OFF the always-on tool
+        # description (~5,200 tokens every turn, emitted card or not) and onto
+        # `describe_card`, which is asked for the one type that is needed.
+        detail = render_card_details(["daylight_incidence"])
+        assert "DimensionCheck = {" in detail
+        assert "NormReference = {" in detail
+        assert "needs_input" in detail  # enum options surfaced
 
-    def test_includes_worked_examples(self):
+    def test_includes_worked_examples_on_demand(self):
+        detail = render_card_details(["daylight_incidence"])
+        assert "Worked examples" in detail
+        assert "daylight_incidence" in detail
+
+    def test_the_index_names_every_card_without_its_shape(self):
+        # L1 is one line per type: enough for the model to know a card EXISTS
+        # and pick it, not enough to fill it in. That split is what keeps the
+        # marginal cost of a new card type at ~23 tokens instead of ~193.
         desc = _build_tool_description()
-        assert "Worked examples" in desc
-        assert "daylight_incidence" in desc
+        assert '"daylight_incidence"' in desc
+        assert "DimensionCheck = {" not in desc
+        assert "Worked examples" not in desc
 
     def test_flags_cards_that_ask_the_user_to_confirm(self):
         # An interactive card costs the user a DECISION, not just screen space

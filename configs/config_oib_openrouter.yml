@@ -453,6 +453,13 @@ functions:
   emit_card:
     _type: emit_card
 
+  # L2 of the card vocabulary. `emit_card` advertises one line per card type;
+  # this returns the exact nesting and a worked example for the type actually
+  # being emitted. Rendering all 27 shapes up front costs ~5,200 tokens on every
+  # turn whether or not a card is emitted, and ~190 more for each type we add.
+  describe_card:
+    _type: describe_card
+
   # Document surfacing: show a file (filename= / mode=one) or a short browse
   # choice (mode=many). Distinct from knowledge_search, which cites passages;
   # the UI peeks cited files, so the agent must not also surface after citing.
@@ -534,6 +541,7 @@ functions:
       - ris_catalog_lookup_tool
       - remember
       - emit_card
+      - describe_card
       - surface_documents
       - ifc_query
       - ifc_measure
@@ -566,6 +574,7 @@ functions:
       - advanced_web_search_tool
       - remember
       - emit_card
+      - describe_card
       - ifc_query
       - ifc_measure
     verbose: true
