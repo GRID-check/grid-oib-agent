@@ -128,19 +128,19 @@ export function SidebarUserMenu({
         </span>
         {!compact && (
           <span className="flex min-w-0 flex-1 flex-col">
-            {/* Org eyebrow, in the design language's label convention. It sits
-                ABOVE the name because it is the scope the name acts in — read
-                top-down it says "in Musterarchitektur, you are Anna Berger".
-                `truncate` on both lines: an org name is user data and a rail
-                is 236px, so neither line may push the other. */}
+            {/* Org eyebrow. It sits ABOVE the name because it is the scope the
+                name acts in — read top-down it says "in Musterarchitektur, you
+                are Anna Berger".
+
+                Deliberately below the design language's 10.5px eyebrow: that
+                convention is for a label sitting OVER a section, and this one
+                sits UNDER a name. An org name is long user data, so at 10.5px
+                with `tracking-wider` it spread the full 236px and truncated
+                immediately, reading as a heading competing with the person.
+                Tiny, tight and quiet is the whole job.
+
+                `truncate` on both lines: neither may push the other. */}
             {organizationName && (
-              {/* Deliberately below the doc's 10.5px eyebrow: this one sits
-                  UNDER a name rather than over a section, and an org name is
-                  long user data, so at 10.5px with `tracking-wider` it spread
-                  the full 236px and truncated immediately — reading as a
-                  heading competing with the person. Tiny, tight and quiet is
-                  the whole job: it answers "which org" for someone who already
-                  knows, and is skippable for everyone else. */}
               <span className="text-muted-foreground/70 truncate text-[9.5px] font-medium tracking-wide uppercase">
                 {organizationName}
               </span>
