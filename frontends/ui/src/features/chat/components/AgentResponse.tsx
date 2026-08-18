@@ -38,6 +38,43 @@ import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 
+/**
+ * The first paragraph of a long answer, typeset as a lede.
+ *
+ * The agent is asked to lead with the ruling or the number (see `<answer_shape>`
+ * in the researcher prompt) — but a conclusion set at exactly the weight of the
+ * reasoning beneath it is a conclusion the reader still has to go looking for.
+ * One notch of size and air is enough to make the answer legible before the
+ * audit trail is read, without turning the reply into a document with a title.
+ *
+ * Applied only when it earns its keep: a short reply IS its own lede, and
+ * enlarging its single paragraph would just look like a font bug.
+ */
+const LEDE_CLASS =
+  '[&>.markdown-content>p:first-child]:text-[1.0625rem] ' +
+  '[&>.markdown-content>p:first-child]:leading-[1.65] ' +
+  '[&>.markdown-content>p:first-child]:mb-4'
+
+/** Below this, the answer is short enough to read whole — no lede. */
+const LEDE_MIN_CHARS = 600
+
+/**
+ * A lede only makes sense when the answer opens with prose. An answer that
+ * opens with a heading, a list, a table, a quote, a fence or a card marker has
+ * already chosen a different way in, and enlarging whatever `p` happens to come
+ * first would land the emphasis somewhere arbitrary.
+ */
+const NON_PROSE_OPENER = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\[\[card:)/
+
+function opensWithLede(body: string, isStreaming: boolean): boolean {
+  if (isStreaming || body.length < LEDE_MIN_CHARS) return false
+  const trimmed = body.trimStart()
+  const firstLine = trimmed.split('\n', 1)[0]
+  if (!firstLine || NON_PROSE_OPENER.test(firstLine)) return false
+  // Two blocks minimum: a lede needs something to lead into.
+  return trimmed.split(/\n{2,}/).length >= 2
+}
+
 export interface AgentResponseProps {
   /** Response content from the agent */
   content: string
@@ -253,6 +290,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     entries: sourceEntries,
     numbers: citationNumbers,
   } = useMemo(() => splitAnswerBody(content), [content])
+
+  const ledeClass = opensWithLede(body, isStreaming) ? LEDE_CLASS : ''
   // The markers are linked while the body is PARSED, not before: `[2][3]` — two
   // sources behind one claim, the shape the backend is told to write — is
   // indistinguishable from reference-link syntax in raw text, and used to reach
@@ -404,7 +443,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             className={
               isStreaming
                 ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                : undefined
+                : ledeClass || undefined
             }
           >
             <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
@@ -543,7 +582,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               className={
                 isStreaming
                   ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                  : undefined
+                  : ledeClass || undefined
               }
             >
               <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />

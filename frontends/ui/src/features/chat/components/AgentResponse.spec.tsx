@@ -599,4 +599,42 @@ describe('AgentResponse', () => {
       expect(screen.queryByText('Note')).not.toBeInTheDocument()
     })
   })
+
+  describe('lede typesetting', () => {
+    const LEDE = '[&>.markdown-content>p:first-child]:text-[1.0625rem]'
+    const longAnswer = [
+      'Für GK 4 gilt REI 90 für tragende Bauteile.',
+      'A'.repeat(320),
+      'B'.repeat(320),
+    ].join('\n\n')
+
+    // MarkdownRenderer is stubbed above, so there is no `.markdown-content` to
+    // hang off — look for the wrapper carrying the lede variant instead.
+    const hasLede = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('div')).some((el) => el.className.includes(LEDE))
+
+    test('a long prose answer gets its opening paragraph set as a lede', () => {
+      const { container } = render(<AgentResponse content={longAnswer} />)
+
+      expect(hasLede(container)).toBe(true)
+    })
+
+    test('a short answer is its own lede and gets no enlargement', () => {
+      const { container } = render(<AgentResponse content="Ja, REI 90." />)
+
+      expect(hasLede(container)).toBe(false)
+    })
+
+    test('an answer that opens with a heading is left alone', () => {
+      const { container } = render(<AgentResponse content={`## Ergebnis\n\n${longAnswer}`} />)
+
+      expect(hasLede(container)).toBe(false)
+    })
+
+    test('a streaming answer gets no lede — the opening is still arriving', () => {
+      const { container } = render(<AgentResponse content={longAnswer} isStreaming />)
+
+      expect(hasLede(container)).toBe(false)
+    })
+  })
 })

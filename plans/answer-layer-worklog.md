@@ -34,6 +34,8 @@ reads this first, updates it, and re-arms.
 | 6ea82566 | preference fetched once, not per answer (CI shard-1 fix) |
 | a07fba4c | ConditionTreeCard redesigned: real tree, click-to-expand |
 | 54d546bf | `ifc_model_picker` — click a tile, viewer opens, no LLM round-trip |
+| 47ecc019 | `<answer_shape>` (inverted pyramid) on both writers + card markers taught up front (B2-prompt, B7) |
+| dfd2b576 | genre skills rewritten in English, German terms kept as terms of art (B6) |
 
 ## In flight
 - beautify cards (`key_takeaways`, `callout`, richer `summary`)
@@ -51,12 +53,12 @@ second model turn. This is the pattern every new card should follow.
 | # | item | why it is here | owner |
 |---|---|---|---|
 | B1 | **post-answer follow-up chips** — 2–4 agent-written next questions under every answer, anchored to facts the answer itself stated, prefilling the composer via the existing `setComposerPrefill` path | strongest externally-evidenced gap: ~40% of Perplexity users click related questions. Shallow path emits none today; only `suggested_follow_up_queries` exists, deep-path only (`subagent_contracts.py:165`) | — |
-| B2 | **answer lede** — first paragraph of a long answer typeset as a lede (larger, calmer), so the answer opens with a claim instead of a wall | Harvey/NN-g: the "inverted pyramid" is what makes a long legal answer skimmable; we already ask for a verdict but never typeset one | — |
+| B2 | **answer lede** (prompt half done 47ecc019; frontend typesetting open) — first paragraph of a long answer typeset as a lede (larger, calmer), so the answer opens with a claim instead of a wall | Harvey/NN-g: the "inverted pyramid" is what makes a long legal answer skimmable; we already ask for a verdict but never typeset one | — |
 | B3 | **answer actions** — save as Prüfvermerk / adopt into project brief / copy citation block, sitting with the existing export | closes the loop from *read* to *use*; DOCX export (a40ff86e) proved the appetite and the plumbing | — |
 | B4 | **`process_map` card** — generic: an ordered procedure (Einreichung, Abnahme, Bauverfahren) with a current-step marker, click a step to see what it requires | user asked for MORE cards like the Entscheidungsbaum, "nicht so extrem spezifisch". Procedure is the second-most-common shape after a fork | — |
 | B5 | **`fact_sheet` card** — generic: label/value pairs with provenance per row (from your project profile / from OIB / assumed), click a row for the source | makes the answer's *inputs* auditable, which is the thing a Ziviltechniker actually re-checks; also kills the "where did that number come from" round-trip | — |
-| B6 | **skill authoring pass** — rewrite the four genre skills against the Agent Skills guide: name/description as the only always-loaded surface, procedural body, no restated facts | user: "wie man skills macht … extremst viel verbesserungen"; the guide's own rule is that the description is the router and the body is the procedure | — |
-| B7 | **card-marker discipline in the prompt** — the answer prompt never tells the model that `[[card:N]]` exists; only the tool return does | placement only works if the model plans for it *before* it emits; a tool-return-only instruction arrives too late to shape the paragraph | — |
+| ~~B6~~ | ~~**skill authoring pass**~~ (done dfd2b576) — rewrite the four genre skills against the Agent Skills guide: name/description as the only always-loaded surface, procedural body, no restated facts | user: "wie man skills macht … extremst viel verbesserungen"; the guide's own rule is that the description is the router and the body is the procedure | — |
+| ~~B7~~ | ~~**card-marker discipline in the prompt**~~ (done 47ecc019) — the answer prompt never tells the model that `[[card:N]]` exists; only the tool return does | placement only works if the model plans for it *before* it emits; a tool-return-only instruction arrives too late to shape the paragraph | — |
 | B8 | **empty/short-answer floor** — a one-line answer with no card and no citation currently renders as a bare sentence in a large empty pane | the worst-looking answers are the shortest ones, and they are common (yes/no questions) | — |
 
 ## Research grounding
