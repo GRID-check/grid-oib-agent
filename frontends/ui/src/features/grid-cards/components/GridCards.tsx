@@ -11,6 +11,8 @@ import { VerdictHeaderCard } from './VerdictHeaderCard'
 import { ConditionTreeCard } from './ConditionTreeCard'
 import { TypedTableCard } from './TypedTableCard'
 import { NormChainCard } from './NormChainCard'
+import { KeyTakeawaysCard } from './KeyTakeawaysCard'
+import { CalloutCard } from './CalloutCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
 import { DimensionDiagramCard } from '../schematics/DimensionDiagramCard'
@@ -176,6 +178,22 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
     return (
       <FadeIn distance={6}>
         <NormChainCard title={card.title} links={card.links ?? []} />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'key_takeaways') {
+    return (
+      <FadeIn distance={6}>
+        <KeyTakeawaysCard title={card.title} items={card.items ?? []} />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'callout') {
+    return (
+      <FadeIn distance={6}>
+        <CalloutCard kind={card.kind} text={card.text} title={card.title} detail={card.detail} />
       </FadeIn>
     )
   }

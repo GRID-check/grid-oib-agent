@@ -1,0 +1,93 @@
+/**
+ * Render tests for the two GENERIC polish cards — key takeaways and the
+ * callout. Focus: the block renders every takeaway; a takeaway's detail is
+ * absent while collapsed and present after a click (the whole point of the
+ * card is that the qualification survives without costing the block its
+ * scannability); a takeaway with nothing behind it offers no expander; and the
+ * callout names its kind in words, never by tint alone.
+ */
+
+import { describe, expect, it } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { KeyTakeawaysCard } from './KeyTakeawaysCard'
+import { CalloutCard } from './CalloutCard'
+
+describe('KeyTakeawaysCard', () => {
+  const items = [
+    {
+      text: 'Fluchtniveau 9,80 m → Gebäudeklasse 4',
+      detail: 'Maßgeblich ist das oberste Fluchtniveau; die Grenze zu GK 5 liegt bei 11 m.',
+    },
+    { text: 'Tragende Bauteile mindestens REI 60' },
+  ]
+
+  it('renders the title and every takeaway', () => {
+    render(<KeyTakeawaysCard title="Gebäudeklasse 4 – das Wichtigste" items={items} />)
+
+    expect(screen.getByText('Das Wichtigste')).toBeInTheDocument()
+    expect(screen.getByText('Gebäudeklasse 4 – das Wichtigste')).toBeInTheDocument()
+    expect(screen.getByText('Fluchtniveau 9,80 m → Gebäudeklasse 4')).toBeInTheDocument()
+    expect(screen.getByText('Tragende Bauteile mindestens REI 60')).toBeInTheDocument()
+  })
+
+  it('expands a takeaway on click to reveal its detail (hidden while collapsed)', async () => {
+    const user = userEvent.setup()
+    render(<KeyTakeawaysCard title={null} items={items} />)
+
+    expect(screen.queryByText(/Die Grenze zu GK 5|Grenze zu GK 5/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Fluchtniveau/ }))
+
+    expect(screen.getByText(/Grenze zu GK 5 liegt bei 11 m/)).toBeInTheDocument()
+  })
+
+  it('gives a takeaway with no detail no expander to click', () => {
+    render(<KeyTakeawaysCard title={null} items={items} />)
+
+    // Exactly one row is a button — an expander that opens onto nothing would
+    // teach the reader the chevrons are decorative.
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+})
+
+describe('CalloutCard', () => {
+  it('names its kind in words beside the remark', () => {
+    render(
+      <CalloutCard
+        kind="frist"
+        title="Nur in Wien"
+        text="Die Bauverhandlung ist binnen sechs Wochen anzuberaumen."
+        detail={null}
+      />,
+    )
+
+    expect(screen.getByText('Frist')).toBeInTheDocument()
+    expect(screen.getByText('Nur in Wien')).toBeInTheDocument()
+    expect(screen.getByText(/binnen sechs Wochen/)).toBeInTheDocument()
+  })
+
+  it('renders no disclosure at all when there is no background to show', () => {
+    render(<CalloutCard kind="tipp" text="Ein Schnitt durch das Treppenhaus erspart Rückfragen." />)
+
+    expect(screen.getByText('Tipp')).toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('expands the background on click (absent while collapsed)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalloutCard
+        kind="achtung"
+        text="Die Wiener Bauordnung weicht bei der Berechnung des Fluchtniveaus ab."
+        detail="Für Zubauten im Bestand ist zusätzlich § 60 zu beachten."
+      />,
+    )
+
+    expect(screen.queryByText(/§ 60/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Mehr dazu/ }))
+
+    expect(screen.getByText(/§ 60/)).toBeInTheDocument()
+  })
+})

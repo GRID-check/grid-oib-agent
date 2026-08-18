@@ -324,6 +324,35 @@ CARD_EXAMPLES: dict[str, dict] = {
         "recommendation": "Mit Fluchtniveau 9,8 m bleibt das Projekt in GK 4.",
         "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
     },
+    # The `detail` is the field this example exists for: without one to copy,
+    # the model writes the qualification into `text` and the block stops being
+    # scannable, which is the only thing this card is for. Note the third
+    # takeaway carries none — a takeaway that needs no footnote should not get
+    # an expander that opens onto a restatement.
+    "key_takeaways": {
+        "type": "key_takeaways",
+        "title": "Gebäudeklasse 4 – was daraus folgt",
+        "items": [
+            {
+                "text": "Fluchtniveau 9,80 m → Gebäudeklasse 4",
+                "detail": "Maßgeblich ist das oberste Fluchtniveau; die Grenze zu GK 5 liegt bei 11 m.",
+            },
+            {
+                "text": "Tragende Bauteile mindestens REI 60",
+                "detail": "In Kellergeschossen gilt REI 90, unabhängig von der Gebäudeklasse.",
+            },
+            {"text": "Barrierefreier Aufzug ab drei oberirdischen Geschossen"},
+        ],
+    },
+    # Shows the shape at its smallest useful size — a kind, one sentence, and
+    # the background folded behind it. A title is deliberately absent: the
+    # example the model copies should not suggest that every callout needs one.
+    "callout": {
+        "type": "callout",
+        "kind": "frist",
+        "text": "Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen.",
+        "detail": "Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.",
+    },
 }
 
 

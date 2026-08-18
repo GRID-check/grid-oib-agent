@@ -9,6 +9,8 @@
 import { notFound } from 'next/navigation'
 
 import { SummaryCard } from '@/features/grid-cards/components/SummaryCard'
+import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
+import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
 import { RequirementChecklistCard } from '@/features/grid-cards/components/RequirementChecklistCard'
 import { ComparisonTableCard } from '@/features/grid-cards/components/ComparisonTableCard'
@@ -61,6 +63,54 @@ export default function CardsGalleryPage() {
             'Treppenhaus als gesicherter Fluchtbereich erforderlich',
             'Barrierefreier Aufzug ab 3 oberirdischen Geschossen',
           ]}
+        />
+      </Section>
+
+      <Section id="key_takeaways">
+        <KeyTakeawaysCard
+          title="Gebäudeklasse 4 – was daraus folgt"
+          items={[
+            {
+              text: 'Fluchtniveau 9,80 m → Gebäudeklasse 4',
+              detail:
+                'Maßgeblich ist das oberste Fluchtniveau über dem angrenzenden Gelände; die Grenze zu GK 5 liegt bei 11 m.',
+            },
+            {
+              text: 'Tragende Bauteile mindestens REI 60',
+              detail: 'In Kellergeschossen gilt REI 90, unabhängig von der Gebäudeklasse.',
+            },
+            {
+              text: 'Treppenhaus als gesicherter Fluchtbereich erforderlich',
+              detail:
+                'Rauchdichte Abtrennung in jedem Geschoss; die Ausführung ist mit der Brandschutzplanung abzustimmen.',
+            },
+            { text: 'Barrierefreier Aufzug ab drei oberirdischen Geschossen' },
+          ]}
+        />
+      </Section>
+
+      {/* All four kinds side by side: the word carries the signal, the tone
+          only reinforces it — which is exactly what has to be reviewable in
+          both themes at once. */}
+      <Section id="callout">
+        <CalloutCard
+          kind="hinweis"
+          text="Für Zu- und Umbauten im Bestand gelten die Anforderungen nur im Umfang des Eingriffs."
+          detail="Wird die Gebäudeklasse durch den Zubau angehoben, ist das gesamte Gebäude neu zu beurteilen."
+        />
+        <CalloutCard
+          kind="achtung"
+          title="Gilt nur in Wien"
+          text="Die Wiener Bauordnung weicht bei der Berechnung des Fluchtniveaus von den übrigen Ländern ab."
+        />
+        <CalloutCard
+          kind="frist"
+          text="Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen."
+          detail="Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat."
+        />
+        <CalloutCard
+          kind="tipp"
+          text="Ein Schnitt durch das Treppenhaus mit eingetragenem Fluchtniveau erspart in der Regel eine Rückfrage der Behörde."
         />
       </Section>
 

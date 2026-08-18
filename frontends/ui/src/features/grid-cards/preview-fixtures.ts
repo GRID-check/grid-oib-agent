@@ -162,6 +162,30 @@ const RAW_FIXTURES: CardInput[] = [
     ],
   },
   {
+    // Carries a takeaway WITHOUT a detail on purpose: the gallery should show
+    // that a row only becomes an expander when there is something behind it.
+    type: 'key_takeaways',
+    title: 'Gebäudeklasse 4 – was daraus folgt',
+    items: [
+      {
+        text: 'Fluchtniveau 9,80 m → Gebäudeklasse 4',
+        detail: 'Maßgeblich ist das oberste Fluchtniveau; die Grenze zu GK 5 liegt bei 11 m.',
+      },
+      {
+        text: 'Tragende Bauteile mindestens REI 60',
+        detail: 'In Kellergeschossen gilt REI 90, unabhängig von der Gebäudeklasse.',
+      },
+      { text: 'Barrierefreier Aufzug ab drei oberirdischen Geschossen' },
+    ],
+  },
+  {
+    type: 'callout',
+    kind: 'frist',
+    title: 'Nur in Wien',
+    text: 'Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen.',
+    detail: 'Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.',
+  },
+  {
     type: 'project_profile_patch',
     title: 'Projektkontext aktualisieren: Fluchtniveau',
     rationale:

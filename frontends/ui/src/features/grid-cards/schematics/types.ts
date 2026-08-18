@@ -173,3 +173,16 @@ export interface NormChainLinkData {
   rank: NormChainRank
   note?: string | null
 }
+
+/** One key takeaway: the line the reader leaves with, plus the detail behind it. */
+export interface KeyTakeawayData {
+  text: string
+  detail?: string | null
+}
+
+/**
+ * What kind of remark a callout carries. Mirrors `CalloutCard.kind` in
+ * `src/aiq_agent/cards/models.py`. The renderer prints the German word for each
+ * beside its tone — the kind must never be carried by colour alone.
+ */
+export type CalloutKind = 'hinweis' | 'achtung' | 'frist' | 'tipp'

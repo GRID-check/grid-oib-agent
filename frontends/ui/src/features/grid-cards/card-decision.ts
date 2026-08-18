@@ -67,6 +67,11 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   condition_tree: 'presentational',
   typed_table: 'presentational',
   norm_chain: 'presentational',
+  // The two generic polish cards: expanding a takeaway or a callout's
+  // background is view state for one reader, not a decision — nothing is
+  // written and nothing would be annoying to redo.
+  key_takeaways: 'presentational',
+  callout: 'presentational',
   document_grid: 'presentational',
   building_section: 'presentational',
   stair_diagram: 'presentational',

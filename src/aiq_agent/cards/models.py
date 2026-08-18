@@ -815,6 +815,89 @@ class NormChainCard(BaseModel):
     links: list[NormChainLink] = Field(min_length=1, description="The chain top-to-bottom, most binding first")
 
 
+# ── Generic answer-polish cards ──────────────────────────────────────────────
+# The two types that carry no domain at all: they fit ANY answer, which is what
+# the fifteen schematics and the four answer-shape cards cannot do. A question
+# that draws no stair and forks on no Gebäudeklasse still has two or three
+# points the reader has to leave with, and usually one sentence that changes
+# what they do next — and both of those are currently prose the reader has to
+# find for themselves.
+
+
+class KeyTakeaway(BaseModel):
+    """One takeaway: the line the reader leaves with, plus the detail behind it."""
+
+    text: str = Field(
+        min_length=1,
+        description="The takeaway as ONE scannable line, e.g. 'Fluchtniveau 9,80 m → Gebäudeklasse 4'",
+    )
+    detail: str | None = Field(
+        default=None,
+        description=(
+            "One or two sentences revealed when the reader expands this takeaway — the derivation, "
+            "the caveat or the exception behind it. Never a restatement of `text`; omit if there is nothing to add"
+        ),
+    )
+
+
+class KeyTakeawaysCard(BaseModel):
+    """Emit for the two to five points the reader must take away from any answer.
+
+    The generic upgrade over a markdown bullet list, and the one card that fits
+    an answer with no diagram and no fork in it. Each takeaway is its own
+    numbered line, so a reader who skims the card leaves with the same answer as
+    one who reads the prose. A `detail` rides folded behind its takeaway and
+    opens on click — the qualification survives without costing the block its
+    scannability.
+    """
+
+    type: Literal["key_takeaways"]
+    title: str | None = Field(
+        default=None,
+        description="Optional headline, e.g. 'Gebäudeklasse 4 – das Wichtigste'; omit to let the takeaways stand alone",
+    )
+    items: list[KeyTakeaway] = Field(
+        min_length=2,
+        max_length=5,
+        description="The takeaways, most important first. Two to five — one is a sentence, six is the answer again",
+    )
+
+
+class CalloutCard(BaseModel):
+    """Emit for the single caveat, deadline or tip that must not drown in a paragraph.
+
+    One framed remark, deliberately small and domain-free. `kind` sets the tone
+    AND is printed as a word ('Hinweis', 'Achtung', 'Frist', 'Tipp'), so the
+    signal survives for a reader who cannot separate the colours. Use at most
+    one per answer: inside a paragraph the sentence that changes what the reader
+    DOES reads at the same weight as the sentence beside it, and a second
+    callout puts both back at that weight.
+    """
+
+    type: Literal["callout"]
+    kind: Literal["hinweis", "achtung", "frist", "tipp"] = Field(
+        description=(
+            "What kind of remark this is: 'hinweis' (something easily missed), 'achtung' (a risk or a "
+            "requirement that is easy to get wrong), 'frist' (a deadline or a period that runs), "
+            "'tipp' (a recommendation that is not required)"
+        )
+    )
+    text: str = Field(
+        min_length=1,
+        description="The remark itself, one or two sentences — the part that changes what the reader does",
+    )
+    title: str | None = Field(
+        default=None, description="Optional short headline, e.g. 'Gilt nur in Wien'; omit when `text` says it already"
+    )
+    detail: str | None = Field(
+        default=None,
+        description=(
+            "Optional background revealed when the reader expands the callout — the exception, the "
+            "source or the consequence. Omit rather than padding the remark out"
+        ),
+    )
+
+
 # ── Document-surfacing card (system-emitted) ─────────────────────────────────
 # Surfaced by the `surface_documents` tool from a REAL vector search over the
 # project + Büroarchiv corpus — never fabricated by the model (it is a system
@@ -1140,6 +1223,8 @@ GridCard = (
     | ConditionTreeCard
     | TypedTableCard
     | NormChainCard
+    | KeyTakeawaysCard
+    | CalloutCard
     | BuildingSectionCard
     | StairDiagramCard
     | DimensionDiagramCard
@@ -1169,6 +1254,7 @@ GridCard = (
 grid_card_adapter = TypeAdapter(Annotated[GridCard, Field(discriminator="type")])
 
 __all__ = [
+    "CalloutCard",
     "ChecklistItem",
     "ComparisonRow",
     "ComparisonTableCard",
@@ -1183,6 +1269,8 @@ __all__ = [
     "IfcElementCard",
     "IfcDiffCard",
     "IfcModelPickerCard",
+    "KeyTakeaway",
+    "KeyTakeawaysCard",
     "LegalBasisCard",
     "MemoryProposalCard",
     "NormChainCard",

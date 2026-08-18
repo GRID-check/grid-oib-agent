@@ -56,8 +56,19 @@ drawing they would have made. The trigger, then the card:
   the answer's single headline number or ruling, at the top -> verdict_header
   an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
   a tabular answer no purpose-built card covers -> typed_table
+  the two to five points the reader must leave with -> key_takeaways
+  one caveat, deadline or tip that changes what the reader DOES -> callout
   the user wants to SEE or OPEN the building and the project may hold several models
                                            -> ifc_model_picker
+
+key_takeaways and callout are the two GENERIC ones — they fit an answer with no dimension in it and
+no fork in it, which is most answers. Reach for key_takeaways when the answer is long enough that
+its core would otherwise have to be read back out of the prose: the card is what a bullet list is
+trying to be, and a reader who only skims it leaves with the same answer as one who reads. Reach
+for callout for the single sentence a reader must not miss — a Frist, a Land-specific deviation,
+an easily-overlooked condition. Inside a paragraph that sentence reads at exactly the weight of the
+sentence beside it, which is the one weight it must not have. One callout per answer; a second puts
+both back at that weight.
 
 The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
 emit it INSTEAD of writing the file names as a prose bullet list. It renders the project's models

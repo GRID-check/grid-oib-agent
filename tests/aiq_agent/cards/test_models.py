@@ -431,6 +431,77 @@ class TestAnswerShapeCards:
         assert "Worked examples" in detail
 
 
+class TestGenericPolishCards:
+    """The two cards that carry no domain: key_takeaways and callout.
+
+    They are the ones an ORDINARY answer can use, so the constraints under test
+    are the ones that keep them from degenerating back into prose: a takeaway
+    block that is neither a sentence nor the answer again, and a callout whose
+    kind is a closed vocabulary the renderer can name in words.
+    """
+
+    def test_key_takeaways_validates_and_keeps_the_detail_behind_each_item(self):
+        from aiq_agent.cards.models import KeyTakeawaysCard
+
+        raw = {
+            "type": "key_takeaways",
+            "title": "Gebäudeklasse 4 – das Wichtigste",
+            "items": [
+                {"text": "Fluchtniveau 9,80 m → Gebäudeklasse 4", "detail": "Die Grenze zu GK 5 liegt bei 11 m."},
+                {"text": "Tragende Bauteile mindestens REI 60"},
+            ],
+        }
+        card = grid_card_adapter.validate_python(raw)
+        assert isinstance(card, KeyTakeawaysCard)
+        assert card.items[0].detail is not None
+        # A takeaway with nothing behind it stays without one — the renderer
+        # gives it no expander, so an empty string here would be a dead click.
+        assert card.items[1].detail is None
+
+    def test_key_takeaways_rejects_one_item_and_six(self):
+        # One takeaway is a sentence and belongs in the prose; six is the answer
+        # written twice, which is the failure mode a bullet list already has.
+        one = {"type": "key_takeaways", "items": [{"text": "Gebäudeklasse 4"}]}
+        six = {"type": "key_takeaways", "items": [{"text": f"Punkt {i}"} for i in range(6)]}
+        assert validate_cards([one, six]) == []
+
+    def test_key_takeaways_needs_no_title(self):
+        raw = {"type": "key_takeaways", "items": [{"text": "Erster Punkt"}, {"text": "Zweiter Punkt"}]}
+        [card] = validate_cards([raw])
+        assert "title" not in card
+
+    def test_callout_validates_each_kind(self):
+        from aiq_agent.cards.models import CalloutCard
+
+        for kind in ("hinweis", "achtung", "frist", "tipp"):
+            card = grid_card_adapter.validate_python({"type": "callout", "kind": kind, "text": "Ein Hinweis."})
+            assert isinstance(card, CalloutCard)
+            assert card.kind == kind
+
+    def test_callout_rejects_a_kind_outside_the_vocabulary(self):
+        # The kind drives both the tone AND the word the renderer prints; a
+        # freeform one would render an unlabelled coloured box.
+        assert validate_cards([{"type": "callout", "kind": "warnung", "text": "Achtung."}]) == []
+
+    def test_callout_rejects_an_empty_remark(self):
+        # The remark IS the card — an empty one is a frame around nothing.
+        assert validate_cards([{"type": "callout", "kind": "hinweis", "text": ""}]) == []
+
+    def test_the_worked_examples_round_trip(self):
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+
+        for card_type in ("key_takeaways", "callout"):
+            card = grid_card_adapter.validate_python(CARD_EXAMPLES[card_type])
+            assert card.type == card_type
+
+    def test_render_card_details_spells_out_the_takeaway_block(self):
+        from aiq_agent.cards.catalog import render_card_details
+
+        detail = render_card_details(["key_takeaways", "callout"])
+        assert '"key_takeaways"' in detail and '"callout"' in detail
+        assert "KeyTakeaway = {" in detail
+
+
 class TestTheCatalogTellsTheModelToCopyNotGuess:
     """The rule has to be stated where the model reads the catalog.
 

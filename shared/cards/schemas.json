@@ -190,6 +190,66 @@
       "title": "BuildingSectionCard",
       "type": "object"
     },
+    "CalloutCard": {
+      "description": "Emit for the single caveat, deadline or tip that must not drown in a paragraph.\n\nOne framed remark, deliberately small and domain-free. `kind` sets the tone\nAND is printed as a word ('Hinweis', 'Achtung', 'Frist', 'Tipp'), so the\nsignal survives for a reader who cannot separate the colours. Use at most\none per answer: inside a paragraph the sentence that changes what the reader\nDOES reads at the same weight as the sentence beside it, and a second\ncallout puts both back at that weight.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional background revealed when the reader expands the callout \u2014 the exception, the source or the consequence. Omit rather than padding the remark out",
+          "title": "Detail"
+        },
+        "kind": {
+          "description": "What kind of remark this is: 'hinweis' (something easily missed), 'achtung' (a risk or a requirement that is easy to get wrong), 'frist' (a deadline or a period that runs), 'tipp' (a recommendation that is not required)",
+          "enum": [
+            "hinweis",
+            "achtung",
+            "frist",
+            "tipp"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "description": "The remark itself, one or two sentences \u2014 the part that changes what the reader does",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional short headline, e.g. 'Gilt nur in Wien'; omit when `text` says it already",
+          "title": "Title"
+        },
+        "type": {
+          "const": "callout",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "kind",
+        "text"
+      ],
+      "title": "CalloutCard",
+      "type": "object"
+    },
     "ChecklistItem": {
       "description": "One requirement in a checklist, with its verdict and grounding.",
       "properties": {
@@ -2074,6 +2134,74 @@
       "title": "IfcViewerCard",
       "type": "object"
     },
+    "KeyTakeaway": {
+      "description": "One takeaway: the line the reader leaves with, plus the detail behind it.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One or two sentences revealed when the reader expands this takeaway \u2014 the derivation, the caveat or the exception behind it. Never a restatement of `text`; omit if there is nothing to add",
+          "title": "Detail"
+        },
+        "text": {
+          "description": "The takeaway as ONE scannable line, e.g. 'Fluchtniveau 9,80 m \u2192 Geb\u00e4udeklasse 4'",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "KeyTakeaway",
+      "type": "object"
+    },
+    "KeyTakeawaysCard": {
+      "description": "Emit for the two to five points the reader must take away from any answer.\n\nThe generic upgrade over a markdown bullet list, and the one card that fits\nan answer with no diagram and no fork in it. Each takeaway is its own\nnumbered line, so a reader who skims the card leaves with the same answer as\none who reads the prose. A `detail` rides folded behind its takeaway and\nopens on click \u2014 the qualification survives without costing the block its\nscannability.",
+      "properties": {
+        "items": {
+          "description": "The takeaways, most important first. Two to five \u2014 one is a sentence, six is the answer again",
+          "items": {
+            "$ref": "#/$defs/KeyTakeaway"
+          },
+          "maxItems": 5,
+          "minItems": 2,
+          "title": "Items",
+          "type": "array"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional headline, e.g. 'Geb\u00e4udeklasse 4 \u2013 das Wichtigste'; omit to let the takeaways stand alone",
+          "title": "Title"
+        },
+        "type": {
+          "const": "key_takeaways",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "items"
+      ],
+      "title": "KeyTakeawaysCard",
+      "type": "object"
+    },
     "LegalBasisCard": {
       "description": "A legal norm, regulation, or OIB Richtlinie that grounds the answer.",
       "properties": {
@@ -3182,6 +3310,7 @@
     "mapping": {
       "acoustic_check": "#/$defs/AcousticCheckCard",
       "building_section": "#/$defs/BuildingSectionCard",
+      "callout": "#/$defs/CalloutCard",
       "comparison_table": "#/$defs/ComparisonTableCard",
       "condition_tree": "#/$defs/ConditionTreeCard",
       "daylight_incidence": "#/$defs/DaylightIncidenceCard",
@@ -3200,6 +3329,7 @@
       "ifc_model_picker": "#/$defs/IfcModelPickerCard",
       "ifc_schedule": "#/$defs/IfcScheduleCard",
       "ifc_viewer": "#/$defs/IfcViewerCard",
+      "key_takeaways": "#/$defs/KeyTakeawaysCard",
       "legal_basis": "#/$defs/LegalBasisCard",
       "memory_proposal": "#/$defs/MemoryProposalCard",
       "norm_chain": "#/$defs/NormChainCard",
@@ -3242,6 +3372,12 @@
     },
     {
       "$ref": "#/$defs/NormChainCard"
+    },
+    {
+      "$ref": "#/$defs/KeyTakeawaysCard"
+    },
+    {
+      "$ref": "#/$defs/CalloutCard"
     },
     {
       "$ref": "#/$defs/BuildingSectionCard"
