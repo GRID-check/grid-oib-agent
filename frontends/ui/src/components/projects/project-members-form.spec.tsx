@@ -99,7 +99,7 @@ describe('ProjectMembersForm', () => {
       within(listbox).getByText(/Can view project content, files, and conversations/i),
     ).toBeDefined()
     expect(
-      within(listbox).getByText(/Can also edit documents, run workflows/i),
+      within(listbox).getByText(/Can also edit documents, start research/i),
     ).toBeDefined()
     expect(
       within(listbox).getByText(/Can also manage project settings, members, and roles/i),
@@ -113,7 +113,7 @@ describe('ProjectMembersForm', () => {
       within(listbox).getByText(/Can view project content, files, and conversations/i),
     ).toBeDefined()
     expect(
-      within(listbox).getByText(/Can also edit documents, run workflows/i),
+      within(listbox).getByText(/Can also edit documents, start research/i),
     ).toBeDefined()
     expect(
       within(listbox).getByText(/Can also manage project settings, members, and roles/i),

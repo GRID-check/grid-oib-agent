@@ -229,7 +229,7 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     // Transparent banner naming the mode + result count for the query.
     const banner = await screen.findByTestId('semantic-banner')
-    expect(banner).toHaveTextContent(/semantic search: 1 results for/i)
+    expect(banner).toHaveTextContent(/semantic search: 1 result for/i)
     expect(banner).toHaveTextContent(/fire escape/)
 
     // The match evidence: snippet + page + relevance percent.

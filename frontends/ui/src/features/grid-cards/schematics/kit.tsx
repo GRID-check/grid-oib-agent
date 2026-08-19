@@ -9,8 +9,14 @@
  *   `SvgLabel` use thin precise lines and a text halo in the card colour.
  * - Status colours are semantic feedback tokens (success / danger / warning),
  *   never the brand accent: pass=green, fail=red, warning=amber,
- *   needs_input=muted + dashed. Unknown values are ALWAYS shown as
- *   "fehlende Angabe" — never a guessed number.
+ *   needs_input=muted + dashed. Unknown values are ALWAYS shown as the
+ *   `cards.kit.missingValue` phrase — never a guessed number.
+ * - Every reader-facing word comes from the dictionary. The pure helpers below
+ *   (`statusLabel`, `missingLabel`, `fmtDim`, `provenanceLabel`) therefore take
+ *   a {@link Translator} as their last argument rather than closing over German
+ *   literals: they are shared by fifteen cards and cannot call a hook
+ *   themselves, and the components that render them all have one to hand. Same
+ *   shape as `applicable-standards.tsx`'s `statusLabel(status, t)`.
  * - Every card ends in a `NormRefFooter` echoing LegalBasisCard's visual
  *   language, so each drawn limit stays verifiable.
  */
@@ -29,7 +35,8 @@ import {
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useTranslations } from '@/i18n'
+import { useTranslations, type Translator } from '@/i18n'
+import { AskAboutChip } from '../components/AskAboutChip'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
 import { useCorpusFiles } from '@/features/knowledge/lib/use-corpus-files'
@@ -52,17 +59,17 @@ export const statusColor = (status: DimStatus): string => {
   }
 }
 
-/** German verdict label for a status. */
-export const statusLabel = (status: DimStatus): string => {
+/** Verdict label for a status. `t` is a `chat`-scoped translator. */
+export const statusLabel = (status: DimStatus, t: Translator): string => {
   switch (status) {
     case 'pass':
-      return 'erfüllt'
+      return t('cards.kit.status.pass')
     case 'fail':
-      return 'nicht erfüllt'
+      return t('cards.kit.status.fail')
     case 'warning':
-      return 'grenzwertig'
+      return t('cards.kit.status.warning')
     case 'needs_input':
-      return 'Angabe fehlt'
+      return t('cards.kit.status.needsInput')
   }
 }
 
@@ -90,40 +97,52 @@ export const worstStatus = (statuses: DimStatus[]): DimStatus | null => {
 
 /* ── formatting ───────────────────────────────────────────────────────────── */
 
-export const MISSING_LABEL = 'fehlende Angabe'
+/** What stands where a number is not known. Never blank, never a guess. */
+export const missingLabel = (t: Translator): string => t('cards.kit.missingValue')
 
 const numberFormat = new Intl.NumberFormat('de-AT', { maximumFractionDigits: 2 })
 
 /** Austrian-locale number: 9.8 → "9,8". */
 export const fmtNum = (value: number): string => numberFormat.format(value)
 
-/** "9,8 m" / "120 cm" / "6 %" — or `MISSING_LABEL` when the value is null. */
-export const fmtDim = (value: number | null | undefined, unit: string): string =>
-  value == null ? MISSING_LABEL : `${fmtNum(value)} ${unit}`
+/** "9,8 m" / "120 cm" / "6 %" — or {@link missingLabel} when the value is null. */
+export const fmtDim = (value: number | null | undefined, unit: string, t: Translator): string =>
+  value == null ? missingLabel(t) : `${fmtNum(value)} ${unit}`
 
 /** '<=' → '≤', '>=' → '≥'. */
 export const fmtComparator = (comparator: '<=' | '>=' | null | undefined): string =>
   comparator === '<=' ? '≤' : comparator === '>=' ? '≥' : ''
 
 /**
- * The German for each provenance — the same three verbs the answer text uses.
+ * The word for each provenance — the same three the answer text uses.
  *
- * Written out rather than composed, because the difference between „laut
- * Modell" and „gemessen" is the difference between reporting the architect's
- * own statement and reporting ours, and a reader has to be able to tell which
- * one they are holding before they sign it.
+ * Written out one case at a time rather than composed from the value, because
+ * the difference between „laut Modell" and „gemessen" is the difference between
+ * reporting the architect's own statement and reporting ours, and a reader has
+ * to be able to tell which one they are holding before they sign it. Spelling
+ * each key out also keeps `key-coverage.spec.ts` able to see them.
  */
-export const PROVENANCE_LABEL: Record<Provenance, string> = {
-  declared: 'laut Modell',
-  computed: 'gemessen',
-  inferred: 'vermutlich',
+export const provenanceLabel = (provenance: Provenance, t: Translator): string => {
+  switch (provenance) {
+    case 'declared':
+      return t('cards.kit.provenance.declared')
+    case 'computed':
+      return t('cards.kit.provenance.computed')
+    case 'inferred':
+      return t('cards.kit.provenance.inferred')
+  }
 }
 
 /** Long form for the tooltip, where there is room to say what the word means. */
-export const PROVENANCE_TITLE: Record<Provenance, string> = {
-  declared: 'Diese Zahl steht so in der IFC-Datei — eine Angabe der Architektin.',
-  computed: 'Aus der Geometrie gemessen, nicht deklariert. Die Toleranz gehört zur Aussage.',
-  inferred: 'Aus einer Heuristik abgeleitet. Ein Vorschlag zur Bestätigung, kein Befund.',
+export const provenanceTitle = (provenance: Provenance, t: Translator): string => {
+  switch (provenance) {
+    case 'declared':
+      return t('cards.kit.provenanceTitle.declared')
+    case 'computed':
+      return t('cards.kit.provenanceTitle.computed')
+    case 'inferred':
+      return t('cards.kit.provenanceTitle.inferred')
+  }
 }
 
 /**
@@ -231,7 +250,7 @@ interface DimensionArrowProps {
   y1: number
   x2: number
   y2: number
-  /** Pre-formatted label ("120 cm" or MISSING_LABEL). */
+  /** Pre-formatted label ("120 cm" or the missing-value phrase). */
   label: string
   status?: DimStatus | null
   /** Explicit colour override (neutral dimensions without a check). */
@@ -240,7 +259,7 @@ interface DimensionArrowProps {
   labelOffset?: number
   fontSize?: number
   dashed?: boolean
-  /** Keep the label horizontal even on a vertical dimension (e.g. long "fehlende Angabe"). */
+  /** Keep the label horizontal even on a vertical dimension (e.g. the long missing-value phrase). */
   horizontalLabel?: boolean
 }
 
@@ -331,37 +350,53 @@ export const DimensionArrow: FC<DimensionArrowProps> = ({
 
 /* ── canvas wrapper ───────────────────────────────────────────────────────── */
 
+/**
+ * Largest allowed blow-up of a drawing: rendered pixels per viewBox unit.
+ *
+ * Every template is authored in units that behave like pixels — an 8-unit
+ * eyebrow, a 9.5-unit dimension label, a 1.1-unit dimension line — so a
+ * drawing is in proportion when one unit renders at roughly one pixel. The
+ * templates that read correctly in the wide column already sit just above
+ * that (building section 1.24, stair 1.19, ramp 1.35, guardrail 1.36); the
+ * ones that read as a wall of picture were being stretched two and three
+ * times over (door 2.97, turning circle 2.26) purely because they are narrow
+ * drawings inside a wide card, and `width: 100%` asked them to fill it. The
+ * cap is set just above the widest scale any drawing that looked right was
+ * already using, so those are untouched and the rest stop growing past the
+ * proportion they were drawn at.
+ */
+const MAX_CANVAS_SCALE = 1.4
+
 interface SchematicCanvasProps {
   viewW: number
   viewH: number
-  /** Below this width the canvas scrolls horizontally instead of shrinking. */
-  minWidth?: number
   label: string
   children: ReactNode
 }
 
 /**
- * Responsive SVG stage: scales down with the chat column, and past `minWidth`
- * scrolls horizontally inside the card so the column never scrolls sideways.
+ * Responsive SVG stage.
+ *
+ * The drawing always fits the card: it scales down with the column and is
+ * never given a pixel floor that would push it past the card edge, because a
+ * schematic that overflows is not scrolled to on a phone — it is read as if
+ * the missing part were not there, and the part that goes missing is the
+ * right-hand gutter where a dimension arrow and its number live. Scaling up
+ * is capped at `MAX_CANVAS_SCALE` so a narrow drawing in a wide column keeps
+ * its authored proportion instead of becoming the tallest thing on screen.
+ * The scale is uniform in both axes, so no ratio the drawing asserts changes.
  */
-export const SchematicCanvas: FC<SchematicCanvasProps> = ({
-  viewW,
-  viewH,
-  minWidth,
-  label,
-  children,
-}) => (
-  <div className="w-full overflow-x-auto">
-    <svg
-      viewBox={`0 0 ${viewW} ${viewH}`}
-      role="img"
-      aria-label={label}
-      className="block h-auto w-full"
-      style={{ minWidth: minWidth ?? Math.min(viewW, 360) }}
-    >
-      {children}
-    </svg>
-  </div>
+export const SchematicCanvas: FC<SchematicCanvasProps> = ({ viewW, viewH, label, children }) => (
+  <svg
+    viewBox={`0 0 ${viewW} ${viewH}`}
+    preserveAspectRatio="xMidYMid meet"
+    role="img"
+    aria-label={label}
+    className="block h-auto w-full"
+    style={{ maxWidth: Math.round(viewW * MAX_CANVAS_SCALE) }}
+  >
+    {children}
+  </svg>
 )
 
 /* ── value-vs-limit bar ───────────────────────────────────────────────────── */
@@ -377,6 +412,7 @@ interface LimitBarProps {
  * render an empty track with "fehlende Angabe".
  */
 export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
+  const t = useTranslations('chat')
   const { label, value, required, comparator, status } = check
   const unit = check.unit ?? 'cm'
   const max = Math.max(value ?? 0, required ?? 0) * 1.08 || 1
@@ -428,23 +464,23 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
         <span className="text-muted-foreground">{label}</span>
         <span className="font-mono text-foreground">
           {value == null ? (
-            <span className="font-sans italic text-muted-foreground">{MISSING_LABEL}</span>
+            <span className="font-sans italic text-muted-foreground">{missingLabel(t)}</span>
           ) : (
-            fmtDim(value, unit)
+            fmtDim(value, unit, t)
           )}
           {band && <span className="ml-1 text-[0.9em] text-muted-foreground">{band}</span>}
           {check.provenance && (
             <span
               className="ml-1.5 rounded bg-muted px-1 py-px font-sans text-[0.85em] text-muted-foreground"
-              title={PROVENANCE_TITLE[check.provenance]}
+              title={provenanceTitle(check.provenance, t)}
             >
-              {PROVENANCE_LABEL[check.provenance]}
+              {provenanceLabel(check.provenance, t)}
             </span>
           )}
           {required != null && (
             <span className="text-muted-foreground">
               {' '}
-              {fmtComparator(comparator)} {fmtDim(required, unit)}
+              {fmtComparator(comparator)} {fmtDim(required, unit, t)}
             </span>
           )}
         </span>
@@ -473,8 +509,7 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
       </div>
       {straddlesLimit && (
         <p className="text-[0.92em] leading-snug text-muted-foreground">
-          Die Messtoleranz reicht über den Grenzwert: bei dieser Genauigkeit ist nicht entschieden, ob der Wert
-          eingehalten ist. Für einen Nachweis genauer aufmessen.
+          {t('cards.kit.toleranceStraddlesLimit')}
         </p>
       )}
       {status === 'needs_input' && check.missing && (
@@ -500,11 +535,14 @@ interface DimChecksListProps {
  * 2,50 m minimum, and a reader who has to look elsewhere for it will not.
  *
  * A `needs_input` row prints the CAD remedy underneath instead of leaving an
- * empty slot. „fehlende Angabe" on its own reads as a fact about the building;
+ * empty slot. The missing-value phrase on its own reads as a fact about the building;
  * „Fenster ohne IfcOpeningElement — im CAD als Öffnung modellieren" reads as
- * what it is, a finding about the export, with the fix attached.
+ * what it is, a finding about the export, with the fix attached — and, since
+ * the row holds every word the question needs, an {@link AskAboutChip} that
+ * puts that question in the composer instead of making the reader type it.
  */
 export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => {
+  const t = useTranslations('chat')
   if (checks.length === 0) return null
   return (
     <ul className={cn('flex flex-col gap-1.5', className)}>
@@ -518,33 +556,48 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
               <Icon
                 className="size-3.5 shrink-0"
                 style={{ color: statusColor(check.status) }}
-                aria-label={statusLabel(check.status)}
+                aria-label={statusLabel(check.status, t)}
               />
               <span className="min-w-0 flex-1 truncate text-muted-foreground">{check.label}</span>
               {check.value == null ? (
-                <span className="italic text-muted-foreground">{MISSING_LABEL}</span>
+                <span className="italic text-muted-foreground">{missingLabel(t)}</span>
               ) : (
                 <span className="font-mono text-foreground">
-                  {fmtDim(check.value, unit)}
+                  {fmtDim(check.value, unit, t)}
                   {band && <span className="ml-1 text-[0.9em] text-muted-foreground">{band}</span>}
                 </span>
               )}
               {check.provenance && (
                 <span
                   className="shrink-0 rounded bg-muted px-1 py-px text-[0.85em] text-muted-foreground"
-                  title={PROVENANCE_TITLE[check.provenance]}
+                  title={provenanceTitle(check.provenance, t)}
                 >
-                  {PROVENANCE_LABEL[check.provenance]}
+                  {provenanceLabel(check.provenance, t)}
                 </span>
               )}
               {check.required != null && (
                 <span className="font-mono text-muted-foreground">
-                  {fmtComparator(check.comparator)} {fmtDim(check.required, unit)}
+                  {fmtComparator(check.comparator)} {fmtDim(check.required, unit, t)}
                 </span>
               )}
             </div>
             {check.status === 'needs_input' && check.missing && (
               <p className="pl-5.5 text-[0.92em] leading-snug text-muted-foreground">{check.missing}</p>
+            )}
+            {/* The remedy is stated; the question about it is one click away.
+                Everything the sentence needs is already in this row, so the
+                chip builds it and puts it in the composer — no turn is fired
+                and nothing is fetched. */}
+            {check.status === 'needs_input' && (
+              // `self-start`, because the row is a COLUMN flex container and a
+              // flex item stretches across it: without it the chip grew into a
+              // full-width bar with its label alone at the left, while the same
+              // chip on a checklist row stayed a pill.
+              <AskAboutChip
+                className="ml-5.5 mt-0.5 self-start"
+                subject={check.label}
+                missing={check.missing}
+              />
             )}
           </li>
         )
@@ -563,7 +616,10 @@ interface NormRefFooterProps {
  * When the referenced document resolves to a base-corpus PDF, the citation
  * opens the actual source in the in-app viewer. */
 export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
-  const t = useTranslations('knowledge')
+  // Named for its namespace: every other translator in this file is scoped to
+  // `chat`, and two `t`s in one file bound to different namespaces are
+  // indistinguishable to `key-coverage.spec.ts`.
+  const tKnowledge = useTranslations('knowledge')
   const corpusFiles = useCorpusFiles()
   const [viewerOpen, setViewerOpen] = useState(false)
   if (!reference?.document) return null
@@ -586,7 +642,7 @@ export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
             className="inline-flex items-center gap-1 font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <FileText className="size-3.5" aria-hidden="true" />
-            {t('viewer.view')}
+            {tKnowledge('viewer.view')}
           </button>
         )}
       </div>
@@ -610,6 +666,7 @@ interface StatusBadgeProps {
 
 /** Small verdict pill for the card header. */
 export const StatusBadge: FC<StatusBadgeProps> = ({ status }) => {
+  const t = useTranslations('chat')
   const Icon = STATUS_ICON[status]
   return (
     <span
@@ -619,14 +676,18 @@ export const StatusBadge: FC<StatusBadgeProps> = ({ status }) => {
       )}
     >
       <Icon className="size-3.5" aria-hidden="true" />
-      {statusLabel(status)}
+      {statusLabel(status, t)}
     </span>
   )
 }
 
 interface SchematicCardProps {
   icon: LucideIcon
-  eyebrow: string
+  /**
+   * The kind of card, in small caps above the title. Omit it on a drawing:
+   * fifteen schematics all say the same word, so the default says it once.
+   */
+  eyebrow?: string
   title: string
   verdict?: DimStatus | null
   note?: string | null
@@ -646,22 +707,25 @@ export const SchematicCard: FC<SchematicCardProps> = ({
   note,
   reference,
   children,
-}) => (
-  <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 p-5 shadow-xs">
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-        <Icon className="size-3.5" aria-hidden="true" />
-        <span>{eyebrow}</span>
+}) => {
+  const t = useTranslations('chat')
+  return (
+    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 p-5 shadow-xs">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          <Icon className="size-3.5" aria-hidden="true" />
+          <span>{eyebrow ?? t('cards.kit.eyebrow')}</span>
+        </div>
+        {verdict && <StatusBadge status={verdict} />}
       </div>
-      {verdict && <StatusBadge status={verdict} />}
-    </div>
 
-    <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="text-sm font-semibold text-foreground">{title}</p>
 
-    {children}
+      {children}
 
-    {note && <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{note}</p>}
+      {note && <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{note}</p>}
 
-    <NormRefFooter reference={reference} />
-  </Card>
-)
+      <NormRefFooter reference={reference} />
+    </Card>
+  )
+}

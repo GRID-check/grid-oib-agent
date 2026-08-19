@@ -1,5 +1,5 @@
 /**
- * Agent Skills: the org skill toolbox, its editor, and the `/` invocation
+ * Agent Skills: the organization's skill library, its editor, and the `/` invocation
  * surface in the chat composer.
  *
  * A skill knows nothing about time. Everything about running a prompt on a
@@ -177,7 +177,7 @@ export const skills = {
     saveError: 'The skill could not be saved.',
     deleteTitle: 'Delete skill',
     deleteDescription:
-      'This removes “{name}” from the toolbox. Jobs that already use it keep their saved snapshot, so they keep running unchanged.',
+      'This removes “{name}” from the library. Jobs that already use it keep their saved snapshot, so they keep running unchanged.',
     deleteConfirm: 'Delete skill',
   },
 

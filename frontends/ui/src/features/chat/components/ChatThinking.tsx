@@ -1,7 +1,8 @@
 /**
  * ChatThinking — collapsible Herleitung panel (click-dummy overhaul).
  *
- * Collapsed: status + "Herleitung · n Zwischenschritte · m Quellen".
+ * Collapsed: status + "Herleitung · n Schritte", plus "· m Quellen" when the
+ * answer actually rests on any.
  * Expanded: the connected reasoning-chain (`ReasoningChain`) — the framing node,
  * the parallel Quellen fan-out, the assessment node, and (when a live HITL
  * choice exists) the next-steps branches, plus the technical NAT-step tail.
@@ -175,10 +176,20 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     return null
   }
 
-  const summaryLabel = t('thinking.herleitungSummary', {
-    steps: steps.length,
-    sources: sourceCount,
-  })
+  // The header line, assembled from clauses rather than from one template with
+  // two slots. The step count has to pluralise — one step read „1 Schritte" —
+  // and the source count has to be able to say NOTHING, because an answer
+  // grounded in a measurement of the model rather than in a citation has no
+  // sources, and „0 Quellen" is a true number that reads as a failure. A turn
+  // that has not reported a step yet gets the bare name for the same reason.
+  const stepsLabel =
+    steps.length > 0
+      ? t('thinking.herleitungSummary', { count: steps.length })
+      : t('thinking.herleitungSummaryNoSteps')
+  const summaryLabel =
+    sourceCount > 0
+      ? t('thinking.herleitungSummaryWithSources', { summary: stepsLabel, count: sourceCount })
+      : stepsLabel
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none">

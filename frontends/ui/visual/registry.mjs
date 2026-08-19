@@ -124,6 +124,44 @@ export const SCREENSHOT_TARGETS = [
     // Wait for the LIVE turn's reasoning graph to mount before capturing.
     waitFor: '.react-flow__node',
   },
+  // The answer layer INSIDE an answer. Every card, the lede and the provenance
+  // footer had only ever been reviewed in the card gallery — isolated, on a bare
+  // page, at full width — which cannot show a card breaking the reading rhythm,
+  // an inline card misaligned with the prose column, or a fallback block
+  // colliding with the sources row. These four capture the answer at the
+  // thread's real 680px column, in the turn it actually ships in.
+  {
+    id: 'answer-lede-card',
+    mobile: true,
+    path: '/dev/chat-turn?variant=lede-card',
+    description:
+      'A long answer over the lede threshold — first paragraph typeset as the lede — with a calculation card spliced in mid-answer by a [[card:1]] marker, so marker placement and the gap a card leaves on both sides are visible in the prose column.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
+    id: 'answer-two-cards',
+    mobile: true,
+    path: '/dev/chat-turn?variant=two-cards',
+    description:
+      'Two cards in one turn — a condition_tree placed inline by a marker and a process_map left unplaced, so it lands in the fallback block between the prose and the provenance footer. The "two cards is plenty" rule, seen rather than asserted.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
+    id: 'answer-follow-ups',
+    mobile: true,
+    path: '/dev/chat-turn?variant=follow-ups',
+    description:
+      'An inline callout mid-answer and a follow_ups card ENDING the answer, with the provenance footer directly beneath it — the chips have to still read as part of the answer rather than as footer chrome.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
+    id: 'answer-verdict-lede',
+    mobile: true,
+    path: '/dev/chat-turn?variant=verdict-lede',
+    description:
+      'The verdict_header + lede pair. Above: the card at the top of the body, where its marker suppresses the lede by design and the card IS the lede. Below: the same card after an opening paragraph, so the lede fires too and the ruling is stated twice — the misuse the piloti-cards skill rules out.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
   {
     id: 'composer',
     mobile: true,
@@ -316,9 +354,35 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'cards-gallery',
+    mobile: true,
     path: '/dev/cards',
-    description: 'Full Grid card gallery — every card type with fixture data.',
+    description:
+      'Full Grid card gallery — every card type with fixture data, pinned to German so a translated string cannot render in English beside the cards whose copy is hardcoded. Captured on a phone as well, because the schematics are drawn geometry rather than styled boxes: a drawing that outgrows the card is clipped at its edge with the dimension number on the wrong side of the cut, and only the mobile shot shows it.',
     waitFor: 'main',
+  },
+  {
+    id: 'card-reveals',
+    mobile: true,
+    path: '/dev/card-reveals',
+    description:
+      "The two cards whose value is behind a click, driven into that state before the shot. The Rechenweg with its sources open (provenance tag, ± band and where each figure is written down, plus the line saying the card computed the result rather than copying it); the same card on a derivation whose exact result would ROUND onto the other side of its limit, which is the shot that proves the printed number and the printed verdict cannot disagree; and the Verfahrensablauf with a step opened AGAINST the one the project is at — dashed chrome, the correcting sentence inside the panel, while the current row keeps its node and its \u201Ehier stehen Sie\u201C chip. None of it is visible in the gallery, which photographs both cards folded.",
+    waitFor: '[data-testid="card-reveals-preview"]',
+  },
+  {
+    id: 'condition-tree',
+    mobile: true,
+    path: '/dev/condition-tree',
+    description:
+      "The Bedingungsbaum in its three states, in the real 680px thread column: the case that applies open at rest; another case opened AGAINST it (Konjunktiv lead, dashed chrome, „Nur zum Vergleich …\" inside the panel) while the active row keeps its tinted node, its outcome and its „trifft zu\" chip; and a tree with no case marked, which opens closed rather than picking one for the reader. The middle block is driven into the switched state before the shot, because that state — not the resting one — is what stops the wrong case being screenshotted into an Einreichung.",
+    waitFor: '[data-testid="condition-tree-preview"]',
+  },
+  {
+    id: 'report-outline',
+    mobile: true,
+    path: '/dev/report-outline',
+    description:
+      'The deep-research report\'s outline, on a report long enough for it to exist: the real ReportTab against a ~1.400-word report in a box the size of the research panel. Collapsed and scrolled into the middle (the sticky row names the section in view), and open (ten entries, H3 indented, the current one marked). Both claims are properties of the report around it, so neither is reviewable from the component alone.',
+    waitFor: '[data-testid="report-outline"]',
   },
   {
     id: 'platform-skills',

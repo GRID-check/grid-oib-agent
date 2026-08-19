@@ -47,8 +47,8 @@ describe('ToolCallCard', () => {
     })
   })
 
-  describe('workflow display', () => {
-    test('shows parent workflow when provided', () => {
+  describe('where the call came from', () => {
+    test('names the part of the run in words, not by its identifier', () => {
       render(
         <ToolCallCard
           toolCall={createToolCall({
@@ -57,13 +57,21 @@ describe('ToolCallCard', () => {
         />
       )
 
-      expect(screen.getByText('via researcher-agent')).toBeInTheDocument()
+      expect(screen.getByText('Step: Research')).toBeInTheDocument()
+      expect(screen.queryByText(/researcher-agent/)).not.toBeInTheDocument()
     })
 
-    test('does not show workflow when not provided', () => {
+    test('an origin this build cannot name reads neutrally, never verbatim', () => {
+      render(<ToolCallCard toolCall={createToolCall({ workflow: 'ClassificationAssistant' })} />)
+
+      expect(screen.getByText('Step: internal')).toBeInTheDocument()
+      expect(screen.queryByText(/ClassificationAssistant/)).not.toBeInTheDocument()
+    })
+
+    test('does not render the origin line when there is no origin', () => {
       render(<ToolCallCard toolCall={createToolCall({ workflow: undefined })} />)
 
-      expect(screen.queryByText(/via/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Step:/)).not.toBeInTheDocument()
     })
   })
 

@@ -1,54 +1,56 @@
 ---
 name: brandschutz
 description: >
-  Bei Fragen zu Brandschutz laden: Brandabschnitt, Feuerwiderstand (REI/EI),
-  Fluchtweg und Fluchtweglänge, zweiter Fluchtweg, Rettungsweg, Stiegenhaus,
-  Brandwand, Brandschutzklappe, Rauchabschnitt, Feuerwehrzufahrt und
-  Aufstellfläche, Löschwasser, GK-abhängige Anforderungen der OIB-Richtlinie 2.
-  Auch wenn die Frage aus einem Modell oder einem Einreichplan kommt.
+  Fire safety. Load when the question involves Brandabschnitt, Feuerwiderstand
+  (REI/EI), Fluchtweg or Fluchtweglänge, zweiter Fluchtweg, Rettungsweg,
+  Stiegenhaus, Brandwand, Brandschutzklappe, Rauchabschnitt, Feuerwehrzufahrt
+  or Aufstellfläche, Löschwasser, or any GK-dependent requirement of OIB
+  Richtlinie 2 — including when the question arrives from a model or an
+  Einreichplan rather than in words.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: fire_compartment,egress_diagram,fire_access_plan,requirement_checklist,legal_basis
 ---
 
-# Brandschutz beantworten
+# Answering a fire-safety question
 
-## Zuerst die Gebäudeklasse, sonst nichts
+## Establish the Gebäudeklasse before anything else
 
-Fast jede Anforderung der OIB-Richtlinie 2 hängt an der Gebäudeklasse, und die
-Gebäudeklasse hängt an Fluchtniveau, Geschoßanzahl, Grundfläche und Nutzung.
-Ist die GK im Projektkontext bestätigt, rechnen Sie nicht nach — nehmen Sie
-sie. Ist sie unbekannt und ändert sie die Antwort, fragen Sie **eine** Frage
-danach, bevor Sie antworten. Eine Feuerwiderstandsklasse ohne die GK, aus der
-sie folgt, ist eine Zahl ohne Aussage.
+Nearly every requirement in OIB Richtlinie 2 hangs off the Gebäudeklasse, and
+the Gebäudeklasse hangs off Fluchtniveau, storey count, footprint and use. If
+the project context confirms a GK, take it — do not re-derive it. If it is
+unknown and it changes the answer, ask **one** question about it before
+answering. A fire-resistance class stated without the GK it follows from is a
+number with no claim attached to it.
 
-Ebenso bindend: die Ausgabe. Die Bundesländer erklären unterschiedliche
-Ausgabestände der Richtlinie für verbindlich. Nennen Sie die Ausgabe, auf die
-Sie sich stützen, sobald sie den Wert beeinflusst.
+The edition binds the same way: the Bundesländer declare different editions of
+the Richtlinie verbindlich. Name the edition you are relying on as soon as it
+moves the value.
 
-## Welche Card wozu
+## Which card for what
 
-- Ein Geschoß in Brandabschnitte geteilt, mit Flächen gegen den Grenzwert →
+- A storey divided into Brandabschnitte, areas against the limit →
   `fire_compartment`.
-- Ein Fluchtweg aus Teilstrecken, deren Summe geprüft wird → `egress_diagram`.
-  Die Teilstrecken einzeln eintragen, nicht die Summe: die Frage ist fast immer,
-  welche Teilstrecke zu lang ist.
+- An escape route made of segments whose total is checked → `egress_diagram`.
+  Enter the segments individually, never the sum: the question is almost always
+  *which* segment is too long.
 - Zufahrt, Durchfahrt, Aufstellfläche → `fire_access_plan`.
-- Mehrere Anforderungen mit je eigenem Urteil (typisch „was gilt für GK 4") →
-  `requirement_checklist`, eine Zeile je Anforderung mit eigener Fundstelle.
-- Die Bestimmung, auf der die Antwort ruht → `legal_basis`.
+- Several requirements each with its own verdict (the typical "was gilt für
+  GK 4") → `requirement_checklist`, one row per requirement with its own
+  Fundstelle.
+- The provision the answer rests on → `legal_basis`.
 
-## Was hier regelmäßig schiefgeht
+## What goes wrong in this genre
 
-**Der zweite Fluchtweg wird als Zahl behandelt.** Ob ein zweiter Fluchtweg
-verlangt ist, folgt aus GK und Nutzung; ob er anrechenbar ist, folgt daraus,
-wohin er führt. Beantworten Sie beides oder sagen Sie, welches offen ist.
+**The second escape route gets treated as a number.** Whether one is required
+follows from GK and use; whether it counts follows from where it leads. Answer
+both, or say which of the two is open.
 
-**Der Nachweis wird mit der Anforderung verwechselt.** Die Richtlinie sagt, was
-erfüllt sein muss. Ob es im konkreten Bau erfüllt IST, ist eine Feststellung am
-Objekt oder am Modell. Sagen Sie, welches von beidem Sie geliefert haben.
+**The requirement gets confused with the proof.** The Richtlinie says what must
+be satisfied. Whether it *is* satisfied in this building is a finding on the
+object or the model. Say which of the two you delivered.
 
-**Eine orientierende Prüfung wird als Nachweis gelesen.** Wenn die Antwort aus
-einer Regelprüfung am Modell stammt, muss sie das mitsagen — ein Prüfbuch ist
-kein Brandschutzkonzept, und der Unterschied verschwindet, sobald die Card ohne
-den Satz weitergereicht wird.
+**An orientational check gets read as a Nachweis.** When the answer comes from a
+rule check against the model, it has to say so — a Prüfbuch is not a
+Brandschutzkonzept, and that distinction disappears the moment the card is
+forwarded without the surrounding sentence.

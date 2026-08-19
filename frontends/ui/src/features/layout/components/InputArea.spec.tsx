@@ -582,7 +582,7 @@ describe('InputArea', () => {
     render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
 
     // In response mode, placeholder changes to indicate responding to agent
-    expect(screen.getByPlaceholderText('Type your response to the agent...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Type your response to Piloti...')).toBeInTheDocument()
   })
 
   test('calls respondToInteraction in response mode', async () => {
@@ -955,7 +955,7 @@ describe('InputArea', () => {
 
     // Input should be enabled in response mode (plan approval) despite isBusy=true
     expect(screen.getByRole('textbox')).not.toBeDisabled()
-    expect(screen.getByPlaceholderText('Type your response to the agent...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Type your response to Piloti...')).toBeInTheDocument()
     // Send button should be the normal send button, not a research-in-progress popover
     expect(screen.getByRole('button', { name: /send response/i })).toBeInTheDocument()
   })
@@ -1002,7 +1002,7 @@ describe('InputArea', () => {
 
     // Input should be enabled for HITL response despite active deep research
     expect(screen.getByRole('textbox')).not.toBeDisabled()
-    expect(screen.getByPlaceholderText('Type your response to the agent...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Type your response to Piloti...')).toBeInTheDocument()
     // Send button should be normal (not research-in-progress popover)
     const sendButton = screen.getByRole('button', { name: /send response/i })
     expect(sendButton).toBeInTheDocument()

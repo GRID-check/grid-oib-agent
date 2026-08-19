@@ -27,6 +27,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchLine, sketchRect } from './rough'
+import { useTranslations, type Translator } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'
 
 interface GuardrailCheckCardProps {
@@ -41,12 +42,19 @@ interface GuardrailCheckCardProps {
   note?: string | null
 }
 
-const CONTEXT_LABEL: Record<GuardrailCheckCardProps['context'], string> = {
-  balkon: 'Balkon',
-  loggia: 'Loggia',
-  stiege: 'Stiege',
-  fenster: 'Fenster',
-  dachterrasse: 'Dachterrasse',
+const contextLabel = (context: GuardrailCheckCardProps['context'], t: Translator): string => {
+  switch (context) {
+    case 'balkon':
+      return t('cards.schematics.guardrail.context.balkon')
+    case 'loggia':
+      return t('cards.schematics.guardrail.context.loggia')
+    case 'stiege':
+      return t('cards.schematics.guardrail.context.stiege')
+    case 'fenster':
+      return t('cards.schematics.guardrail.context.fenster')
+    case 'dachterrasse':
+      return t('cards.schematics.guardrail.context.dachterrasse')
+  }
 }
 
 /** Neutral drawing geometry when a value is unknown (labels stay "missing"). */
@@ -65,6 +73,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const railH = rail_height.value ?? FALLBACK_RAIL_CM
   const opening = Math.max(max_opening.value ?? FALLBACK_OPENING_CM, 2)
   const gap = bottom_gap ? (bottom_gap.value ?? FALLBACK_GAP_CM) : 0
@@ -106,11 +115,29 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
   const openY = Y(railH * 0.68)
 
   const checks: DimensionCheckData[] = [
-    { ...fall_height, label: fall_height.label || 'Absturzhöhe', unit: fall_height.unit ?? 'm' },
-    { ...rail_height, label: rail_height.label || 'Geländerhöhe', unit: rail_height.unit ?? 'cm' },
-    { ...max_opening, label: max_opening.label || 'max. Öffnungsweite', unit: max_opening.unit ?? 'cm' },
+    {
+      ...fall_height,
+      label: fall_height.label || t('cards.schematics.guardrail.fallHeight'),
+      unit: fall_height.unit ?? 'm',
+    },
+    {
+      ...rail_height,
+      label: rail_height.label || t('cards.schematics.guardrail.railHeight'),
+      unit: rail_height.unit ?? 'cm',
+    },
+    {
+      ...max_opening,
+      label: max_opening.label || t('cards.schematics.guardrail.maxOpening'),
+      unit: max_opening.unit ?? 'cm',
+    },
     ...(bottom_gap
-      ? [{ ...bottom_gap, label: bottom_gap.label || 'Bodenspalt', unit: bottom_gap.unit ?? 'cm' }]
+      ? [
+          {
+            ...bottom_gap,
+            label: bottom_gap.label || t('cards.schematics.guardrail.bottomGap'),
+            unit: bottom_gap.unit ?? 'cm',
+          },
+        ]
       : []),
   ]
 
@@ -121,15 +148,16 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
   return (
     <SchematicCard
       icon={Fence}
-      eyebrow="Schematic"
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={420} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         <SvgLabel x={x0} y={padTop - 8} size={8} weight={600}>
-          ANSICHT · {CONTEXT_LABEL[context].toUpperCase()}
+          {t('cards.schematics.guardrail.elevation', {
+            context: contextLabel(context, t).toUpperCase(),
+          })}
         </SvgLabel>
 
         {/* no-climb band behind the infill */}
@@ -148,7 +176,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
           fill={bandColor}
           italic
         >
-          Kletterschutz 15–60 cm
+          {t('cards.schematics.guardrail.climbGuard')}
         </SvgLabel>
 
         {/* deck slab the railing stands on */}
@@ -193,7 +221,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
           y1={deckY}
           x2={x0 - 28}
           y2={railTopY}
-          label={fmtDim(rail_height.value, rail_height.unit ?? 'cm')}
+          label={fmtDim(rail_height.value, rail_height.unit ?? 'cm', t)}
           status={rail_height.status}
           labelOffset={-13}
           fontSize={9.5}
@@ -205,7 +233,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
           y1={openY}
           x2={openX2}
           y2={openY}
-          label={fmtDim(max_opening.value, max_opening.unit ?? 'cm')}
+          label={fmtDim(max_opening.value, max_opening.unit ?? 'cm', t)}
           status={max_opening.status}
           labelOffset={-10}
           fontSize={9}
@@ -220,7 +248,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
               y1={deckY}
               x2={X(runW) + 20}
               y2={Y(gap)}
-              label={fmtDim(bottom_gap.value, bottom_gap.unit ?? 'cm')}
+              label={fmtDim(bottom_gap.value, bottom_gap.unit ?? 'cm', t)}
               status={bottom_gap.status}
               labelOffset={11}
               fontSize={9}
@@ -234,7 +262,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
           y1={deckY + deckT * k}
           x2={x0 + runW * k * 0.5}
           y2={dropBottomY - 8}
-          label={fmtDim(fall_height.value, fall_height.unit ?? 'm')}
+          label={fmtDim(fall_height.value, fall_height.unit ?? 'm', t)}
           status={fall_height.status}
           dashed
           labelOffset={-14}
@@ -249,9 +277,11 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
           { strokeWidth: 1.1, stroke: 'var(--muted-foreground)', roughness: 2.2 }
         )}
         <SvgLabel x={x0 + runW * k * 0.5 + 24} y={dropBottomY - 7} size={8} italic>
-          Absturzhöhe
+          {t('cards.schematics.guardrail.fallHeight')}
           {rail_height.required != null
-            ? ` → mind. ${fmtDim(rail_height.required, rail_height.unit ?? 'cm')}`
+            ? t('cards.schematics.guardrail.atLeast', {
+                value: fmtDim(rail_height.required, rail_height.unit ?? 'cm', t),
+              })
             : ''}
         </SvgLabel>
       </SchematicCanvas>
@@ -260,7 +290,7 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
 
       {climbables === true && (
         <p className="text-xs font-medium" style={{ color: statusColor('fail') }}>
-          Horizontale, zum Aufklettern geeignete Elemente im Kletterschutzbereich (15–60 cm).
+          {t('cards.schematics.guardrail.climbables')}
         </p>
       )}
     </SchematicCard>

@@ -16,12 +16,13 @@ import { SquareParking } from 'lucide-react'
 import {
   fmtNum,
   LimitBar,
-  MISSING_LABEL,
+  missingLabel,
   SchematicCanvas,
   SchematicCard,
   statusColor,
   worstStatus,
 } from './kit'
+import { useTranslations, type Translator } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'
 
 interface ParkingRequirementCardProps {
@@ -43,6 +44,7 @@ const SLOT_CAP = 70
  * the requirement, success-tinted = surplus beyond it.
  */
 const SlotGrid: FC<{ check: DimensionCheckData }> = ({ check }) => {
+  const t = useTranslations('chat')
   const provided = check.value ?? null
   const required = check.required ?? null
   const total = Math.min(Math.max(provided ?? 0, required ?? 0), SLOT_CAP)
@@ -50,7 +52,7 @@ const SlotGrid: FC<{ check: DimensionCheckData }> = ({ check }) => {
   if (provided == null && required == null) {
     return (
       <p className="text-xs italic text-muted-foreground">
-        {check.label}: {MISSING_LABEL}
+        {check.label}: {missingLabel(t)}
       </p>
     )
   }
@@ -90,29 +92,47 @@ const SlotGrid: FC<{ check: DimensionCheckData }> = ({ check }) => {
   }
 
   return (
-    <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={Math.min(viewW, 240)} label={check.label}>
+    <SchematicCanvas viewW={viewW} viewH={viewH} label={check.label}>
       {cells}
     </SchematicCanvas>
   )
 }
 
 /** "12 von 14 nachgewiesen — 2 fehlen" / "28 nachgewiesen (Überschuss +4)". */
-const countCaption = (check: DimensionCheckData): string | null => {
+const countCaption = (check: DimensionCheckData, t: Translator): string | null => {
   const provided = check.value ?? null
   const required = check.required ?? null
   if (provided == null || required == null) return null
-  const overflow = Math.max(provided, required) > SLOT_CAP ? ' (Ausschnitt)' : ''
+  const overflow =
+    Math.max(provided, required) > SLOT_CAP ? t('cards.schematics.parking.truncated') : ''
   if (provided < required)
-    return `${fmtNum(provided)} von ${fmtNum(required)} nachgewiesen — ${fmtNum(required - provided)} fehlen${overflow}`
+    return t('cards.schematics.parking.short', {
+      provided: fmtNum(provided),
+      required: fmtNum(required),
+      missing: required - provided,
+      overflow,
+    })
   if (provided > required)
-    return `${fmtNum(provided)} nachgewiesen — Überschuss +${fmtNum(provided - required)}${overflow}`
-  return `${fmtNum(provided)} von ${fmtNum(required)} nachgewiesen${overflow}`
+    return t('cards.schematics.parking.surplus', {
+      provided: fmtNum(provided),
+      surplus: fmtNum(provided - required),
+      overflow,
+    })
+  return t('cards.schematics.parking.exact', {
+    provided: fmtNum(provided),
+    required: fmtNum(required),
+    overflow,
+  })
 }
 
-const withDefaults = (check: DimensionCheckData, fallbackLabel: string): DimensionCheckData => ({
+const withDefaults = (
+  check: DimensionCheckData,
+  fallbackLabel: string,
+  t: Translator
+): DimensionCheckData => ({
   ...check,
   label: check.label || fallbackLabel,
-  unit: check.unit ?? 'Stpl.',
+  unit: check.unit ?? t('cards.schematics.parking.unit'),
   comparator: check.comparator ?? '>=',
 })
 
@@ -124,13 +144,15 @@ export const ParkingRequirementCard: FC<ParkingRequirementCardProps> = ({
   reference,
   note,
 }) => {
-  const car = withDefaults(carSpaces, 'Kfz-Stellplätze')
-  const bike = bicycleSpaces ? withDefaults(bicycleSpaces, 'Fahrradabstellplätze') : null
+  const t = useTranslations('chat')
+  const car = withDefaults(carSpaces, t('cards.schematics.parking.car'), t)
+  const bike = bicycleSpaces
+    ? withDefaults(bicycleSpaces, t('cards.schematics.parking.bicycle'), t)
+    : null
 
   return (
     <SchematicCard
       icon={SquareParking}
-      eyebrow="Schematic"
       title={title}
       verdict={worstStatus([car.status, ...(bike ? [bike.status] : [])])}
       note={note}
@@ -138,12 +160,12 @@ export const ParkingRequirementCard: FC<ParkingRequirementCardProps> = ({
     >
       {basis && (
         <p className="text-xs text-muted-foreground">
-          Bemessung: <span className="text-foreground">{basis}</span>
+          {t('cards.schematics.parking.basis')}: <span className="text-foreground">{basis}</span>
         </p>
       )}
 
       {[car, ...(bike ? [bike] : [])].map((check, i) => {
-        const caption = countCaption(check)
+        const caption = countCaption(check, t)
         return (
           <div key={`grid-${i}`} className="flex flex-col gap-1.5">
             <div className="flex items-baseline justify-between gap-3">
@@ -160,9 +182,7 @@ export const ParkingRequirementCard: FC<ParkingRequirementCardProps> = ({
         )
       })}
 
-      <p className="text-[11px] text-muted-foreground">
-        Gefüllt = nachgewiesen, gestrichelt = fehlend gegenüber der Anforderung.
-      </p>
+      <p className="text-[11px] text-muted-foreground">{t('cards.schematics.parking.legend')}</p>
     </SchematicCard>
   )
 }

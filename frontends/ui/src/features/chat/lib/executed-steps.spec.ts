@@ -43,8 +43,9 @@ describe('deriveExecutedSteps', () => {
   test('an unlabelled internal function gets no chip — it is not title-cased into work', () => {
     // The display-name fallback is what manufactured the noise: it took any
     // internal name, title-cased it, and presented an identifier as a step the
-    // reader could learn something from. The technical steps panel still shows
-    // it verbatim for anyone who opts in.
+    // reader could learn something from. The step still appears in the
+    // technical steps panel for anyone who opts in — neutrally labelled, never
+    // under its internal name.
     expect(
       deriveExecutedSteps(
         [step({ functionName: 'acme_custom_tool', displayName: 'Acme Custom Tool' })],

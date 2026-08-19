@@ -3,7 +3,7 @@ export const organization = {
   title: 'Organization',
   subtitle: 'Manage your organization, its members, and access.',
   loading: 'Loading organization…',
-  memberSubtitle: 'Your LLM usage and your organization at a glance.',
+  memberSubtitle: 'Your usage and your organization at a glance.',
   backToApp: 'Back to projects',
   nav: {
     label: 'Organization sections',
@@ -247,7 +247,7 @@ export const organization = {
     rotated: 'Key rotated — the previous key was revoked.',
     saveError: 'Could not save the key.',
     verify: 'Verify',
-    verified: 'Key verified — {count} models visible.',
+    verified: 'Key verified — {count, plural, one {# model} other {# models}} visible.',
     verifyError: 'Verification failed.',
     revoke: 'Revoke',
     revokeConfirm:
@@ -280,7 +280,7 @@ export const organization = {
       'LLM spend per model against your organization limits. Costs come from OpenRouter usage accounting; limits are enforced before every request.',
     memberTitle: 'Your usage',
     memberDescription:
-      'Your own LLM spend against your organization limits. If a budget is exhausted, chat is paused until an admin raises the limit.',
+      'Your own spend against your organization limits. If a budget is exhausted, chat is paused until an admin raises the limit.',
     today: 'Today',
     thisMonth: 'This month',
     ofLimit: '{spent} of {limit}',
@@ -291,7 +291,7 @@ export const organization = {
     trendTitle: 'Last 30 days',
     trendEmpty: 'No usage recorded in the last 30 days.',
     otherModels: 'Other models',
-    tooltipRequests: '{count} requests',
+    tooltipRequests: '{count, plural, one {# request} other {# requests}}',
     limitsTitle: 'Organization limits',
     limitsDescription:
       'Defaults are €10 per day and €100 per month until you set your own. EUR limits are compared against USD costs at a deployment-configured rate.',

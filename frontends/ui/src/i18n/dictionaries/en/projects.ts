@@ -81,7 +81,7 @@ export const projects = {
       oibBrandschutzAudit: { label: 'OIB fire-safety audit', name: 'OIB fire-safety audit' },
     },
     footnote:
-      'Create a focused workspace for documents, retrieval, members, and chat grounded in the OIB/RIS corpus.',
+      'Create a focused workspace for documents, research, members, and chat, grounded in the OIB Richtlinien and RIS.',
     submit: 'Create project',
   },
   applicableStandards: {
@@ -187,7 +187,8 @@ export const projects = {
     back: 'Back',
     stepCounter: 'Step {current} of {total}',
     saving: 'Saving…',
-    saveSuccess: 'Project profile saved — {count} details captured',
+    saveSuccess:
+      'Project profile saved — {count, plural, one {# detail} other {# details}} captured',
     saveChanges: 'Save changes',
     saveAndSee: 'Save & see my standards',
     next: 'Next',

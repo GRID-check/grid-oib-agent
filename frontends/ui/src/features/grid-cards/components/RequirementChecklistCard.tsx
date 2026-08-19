@@ -7,6 +7,12 @@
  * The per-row status icon carries the verdict (colour + shape + aria-label);
  * a fail/warning/needs_input row also shows its German verdict inline so the
  * signal never travels by colour alone.
+ *
+ * A `needs_input` row additionally carries an {@link AskAboutChip}: the row
+ * already says which requirement is open and what is missing about it, and
+ * making the reader retype that into the composer is what kept the question
+ * from being asked at all. The chip only queues a draft — nothing is sent,
+ * fetched or decided by it — so this stays `presentational`.
  */
 
 import { type FC } from 'react'
@@ -18,6 +24,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { SectionLabel } from '@/components/ui/section-label'
+import { useTranslations } from '@/i18n'
+import { AskAboutChip } from './AskAboutChip'
 import { statusColor, statusLabel } from '../schematics/kit'
 import type { ChecklistItemData, DimStatus, NormReferenceData } from '../schematics/types'
 
@@ -45,6 +53,7 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const sameAsFooter = (ref: NormReferenceData): boolean =>
     reference != null && ref.document === reference.document && ref.section === reference.section
 
@@ -73,18 +82,28 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
               <Icon
                 className="mt-[3px] size-3.5 shrink-0"
                 style={{ color }}
-                aria-label={statusLabel(item.status)}
+                aria-label={statusLabel(item.status, t)}
               />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-[13.5px] leading-[1.6] text-default">{item.label}</span>
                 {item.detail && (
                   <p className="text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
                 )}
-                {/* Verdict inline for non-pass rows (colour never travels alone) */}
+                {/* Verdict inline for non-pass rows (colour never travels alone).
+                    A row that cannot be decided also offers the question it
+                    implies: the row already names the requirement and what is
+                    open about it, so the reader should not have to retype
+                    either — one click puts the whole sentence in the composer,
+                    where they still edit it and press send. */}
                 {item.status !== 'pass' && (
-                  <span className="text-[11px] font-medium" style={{ color }}>
-                    {statusLabel(item.status)}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-medium" style={{ color }}>
+                      {statusLabel(item.status, t)}
+                    </span>
+                    {item.status === 'needs_input' && (
+                      <AskAboutChip subject={item.label} missing={item.detail} />
+                    )}
+                  </div>
                 )}
               </div>
               {showRef && itemRef && (

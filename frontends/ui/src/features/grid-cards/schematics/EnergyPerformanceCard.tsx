@@ -14,14 +14,8 @@
 
 import { type FC } from 'react'
 import { Gauge } from 'lucide-react'
-import {
-  fmtDim,
-  LimitBar,
-  MISSING_LABEL,
-  SchematicCanvas,
-  SchematicCard,
-  SvgLabel,
-} from './kit'
+import { fmtDim, LimitBar, missingLabel, SchematicCanvas, SchematicCard, SvgLabel } from './kit'
+import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'
 
 interface EnergyPerformanceCardProps {
@@ -108,9 +102,8 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
   reference,
   note,
 }) => {
-  const activeIndex = energyClass
-    ? BANDS.findIndex((b) => b.label === normClass(energyClass))
-    : -1
+  const t = useTranslations('chat')
+  const activeIndex = energyClass ? BANDS.findIndex((b) => b.label === normClass(energyClass)) : -1
 
   const rowH = 15
   const gap = 3
@@ -122,7 +115,7 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
 
   const hwbCheck: DimensionCheckData = {
     ...hwb,
-    label: hwb.label || 'Heizwärmebedarf (HWB)',
+    label: hwb.label || t('cards.schematics.energy.hwb'),
     unit: hwb.unit ?? 'kWh/m²a',
     comparator: hwb.comparator ?? '<=',
   }
@@ -130,7 +123,6 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
   return (
     <SchematicCard
       icon={Gauge}
-      eyebrow="Schematic"
       title={title}
       verdict={hwbCheck.status}
       note={note}
@@ -138,7 +130,7 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
     >
       <div className={SCALE_SCOPE}>
         <EnergyScaleStyle />
-        <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={300} label={title}>
+        <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
           {BANDS.map((band, i) => {
             const y = 7 + i * (rowH + gap)
             const w = baseW + i * stepW
@@ -193,8 +185,10 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
                       halo="var(--card)"
                     >
                       {hwbCheck.value != null
-                        ? `HWB ${fmtDim(hwbCheck.value, hwbCheck.unit ?? '')}`
-                        : MISSING_LABEL}
+                        ? t('cards.schematics.energy.hwbMarker', {
+                            value: fmtDim(hwbCheck.value, hwbCheck.unit ?? '', t),
+                          })
+                        : missingLabel(t)}
                     </SvgLabel>
                   </g>
                 )}
@@ -210,7 +204,7 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
           <LimitBar
             check={{
               ...fgee,
-              label: fgee.label || 'Gesamtenergieeffizienzfaktor (fGEE)',
+              label: fgee.label || t('cards.schematics.energy.fgee'),
               unit: fgee.unit ?? '',
               comparator: fgee.comparator ?? '<=',
             }}

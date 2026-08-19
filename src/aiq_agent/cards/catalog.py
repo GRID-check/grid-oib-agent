@@ -64,6 +64,75 @@ INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
 # their model is broken when it is not.
 MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_compliance", "ifc_schedule", "ifc_diff"})
 
+# The shared card DOCTRINE: which trigger takes which card, and when to emit none.
+#
+# It lives here, with the shapes, because BOTH surfaces that ask a model for a card need it and
+# neither may hold its own copy. "Emit a card only when it adds real value" was the whole
+# instruction once, and fifteen working diagram renderers sat unused behind it, because a
+# disclaimer is not an instruction. A second copy of the cure is a second thing to keep in sync,
+# and the copy that stops being maintained is the one that goes back to being a disclaimer.
+#
+# Only what is true on BOTH surfaces belongs here. The `[[card:N]]` placement contract is tool
+# mechanics and stays in `register.py`: post-hoc generation is handed a finished report, so it has
+# no answer to place a marker into. The CRAFT — which of the generic cards actually improves an
+# ordinary answer — lives in the `piloti-cards` platform skill for the answering agents, and in a
+# post-hoc-truthful short form in `prompt.py` for the batch generator, which has no skill runtime.
+_CARD_TRIGGER_TABLE = """\
+WHEN TO EMIT ONE. An answer that turns on a dimension gets its card by default, not on request.
+A measurement written as a sentence makes the reader re-draw it in their head; the card is the
+drawing they would have made. The trigger, then the card:
+  a riser, tread or stair width            -> stair_diagram
+  a clear width, ramp or turning circle    -> dimension_diagram
+  an escape route with segments            -> egress_diagram
+  a fall height, railing or opening        -> guardrail_check
+  a U-value, HWB or energy class           -> thermal_envelope / energy_performance
+  a fire compartment area                  -> fire_compartment
+  the Richtlinie or norm the answer rests on -> legal_basis
+  a chain of norms, one binding, the rest interpreting -> norm_chain
+  three or more pass/fail criteria         -> requirement_checklist
+  two or more options weighed against each other -> comparison_table
+  the answer's single headline number or ruling, at the top -> verdict_header
+  an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
+  a tabular answer no purpose-built card covers -> typed_table
+  a number the answer WORKED OUT rather than looked up -> calculation
+  a Verfahren, Ablauf or „wie läuft das ab" -> process_map
+  the two to five points the reader must leave with -> key_takeaways
+  one caveat, deadline or tip that changes what the reader DOES -> callout
+  an answer this reader will have a next question about -> follow_ups"""
+
+# The picker's trigger, not its shape. The shape stays in the catalog on every surface — the card
+# carries a heading and nothing else, so there is no id to invent (which is why it is not, and must
+# not become, a member of MODEL_BACKED_CARD_TYPES). What does not transfer is the instruction: it
+# fires on a live intent in the turn being answered, and it tells the model to emit the card
+# INSTEAD of writing the file names in prose. On the post-hoc path the prose is already written and
+# cannot be unwritten, so that trade is not on offer.
+_MODEL_PICKER_TRIGGER = """
+  the user wants to SEE or OPEN the building and the project may hold several models
+                                           -> ifc_model_picker"""
+
+_FOLLOW_UPS_RULE = """\
+At most one follow_ups per answer, and put it LAST — it is what the reader leaves on. Not on a
+conversational or off-topic turn, where there is no subject to go deeper into, and not on an answer
+that already ends by asking the user something: two questions competing for the same reply is how
+you get neither."""
+
+_MODEL_PICKER_NOTE = """\
+The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
+emit it INSTEAD of writing the file names as a prose bullet list. It renders the project's models
+as tiles the user clicks to open the viewer directly — you supply only the heading, never the file
+names, so there is nothing to get wrong. You do not need to call ifc_query first to list them."""
+
+# The negative default, and the anti-fabrication rule that is the reason a card can be worse than
+# no card at all. Both surfaces pay for this one; the post-hoc path states it a second time, in
+# stronger terms, because there it is the only thing standing between a report and an invented
+# limit (see `prompt.py`).
+_CARD_RESTRAINT = """\
+WHEN NOT TO. A one-line factual answer gets no card: one that repeats the sentence above it costs
+the reader a second pass over the same fact. Never fabricate a field, a reference or a number to
+fill a card out — a card with an invented limit in it is worse than the prose alone, because it is
+the part that gets screenshotted into a submission. Two cards in a turn is plenty; more than that
+and the written answer stops being the answer."""
+
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
@@ -109,6 +178,14 @@ CARD_EXAMPLES: dict[str, dict] = {
             },
         ],
         "note": "Die hervorgehobenen Wände stammen aus der Modellabfrage, nicht aus dem Plan.",
+    },
+    # Carries no file names on purpose — the renderer lists the project's real
+    # models. The example exists to show that the payload is just a heading, so
+    # the model does not try to fill in a `models` array that does not exist.
+    "ifc_model_picker": {
+        "type": "ifc_model_picker",
+        "title": "Welches Modell möchten Sie öffnen?",
+        "note": "Ein Klick öffnet das Modell im 3D-Viewer.",
     },
     "daylight_incidence": {
         "type": "daylight_incidence",
@@ -315,6 +392,138 @@ CARD_EXAMPLES: dict[str, dict] = {
         ],
         "recommendation": "Mit Fluchtniveau 9,8 m bleibt das Projekt in GK 4.",
         "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
+    },
+    # The `detail` is the field this example exists for: without one to copy,
+    # the model writes the qualification into `text` and the block stops being
+    # scannable, which is the only thing this card is for. Note the third
+    # takeaway carries none — a takeaway that needs no footnote should not get
+    # an expander that opens onto a restatement.
+    "key_takeaways": {
+        "type": "key_takeaways",
+        "title": "Gebäudeklasse 4 – was daraus folgt",
+        "items": [
+            {
+                "text": "Fluchtniveau 9,80 m → Gebäudeklasse 4",
+                "detail": "Maßgeblich ist das oberste Fluchtniveau; die Grenze zu GK 5 liegt bei 11 m.",
+            },
+            {
+                "text": "Tragende Bauteile mindestens REI 60",
+                "detail": "In Kellergeschossen gilt REI 90, unabhängig von der Gebäudeklasse.",
+            },
+            {"text": "Barrierefreier Aufzug ab drei oberirdischen Geschossen"},
+        ],
+    },
+    # Shows the shape at its smallest useful size — a kind, one sentence, and
+    # the background folded behind it. A title is deliberately absent: the
+    # example the model copies should not suggest that every callout needs one.
+    "callout": {
+        "type": "callout",
+        "kind": "frist",
+        "text": "Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen.",
+        "detail": "Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.",
+    },
+    # The example carries the two properties that decide whether this card is
+    # worth a click: every question names something the answer itself put on the
+    # table (das Fluchtniveau, die GK-4-Einstufung, REI 60), and the four are
+    # four DIFFERENT moves — measure it, apply it to my project, compare the
+    # neighbouring class, act on it. Four rewordings of "Wie ist das mit der
+    # Gebäudeklasse?" would validate just as happily, which is exactly why the
+    # example has to show the spread rather than describe it. Note also that
+    # every `question` is a full sentence with a question mark: it is sent as
+    # written, so a topic label would arrive in the composer as a fragment.
+    # The example the model copies has to make the one hard rule obvious: there
+    # is NO result field. It shows the Schrittmaßregel because that is the
+    # arithmetic every Austrian architect knows by heart — 2 × 17 + 30 = 64
+    # against 59–65 — so a model that fills this in wrongly is visibly wrong,
+    # and a reader who sees the card knows immediately what it is claiming to
+    # have done. The rule's own multiplier rides as `factor` rather than as a
+    # second operand, because 2 is part of the Bestimmung and not a quantity
+    # anybody measured, and only a `factor` can say that.
+    "calculation": {
+        "type": "calculation",
+        "title": "Schrittmaßregel – Treppenlauf Haus A",
+        "steps": [
+            {
+                "label": "Schrittmaß",
+                "operation": "sum",
+                "unit": "cm",
+                "operands": [
+                    {
+                        "label": "Steigung",
+                        "value": 17.0,
+                        "unit": "cm",
+                        "factor": 2,
+                        "provenance": "computed",
+                        "tolerance": 0.5,
+                        "source": "Einreichplan, Schnitt A-A",
+                    },
+                    {"label": "Auftritt", "value": 30.0, "unit": "cm", "provenance": "declared"},
+                ],
+            }
+        ],
+        "limit": {
+            "comparator": "between",
+            "value": 59,
+            "upper": 65,
+            "label": "Schrittmaßregel",
+            "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 3.2", "edition": "Ausgabe Mai 2023"},
+        },
+    },
+    # Two things this example exists to teach. The steps carry their `requires`
+    # and `produces` — a map that only names the stations is the numbered list
+    # it replaces, and the click then opens onto nothing. And `current_step` is
+    # SET here, so the model sees that a project's position is a field it may
+    # fill; the description is where it learns to omit it rather than guess.
+    "process_map": {
+        "type": "process_map",
+        "title": "Baubewilligungsverfahren – Wien",
+        "current_step": 2,
+        "steps": [
+            {
+                "label": "Einreichung",
+                "summary": "Einreichunterlagen werden bei der Baubehörde eingebracht.",
+                "actor": "Bauwerber",
+                "requires": ["Einreichplan", "Baubeschreibung", "Energieausweis"],
+                "produces": ["Aktenzeichen"],
+                "reference": {"document": "Wiener Bauordnung", "section": "§ 63"},
+            },
+            {
+                "label": "Bauverhandlung",
+                "summary": "Mündliche Verhandlung mit den Nachbarn und den Amtssachverständigen.",
+                "actor": "Baubehörde",
+                "duration": "binnen sechs Wochen nach Einreichung",
+                "produces": ["Verhandlungsschrift"],
+                "reference": {"document": "Wiener Bauordnung", "section": "§ 70"},
+            },
+            {
+                "label": "Baubewilligung",
+                "summary": "Bescheid mit den Auflagen aus der Verhandlung.",
+                "actor": "Baubehörde",
+                "produces": ["Baubewilligungsbescheid"],
+            },
+            {
+                "label": "Baubeginnsanzeige",
+                "summary": "Baubeginn ist der Behörde anzuzeigen.",
+                "actor": "Bauwerber",
+                "requires": ["rechtskräftige Baubewilligung"],
+            },
+            {
+                "label": "Fertigstellungsanzeige",
+                "summary": "Nach Fertigstellung mit den Ausführungsbestätigungen.",
+                "actor": "Bauwerber",
+                "requires": ["Ausführungsbestätigungen der Fachplaner"],
+            },
+        ],
+        "reference": {"document": "Wiener Bauordnung", "section": "§§ 60 ff."},
+    },
+    "follow_ups": {
+        "type": "follow_ups",
+        "items": [
+            {"question": "Wie wird das Fluchtniveau genau gemessen?", "hint": "Messpunkt und Bezugsebene"},
+            {"question": "Welche Anforderungen gelten für mein Projekt konkret?"},
+            {"question": "Was wäre bei Gebäudeklasse 5 anders?", "hint": "Vergleich der beiden Klassen"},
+            {"question": "Wie weise ich REI 60 im Einreichplan nach?"},
+        ],
     },
 }
 
@@ -611,6 +820,30 @@ def _measured_note() -> str:
         "  is what the architect changes in their CAD. A blank slot instead of it reads as a fact\n"
         "  about the building, when it is a finding about the export."
     )
+
+
+def render_card_doctrine(*, include_ifc_triggers: bool = True) -> str:
+    """The trigger table and the negative default, shared by both card surfaces.
+
+    Framing-free in the same sense as :func:`render_card_catalog`: it says which
+    content takes which card and when to emit none, and leaves each surface to
+    add what only it can promise — where a marker puts a card, or what a batch
+    of them may be built out of.
+
+    Args:
+        include_ifc_triggers: Whether to carry the ``ifc_model_picker`` trigger.
+            The ``emit_card`` tool leaves this on. Post-hoc generation turns it
+            off: that trigger is a live "show me the model" intent in the turn
+            being answered, and it directs the model to emit the card instead of
+            writing the file names as prose — a trade only a surface that is
+            still writing the answer can make. The picker's SHAPE is not
+            withheld anywhere, because it names no file and invents nothing.
+    """
+    parts = [_CARD_TRIGGER_TABLE + (_MODEL_PICKER_TRIGGER if include_ifc_triggers else ""), _FOLLOW_UPS_RULE]
+    if include_ifc_triggers:
+        parts.append(_MODEL_PICKER_NOTE)
+    parts.append(_CARD_RESTRAINT)
+    return "\n\n".join(parts)
 
 
 def render_card_index(*, include_model_backed: bool = True) -> str:

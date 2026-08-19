@@ -38,7 +38,7 @@ export const research: typeof en.research = {
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
-      'Melden Sie sich an, um projektbezogene OIB-Recherche, Dokumenten-Ingestion und Zugriffskontrollen für Mitglieder freizuschalten.',
+      'Melden Sie sich an, um projektbezogene OIB-Recherche, das Einlesen Ihrer Dokumente und Zugriffsrechte für Mitglieder freizuschalten.',
     signInSso: 'Mit SSO anmelden',
     welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
     usePrompt: 'Vorschlag verwenden: {prompt}',
@@ -92,7 +92,7 @@ export const research: typeof en.research = {
       'Worin Piloti suchen darf. Was tatsächlich verwendet wurde, steht in der Herleitung.',
     allSources: 'Alle Quellen',
     internalOnly: 'Nur Projektwissen',
-    overflowAria: '{count} weitere Quellenarten',
+    overflowAria: '{count, plural, one {# weitere Quellenart} other {# weitere Quellenarten}}',
     alwaysOn: 'Immer dabei',
     alwaysOnChip: 'Immer aktiv',
     external: 'Externe Quellen',
@@ -140,7 +140,8 @@ export const research: typeof en.research = {
       ' zu löschen. Dabei gehen sämtliche Fortschritte verloren und alle von Ihnen angehängten Dateien werden entfernt.',
     all: {
       title: 'Alle Chats dieses Projekts löschen?',
-      countSessions: 'alle {count} Chats dieses Projekts',
+      countSessions:
+        '{count, plural, one {der eine Chat dieses Projekts} other {alle # Chats dieses Projekts}}',
       allSessions: 'JEDEN Chat dieses Projekts',
       scopeNote:
         'Es werden nur Chats dieses Projekts gelöscht. Ihre Chats in anderen Projekten sind nicht betroffen.',
@@ -177,7 +178,7 @@ export const research: typeof en.research = {
     detailsWhenComplete: 'Details verfügbar, sobald der Agent fertig ist',
     isRunning: '{name} läuft',
     queriesCount: '{completed}/{total} Abfragen',
-    toolsCount: '{completed}/{total} Tools',
+    toolsCount: '{completed}/{total} Werkzeuge',
     started: 'Gestartet: {time}',
     running: 'Läuft',
   },
@@ -186,12 +187,18 @@ export const research: typeof en.research = {
     title: 'Agenten',
     runningCount: '{count} aktiv',
     queriesProgress: '{completed}/{total} Abfragen',
-    description: 'Aktive Planer-, Rechercheur- und Autoren-Agenten führen Aufgaben aus.',
+    description: 'Piloti plant, recherchiert und schreibt — hier steht, woran gerade gearbeitet wird.',
     empty: 'Keine Agentenaktivität verfügbar.',
   },
 
+  filesTab: {
+    title: 'Dateien',
+    description: 'Entwürfe, Berichte und weitere Dateien, die diese Recherche erzeugt hat.',
+    empty: 'Noch keine Dateien erzeugt.',
+  },
+
   fileCard: {
-    lines: '{count} Zeilen',
+    lines: '{count, plural, one {# Zeile} other {# Zeilen}}',
     content: 'Inhalt',
   },
 
@@ -213,16 +220,16 @@ export const research: typeof en.research = {
 
   fileSourcesTab: {
     uploadTo: 'Hochladen nach',
-    targetProject: 'Projekt-Korpus',
+    targetProject: 'Projektwissen',
     targetSession: 'Private Sitzung',
-    targetProjectLower: 'Projekt-Korpus',
-    targetSessionLower: 'private Sitzung',
+    targetProjectLower: 'das Projektwissen',
+    targetSessionLower: 'die private Sitzung',
     availableInProject: 'In diesem Projekt verfügbar.',
-    preparingCorpus: 'Projekt-Korpus wird vorbereitet...',
+    preparingCorpus: 'Projektwissen wird vorbereitet...',
     onlyThisSession: 'Nur in dieser Chat-Sitzung verfügbar.',
     loadingFiles: 'Dateien werden geladen',
     checkingFiles: 'Dateien werden geprüft...',
-    setupBackend: 'Richten Sie das Backend ein, um Dateien zu aktivieren.',
+    setupBackend: 'Dateien stehen erst zur Verfügung, wenn die Verbindung zu Piloti steht.',
     noAttachedFiles: 'Keine angehängten Dateien',
     filesGoTo: 'Hier hochgeladene Dateien gelangen in {target}, sofern nicht entfernt.',
     filesCount: '{target} – Dateien ({count})',
@@ -241,7 +248,7 @@ export const research: typeof en.research = {
       'Recherche abgeschlossen. Erstellen Sie für weitere Fragen eine neue Sitzung.',
     researchFailedFollowUp:
       'Die Recherche wurde nicht abgeschlossen. Stellen Sie eine Anschlussfrage oder versuchen Sie es erneut.',
-    typeResponse: 'Geben Sie Ihre Antwort an den Agenten ein...',
+    typeResponse: 'Geben Sie Ihre Antwort an Piloti ein...',
     pleaseWait: 'Bitte warten...',
     messageNotSent: 'Nachricht nicht gesendet',
     messageNotSentDesc:
@@ -275,7 +282,7 @@ export const research: typeof en.research = {
     retryUpload: 'Upload erneut versuchen',
     manageFiles: 'Dateien verwalten',
     manageFilesCount: 'Angehängte Dateien verwalten ({count})',
-    manageFilesMobile: '{count} Dateien verwalten',
+    manageFilesMobile: '{count, plural, one {# Datei} other {# Dateien}} verwalten',
     openFile: 'Datei öffnen: {name}',
     fileUploadingStatus: 'Wird hochgeladen',
     fileFailedStatus: 'Upload fehlgeschlagen',
@@ -286,18 +293,31 @@ export const research: typeof en.research = {
     reportWhenComplete: 'Der Bericht erscheint hier, sobald die Recherche abgeschlossen ist.',
     exportAsMdPdf: 'Sie können ihn als Markdown oder PDF exportieren.',
     draft: 'Entwurf',
-    words: '{count} Wörter',
+    words: '{count, plural, one {# Wort} other {# Wörter}}',
   },
 
   reportTab: {
     contentWhenAvailable: 'Berichtsinhalt erscheint hier, sobald verfügbar.',
-    notesBanner: 'Rechercheanmerkungen der Agenten – der finale Bericht wird noch erstellt.',
+    notesBanner: 'Zwischennotizen aus der Recherche – der finale Bericht wird noch erstellt.',
     sourcesTitle: 'Quellen',
     sourceBadge: {
-      kb: 'Wissensdatenbank',
+      kb: 'Wissensbasis',
       web: 'Web',
       ris: 'RIS',
     },
+  },
+
+  /**
+   * Die Gliederung über dem fertigen Bericht: die Überschriften des Berichts
+   * als Sprungliste, mit einer Markierung auf dem Abschnitt, den die Leserin
+   * gerade liest.
+   */
+  reportOutline: {
+    label: 'Gliederung des Berichts',
+    title: 'Gliederung',
+    sectionCount: '{count, plural, one {# Abschnitt} other {# Abschnitte}}',
+    show: 'Gliederung einblenden',
+    hide: 'Gliederung ausblenden',
   },
 
   researchPanel: {
@@ -325,7 +345,7 @@ export const research: typeof en.research = {
   sessionsPanel: {
     title: 'Chatverlauf',
     /** Steht neben dem Titel, damit der Bereich seinen eigenen Umfang nennt. */
-    countLabel: '{count} Chats',
+    countLabel: '{count, plural, one {# Chat} other {# Chats}}',
     countLabelOne: '1 Chat',
     // Der Speicher wird erst eingeblendet, wenn er relevant wird — und sagt dann,
     // was zu tun ist, statt nur eine Zahl zu melden.
@@ -402,12 +422,12 @@ export const research: typeof en.research = {
     progressAria: 'Fortschritt der Aufgabenerledigung',
     elapsed: 'Läuft seit {minutes} Min.',
     writingReport: 'Finaler Bericht wird geschrieben... Dies kann einige Minuten dauern.',
-    stalledTitle: 'Seit einer Weile keine Fortschrittsupdates',
+    stalledTitle: 'Seit einer Weile keine Rückmeldung',
     stalledBody:
-      'Die Recherche hat kürzlich kein Update gesendet. Sie läuft möglicherweise noch – stellen Sie die Verbindung wieder her, um den Live-Stream fortzusetzen.',
-    connectionLostTitle: 'Verbindung zum Recherchejob verloren',
+      'Die Recherche hat sich seit einiger Zeit nicht gemeldet. Sie läuft möglicherweise noch – stellen Sie die Verbindung wieder her, um die Live-Anzeige fortzusetzen.',
+    connectionLostTitle: 'Verbindung zur laufenden Recherche verloren',
     connectionLostBody:
-      'Die Live-Verbindung wurde unterbrochen, aber der Job läuft möglicherweise noch auf dem Server. Stellen Sie die Verbindung wieder her, um fortzufahren, oder stoppen Sie ihn über die Leiste oben.',
+      'Die Live-Verbindung wurde unterbrochen, aber die Recherche läuft möglicherweise noch auf dem Server. Stellen Sie die Verbindung wieder her, um fortzufahren, oder stoppen Sie sie über die Leiste oben.',
     reconnect: 'Erneut verbinden',
     // Ergebnis einer Ausführung, die hier ohne eigenen Chat-Verlauf verfolgt
     // wird (Workflow-Ausführung) — sie hat kein Banner im Verlauf.
@@ -419,7 +439,7 @@ export const research: typeof en.research = {
   thinkingTab: {
     tabThoughts: 'Gedanken',
     tabAgents: 'Agenten',
-    tabTools: 'Tools',
+    tabTools: 'Werkzeuge',
     tabFiles: 'Dateien',
     tabRead: 'Gelesen',
     tabReferenced: 'Referenziert',
@@ -432,35 +452,53 @@ export const research: typeof en.research = {
     noRead: 'Keine gelesenen Quellen verfügbar.',
   },
 
+  /**
+   * Der Abschnitt eines Recherchedurchlaufs, aus dem eine Karte stammt.
+   *
+   * Die Karten gaben bisher die rohe Kennung des Backends aus („über
+   * researcher-agent“) — eine Kennung mitten im Satz, die niemand gelernt hat.
+   * Hier steht stattdessen die Arbeit, in denselben Worten wie auf der übrigen
+   * Recherchefläche. Eine Herkunft, für die dieser Build keinen Namen hat,
+   * liest „intern“ — nie die Kennung. Siehe `features/layout/lib/workflow-names`.
+   */
+  workflowName: {
+    planning: 'Planung',
+    research: 'Recherche',
+    sourceSelection: 'Quellenauswahl',
+    writing: 'Berichtstext',
+    internal: 'intern',
+    // Dieselbe Sache als Überschrift, wo kein Satz das Substantiv liefert.
+    internalStep: 'Interner Schritt',
+  },
+
   thoughtCard: {
     detailsWhenComplete: 'Details verfügbar, sobald die Generierung abgeschlossen ist',
     generating: 'Generiert',
-    via: 'über {workflow}',
-    tokens: 'Tokens: {prompt} Eingabe / {completion} Ausgabe',
+    step: 'Schritt: {name}',
     output: 'Ausgabe',
   },
 
   thoughtTracesTab: {
-    title: 'Gedankenspuren',
+    title: 'Gedankengang',
     runningCount: '{count} aktiv',
-    description: 'Gedankenkette und Inferenzaktivität des LLM.',
-    empty: 'Keine Gedankenspuren verfügbar.',
+    description: 'Wie Piloti während der Recherche nachgedacht hat.',
+    empty: 'Kein Gedankengang verfügbar.',
   },
 
   toolCallCard: {
-    detailsWhenComplete: 'Details verfügbar, sobald der Tool-Aufruf abgeschlossen ist',
+    detailsWhenComplete: 'Details verfügbar, sobald der Werkzeugaufruf abgeschlossen ist',
     isRunning: '{name} läuft',
-    via: 'über {workflow}',
+    step: 'Schritt: {name}',
     arguments: 'Argumente',
     result: 'Ergebnis',
     error: 'Fehler',
   },
 
   toolCallsTab: {
-    title: 'Tool-Aufrufe',
+    title: 'Werkzeugaufrufe',
     runningCount: '{count} aktiv',
-    description: 'Websuchen, Dateioperationen und andere Tool-Aufrufe.',
-    empty: 'Keine Tool-Aufrufe verfügbar.',
+    description: 'Websuchen, Dateizugriffe und weitere Werkzeugaufrufe.',
+    empty: 'Keine Werkzeugaufrufe verfügbar.',
   },
 
   sourceCard: {

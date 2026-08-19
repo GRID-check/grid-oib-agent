@@ -13,6 +13,7 @@
 import { type FC } from 'react'
 import { Table2 } from 'lucide-react'
 import { SchematicCard, statusColor, statusLabel } from '../schematics/kit'
+import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { DimStatus, NormReferenceData, TypedColumnData, TypedColumnKind } from '../schematics/types'
 
@@ -42,6 +43,7 @@ const verdictStatus = (value: string): DimStatus | null => {
 }
 
 const VerdictCell: FC<{ value: string }> = ({ value }) => {
+  const t = useTranslations('chat')
   if (!value) return <span className="text-muted-foreground">—</span>
   const status = verdictStatus(value)
   if (!status) {
@@ -56,7 +58,7 @@ const VerdictCell: FC<{ value: string }> = ({ value }) => {
     <span
       className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
       style={{ color, backgroundColor: `color-mix(in oklch, ${color} 14%, transparent)` }}
-      aria-label={statusLabel(status)}
+      aria-label={statusLabel(status, t)}
     >
       {value}
     </span>
@@ -71,9 +73,22 @@ const Cell: FC<{ kind: TypedColumnKind; value: string }> = ({ kind, value }) => 
   return <span className="text-foreground">{value}</span>
 }
 
-export const TypedTableCard: FC<TypedTableCardProps> = ({ title, columns, rows, reference, note }) => {
+export const TypedTableCard: FC<TypedTableCardProps> = ({
+  title,
+  columns,
+  rows,
+  reference,
+  note,
+}) => {
+  const t = useTranslations('chat')
   return (
-    <SchematicCard icon={Table2} eyebrow="Tabelle" title={title} note={note} reference={reference}>
+    <SchematicCard
+      icon={Table2}
+      eyebrow={t('cards.typedTable.eyebrow')}
+      title={title}
+      note={note}
+      reference={reference}
+    >
       <div className="w-full overflow-x-auto">
         <table className="w-full min-w-max border-collapse text-xs">
           <thead>

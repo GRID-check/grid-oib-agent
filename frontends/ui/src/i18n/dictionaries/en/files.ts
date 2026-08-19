@@ -151,8 +151,8 @@ export const files = {
       searchPlaceholder: 'Search files — press Enter for semantic search…',
       run: 'Search',
       reset: 'Show all files',
-      banner: 'Semantic search: {count} results for “{query}”',
-      searching: 'Searching the corpus for “{query}”…',
+      banner: 'Semantic search: {count, plural, one {# result} other {# results}} for “{query}”',
+      searching: 'Searching your files for “{query}”…',
       noResults: 'No semantic matches for “{query}”',
       noResultsDescription:
         'Nothing in this project matched the meaning of your query. Try different wording, or clear the search to browse every file.',
@@ -171,7 +171,7 @@ export const files = {
     newFolder: 'New folder',
   },
   workspace: {
-    corpusSubtitle: 'Project corpus — these documents ground Piloti’s answers',
+    corpusSubtitle: 'Project knowledge — these documents ground Piloti’s answers',
     uploadDocuments: 'Upload documents',
     uploadProblem: 'Upload problem',
     dismissError: 'Dismiss error',
@@ -243,7 +243,7 @@ export const files = {
     someUploadsFailed: '{failed} of {total} documents could not be uploaded. First reason: {reason}',
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
-    imageVlmUnavailable: 'Image upload requires a configured vision model (VLM) on this deployment.',
+    imageVlmUnavailable: 'Images cannot be uploaded here: this deployment has no image recognition set up.',
     fileSingular: 'file',
     filePlural: 'files',
   },

@@ -16,8 +16,10 @@
  * 2. Only steps we can NAME in the reader's own nouns. A function with no
  *    reader-facing label is dropped rather than title-cased into a plausible
  *    English phrase — "Use Skill", "Workflow: Chat Researcher" and the like are
- *    identifiers dressed up as work. They remain visible verbatim in the opt-in
- *    technical steps panel, which is where a log stream belongs.
+ *    identifiers dressed up as work. The step itself stays visible in the
+ *    opt-in technical steps panel, which is where a log stream belongs — as a
+ *    timestamped row under a neutral label, since that panel stopped showing
+ *    internal names too (`getStepLabel`).
  *
  * The `status:<slot>` turn events are excluded outright. They are SENTENCES
  * about the turn, not tools that ran, and NAT reports them as top-level
@@ -163,9 +165,9 @@ export const deriveExecutedSteps = (
 
     const rule = STEP_NAME_RULES.find((r) => r.match.test(name.toLowerCase()))
     // No reader-facing label — an internal name. It is NOT title-cased into a
-    // chip here; the technical steps panel already shows it verbatim for anyone
-    // who opts in, and a fabricated English noun phrase would only look like
-    // work that was done.
+    // chip here; the step still shows up (timestamped, neutrally labelled) in
+    // the technical steps panel for anyone who opts in, and a fabricated
+    // English noun phrase would only look like work that was done.
     if (!rule) continue
 
     seen.add(name)

@@ -2,11 +2,14 @@
  * Collaboration: sharing a resource, @-mentions with the agent hand-off, and the
  * inbox (ADR-0032…0035).
  *
- * Note there is no pluralization machinery in this i18n layer (see
- * `src/i18n/translate.ts` — interpolation only), so anything counted carries
- * explicit `…One` / `…Many` keys and the renderer picks. Do not "simplify" those
- * into a single string with `{count}`; German and English disagree about where
- * the noun inflects.
+ * Anything counted here carries explicit `…One` / `…Many` keys and the renderer
+ * picks between them. That predates the plural blocks `src/i18n/translate.ts`
+ * now understands (`{count, plural, one {…} other {…}}`), and these pairs are
+ * left as they are because they are already correct — but a NEW counted string
+ * belongs in one key with a plural block rather than in a new pair. What has not
+ * changed is the reason both forms have to be written out: German and English
+ * disagree about where the noun inflects, so a bare `{count}` in front of a noun
+ * is a defect in one locale or both.
  */
 export const collaboration = {
   sharing: {
@@ -286,7 +289,8 @@ export const collaboration = {
     title: 'Inbox',
     /** Nav entry + the count badge. */
     navLabel: 'Inbox',
-    badgeAria: '{count} items need your attention',
+    badgeAria:
+      '{count, plural, one {# item needs} other {# items need}} your attention',
     badgeAriaOne: '1 item needs your attention',
     subtitle: 'Requests and updates from your team.',
     filters: {

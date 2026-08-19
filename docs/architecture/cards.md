@@ -14,7 +14,8 @@ meant to grow.
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **27 types**, in four families. The families are not decoration: each answers
+— **35 model-facing types plus 2 system types**, in four families. The families
+are not decoration: each answers
 "where does a number on this card come from?" differently, and that answer is
 what decides whether the model may emit the card at all, on which surface, and
 what it is allowed to write into it.
@@ -29,6 +30,15 @@ answer it has just written.
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `comparison_table` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
+| `verdict_header` | The answer's single headline ruling, set at the top — the value the reader came for | `verdict`, `subject`, `reference`, `confidence`, `confidence_reason` |
+| `condition_tree` | An answer that forks on one factor (typically the Gebäudeklasse): the question, each branch's condition and outcome, the branch this project sits on marked `active` | `title`, `question`, `branches[]` (`condition`, `outcome`, `active`, `reference`), `reference` |
+| `typed_table` | A tabular answer no purpose-built card covers. Columns are TYPED (`mass`, `norm`, `verdict`, `date`, `text`) so the renderer can align, format and colour them instead of printing five strings | `title`, `columns[]` (`label`, `type`), `rows[]`, `reference`, `note` |
+| `norm_chain` | A chain of norms with what binds and what only interprets: each link carries its `rank` (`bundesgesetz` → `leitfaden`), which is the whole point of the card | `title`, `links[]` (`label`, `rank`, `note`) |
+| `key_takeaways` | „Das Wichtigste" — the 2–5 points the reader must leave with. The generic card for an answer with no dimension and no fork in it; a row with a `detail` expands, a row without one is not a button | `title`, `items[]` (`text`, `detail`) |
+| `callout` | ONE remark that changes what the reader does — a `hinweis`, `achtung`, `frist` or `tipp`. Deliberately small; at most one per answer, because a second puts both back at the weight of the prose around them | `kind`, `text`, `title`, `detail` |
+| `follow_ups` | 2–4 next questions, each anchored to something this answer introduced. Clicking one PREFILLS the composer — the user still presses send, and nothing reaches the backend on click | `title`, `items[]` (`question`, `hint`) |
+| `calculation` | The derivation behind a computed number — the Schrittmaßregel, a GFZ, a Brandlast, a U-value from its resistances. **There is no result field**: the model supplies operands, an operation from a closed set (`sum`, `product`, `quotient`, `percent_of`, `percent_ratio`) and the limit; the renderer computes, propagates the ± band, rounds and judges | `title`, `steps[]` (`label`, `operation`, `operands[]`, `unit`), `limit`, `reference`, `note` |
+| `process_map` | An ordered procedure — Einreichung → Bauverhandlung → Baubewilligung → Fertigstellungsanzeige — with the step this project stands at, and what each step requires and produces revealed on click | `title`, `steps[]` (`label`, `summary`, `actor`, `duration`, `requires[]`, `produces[]`, `reference`), `current_step`, `reference`, `note` |
 
 **Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
 in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
@@ -67,6 +77,13 @@ Every identifying field has to be **copied from an `ifc_query` row in the same
 turn**; the model supplies no figures at all (`MODEL_BACKED_CARD_TYPES` in
 `cards/catalog.py`).
 
+`ifc_model_picker` sits beside them and is deliberately NOT one of the five: it
+carries a heading and nothing else. The project's models are enumerated by the
+frontend, so there is no file name for the agent to get wrong and no `ifc_query`
+call to make first. It exists because "zeig mir das Modell" was being answered
+with a prose bullet list of file names for the user to retype — the tiles open
+the viewer on click instead.
+
 | `type` | Shows | Key fields |
 |---|---|---|
 | `ifc_viewer` | the project's IFC model in 3D with findings highlighted on the real geometry (ADR-0045) | `title`, `model_file`, `highlights[]` (`global_ids` **XOR** `match`, plus `label`, `status`), `storey`, `note` |
@@ -74,6 +91,7 @@ turn**; the model supplies no figures at all (`MODEL_BACKED_CARD_TYPES` in
 | `ifc_element` | one element with its own property sets and quantities | `title`, `global_id`, `model_file`, `note` |
 | `ifc_diff` | what changed between two revisions | `title`, `base_model_file`, `model_file`, `note` |
 | `ifc_compliance` | the Prüfbuch: OIB requirements with their verdict | `title`, `model_file`, `rule_ids[]` (≤ 20), `note` |
+| `ifc_model_picker` | the project's IFC models as tiles that open the viewer — the answer to "which model do you mean?" | `title`, `note` |
 
 **System cards** — emitted by a specific tool on a sanctioned path, never by the
 model (`SYSTEM_CARD_TYPES`; `emit_card` refuses them and the model-facing
@@ -89,6 +107,38 @@ persisted on the message; see
 [Interactive cards](#interactive-cards-the-answer-must-be-persisted).
 
 `validate_cards()` validates against the union and drops null fields.
+
+### `calculation` has nowhere to put a wrong answer
+
+The schematic cards hold their invariant by having the renderer do every piece of
+geometry and ratio arithmetic itself, so a drawing cannot disagree with its own
+numbers. `calculation` is the same idea applied to arithmetic the answer states
+in words, and it is enforced by ABSENCE: there is no result field anywhere on the
+wire. The model supplies the operands, the operation and the limit; the renderer
+produces the result, the propagated tolerance and the verdict. A stated result
+that disagrees with its own operands is the worst artefact this product can make,
+because a card is the part that gets screenshotted into an Einreichung — so the
+schema simply offers no place to write one.
+
+The operation is a closed set of five shapes rather than an expression the
+renderer parses. A grammar would hand the model arbitrary formulas and hand the
+renderer the job of re-deriving intent, and the first ambiguous parse —
+precedence, a unit inside the expression, a stray bracket — puts a confident
+wrong number on the card. `quotient` covers `U = 1 ÷ R` with a numerator of 1,
+which is why there is no separate `reciprocal`. A derivation needing two stages
+writes two steps, the second naming the first by index; the reference must point
+strictly backwards, so a card that cannot be computed never reaches the client.
+
+Three consequences worth knowing before changing it:
+
+- **The ± band travels.** `sum` scales it by |factor|, `product` and `quotient`
+  add relative errors: 2 × (17 ± 0,5) + 30 → 64 ± 1,0. A band on a `declared`
+  figure is ignored, because that is the file's claim and not our measurement.
+- **Undecidable is not partial.** A missing operand yields no result and the
+  missing-value phrase, never a partial sum, and it propagates down the chain.
+- **The display yields, the arithmetic does not.** House precision is two
+  decimals unless rounding to it would move the value across the limit — 0,2506
+  W/(m²K) against „≤ 0,25" prints 0,251, not „0,25 — nicht erfüllt".
 
 ### The five IFC cards carry identifiers, not numbers
 
@@ -186,7 +236,7 @@ stale name in a tenant's skill must not take down the turn that mentioned it.
 The skills runtime is that third consumer. When a skill declaring `grid-cards`
 is loaded, `_preferred_cards_block` (`skills/runtime.py`) appends the **shapes**
 of the types it names, not just their names. A skill naming its cards is the
-moment we know which of the 27 shapes this turn could possibly need, so it is
+moment we know which of the shapes this turn could possibly need, so it is
 the moment to spend context on them — and it saves the activated turn a
 `describe_card` round-trip it would otherwise always pay.
 
@@ -198,7 +248,7 @@ while eight lines away in `researcher.j2` the IFC block named a trigger and gave
 a reason, which is exactly why the IFC cards were emitted and the schematics
 were not.
 
-`_CARD_DOCTRINE` now states the default positively and names the trigger for
+The doctrine now states the default positively and names the trigger for
 each card: a riser, tread or stair width → `stair_diagram`; a clear width, ramp
 or turning circle → `dimension_diagram`; an escape route with segments →
 `egress_diagram`; a fall height, railing or opening → `guardrail_check`; a
@@ -210,6 +260,45 @@ travels with the rule: an answer that turns on a dimension gets its card by
 default rather than on request, because a measurement written as a sentence
 makes the reader re-draw it in their head, and the card is the drawing they
 would have made.
+
+### Where the doctrine lives, and which surface gets which half
+
+The text is assembled by `render_card_doctrine()` in `cards/catalog.py` — the
+framing-free module that already owns `render_card_index` / `render_card_details`
+— because there are TWO surfaces that produce cards and only one of them used to
+be taught how to choose.
+
+`register.py` composes `render_card_doctrine()` with the `[[card:N]]` placement
+contract and exports the result as `_CARD_DOCTRINE`, which is what `emit_card`'s
+description carries.
+
+`cards/prompt.py` composes `render_card_doctrine(include_ifc_triggers=False)`
+for the post-hoc path that derives cards from a finished deep-research report.
+That path used to carry the disclaimer this section describes replacing — on the
+surface producing the LONGEST answers, the ones that most need a takeaway block,
+a callout and follow-ups. Three parts are deliberately withheld from it, and the
+reason is the same each time: they are not true there.
+
+- The **`[[card:N]]` placement contract**. The job runner emits the report
+  unchanged and attaches the returned list, so there is no text to place into.
+  List order is render order, and the doctrine's "put `follow_ups` last" gets an
+  ordering rule to refer to instead.
+- **`describe_card`**. There is no tool loop; the shapes are already inline.
+- The **`ifc_model_picker` trigger**, though not its shape. That trigger fires on
+  a live "zeig mir das Modell" intent and says to emit the card *instead of*
+  writing the file names as prose — a trade that is no longer available once the
+  prose is written. Note the picker is still NOT in `MODEL_BACKED_CARD_TYPES`:
+  that set means "every identifying field must be copied from an `ifc_query`
+  row", and the picker names no file and invents nothing. Withholding a trigger
+  and withholding a shape are different decisions with different reasons, and
+  conflating them would put the wrong reason on the wrong set.
+
+The CRAFT — which of the generic cards actually improves an ordinary answer, and
+how `verdict_header` divides the ruling with the answer's first sentence — is in
+neither. It lives in the `piloti-cards` platform skill, a database row applied on
+every answering turn and editable without a deploy. The post-hoc path cannot
+reach a skill runtime, so it carries the subset of that judgement which is a test
+over a finished text rather than an instruction about how to write one.
 
 A positive trigger that strong needs an **explicit negative default** beside it
 or it produces card spam, so the doctrine states that too: a one-line factual
@@ -301,6 +390,27 @@ lines of prose.
 
 The frontend validates the wire cards (`validateGridCards`) and renders them
 through the `features/grid-cards/` component set — one renderer per card type.
+
+### Where a card lands: `[[card:N]]`
+
+Cards used to be drawn as a block, all of them, after the whole answer — so the
+stair diagram sat three screens below the paragraph about the stair, and a reader
+had to scroll past every drawing to reach the sentence they asked for.
+
+Each `emit_card` call now returns a marker naming the card by its POSITION in
+this turn's registry (`[[card:2]]` for the second card emitted). A marker written
+on a line of its own in the answer body is consumed by a remark plugin
+(`grid-cards/card-markers.ts`) and the card is spliced in at that point; the
+cards no marker claimed still follow the prose as a block, which is also what
+happens when the answer places none. Position is used rather than an id because
+an id would have to survive validation, persistence AND the deep-research path,
+which builds its cards post-hoc from a finished report and has no emission order
+to refer back to.
+
+The contract is stated in `researcher.j2` as well as in the tool return, and
+deliberately so: a marker the model only learns about from the tool result
+arrives after it has already committed to the paragraph the card belongs to, so
+placement could only ever be retrofitted. Named up front, it can be planned.
 
 ## Interactive cards: the answer MUST be persisted
 
@@ -402,20 +512,24 @@ without re-plumbing generation or transport.
    dispatcher (interactive cards get `messageId={messageId} cardKey={key}`).
 5. Add a fixture to the `/dev/cards` gallery and a `visual/registry.mjs` target,
    then capture screenshot evidence (`npm run screenshots`).
-6. **Give it a trigger in `_CARD_DOCTRINE`** (`cards/register.py`) — which
-   question calls for it, in the same "trigger → card" form as the rest. A type
-   that is only listed in the index is a renderer nobody is asked for, which is
-   a renderer nobody sees; that is exactly how fifteen schematic cards sat
-   behind a disclaimer.
+6. **Give it a trigger in the doctrine** (`render_card_doctrine` in
+   `cards/catalog.py`) — which question calls for it, in the same
+   "trigger → card" form as the rest. A type that is only listed in the index is
+   a renderer nobody is asked for, which is a renderer nobody sees; that is
+   exactly how fifteen schematic cards sat behind a disclaimer. A trigger line,
+   and only a trigger line: the paragraph explaining when the card earns its
+   place belongs in the `piloti-cards` skill. Both halves are asserted against
+   each other, and a token ceiling on the tool description fails if the doctrine
+   drifts back into carrying craft.
 7. For a **system** card (tool-emitted, never model-emitted): add it to
    `SYSTEM_CARD_TYPES` and register the emitting tool in the agent's `tools:`
    list in the config.
 
 ## Card catalog
 
-The catalog is the twenty-seven types tabulated under
-[Current card types](#current-card-types) — five structured, fifteen schematic,
-five model-backed and two system — and that is the only place in this document
+The catalog is the thirty-seven types tabulated under
+[Current card types](#current-card-types) — fourteen structured, fifteen
+schematic, six model-facing IFC and two system — and that is the only place in this document
 where they are listed, on purpose: a card type appearing in two tables means one
 of them is already wrong. See
 [ADR-0012](../adr/0012-cards-as-rich-ui-layer.md).

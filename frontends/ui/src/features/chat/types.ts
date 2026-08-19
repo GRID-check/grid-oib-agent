@@ -174,7 +174,15 @@ export interface DeepResearchBannerData {
   bannerType: DeepResearchBannerType
   /** Job ID for identification */
   jobId: string
-  /** Total tokens used (for success banner) */
+  /**
+   * Total tokens the run consumed, as the stream reported it.
+   *
+   * Recorded, not rendered: the success banner used to print it as „Textmenge",
+   * a number with no reader-facing unit, and that statistic was removed rather
+   * than reworded. The field stays because turns already stored carry it and
+   * because it is the honest place to put the figure if a surface for our own
+   * cost ever earns one; nothing in the UI reads it today.
+   */
   totalTokens?: number
   /** Number of tool calls (for success banner) */
   toolCallCount?: number

@@ -30,21 +30,19 @@ export const FilesTab: FC = () => {
       {/* Header */}
       <div className="flex shrink-0 flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-muted-foreground">Files</span>
+          <span className="text-sm font-semibold text-muted-foreground">{t('filesTab.title')}</span>
           {files.length > 0 && (
             <span className="text-xs text-muted-foreground">{files.length}</span>
           )}
         </div>
-        <span className="text-xs text-muted-foreground">
-          Generated drafts, reports, and other file artifacts.
-        </span>
+        <span className="text-xs text-muted-foreground">{t('filesTab.description')}</span>
       </div>
 
       {/* Content */}
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
           <FileText className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm text-muted-foreground">No generated files available.</p>
+          <p className="text-sm text-muted-foreground">{t('filesTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
             {t('detailsHelp')}
           </p>

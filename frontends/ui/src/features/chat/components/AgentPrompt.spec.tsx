@@ -31,7 +31,7 @@ describe('AgentPrompt', () => {
     )
   })
 
-  test('shows "Agent needs your input" when not responded', () => {
+  test('shows "Piloti needs your input" when not responded', () => {
     render(
       <AgentPrompt
         id="prompt-1"
@@ -41,10 +41,10 @@ describe('AgentPrompt', () => {
       />
     )
 
-    expect(screen.getByText('Agent needs your input')).toBeInTheDocument()
+    expect(screen.getByText('Piloti needs your input')).toBeInTheDocument()
   })
 
-  test('shows "Agent received your input" when responded', () => {
+  test('shows "Piloti received your input" when responded', () => {
     render(
       <AgentPrompt
         id="prompt-1"
@@ -55,7 +55,7 @@ describe('AgentPrompt', () => {
       />
     )
 
-    expect(screen.getByText('Agent received your input')).toBeInTheDocument()
+    expect(screen.getByText('Piloti received your input')).toBeInTheDocument()
   })
 
   test('displays options for choice prompts', () => {

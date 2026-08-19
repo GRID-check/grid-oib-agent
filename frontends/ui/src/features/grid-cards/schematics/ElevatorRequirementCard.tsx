@@ -23,6 +23,7 @@ import {
 } from './kit'
 import { cn } from '@/lib/utils'
 import { sketchLine, sketchRect } from './rough'
+import { useTranslations, type Translator } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'
 
 interface ElevatorRequirementCardProps {
@@ -39,10 +40,11 @@ interface ElevatorRequirementCardProps {
 }
 
 /** Storey label relative to the entrance level: 2.KG … EG … 3.OG. */
-const storeyName = (index: number, entrance: number): string => {
-  if (index === entrance) return 'EG'
-  if (index > entrance) return `${index - entrance}.OG`
-  return `${entrance - index}.KG`
+const storeyName = (index: number, entrance: number, t: Translator): string => {
+  if (index === entrance) return t('cards.schematics.elevator.groundFloor')
+  if (index > entrance)
+    return t('cards.schematics.elevator.upperFloor', { level: index - entrance })
+  return t('cards.schematics.elevator.basement', { level: entrance - index })
 }
 
 export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
@@ -57,6 +59,7 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const n = Math.max(1, Math.min(storeysServed, 12))
   const entrance = Math.max(0, Math.min(entranceIndex ?? 0, n - 1))
 
@@ -80,18 +83,17 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
   return (
     <SchematicCard
       icon={ArrowUpDown}
-      eyebrow="Schematic"
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}
       reference={reference}
     >
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Barrierefreier Aufzug:</span>
+        <span className="text-muted-foreground">{t('cards.schematics.elevator.accessible')}:</span>
         {isRequired == null ? (
           <span className="inline-flex items-center gap-1 italic text-muted-foreground">
             <CircleHelp className="size-3.5" aria-hidden="true" />
-            Angabe fehlt
+            {t('cards.kit.status.needsInput')}
           </span>
         ) : (
           <span
@@ -100,7 +102,9 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
               isRequired ? 'bg-info-subtle text-info' : 'bg-muted text-muted-foreground'
             )}
           >
-            {isRequired ? 'erforderlich' : 'nicht erforderlich'}
+            {isRequired
+              ? t('cards.schematics.elevator.required')
+              : t('cards.schematics.elevator.notRequired')}
           </span>
         )}
       </div>
@@ -108,7 +112,7 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
         <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{requirementNote}</p>
       )}
 
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={300} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* one contiguous building outline */}
         {sketchRect(bx, top, bw, buildingH, 'lift-building', { strokeWidth: 1.5 })}
 
@@ -136,11 +140,11 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
                 size={9}
                 fill={isEntrance ? 'var(--foreground)' : 'var(--muted-foreground)'}
               >
-                {storeyName(storeyIdx, entrance)}
+                {storeyName(storeyIdx, entrance, t)}
               </SvgLabel>
               {isEntrance && (
                 <SvgLabel x={bx + 38} y={y + bandH / 2} size={8} italic>
-                  Zugangsebene
+                  {t('cards.schematics.elevator.entranceLevel')}
                 </SvgLabel>
               )}
             </g>
@@ -220,8 +224,15 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
             </g>
           )
         })()}
-        <SvgLabel x={shaftX + shaftW / 2} y={top - 10} anchor="middle" fill={info} size={9} weight={600}>
-          Aufzug
+        <SvgLabel
+          x={shaftX + shaftW / 2}
+          y={top - 10}
+          anchor="middle"
+          fill={info}
+          size={9}
+          weight={600}
+        >
+          {t('cards.schematics.elevator.shaft')}
         </SvgLabel>
 
         {/* storey count, bottom left */}

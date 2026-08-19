@@ -87,7 +87,7 @@ export const chat = {
     scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
     // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
     // tiny one-line hint under the composer keeps the active source count legible.
-    sourcesActiveMobile: '{count} sources active',
+    sourcesActiveMobile: '{count, plural, one {# source} other {# sources}} active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
   shortcuts: {
@@ -163,8 +163,23 @@ export const chat = {
     },
     // Note under the sources row when citation verification dropped one or more
     // unverifiable citations (WP-A `citations_removed`).
-    citationsRemoved: '{count} citation(s) removed (not verifiable)',
+    citationsRemoved:
+      '{count, plural, one {# citation} other {# citations}} removed (not verifiable)',
     citationsRemovedReasonsLabel: 'Reasons',
+  },
+  // Getting the answer OUT of the app — the paste into a report, a mail, a
+  // submission. Two icon buttons in the answer's meta row; the second one only
+  // exists when the turn actually resolved sources to write out.
+  answerActions: {
+    copy: 'Copy answer',
+    copyWithSources: 'Copy answer with full source references',
+    copied: 'Copied',
+    copyFailed: 'The answer could not be copied.',
+    // The heading the written-out source list is filed under. Mirrors the
+    // heading answers write themselves, so a pasted answer reads the same way
+    // whichever button produced it.
+    sourcesHeading: 'Sources',
+    untitledSource: 'Untitled source',
   },
   // Thread-header breadcrumb (project / session title) with inline rename.
   // The citation peek: what a Fundstelle IS, before you open it.
@@ -174,7 +189,7 @@ export const chat = {
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',
-    lociLabel: '{count} passages',
+    lociLabel: '{count, plural, one {# passage} other {# passages}}',
     lociAria: 'Passages in this document',
     lociPosition: '{index}/{count}',
     previousLocus: 'Previous passage',
@@ -192,10 +207,275 @@ export const chat = {
     verifyRis: 'Verify in RIS',
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
+    conditionTree: {
+      eyebrow: 'Condition tree',
+      dependsOn: 'Depends on',
+      applies: 'applies here',
+      basis: 'Basis',
+      // Lead-in over the outcome of the case that DOES apply to this project.
+      appliesHere: 'For this project the following applies:',
+      // Lead-in over any other case, in the subjunctive: the grammar itself
+      // says this is a what-if, so a screenshot of the panel cannot be read
+      // as this project's answer.
+      previewLead: 'Under {condition} the following would apply:',
+      // Same lead-in where no branch is marked as this project's: nothing is
+      // being contrasted, so nothing is put in the subjunctive.
+      caseLead: 'Under {condition} the following applies:',
+      // Rides INSIDE the previewed panel, so it travels with a screenshot.
+      previewNotice: 'For comparison only — this project is {condition}: {outcome}',
+      backToActive: 'Back to {condition}',
+      caseAria: 'Case {condition}',
+    },
+    askAbout: {
+      chip: 'Ask about this',
+      chipAria: 'Put a question about "{subject}" into the message box',
+      missingWithDetail:
+        '"{subject}" is missing a figure: {missing}. How can I supply it, and what applies until then?',
+      missingOnly:
+        '"{subject}" is missing a figure. Which figure is needed here, and where do I get it?',
+    },
+
+    // ── Shared schematic chrome ────────────────────────────────────────────
+    // `kit.tsx` draws fifteen cards. Its vocabulary lives here because it
+    // appears on every one of them: verdict, missing figure, provenance.
+    kit: {
+      eyebrow: 'Sketch',
+      status: {
+        pass: 'met',
+        fail: 'not met',
+        warning: 'borderline',
+        needsInput: 'figure missing',
+      },
+      // Stands where a number would stand that nobody knows. Never a guessed
+      // number — and never an empty slot, which reads as a fact about the
+      // building rather than a gap in the file.
+      missingValue: 'no figure given',
+      provenance: {
+        declared: 'per model',
+        computed: 'measured',
+        inferred: 'presumed',
+      },
+      // Long form for the tooltip, where there is room to say what the word means.
+      provenanceTitle: {
+        declared: 'This number is stated in the IFC file — the architect’s own figure.',
+        computed:
+          'Measured from the geometry, not declared. The tolerance is part of the statement.',
+        inferred: 'Derived from a heuristic. A suggestion to confirm, not a finding.',
+      },
+      toleranceStraddlesLimit:
+        'The measurement tolerance reaches across the limit: at this precision it is undecided whether the value is met. Measure more precisely for a formal check.',
+    },
+    followUps: {
+      eyebrow: 'Ask on',
+      groupAria: 'Follow-up questions',
+    },
+    keyTakeaways: {
+      eyebrow: 'What matters most',
+    },
+    callout: {
+      hinweis: 'Note',
+      achtung: 'Caution',
+      frist: 'Deadline',
+      tipp: 'Tip',
+      more: 'More on this',
+      less: 'Less',
+    },
+    calculation: {
+      eyebrow: 'Derivation',
+      result: 'Result',
+      limitLabel: 'Limit',
+      // A range limit, e.g. the Schrittmaßregel's 59–65 cm. Built by the code
+      // from two bounds, so the dash and the word order belong here.
+      limitRange: '{lower}–{upper} {unit}',
+      // An operand that is the result of an earlier step, named under it.
+      fromStep: 'from step {step}',
+      // Stands where the result would stand. Never a partial number: a
+      // derivation missing an input has no result, and printing one anyway is
+      // the exact failure this card exists to make impossible.
+      undecidable: 'Cannot be derived from the figures given.',
+      undefinedResult: 'Divided by zero — the result is not defined.',
+      sourcesMore: 'Where the figures come from',
+      sourcesLess: 'Less',
+      // Said inside the disclosure, where the reader is already checking the
+      // inputs: the card did the arithmetic, so what they audit is the inputs.
+      computedNote: 'The result is computed by this card from the figures above, not copied from the answer.',
+    },
+    processMap: {
+      eyebrow: 'Procedure',
+      current: 'you are here',
+      done: 'done',
+      stepAria: 'Step {step}: {label}',
+      requires: 'Requires',
+      produces: 'Produces',
+      actor: 'Responsible',
+      duration: 'Deadline',
+      basis: 'Basis',
+      // Rides INSIDE an opened step that is not the current one, so it travels
+      // with a screenshot of that panel alone.
+      elsewhereNotice: 'For reference only — this project is at step {step}: {label}',
+      backToCurrent: 'Back to {label}',
+    },
+    verdictHeader: {
+      confidenceHigh: 'high confidence',
+      confidenceMedium: 'medium confidence',
+      confidenceLow: 'low confidence',
+    },
+    normChain: {
+      eyebrow: 'Chain of norms',
+      // Rank of the legal instrument. These are the names of the Austrian
+      // legal order and stay in German here too.
+      rank: {
+        bundesgesetz: 'Bundesgesetz',
+        landesgesetz: 'Landesgesetz',
+        verordnung: 'Verordnung',
+        oibRichtlinie: 'OIB-Richtlinie',
+        oenorm: 'ÖNORM',
+        leitfaden: 'Leitfaden',
+      },
+      binding: 'binding',
+      // An OIB-Richtlinie binds only once a Land declares it binding — that
+      // belongs on the link, not in a footnote.
+      bindingWhenDeclared: 'binding where declared',
+      interpretive: 'interpretive',
+    },
+    comparison: {
+      eyebrow: 'Comparison',
+      criterion: 'Criterion',
+    },
+    typedTable: {
+      eyebrow: 'Table',
+    },
+    // ── Labels inside the drawings ─────────────────────────────────────────
+    // What is written on the sketch itself. Symbols (±0,00, Ø, N), units and
+    // standard designations (A++ … G, DnT,w) are deliberately absent: they are
+    // the same mark in every language.
+    schematics: {
+      acoustic: {
+        soundClass: 'Sound insulation class',
+        airborne: 'Airborne sound',
+        impact: 'Impact sound',
+        airborneResultant: 'Airborne sound (resultant)',
+        lowerIsBetter: '↓ lower is better',
+        higherIsBetter: '↑ higher is better',
+        reserve: 'Margin +{margin} dB',
+        shortfall: 'Shortfall {margin} dB',
+      },
+      daylight: {
+        glassArea: 'Glazed area',
+        window: 'Window',
+        obstruction: '45° daylight angle — {label}',
+        requiredArea: 'Floor area {floor} m² → required glazed area ≥ {required} m² (10 %).',
+        obstructionPierces: 'The obstruction pierces the 45° daylight cone.',
+      },
+      density: {
+        coverage: 'Site coverage',
+        parcel: 'Parcel {area} m²',
+        builtUp: 'built',
+        builtUpUnknown: 'Built-up area: {missing}',
+        grossFloorArea: 'Gross floor area (BGF)',
+      },
+      egress: {
+        totalWalkLength: 'Total travel distance',
+      },
+      elevator: {
+        accessible: 'Accessible lift',
+        required: 'required',
+        notRequired: 'not required',
+        entranceLevel: 'Entrance level',
+        shaft: 'Lift',
+        // Storey label relative to the entrance level, in Austrian notation.
+        groundFloor: 'EG',
+        upperFloor: '{level}.OG',
+        basement: '{level}.KG',
+      },
+      energy: {
+        hwb: 'Heating demand (HWB)',
+        hwbMarker: 'HWB {value}',
+        fgee: 'Overall energy efficiency factor (fGEE)',
+      },
+      fireAccess: {
+        routeWidth: 'Access route width',
+        gateClearance: 'Gateway clear height',
+        aufstellflaecheWidth: 'Aufstellfläche width',
+        aufstellflaecheLength: 'Aufstellfläche length',
+        facadeDistance: 'Distance to facade',
+        walkToEntrance: 'Walk to entrance',
+        parcel: 'Parcel {width} × {depth} m',
+        route: 'ACCESS',
+        building: 'Building',
+        aufstellflaeche: 'Aufstellfläche',
+        entrance: 'Entrance',
+        street: 'STREET',
+        gebaeudeklasse: 'Gebäudeklasse',
+        walkTooFar: ' — the walk to the entrance exceeds the permitted distance.',
+      },
+      fireCompartment: {
+        storey: 'Storey {label}',
+        plan: 'Floor plan',
+      },
+      guardrail: {
+        context: {
+          balkon: 'Balcony',
+          loggia: 'Loggia',
+          stiege: 'Stairs',
+          fenster: 'Window',
+          dachterrasse: 'Roof terrace',
+        },
+        elevation: 'ELEVATION · {context}',
+        fallHeight: 'Fall height',
+        railHeight: 'Guardrail height',
+        maxOpening: 'max. opening width',
+        bottomGap: 'Bottom gap',
+        climbGuard: 'No-climb zone 15–60 cm',
+        atLeast: ' → min. {value}',
+        climbables:
+          'Horizontal elements suitable for climbing within the no-climb zone (15–60 cm).',
+      },
+      parking: {
+        car: 'Car parking spaces',
+        bicycle: 'Bicycle parking spaces',
+        // Abbreviation for parking spaces, used as the unit after the number.
+        unit: 'sp.',
+        basis: 'Basis',
+        short: '{provided} of {required} provided — {missing} short{overflow}',
+        surplus: '{provided} provided — surplus +{surplus}{overflow}',
+        exact: '{provided} of {required} provided{overflow}',
+        truncated: ' (excerpt)',
+        legend: 'Filled = provided, dashed = missing against the requirement.',
+      },
+      setback: {
+        side: {
+          front: 'front',
+          back: 'rear',
+          left: 'left',
+          right: 'right',
+        },
+        distance: 'Setback {side}',
+        parcel: 'Parcel {width} × {depth} m',
+        building: 'Building',
+        street: 'STREET',
+        tooClose: 'At least one setback falls short of the required distance.',
+      },
+      stair: {
+        section: 'SECTION',
+        plan: 'PLAN',
+        // Step notation as it appears in the section of an Austrian submission.
+        stepNotation: '{count} Stg · {rise}/{going} cm',
+        // Without rise and going only the count is left.
+        stepCount: '{count, plural, one {# step} other {# steps}}',
+      },
+      thermal: {
+        roof: 'Roof',
+        wall: 'External wall',
+        window: 'Window',
+        door: 'Door',
+        floor: 'Floor',
+      },
+    },
   },
   agentPrompt: {
-    needsInput: 'Agent needs your input',
-    receivedInput: 'Agent received your input',
+    needsInput: 'Piloti needs your input',
+    receivedInput: 'Piloti received your input',
     /**
      * Shown to a colleague in a shared thread instead of the buttons: the agent
      * asked one person, and the agent tier refuses an answer from anybody else, so
@@ -270,7 +550,7 @@ export const chat = {
     recovering: 'Reconnecting',
     recoveringNotice: 'Reconnecting — checking for a finished answer …',
     done: 'Done',
-    elapsedAria: 'Elapsed: {seconds} seconds',
+    elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
     // Live one-liners describing what the assistant is doing right now, chosen
     // from the newest OPEN step that can be phrased for a reader. There is
     // deliberately no "show the step's own name" entry: an internal identifier
@@ -286,13 +566,6 @@ export const chat = {
       researching: 'Researching …',
       reading: 'Reading the results …',
       composing: 'Composing the answer …',
-      // The legacy `use_skill` tool frame, which names the mechanism and not
-      // the skill. Honest and unnamed rather than wrong and specific. There is
-      // no named peer here on purpose: once the backend emits `skill:<id>`
-      // events it authors that sentence itself, carrying the skill's title and
-      // the difference between a skill the model chose and one the user asked
-      // for — neither of which a template here could know.
-      usingSkillUnnamed: 'Applying a skill …',
     },
     // ── Turn events: the words for what the backend REPORTED ──────────────
     //
@@ -318,15 +591,19 @@ export const chat = {
       // Joins two corpora in one line. Grammar, so it lives here too.
       corpusJoin: ' and ',
       status: {
-        // Which shelf of the reader's OWN files is being read. One key per
-        // shelf rather than one template with a `{shelf}` slot: German needs
-        // the dative ("aus dem Büroarchiv") and English needs no article, so a
-        // shelf name cannot be interpolated into one shared sentence.
+        // Which of the reader's OWN files are being read. One key per level
+        // rather than one template with a slot: German needs the dative ("aus
+        // dem Büroarchiv") and English needs no article, so the level's name
+        // cannot be interpolated into one shared sentence. Every line names
+        // the level the way the product names it to the reader — office
+        // archive, project, conversation. There is no line for several at
+        // once, because the collective noun for them is OURS, not theirs, so
+        // `several` states plainly WHAT is being read.
         documents: {
           archiv: 'Reviewing documents from the office archive …',
           project: 'Reviewing documents from the project …',
           session: 'Reviewing documents from this conversation …',
-          several: 'Reviewing documents from your shelves …',
+          several: 'Reviewing your documents …',
         },
         // The routing DECISION, from a closed enum. The classifier's own
         // reason for it is free-text prose in whatever language the model
@@ -367,10 +644,10 @@ export const chat = {
     executedSteps: 'Ran:',
     stepName: {
       understanding: 'Classification',
-      routing: 'Routing',
+      routing: 'Research path',
       webSearch: 'Web search',
       ris: 'RIS',
-      corpus: 'OIB corpus',
+      corpus: 'OIB knowledge',
       assistant: 'Assistant',
       reading: 'Reading',
       // One chip per skill the turn actually applied. `{name}` is resolved by
@@ -379,9 +656,47 @@ export const chat = {
       // The bare `use_skill` frame with no identifiable skill behind it.
       skillUnnamed: 'Skill',
     },
+    // Reader-facing names for the nodes and tools the backend emits, used by
+    // the opt-in technical panel. The names on the wire are internal ids
+    // (`knowledge_search`) — and NAT also forwards LangChain span names, which
+    // are CamelCase class names — so the panel resolves every row through this
+    // map instead of title-casing whatever arrived. Entries that a chip already
+    // names reuse `stepName.*` above: one node, one wording, everywhere.
+    nodeName: {
+      // The root frame that is open for the whole turn, not a step within it.
+      workflow: 'Whole exchange',
+      clarification: 'Clarifying question',
+      deepResearch: 'Deep research',
+      dataSources: 'Data sources',
+      note: 'Note saved',
+      card: 'Result card',
+      documents: 'Document list',
+      askUser: 'Question to you',
+      model: 'Building model',
+      measure: 'Model measurement',
+      compliance: 'Compliance check',
+      skillSelection: 'Skill selection',
+      // A node this build has no name for. It keeps its row — the panel counts
+      // its steps and each carries a timestamp, so dropping rows would make the
+      // list disagree with the count and hide that something ran — but it says
+      // only that something internal ran. The raw name is not a vocabulary a
+      // reader can learn (unlike a `status:` slot, which is one and stays
+      // verbatim on purpose); it is whatever the framework called that span.
+      internal: 'Internal step',
+    },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
-    herleitungSummary: 'Trace · {steps} steps · {sources} sources',
+    // The trace's header line, built from two clauses. The sources clause is
+    // ABSENT when there are none: "0 sources" is a true number that reads as a
+    // failure, and an answer grounded in a measurement of the model rightly has
+    // no citations. The line counts what is there and says nothing about what
+    // is not.
+    herleitungSummary: 'Trace · {count, plural, one {# step} other {# steps}}',
+    herleitungSummaryWithSources:
+      '{summary} · {count, plural, one {# source} other {# sources}}',
+    // The turn has reported no step yet, so the line says what it is instead of
+    // counting to zero.
+    herleitungSummaryNoSteps: 'Trace',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',
@@ -389,7 +704,7 @@ export const chat = {
     sourcesFanOut: 'Sources',
     hitCount: '{count} hits',
     hitCountOne: '1 hit',
-    gapHit: 'Not in corpus',
+    gapHit: 'Nothing found',
     // A document the research read but the answer never cited — a real
     // research outcome, not a gap.
     readNotUsed: 'read, not used',
@@ -426,8 +741,8 @@ export const chat = {
       findingsHits: 'Hits in: {lanes}',
       // The proof-of-work tally, stated where the fan converges: what was
       // actually read, before naming which strata it came from.
-      findingsTally: '{hits} hits across {docs} documents',
-      findingsTallyOne: '{hits} hits in 1 document',
+      findingsTally: '{hits, plural, one {# hit} other {# hits}} across {docs} documents',
+      findingsTallyOne: '{hits, plural, one {# hit} other {# hits}} in 1 document',
       // While the turn streams there is no assessment yet, but the graph still
       // needs its converge point — otherwise the source columns dangle and the
       // shape jumps when the answer lands.
@@ -439,8 +754,7 @@ export const chat = {
   },
   deepResearch: {
     stats: {
-      tokens: '{count} tokens',
-      toolCalls: '{count} tool calls',
+      toolCalls: '{count, plural, one {# tool call} other {# tool calls}}',
     },
     success: {
       heading: 'Report Completed!{stats}',
@@ -531,7 +845,8 @@ export const chat = {
     researchQueueFull: {
       title: 'Research is busy',
       message: 'The research queue is currently full. Please resend your request in a moment.',
-      retryHint: 'Please try again in about {seconds} seconds.',
+      retryHint:
+        'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
     },
   },
   // User-facing deep-research error copy raised from the SSE hook and the
@@ -557,9 +872,9 @@ export const chat = {
   budgetExhausted: {
     title: 'Budget exhausted',
     memberMessage:
-      'Your LLM budget is used up, so new messages can’t be sent right now. You can review your own usage under Organization → Usage & budgets. Ask an organization admin to raise your limit.',
+      'Your usage budget is used up, so new messages can’t be sent right now. You can review your own usage under Organization → Usage & budgets. Ask an organization admin to raise your limit.',
     adminMessage:
-      'The LLM budget is used up, so new messages can’t be sent right now. Raise the limits under Organization → Usage & budgets.',
+      'The usage budget is used up, so new messages can’t be sent right now. Raise the limits under Organization → Usage & budgets.',
   },
   fileUpload: {
     uploading:
@@ -573,7 +888,7 @@ export const chat = {
   },
   memory: {
     noted: 'Piloti noted',
-    notedAria: 'Piloti noted {count} items',
+    notedAria: 'Piloti noted {count, plural, one {# item} other {# items}}',
     addedToMemory: 'Added to project memory',
     manageHint: 'You can manage and delete these entries in the project memory.',
     kinds: {

@@ -146,14 +146,8 @@ export const BuildingSectionCard: FC<BuildingSectionCardProps> = ({
   }
 
   return (
-    <SchematicCard
-      icon={Building2}
-      eyebrow="Schematic"
-      title={title}
-      note={note}
-      reference={reference}
-    >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={430} label={title}>
+    <SchematicCard icon={Building2} title={title} note={note} reference={reference}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* below-grade block behind the ground line */}
         {belowBands}
 

@@ -37,7 +37,7 @@ export const onboarding: typeof en.onboarding = {
       'Sie möchten einer bestehenden Organisation beitreten? Bitten Sie deren Administrator um eine Einladung — eingeladene Mitglieder sehen diesen Schritt nie.',
   },
   features: {
-    privateTenant: 'Privater Mandant',
+    privateTenant: 'Private Umgebung',
     adminAccess: 'Administratorzugriff',
     projectsReady: 'Projekte bereit',
   },
