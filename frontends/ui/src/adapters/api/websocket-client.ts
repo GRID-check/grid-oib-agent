@@ -61,6 +61,10 @@ export interface ResponseTransparency {
    * absent, never false.
    */
   researchTruncated?: true
+  /** Why research stopped early, as a stable token the dictionary localizes. */
+  truncationReason?: string
+  /** Ways the answer came out weaker than a healthy run, as stable tokens. */
+  degradedReasons?: string[]
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
@@ -644,6 +648,8 @@ export class NATWebSocketClient {
             answerConfidenceReason: message.answer_confidence_reason,
             citationsRemoved: message.citations_removed,
             researchTruncated: message.research_truncated,
+            truncationReason: message.truncation_reason,
+            degradedReasons: message.degraded_reasons,
             skillsActivated: message.skills_activated,
             skillsHidden: message.skills_hidden,
             jobAdmissionRejected: message.job_admission_rejected,

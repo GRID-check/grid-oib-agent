@@ -140,6 +140,17 @@ export interface AnswerTransparency {
    */
   researchTruncated?: true
   /**
+   * WHY the research stopped early, as a stable token the dictionary turns into
+   * words. Read independently of `researchTruncated`: the flag and its cause
+   * are separate facts on the wire, and a cause without a flag says nothing.
+   */
+  truncationReason?: string
+  /**
+   * Ways this answer came out weaker than a healthy run, as stable tokens.
+   * Absent rather than empty — an empty list is not a claim.
+   */
+  degradedReasons?: string[]
+  /**
    * Skills whose full instructions the agent loaded this turn (`use_skill`), in
    * activation order. Absent when none — a skill merely being available is not
    * reportable, only the decision to load one is.
@@ -368,6 +379,17 @@ export interface ChatMessage {
    * truncated answer can be perfectly grounded in the little it did find.
    */
   researchTruncated?: true
+  /**
+   * WHY the research stopped early, as a stable token the dictionary turns into
+   * words. Read independently of `researchTruncated`: the flag and its cause
+   * are separate facts on the wire, and a cause without a flag says nothing.
+   */
+  truncationReason?: string
+  /**
+   * Ways this answer came out weaker than a healthy run, as stable tokens.
+   * Absent rather than empty — an empty list is not a claim.
+   */
+  degradedReasons?: string[]
   /**
    * Skills whose instructions the agent LOADED while answering, in activation
    * order. Renders the "skills used" disclosure under the answer; absent when
