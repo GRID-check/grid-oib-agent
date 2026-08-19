@@ -91,7 +91,28 @@ class Chunk(BaseModel):
         description="Presigned HTTP URL for frontend display.",
     )
 
-    # --- 6. Extra Metadata ---
+    # --- 6. Retrieval Provenance (Optional) ---
+    # Rank fusion is scale-free, which is why these exist: session/project collections
+    # sit in a worse cosine band than the professionally chunked base corpus, so a user's
+    # own upload can never win on raw score. Its RANK inside its own collection is
+    # comparable across collections even when its score is not.
+    retrieval_rank: int | None = Field(
+        None,
+        ge=0,
+        description=(
+            "0-based rank of this chunk within the collection that produced it, after "
+            "intra-collection fusion. None when the producing backend did not stamp one."
+        ),
+    )
+    fusion_score: float | None = Field(
+        None,
+        description=(
+            "Diagnostic reciprocal-rank-fusion score from the cross-collection merge. "
+            "Never displayed to the user or the LLM; `score` remains the true similarity."
+        ),
+    )
+
+    # --- 7. Extra Metadata ---
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Passthrough for extra backend-specific metadata.",

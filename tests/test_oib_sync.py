@@ -399,6 +399,53 @@ class TestChunkFormatVersionGate:
         stored = json.loads(reg_path.read_text())
         assert stored == {oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION}  # hashes dropped -> all files re-ingest
 
+    def test_the_forced_reingest_replaces_the_old_chunks_instead_of_adding_to_them(self, monkeypatch, tmp_path):
+        """The version bump must not turn a re-ingest into a second copy of the corpus.
+
+        `sync()` triggers the re-ingest by emptying the registry, and the delete step
+        was guarded by `str(pdf) in registry` — false for every file once it is empty.
+        Each PDF's new chunks would have been written alongside its old ones, leaving
+        both formats of the whole corpus in one collection, both retrievable and both
+        rendering as a valid citation, until somebody reset it by hand.
+
+        This drives the real `sync()` rather than replicating its gate, which is how the
+        defect survived: the tests above simulate the registry reset and never reach the
+        delete.
+        """
+        fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS, "b.pdf": FileStatus.SUCCESS})
+        registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+        _write_pdf(oib_sync.OIB_DIR / "a.pdf", b"one")
+        _write_pdf(oib_sync.OIB_DIR / "b.pdf", b"two")
+        # A registry written by the PREVIOUS chunk format, listing both files as ingested.
+        registry_path.write_text(
+            json.dumps(
+                {
+                    oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION - 1,
+                    str(oib_sync.OIB_DIR / "a.pdf"): "stale",
+                    str(oib_sync.OIB_DIR / "b.pdf"): "stale",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        oib_sync.sync()
+
+        assert sorted(fake_ingestor.uploaded) == ["a.pdf", "b.pdf"]
+        assert sorted(fake_ingestor.deleted) == ["a.pdf", "b.pdf"], (
+            "every re-ingested file must have its old-format chunks deleted first"
+        )
+
+    def test_a_first_ever_sync_still_deletes_nothing(self, monkeypatch, tmp_path):
+        """No stored format means no stored chunks; the delete has nothing to undo."""
+        fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS})
+        _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+        _write_pdf(oib_sync.OIB_DIR / "a.pdf", b"one")
+
+        oib_sync.sync()
+
+        assert fake_ingestor.uploaded == ["a.pdf"]
+        assert fake_ingestor.deleted == []
+
     def test_stamped_registry_is_untouched(self, tmp_path, monkeypatch):
         from aiq_agent import oib_sync as osync
 
@@ -548,3 +595,75 @@ class TestConcurrentCorpusMutations:
         # Both read-modify-writes ran inside the critical section; outside it a
         # concurrent removal could drop the other's basename.
         assert held == [True, True]
+
+
+class TestMarkForReingest:
+    """Forcing a rebuild of one document without touching the rest of the corpus."""
+
+    def _corpus(self, monkeypatch, tmp_path, names=("a.pdf", "b.pdf")):
+        oib_dir = tmp_path / "oib"
+        oib_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(oib_sync, "OIB_DIR", oib_dir)
+        monkeypatch.setattr(oib_sync, "OIB_UPLOADS_DIR", tmp_path / "uploads")
+        monkeypatch.setattr(oib_sync, "REGISTRY_PATH", tmp_path / "registry.json")
+        monkeypatch.setattr(oib_sync, "EXCLUDED_PATH", tmp_path / "excluded.json")
+        for name in names:
+            _write_pdf(oib_dir / name, name.encode())
+        return oib_dir
+
+    def test_it_forgets_only_the_named_document(self, monkeypatch, tmp_path):
+        """The registry hash is what `oib_status` reads to say INGESTED.
+
+        Dropping it is not what triggers the rebuild — `ingest_single` deletes and
+        re-uploads regardless. It is what makes the rebuild VISIBLE: without it the
+        document reads INGESTED for the whole job and the admin UI's progress panel
+        shows work that appears to finish before it starts.
+        """
+        oib_dir = self._corpus(monkeypatch, tmp_path)
+        oib_sync._save_registry(
+            {
+                oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION,
+                str(oib_dir / "a.pdf"): "hash-a",
+                str(oib_dir / "b.pdf"): "hash-b",
+            }
+        )
+
+        target = oib_sync.mark_for_reingest("a.pdf")
+
+        assert target == oib_dir / "a.pdf"
+        registry = oib_sync._load_registry()
+        assert str(oib_dir / "a.pdf") not in registry, "the named document must read as not-yet-ingested"
+        assert registry[str(oib_dir / "b.pdf")] == "hash-b", "an unselected document must be untouched"
+        assert registry[oib_sync._FORMAT_KEY] == oib_sync.CHUNK_FORMAT_VERSION
+
+    def test_it_drops_every_entry_for_the_basename(self, monkeypatch, tmp_path):
+        """One document can be registered under both the corpus and the uploads dir.
+
+        A single leftover hash restores the INGESTED reading, so the basename is what
+        is forgotten, not the path.
+        """
+        oib_dir = self._corpus(monkeypatch, tmp_path, names=("a.pdf",))
+        oib_sync._save_registry(
+            {
+                oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION,
+                str(oib_dir / "a.pdf"): "hash-corpus",
+                str(tmp_path / "uploads" / "a.pdf"): "hash-upload",
+            }
+        )
+
+        oib_sync.mark_for_reingest("a.pdf")
+
+        assert [key for key in oib_sync._load_registry() if key != oib_sync._FORMAT_KEY] == []
+
+    def test_an_unknown_or_unsafe_name_resolves_to_nothing(self, monkeypatch, tmp_path):
+        self._corpus(monkeypatch, tmp_path)
+        assert oib_sync.mark_for_reingest("ghost.pdf") is None
+        assert oib_sync.mark_for_reingest("../oib/a.pdf") is None, "path traversal must not resolve"
+        assert oib_sync.mark_for_reingest("a.txt") is None
+
+    def test_an_excluded_document_cannot_be_revived_by_a_reingest(self, monkeypatch, tmp_path):
+        """Exclusion is how a repo-shipped file is removed; re-ingest must not undo it."""
+        self._corpus(monkeypatch, tmp_path)
+        oib_sync._save_excluded({"a.pdf"})
+        assert oib_sync.mark_for_reingest("a.pdf") is None
+        assert oib_sync.mark_for_reingest("b.pdf") is not None

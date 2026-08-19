@@ -14,10 +14,11 @@ import {
 } from './catalog'
 
 describe('retrieval settings catalog', () => {
-  it('contains the nine platform-tunable counts', () => {
+  it('contains the ten platform-tunable counts', () => {
     expect(RETRIEVAL_SETTING_KEYS).toEqual([
       'knowledge.top_k',
       'knowledge.max_chunks_per_document',
+      'knowledge.relevance_floor_pct',
       'surface.chunk_top_k',
       'surface.max_files',
       'web.max_results',
@@ -32,6 +33,9 @@ describe('retrieval settings catalog', () => {
     expect(retrievalSettingDefaults()).toEqual({
       'knowledge.top_k': 16,
       'knowledge.max_chunks_per_document': 5,
+      // 0 disables the floor, and that is the shipped default deliberately: measured on
+      // this corpus, similarity does not separate answerable from out-of-scope questions.
+      'knowledge.relevance_floor_pct': 0,
       'surface.chunk_top_k': 40,
       'surface.max_files': 3,
       'web.max_results': 8,

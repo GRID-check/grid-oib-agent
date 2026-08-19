@@ -376,3 +376,64 @@ async def test_upload_clears_prior_exclusion(app, uploads_dir, delete_dirs):
     assert oib_sync._load_excluded() == set()
     # ...so discovery now finds it again.
     assert "shipped.pdf" in {p.name for p in oib_sync.discover_pdfs()}
+
+
+# ---------------------------------------------------------------------------
+# Subset re-ingest
+#
+# `sync()` gates on the sha256 of the PDF bytes, so it is a no-op for a file that
+# has not changed. That is right for "has anything new arrived" and wrong after a
+# change to how chunks are BUILT — which is when an admin needs exactly these
+# documents rebuilt and nothing else.
+# ---------------------------------------------------------------------------
+
+
+async def test_reingest_queues_only_the_named_documents(app, uploads_dir, monkeypatch):
+    ingested: list[str] = []
+    monkeypatch.setattr(oib_sync, "ingest_single", lambda pdf: ingested.append(pdf.name))
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("a.pdf", "b.pdf", "c.pdf"):
+        (uploads_dir / name).write_bytes(_pdf_bytes())
+
+    async with _client(app) as client:
+        response = await client.post("/v1/admin/oib/reingest", json={"file_names": ["a.pdf", "c.pdf"]})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "pending"
+    assert sorted(body["queued"]) == ["a.pdf", "c.pdf"]
+    assert body["unknown"] == []
+    deadline = time.time() + 3.0
+    while time.time() < deadline and len(ingested) < 2:
+        time.sleep(0.02)
+    assert sorted(ingested) == ["a.pdf", "c.pdf"], "b.pdf was not selected and must not be touched"
+
+
+async def test_reingest_reports_unknown_names_instead_of_failing_the_request(app, uploads_dir, monkeypatch):
+    """One stale name must not discard a selection of twenty."""
+    monkeypatch.setattr(oib_sync, "ingest_single", lambda pdf: None)
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    (uploads_dir / "a.pdf").write_bytes(_pdf_bytes())
+
+    async with _client(app) as client:
+        response = await client.post("/v1/admin/oib/reingest", json={"file_names": ["a.pdf", "ghost.pdf"]})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["queued"] == ["a.pdf"]
+    assert body["unknown"] == ["ghost.pdf"]
+
+
+async def test_reingest_of_nothing_known_is_a_noop_not_a_pending_job(app, uploads_dir, monkeypatch):
+    monkeypatch.setattr(oib_sync, "ingest_single", lambda pdf: None)
+    async with _client(app) as client:
+        response = await client.post("/v1/admin/oib/reingest", json={"file_names": ["ghost.pdf"]})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "noop"
+
+
+async def test_reingest_rejects_an_empty_selection(app):
+    async with _client(app) as client:
+        response = await client.post("/v1/admin/oib/reingest", json={"file_names": []})
+    assert response.status_code == 422, "an empty selection is a client bug, not a no-op"

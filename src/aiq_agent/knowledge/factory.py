@@ -14,6 +14,7 @@ Configuration:
     Users don't need to specify the backend in each request.
 """
 
+import json
 import logging
 import os
 import threading
@@ -69,7 +70,13 @@ _RETRIEVER_REGISTRY: dict[str, type[BaseRetriever]] = {}
 _INGESTOR_REGISTRY: dict[str, type[BaseIngestor]] = {}
 
 # Singleton instances (cached for job state persistence)
-_RETRIEVER_INSTANCES: dict[str, BaseRetriever] = {}
+#
+# Retrievers are keyed on (backend, config fingerprint), NOT on backend alone:
+# two callers asking for the same backend with different persist dirs or embed
+# models must get different adapters, or one of them silently queries the wrong
+# store. See get_retriever.
+_RETRIEVER_INSTANCES: dict[tuple[str, str], BaseRetriever] = {}
+_retriever_instances_lock = threading.Lock()
 _INGESTOR_INSTANCES: dict[str, BaseIngestor] = {}
 
 # Active ingestor for the Knowledge API (set by knowledge_retrieval function)
@@ -135,12 +142,59 @@ def register_ingestor(name: str) -> Callable[[type[BaseIngestor]], type[BaseInge
     return decorator
 
 
+def _retriever_identity(backend: str, config: dict[str, Any]) -> tuple[str, str]:
+    """Stable cache key for "the same retriever, configured the same way".
+
+    Backend alone is the wrong key: the same adapter class pointed at a
+    different persist dir or a different embedding model is a different
+    retriever, and handing back the first one would silently query the wrong
+    store (or serve vectors from the wrong model). The fingerprint is a
+    canonical JSON dump; ``default=repr`` keeps a non-serializable config value
+    (a client object, a Path) from turning an identity check into an exception.
+    """
+    try:
+        fingerprint = json.dumps(config, sort_keys=True, default=repr)
+    except (TypeError, ValueError):
+        # Exotic config (non-string keys). Fall back to a repr — coarser, but a
+        # key that always exists beats a factory that raises.
+        fingerprint = repr(sorted(config.items(), key=lambda item: str(item[0])))
+    return backend, fingerprint
+
+
 def get_retriever(
     backend: str | None = None,
     config: dict[str, Any] | None = None,
 ) -> BaseRetriever:
     """
-    Factory function to get a configured retriever adapter.
+    Factory function to get a configured retriever adapter (cached per identity).
+
+    Lifetime: ONE instance per resolved ``(backend, config)`` identity, for the
+    life of the process. This function used to construct a fresh adapter on
+    every call, which quietly defeated everything the adapter caches: its index
+    cache, its query-embedding LRU and its static-result cache are instance
+    state, and ``_get_retriever`` runs once per ``WorkflowBuilder`` build — that
+    is, once per agent run. Every run therefore started with empty caches and
+    dropped them at the end, so the 1-hour result-cache TTL was unreachable and
+    the cross-conversation hit rate was exactly zero.
+
+    Memory: the instance is now long-lived, so its caches are too. The
+    query-embedding LRU dominates — at 3072 dimensions one cached embedding is
+    ~97 KiB, so a full ``AIQ_QUERY_EMBED_CACHE_SIZE`` (512) is ~49 MiB. That
+    ~49 MiB is now per distinct configuration (in practice one, sometimes two)
+    instead of per concurrent agent run, which is a reduction, not a new cost —
+    but it is resident rather than transient, and ``AIQ_QUERY_EMBED_CACHE_SIZE``
+    is the knob if a replica's footprint needs trimming.
+
+    Correctness: a long-lived result cache is only safe because cache entries
+    are keyed on the collection write-version from
+    ``aiq_agent.knowledge.collection_version``, which is shared across replicas.
+    Without that, caching an adapter here would extend a same-process
+    invalidation window into a fleet-wide staleness window bounded only by the
+    TTL. The two changes are one change; do not revert either alone.
+
+    Thread-safe: retrieval runs under ``asyncio.to_thread``, so several worker
+    threads can reach a cold factory at once. Construction is double-checked
+    under a lock so exactly one instance per identity is built and published.
 
     Configuration Precedence (highest to lowest):
         1. Explicit ``backend`` parameter passed to this function
@@ -151,10 +205,12 @@ def get_retriever(
         backend: The backend name ('llamaindex' or 'foundational_rag').
                  If None, uses the environment variable or default.
         config: Backend-specific configuration. Passed directly to the adapter.
-                Each adapter defines its own defaults internally.
+                Each adapter defines its own defaults internally. A differing
+                config yields a DIFFERENT cached instance — it is part of the
+                cache key, never ignored.
 
     Returns:
-        Configured retriever adapter instance.
+        Configured retriever adapter instance (cached per backend + config).
 
     Raises:
         ValueError: If backend is not registered.
@@ -170,9 +226,29 @@ def get_retriever(
         available = list(_RETRIEVER_REGISTRY.keys())
         raise ValueError(f"Unknown retriever backend: {backend}. Available backends: {available}")
 
-    # Pass config directly to adapter - each adapter handles its own defaults
-    adapter_cls = _RETRIEVER_REGISTRY[backend]
-    return adapter_cls(config=config or {})
+    config = config or {}
+    identity = _retriever_identity(backend, config)
+
+    cached = _RETRIEVER_INSTANCES.get(identity)
+    if cached is not None:
+        return cached
+
+    with _retriever_instances_lock:
+        # Double-checked: another thread may have built it while we waited.
+        cached = _RETRIEVER_INSTANCES.get(identity)
+        if cached is not None:
+            return cached
+
+        # Pass config directly to adapter - each adapter handles its own defaults
+        adapter_cls = _RETRIEVER_REGISTRY[backend]
+        instance = adapter_cls(config=config)
+        _RETRIEVER_INSTANCES[identity] = instance
+        logger.info(
+            "Created retriever instance for backend %s (%d cached configuration(s))",
+            backend,
+            len(_RETRIEVER_INSTANCES),
+        )
+        return instance
 
 
 def get_ingestor(
@@ -354,9 +430,18 @@ def get_active_retriever() -> BaseRetriever:
 
 
 def clear_active_retriever() -> None:
-    """Clear the cached active retriever (for testing)."""
+    """Drop every cached retriever — the active one AND the per-identity cache (for testing).
+
+    Both, deliberately. ``get_retriever`` now caches an instance per
+    ``(backend, config)`` for the life of the process, so clearing only
+    ``_ACTIVE_RETRIEVER`` would leave the next lazy build handing back the very
+    instance (and the very warm caches) the previous test had populated. This is
+    the single reset hook tests already call; it has to actually reset.
+    """
     global _ACTIVE_RETRIEVER
     _ACTIVE_RETRIEVER = None
+    with _retriever_instances_lock:
+        _RETRIEVER_INSTANCES.clear()
 
 
 # =============================================================================

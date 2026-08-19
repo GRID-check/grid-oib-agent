@@ -54,6 +54,15 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
     description: 'Diversitäts-Kappe pro Dokument im Merge. 0 deaktiviert die Kappe.',
   },
   {
+    key: 'knowledge.relevance_floor_pct',
+    defaultValue: 0,
+    min: 0,
+    max: 90,
+    label: 'Wissensdatenbank: Relevanz-Schwelle (%)',
+    description:
+      'Mindest-Ähnlichkeit in Prozent, damit ein Treffer überhaupt zurückgegeben wird. 0 deaktiviert die Schwelle (Standard). Muss gegen das eingesetzte Embedding-Modell kalibriert werden — ein Wert aus einem anderen Modell filtert still zu viel oder zu wenig.',
+  },
+  {
     key: 'surface.chunk_top_k',
     defaultValue: 40,
     min: 1,

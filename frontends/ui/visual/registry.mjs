@@ -465,6 +465,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-knowledge-preview"]',
   },
   {
+    id: 'platform-knowledge-selection',
+    mobile: true,
+    path: '/dev/platform-knowledge-selection',
+    description:
+      'Base-knowledge selection toolbar — the bulk bar that replaces the search row once documents are ticked: change document type, re-index the selected documents, remove them.',
+    waitFor: '[data-testid="data-toolbar-selection"]',
+  },
+  {
     id: 'platform-norms',
     mobile: true,
     path: '/dev/platform-norms',

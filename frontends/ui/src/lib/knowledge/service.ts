@@ -372,6 +372,57 @@ export async function syncKnowledgeBase(): Promise<KnowledgeSyncResult> {
   }
 }
 
+export interface KnowledgeReingestResult {
+  status: 'pending' | 'noop'
+  queued: string[]
+  unknown: string[]
+  message: string
+}
+
+/**
+ * Force a rebuild of specific base-corpus documents' chunks.
+ *
+ * `syncKnowledgeBase` is incremental and gates on the sha256 of the PDF bytes, so it does
+ * nothing for a document whose file has not changed. That is correct for "has anything new
+ * arrived" and useless after a change to how chunks are BUILT rather than what they are
+ * built from — a chunking change, a new embedding model, a half-failed ingest. This is the
+ * targeted remedy, so an admin does not have to re-ingest the whole corpus (39 PDFs,
+ * including VLM captioning) to rebuild three of them.
+ *
+ * Returns as soon as the work is QUEUED, like an upload: the backend ingests in the
+ * background and the caller polls `/api/knowledge-base`, where each queued document reads
+ * `pending` until its chunks exist again. Unknown names come back in `unknown` rather than
+ * failing the call — one stale name must not discard a selection of twenty.
+ */
+export async function reingestKnowledgeBaseDocuments(fileNames: string[]): Promise<KnowledgeReingestResult> {
+  const names = fileNames.map(requirePdfBasename)
+  if (names.length === 0) {
+    throw new BadRequestError('Select at least one document to re-ingest')
+  }
+  let res: Response
+  try {
+    res = await fetch(`${getBackendUrl()}/v1/admin/oib/reingest`, {
+      method: 'POST',
+      headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_names: names }),
+      // Queueing only — the ingestion itself runs in the background.
+      signal: AbortSignal.timeout(KNOWLEDGE_STATUS_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new UpstreamError('Knowledge backend unreachable', error instanceof Error ? error.message : undefined)
+  }
+  if (!res.ok) {
+    throw new UpstreamError(`Knowledge backend returned ${res.status}`)
+  }
+  const body = await res.json().catch(() => ({}))
+  return {
+    status: body?.status === 'noop' ? 'noop' : 'pending',
+    queued: Array.isArray(body?.queued) ? body.queued.map(String) : [],
+    unknown: Array.isArray(body?.unknown) ? body.unknown.map(String) : [],
+    message: asString(body?.message) ?? '',
+  }
+}
+
 /**
  * Stream a corpus source PDF from the backend (for the citation/source
  * viewer). Returns a Response suitable to hand straight back to the browser.

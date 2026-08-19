@@ -1,0 +1,1211 @@
+{
+  "schema_version": 1,
+  "description": "Golden retrieval set for the OIB corpus. Labels are Punkte, not chunks, and are expanded to (file_name, page) units through fixtures/punkt_index.json at load time. Every German question has an English sibling with IDENTICAL qrels, so a measured language gap is a retrieval defect rather than a labelling artefact. calibration_pending is true on every entry: the labels are read from the corpus, but the grades have not yet been reviewed by a second Austrian building-law reader.",
+  "forbidden_file_prefixes": [
+    "aenderungen_"
+  ],
+  "entries": [
+    {
+      "id": "de-fluchtweg-gehweglaenge",
+      "need_id": "fluchtweg-gehweglaenge",
+      "language": "de",
+      "question": "Wie lang darf die Gehweglänge von jeder Stelle eines Raumes bis zum Ausgang ins Freie oder zum Treppenhaus höchstens sein?",
+      "question_class": "egress_diagram",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "5.1.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2",
+          "punkt": "5.1.2",
+          "grade": 2
+        },
+        {
+          "richtlinie": "2",
+          "punkt": "5.1.4",
+          "grade": 1
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: EgressDiagramCard names the escape-route-length question class and its Richtlinie ('checks the total against the OIB 2 limit (typically 40 m)').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p13 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 5.1.1 sets 'höchstens 40 m Gehweglänge' to a) a direct exit, b) a Treppenhaus per Tabelle 2a/2b, c) per Tabelle 3. Punkt 5.1.2 (same page) moves the measuring point to the flat's entrance door, and 5.1.4 (same page) adds the second escape route the c) case needs — an answer that omits 5.1.2 is wrong for every flat.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-fluchtweg-gehweglaenge",
+      "need_id": "fluchtweg-gehweglaenge",
+      "language": "en",
+      "question": "What is the longest travel distance from any point in a room to a final exit or a stair enclosure?",
+      "question_class": "egress_diagram",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "5.1.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2",
+          "punkt": "5.1.2",
+          "grade": 2
+        },
+        {
+          "richtlinie": "2",
+          "punkt": "5.1.4",
+          "grade": 1
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: EgressDiagramCard names the escape-route-length question class and its Richtlinie ('checks the total against the OIB 2 limit (typically 40 m)').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p13 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 5.1.1 sets 'höchstens 40 m Gehweglänge' to a) a direct exit, b) a Treppenhaus per Tabelle 2a/2b, c) per Tabelle 3. Punkt 5.1.2 (same page) moves the measuring point to the flat's entrance door, and 5.1.4 (same page) adds the second escape route the c) case needs — an answer that omits 5.1.2 is wrong for every flat.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-fluchtwegbreite",
+      "need_id": "fluchtwegbreite",
+      "language": "de",
+      "question": "Welche Fluchtwegbreite muss ein Hauptgang mindestens aufweisen?",
+      "question_class": "dimension_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.3",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.5",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: DimensionDiagramCard names 'corridor width' as a clearance question class and warns about the Stocklichte-vs-Durchgangslichte misread that makes the wording of this need worth testing three ways.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p6 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.4.1 requires 1,20 m lichte Durchgangsbreite for Hauptgänge (1,00 m in the listed cases), Punkt 2.4.3 carries Tabelle 1 for lichte Treppenlaufbreite, and Punkt 2.4.5 adds 10 cm per further 10 persons above 120 — the width question is not answerable from 2.4.1 alone once occupancy is known.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-fluchtwegbreite",
+      "need_id": "fluchtwegbreite",
+      "language": "en",
+      "question": "What clear width does a main corridor on an escape route have to provide?",
+      "question_class": "dimension_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.3",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.5",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: DimensionDiagramCard names 'corridor width' as a clearance question class and warns about the Stocklichte-vs-Durchgangslichte misread that makes the wording of this need worth testing three ways.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p6 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.4.1 requires 1,20 m lichte Durchgangsbreite for Hauptgänge (1,00 m in the listed cases), Punkt 2.4.3 carries Tabelle 1 for lichte Treppenlaufbreite, and Punkt 2.4.5 adds 10 cm per further 10 persons above 120 — the width question is not answerable from 2.4.1 alone once occupancy is known.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-brandabschnitt-flaeche",
+      "need_id": "brandabschnitt-flaeche",
+      "language": "de",
+      "question": "Wie groß darf die Netto-Grundfläche eines Brandabschnittes bei Büronutzung in oberirdischen Geschoßen höchstens sein?",
+      "question_class": "fire_compartment",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "3.1.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2",
+          "punkt": "3.1.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: FireCompartmentCard names Brandabschnitt questions and OIB 2; src/aiq_agent/cards/catalog.py CARD_EXAMPLES ['fire_compartment'] cites 'OIB-Richtlinie 2, Pkt. 3.1' at Punkt level.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p5 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 3.1.1's table gives 1.600 m² and 60 m Längsausdehnung for Büronutzung and 1.200 m² for andere Nutzung; Punkt 3.1.2 (same page) caps underground compartments at 800 m², which any real project with a basement needs.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-brandabschnitt-flaeche",
+      "need_id": "brandabschnitt-flaeche",
+      "language": "en",
+      "question": "What is the largest permitted fire compartment floor area for office use in above-ground storeys?",
+      "question_class": "fire_compartment",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "3.1.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2",
+          "punkt": "3.1.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: FireCompartmentCard names Brandabschnitt questions and OIB 2; src/aiq_agent/cards/catalog.py CARD_EXAMPLES ['fire_compartment'] cites 'OIB-Richtlinie 2, Pkt. 3.1' at Punkt level.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p5 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 3.1.1's table gives 1.600 m² and 60 m Längsausdehnung for Büronutzung and 1.200 m² for andere Nutzung; Punkt 3.1.2 (same page) caps underground compartments at 800 m², which any real project with a basement needs.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-rauchwarnmelder",
+      "need_id": "rauchwarnmelder",
+      "language": "de",
+      "question": "In welchen Räumen einer Wohnung müssen Rauchwarnmelder angeordnet werden?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "3.11",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: RequirementChecklistCard names the 'list of criteria read against the project' question class ('Was muss ich für GK 4 erfüllen?'); the Richtlinie follows from the subject matter (OIB 2, fire).",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p11 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 3.11 requires at least one unnetworked Rauchwarnmelder in every Aufenthaltsraum of a flat except kitchens, plus the Gänge carrying escape routes. Single-Punkt answer, so a single grade-3 label.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-rauchwarnmelder",
+      "need_id": "rauchwarnmelder",
+      "language": "en",
+      "question": "In which rooms of a dwelling must smoke alarms be installed?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "3.11",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: RequirementChecklistCard names the 'list of criteria read against the project' question class ('Was muss ich für GK 4 erfüllen?'); the Richtlinie follows from the subject matter (OIB 2, fire).",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p11 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 3.11 requires at least one unnetworked Rauchwarnmelder in every Aufenthaltsraum of a flat except kitchens, plus the Gänge carrying escape routes. Single-Punkt answer, so a single grade-3 label.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-photovoltaik-dach",
+      "need_id": "photovoltaik-dach",
+      "language": "de",
+      "question": "Welche Abstände müssen Photovoltaikmodule auf dem Dach eines Gebäudes der Gebäudeklasse 5 einhalten?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "3.13.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "1-leitfaden",
+          "punkt": "4.3",
+          "grade": 1
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: RequirementChecklistCard question class; the Richtlinie is fixed by the corpus itself — OIB 2 Punkt 3.13 is titled 'Photovoltaikanlagen auf Dächern der Gebäudeklassen 3 bis 5'.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p11 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 3.13.1 a)-f) set BROOF(t1)/A2, 1 m to the brandabschnittsbildende Wand and the plot boundary, 3 m to Dachausstiege, 40 m max field extent. OIB-Leitfaden 1 Punkt 4.3 (p11 of oib-rl_1_leitfaden_…pdf) covers PV on EXISTING roof structures and is grade 1: an expert would want it beside the answer for a retrofit, but it does not state these distances.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-photovoltaik-dach",
+      "need_id": "photovoltaik-dach",
+      "language": "en",
+      "question": "What separation distances apply to roof-mounted PV modules on a building of class 5?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "3.13.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "1-leitfaden",
+          "punkt": "4.3",
+          "grade": 1
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: RequirementChecklistCard question class; the Richtlinie is fixed by the corpus itself — OIB 2 Punkt 3.13 is titled 'Photovoltaikanlagen auf Dächern der Gebäudeklassen 3 bis 5'.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p11 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 3.13.1 a)-f) set BROOF(t1)/A2, 1 m to the brandabschnittsbildende Wand and the plot boundary, 3 m to Dachausstiege, 40 m max field extent. OIB-Leitfaden 1 Punkt 4.3 (p11 of oib-rl_1_leitfaden_…pdf) covers PV on EXISTING roof structures and is grade 1: an expert would want it beside the answer for a retrofit, but it does not state these distances.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-feuerwehr-aufstellflaeche",
+      "need_id": "feuerwehr-aufstellflaeche",
+      "language": "de",
+      "question": "Wie weit darf der am weitesten entfernte notwendige Gebäudezugang von der Aufstellfläche für die Feuerwehr entfernt sein?",
+      "question_class": "fire_access_plan",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "6",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: FireAccessPlanCard names fire-access questions, OIB 2, and the reach distance from the Aufstellfläche to the farthest necessary entrance ('typically <=80 m').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p14 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 6 (Brandbekämpfung) gives the 80 m Gehweglänge for Gebäudeklasse 1-3 and, for GK 4 and 5, defers to the Einsatzmöglichkeiten der Feuerwehr rather than naming a number — the card's 'typically <=80 m' is the GK 1-3 case only.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-feuerwehr-aufstellflaeche",
+      "need_id": "feuerwehr-aufstellflaeche",
+      "language": "en",
+      "question": "How far may the most remote necessary building entrance be from the fire-brigade standing area?",
+      "question_class": "fire_access_plan",
+      "relevant": [
+        {
+          "richtlinie": "2",
+          "punkt": "6",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: FireAccessPlanCard names fire-access questions, OIB 2, and the reach distance from the Aufstellfläche to the farthest necessary entrance ('typically <=80 m').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p14 of data/oib/oib-rl_2_ausgabe_mai_2023.pdf: Punkt 6 (Brandbekämpfung) gives the 80 m Gehweglänge for Gebäudeklasse 1-3 and, for GK 4 and 5, defers to the Einsatzmöglichkeiten der Feuerwehr rather than naming a number — the card's 'typically <=80 m' is the GK 1-3 case only.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-rampe-neigung",
+      "need_id": "rampe-neigung",
+      "language": "de",
+      "question": "Welches Längsgefälle darf eine barrierefreie Rampe höchstens aufweisen?",
+      "question_class": "dimension_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.2.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.2.2",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: DimensionDiagramCard names 'ramp gradient' as a clearance question class (OIB 4).",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p5 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.2.1 allows 10 % in general, Punkt 2.2.2 cuts it to 6 % where the building must be barrier-free and adds handrails, no cross-fall, 1,20 m landings and intermediate landings every 10 m. Both are grade 3 — answering with 10 % for an accessible ramp is wrong.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-rampe-neigung",
+      "need_id": "rampe-neigung",
+      "language": "en",
+      "question": "What is the steepest longitudinal gradient permitted for an accessible ramp?",
+      "question_class": "dimension_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.2.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.2.2",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: DimensionDiagramCard names 'ramp gradient' as a clearance question class (OIB 4).",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p5 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.2.1 allows 10 % in general, Punkt 2.2.2 cuts it to 6 % where the building must be barrier-free and adds handrails, no cross-fall, 1,20 m landings and intermediate landings every 10 m. Both are grade 3 — answering with 10 % for an accessible ramp is wrong.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-aufzug-fahrkorb",
+      "need_id": "aufzug-fahrkorb",
+      "language": "de",
+      "question": "Welche Mindestmaße muss der Fahrkorb eines Personenaufzugs in einem barrierefrei zu gestaltenden Gebäude aufweisen?",
+      "question_class": "elevator_requirement",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.3.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.3.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: ElevatorRequirementCard names Aufzug / barrierefreie-Erschließung questions and OIB 4, and checks 'the cabin and door clear dimensions against the accessibility minimums'.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p5 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.3.1 requires 1,10 m x 1,40 m car, 90 cm clear door width, 1,50 m turning circle in front of the shaft doors. Punkt 2.3.2 (p6) is grade 2: above a 22 m Fluchtniveau the car grows to 1,10 m x 2,10 m, which changes the answer for a tall building.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-aufzug-fahrkorb",
+      "need_id": "aufzug-fahrkorb",
+      "language": "en",
+      "question": "What are the minimum lift car dimensions in a building that has to be accessible?",
+      "question_class": "elevator_requirement",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.3.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.3.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: ElevatorRequirementCard names Aufzug / barrierefreie-Erschließung questions and OIB 4, and checks 'the cabin and door clear dimensions against the accessibility minimums'.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p5 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.3.1 requires 1,10 m x 1,40 m car, 90 cm clear door width, 1,50 m turning circle in front of the shaft doors. Punkt 2.3.2 (p6) is grade 2: above a 22 m Fluchtniveau the car grows to 1,10 m x 2,10 m, which changes the answer for a tall building.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-treppe-steigung-auftritt",
+      "need_id": "treppe-steigung-auftritt",
+      "language": "de",
+      "question": "Welche Stufenhöhe und welcher Stufenauftritt sind bei einer Haupttreppe außerhalb von Wohnungen zulässig?",
+      "question_class": "stair_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "3.2.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "3.2.2",
+          "grade": 1
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: StairDiagramCard names the stair question class, OIB 4, and the comfort rule ('2xSteigung + Auftritt ~ 59-65 cm').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p10 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 3.2.1 carries Tabelle 3 (Haupttreppen except Wohnungstreppen: max 18 cm Stufenhöhe, min 27 cm Auftritt) and states the Schrittmaßregel as 2 x Stufenhöhe + Stufenauftritt = 62 cm ± 3 cm — the card's '59-65 cm' is that interval. Punkt 3.2.2 (landing after 20 steps) is grade 1 context.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-treppe-steigung-auftritt",
+      "need_id": "treppe-steigung-auftritt",
+      "language": "en",
+      "question": "What riser height and tread depth are allowed on a main staircase outside dwellings?",
+      "question_class": "stair_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "3.2.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "3.2.2",
+          "grade": 1
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: StairDiagramCard names the stair question class, OIB 4, and the comfort rule ('2xSteigung + Auftritt ~ 59-65 cm').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p10 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 3.2.1 carries Tabelle 3 (Haupttreppen except Wohnungstreppen: max 18 cm Stufenhöhe, min 27 cm Auftritt) and states the Schrittmaßregel as 2 x Stufenhöhe + Stufenauftritt = 62 cm ± 3 cm — the card's '59-65 cm' is that interval. Punkt 3.2.2 (landing after 20 steps) is grade 1 context.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-absturzsicherung-hoehe",
+      "need_id": "absturzsicherung-hoehe",
+      "language": "de",
+      "question": "Wie hoch muss eine Absturzsicherung sein, wenn die Absturzhöhe mehr als 12 m beträgt?",
+      "question_class": "guardrail_check",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "4.2.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "4.2.4",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: GuardrailCheckCard names the guardrail question class, OIB 4, and the exact interacting limits ('>=100 cm, >=110 cm where Absturzhöhe > 12 m, max opening <=12 cm').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p12 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 4.2.1 gives 1,00 m, 1,10 m above 12 m Absturzhöhe, 90 cm for Wohnungstreppen, and the Brüstungstiefe reduction down to a floor of 85 cm. Punkt 4.2.4 (same page) holds the 12 cm opening limit the same card checks, so it is grade 2.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-absturzsicherung-hoehe",
+      "need_id": "absturzsicherung-hoehe",
+      "language": "en",
+      "question": "How high does a guardrail have to be where the fall height is more than 12 m?",
+      "question_class": "guardrail_check",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "4.2.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "4.2.4",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: GuardrailCheckCard names the guardrail question class, OIB 4, and the exact interacting limits ('>=100 cm, >=110 cm where Absturzhöhe > 12 m, max opening <=12 cm').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p12 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 4.2.1 gives 1,00 m, 1,10 m above 12 m Absturzhöhe, 90 cm for Wohnungstreppen, and the Brüstungstiefe reduction down to a floor of 85 cm. Punkt 4.2.4 (same page) holds the 12 cm opening limit the same card checks, so it is grade 2.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-barrierefreie-tuer",
+      "need_id": "barrierefreie-tuer",
+      "language": "de",
+      "question": "Welche nutzbare Breite der Durchgangslichte muss eine barrierefreie Tür aufweisen?",
+      "question_class": "dimension_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.9.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.9.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: DimensionDiagramCard names 'door width' as a clearance question class and calls out the Stocklichte-vs-Durchgangslichte misread this Punkt is the source of truth for.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p8 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.9.1 requires at least 80 cm nutzbare Breite der Durchgangslichte of the Gehflügel, not reducible by the leaf or a panic device. Punkt 2.9.2 (same page) raises it to 90 cm from the main entrance up to and including the flat entrance doors in barrier-free residential buildings — grade 2 because it changes the answer for housing.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-barrierefreie-tuer",
+      "need_id": "barrierefreie-tuer",
+      "language": "en",
+      "question": "What clear opening width does an accessible door have to provide?",
+      "question_class": "dimension_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.9.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.9.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: DimensionDiagramCard names 'door width' as a clearance question class and calls out the Stocklichte-vs-Durchgangslichte misread this Punkt is the source of truth for.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p8 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.9.1 requires at least 80 cm nutzbare Breite der Durchgangslichte of the Gehflügel, not reducible by the leaf or a panic device. Punkt 2.9.2 (same page) raises it to 90 cm from the main entrance up to and including the flat entrance doors in barrier-free residential buildings — grade 2 because it changes the answer for housing.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-belichtung-lichteintrittsflaeche",
+      "need_id": "belichtung-lichteintrittsflaeche",
+      "language": "de",
+      "question": "Wie groß muss die Lichteintrittsfläche eines Aufenthaltsraums im Verhältnis zur Bodenfläche sein?",
+      "question_class": "daylight_incidence",
+      "relevant": [
+        {
+          "richtlinie": "3",
+          "punkt": "9.1.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "9.1.2",
+          "grade": 3
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "9.1.3",
+          "grade": 2
+        }
+      ],
+      "provenance": "src/aiq_agent/cards/catalog.py: CARD_EXAMPLES['daylight_incidence'] carries the Punkt-level reference {'document': 'OIB-Richtlinie 3', 'section': 'Pkt. 9.1.1'}; {CARDS} DaylightIncidenceCard adds the 45-degree free-light line.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p9 of data/oib/oib-rl_3_ausgabe_mai_2023.pdf: Punkt 9.1.1 requires at least 12 % of the room's floor area (the card example's 3,0 m² for 25 m² is 12 %), and Punkt 9.1.2 defines the freier Lichteinfall as a 45-degree angle, swivelled by at most 30 degrees — both grade 3, because the area alone does not answer a daylight question. Punkt 9.1.3 (15 % / +2 % per metre for projections over 1,50 m) is grade 2.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-belichtung-lichteintrittsflaeche",
+      "need_id": "belichtung-lichteintrittsflaeche",
+      "language": "en",
+      "question": "How large must the daylight opening of a habitable room be relative to its floor area?",
+      "question_class": "daylight_incidence",
+      "relevant": [
+        {
+          "richtlinie": "3",
+          "punkt": "9.1.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "9.1.2",
+          "grade": 3
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "9.1.3",
+          "grade": 2
+        }
+      ],
+      "provenance": "src/aiq_agent/cards/catalog.py: CARD_EXAMPLES['daylight_incidence'] carries the Punkt-level reference {'document': 'OIB-Richtlinie 3', 'section': 'Pkt. 9.1.1'}; {CARDS} DaylightIncidenceCard adds the 45-degree free-light line.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p9 of data/oib/oib-rl_3_ausgabe_mai_2023.pdf: Punkt 9.1.1 requires at least 12 % of the room's floor area (the card example's 3,0 m² for 25 m² is 12 %), and Punkt 9.1.2 defines the freier Lichteinfall as a 45-degree angle, swivelled by at most 30 degrees — both grade 3, because the area alone does not answer a daylight question. Punkt 9.1.3 (15 % / +2 % per metre for projections over 1,50 m) is grade 2.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-raumhoehe-aufenthaltsraum",
+      "need_id": "raumhoehe-aufenthaltsraum",
+      "language": "de",
+      "question": "Welche lichte Raumhöhe muss ein Aufenthaltsraum in einer Wohnung mindestens aufweisen?",
+      "question_class": "building_section",
+      "relevant": [
+        {
+          "richtlinie": "3",
+          "punkt": "11.2.2",
+          "grade": 3
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "11.2.3",
+          "grade": 2
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "11.3.1",
+          "grade": 1
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: BuildingSectionCard is emitted for height questions and draws stacked storeys from storey heights, which is the question class this need belongs to.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p11 of data/oib/oib-rl_3_ausgabe_mai_2023.pdf: Punkt 11.2.2 gives 2,50 m for Aufenthaltsräume of flats, Punkt 11.2.3 drops it to 2,40 m for buildings with at most three flats and for Reihenhäuser (grade 2 — it is the answer for a large share of real projects), and Punkt 11.3.1's 2,10 m for non-Aufenthaltsräume is grade 1 context that is frequently confused with it.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-raumhoehe-aufenthaltsraum",
+      "need_id": "raumhoehe-aufenthaltsraum",
+      "language": "en",
+      "question": "What minimum clear ceiling height applies to a habitable room in a dwelling?",
+      "question_class": "building_section",
+      "relevant": [
+        {
+          "richtlinie": "3",
+          "punkt": "11.2.2",
+          "grade": 3
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "11.2.3",
+          "grade": 2
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "11.3.1",
+          "grade": 1
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: BuildingSectionCard is emitted for height questions and draws stacked storeys from storey heights, which is the question class this need belongs to.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p11 of data/oib/oib-rl_3_ausgabe_mai_2023.pdf: Punkt 11.2.2 gives 2,50 m for Aufenthaltsräume of flats, Punkt 11.2.3 drops it to 2,40 m for buildings with at most three flats and for Reihenhäuser (grade 2 — it is the answer for a large share of real projects), and Punkt 11.3.1's 2,10 m for non-Aufenthaltsräume is grade 1 context that is frequently confused with it.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-garagen-lueftung-co",
+      "need_id": "garagen-lueftung-co",
+      "language": "de",
+      "question": "Welcher CO-Grenzwert gilt für die Lüftung einer Garage im Regelbetrieb?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "3",
+          "punkt": "8.3.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "8.3.3",
+          "grade": 2
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "8.3.4",
+          "grade": 2
+        }
+      ],
+      "provenance": "src/aiq_agent/common/applicability.py: the intake vocabulary's 'stellplatz_relevant' trigger and the garage uses it scopes make garage questions a first-class intake path; the ventilation Richtlinie is OIB 3 (Hygiene).",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p9 of data/oib/oib-rl_3_ausgabe_mai_2023.pdf: Punkt 8.3.1 sets the 60 ppm quarter-hour mean; Punkt 8.3.3 gives the deemed-to-satisfy route for garages up to 250 m² (1000 cm² per Stellplatz, or 0,5-fold air change); Punkt 8.3.4 requires CO measurement above 250 m² with the 60 ppm / 150 ppm thresholds. Both supporting Punkte are grade 2 — the limit without the compliance route is unusable.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-garagen-lueftung-co",
+      "need_id": "garagen-lueftung-co",
+      "language": "en",
+      "question": "What carbon-monoxide limit governs car park ventilation in normal operation?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "3",
+          "punkt": "8.3.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "8.3.3",
+          "grade": 2
+        },
+        {
+          "richtlinie": "3",
+          "punkt": "8.3.4",
+          "grade": 2
+        }
+      ],
+      "provenance": "src/aiq_agent/common/applicability.py: the intake vocabulary's 'stellplatz_relevant' trigger and the garage uses it scopes make garage questions a first-class intake path; the ventilation Richtlinie is OIB 3 (Hygiene).",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p9 of data/oib/oib-rl_3_ausgabe_mai_2023.pdf: Punkt 8.3.1 sets the 60 ppm quarter-hour mean; Punkt 8.3.3 gives the deemed-to-satisfy route for garages up to 250 m² (1000 cm² per Stellplatz, or 0,5-fold air change); Punkt 8.3.4 requires CO measurement above 250 m² with the 60 ppm / 150 ppm thresholds. Both supporting Punkte are grade 2 — the limit without the compliance route is unusable.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-luftschall-wohnung",
+      "need_id": "luftschall-wohnung",
+      "language": "de",
+      "question": "Welche bewertete Standard-Schallpegeldifferenz DnT,w ist zwischen Aufenthaltsräumen verschiedener Nutzungseinheiten in Wohngebäuden erforderlich?",
+      "question_class": "acoustic_check",
+      "relevant": [
+        {
+          "richtlinie": "5",
+          "punkt": "2.3",
+          "grade": 3
+        },
+        {
+          "richtlinie": "5",
+          "punkt": "2.4",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: AcousticCheckCard names Schallschutz questions and OIB 5 and specifies the airborne gauge 'DnTw, higher is better'.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p6 of data/oib/oib-rl_5_ausgabe_mai_2023.pdf: Punkt 2.3's table row 1 requires DnT,w 55 dB (50 dB where a door or other openable element connects the rooms) for Aufenthaltsräume in Wohngebäuden. Punkt 2.4 (p7, Rw of doors, 42/32 dB) is grade 2 — it is the number needed whenever a door is in the separating element.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-luftschall-wohnung",
+      "need_id": "luftschall-wohnung",
+      "language": "en",
+      "question": "What airborne sound insulation DnT,w is required between habitable rooms of different units in a residential building?",
+      "question_class": "acoustic_check",
+      "relevant": [
+        {
+          "richtlinie": "5",
+          "punkt": "2.3",
+          "grade": 3
+        },
+        {
+          "richtlinie": "5",
+          "punkt": "2.4",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: AcousticCheckCard names Schallschutz questions and OIB 5 and specifies the airborne gauge 'DnTw, higher is better'.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p6 of data/oib/oib-rl_5_ausgabe_mai_2023.pdf: Punkt 2.3's table row 1 requires DnT,w 55 dB (50 dB where a door or other openable element connects the rooms) for Aufenthaltsräume in Wohngebäuden. Punkt 2.4 (p7, Rw of doors, 42/32 dB) is grade 2 — it is the number needed whenever a door is in the separating element.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-trittschall",
+      "need_id": "trittschall",
+      "language": "de",
+      "question": "Welcher bewertete Standard-Trittschallpegel darf in Aufenthaltsräumen nicht überschritten werden?",
+      "question_class": "acoustic_check",
+      "relevant": [
+        {
+          "richtlinie": "5",
+          "punkt": "2.5",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: AcousticCheckCard names the impact gauge explicitly ('impact (LnTw, lower is better) shown with opposite orientation').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p7 of data/oib/oib-rl_5_ausgabe_mai_2023.pdf: Punkt 2.5's table caps L'nT,w at 48 dB into Aufenthaltsräume from rooms of other units (50 dB with a connecting door), 53 dB from usable terraces/roof gardens/loggias and 55 dB from balconies and Dachböden. One Punkt carries the whole answer, so one grade-3 label.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-trittschall",
+      "need_id": "trittschall",
+      "language": "en",
+      "question": "What impact sound pressure level must not be exceeded in habitable rooms?",
+      "question_class": "acoustic_check",
+      "relevant": [
+        {
+          "richtlinie": "5",
+          "punkt": "2.5",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: AcousticCheckCard names the impact gauge explicitly ('impact (LnTw, lower is better) shown with opposite orientation').",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p7 of data/oib/oib-rl_5_ausgabe_mai_2023.pdf: Punkt 2.5's table caps L'nT,w at 48 dB into Aufenthaltsräume from rooms of other units (50 dB with a connecting door), 53 dB from usable terraces/roof gardens/loggias and 55 dB from balconies and Dachböden. One Punkt carries the whole answer, so one grade-3 label.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-u-wert-aussenwand",
+      "need_id": "u-wert-aussenwand",
+      "language": "de",
+      "question": "Welcher U-Wert darf bei einer Außenwand gegen Außenluft im Neubau nicht überschritten werden?",
+      "question_class": "thermal_envelope",
+      "relevant": [
+        {
+          "richtlinie": "6",
+          "punkt": "4.4.1",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: ThermalEnvelopeCard names U-Wert / Wärmeschutz questions and OIB 6 and reads 'one limit bar per component against the maximum permitted (lower is better)'.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p7 of data/oib/oib-rl_6_ausgabe_mai_2023.pdf: Punkt 4.4.1's table gives 0,35 W/m²K for WÄNDE gegen Außenluft, 0,40 erdberührt, 1,40 for windows in Wohngebäuden — the whole component table is in this one Punkt, so a single grade-3 label is the honest labelling.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-u-wert-aussenwand",
+      "need_id": "u-wert-aussenwand",
+      "language": "en",
+      "question": "What U-value limit applies to an external wall against outside air in new build?",
+      "question_class": "thermal_envelope",
+      "relevant": [
+        {
+          "richtlinie": "6",
+          "punkt": "4.4.1",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: ThermalEnvelopeCard names U-Wert / Wärmeschutz questions and OIB 6 and reads 'one limit bar per component against the maximum permitted (lower is better)'.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p7 of data/oib/oib-rl_6_ausgabe_mai_2023.pdf: Punkt 4.4.1's table gives 0,35 W/m²K for WÄNDE gegen Außenluft, 0,40 erdberührt, 1,40 for windows in Wohngebäuden — the whole component table is in this one Punkt, so a single grade-3 label is the honest labelling.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-energieausweis-klassen",
+      "need_id": "energieausweis-klassen",
+      "language": "de",
+      "question": "Was muss ein Energieausweis enthalten und welche Klassengrenzen gelten für die Energieeffizienzskala?",
+      "question_class": "energy_performance",
+      "relevant": [
+        {
+          "richtlinie": "6",
+          "punkt": "6",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: EnergyPerformanceCard names Energieausweis questions, OIB 6, and 'the A++...G energy-class ladder'; {CATALOG} CARD_EXAMPLES['energy_performance'] cites OIB-Richtlinie 6.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p12 of data/oib/oib-rl_6_ausgabe_mai_2023.pdf: Punkt 6 lists the certificate's contents and the class boundaries table (A++ at HWB 10 kWh/m²a through G above 250), which is exactly the ladder the card draws.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-energieausweis-klassen",
+      "need_id": "energieausweis-klassen",
+      "language": "en",
+      "question": "What must an energy performance certificate contain, and what are the class boundaries on its scale?",
+      "question_class": "energy_performance",
+      "relevant": [
+        {
+          "richtlinie": "6",
+          "punkt": "6",
+          "grade": 3
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: EnergyPerformanceCard names Energieausweis questions, OIB 6, and 'the A++...G energy-class ladder'; {CATALOG} CARD_EXAMPLES['energy_performance'] cites OIB-Richtlinie 6.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p12 of data/oib/oib-rl_6_ausgabe_mai_2023.pdf: Punkt 6 lists the certificate's contents and the class boundaries table (A++ at HWB 10 kWh/m²a through G above 250), which is exactly the ladder the card draws.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-tragwerk-zuverlaessigkeit",
+      "need_id": "tragwerk-zuverlaessigkeit",
+      "language": "de",
+      "question": "Nach welcher Norm ist die Zuverlässigkeit von Tragwerken bei der Neuerrichtung nachzuweisen?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "1",
+          "punkt": "2.1.2",
+          "grade": 3
+        },
+        {
+          "richtlinie": "1",
+          "punkt": "2.1.1",
+          "grade": 1
+        }
+      ],
+      "provenance": "src/aiq_agent/common/applicability.py: the hand-written verdicts treat OIB 1 as near-universally applicable, so a structural question is in scope for every project the intake accepts.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p4 of data/oib/oib-rl_1_ausgabe_mai_2023.pdf: Punkt 2.1.2 names ÖNORM EN 1990 with ÖNORM B 1990-1 and lists the building types needing third-party checking (>1.000 persons, >16 oberirdische Geschoße, Seveso-III). Punkt 2.1.1 is the general Tragfähigkeit/Gebrauchstauglichkeit sentence — grade 1, it names no standard.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-tragwerk-zuverlaessigkeit",
+      "need_id": "tragwerk-zuverlaessigkeit",
+      "language": "en",
+      "question": "Which standard governs structural reliability when a new load-bearing structure is built?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "1",
+          "punkt": "2.1.2",
+          "grade": 3
+        },
+        {
+          "richtlinie": "1",
+          "punkt": "2.1.1",
+          "grade": 1
+        }
+      ],
+      "provenance": "src/aiq_agent/common/applicability.py: the hand-written verdicts treat OIB 1 as near-universally applicable, so a structural question is in scope for every project the intake accepts.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p4 of data/oib/oib-rl_1_ausgabe_mai_2023.pdf: Punkt 2.1.2 names ÖNORM EN 1990 with ÖNORM B 1990-1 and lists the building types needing third-party checking (>1.000 persons, >16 oberirdische Geschoße, Seveso-III). Punkt 2.1.1 is the general Tragfähigkeit/Gebrauchstauglichkeit sentence — grade 1, it names no standard.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-garage-fluchtweg",
+      "need_id": "garage-fluchtweg",
+      "language": "de",
+      "question": "Wie lang darf der Fluchtweg in einer Garage mit mehr als 250 m² Nutzfläche höchstens sein?",
+      "question_class": "egress_diagram",
+      "relevant": [
+        {
+          "richtlinie": "2.2",
+          "punkt": "5.5.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2.2",
+          "punkt": "5.5.2",
+          "grade": 2
+        },
+        {
+          "richtlinie": "2.2",
+          "punkt": "5.4.3",
+          "grade": 1
+        }
+      ],
+      "provenance": "src/aiq_agent/common/applicability.py: the module scopes the fire sub-Richtlinien 2.1/2.2/2.3 conditionally, and 2.2 is the garage one; shared/cards/schemas.json EgressDiagramCard supplies the question class.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p7 of data/oib/oib-rl_2.2_ausgabe_mai_2023.pdf: Punkt 5.5.1 gives 40 m Gehweglänge from any point of the garage, with the Schleuse condition for garages up to two underground storeys and 600 m². Punkt 5.5.2 (same page) adds the independent second route and the 25 m common-path limit (grade 2); Punkt 5.4.3's Schleuse requirements are grade 1 context.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-garage-fluchtweg",
+      "need_id": "garage-fluchtweg",
+      "language": "en",
+      "question": "What is the maximum escape travel distance inside a car park larger than 250 m²?",
+      "question_class": "egress_diagram",
+      "relevant": [
+        {
+          "richtlinie": "2.2",
+          "punkt": "5.5.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2.2",
+          "punkt": "5.5.2",
+          "grade": 2
+        },
+        {
+          "richtlinie": "2.2",
+          "punkt": "5.4.3",
+          "grade": 1
+        }
+      ],
+      "provenance": "src/aiq_agent/common/applicability.py: the module scopes the fire sub-Richtlinien 2.1/2.2/2.3 conditionally, and 2.2 is the garage one; shared/cards/schemas.json EgressDiagramCard supplies the question class.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p7 of data/oib/oib-rl_2.2_ausgabe_mai_2023.pdf: Punkt 5.5.1 gives 40 m Gehweglänge from any point of the garage, with the Schleuse condition for garages up to two underground storeys and 600 m². Punkt 5.5.2 (same page) adds the independent second route and the 25 m common-path limit (grade 2); Punkt 5.4.3's Schleuse requirements are grade 1 context.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-hochhaus-sicherheitstreppenhaus",
+      "need_id": "hochhaus-sicherheitstreppenhaus",
+      "language": "de",
+      "question": "Welche Anforderungen gelten für Sicherheitstreppenhäuser bei einem Fluchtniveau von mehr als 22 m?",
+      "question_class": "building_section",
+      "relevant": [
+        {
+          "richtlinie": "2.3",
+          "punkt": "2.5",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2.3",
+          "punkt": "3.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "src/aiq_agent/cards/catalog.py: the building_section prose states 'Gebäude ein Hochhaus (> 22 m) und OIB-Richtlinie 2.3 wird anwendbar', naming both the threshold and the Richtlinie.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p6 of data/oib/oib-rl_2.3_ausgabe_mai_2023.pdf: Punkt 2.5 a)-c) require the direct exit to a safe place, a Feuerwehrzufahrt where the exit is not on a public way, and stair geometry that stops people running past the exit storey. Punkt 3.2 (p10, Sicherheitstreppenhäuser der Stufe 1 for Fluchtniveau up to 32 m) is grade 2 — it is the band most 22 m+ buildings actually fall in.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-hochhaus-sicherheitstreppenhaus",
+      "need_id": "hochhaus-sicherheitstreppenhaus",
+      "language": "en",
+      "question": "What requirements apply to safety stair enclosures where the escape level is above 22 m?",
+      "question_class": "building_section",
+      "relevant": [
+        {
+          "richtlinie": "2.3",
+          "punkt": "2.5",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2.3",
+          "punkt": "3.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "src/aiq_agent/cards/catalog.py: the building_section prose states 'Gebäude ein Hochhaus (> 22 m) und OIB-Richtlinie 2.3 wird anwendbar', naming both the threshold and the Richtlinie.",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p6 of data/oib/oib-rl_2.3_ausgabe_mai_2023.pdf: Punkt 2.5 a)-c) require the direct exit to a safe place, a Feuerwehrzufahrt where the exit is not on a public way, and stair geometry that stops people running past the exit storey. Punkt 3.2 (p10, Sicherheitstreppenhäuser der Stufe 1 for Fluchtniveau up to 32 m) is grade 2 — it is the band most 22 m+ buildings actually fall in.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-betriebsbau-fluchtweg",
+      "need_id": "betriebsbau-fluchtweg",
+      "language": "de",
+      "question": "Wie lang darf die Gehweglänge bis zu einem gesicherten Fluchtbereich in einem Betriebsbau höchstens sein?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "2.1",
+          "punkt": "3.6.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2.1",
+          "punkt": "3.6.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "src/aiq_agent/common/applicability.py: _BETRIEBSBAU_USES = {'produzierend', 'lager'} is the intake vocabulary that routes a project to OIB 2.1 (Brandschutz bei Betriebsbauten).",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p6 of data/oib/oib-rl_2.1_ausgabe_mai_2023.pdf: Punkt 3.6.1 gives 40 m from any point of any room to a direct exit or a gesicherter Fluchtbereich; Punkt 3.6.2 (same page) is grade 2 because it is the extension that industrial halls actually rely on, conditioned on clear room height.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-betriebsbau-fluchtweg",
+      "need_id": "betriebsbau-fluchtweg",
+      "language": "en",
+      "question": "What travel distance to a protected escape area is permitted inside an industrial building?",
+      "question_class": "requirement_checklist",
+      "relevant": [
+        {
+          "richtlinie": "2.1",
+          "punkt": "3.6.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "2.1",
+          "punkt": "3.6.2",
+          "grade": 2
+        }
+      ],
+      "provenance": "src/aiq_agent/common/applicability.py: _BETRIEBSBAU_USES = {'produzierend', 'lager'} is the intake vocabulary that routes a project to OIB 2.1 (Brandschutz bei Betriebsbauten).",
+      "label_method": "Question class and Richtlinie taken from the repo's own taxonomy (see provenance); the Punkt-level labels were then read directly out of the extracted text of the cited PDF page and graded 3 (states the answer) / 2 (answer is wrong or incomplete without it) / 1 (context an expert would want beside it). No LLM, no retrieval run, and no production ranking was consulted — the labels do not know what any arm returns.",
+      "notes": "Read p6 of data/oib/oib-rl_2.1_ausgabe_mai_2023.pdf: Punkt 3.6.1 gives 40 m from any point of any room to a direct exit or a gesicherter Fluchtbereich; Punkt 3.6.2 (same page) is grade 2 because it is the extension that industrial halls actually rely on, conditioned on clear room height.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-grunderwerbsteuer",
+      "need_id": "grunderwerbsteuer",
+      "language": "de",
+      "question": "Wie hoch ist die Grunderwerbsteuer beim Kauf einer Liegenschaft in Wien?",
+      "question_class": "refusal",
+      "relevant": [],
+      "provenance": "configs/norms/at/registry.yml: the catalog's header states the OIB corpus in data/oib/ is the knowledge base's source of truth and that Austrian statute law is referenced by RIS pointer instead. Tax law is in neither.",
+      "label_method": "Negative label. Established by reading the Punkt index for every Richtlinie plus the extracted text of the nearest-looking Punkte (named in notes) and confirming none of them answers the question; the subject matter is Landesrecht or tax law, which configs/norms/at/registry.yml carries as RIS pointers rather than as corpus. relevant is empty on purpose.",
+      "notes": "Checked the Punkt index and the extracted text of all 12 Richtlinien: no Punkt covers taxation. The correct behaviour is to return nothing, or to say the corpus does not cover it — this entry exists to measure whether the retriever fills top_k anyway.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-grunderwerbsteuer",
+      "need_id": "grunderwerbsteuer",
+      "language": "en",
+      "question": "What rate of property transfer tax applies when buying a plot in Vienna?",
+      "question_class": "refusal",
+      "relevant": [],
+      "provenance": "configs/norms/at/registry.yml: the catalog's header states the OIB corpus in data/oib/ is the knowledge base's source of truth and that Austrian statute law is referenced by RIS pointer instead. Tax law is in neither.",
+      "label_method": "Negative label. Established by reading the Punkt index for every Richtlinie plus the extracted text of the nearest-looking Punkte (named in notes) and confirming none of them answers the question; the subject matter is Landesrecht or tax law, which configs/norms/at/registry.yml carries as RIS pointers rather than as corpus. relevant is empty on purpose.",
+      "notes": "Checked the Punkt index and the extracted text of all 12 Richtlinien: no Punkt covers taxation. The correct behaviour is to return nothing, or to say the corpus does not cover it — this entry exists to measure whether the retriever fills top_k anyway.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-bauwich-wien",
+      "need_id": "bauwich-wien",
+      "language": "de",
+      "question": "Welchen Bauwich zur seitlichen Grundgrenze schreibt die Bauordnung für Wien vor?",
+      "question_class": "refusal",
+      "relevant": [],
+      "provenance": "configs/norms/at/registry.yml: entry 'bo-wien' (Bauordnung für Wien, LWI40000225) is a RIS pointer, deliberately NOT ingested — the same file states the OIB corpus is separate; shared/cards/schemas.json SetbackPlanCard names the Abstandsflächen/Bauwich question class, so this is a question the product WILL be asked.",
+      "label_method": "Negative label. Established by reading the Punkt index for every Richtlinie plus the extracted text of the nearest-looking Punkte (named in notes) and confirming none of them answers the question; the subject matter is Landesrecht or tax law, which configs/norms/at/registry.yml carries as RIS pointers rather than as corpus. relevant is empty on purpose.",
+      "notes": "Read the OIB 2 text on p12 (Punkte 4.1-4.6, Ausbreitung von Feuer auf andere Bauwerke): the corpus regulates fire spread across a boundary, never the civil setback distance, which is Landesrecht. A hit on OIB 2 Punkt 4.1 would be a plausible-looking wrong answer, which is exactly why this is labelled as unanswerable rather than left out.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-bauwich-wien",
+      "need_id": "bauwich-wien",
+      "language": "en",
+      "question": "What side setback to the plot boundary does the Vienna building code require?",
+      "question_class": "refusal",
+      "relevant": [],
+      "provenance": "configs/norms/at/registry.yml: entry 'bo-wien' (Bauordnung für Wien, LWI40000225) is a RIS pointer, deliberately NOT ingested — the same file states the OIB corpus is separate; shared/cards/schemas.json SetbackPlanCard names the Abstandsflächen/Bauwich question class, so this is a question the product WILL be asked.",
+      "label_method": "Negative label. Established by reading the Punkt index for every Richtlinie plus the extracted text of the nearest-looking Punkte (named in notes) and confirming none of them answers the question; the subject matter is Landesrecht or tax law, which configs/norms/at/registry.yml carries as RIS pointers rather than as corpus. relevant is empty on purpose.",
+      "notes": "Read the OIB 2 text on p12 (Punkte 4.1-4.6, Ausbreitung von Feuer auf andere Bauwerke): the corpus regulates fire spread across a boundary, never the civil setback distance, which is Landesrecht. A hit on OIB 2 Punkt 4.1 would be a plausible-looking wrong answer, which is exactly why this is labelled as unanswerable rather than left out.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-stellplatz-garagengesetz",
+      "need_id": "stellplatz-garagengesetz",
+      "language": "de",
+      "question": "Wie viele Kfz-Stellplätze muss ich nach dem Wiener Garagengesetz für ein Wohnhaus nachweisen?",
+      "question_class": "refusal",
+      "relevant": [],
+      "provenance": "src/aiq_agent/common/applicability.py: the 'stellplatz_relevant' trigger hint says 'Stellplatzverpflichtung: Wiener Garagengesetz (bzw. Landesrecht) prüfen'; configs/norms/at/registry.yml entry 'garagengesetz-wien' is a RIS pointer, not corpus; shared/cards/schemas.json ParkingRequirementCard names the question class and attributes it to 'Bauordnung / Stellplatzverordnung'.",
+      "label_method": "Negative label. Established by reading the Punkt index for every Richtlinie plus the extracted text of the nearest-looking Punkte (named in notes) and confirming none of them answers the question; the subject matter is Landesrecht or tax law, which configs/norms/at/registry.yml carries as RIS pointers rather than as corpus. relevant is empty on purpose.",
+      "notes": "Read p9 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: OIB 4 Punkt 2.10 regulates the GEOMETRY of Stellplätze (3,00 m Fahrbahnbreite, ramp gradients), never the required COUNT. The count is Landesrecht outside this corpus, so the qrels are empty.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "en-stellplatz-garagengesetz",
+      "need_id": "stellplatz-garagengesetz",
+      "language": "en",
+      "question": "How many car parking spaces must be provided for a residential building under the Vienna garage act?",
+      "question_class": "refusal",
+      "relevant": [],
+      "provenance": "src/aiq_agent/common/applicability.py: the 'stellplatz_relevant' trigger hint says 'Stellplatzverpflichtung: Wiener Garagengesetz (bzw. Landesrecht) prüfen'; configs/norms/at/registry.yml entry 'garagengesetz-wien' is a RIS pointer, not corpus; shared/cards/schemas.json ParkingRequirementCard names the question class and attributes it to 'Bauordnung / Stellplatzverordnung'.",
+      "label_method": "Negative label. Established by reading the Punkt index for every Richtlinie plus the extracted text of the nearest-looking Punkte (named in notes) and confirming none of them answers the question; the subject matter is Landesrecht or tax law, which configs/norms/at/registry.yml carries as RIS pointers rather than as corpus. relevant is empty on purpose.",
+      "notes": "Read p9 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: OIB 4 Punkt 2.10 regulates the GEOMETRY of Stellplätze (3,00 m Fahrbahnbreite, ramp gradients), never the required COUNT. The count is Landesrecht outside this corpus, so the qrels are empty.",
+      "calibration_pending": true,
+      "variant_of": null
+    },
+    {
+      "id": "de-fluchtwegbreite-breite-des-fluchtwegs",
+      "need_id": "fluchtwegbreite",
+      "language": "de",
+      "question": "Wie groß muss die Breite des Fluchtwegs bei einem Hauptgang mindestens sein?",
+      "question_class": "dimension_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.3",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.5",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: DimensionDiagramCard names 'corridor width' as a clearance question class and warns about the Stocklichte-vs-Durchgangslichte misread that makes the wording of this need worth testing three ways.",
+      "label_method": "German morphology variant of de-fluchtwegbreite with IDENTICAL qrels. aiq_agent.common.german_text states that neither backend splits closed compounds, so 'Fluchtwegbreite' is not reachable from 'Fluchtweg'; these three wordings of one need turn that documented limitation into a measured spread.",
+      "notes": "Read p6 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.4.1 requires 1,20 m lichte Durchgangsbreite for Hauptgänge (1,00 m in the listed cases), Punkt 2.4.3 carries Tabelle 1 for lichte Treppenlaufbreite, and Punkt 2.4.5 adds 10 cm per further 10 persons above 120 — the width question is not answerable from 2.4.1 alone once occupancy is known.",
+      "calibration_pending": true,
+      "variant_of": "de-fluchtwegbreite"
+    },
+    {
+      "id": "de-fluchtwegbreite-nutzbare-breite",
+      "need_id": "fluchtwegbreite",
+      "language": "de",
+      "question": "Welche nutzbare Breite muss ein Gang im Verlauf eines Fluchtweges aufweisen?",
+      "question_class": "dimension_diagram",
+      "relevant": [
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.1",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.3",
+          "grade": 3
+        },
+        {
+          "richtlinie": "4",
+          "punkt": "2.4.5",
+          "grade": 2
+        }
+      ],
+      "provenance": "shared/cards/schemas.json: DimensionDiagramCard names 'corridor width' as a clearance question class and warns about the Stocklichte-vs-Durchgangslichte misread that makes the wording of this need worth testing three ways.",
+      "label_method": "German morphology variant of de-fluchtwegbreite with IDENTICAL qrels. aiq_agent.common.german_text states that neither backend splits closed compounds, so 'Fluchtwegbreite' is not reachable from 'Fluchtweg'; these three wordings of one need turn that documented limitation into a measured spread.",
+      "notes": "Read p6 of data/oib/oib-rl_4_ausgabe_mai_2023.pdf: Punkt 2.4.1 requires 1,20 m lichte Durchgangsbreite for Hauptgänge (1,00 m in the listed cases), Punkt 2.4.3 carries Tabelle 1 for lichte Treppenlaufbreite, and Punkt 2.4.5 adds 10 cm per further 10 persons above 120 — the width question is not answerable from 2.4.1 alone once occupancy is known.",
+      "calibration_pending": true,
+      "variant_of": "de-fluchtwegbreite"
+    }
+  ]
+}

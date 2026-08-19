@@ -67,7 +67,25 @@ def _file_hash(path: Path) -> str:
 # sync() then discards all stored hashes ONCE and re-ingests the full corpus,
 # so stale-format chunks self-heal automatically instead of persisting until
 # a PDF happens to change. Stored under a reserved key in the sync registry.
-CHUNK_FORMAT_VERSION = 1
+# 2: chunk metadata is no longer embedded wholesale. `file_size`, the ingest temp
+#    path and render geometry are excluded from the embed rendering, so the literal
+#    text sent to the embedding model changed for every chunk. Without this bump the
+#    corpus would keep its diluted vectors indefinitely — sync() gates on the sha256
+#    of the PDF bytes, and a preprocessing change alters no file hash — while newly
+#    uploaded documents got clean ones, leaving two embedding conventions in one index.
+# 3: Punkt-aware chunking. A document with a usable outline is now cut on its own
+#    numbering rather than per page, so chunk boundaries, chunk count and the
+#    metadata every chunk carries all change. Without this bump the corpus would
+#    keep its page-cut chunks forever, for the same reason as 2.
+#    Version 3 also covers the later correction to how the outline is chosen (a
+#    best-chain search over all heading candidates, anchored on the document's own
+#    contents page, in place of a greedy left-to-right scan). No separate version is
+#    needed: 3 has not been ingested anywhere yet, and both changes land in the same
+#    unreleased pass. Corpus effect, measured against the 946 Punkte the contents
+#    pages of the twelve Punkt-structured Richtlinien list: 903 chunks with 44
+#    missing, 1 spurious and 4 carrying another heading's title, becomes 946 with
+#    none of the three.
+CHUNK_FORMAT_VERSION = 3
 _FORMAT_KEY = "__chunk_format_version__"
 
 
@@ -446,6 +464,48 @@ def remove_document(name: str) -> str | None:
     return None
 
 
+def mark_for_reingest(name: str) -> Path | None:
+    """Resolve a corpus document for a forced re-ingest, and forget its indexed state.
+
+    Returns the ``Path`` the caller should hand to :func:`ingest_single`, or ``None`` when
+    no such corpus document exists (route → 404). Basename-only, ``.pdf``-only, and
+    resolved through :func:`discover_pdfs`, so an excluded file cannot be revived this way
+    and a path cannot traverse out of the corpus.
+
+    Dropping the registry hash is NOT what makes the re-ingest happen -- ``ingest_single``
+    deletes and re-uploads regardless of what the registry says. It is what makes the
+    re-ingest *visible*: ``oib_status`` reports a file with no registry entry as PENDING,
+    which is the state the admin UI already polls on. Without it a re-ingest of an
+    already-ingested document would read as INGESTED for its whole duration and the
+    progress panel would show a job that appeared to finish before it started.
+
+    Every entry for the basename is dropped, not just the exact path, because the same
+    document can be registered under both the repo corpus and the uploads directory and a
+    single leftover hash would restore the INGESTED reading.
+
+    If the ingestion then fails, the entry simply stays dropped: the file reads as PENDING
+    and the next ``sync()`` picks it up, which is the same self-healing path a genuinely
+    new file takes.
+    """
+    base = Path(name).name
+    if not base or base != name or not base.lower().endswith(".pdf"):
+        return None
+
+    target = next((pdf for pdf in discover_pdfs() if pdf.name == base), None)
+    if target is None:
+        return None
+
+    with _REGISTRY_LOCK:
+        registry = _load_registry()
+        stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
+        if stale_keys:
+            for key in stale_keys:
+                registry.pop(key, None)
+            _save_registry(registry)
+
+    return target
+
+
 def sync() -> tuple[int, int]:
     """Incrementally ingest new/changed OIB PDFs into the persistent collection.
 
@@ -479,6 +539,16 @@ def _sync_locked() -> tuple[int, int]:
         logger.warning("No PDF files found in %s", OIB_DIR)
         return 0, 0
 
+    # Set when the stored chunk format is stale, and consulted at the delete-then-upload
+    # step below. Emptying the registry is what triggers the re-ingest, and it is ALSO
+    # what would make that re-ingest additive: the delete step is guarded by
+    # `str(pdf) in registry`, which is false for every file once the registry is empty,
+    # so each PDF's new chunks would be written alongside its old ones rather than
+    # replacing them. The collection would end up holding both formats of all 39 PDFs,
+    # both retrievable, both scored on the same scale and both rendering as a valid
+    # citation, until somebody reset it by hand. This flag is the delete's other reason
+    # to run. (The version gate has never fired before, so the bug has never executed.)
+    format_changed = False
     with _REGISTRY_LOCK:
         registry = _load_registry()
         if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:
@@ -489,6 +559,7 @@ def _sync_locked() -> tuple[int, int]:
                 CHUNK_FORMAT_VERSION,
             )
             registry = {}
+            format_changed = True
         registry.setdefault(_FORMAT_KEY, CHUNK_FORMAT_VERSION)
         _save_registry(registry)
 
@@ -559,7 +630,12 @@ def _sync_locked() -> tuple[int, int]:
             lock = _file_lock(pdf.name)
             lock.acquire()
             try:
-                if str(pdf) in registry:
+                # `format_changed` stands in for the registry entry the version reset
+                # just discarded: the collection still holds this file's old-format
+                # chunks even though the registry no longer says so. Deleting a file
+                # that is not there is already tolerated, so the extra call on a fresh
+                # collection costs one no-op per PDF, once.
+                if format_changed or str(pdf) in registry:
                     try:
                         ingestor.delete_file(pdf.name, COLLECTION_NAME)
                     except Exception as exc:

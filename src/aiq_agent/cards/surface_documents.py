@@ -29,13 +29,42 @@ logger = logging.getLogger(__name__)
 _CHUNK_TOP_K = 40
 # A short choice, never a catalogue. Platform → Retrieval can lower this.
 MAX_SURFACED_FILES = 3
+
+# ---------------------------------------------------------------------------
+# The three constants below were calibrated against `Chunk.score` when it was
+# the vector store's raw `exp(-distance)`. `Chunk.score` is now a TRUE COSINE
+# similarity (`cosine_similarity_from_store_score`), so the literal numbers no
+# longer mean what they meant, and each has been converted rather than re-tuned:
+# the intended behaviour is preserved, nobody's judgement is overridden here.
+#
+#   cos = 1 + ln(s)   for the old s = exp(cos - 1)
+#
+# Two of the three convert exactly. `CLEAR_WINNER_GAP` does not — a difference
+# on a log scale is not a difference on a linear one — and is flagged below.
+#
+# All three are BACKEND-CONDITIONAL. Only the `llamaindex` backend reports a
+# cosine; `foundational_rag` reports clamped reranker logits, which are not in
+# cosine space and for which none of these numbers is calibrated.
+# ---------------------------------------------------------------------------
+
 # Weak hits are how a citation-health screenshot pulls in every IFC in the
 # project. Floor is high on purpose.
-MIN_SURFACE_SCORE = 0.58
+# Was 0.58 on the exp(-distance) scale; 1 + ln(0.58) = 0.455 is the same gate.
+MIN_SURFACE_SCORE = 0.455
+
 # In browse, drop files that are not almost as good as the winner.
-MANY_RELATIVE_FLOOR = 0.88
+# Was a RATIO of 0.88 against the winner's score. A constant ratio on the old
+# scale is a constant OFFSET on the cosine scale -- ln(0.88) = -0.128 -- so this
+# is now expressed as the offset it always was, which is also the form that
+# behaves the same at every absolute similarity instead of drifting with it.
+MANY_RELATIVE_DROP = 0.128
+
 # If the winner is this far ahead of #2, there is no real choice.
-CLEAR_WINNER_GAP = 0.12
+# APPROXIMATE CONVERSION, and the one number here that is not exact: 0.12 on the
+# old scale is 0.14 in cosine at s=0.9 and 0.22 at s=0.6, because the transform
+# is logarithmic. 0.15 is the value at the top of that range, where surfaced
+# candidates actually sit. Re-derive with the retrieval-eval harness.
+CLEAR_WINNER_GAP = 0.15
 
 _IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff")
 _MODEL_EXT = (".ifc", ".ifczip")
@@ -216,7 +245,7 @@ def _pick_many(ordered: list[dict], max_files: int) -> list[dict]:
         return [winner]
     winner_kind = _file_kind(str(winner["file_name"]))
     cap = max(1, min(max_files, MAX_SURFACED_FILES))
-    floor = max(MIN_SURFACE_SCORE, best * MANY_RELATIVE_FLOOR)
+    floor = max(MIN_SURFACE_SCORE, best - MANY_RELATIVE_DROP)
     kept = [winner]
     for row in ordered[1:]:
         if len(kept) >= cap:

@@ -457,6 +457,60 @@ describe('BaseKnowledge', () => {
     })
   })
 
+  test('re-indexing sends exactly the selected documents in one request', async () => {
+    // Sync is incremental and gates on each PDF's sha256, so it does nothing for an
+    // unchanged file. This is the control for rebuilding chunks after a change to how
+    // they are BUILT, and it must not touch documents the admin did not select.
+    const fetchSpy = vi.fn((url: string, _init?: RequestInit) => {
+      if (url.includes('/reingest')) {
+        return Promise.resolve(
+          jsonResponse({ status: 'pending', queued: ['oib-richtlinie-2.pdf'], unknown: [], message: 'ok' }),
+        )
+      }
+      return Promise.resolve(jsonResponse(STATUS))
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select oib-richtlinie-2.pdf' }))
+    const selectionBar = await screen.findByTestId('data-toolbar-selection')
+    await user.click(within(selectionBar).getByRole('button', { name: /Re-index/i }))
+
+    await waitFor(() => {
+      const calls = fetchSpy.mock.calls.filter(([url]) => typeof url === 'string' && url.includes('/reingest'))
+      expect(calls).toHaveLength(1)
+      const [, init] = calls[0]
+      expect((init as RequestInit).method).toBe('POST')
+      expect(JSON.parse((init as RequestInit).body as string)).toEqual({ fileNames: ['oib-richtlinie-2.pdf'] })
+    })
+  })
+
+  test('re-indexing nothing the corpus still has reports it instead of claiming success', async () => {
+    const fetchSpy = vi.fn((url: string, _init?: RequestInit) => {
+      if (url.includes('/reingest')) {
+        return Promise.resolve(jsonResponse({ status: 'noop', queued: [], unknown: ['gone.pdf'], message: '' }))
+      }
+      return Promise.resolve(jsonResponse(STATUS))
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select oib-richtlinie-2.pdf' }))
+    const selectionBar = await screen.findByTestId('data-toolbar-selection')
+    await user.click(within(selectionBar).getByRole('button', { name: /Re-index/i }))
+
+    // The selection survives, because nothing was started and the admin may want to retry.
+    await waitFor(() => {
+      expect(screen.getByTestId('data-toolbar-selection')).toHaveTextContent('1 selected')
+    })
+  })
+
   test('bulk delete confirms once and removes every selected document', async () => {
     const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
       if (typeof url === 'string' && init?.method === 'DELETE') {

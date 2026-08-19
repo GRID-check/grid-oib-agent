@@ -370,26 +370,79 @@ FILE_TRACKING_RETENTION_SECONDS = int(os.environ.get("AIQ_FILE_TRACKING_RETENTIO
 # Document summarization + tag-classification input limits live in the shared
 # aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
 
+
 # ---------------------------------------------------------------------------
-# In-process collection write versions.
+# Collection write versions (cross-replica).
 #
-# The retriever's static-collection result cache keys on this version so any
-# ingestion/deletion in this process invalidates cached results immediately;
-# the cache TTL covers writes from other processes (there are none today —
-# one backend process owns the embedded Chroma store).
+# The premise the in-process counter rested on -- "one backend process owns the
+# store" -- is false: AIQ_CHROMA_URL points every backend replica and every
+# research worker at ONE Chroma. A version held in a module global is invisible
+# to every replica but its own, so a write here would leave the others serving
+# superseded results for the whole result-cache TTL. The version now lives in
+# the shared cache; these two functions are the adapter's seam onto it.
 # ---------------------------------------------------------------------------
-_collection_versions: dict[str, int] = {}
-_collection_versions_lock = threading.Lock()
-
-
 def bump_collection_version(collection_name: str) -> None:
-    with _collection_versions_lock:
-        _collection_versions[collection_name] = _collection_versions.get(collection_name, 0) + 1
+    """Record a write so every replica's cached results for this collection stop matching."""
+    from aiq_agent.knowledge import collection_version as _collection_version
+
+    _collection_version.bump(collection_name)
 
 
-def collection_version(collection_name: str) -> int:
-    with _collection_versions_lock:
-        return _collection_versions.get(collection_name, 0)
+def collection_version(collection_name: str) -> int | None:
+    """The collection's write version, or ``None`` when it cannot be resolved.
+
+    NOTE the contract: ``None`` means UNKNOWN, not 0. A caller must not build a cache
+    key from it and must not store a result. Coercing unknown to 0 is precisely how a
+    replica keeps serving superseded legal text through a cache outage -- every entry
+    another replica stored under version 0 would match again.
+    """
+    from aiq_agent.knowledge import collection_version as _collection_version
+
+    return _collection_version.current(collection_name)
+
+
+#: ``exp(-distance)`` at cosine distance 1.0 — the score of a chunk with no
+#: relationship to the query at all. Everything below this maps to 0.0.
+_ORTHOGONAL_STORE_SCORE = math.exp(-1.0)
+
+
+def cosine_similarity_from_store_score(score: Any) -> float:
+    """Recover a true cosine similarity from the vector store's reported score.
+
+    ``llama-index-vector-stores-chroma`` reports ``math.exp(-distance)`` as the
+    node similarity, not the similarity itself, and this module mirrors that
+    transform on the lexical channel so the two agree. With ``hnsw:space=cosine``
+    Chroma defines distance as ``1 - cos(q, v)``, so the recovery is exact::
+
+        s = e^-d,  d = 1 - cos   =>   cos = 1 + ln(s)
+
+    This matters because the raw number is not a similarity and never approaches
+    zero: an *orthogonal* chunk scores ``e^-1 = 0.37`` and a contradictory one
+    ``e^-2 = 0.14``. Printed to the answering LLM as ``Relevance Score: 0.37``
+    that reads as a moderate match, and any threshold set against it is set
+    against a scale nobody intended -- the one such threshold in this codebase
+    (``surface_documents.MIN_SURFACE_SCORE = 0.35``) sits at a cosine of -0.05,
+    admitting anti-correlated chunks while documented as a quality gate.
+
+    Anti-correlated results floor at ``0.0`` rather than going negative:
+    ``Chunk.score`` is contractually ``[0, 1]``, and "worse than unrelated" and
+    "unrelated" are the same decision for every consumer.
+
+    Total on every input -- ``None``, ``NaN``, ``0.0`` and out-of-range values all
+    return a float and never raise. That is deliberate rather than defensive:
+    ``normalize``'s except-branch does not drop a bad chunk, it substitutes one
+    whose content is ``str(raw_result)`` and whose file name is ``"unknown"``,
+    which then occupies a top-k slot and can be cited.
+    """
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(value) or value <= _ORTHOGONAL_STORE_SCORE:
+        return 0.0
+    if value >= 1.0:
+        return 1.0
+    return min(1.0, max(0.0, 1.0 + math.log(value)))
 
 
 def _filters_fingerprint(filters: dict[str, Any] | None) -> str:
@@ -471,6 +524,196 @@ def _to_metadata_filters(filters: dict[str, Any] | None):
     if not filters:
         return None
     return _translate_filter_node(filters)
+
+
+#: Metadata keys that exist for filtering, citation or diagnostics and must never be
+#: embedded or shown to the LLM.
+#:
+#: LlamaIndex prepends the whole metadata dict to a node's text before embedding
+#: (``MetadataMode.EMBED``) unless a key is excluded, and nothing here set any
+#: exclusions -- so every OIB chunk's vector was shifted by ``file_size: 1975942``, and
+#: table/image/drawing chunks additionally carried row counts and pixel dimensions.
+#: A byte count and a render's pixel width carry no retrieval signal; they are also
+#: charged against the chunk's token budget, because ``SentenceSplitter`` subtracts the
+#: metadata header from ``chunk_size`` before splitting.
+#:
+#: ``file_path`` is the sharpest one: ``SimpleDirectoryReader`` sets it to the ingest
+#: temp file, so non-PDF uploads embedded a random ``/tmp/tmpk3n8w1qz.docx`` -- different
+#: on every re-upload of the same document.
+#:
+#: ``drawing_type``/``drawing_scale`` are excluded because the VLM caption already states
+#: both verbatim in the chunk body; embedding them again only doubles their weight.
+#: ``file_name``, ``page_label``, ``content_type`` and ``doc_class`` stay: those are what
+#: users actually ask by, and they are the closest thing this corpus has to a context
+#: header.
+EMBED_EXCLUDED_METADATA_KEYS = (
+    "file_size",
+    "file_path",
+    "table_index",
+    "rows",
+    "cols",
+    "image_index",
+    "image_format",
+    "image_width",
+    "image_height",
+    "drawing_type",
+    "drawing_scale",
+)
+
+
+def _apply_metadata_exclusions(document: Any) -> None:
+    """Exclude non-semantic metadata from a document's embed and LLM renderings.
+
+    Extends rather than replaces any existing exclusions -- ``SimpleDirectoryReader``
+    already populates ``excluded_embed_metadata_keys`` on the non-PDF path, and
+    clobbering it would re-embed the reader's own bookkeeping.
+
+    Both lists are set because the splitter budgets on whichever of the two renderings
+    is longer, so excluding from only one would leave the token cost in place.
+    """
+    for attribute in ("excluded_embed_metadata_keys", "excluded_llm_metadata_keys"):
+        existing = list(getattr(document, attribute, None) or [])
+        merged = existing + [key for key in EMBED_EXCLUDED_METADATA_KEYS if key not in existing]
+        try:
+            setattr(document, attribute, merged)
+        except (AttributeError, ValueError):  # pragma: no cover - non-llama-index document
+            logger.debug("Could not set %s on %r", attribute, type(document).__name__)
+
+
+#: Collection-metadata keys recording which embedding produced a collection's vectors.
+#: Namespaced so they cannot collide with a user-supplied `metadata` dict.
+EMBED_FINGERPRINT_KEY = "aiq:embed_fingerprint"
+EMBED_MODEL_KEY = "aiq:embed_model"
+
+#: Collections whose fingerprint mismatch has already been reported, so a
+#: misconfiguration logs once rather than once per query.
+_reported_fingerprint_mismatches: set[str] = set()
+
+
+def embed_fingerprint(model: str, base_url: str) -> str:
+    """Stable digest of the embedding identity a collection's vectors were written with.
+
+    ``base_url`` is part of the identity, not decoration: the same model name served by
+    a different provider is a different vector space, and this deployment's code default
+    (``nvidia/llama-nemotron-embed-vl-1b-v2`` on NVIDIA) differs from what compose
+    actually sets (``openai/text-embedding-3-large`` on OpenRouter), so any deployment
+    path that misses the env var writes foreign vectors into a shared collection.
+    """
+    payload = json.dumps({"model": model, "base_url": (base_url or "").rstrip("/")}, sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def embed_fingerprint_metadata(model: str, base_url: str) -> dict[str, str]:
+    """Collection metadata recording the embedding identity, human-readable digest first."""
+    return {EMBED_FINGERPRINT_KEY: embed_fingerprint(model, base_url), EMBED_MODEL_KEY: model}
+
+
+def embed_fingerprint_mismatch(collection_metadata: dict[str, Any] | None, model: str, base_url: str) -> str | None:
+    """Describe a fingerprint conflict, or ``None`` when the collection is usable.
+
+    Three states, three behaviours. **Absent** -- which is every collection deployed
+    before this existed -- is adopted silently rather than failed: "no fingerprint"
+    carries no claim, so it can only be wrong in the case that is already wrong today,
+    and a naive ``if stored != current: raise`` would brick every live corpus.
+    **Equal** proceeds. **Different** is reported.
+
+    A same-dimension model swap is the case that needs this. A different-dimension one
+    already fails loudly inside Chroma; swapping two 3072-dimension models, or repointing
+    the base URL, produces no error at all -- just silently wrong retrieval, at a score
+    distribution that looks entirely normal.
+    """
+    stored = (collection_metadata or {}).get(EMBED_FINGERPRINT_KEY)
+    if not stored:
+        return None
+    current = embed_fingerprint(model, base_url)
+    if stored == current:
+        return None
+    stored_model = (collection_metadata or {}).get(EMBED_MODEL_KEY, "unknown")
+    return (
+        f"embedding mismatch: collection was written with {stored_model!r} (fingerprint {stored}), "
+        f"but this process is configured for {model!r} at {base_url!r} (fingerprint {current}). "
+        f"Stored and query vectors are from different spaces. Restore the previous "
+        f"AIQ_EMBED_MODEL/AIQ_EMBED_BASE_URL, or delete and re-ingest the collection."
+    )
+
+
+def _cosine_distances(query_embedding: Any, embeddings: Any, count: int) -> list[float]:
+    """Cosine distances between the query vector and each fetched chunk vector.
+
+    The German sparse channel finds chunks by lexical match, so it has no distance of its
+    own, and it used to declare 1.0 for all of them. On this pipeline's scale that is a
+    cosine of EXACTLY 0.0 -- a positive claim that the chunk is orthogonal to the query,
+    not an absence of information. Three things then follow, all wrong: a relevance floor
+    above zero deletes every sparse-only hit while leaving overlapping vector hits alone,
+    `MIN_SURFACE_SCORE` does the same in the document grid, and the grounding block prints
+    `Relevance Score: 0.00` next to a chunk that may be the best answer in the corpus.
+
+    The real distance is computable for free. Chroma returns the stored vectors on the
+    same `get` that fetches the text, and the query vector is already in hand -- no extra
+    embedding call, no extra round trip.
+
+    Falls back to the neutral 1.0 per chunk if anything is missing or malformed: this is
+    the retrieval hot path and a scoring nicety must never break a search.
+    """
+    try:
+        import numpy as np
+
+        if embeddings is None or len(embeddings) != count:
+            return [1.0] * count
+        matrix = np.asarray(embeddings, dtype=float)
+        query = np.asarray(query_embedding, dtype=float)
+        norms = np.linalg.norm(matrix, axis=1) * np.linalg.norm(query)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cosine = np.where(norms > 0, (matrix @ query) / norms, 0.0)
+        return [float(1.0 - value) for value in np.nan_to_num(cosine, nan=0.0)]
+    except Exception:  # pragma: no cover - defensive; scoring must not break retrieval
+        return [1.0] * count
+
+
+def _to_chroma_where(filters: dict[str, Any] | None):
+    """Translate a backend-neutral filter dict into a Chroma ``where`` expression.
+
+    Routes through the same ``MetadataFilters`` translation the vector channel uses, so
+    the lexical channel cannot accept or reject a different filter grammar than its
+    partner. Chroma requires exactly one operator per expression and at least two
+    operands in an ``$and``/``$or``; LlamaIndex's translation normalises both, which the
+    raw dict did not. Returns ``None`` for empty input.
+    """
+    metadata_filters = _to_metadata_filters(filters)
+    if metadata_filters is None:
+        return None
+    # `_to_chroma_filter` is private to the vendor package and pinned only by a lower
+    # bound, so a minor bump can remove it. Raising here would degrade to "hybrid
+    # silently off" -- the exact failure this translation exists to eliminate -- so
+    # fall back to the local translation instead.
+    try:
+        from llama_index.vector_stores.chroma.base import _to_chroma_filter
+
+        return _to_chroma_filter(metadata_filters)
+    except ImportError:
+        logger.warning("llama-index's Chroma filter translation is unavailable; using the local fallback")
+        return _local_chroma_where(filters)
+
+
+def _local_chroma_where(filters: dict[str, Any]) -> dict[str, Any]:
+    """Minimal backend-neutral -> Chroma ``where`` translation.
+
+    Mirrors the two normalisations Chroma requires and the raw dict lacks: sibling
+    keys in one node become an explicit ``$and``, and a one-operand ``$and``/``$or``
+    collapses to the bare expression.
+    """
+    operands: list[dict[str, Any]] = []
+    for key, condition in filters.items():
+        if key in {"$and", "$or"}:
+            children = [_local_chroma_where(child) for child in condition]
+            operands.append(children[0] if len(children) == 1 else {key: children})
+        elif isinstance(condition, dict):
+            operands.append({key: condition})
+        else:
+            operands.append({key: {"$eq": condition}})
+    if not operands:
+        raise ValueError("Unsupported metadata filter: empty group")
+    return operands[0] if len(operands) == 1 else {"$and": operands}
 
 
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
@@ -800,6 +1043,38 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
         logger.error("Error extracting PDF text: %s", e)
 
     return pages
+
+
+def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Any]:
+    """Build the text Documents for one PDF, structure-aware where the document allows it.
+
+    A numbered corpus cut on its own outline yields one requirement per chunk instead of
+    roughly fifteen blended into a 1024-token block, and gives every chunk a Punkt to
+    cite rather than only a page. ``punkt_documents`` returns ``None`` for anything
+    without a usable outline -- a glossary, a list of standards, any tenant upload -- and
+    that is the per-page path below, byte-for-byte what ingestion did before.
+
+    Extracted from ``_run_ingestion`` so the choice between the two strategies is
+    testable without a job, a Chroma client or an embedder.
+    """
+    from knowledge_layer.llamaindex.punkt_chunking import punkt_documents
+    from llama_index.core import Document
+
+    structured = punkt_documents(text_pages, file_name, file_size)
+    if structured is not None:
+        return structured
+    return [
+        Document(
+            text=page["text"],
+            metadata={
+                "file_name": file_name,
+                "file_size": file_size,
+                "page_label": str(page["page_number"]),
+                "content_type": "text",
+            },
+        )
+        for page in text_pages
+    ]
 
 
 def _looks_like_pdf(file_path: str) -> bool:
@@ -1793,6 +2068,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # Collection Management Implementation
     # =========================================================================
 
+    def _embed_fingerprint_metadata(self) -> dict[str, str]:
+        """The embedding identity to stamp on collections this ingestor writes."""
+        return embed_fingerprint_metadata(self.embed_model_name, self.embed_base_url)
+
     def create_collection(
         self,
         name: str,
@@ -1813,6 +2092,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 "hnsw:space": "cosine",
                 "created_at": now_iso,
                 "updated_at": now_iso,
+                **self._embed_fingerprint_metadata(),
             }
             if description:
                 collection_metadata["description"] = description
@@ -1862,6 +2142,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             from aiq_agent.knowledge import clear_collection_summaries
 
             clear_collection_summaries(name)
+
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            get_chunk_text_store().delete_collection(name)
             bump_collection_version(name)
 
             logger.info(f"Deleted collection: {name}")
@@ -1919,6 +2203,23 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     new_metadata[key] = value
 
             new_metadata["updated_at"] = datetime.utcnow().isoformat()
+            # Stamp the embedding identity while we already hold the merged metadata, so
+            # a collection created by the ingest path -- which cannot carry metadata,
+            # since Chroma ignores it for an existing collection -- still acquires one.
+            #
+            # ONLY WHEN ABSENT. Writing it unconditionally erases the mismatch this
+            # feature exists to detect: a collection written with model A, then ingested
+            # into by a process misconfigured for model B, would have its fingerprint
+            # rewritten to B. Retrieval's check is blocked only until that ingestion, and
+            # afterwards the collection holds vectors from two spaces while reporting no
+            # conflict -- back to silently wrong retrieval, with the evidence destroyed.
+            # A stored fingerprint is a fact about vectors already written; nothing this
+            # process does can make it untrue.
+            mismatch = embed_fingerprint_mismatch(existing_metadata, self.embed_model_name, self.embed_base_url)
+            if mismatch:
+                logger.error("Collection %s: %s", collection_name, mismatch)
+            elif not existing_metadata.get(EMBED_FINGERPRINT_KEY):
+                new_metadata.update(self._embed_fingerprint_metadata())
 
             # ChromaDB's modify() only updates the metadata fields we provide
             collection.modify(metadata=new_metadata)
@@ -2166,6 +2467,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.knowledge import unregister_summary
 
                     unregister_summary(collection_name, file_name)
+
+                    from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+                    get_chunk_text_store().delete_by_file(collection_name, file_name)
                     return True
                 results = {"ids": matching_ids}
 
@@ -2183,6 +2488,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             from aiq_agent.knowledge import unregister_summary
 
             unregister_summary(collection_name, file_name)
+
+            # Drop the lexical mirror for this file, scoped to THIS collection: the
+            # same file_name legitimately exists in the base corpus and in a project
+            # upload, and deleting one must not blind the other.
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            get_chunk_text_store().delete_by_file(collection_name, file_name)
 
             return True
 
@@ -2596,6 +2908,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 metadata={"hnsw:space": "cosine"},
             )
 
+            # Refuse to add vectors from a different embedding space to an existing
+            # collection. Retrieval performs the same check, but only on the read path
+            # and only in the retriever class -- so a misconfigured process could still
+            # WRITE foreign vectors here, and the collection would then hold two spaces
+            # permanently. Failing the job instead leaves the corpus consistent and the
+            # cause named. Absent fingerprint is adopted, as everywhere else.
+            mismatch = embed_fingerprint_mismatch(
+                chroma_collection.metadata, self.embed_model_name, self.embed_base_url
+            )
+            if mismatch:
+                raise ValueError(f"Refusing to ingest into {collection_name}: {mismatch}")
+
             # Set up vector store
             vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
@@ -2664,18 +2988,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     text_pages: list[dict[str, Any]] = []
                     if is_pdf:
                         text_pages = _extract_text_from_pdf(file_path)
-                        text_documents = [
-                            Document(
-                                text=page["text"],
-                                metadata={
-                                    "file_name": file_name,
-                                    "file_size": file_size,
-                                    "page_label": str(page["page_number"]),
-                                    "content_type": "text",
-                                },
-                            )
-                            for page in text_pages
-                        ]
+                        text_documents = text_documents_for_pages(text_pages, file_name, file_size)
                     elif is_image:
                         # Standalone image: caption via the VLM into a single
                         # Document. The VLM is a hard requirement here (there is
@@ -2954,6 +3267,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # classifiers ahead of the filename guess.
                     for doc in all_documents:
                         doc.metadata["doc_class"] = doc_class
+                        _apply_metadata_exclusions(doc)
 
                     # Create/update index with all documents
                     if index is None:
@@ -2967,6 +3281,49 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # Subsequent files - insert into existing index
                         for doc in all_documents:
                             index.insert(doc)
+
+                    # Mirror this file's chunk text into the knowledge database so the
+                    # German lexical channel can search it. The ids are read back FROM
+                    # Chroma rather than derived from the documents: the node parser runs
+                    # inside from_documents/insert, so the llama-index node id -- which is
+                    # the chunk_id fusion keys on -- does not exist until after indexing.
+                    # Fail-open: a mirror failure must never fail a file that is already
+                    # safely in the vector store.
+                    try:
+                        from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+                        mirrored = chroma_collection.get(
+                            where={"file_name": file_name},
+                            include=["documents", "metadatas"],
+                        )
+                        mirrored_ids = mirrored.get("ids") or []
+                        mirrored_docs = mirrored.get("documents") or []
+                        mirrored_meta = mirrored.get("metadatas") or []
+                        get_chunk_text_store().upsert_many(
+                            collection_name,
+                            [
+                                {
+                                    "chunk_id": chunk_id,
+                                    "body": mirrored_docs[index] if index < len(mirrored_docs) else "",
+                                    # The STORED file_name, not the local one: delete_file
+                                    # resolves tmp-prefixed names, and the mirror has to be
+                                    # deletable by whatever key delete looks up.
+                                    "file_name": (
+                                        (mirrored_meta[index] or {}).get("file_name") or file_name
+                                        if index < len(mirrored_meta)
+                                        else file_name
+                                    ),
+                                    "page_label": (
+                                        (mirrored_meta[index] or {}).get("page_label", "")
+                                        if index < len(mirrored_meta)
+                                        else ""
+                                    ),
+                                }
+                                for index, chunk_id in enumerate(mirrored_ids)
+                            ],
+                        )
+                    except Exception as mirror_error:
+                        logger.warning("Chunk text mirror skipped for %s: %s", file_name, mirror_error)
 
                     # Count chunks (nodes)
                     chunks_created = len(all_documents)
@@ -3231,8 +3588,8 @@ class LlamaIndexRetriever(BaseRetriever):
         # identical questions recur across users and conversations, and the
         # corpus only changes on re-sync. Keyed on the collection write
         # version, so in-process ingestion invalidates immediately.
-        self._result_cache: dict[tuple[str, int, str, int], tuple[float, RetrievalResult]] = {}
-        self._result_cache_order: list[tuple[str, int, str, int]] = []
+        self._result_cache: dict[tuple[str, int, str, int, str], tuple[float, RetrievalResult]] = {}
+        self._result_cache_order: list[tuple[str, int, str, int, str]] = []
         self._result_cache_lock = threading.Lock()
 
         logger.info(f"LlamaIndexRetriever initialized: persist_dir={self.persist_dir}")
@@ -3326,6 +3683,16 @@ class LlamaIndexRetriever(BaseRetriever):
             logger.warning(f"Collection '{collection_name}' not found: {e}")
             return None
 
+        # Fail loudly rather than answering from a foreign vector space. Raising here
+        # surfaces through _retrieve_sync as success=False, so the layer drops out with a
+        # WARNING instead of taking the whole chat surface down over a config typo.
+        mismatch = embed_fingerprint_mismatch(chroma_collection.metadata, self.embed_model_name, self.embed_base_url)
+        if mismatch:
+            if collection_name not in _reported_fingerprint_mismatches:
+                _reported_fingerprint_mismatches.add(collection_name)
+                logger.error("Collection '%s' %s", collection_name, mismatch)
+            raise RuntimeError(f"Collection '{collection_name}' {mismatch}")
+
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         index = VectorStoreIndex.from_vector_store(vector_store)
         with self._index_cache_lock:
@@ -3404,15 +3771,30 @@ class LlamaIndexRetriever(BaseRetriever):
 
             logger.info(f"LlamaIndexRetriever.retrieve: query='{query[:50]}...', collection={collection_name}")
 
-            cacheable = collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS
-            cache_key = (
-                collection_name,
-                collection_version(collection_name),
-                query,
-                top_k,
-                _filters_fingerprint(filters),
+            # No resolvable write version => no cache key at all. `None` is unknown,
+            # not 0: an entry stored or matched against a version we cannot vouch for
+            # is how one replica keeps answering from a corpus another replica has
+            # already changed. Read through instead -- the cache is an optimisation,
+            # the version is a correctness invariant.
+            #
+            # Membership is tested FIRST because resolving the version is a shared-cache
+            # round trip. Every query also fans out across the per-conversation session
+            # collection and any project collections, and none of those is cacheable, so
+            # resolving first spent one EVAL per non-cacheable collection per query on the
+            # retrieval hot path -- and grew a permanent memo entry for each -- to discard
+            # the answer immediately afterwards.
+            cache_key: tuple[str, int, str, int, str] | None = None
+            version = (
+                collection_version(collection_name) if collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS else None
             )
-            if cacheable:
+            if version is not None:
+                cache_key = (
+                    collection_name,
+                    version,
+                    query,
+                    top_k,
+                    _filters_fingerprint(filters),
+                )
                 cached = self._cached_static_result(cache_key)
                 if cached is not None:
                     logger.info(f"Static retrieval cache hit for collection {collection_name}")
@@ -3446,6 +3828,15 @@ class LlamaIndexRetriever(BaseRetriever):
             if self.hybrid_search:
                 chunks = self._hybrid_lexical_boost(query, collection_name, top_k, filters, chunks)
 
+            # State each hit's rank in this collection's FINAL order, after the lexical
+            # fusion has had its say. `_rank_channel` in register.py documents reading it
+            # here and nothing ever wrote it, so every cross-collection merge fell back to
+            # list position. That fallback happens to be correct today -- position is the
+            # final order -- but it made the field dead weight and the docstring false,
+            # and it left the fuser unable to tell a genuine rank from a coincidence.
+            for rank, chunk in enumerate(chunks):
+                chunk.retrieval_rank = rank
+
             logger.info(f"LlamaIndex retrieval returned {len(chunks)} chunks")
 
             result = RetrievalResult(
@@ -3454,7 +3845,7 @@ class LlamaIndexRetriever(BaseRetriever):
                 backend=self.backend_name,
                 success=True,
             )
-            if cacheable:
+            if cache_key is not None:
                 self._store_static_result(cache_key, result)
             return result
 
@@ -3494,20 +3885,66 @@ class LlamaIndexRetriever(BaseRetriever):
             from .hybrid import reciprocal_rank_fusion
 
             terms = extract_exact_terms(query) if extract_exact_terms is not None else []
-            if not terms:
-                return chunks
 
             embedding = self._embed_query_cached(query)
             collection = self._chroma_client.get_collection(name=collection_name)
+            # Translate through the SAME grammar the vector channel uses. Passing the
+            # backend-neutral dict straight to Chroma diverged on two shapes it rejects
+            # but LlamaIndex accepts -- a node with sibling keys (an implicit AND) and a
+            # single-element `$and`/`$or` group. Since the base collection always carries
+            # the `exclude_file_names` clause, any caller filter with two keys made the
+            # lexical pass raise, and the fail-open below turned hybrid off for exactly
+            # the filtered queries, visible only in a log line.
+            where = _to_chroma_where(filters)
             channels: list[list[Chunk]] = [chunks]
             for term in terms:
                 raw = collection.query(
                     query_embeddings=[embedding],
                     n_results=top_k,
                     where_document={"$contains": term},
-                    where=filters if filters else None,
+                    where=where,
                 )
                 channels.append(self._chunks_from_raw_query(raw))
+
+            # German sparse channel: a real lexical index over the mirrored chunk text,
+            # solving the inflection, Austrian-ß and umlaut cases Chroma's byte-level
+            # `$contains` cannot. An EMPTY result is normal and means "no usable lexical
+            # signal" -- the document-frequency ceiling fired, or the query is English --
+            # never an error.
+            try:
+                from aiq_agent.common.query_expansion import expansion_terms
+                from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+                lexical_ids = get_chunk_text_store().search(
+                    collection_name, query, limit=top_k, extra_terms=expansion_terms(query)
+                )
+                if lexical_ids:
+                    fetched = collection.get(
+                        ids=lexical_ids, include=["documents", "metadatas", "embeddings"], where=where
+                    )
+                    fetched_ids = fetched.get("ids") or []
+                    german_channel = self._chunks_from_raw_query(
+                        {
+                            "ids": [fetched_ids],
+                            "documents": [fetched.get("documents") or []],
+                            "metadatas": [fetched.get("metadatas") or []],
+                            "distances": [_cosine_distances(embedding, fetched.get("embeddings"), len(fetched_ids))],
+                        }
+                    )
+                    # Restore the store's ranking: `collection.get` does not preserve it,
+                    # and RRF consumes rank position.
+                    rank = {chunk_id: index for index, chunk_id in enumerate(lexical_ids)}
+                    german_channel.sort(key=lambda chunk: rank.get(chunk.chunk_id, len(rank)))
+                    channels.append(german_channel)
+            except Exception as lexical_error:
+                logger.warning("German sparse channel unavailable: %s", lexical_error)
+
+            # Only the vector channel: nothing to fuse. This replaces the old early
+            # return on `not terms`, which would have made the sparse channel dead for
+            # the 71.7% of German questions that produce no exact term -- precisely the
+            # population it exists to serve.
+            if len(channels) == 1:
+                return chunks
 
             fused = reciprocal_rank_fusion(channels, top_n=top_k)
             if fused:
@@ -3525,11 +3962,24 @@ class LlamaIndexRetriever(BaseRetriever):
         """Convert a raw Chroma ``collection.query`` result dict into normalized Chunks.
 
         The raw query returns per-query-embedding lists; we always send exactly one
-        embedding, so each key's first list is the one we want. L2 distances map to a
-        display score monotonically; RRF only consumes ranks, so any monotone map works.
+        embedding, so each key's first list is the one we want. Cosine distances map to
+        the store's own ``exp(-distance)`` scale, mirroring what the vector channel
+        receives from ``ChromaVectorStore`` so the two channels stay comparable.
+
+        Node reconstruction goes through ``metadata_dict_to_node`` -- the same helper
+        the vector path uses -- rather than a hand-built ``TextNode``. That is not a
+        tidiness preference: ``node_id`` is a read-only *property* over the ``id_``
+        field, so ``TextNode(node_id=...)`` was silently discarded by pydantic and every
+        lexical chunk was born with a fresh ``uuid4``. Since reciprocal rank fusion keys
+        on ``chunk_id``, no chunk could ever match across the two channels: fusion
+        degenerated into channel-major concatenation, the same passage was emitted twice
+        under two different ids, and the duplicates displaced genuine vector hits. The
+        helper also restores the clean node metadata instead of Chroma's raw row, which
+        carries a full JSON copy of the chunk's own text in ``_node_content``.
         """
         from llama_index.core.schema import NodeWithScore
         from llama_index.core.schema import TextNode
+        from llama_index.core.vector_stores.utils import metadata_dict_to_node
 
         ids = raw.get("ids", [[]])[0]
         documents = raw.get("documents", [[]])[0]
@@ -3541,7 +3991,12 @@ class LlamaIndexRetriever(BaseRetriever):
             distance = distances[index] if index < len(distances) else 1.0
             metadata = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
             text = documents[index] if index < len(documents) else ""
-            node = TextNode(text=text, node_id=chunk_id, metadata=metadata)
+            try:
+                node = metadata_dict_to_node(metadata, text=text)
+            except Exception:
+                # Rows written before `_node_content` existed, or by a non-llama-index
+                # writer. `id_`, not `node_id` -- see the docstring.
+                node = TextNode(text=text or "", id_=chunk_id, metadata=metadata)
             nodes.append(NodeWithScore(node=node, score=math.exp(-float(distance))))
         return [self.normalize(node) for node in nodes]
 
@@ -3606,10 +4061,7 @@ class LlamaIndexRetriever(BaseRetriever):
             return Chunk(
                 chunk_id=node.node_id if hasattr(node, "node_id") else str(uuid.uuid4()),
                 content=node.get_content() if hasattr(node, "get_content") else str(node),
-                # Cosine similarity is in [-1, 1] (and float rounding can nudge
-                # an exact match past 1.0), but Chunk.score enforces [0, 1] —
-                # an out-of-range value would raise and swallow the real result.
-                score=min(1.0, max(0.0, float(score))) if score else 0.0,
+                score=cosine_similarity_from_store_score(score),
                 file_name=file_name,
                 page_number=page_number,
                 display_citation=display_citation,

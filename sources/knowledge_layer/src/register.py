@@ -9,6 +9,7 @@ The retriever is instantiated once and reused for all queries.
 import asyncio
 import logging
 import os
+from contextlib import suppress
 from typing import Literal
 
 from pydantic import Field
@@ -28,8 +29,9 @@ logger = logging.getLogger(__name__)
 _CHUNK_TRUNCATE_CHARS = 2500
 
 # Diversity-aware merge caps how many chunks per document are taken in the
-# first pass before spreading to other documents. With max_per_document=2 and
-# top_k=8 the second pass fills remaining slots, covering >=4 documents.
+# first pass before spreading to other documents. The cap is soft: with
+# max_per_document=2 and top_k=8 the first pass covers >=4 documents, and the
+# fill pass exceeds the cap rather than returning fewer than top_k chunks.
 _MAX_CHUNKS_PER_DOC = 2
 
 # Retrieval over-fetch factor applied when the caller narrows results with the
@@ -154,8 +156,28 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "against the query (LLM-judge reranking; fail-open to the original order)."
         ),
     )
+    reranker_provider: str | None = Field(
+        default=None,
+        description=(
+            "Cross-encoder reranking provider (none|openrouter|cohere|voyage|jina|nvidia). "
+            "None falls back to the AIQ_RERANKER_PROVIDER environment default, which is "
+            "'none'. When one resolves it becomes the primary reranker and rerank_llm "
+            "becomes the fallback; a missing key or any provider error degrades to the judge."
+        ),
+    )
+    reranker_model: str | None = Field(
+        default=None,
+        description="Cross-encoder model id. None uses the provider's multilingual default.",
+    )
     rerank_candidates: int = Field(
-        default=15, ge=0, description="How many candidate chunks to over-fetch and re-rank when rerank_llm is set"
+        default=15,
+        ge=1,
+        description=(
+            "How many candidate chunks to over-fetch and re-rank when rerank_llm is set. "
+            "Reranking converts recall into precision, so this should exceed top_k by "
+            "several times, not by a margin. Must be >= 1: zero used to be accepted and "
+            "trimmed every search to nothing."
+        ),
     )
     # Foundational RAG (hosted RAG Blueprint) options
     rag_url: str = Field(default="http://localhost:8081/v1", description="RAG query server URL (foundational_rag only)")
@@ -482,24 +504,120 @@ def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: d
     return {"$and": clauses}
 
 
+def _rank_channel(chunks) -> list:
+    """Lay one collection's hits out so that list position IS the per-collection rank.
+
+    ``fuse_with_ranks`` reads a chunk's rank from its position, while the adapter states
+    a hit's rank in ``retrieval_rank`` (stamped after the intra-collection lexical
+    fusion, so it is the collection's final order, not the raw vector order). Positions
+    a stamped rank has vacated are padded with ``None``, which the fuser skips because it
+    carries no ``chunk_id``: a collection whose rank 3 was dropped upstream keeps rank 4
+    at rank 4 instead of silently promoting it.
+
+    Chunks with no stamped rank (SimpleNamespace test doubles, the foundational_rag
+    backend, anything predating the field) fall back to their position in the list, which
+    is the order the retriever returned them in — so an unstamped layer behaves exactly
+    as it did before the field existed.
+    """
+    by_rank: dict[int, object] = {}
+    for position, chunk in enumerate(chunks):
+        rank = getattr(chunk, "retrieval_rank", None)
+        if not isinstance(rank, int) or isinstance(rank, bool) or rank < 0:
+            rank = position
+        # A duplicated or colliding rank must never evict a hit; push it to the next free
+        # slot so both survive and their relative order is preserved.
+        while rank in by_rank:
+            rank += 1
+        by_rank[rank] = chunk
+    if not by_rank:
+        return []
+    return [by_rank.get(rank) for rank in range(max(by_rank) + 1)]
+
+
+def _apply_diversity_cap(ordered, top_k: int, max_per_document: int) -> list:
+    """Select ``top_k`` chunks from a ranked list, spreading across distinct documents.
+
+    The cap is SOFT, which is what both the docstring it replaces and the LLM-facing tool
+    description have always promised: at most ``max_per_document`` chunks per distinct
+    document (keyed by collection + file_name) *where possible*, and the cap is exceeded
+    rather than returning fewer than ``top_k`` chunks.
+
+    The first pass is bounded at ``top_k`` selections. The previous inline version scanned
+    the ENTIRE merged list, so ``selected`` was already longer than ``top_k`` under any
+    production config and ``(selected + leftovers)[:top_k]`` reduced to ``selected[:top_k]``
+    — the fill pass was unreachable and the quota was hard. Worse, appending the deferred
+    chunks after every selected one meant a downstream ``[:top_k]`` trim saw a list whose
+    head had been rebuilt out of low-ranked chunks: on a single-topic query it swapped
+    seven on-topic hits for seven off-topic ones from other documents.
+
+    The result is returned in rank order, i.e. as a subsequence of ``ordered``. Selection
+    order was not monotone in the ranking key it was selected by, which is what made the
+    downstream trim lossy.
+
+    Args:
+        ordered: Chunks in final rank order, best first.
+        top_k: Maximum number of chunks to return.
+        max_per_document: Per-document cap for the first pass; ``0`` disables diversity
+            entirely, making this a plain top-k truncation.
+
+    Returns:
+        At most ``top_k`` chunks, in the same relative order as ``ordered``.
+    """
+    if max_per_document <= 0 or top_k <= 0:
+        return list(ordered[:top_k])
+
+    selected: list[int] = []
+    deferred: list[int] = []
+    per_doc: dict[tuple, int] = {}
+    for index, chunk in enumerate(ordered):
+        if len(selected) >= top_k:
+            # Bounded first pass: once the slate is full, everything left is a fill
+            # candidate. Nothing below this point is a cap decision.
+            deferred.append(index)
+            continue
+        doc_key = ((getattr(chunk, "metadata", None) or {}).get("collection"), getattr(chunk, "file_name", None))
+        if per_doc.get(doc_key, 0) < max_per_document:
+            per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
+            selected.append(index)
+        else:
+            deferred.append(index)
+
+    # Soft quota: when there are not enough distinct documents to fill the slate, the
+    # chunks the cap deferred come back, best rank first.
+    for index in deferred:
+        if len(selected) >= top_k:
+            break
+        selected.append(index)
+
+    return [ordered[index] for index in sorted(selected)]
+
+
 def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_document: int = _MAX_CHUNKS_PER_DOC):
     """
-    Merge per-collection retrieval results into a single scored result.
+    Merge per-collection retrieval results into one ranked result by rank fusion.
 
-    Scores are comparable across collections (same embedding model, cosine [0,1]),
-    so chunks from all successful layers are concatenated and sorted by score
-    descending. Selection is diversity-aware: a first pass takes at most
-    ``max_per_document`` chunks per distinct document (keyed by collection +
-    file_name), then any remaining slots up to ``top_k`` are filled with the
-    highest-scoring leftovers regardless of source. With a single document (or
-    ``max_per_document=0``) this is identical to a plain top-k truncation.
+    Chunks are NOT comparable by score across collections. ``Chunk.score`` is a true
+    cosine similarity, but the professionally chunked base corpus sits in a systematically
+    better distance band than a session or project collection, so a user's own uploaded
+    PDF can never win on raw score and "layered retrieval" does not layer. Each surviving
+    collection therefore contributes one RRF channel (in ``target_collections`` order, so
+    the base corpus wins exact ties) and the merged order is the fused rank — scale-free
+    by construction, so a session hit at rank 0 can outrank a corpus hit at rank 5.
+
+    Selection over that fused order is diversity-aware; see ``_apply_diversity_cap``. With
+    a single collection and ``max_per_document=0`` this is identical to a plain top-k
+    truncation of that collection's own order.
+
+    ``chunk.score`` is never mutated: ``_format_results`` keeps displaying the true
+    similarity. The fusion score is recorded on ``chunk.fusion_score`` for diagnostics.
 
     Failed layers (``success=False``, e.g. a brand-new session whose collection
     does not exist yet) and raised exceptions are treated as empty contributions
     and skipped. This never raises.
 
     Args:
-        results: List of RetrievalResult objects or Exceptions (from asyncio.gather).
+        results: List of RetrievalResult objects or Exceptions (from asyncio.gather),
+            in ``target_collections`` order.
         query: The original query string.
         top_k: Maximum number of merged chunks to return.
         backend_name: Fallback backend label if no successful result is available.
@@ -510,23 +628,40 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
     """
     from aiq_agent.knowledge.schema import RetrievalResult
 
-    merged_chunks = []
+    channels: list[list] = []
     backend = backend_name
     for result in results:
         if isinstance(result, Exception):
             logger.debug("Knowledge layer raised, skipping: %s", result)
             continue
         if not getattr(result, "success", False):
-            logger.debug(
-                "Knowledge layer empty/failed, skipping: %s",
-                getattr(result, "error_message", None),
-            )
+            # A missing collection is routine — every new conversation's session
+            # collection does not exist until something is uploaded into it, so
+            # logging that at WARNING would bury the signal under one line per turn.
+            # Everything else is not routine: a corpus that dropped out because Chroma
+            # was unreachable, a collection deleted and recreated, or a filter that
+            # failed to translate all produced a confident answer built on an empty
+            # knowledge layer with nothing above DEBUG to say so.
+            message = getattr(result, "error_message", None) or ""
+            if "not found" in message.lower():
+                logger.debug("Knowledge layer absent, skipping: %s", message)
+            else:
+                logger.warning("Knowledge layer failed, skipping: %s", message)
             continue
         if result.backend:
             backend = result.backend
-        merged_chunks.extend(result.chunks)
+        # One channel per SURVIVING collection, in arrival order. Skipped layers must not
+        # leave an empty channel behind: an empty channel is harmless to RRF but a
+        # non-empty one from a later collection would shift into the tie-break seat.
+        channels.append(_rank_channel(result.chunks))
 
-    merged_chunks.sort(key=lambda chunk: chunk.score, reverse=True)
+    merged_chunks = []
+    for chunk, _fused_rank, fused_score in _fuse_channels(channels):
+        with suppress(Exception):
+            # Diagnostic only. Never displayed; `score` stays the true cosine so the
+            # "Relevance Score:" line keeps meaning what citation parsing expects.
+            chunk.fusion_score = fused_score
+        merged_chunks.append(chunk)
 
     try:
         from aiq_agent.common.focus_file import get_focused_file_name
@@ -551,22 +686,28 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
         # "summarize this PDF" grew a Büro plan (#429).
         merged_chunks = matching if matching else merged_chunks
 
-    if max_per_document > 0:
-        selected = []
-        leftovers = []
-        per_doc: dict[tuple, int] = {}
-        for chunk in merged_chunks:
-            doc_key = ((chunk.metadata or {}).get("collection"), chunk.file_name)
-            if per_doc.get(doc_key, 0) < max_per_document:
-                per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
-                selected.append(chunk)
-            else:
-                leftovers.append(chunk)
-        merged_top_k = (selected + leftovers)[:top_k]
-    else:
-        merged_top_k = merged_chunks[:top_k]
+    merged_top_k = _apply_diversity_cap(merged_chunks, top_k, max_per_document)
 
     return RetrievalResult(success=True, chunks=merged_top_k, query=query, backend=backend)
+
+
+def _fuse_channels(channels: list[list]) -> list[tuple]:
+    """Reciprocal-rank-fuse per-collection channels, failing open to concatenation.
+
+    The fusion helper lives in the llamaindex package, so it is imported lazily and
+    defensively: ``_merge_results`` is called on ``asyncio.gather(..., return_exceptions=True)``
+    output and must never raise, and a deployment running the foundational_rag backend
+    without the llamaindex extra must degrade to the (still collection-ordered)
+    concatenation rather than losing the whole search.
+    """
+    try:
+        from knowledge_layer.llamaindex.hybrid import fuse_with_ranks
+
+        return fuse_with_ranks(channels)
+    except Exception as exc:  # pragma: no cover - import/fusion failure is fail-open
+        logger.warning("Cross-collection rank fusion unavailable, using collection order: %s", exc)
+        flat = [chunk for channel in channels for chunk in channel if chunk is not None]
+        return [(chunk, rank, 0.0) for rank, chunk in enumerate(flat)]
 
 
 def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
@@ -960,6 +1101,21 @@ def _format_results(retrieval_result, query: str) -> str:
             lines.append(f"Dokumentart: {doc_class} — {label}")
         if chunk.page_number and chunk.page_number > 0:
             lines.append(f"Page: {chunk.page_number}")
+        # The Punkt this excerpt belongs to, when the chunker established one. An
+        # Austrian building-law answer cites a requirement number ("OIB-RL 2, Pkt.
+        # 5.1.1"), and without this line the model has to read that number out of the
+        # excerpt text. That works for a Punkt that starts its own chunk and fails
+        # exactly where it matters: an over-long Punkt is split downstream by
+        # SentenceSplitter, and its continuation chunks inherit `punkt_id` in metadata
+        # while presenting to the model as anonymous prose with a page number. The
+        # model then guesses a number, and the prompt tells it to produce one.
+        #
+        # Stating it is also what makes the chunker's verified `punkt_id` reachable by
+        # anything downstream: until now it was computed, measured exactly against the
+        # corpus's contents pages, and then dropped before the citation the user reads.
+        punkt_id = (chunk.metadata or {}).get("punkt_id")
+        if punkt_id:
+            lines.append(f"Punkt: {punkt_id}")
         lines.append(f"Citation: {citation}")
         lines.append(f"Content Type: {chunk.content_type.value}")
         lines.append(f"Relevance Score: {chunk.score:.2f}")
@@ -1013,6 +1169,17 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             logger.info("Resolved rerank model: %s", config.rerank_llm)
         except Exception as e:
             logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
+
+    # Cross-encoder reranking, when configured. Primary when present; the LLM judge
+    # above stays as the fallback. Returns None (never raises) for 'none', an unknown
+    # provider, or a key that does not resolve.
+    cross_encoder = None
+    try:
+        from knowledge_layer.cross_encoder import resolve_cross_encoder
+
+        cross_encoder = resolve_cross_encoder(config.reranker_provider, model=config.reranker_model)
+    except Exception as e:
+        logger.warning(f"Cross-encoder reranker unavailable ({type(e).__name__}: {e}); using the LLM judge")
 
     # Initialize summary DB with configured URL
     from aiq_agent.knowledge.factory import configure_summary_db
@@ -1098,7 +1265,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         # Over-fetch when agentic filters will drop candidates post-merge.
         narrowed = bool(doc_class or title_contains or file_name)
         candidate_k = effective_top_k * _AGENT_FILTER_OVERFETCH if narrowed else effective_top_k
-        if rerank_llm_obj is not None:
+        if rerank_llm_obj is not None or cross_encoder is not None:
             candidate_k = max(candidate_k, config.rerank_candidates)
 
         # Resolve the per-session collection (UI uploads for this conversation).
@@ -1118,6 +1285,25 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             _resolve_scoped_collections(config, session_collection, base_collection)
         )
 
+        # Cross-lingual bridge. The corpus is German; an English question reaches it
+        # only weakly by embedding and not at all lexically. Measured on the golden
+        # set, an English question scored MRR 0.276 against 0.605 for the same
+        # question in German, and prepending the corpus's own German terms lifted it
+        # to 0.502 -- about two thirds of the gap, mostly as recall (R@16 0.73 ->
+        # 0.95), which is the part the reranker downstream can still use. A German
+        # query is returned untouched, so this is a no-op for the language the corpus
+        # is written in.
+        #
+        # ONLY the matching query is augmented. The reranker judges, and the grounding
+        # block reports, the user's actual question -- the glossary states the topic,
+        # not the intent, and a judge shown "Fassade Außenwand What are the facade…"
+        # would be scoring a phrase nobody asked.
+        from aiq_agent.common.query_expansion import augmented_query
+
+        retrieval_query = augmented_query(query)
+        if retrieval_query != query:
+            logger.info("Query expanded for retrieval: %r -> %r", query[:60], retrieval_query[:80])
+
         logger.info(
             "Knowledge search: query='%s...' collections=%s",
             query[:100],
@@ -1130,7 +1316,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
             result = await retriever.retrieve(
-                query=query, collection_name=coll, top_k=candidate_k, filters=coll_filters
+                query=retrieval_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
             )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.
@@ -1180,8 +1366,10 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 return_exceptions=True,
             )
 
-            # Merge by score (comparable across collections) with a per-document
-            # diversity cap so cross-cutting questions span multiple documents.
+            # Merge by cross-collection rank fusion (scores are NOT comparable across
+            # collections) with a per-document diversity cap so cross-cutting questions
+            # span multiple documents. `results` is in `target_collections` order, which
+            # is the channel order the fusion breaks exact ties by.
             merged = _merge_results(results, query, candidate_k, retriever.backend_name, effective_max_per_document)
 
             # Agentic narrowing, then trim to the effective top_k.
@@ -1196,15 +1384,74 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 )
                 merged = merged.model_copy(update={"chunks": kept})
 
-            # LLM-judge reranking (fail-open: any error keeps the fused order).
-            if rerank_llm_obj is not None:
+            # Reranking: cross-encoder first when configured, LLM judge as the
+            # fallback (fail-open: any error keeps the fused order).
+            if rerank_llm_obj is not None or cross_encoder is not None:
                 from knowledge_layer.rerank import rerank_chunks
 
-                reranked = await rerank_chunks(rerank_llm_obj, query, merged.chunks, top_n=config.rerank_candidates)
+                # Never trim below what the caller is about to ask for. `top_k` is
+                # admin-tunable at runtime (up to 50) while `rerank_candidates` is a
+                # build-time YAML value, so raising Platform -> Retrieval top_k above
+                # rerank_candidates used to cap every search at rerank_candidates with
+                # no error — the "must exceed top_k" invariant was documented in a
+                # comment and enforced nowhere.
+                rerank_top_n = max(effective_top_k, config.rerank_candidates)
+                reranked = await rerank_chunks(
+                    rerank_llm_obj,
+                    query,
+                    merged.chunks,
+                    top_n=rerank_top_n,
+                    cross_encoder=cross_encoder,
+                )
                 merged = merged.model_copy(update={"chunks": reranked})
 
             merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})
 
+            # Relevance floor. Without one, top_k is ALWAYS filled: a question this
+            # corpus cannot answer still returns sixteen formatted excerpts with page
+            # citations and a Dokumentart line asserting binding legal force, and the
+            # grounding block has no vocabulary for "I retrieved nothing useful". In a
+            # building-law product that is the highest-consequence failure available.
+            #
+            # DISABLED BY DEFAULT, and that is not timidity. A floor is a number on a
+            # specific embedding model's cosine distribution, and this deployment's
+            # model is a deploy-time choice -- the collection fingerprint records which
+            # one wrote the vectors precisely because they are not interchangeable. A
+            # value calibrated against one model silently over-filters under another,
+            # which is exactly how MIN_SURFACE_SCORE spent its whole life as a no-op.
+            # Calibrate with the retrieval-eval harness against the deployed model, then
+            # set knowledge.relevance_floor_pct.
+            #
+            # And calibrate expecting to find no usable value. Measured on this corpus
+            # with multilingual-e5-small over the 52-entry golden set, top-1 similarity
+            # does NOT separate the two populations: answerable questions run 0.799 to
+            # 0.933 and the six the corpus cannot answer run 0.795 to 0.865, overlapping
+            # by 0.066. Refusing all six costs 21 of the 46 real questions; keeping 44 of
+            # 46 still answers four of the six. The failures are Wiener Garagengesetz and
+            # Bauordnung questions, and the corpus is full of neighbouring text about
+            # Stellplätze and Grundgrenzen -- similarity measures that the corpus
+            # discusses parking spaces, not that it answers Vienna's parking rule.
+            # Whether that transfers to a stronger embedder is exactly what the harness
+            # is for, but the shape of the result says abstention wants a judge that
+            # reads the question against the text (the reranker's 0-10 rubric), not a
+            # threshold on a distance.
+            floor_pct = get_retrieval_setting("knowledge.relevance_floor_pct", 0)
+            if floor_pct > 0:
+                floor = floor_pct / 100.0
+                kept = [chunk for chunk in merged.chunks if chunk.score >= floor]
+                if len(kept) != len(merged.chunks):
+                    best = max((chunk.score for chunk in merged.chunks), default=0.0)
+                    logger.info(
+                        "Relevance floor %.2f dropped %d/%d chunks (best score %.2f)",
+                        floor,
+                        len(merged.chunks) - len(kept),
+                        len(merged.chunks),
+                        best,
+                    )
+                merged = merged.model_copy(update={"chunks": kept})
+
+            # After the floor, not before: the floor is the only thing that can empty a
+            # non-empty result set, and this message is the vocabulary for saying so.
             if not merged.chunks:
                 return _empty_search_message(
                     query,

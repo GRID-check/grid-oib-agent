@@ -406,6 +406,26 @@ class OibDocumentUploadResponse(BaseModel):
     members: list[OibUploadedMember] | None = Field(None, description="Per-member outcome (ZIP uploads).")
 
 
+class OibReingestRequest(BaseModel):
+    """Which base-corpus documents to re-index, by basename."""
+
+    file_names: list[str] = Field(..., description="Base-corpus PDF basenames to re-ingest.", min_length=1)
+
+
+class OibReingestResponse(BaseModel):
+    """Outcome of queueing a subset re-ingest.
+
+    Ingestion runs in the background exactly as it does for an upload, so ``status`` is
+    ``'pending'`` whenever anything was queued — the caller polls ``/v1/oib/status``,
+    where each queued document reads PENDING until its chunks are rebuilt.
+    """
+
+    status: str = Field(..., description="'pending' when at least one document was queued, else 'noop'.")
+    queued: list[str] = Field(default_factory=list, description="Basenames now re-ingesting.")
+    unknown: list[str] = Field(default_factory=list, description="Basenames that match no corpus document.")
+    message: str
+
+
 class OibDocumentDeleteResponse(BaseModel):
     """Response for removing an OIB base-corpus document.
 

@@ -25,6 +25,8 @@ from aiq_agent.oib_status import OibKnowledgeStatus
 
 from ..models.requests import OibDocumentDeleteResponse
 from ..models.requests import OibDocumentUploadResponse
+from ..models.requests import OibReingestRequest
+from ..models.requests import OibReingestResponse
 from ..models.requests import OibSyncResponse
 from ..models.requests import OibUploadedMember
 
@@ -458,6 +460,61 @@ def add_oib_routes(router: APIRouter) -> None:
                 detail="No base-corpus document with that name",
             )
         return OibDocumentDeleteResponse(success=True, file_name=Path(file_name).name, mode=mode)
+
+    @router.post(
+        "/v1/admin/oib/reingest",
+        response_model=OibReingestResponse,
+        tags=["oib"],
+        summary="Re-index selected base-corpus documents without touching the rest",
+    )
+    async def reingest_oib_documents(
+        request: OibReingestRequest,
+        _: None = Depends(_require_admin_token),
+    ) -> OibReingestResponse:
+        """Force a rebuild of specific documents' chunks.
+
+        `sync()` is incremental and gates on the sha256 of the PDF bytes, so it is a no-op
+        for a document whose file has not changed. That is the right default and the wrong
+        behaviour after anything that changes how chunks are BUILT rather than what they
+        are built from — a chunking change, an embedding-model change, a partially failed
+        ingest. Until now the only remedy was a corpus-wide re-ingest of all 39 PDFs
+        including VLM captioning.
+
+        Queued, not awaited, exactly like an upload: each document takes up to ten minutes
+        and the executor runs two at a time. The caller polls `/v1/oib/status`, where a
+        queued document reads PENDING until its chunks are rebuilt.
+
+        Unknown names are REPORTED rather than failing the request — a selection of twenty
+        documents should not be lost because one was deleted in another tab.
+        """
+        from aiq_agent import oib_sync
+
+        names = list(dict.fromkeys(request.file_names))
+        try:
+            resolved = await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: [(name, oib_sync.mark_for_reingest(name)) for name in names]
+            )
+        except Exception as e:
+            logger.exception("OIB re-ingest could not be queued")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
+        queued = [name for name, path in resolved if path is not None]
+        unknown = [name for name, path in resolved if path is None]
+        for _name, path in resolved:
+            if path is not None:
+                executor.submit(oib_sync.ingest_single, path)
+
+        if not queued:
+            return OibReingestResponse(
+                status="noop",
+                queued=[],
+                unknown=unknown,
+                message="No base-corpus document matched the requested names",
+            )
+        message = f"Re-ingest queued for {len(queued)} document(s)"
+        if unknown:
+            message += f"; {len(unknown)} unknown name(s) skipped"
+        return OibReingestResponse(status="pending", queued=queued, unknown=unknown, message=message)
 
     class UpdateDocClassRequest(BaseModel):
         doc_class: str = Field(..., description="Explicit doc_class ('Dokumentart'); must be in the vocabulary.")

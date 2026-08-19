@@ -31,15 +31,18 @@ vi.mock('@/lib/authz/platform', () => {
 const uploadMock = vi.hoisted(() => vi.fn())
 const deleteMock = vi.hoisted(() => vi.fn())
 const syncMock = vi.hoisted(() => vi.fn())
+const reingestMock = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/knowledge/service', () => ({
   uploadKnowledgeBaseDocument: uploadMock,
   deleteKnowledgeBaseDocument: deleteMock,
   syncKnowledgeBase: syncMock,
+  reingestKnowledgeBaseDocuments: reingestMock,
 }))
 
 import { POST as uploadRoute } from './documents/route'
 import { DELETE as deleteRoute } from './documents/[fileName]/route'
 import { POST as syncRoute } from './sync/route'
+import { POST as reingestRoute } from './reingest/route'
 
 function uploadRequest(withFile = true): Request {
   const form = new FormData()
@@ -124,5 +127,54 @@ describe('platform knowledge routes', () => {
 
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ filesAdded: 2, filesTotal: 41 })
+  })
+
+  it('queues a re-ingest of the selected documents for the platform owner', async () => {
+    isOwner.value = true
+    reingestMock.mockResolvedValue({ status: 'pending', queued: ['a.pdf', 'b.pdf'], unknown: [], message: 'ok' })
+
+    const res = await reingestRoute(
+      new Request('https://grid.example', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileNames: ['a.pdf', 'b.pdf'] }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ status: 'pending', queued: ['a.pdf', 'b.pdf'] })
+    expect(reingestMock).toHaveBeenCalledWith(['a.pdf', 'b.pdf'])
+  })
+
+  it('refuses a re-ingest for a non-owner without reaching the service', async () => {
+    isOwner.value = false
+    reingestMock.mockClear()
+
+    const res = await reingestRoute(
+      new Request('https://grid.example', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileNames: ['a.pdf'] }),
+      })
+    )
+
+    expect(res.status).toBe(403)
+    expect(reingestMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects an empty selection before it reaches the backend', async () => {
+    isOwner.value = true
+    reingestMock.mockClear()
+
+    const res = await reingestRoute(
+      new Request('https://grid.example', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileNames: [] }),
+      })
+    )
+
+    expect(res.status).toBe(400)
+    expect(reingestMock).not.toHaveBeenCalled()
   })
 })

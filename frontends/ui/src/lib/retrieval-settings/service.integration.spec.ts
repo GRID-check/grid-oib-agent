@@ -41,7 +41,7 @@ describe.skipIf(!url)('platform retrieval settings against live Postgres', () =>
     expect(await getPlatformRetrievalSettings()).toEqual({})
 
     let view = await listPlatformRetrievalSettings()
-    expect(view).toHaveLength(9)
+    expect(view).toHaveLength(10)
     expect(view.every((row) => !row.overridden && row.value === row.defaultValue)).toBe(true)
 
     await savePlatformRetrievalSettings({
