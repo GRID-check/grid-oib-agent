@@ -689,4 +689,3 @@ build more tests on; the hop either side is pinned, which brackets it.
 
 **No product defect.** Every crossing behaves correctly today; what was missing
 was anything watching them.
-
