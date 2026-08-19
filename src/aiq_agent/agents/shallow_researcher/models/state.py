@@ -145,6 +145,19 @@ class ShallowResearchAgentState(BaseModel):
     # dropped: the transparency doctrine forbids a class of instruction the
     # product declines to admit ran.
     skills_hidden: list[str] | None = None
+    # TRUE when this turn hit its tool-iteration ceiling and was forced into
+    # synthesis — i.e. evidence-gathering was CUT OFF rather than finished, and
+    # the answer is written from whatever had been gathered by then. Set by
+    # ``agent_node`` at the forced-synthesis branch; absent (None) on every turn
+    # that finished inside its budget, so presence IS the fact and no reader has
+    # to interpret a False.
+    #
+    # A BOOLEAN, deliberately. Where the chain stopped is a fact about the
+    # turn's PROCESS, not about the answer, and the process channel already
+    # carries it: the ``status:budget`` step emitted alongside this flag carries
+    # the ordered tool shape, and the Herleitung is built from that step stream.
+    # Putting the tool name here too would be the same fact on two wires.
+    research_truncated: bool | None = None
     # Transparency summary of citations dropped by ``verify_citations`` this turn
     # (``{"count": int, "reasons": [str, ...]}``). Populated by ``run()`` ONLY
     # when ≥1 citation was removed; None otherwise. The chat orchestrator lifts

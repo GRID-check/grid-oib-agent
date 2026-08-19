@@ -133,6 +133,13 @@ export interface AnswerTransparency {
   answerConfidenceReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
   /**
+   * The turn's research was CUT OFF at its tool-iteration ceiling: the answer
+   * rests on the evidence gathered up to that point, not on a finished search.
+   * Present or absent, never false. Independent of `answerConfidence` — a
+   * truncated answer can be perfectly grounded in the little it did find.
+   */
+  researchTruncated?: true
+  /**
    * Skills whose full instructions the agent loaded this turn (`use_skill`), in
    * activation order. Absent when none — a skill merely being available is not
    * reportable, only the decision to load one is.
@@ -354,6 +361,13 @@ export interface ChatMessage {
    * sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * The turn's research was CUT OFF at its tool-iteration ceiling: the answer
+   * rests on the evidence gathered up to that point, not on a finished search.
+   * Present or absent, never false. Independent of `answerConfidence` — a
+   * truncated answer can be perfectly grounded in the little it did find.
+   */
+  researchTruncated?: true
   /**
    * Skills whose instructions the agent LOADED while answering, in activation
    * order. Renders the "skills used" disclosure under the answer; absent when

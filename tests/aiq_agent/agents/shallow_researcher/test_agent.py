@@ -2731,6 +2731,39 @@ class TestTruncationIsObservable:
         assert "key" not in record
 
     @pytest.mark.asyncio
+    async def test_the_answer_carries_the_fact_out_of_the_graph(self):
+        """The log is for us; this field is the half the reader gets.
+
+        Telemetry answers "how often". It cannot put a line under the answer
+        the reader is looking at, and that answer is the one place where "the
+        search stopped early" changes what a person does next.
+        """
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=llm)
+        agent = ShallowResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=2)
+
+        truncated = await agent.run(
+            ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")], tool_iterations=2)
+        )
+        assert truncated.research_truncated is True
+
+    @pytest.mark.asyncio
+    async def test_an_answer_that_finished_its_research_claims_nothing(self):
+        """Absent, not False: presence is the fact, so nothing has to read a default."""
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=llm)
+        agent = ShallowResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
+
+        finished = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
+        assert finished.research_truncated is None
+
+    @pytest.mark.asyncio
     async def test_a_turn_that_finishes_inside_its_budget_records_nothing(self, steps):
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)

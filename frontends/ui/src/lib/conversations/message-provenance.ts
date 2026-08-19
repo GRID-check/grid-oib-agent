@@ -78,6 +78,13 @@ export interface MessageProvenance {
   escalationReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
   /**
+   * The turn's research was cut off at its budget ceiling. Stored, because a
+   * reloaded conversation that quietly dropped it would show a truncated
+   * answer as a complete one — the record has to keep saying what the live
+   * answer said.
+   */
+  researchTruncated?: true
+  /**
    * The deep-research job, so a colleague can fetch the report rather than be
    * handed a copy of it. The POINTER is small and the report is large and already
    * has a retrieval path; storing the payload here would put a document in a
@@ -192,6 +199,10 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
       reasons,
     }
   }
+
+  // `=== true`, not truthiness: this comes off untrusted stored JSON, and the
+  // field is a fact the reader is shown. A stray "yes" must not become one.
+  if (input.researchTruncated === true) out.researchTruncated = true
 
   const jobId = cap(input.deepResearchJobId, 128)
   if (jobId) out.deepResearchJobId = jobId

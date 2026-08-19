@@ -407,6 +407,7 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "answer_confidence_capped_reason",
     "answer_confidence_reason",
     "citations_removed",
+    "research_truncated",
     "job_admission_rejected",
     "retry_after_seconds",
 )

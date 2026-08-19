@@ -535,6 +535,7 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.citationsRemoved
       ? { citationsRemoved: opts.transparency.citationsRemoved }
       : {}),
+    ...(opts.transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
     ...(opts.transparency?.skillsHidden && opts.transparency.skillsHidden.length > 0
       ? { skillsHidden: opts.transparency.skillsHidden }
       : {}),
@@ -1385,6 +1386,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ? { answerConfidenceReason: transparency.answerConfidenceReason }
           : {}),
         ...(transparency?.citationsRemoved ? { citationsRemoved: transparency.citationsRemoved } : {}),
+        ...(transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
         ...(transparency?.skillsHidden && transparency.skillsHidden.length > 0
           ? { skillsHidden: transparency.skillsHidden }
           : {}),

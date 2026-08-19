@@ -254,6 +254,9 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   ) {
     out.citationsRemoved = provenance.citationsRemoved as { count: number; reasons: string[] }
   }
+  if (provenance.researchTruncated === true) {
+    out.researchTruncated = true
+  }
   if (typeof provenance.deepResearchJobId === 'string') {
     out.deepResearchJobId = provenance.deepResearchJobId
   }

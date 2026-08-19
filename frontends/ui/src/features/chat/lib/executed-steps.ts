@@ -81,6 +81,21 @@ const STEP_NAME_RULES: Array<{ match: RegExp; key: string }> = [
   { match: /read|fetch/, key: 'reading' },
 ]
 
+/**
+ * The reader-facing noun for a tool/agent step, or `null` when we have none.
+ *
+ * Exported because the Herleitung's truncation line needs the SAME answer this
+ * row's chips give: named in the reader's own nouns where a rule exists, and
+ * otherwise not named at all rather than title-cased into a plausible English
+ * phrase. A caller with no label may still show the bare identifier as an
+ * identifier (`font-mono`) — that is the established ladder, and it is what
+ * `skillLabel` does for a skill with no authored title.
+ */
+export const stepNameLabel = (functionName: string, t: (key: string) => string): string | null => {
+  const rule = STEP_NAME_RULES.find((r) => r.match.test((functionName || '').toLowerCase()))
+  return rule ? t(`thinking.stepName.${rule.key}`) : null
+}
+
 /** Function names that are graph scaffolding, not user-meaningful steps. */
 const SKIP_RE = /^<workflow>$|^chat_deepresearcher_agent$/i
 

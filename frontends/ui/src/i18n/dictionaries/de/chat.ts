@@ -155,6 +155,16 @@ export const chat: typeof en.chat = {
     citationsRemoved:
       '{count, plural, one {# Quellenangabe entfernt} other {# Quellenangaben entfernt}} (nicht verifizierbar)',
     citationsRemovedReasonsLabel: 'Gründe',
+    // Die Recherche wurde an der Iterationsgrenze abgebrochen, nicht beendet.
+    // Eine Aussage über die BELEGLAGE, keine Fehlermeldung und kein Urteil über
+    // die Antwort — deshalb im selben Register wie die Quellenzeile darüber.
+    // Unabhängig von der Selbsteinschätzung: die bewertet, ob die Aussagen
+    // belegt sind, nicht ob die Suche zu Ende gelaufen ist.
+    researchTruncated:
+      'Recherche vorzeitig beendet — die Antwort stützt sich auf die bis dahin gefundenen Belege',
+    // Derselbe Sachverhalt, wenn die Antwort gar keine Quellen nennt: der Satz
+    // oben verspräche „die bis dahin gefundenen Belege“, die es nicht gibt.
+    researchTruncatedWithoutSources: 'Recherche vorzeitig beendet, bevor Belege gefunden wurden',
   },
   // Die Antwort aus Piloti herausbekommen — für Prüfvermerk, Mail, Einreichung.
   // Zwei Icon-Schaltflächen in der Metazeile der Antwort; die zweite gibt es nur,
@@ -809,6 +819,16 @@ export const chat: typeof en.chat = {
       // Quellenspalten in der Luft und die Form springt, sobald die Antwort da ist.
       findingsPendingTab: 'Einschätzung',
       findingsPending: 'Quellen werden abgewogen …',
+      // Die Recherche lief nicht zu Ende, sondern gegen ihre Iterationsgrenze.
+      // Im Einschätzungsknoten, weil er die Frage „was lag der Antwort
+      // zugrunde?“ beantwortet — und dazu gehört, wo die Kette abbrach.
+      // {tool} ist der zuletzt AUSGEFÜHRTE Schritt, nicht der nächste: welchen
+      // das Modell als Nächstes gewählt hätte, weiß niemand — es kam nicht mehr
+      // dazu, ihn vorzuschlagen.
+      findingsTruncatedStep: 'Recherche hier beendet — zuletzt gelaufen: {tool}',
+      // Wenn kein Schritt zu benennen ist (das Budget war vor dem ersten
+      // Werkzeug erschöpft): lieber weniger sagen als etwas erfinden.
+      findingsTruncated: 'Recherche hier beendet: das Budget war aufgebraucht',
       branchesTab: 'Folgewege',
       branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },

@@ -132,6 +132,14 @@ class ChatResearcherState(BaseModel):
     # Present only when citation verification removed ≥1 citation from the answer:
     # ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated, max 5).
     citations_removed: dict[str, Any] | None = None
+    # TRUE when the research turn was cut off at its tool-iteration ceiling and
+    # forced into synthesis. Absent on every turn that finished inside its
+    # budget: presence is the fact. Lifted onto the terminal ChatResponse as
+    # ``research_truncated`` so the answer can say that its evidence-gathering
+    # stopped early — which is orthogonal to ``answer_confidence`` (that grades
+    # whether the claims are sourced; a truncated answer can be perfectly
+    # grounded in the little it did find).
+    research_truncated: bool | None = None
     # Marks the answer text as a queue-rejection notice (deep-research admission
     # control refused the job), NOT a research answer.
     job_admission_rejected: bool | None = None

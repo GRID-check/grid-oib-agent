@@ -166,6 +166,16 @@ export const chat = {
     citationsRemoved:
       '{count, plural, one {# citation} other {# citations}} removed (not verifiable)',
     citationsRemovedReasonsLabel: 'Reasons',
+    // Evidence-gathering was cut off at the iteration ceiling. A statement
+    // about the EVIDENCE, not an error and not a verdict on the answer — hence
+    // the same register as the sources row above it. Independent of the
+    // confidence chip, which grades whether the claims are sourced rather than
+    // whether the search ran to the end.
+    researchTruncated:
+      'The search stopped before it was finished — this answer rests on the evidence gathered up to that point',
+    // The same fact for an answer that cites nothing: the sentence above would
+    // promise evidence that is not there.
+    researchTruncatedWithoutSources: 'The search stopped before it was finished, and before it had found anything',
   },
   // Getting the answer OUT of the app — the paste into a report, a mail, a
   // submission. Two icon buttons in the answer's meta row; the second one only
@@ -818,6 +828,15 @@ export const chat = {
       // shape jumps when the answer lands.
       findingsPendingTab: 'Assessment',
       findingsPending: 'Weighing the sources …',
+      // The search did not finish; it ran into its iteration ceiling. It
+      // belongs in the assessment node because that node answers "what was
+      // this answer built on?", and where the chain broke off is part of it.
+      // {tool} is the last step that RAN, never the next one: nobody knows
+      // what the model would have chosen, because it never got to propose it.
+      findingsTruncatedStep: 'The search ended here — the last step it ran was {tool}',
+      // When there is no step to name (the budget was gone before the first
+      // tool), say less rather than invent one.
+      findingsTruncated: 'The search ended here: the budget was spent',
       branchesTab: 'Next steps',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },

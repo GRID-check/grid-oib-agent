@@ -134,6 +134,8 @@ import { SourceCard } from './SourceCard'
 import { SectionLabel } from '@/components/ui/section-label'
 import { BranchOptions } from './BranchOptions'
 import { citationChips } from './citations'
+import { researchTruncation } from '../../lib/turn-events'
+import { stepNameLabel } from '../../lib/executed-steps'
 import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
@@ -221,6 +223,17 @@ type FindingsData = {
   tally?: string
   /** Streaming: the verdict has not landed, so the node reads as in-flight. */
   pending?: boolean
+  /**
+   * The turn ran into its research ceiling. Rendered as the node's last line —
+   * the assessment answers "what was this built on?", and "the chain stopped
+   * here" is part of that answer.
+   *
+   * Split into the sentence around the step name and the name itself, because
+   * the name may be a bare tool identifier: the dictionary owns the sentence,
+   * and an identifier is shown AS an identifier (`mono`) rather than dressed up
+   * as a reader-facing noun. Same ladder the executed-step chips use.
+   */
+  truncation?: { before: string; step?: string; after: string; mono: boolean }
   /** Top (target) handles — one per incoming column, or a single centre. */
   targets: HandleSpec[]
   /**
@@ -354,6 +367,18 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
     )}
     {data.hitSummary && (
       <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{data.hitSummary}</p>
+    )}
+    {data.truncation && (
+      // Same muted register as the lines above it: this is a fact about the
+      // evidence, not a warning — the node is not tinted, bordered or
+      // iconified for it, because "the search stopped" is not an error.
+      <p className="mt-1.5 border-t border-base pt-1.5 text-xs leading-relaxed text-muted-foreground">
+        {data.truncation.before}
+        {data.truncation.step && (
+          <span className={data.truncation.mono ? 'font-mono' : undefined}>{data.truncation.step}</span>
+        )}
+        {data.truncation.after}
+      </p>
     )}
     <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />
   </div>
@@ -606,7 +631,23 @@ export function buildGraph(
    * progress, not like a broken diagram.
    */
   const pendingFindings = !hasVerdict && !hasBranches && Boolean(props.live) && hasSources
-  const hasFindings = hasVerdict || pendingFindings
+  /**
+   * The turn hit its research ceiling. Read from the step stream, which is
+   * where the process record lives — the answer frame carries the reader-facing
+   * half (`researchTruncated`), this carries where the chain stopped.
+   */
+  // Only once the turn has landed: while it streams, the graph already has its
+  // pending converge node, and the answer's own note does not exist yet — two
+  // surfaces disagreeing for a few hundred milliseconds about whether the
+  // search is over is worse than one arriving a moment later.
+  const truncation = props.live ? null : researchTruncation(props.steps)
+  /**
+   * A truncated turn EARNS the assessment node even with no verdict and no
+   * sources — which is exactly the case worth getting right, because a turn
+   * that was cut off before it found anything is otherwise a graph that just
+   * stops, with nothing anywhere saying why.
+   */
+  const hasFindings = hasVerdict || pendingFindings || Boolean(truncation)
 
   const columnIds = columns.map((_, i) => `col-${i}`)
   const columnX = (i: number) => fanX + i * (colW + gap)
@@ -665,6 +706,26 @@ export function buildGraph(
           docs: cards.length,
         })
       : undefined
+  /**
+   * The truncation sentence, split around the step name.
+   *
+   * The name is resolved through the SAME authority the "Ausgeführt:" chips
+   * use: a reader-facing noun where one exists, otherwise the bare tool id
+   * shown as an id (`mono`). What it never does is title-case `light_incidence`
+   * into "Light Incidence" — an identifier dressed as a noun is the one thing
+   * this trace is not allowed to invent, and half this product's tools have no
+   * reader-facing name at all.
+   */
+  const truncationLine = (() => {
+    if (!truncation) return undefined
+    if (!truncation.lastTool) {
+      return { before: t('thinking.node.findingsTruncated'), after: '', mono: false }
+    }
+    const named = stepNameLabel(truncation.lastTool, t)
+    const template = t('thinking.node.findingsTruncatedStep')
+    const [before = '', after = ''] = template.split('{tool}')
+    return { before, step: named ?? truncation.lastTool, after, mono: named === null }
+  })()
   const findingsData: FindingsData | null = hasFindings
     ? {
         label: pendingFindings ? t('thinking.node.findingsPendingTab') : t('thinking.node.findingsTab'),
@@ -675,6 +736,7 @@ export function buildGraph(
           : hitLanes.length > 0
             ? t('thinking.node.findingsHits', { lanes: hitLanes.join(', ') })
             : undefined,
+        truncation: truncationLine,
         targets: convergeTargets,
         source: CENTRE_OUT,
       }

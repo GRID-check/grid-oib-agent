@@ -358,6 +358,12 @@ export const NATSystemResponseMessageSchema = z.object({
   // The subset of skills_activated marked grid-hidden — de-emphasised in the
   // disclosure, never dropped (the transparency doctrine).
   skills_hidden: z.array(z.string()).optional().catch(undefined),
+  // The research turn hit its tool-iteration ceiling and was forced into
+  // synthesis: evidence-gathering was CUT OFF, not completed. `literal(true)`
+  // because the backend sends it or omits it — presence is the fact, and a
+  // `false` on the wire would be one more default to interpret. Orthogonal to
+  // `answer_confidence`, which grades whether the claims are sourced.
+  research_truncated: z.literal(true).optional().catch(undefined),
   // Marks the answer text as a queue-rejection notice (NOT a research answer).
   job_admission_rejected: z.literal(true).optional().catch(undefined),
   // Retry hint (seconds) — only alongside job_admission_rejected.

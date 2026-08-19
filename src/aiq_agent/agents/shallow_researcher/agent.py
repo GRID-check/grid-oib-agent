@@ -809,6 +809,10 @@ class ShallowResearcherAgent:
                         "messages": [response],
                         "tool_iterations": iterations,
                         "cached_system_prompt": rendered_system_prompt,
+                        # Carried out of the graph so the ANSWER can say it, not
+                        # just the log. Everything above this line is for us;
+                        # this field is the half the reader gets.
+                        "research_truncated": True,
                     }
 
                 full_messages = [system_message] + processed_history

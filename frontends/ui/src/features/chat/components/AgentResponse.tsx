@@ -31,7 +31,12 @@ import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
 import { useConversationMemory } from '../hooks/use-conversation-memory'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { answerSourceAnchorPrefix, buildCitationModel, splitAnswerBody } from '../lib/citations'
+import {
+  answerDocuments,
+  answerSourceAnchorPrefix,
+  buildCitationModel,
+  splitAnswerBody,
+} from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
@@ -127,6 +132,15 @@ export interface AgentResponseProps {
    * "Belegt durch" sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * The turn's research was cut off at its budget ceiling: this answer rests on
+   * the evidence gathered up to that point rather than on a finished search.
+   * Renders one muted line directly under the sources row — a fact about the
+   * EVIDENCE, in the same register as the row above it. Never a badge on the
+   * answer and never folded into the confidence chip: that grades whether the
+   * claims are sourced, which a truncated answer can be, perfectly.
+   */
+  researchTruncated?: true
   /**
    * Skills whose full instructions the agent loaded while writing this answer
    * (`use_skill`), in activation order. Absent on a turn that activated none,
@@ -249,6 +263,38 @@ const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: st
 }
 
 /**
+ * The line under the sources row for a turn whose research was CUT OFF.
+ *
+ * Two sentences, not one with a clause bolted on: an answer that found nothing
+ * cannot be described as resting on "the evidence gathered up to that point",
+ * because there is none — and that case, cut off before it found anything, is
+ * both the worst one and the one a reader most needs told plainly. The gap row
+ * above already says the answer cites nothing; this says the search stopped
+ * early, so the two read as one statement instead of contradicting each other.
+ *
+ * `role="note"`, muted, no icon, no tint, no border: truncation is a property
+ * of the EVIDENCE, not an error state and not a verdict on the answer.
+ */
+const ResearchTruncatedNote: FC<{ researchTruncated?: true; hasSources: boolean }> = ({
+  researchTruncated,
+  hasSources,
+}) => {
+  const t = useTranslations('chat')
+  if (!researchTruncated) return null
+  return (
+    <div className="mt-1.5">
+      <span className="text-xs leading-relaxed text-muted-foreground" role="note">
+        {t(
+          hasSources
+            ? 'answerSources.researchTruncated'
+            : 'answerSources.researchTruncatedWithoutSources'
+        )}
+      </span>
+    </div>
+  )
+}
+
+/**
  * Agent response bubble component for completed responses
  */
 const AgentResponseComponent: FC<AgentResponseProps> = ({
@@ -266,6 +312,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   answerConfidenceCappedReason,
   answerConfidenceReason,
   citationsRemoved,
+  researchTruncated,
   skillsActivated,
   skillsHidden,
   showReasoning = false,
@@ -348,6 +395,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     () => buildCitationModel({ citations, entries: sourceEntries, cards }),
     [citations, sourceEntries, cards]
   )
+  // The SAME predicate the sources row uses to decide between chips and the
+  // "Ohne Quellenbeleg" gap row — so the truncation line never promises
+  // "the evidence gathered up to that point" beside a row saying there is none.
+  const hasAnswerSources = useMemo(() => answerDocuments(documents).length > 0, [documents])
 
   const { reportContent, deepResearchJobId, isDeepResearchStreaming, deepResearchStreamLoaded } =
     useChatStore(useShallow((s) => ({
@@ -524,6 +575,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           routingDecision={routingDecision}
           isStreaming={isStreaming}
         />
+        <ResearchTruncatedNote researchTruncated={researchTruncated} hasSources={hasAnswerSources} />
         <CitationsRemovedNote citationsRemoved={citationsRemoved} />
         <SkillsUsedDisclosure
           skillsActivated={skillsActivated}
@@ -690,6 +742,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             isStreaming={isStreaming}
             withDivider={false}
           />
+          <ResearchTruncatedNote researchTruncated={researchTruncated} hasSources={hasAnswerSources} />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           <SkillsUsedDisclosure
           skillsActivated={skillsActivated}

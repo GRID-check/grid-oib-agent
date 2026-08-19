@@ -209,6 +209,8 @@ _STREAM_EXTRA_FIELDS = (
     "answer_confidence_capped_reason",
     "answer_confidence_reason",
     "citations_removed",
+    # The research turn ran out of budget before it ran out of question.
+    "research_truncated",
     "job_admission_rejected",
     "retry_after_seconds",
     # Agent Skills: which skills ran this turn — i.e. whose instructions the
@@ -1138,6 +1140,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         answer_confidence_capped_reason = _result_field(result, "answer_confidence_capped_reason")
         answer_confidence_reason = _result_field(result, "answer_confidence_reason")
         citations_removed = _result_field(result, "citations_removed")
+        research_truncated = _result_field(result, "research_truncated")
         job_admission_rejected = _result_field(result, "job_admission_rejected")
         retry_after_seconds = _result_field(result, "retry_after_seconds")
         skills_activated = _result_field(result, "skills_activated")
@@ -1177,6 +1180,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             response.answer_confidence_reason = answer_confidence_reason
         if citations_removed:
             response.citations_removed = citations_removed
+        # Truthiness, not `is not None`: the field is True-or-absent by
+        # construction, and an accidental False must stay off the wire rather
+        # than reach a frontend that renders on presence.
+        if research_truncated:
+            response.research_truncated = True
         if job_admission_rejected:
             response.job_admission_rejected = True
             if retry_after_seconds is not None:
