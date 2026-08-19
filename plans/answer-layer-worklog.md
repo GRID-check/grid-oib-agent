@@ -623,3 +623,39 @@ FLAG THAT CROSSES A BOUNDARY (a served row into a model object, a model field
 onto the wire, a wire field into a prop). Unit tests on both sides pass while the
 crossing is unasserted. Look for others.
 
+## Sprint 11A / 12A landed — the review surface, and what it caught
+**11A `0d62d6be`** — four `/dev/chat-turn` variants showing the answer layer in a
+real turn at the thread's 680px column. Two defects the gallery structurally
+CANNOT show:
+- the fallback block sat on `gap-2` while placed cards and paragraphs use 12px —
+  only visible when one answer holds both;
+- `process_map` chips overflowed their card by 8.5px on mobile, because the
+  gallery gives that card 342px at a 390px viewport and the ANSWER COLUMN gives
+  it 270px. The gallery tests a width the product does not have.
+
+It also caught two errors in its own fixtures by reading the prose — including a
+"lede" fixture at 563 chars, below the 600 threshold, so it was not testing the
+lede at all. Lengthened the prose, not the threshold.
+
+`verdict_header` + lede: the renderer is CORRECT. A marker opening the body hits
+`NON_PROSE_OPENER` and suppresses the lede, so a verdict card placed where the
+skill says IS the lede. The misuse turn shows the same ruling twice — a writing
+rule `piloti-cards` already owns, not a layout fault. Nothing changed.
+
+**12A `7c93a90d`** — the citation pill's `min-w-[1.05rem]` reserved 3.58px more
+than a digit needs and `justify-center` split it, putting ~1.8px of tint between
+the number and the sentence's period („REI 90 `1` ."). Second iteration of this
+bug: the literal brackets were removed for the same reason once already.
+Measured in a real browser rather than guessed — and the floor turned out to be
+INERT from `[10]` up, so it only ever applied to the single case it broke, and
+it made spacing inconsistent between `1 .` and `10.`. Removed entirely rather
+than lowered. The regression test asserts the MECHANISM both iterations shared
+(a pill reserving width its contents cannot fill), since jsdom has no layout.
+
+### Still open (queued)
+- **Mobile citation orphan.** A marker can wrap onto its own line taking the
+  period with it. Proven to be a DIFFERENT fix: the break opportunity is the
+  space before the marker, in the preceding text node, so no pill width removes
+  it. Belongs in `features/layout/lib/citation-markers.ts`, where markers are
+  spliced into the mdast.
+
