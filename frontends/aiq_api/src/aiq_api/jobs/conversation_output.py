@@ -49,6 +49,59 @@ INTERRUPTED_NOTICE = (
 )
 
 
+#: The marks a run may have left on its own answer, in the spelling they travel
+#: in everywhere else on the wire (the agent state, the terminal websocket frame,
+#: the job's persisted output, ``websocket_reconnect``'s metadata).
+#:
+#: Spelling is the whole point. The BFF normalises a backend-written message with
+#: ``normalizeAgentAnswerMetadata``, which recognises the snake_case originals and
+#: nothing else; a "tidier" camelCase key here would be stored under a name that
+#: reader never looks at, and the message would come back tomorrow looking like a
+#: clean, complete answer — the exact failure this whole path exists to prevent,
+#: reintroduced one layer lower and silently.
+#:
+#: An allowlist rather than "copy the dict": this metadata is a public contract
+#: read by surfaces that never see this file, and a caller that one day hands us
+#: a richer dict must not be able to seed new keys in it by accident.
+_TRANSPARENCY_METADATA_KEYS = (
+    "research_truncated",
+    "truncation_reason",
+    "degraded_reasons",
+    "citations_removed",
+    "answer_confidence",
+    "answer_confidence_reason",
+    "answer_confidence_capped_reason",
+)
+
+
+def _transparency_metadata(transparency: dict[str, Any] | None) -> dict[str, Any]:
+    """The transparency keys worth writing, or an empty dict.
+
+    Absent, never false. ``research_truncated`` is written as ``true`` or not at
+    all, and an empty ``degraded_reasons`` stays out entirely — an empty value is
+    not a claim of "degraded in zero ways", it is the ordinary case, and storing
+    it would let a later reader mistake "nothing was recorded" for "we checked
+    and there was nothing". Same contract the job output keeps
+    (``runner._build_job_output``), enforced again here because this is a second
+    door into the same fact and the two must not drift.
+    """
+    if not transparency:
+        return {}
+
+    metadata: dict[str, Any] = {}
+    for key in _TRANSPARENCY_METADATA_KEYS:
+        value = transparency.get(key)
+        if isinstance(value, bool):
+            # Literal ``True`` only, and nothing at all for ``False``.
+            if value:
+                metadata[key] = True
+            continue
+        if not value:
+            continue
+        metadata[key] = value
+    return metadata
+
+
 def _message_id(conversation_id: str, job_id: str, role: str) -> str:
     """A stable id per (conversation, job, role).
 
@@ -73,6 +126,7 @@ async def write_job_turn(
     cards: list[Any] | None = None,
     skills_activated: list[str] | None = None,
     sources: list[Any] | None = None,
+    transparency: dict[str, Any] | None = None,
 ) -> None:
     """Write the job's question and its answer into the conversation.
 
@@ -94,6 +148,17 @@ async def write_job_turn(
     into the stored ``citations`` envelope — spelling it any other way here
     would store a key that reader never looks at, which is a message whose
     citations are silently gone rather than one that fails loudly.
+
+    ``transparency`` is what the run said about its OWN answer: that its
+    research was cut off and the report salvaged from partial work, that it
+    shipped in a known-weaker form, that citations were stripped before anyone
+    saw them, and how confident it is. The job store and the live ``job.degraded``
+    event already carried all of it; the thread carried none, so a deep run that
+    was cut off at the wall clock reopened tomorrow as a clean-looking answer
+    with no hint that anything had been salvaged. Deep is the only path that can
+    say "I was cut off and this is what I could save", and until this it said it
+    to nobody who came back later. Keys are the backend's wire spelling, for the
+    same reason ``sources`` is (see ``_TRANSPARENCY_METADATA_KEYS``).
     """
     if not conversation_id:
         return
@@ -125,6 +190,18 @@ async def write_job_turn(
         metadata["skills_activated"] = list(skills_activated)
     if sources:
         metadata["sources"] = list(sources)
+    # Guarded on its own, like the write below: transparency is bookkeeping
+    # ABOUT a finished answer and must never cost the reader the answer itself.
+    # A malformed payload costs them the caveat — bad, and logged — where an
+    # unguarded merge would cost them the whole thread message (non-fatal).
+    try:
+        metadata.update(_transparency_metadata(transparency))
+    except Exception:  # noqa: BLE001 — best-effort by contract; see module docstring
+        logger.warning(
+            "Could not attach answer transparency to the thread message for job %s (non-fatal)",
+            job_id,
+            exc_info=True,
+        )
 
     try:
         await post_internal_conversation_message(

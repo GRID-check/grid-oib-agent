@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 import pytest
 
+from aiq_api.jobs.conversation_output import write_job_turn
+from aiq_api.jobs.runner import _ANSWER_CONFIDENCE_FIELDS
 from aiq_api.jobs.runner import _DEGRADED_EVENT_FIELDS
 from aiq_api.jobs.runner import _GRAPH_RECURSION_ERROR_MSG
 from aiq_api.jobs.runner import _WALL_CLOCK_TIMEOUT_MSG
@@ -546,3 +548,136 @@ class TestDegradedEvent:
         assert _DEGRADED_EVENT_FIELDS == ("research_truncated", "truncation_reason", "degraded_reasons")
         # The citation summary is output-only: the event stays tokens.
         assert "citations_removed" not in _DEGRADED_EVENT_FIELDS
+
+
+class TestExtractAnswerConfidence:
+    """The answer's own self-assessment, lifted on the same read.
+
+    Deep did not record these until recently; the extractor must be correct both
+    before and after that lands, which means absent contributes nothing rather
+    than a neutral-looking placeholder.
+    """
+
+    def test_the_level_and_its_reasons_ride_the_transparency_dict(self) -> None:
+        state = SimpleNamespace(
+            answer_confidence="low",
+            answer_confidence_reason="Keine bindende Quelle gefunden.",
+            answer_confidence_capped_reason="ungrounded",
+        )
+        assert _extract_answer_transparency(state) == {
+            "answer_confidence": "low",
+            "answer_confidence_reason": "Keine bindende Quelle gefunden.",
+            "answer_confidence_capped_reason": "ungrounded",
+        }
+
+    def test_reads_it_off_a_dict_result_too(self) -> None:
+        assert _extract_answer_transparency({"answer_confidence": "high"}) == {"answer_confidence": "high"}
+
+    def test_an_agent_that_does_not_record_it_yet_writes_nothing(self) -> None:
+        """The other half of this work may not have landed; nothing breaks."""
+        assert _extract_answer_transparency(SimpleNamespace()) == {}
+        assert _extract_answer_transparency(SimpleNamespace(answer_confidence=None)) == {}
+
+    def test_a_malformed_level_is_dropped_rather_than_forwarded(self) -> None:
+        assert _extract_answer_transparency(SimpleNamespace(answer_confidence="")) == {}
+        assert _extract_answer_transparency(SimpleNamespace(answer_confidence="   ")) == {}
+        assert _extract_answer_transparency(SimpleNamespace(answer_confidence=3)) == {}
+        assert _extract_answer_transparency(SimpleNamespace(answer_confidence_reason=[])) == {}
+
+    def test_confidence_is_not_a_degraded_run(self) -> None:
+        """A low-confidence answer must not fire the operator-facing signal."""
+        for field_name in _ANSWER_CONFIDENCE_FIELDS:
+            assert field_name not in _DEGRADED_EVENT_FIELDS
+
+    def test_the_confidence_fields_land_in_the_job_output(self) -> None:
+        state = SimpleNamespace(answer_confidence="medium", answer_confidence_reason="Nur eine Quelle.")
+        output = _build_job_output("# Report", cards=None, transparency=_extract_answer_transparency(state))
+        assert output["answer_confidence"] == "medium"
+        assert output["answer_confidence_reason"] == "Nur eine Quelle."
+
+
+class TestTransparencyReachesBothSurfaces:
+    """One read, two surfaces — the bug this closes is a field reaching one.
+
+    The job output feeds the live Report panel; the conversation message feeds
+    the thread on reload. A run cut off at the wall clock that says so in the
+    panel and not in the thread is an answer whose caveat expires when the tab
+    is closed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_every_field_lands_in_the_output_and_in_the_metadata(self) -> None:
+        state = SimpleNamespace(
+            research_truncated=True,
+            truncation_reason="wall_clock",
+            degraded_reasons=["no_report_file"],
+            citations_removed={"count": 1, "reasons": ["duplicate"]},
+            answer_confidence="low",
+            answer_confidence_reason="Recherche abgebrochen.",
+            answer_confidence_capped_reason="ungrounded",
+        )
+        transparency = _extract_answer_transparency(state)
+
+        output = _build_job_output("# Report", cards=None, transparency=transparency)
+
+        with patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=AsyncMock,
+        ) as post:
+            await write_job_turn(
+                conversation_id="s_abc",
+                job_id="job-1",
+                usage_context={"identity": {"organization_id": "org_1"}},
+                prompt="q",
+                answer="# Report",
+                transparency=transparency,
+            )
+        metadata = post.await_args_list[-1].kwargs["metadata"]
+
+        for key, value in transparency.items():
+            assert output[key] == value, key
+            assert metadata[key] == value, key
+
+    @pytest.mark.asyncio
+    async def test_a_clean_run_marks_neither_surface(self) -> None:
+        transparency = _extract_answer_transparency(SimpleNamespace())
+        assert _build_job_output("# Report", cards=None, transparency=transparency) == {"report": "# Report"}
+
+        with patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=AsyncMock,
+        ) as post:
+            await write_job_turn(
+                conversation_id="s_abc",
+                job_id="job-1",
+                usage_context={"identity": {"organization_id": "org_1"}},
+                prompt="q",
+                answer="# Report",
+                transparency=transparency,
+            )
+        metadata = post.await_args_list[-1].kwargs["metadata"]
+        assert "research_truncated" not in metadata
+        assert "answer_confidence" not in metadata
+
+    @pytest.mark.asyncio
+    async def test_a_transparency_failure_cannot_fail_the_job(self) -> None:
+        """The report is the deliverable; a caveat may never cost it.
+
+        The runner guards its own extraction; this pins the other end — the
+        conversation write, where a malformed payload from a future caller must
+        still leave the reader with the answer.
+        """
+        with patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=AsyncMock,
+        ) as post:
+            await write_job_turn(
+                conversation_id="s_abc",
+                job_id="job-1",
+                usage_context={"identity": {"organization_id": "org_1"}},
+                prompt="q",
+                answer="# Report",
+                transparency="research_truncated",  # type: ignore[arg-type]
+            )
+
+        assert post.await_args_list[-1].kwargs["text"] == "# Report"

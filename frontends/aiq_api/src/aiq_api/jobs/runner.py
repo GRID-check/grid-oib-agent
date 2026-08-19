@@ -80,6 +80,18 @@ JOB_DEGRADED_EVENT_TYPE = "job.degraded"
 # channel exists so a live listener and an operator counting cutoffs can see it.
 _DEGRADED_EVENT_FIELDS = ("research_truncated", "truncation_reason", "degraded_reasons")
 
+# The answer's self-assessment, lifted alongside the cutoff/degradation marks and
+# spelled exactly as the socket path spells it (``persist_assistant_message``), so
+# the BFF's existing decoder maps all three into the stored provenance with no
+# frontend change. Deliberately NOT in _DEGRADED_EVENT_FIELDS above: a merely
+# low-confidence answer is not a degraded run, and announcing one as the other
+# would train operators to ignore the signal that means a run was cut off.
+_ANSWER_CONFIDENCE_FIELDS = (
+    "answer_confidence",
+    "answer_confidence_reason",
+    "answer_confidence_capped_reason",
+)
+
 
 def sanitize_job_error(exc: BaseException) -> str:
     """Map an internal exception to a user-safe error message.
@@ -1020,12 +1032,10 @@ async def run_agent_job(
                     # The answer's structured provenance, read once and handed to
                     # BOTH surfaces below: the job output feeds the live Report
                     # panel, the message metadata feeds the thread on reload. A
-                    # source list that reached only one of them is the bug this
-                    # closes, one layer up.
+                    # source list — or a cutoff mark — that reached only one of
+                    # them is the bug this closes, one layer up.
                     verified_sources = _extract_verified_sources(result)
-                    output = _build_job_output(
-                        report, cards=cards, transparency=transparency, sources=verified_sources
-                    )
+                    output = _build_job_output(report, cards=cards, transparency=transparency, sources=verified_sources)
                     # Sticky terminal statuses: never flip a job the reaper or
                     # cancel route already finalized (FAILURE/INTERRUPTED) back
                     # to SUCCESS.
@@ -1044,6 +1054,14 @@ async def run_agent_job(
                         cards=cards,
                         skills_activated=_extract_skills_activated(result),
                         sources=verified_sources,
+                        # The same transparency dict the job output above got.
+                        # The Report panel reads that output; the thread reads
+                        # only this row, so a run cut off at the wall clock and
+                        # salvaged would otherwise reopen tomorrow as a clean
+                        # answer — the caveat surviving exactly as long as the
+                        # live panel stayed open, which is not what "persisted"
+                        # is supposed to mean.
+                        transparency=transparency,
                     )
                     logger.info(
                         "Job %s completed (report: %d chars, cards: %d)",
@@ -1538,10 +1556,12 @@ def _extract_answer_transparency(result: Any) -> dict[str, Any]:
     ship in a known-weaker form — no report file was ever written, or citation
     verification found nothing provably grounded (``degraded_reasons``); and
     citations it did make can have been stripped before anyone saw them
-    (``citations_removed``). The socket path lifts all of that off the agent
-    state onto the terminal frame. The job path reduced the entire state to a
-    report string, so every one of these markers died inside the Dask worker and
-    the same answer looked *cleaner* delivered as a job than streamed live.
+    (``citations_removed``). It can also rate its own answer, in the level and
+    the two reasons that make the level actionable (``answer_confidence``).
+    The socket path lifts all of that off the agent state onto the terminal
+    frame. The job path reduced the entire state to a report string, so every
+    one of these markers died inside the Dask worker and the same answer looked
+    *cleaner* delivered as a job than streamed live.
 
     Read defensively — state object OR dict, every field type-checked on its own
     — because the runner is agent-agnostic by design: an agent whose state
@@ -1588,6 +1608,20 @@ def _extract_answer_transparency(result: Any) -> dict[str, Any]:
     citations_removed = field("citations_removed")
     if isinstance(citations_removed, dict) and citations_removed:
         transparency["citations_removed"] = citations_removed
+
+    # The answer's own self-assessment, read here so it rides the SAME dict to
+    # the same two surfaces instead of growing a second lift with its own bugs.
+    # The three travel together on purpose: the shallow path has always sent the
+    # level with its reason, because "niedrig" alone tells a reader their answer
+    # might be wrong and nothing about what to check, and a level whose reason
+    # was dropped in transport is the exact complaint that pairing exists to
+    # prevent. Deep may not record any of them yet — absent is the ordinary case
+    # and writes nothing, so this lands before the field exists and stays correct
+    # after it does.
+    for confidence_field in _ANSWER_CONFIDENCE_FIELDS:
+        value = field(confidence_field)
+        if isinstance(value, str) and value.strip():
+            transparency[confidence_field] = value
 
     return transparency
 
