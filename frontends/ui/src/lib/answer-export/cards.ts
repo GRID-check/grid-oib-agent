@@ -83,7 +83,7 @@ type ExportKind = 'content' | 'live' | 'chrome'
  * Classify as `chrome` only when the card asks something rather than states
  * something. The test is what a Behörde would make of it in a Bauakt: an
  * unanswered question, a picker, or a proposal awaiting a decision the document
- * cannot report the outcome of is not a finding, and printing it under „Befunde"
+ * cannot report the outcome of is not a finding, and printing it under „Befunde“
  * claims it is one. Everything else is `content` — a card missing from an
  * exported file reads as a finding the answer never made, which is the failure
  * this whole feature exists to prevent, so the doubtful case exports.
@@ -158,8 +158,14 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
 export const exportKindOf = (type: string): ExportKind =>
   CARD_EXPORT[type as GridCard['type']] ?? 'content'
 
-/** Fields no card should print. */
-const SKIPPED_FIELDS = new Set([
+/**
+ * Fields no card should print, at the card's TOP level.
+ *
+ * Exported so `label-coverage.spec.ts` can subtract exactly what the walker
+ * subtracts, rather than keeping a second copy that would drift. Nested objects
+ * drop only `type` — see {@link nestedText}.
+ */
+export const SKIPPED_FIELDS = new Set([
   // The discriminator; the heading already says what this card is.
   'type',
   // Rendered as the heading.
@@ -486,7 +492,7 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
   if (typeof type !== 'string') return []
 
   const kind = exportKindOf(type)
-  // Nothing at all — not even the heading. A „Weiterführende Fragen" heading
+  // Nothing at all — not even the heading. A „Weiterführende Fragen“ heading
   // with no questions under it would still put the app's own chrome inside the
   // findings section.
   if (kind === 'chrome') return []

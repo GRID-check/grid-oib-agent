@@ -348,8 +348,8 @@ describe('cards', () => {
  *
  * The opposite failure to the one above, and the harder one to see: a card that
  * exports fine but does not belong in a record of what was established. The
- * three questions this answer did not answer, printed under „Befunde" with
- * their items table headed „Anforderungen", tell a Behörde that the office
+ * three questions this answer did not answer, printed under „Befunde“ with
+ * their items table headed „Anforderungen“, tell a Behörde that the office
  * submitted open questions as requirements.
  */
 describe('cards that are the app talking, not the answer', () => {
@@ -365,14 +365,14 @@ describe('cards that are the app talking, not the answer', () => {
     const output = text(buildAnswerDocument(input({ cards: [followUps] }), german, 'de'))
 
     expect(output).not.toContain('Wie wird das Fluchtniveau gemessen?')
-    // Not even the heading: an empty „Weiterführende Fragen" under „Befunde"
+    // Not even the heading: an empty „Weiterführende Fragen“ under „Befunde“
     // would still be the app's chrome inside the findings section.
     expect(output).not.toContain('Fragen')
   })
 
   it('omits the findings section altogether when chrome was the only card', () => {
     // The section heading is built from whether any card produced blocks, so a
-    // card that contributes nothing must not leave „Befunde" standing empty.
+    // card that contributes nothing must not leave „Befunde“ standing empty.
     const output = text(buildAnswerDocument(input({ cards: [followUps] }), german, 'de'))
     expect(output).not.toContain('Befunde')
   })

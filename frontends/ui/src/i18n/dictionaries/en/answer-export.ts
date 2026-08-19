@@ -74,6 +74,17 @@ export const answerExport = {
     elevator_requirement: 'Elevator',
     parking_requirement: 'Parking provision',
     document_grid: 'Documents',
+    verdict_header: 'Verdict',
+    condition_tree: 'Decision tree',
+    typed_table: 'Table',
+    norm_chain: 'Chain of norms',
+    key_takeaways: 'Key takeaways',
+    callout: 'Note',
+    calculation: 'Calculation',
+    process_map: 'Procedure',
+    document_checklist: 'Required documents',
+    deadline_timeline: 'Deadlines',
+    change_impact: 'Impact of the change',
     ifc_viewer: 'Model view',
     ifc_compliance: 'Model compliance',
     ifc_schedule: 'Room schedule',
@@ -130,6 +141,8 @@ export const answerExport = {
     law: 'Law / directive',
     article: 'Article',
     original_text: 'Original wording',
+    /** Which tier of Baurecht the citation is (OIB directive vs RIS statute). */
+    lane: 'Source of law',
     // RequirementChecklistCard
     items: 'Requirements',
     // ComparisonTableCard
@@ -235,5 +248,61 @@ export const answerExport = {
     file_name: 'File',
     snippet: 'Matching passage',
     page: 'Page',
+    /** Which corpus the hit came from — the project's files or the Büroarchiv. */
+    source: 'Origin',
+    score: 'Relevance',
+    // VerdictHeaderCard
+    subject: 'Subject',
+    verdict: 'Verdict',
+    confidence_reason: 'Reason for the confidence',
+    // ConditionTreeCard — `question` is the FACTOR the answer forks on
+    // ("Gebäudeklasse"), not a question the reader is being asked.
+    question: 'Depends on',
+    branches: 'Cases',
+    condition: 'Condition',
+    outcome: 'Outcome',
+    active: 'Applies here',
+    // TypedTableCard
+    columns: 'Columns',
+    // NormChainCard
+    links: 'Chain of norms',
+    rank: 'Rank',
+    // KeyTakeawaysCard, CalloutCard
+    text: 'Statement',
+    // CalculationCard
+    steps: 'Steps',
+    limit: 'Limit',
+    upper: 'Upper bound',
+    operands: 'Operands',
+    operation: 'Operation',
+    /** A multiplier on an operand; on `change_impact`, the one fact that moves. */
+    factor: 'Factor',
+    /** An operand that is an earlier step's result rather than a figure. */
+    step: 'From step',
+    // ProcessMapCard
+    current_step: 'Stage reached',
+    actor: 'Responsible',
+    duration: 'Time limit',
+    requires: 'Prerequisites',
+    produces: 'Result',
+    // DocumentChecklistCard
+    issuer: 'Issued by',
+    requirement: 'Requirement',
+    // DeadlineTimelineCard
+    deadlines: 'Deadlines',
+    period: 'Period',
+    starts_from: 'Clock starts',
+    consequence: 'If missed',
+    // ChangeImpactCard
+    consequences: 'Consequences',
+    aspect: 'Affects',
+    before: 'Before',
+    after: 'After',
+    direction: 'Effect',
+    from_value: 'Value before',
+    to_value: 'Value after',
+    // AufstellflaechePlan
+    length: 'Length',
+    distance_to_facade: 'Distance to the facade',
   },
 }

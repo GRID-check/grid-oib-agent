@@ -1,6 +1,19 @@
 import type { en } from '../en'
 
-/** `answerExport` namespace — siehe die englische Quelle für die Begründung. */
+/**
+ * `answerExport` namespace — siehe die englische Quelle für die Begründung.
+ *
+ * Der Wortschatz folgt dem, was die App im Gespräch schon sagt (`chat.cards.*`):
+ * „Zuständig“, „Voraussetzungen“, „Fristbeginn“, „Wenn versäumt“, „Grenzwert“,
+ * „Bisher“/„Dann“ stehen dort bereits an denselben Feldern. Ein Dokument, das
+ * dieselbe Sache anders benennt als der Bildschirm, auf dem sie entstanden ist,
+ * zwingt die Leserin, beides zu übersetzen.
+ *
+ * `label-coverage.spec.ts` leitet aus `shared/cards/schemas.json` ab, welche
+ * Feldnamen der Export überhaupt beschriften kann, und schlägt fehl, sobald
+ * einer davon hier fehlt — ein fehlender Schlüssel wird sonst zu einem
+ * englischen Wort im deutschen Befund.
+ */
 export const answerExport: typeof en.answerExport = {
   documentTitle: 'Antwort',
   fileName: 'antwort',
@@ -48,6 +61,17 @@ export const answerExport: typeof en.answerExport = {
     elevator_requirement: 'Aufzug',
     parking_requirement: 'Stellplatznachweis',
     document_grid: 'Dokumente',
+    verdict_header: 'Befund',
+    condition_tree: 'Bedingungsbaum',
+    typed_table: 'Tabelle',
+    norm_chain: 'Normenkette',
+    key_takeaways: 'Das Wichtigste',
+    callout: 'Hinweis',
+    calculation: 'Rechenweg',
+    process_map: 'Verfahrensablauf',
+    document_checklist: 'Unterlagen',
+    deadline_timeline: 'Fristen',
+    change_impact: 'Auswirkung',
     ifc_viewer: 'Modellansicht',
     ifc_compliance: 'Modellprüfung',
     ifc_schedule: 'Raumbuch',
@@ -84,7 +108,7 @@ export const answerExport: typeof en.answerExport = {
     value: 'Ist',
     required: 'Soll',
     unit: 'Einheit',
-    comparator: 'Bedingung',
+    comparator: 'Vergleich',
     provenance: 'Herkunft des Werts',
     tolerance: 'Toleranz',
     missing: 'Was fehlt',
@@ -96,6 +120,7 @@ export const answerExport: typeof en.answerExport = {
     law: 'Gesetz / Richtlinie',
     article: 'Paragraf',
     original_text: 'Originalwortlaut',
+    lane: 'Rechtsquelle',
     items: 'Anforderungen',
     options: 'Varianten',
     rows: 'Kriterien',
@@ -182,5 +207,46 @@ export const answerExport: typeof en.answerExport = {
     file_name: 'Datei',
     snippet: 'Fundstelle im Text',
     page: 'Seite',
+    source: 'Herkunft',
+    score: 'Relevanz',
+    subject: 'Gegenstand',
+    verdict: 'Befund',
+    confidence_reason: 'Begründung der Verlässlichkeit',
+    question: 'Abhängig von',
+    branches: 'Fälle',
+    condition: 'Bedingung',
+    outcome: 'Dann gilt',
+    active: 'Trifft zu',
+    columns: 'Spalten',
+    links: 'Normenkette',
+    rank: 'Rang',
+    text: 'Aussage',
+    steps: 'Schritte',
+    limit: 'Grenzwert',
+    upper: 'Obergrenze',
+    operands: 'Rechengrößen',
+    operation: 'Rechenart',
+    factor: 'Faktor',
+    step: 'Aus Schritt',
+    current_step: 'Verfahrensstand',
+    actor: 'Zuständig',
+    duration: 'Frist',
+    requires: 'Voraussetzungen',
+    produces: 'Ergebnis',
+    issuer: 'Ausgestellt von',
+    requirement: 'Erforderlichkeit',
+    deadlines: 'Fristen',
+    period: 'Fristdauer',
+    starts_from: 'Fristbeginn',
+    consequence: 'Wenn versäumt',
+    consequences: 'Auswirkungen',
+    aspect: 'Betrifft',
+    before: 'Bisher',
+    after: 'Dann',
+    direction: 'Wirkung',
+    from_value: 'Ausgangswert',
+    to_value: 'Neuer Wert',
+    length: 'Länge',
+    distance_to_facade: 'Abstand zur Fassade',
   },
 }
