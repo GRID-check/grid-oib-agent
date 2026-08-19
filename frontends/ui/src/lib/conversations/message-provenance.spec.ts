@@ -153,3 +153,20 @@ describe('sanitizeProvenance', () => {
     expect(sanitizeProvenance({ thinkingSteps: [] })).toBeNull()
   })
 })
+
+describe('the truncation flag survives storage', () => {
+  it('keeps a real truncation on the way in', () => {
+    // Dropped here, a reloaded conversation shows an answer whose search was
+    // cut off as though it had run to the end — the record has to keep saying
+    // what the live answer said.
+    expect(sanitizeProvenance({ researchTruncated: true })).toEqual({ researchTruncated: true })
+  })
+
+  it('accepts nothing but literal true', () => {
+    // Untrusted stored JSON, rendered to a reader as a statement about the
+    // evidence: a stray truthy value must not become one.
+    expect(sanitizeProvenance({ researchTruncated: 'yes' })).toBeNull()
+    expect(sanitizeProvenance({ researchTruncated: 1 })).toBeNull()
+    expect(sanitizeProvenance({ researchTruncated: false })).toBeNull()
+  })
+})
