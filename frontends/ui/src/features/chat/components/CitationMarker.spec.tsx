@@ -221,6 +221,25 @@ describe('an inline citation marker', () => {
     expect(within(await screen.findByRole('dialog')).getByText('p. 18')).toBeInTheDocument()
   })
 
+  test('the pill reserves no width its number does not use', () => {
+    // Twice now the marker has pushed the sentence's own punctuation away from
+    // the word it belongs to. First the literal brackets ("erforderlich [1] .");
+    // then, after those went, a `min-w` floor a single digit could not fill,
+    // whose surplus `justify-center` split evenly — parking a strip of tinted
+    // pill between the digit and the period ("REI 90 1 ."). Both are the same
+    // fault: a box wider than its contents has to put the difference somewhere,
+    // and next to a full stop there is nowhere harmless to put it.
+    //
+    // jsdom has no layout to measure, but the fault is not really about pixels:
+    // it is about the marker claiming width in advance. `tabular-nums` is what
+    // actually holds the single-digit pills to one width, and it costs nothing.
+    renderAnswer()
+
+    const marker = screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i })
+    expect(marker.className).toMatch(/\btabular-nums\b/)
+    expect(marker.className).not.toMatch(/\b(?:min-)?w-\[/)
+  })
+
   test('an anchor that is not a citation stays an ordinary link', () => {
     render(
       <AgentResponse

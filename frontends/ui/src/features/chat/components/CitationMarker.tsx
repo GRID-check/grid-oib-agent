@@ -75,8 +75,22 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
             // punctuation was pushed off ("erforderlich [1] ."). The number
             // alone also matches how the chip below lists its markers ("1, 2,
             // 3"), so the same citation reads the same in both places.
+            //
+            // Dropping the brackets did not close that gap; it only changed
+            // what held it open. A `min-w-[1.05rem]` floor (16.8px) sat here
+            // for a uniform pill width, and measured against the answer's own
+            // type — 17px prose, so 11.56px here — a digit advances 7.22px and
+            // the padding is 3px a side, which makes a one-digit pill 13.22px.
+            // The floor added 3.58px of nothing and `justify-center` split it,
+            // parking 1.8px of tinted pill between the digit and the period
+            // ("REI 90 1 ."). It bought nothing back either: `tabular-nums`
+            // already gives every digit the same advance, so 1 and 9 are the
+            // same width unaided, and from [10] the pill (20.42px) clears the
+            // floor anyway — it never applied where a width could differ. So
+            // the pill is now exactly its digits plus its padding, and with no
+            // slack left to distribute there is nothing to justify.
             className={cn(
-              'inline-flex min-w-[1.05rem] items-center justify-center rounded-sm px-[3px]',
+              'inline-flex items-center rounded-sm px-[3px]',
               // em-relative, not a ramp step: the marker rides inside a running
               // sentence and has to track whatever size that sentence is set at.
               // The -0.15em lift is optical superscript alignment.
