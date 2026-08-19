@@ -25,7 +25,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { NATWebSocketClient } from './websocket-client'
-import { NATIncomingMessageSchema, NATStageMessageSchema, STAGE_FRAME_VERSION } from './schemas'
+import {
+  NATIncomingMessageSchema,
+  NATStageMessageSchema,
+  STAGE_FRAME_VERSION,
+  STAGE_IDS,
+} from './schemas'
 
 const FIXTURES = join(process.cwd(), '..', '..', 'shared', 'stages', 'frames.json')
 
@@ -87,13 +92,18 @@ describe('the shared fixture file is the contract both halves read', () => {
   })
 
   test('there is one delivered fixture per (stage, status) that reaches the wire', () => {
+    // Derived from `STAGE_IDS`, not typed out, so this half is exhaustive the
+    // same way the Python half is exhaustive over the stage registry. Both
+    // directions are then live: a stage the backend delivers and this client
+    // has no renderer for has no fixture and fails here, and a stage this
+    // client declares with a fixture missing fails here too.
+    //
     // ready | empty | failed, and nothing else: the runner maps `timeout` onto
     // `failed` and never puts skipped/disabled on the wire at all.
-    expect(Object.keys(fixtures().delivered).sort()).toEqual([
-      'follow_ups.empty',
-      'follow_ups.failed',
-      'follow_ups.ready',
-    ])
+    const expected = STAGE_IDS.flatMap((stage) =>
+      (['empty', 'failed', 'ready'] as const).map((status) => `${stage}.${status}`),
+    ).sort()
+    expect(Object.keys(fixtures().delivered).sort()).toEqual(expected)
   })
 
   test('the envelope version this client pins is the one the fixtures carry', () => {
@@ -116,25 +126,23 @@ describe('every delivered fixture parses as the envelope it claims to be', () =>
     })
   }
 
-  test('only the ready fixture carries a payload', () => {
-    const { delivered } = fixtures()
-    expect(delivered['follow_ups.ready'].payload).toBeDefined()
-    expect(delivered['follow_ups.empty'].payload).toBeUndefined()
-    expect(delivered['follow_ups.failed'].payload).toBeUndefined()
+  test('only a ready fixture carries a payload — for every stage', () => {
+    for (const [name, frame] of Object.entries(fixtures().delivered)) {
+      if (frame.status === 'ready') expect(frame.payload, name).toBeDefined()
+      else expect(frame.payload, name).toBeUndefined()
+    }
   })
 
-  test('a failed frame carries no reason for the reader', () => {
+  test('a failed frame carries no reason for the reader — for every stage', () => {
     // Failure reasons are machine keys for the ledger, not user-facing text
-    // (§4.1); the client renders `failed` and `empty` identically.
-    expect(deliveredKeys('follow_ups.failed')).toEqual([
-      'conversation_id',
-      'parent_id',
-      'stage',
-      'status',
-      'timestamp',
-      'type',
-      'v',
-    ])
+    // (§4.1); the client renders `failed` and `empty` identically. Asserted as
+    // the WHOLE key set rather than "no `reason` key", so a producer that
+    // smuggles the reason out under another name fails here too.
+    const envelope = ['conversation_id', 'parent_id', 'stage', 'status', 'timestamp', 'type', 'v']
+    for (const name of Object.keys(fixtures().delivered)) {
+      if (!name.endsWith('.failed')) continue
+      expect(deliveredKeys(name), name).toEqual(envelope)
+    }
   })
 })
 
