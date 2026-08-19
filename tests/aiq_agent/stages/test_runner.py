@@ -15,6 +15,7 @@ from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages import registry
 from aiq_agent.stages import runner
 from aiq_agent.stages.spec import GateDecision
+from aiq_agent.stages.spec import StageEmpty
 from aiq_agent.stages.spec import StageSpec
 from aiq_agent.stages.spec import TurnFacts
 
@@ -193,12 +194,68 @@ class TestObservability:
             await _run_all(facts)
 
         by_name = {span["name"]: span for span in _spans(post)}
-        assert by_name["stage:ran"]["metadata"] == {"stage": "ran", "outcome": "empty", "reason": None}
+        # A stage that RAN also reports what it spent — including zero, which is
+        # itself the fact that the handler declined without asking the model.
+        assert by_name["stage:ran"]["metadata"] == {
+            "stage": "ran",
+            "outcome": "empty",
+            "reason": None,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost_usd": 0.0,
+            "llm_calls": 0,
+        }
         assert by_name["stage:declined"]["metadata"] == {
             "stage": "declined",
             "outcome": "skipped",
             "reason": "intent_meta",
         }
+
+    @pytest.mark.asyncio
+    async def test_a_named_empty_keeps_its_reason_on_the_span(self):
+        """Two stages can produce "nothing" for opposite reasons — the model
+        returned no questions, or it returned four unusable ones. One `empty`
+        bucket for both makes the number the stage exists to produce unreadable,
+        so the handler may name the case."""
+        _spec(lambda ctx: _returns(StageEmpty("model_declined")))
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            outcomes = await _run_all(_facts())
+
+        assert outcomes["probe"].status == "empty"
+        assert outcomes["probe"].reason == "model_declined"
+        assert outcomes["probe"].payload is None
+        span = next(s for s in _spans(post) if s["name"] == "stage:probe")
+        assert span["metadata"]["reason"] == "model_declined"
+
+    def test_a_named_empty_must_actually_name_something(self):
+        with pytest.raises(ValueError, match="reason"):
+            StageEmpty("")
+
+    @pytest.mark.asyncio
+    async def test_the_span_carries_what_the_stage_spent(self):
+        """`llm_usage_events` has no stage dimension — it records tokens against
+        the conversation, so two stages on one turn are one undifferentiated
+        pair of rows. "What does this stage cost per turn" is only a GROUP BY if
+        the number sits on the span that already knows which stage it was."""
+        from aiq_agent.common import cost_tracking
+
+        async def _spend(ctx):
+            tracker = cost_tracking.grid_cost_tracker_var.get()
+            tracker.on_llm_end(_usage_response(prompt=2270, completion=180, cost=0.0042))
+            return {"ok": True}
+
+        _spec(_spend)
+        with (
+            patch("aiq_agent.common.profiler._post_profiler_spans") as post,
+            patch("aiq_agent.common.cost_tracking._post_usage_events"),
+        ):
+            await _run_all(_facts())
+
+        metadata = next(s for s in _spans(post) if s["name"] == "stage:probe")["metadata"]
+        assert metadata["prompt_tokens"] == 2270
+        assert metadata["completion_tokens"] == 180
+        assert metadata["cost_usd"] == 0.0042
+        assert metadata["llm_calls"] == 1
 
     @pytest.mark.asyncio
     async def test_a_timeout_is_visible_as_an_outcome(self):
@@ -374,3 +431,21 @@ class TestSpecValidation:
 
 async def _returns(value):
     return value
+
+
+def _usage_response(*, prompt: int, completion: int, cost: float):
+    """A LangChain LLMResult carrying OpenRouter's usage accounting."""
+    from langchain_core.outputs import LLMResult
+
+    return LLMResult(
+        generations=[[]],
+        llm_output={
+            "token_usage": {
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "total_tokens": prompt + completion,
+                "cost": cost,
+            },
+            "model_name": "openai/gpt-5.6-luna",
+        },
+    )

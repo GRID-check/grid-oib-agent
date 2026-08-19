@@ -38,7 +38,9 @@ from aiq_agent.common.model_overrides import AgentGroup
 #: - ``ready``    — the handler produced a payload.
 #: - ``empty``    — the handler ran and deliberately produced nothing. A
 #:                  first-class success: reflection's most common correct
-#:                  outcome is "nothing durable here".
+#:                  outcome is "nothing durable here". A handler may return
+#:                  :class:`StageEmpty` instead of ``None`` to say which
+#:                  nothing, and the reason rides the span.
 #: - ``skipped``  — the deterministic gate (or a load-shedding cap) declined
 #:                  before any work started; ``reason`` says which condition.
 #: - ``failed``   — the handler raised, or its payload failed validation.
@@ -132,6 +134,31 @@ class StageContext:
 
 
 @dataclass(frozen=True)
+class StageEmpty:
+    """A deliberate "nothing" that names *which* nothing it was.
+
+    A handler may return ``None`` for the plain case, but "nothing" is rarely one
+    fact. A follow-ups handler that gets no questions back from the model and one
+    that gets four unusable ones have produced the same absence for opposite
+    reasons: the first says the gate let through a turn the model saw nothing in,
+    the second says the prompt is not landing. Collapsing them into one
+    ``empty`` bucket makes the number the stage exists to produce unreadable, so
+    a handler may name the case and the runner puts the name on the span next to
+    the outcome.
+
+    Not a status: ``empty`` stays a first-class *success* on the wire, and the
+    reason is telemetry, never something a client reads.
+    """
+
+    #: A machine key, never prose — it is grouped on, not read.
+    reason: str
+
+    def __post_init__(self) -> None:
+        if not self.reason:
+            raise ValueError("StageEmpty requires a machine-readable reason")
+
+
+@dataclass(frozen=True)
 class GateDecision:
     """A deterministic gate's verdict. Never an LLM's opinion."""
 
@@ -159,7 +186,8 @@ class StageOutcome:
 
     stage_id: str
     status: StageStatus
-    #: Required for ``skipped``/``failed``/``disabled``; a machine key.
+    #: Required for ``skipped``/``failed``/``disabled``; optional on
+    #: ``empty``, where it names which "nothing" this was. A machine key.
     reason: str | None = None
     #: Only when ``status == "ready"``.
     payload: dict[str, Any] | None = None
@@ -196,7 +224,9 @@ class StageSpec:
     timeout_s: float
     #: Deterministic, LLM-free predicate over :class:`TurnFacts`.
     gate: Callable[[TurnFacts], GateDecision]
-    handler: Callable[[StageContext], Awaitable[dict[str, Any] | None]]
+    #: Returns the payload, ``None`` for a plain "nothing", or
+    #: :class:`StageEmpty` to name which nothing it was.
+    handler: Callable[[StageContext], Awaitable[dict[str, Any] | StageEmpty | None]]
     #: Validated before the outcome is recorded or anything is delivered.
     payload_model: type[BaseModel] | None
     #: ``"frame"`` pushes a frame to the browser; ``"silent"`` stages write

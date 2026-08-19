@@ -42,6 +42,7 @@ from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages.delivery import deliver_stage_frame
 from aiq_agent.stages.registry import iter_stages
 from aiq_agent.stages.spec import StageContext
+from aiq_agent.stages.spec import StageEmpty
 from aiq_agent.stages.spec import StageOutcome
 from aiq_agent.stages.spec import StageSpec
 from aiq_agent.stages.spec import TurnFacts
@@ -299,7 +300,7 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
                     # by a budget it did not spend against, but its spend is
                     # still written to llm_usage_events.
                     budget=BudgetSnapshot(),
-                ),
+                ) as tracker,
             ):
                 try:
                     result = await asyncio.wait_for(spec.handler(ctx), timeout=spec.timeout_s)
@@ -319,6 +320,7 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
                 # filled in before leaving the block.
                 metadata["outcome"] = status
                 metadata["reason"] = reason
+                metadata.update(_cost_metadata(tracker))
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -330,7 +332,7 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
     outcome = StageOutcome(
         stage_id=spec.id,
         status=status,  # type: ignore[arg-type]
-        reason=reason if status in {"skipped", "failed", "disabled"} else None,
+        reason=reason if status in {"skipped", "failed", "disabled", "empty"} else None,
         payload=payload if status == "ready" else None,
         duration_ms=max(0, round((time.monotonic() - started) * 1000)),
     )
@@ -339,12 +341,39 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
     return outcome
 
 
+def _cost_metadata(tracker: Any) -> dict[str, Any]:
+    """What the stage actually spent, for the span that already carries its
+    outcome and duration.
+
+    It goes HERE and not only into ``llm_usage_events`` because that ledger has
+    no stage dimension — it records model, tokens and cost against the
+    conversation, so two stages on one turn are one undifferentiated pair of
+    rows. "What does this stage cost per turn" is only a GROUP BY if the number
+    sits on the span that already knows which stage it was.
+    """
+    if tracker is None:
+        return {}
+    try:
+        return {
+            "prompt_tokens": tracker.prompt_tokens,
+            "completion_tokens": tracker.completion_tokens,
+            "cost_usd": round(tracker.turn_cost_usd, 6),
+            "llm_calls": tracker.events_recorded,
+        }
+    except Exception:
+        logger.warning("Could not read stage cost from the tracker", exc_info=True)
+        return {}
+
+
 def _validate(spec: StageSpec, result: Any) -> tuple[str, str | None, dict[str, Any] | None]:
     """Classify a handler's return value, validating it against the declared
     payload model. ``None`` is ``empty`` — a first-class success: a stage that
-    cannot say "nothing, on purpose" forces its handler to invent output."""
+    cannot say "nothing, on purpose" forces its handler to invent output, and
+    :class:`StageEmpty` lets it say WHICH nothing without inventing a status."""
     if result is None:
         return "empty", None, None
+    if isinstance(result, StageEmpty):
+        return "empty", result.reason, None
     if spec.payload_model is not None:
         try:
             validated = spec.payload_model.model_validate(result)
