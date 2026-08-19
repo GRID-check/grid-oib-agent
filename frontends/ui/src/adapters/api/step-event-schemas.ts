@@ -90,6 +90,15 @@ export const StepEventPayloadSchema = z
     /** Routing/escalation rationale, in the classifier's own words. */
     reason: z.string().optional().catch(undefined),
     tools: z.array(z.string()).optional().catch(undefined),
+    /**
+     * `status:budget` only: evidence-gathering was CUT OFF at the turn's
+     * tool-iteration ceiling. Technical channel, so it carries no `key` and can
+     * never reach the live line — the reader is told about truncation by the
+     * ANSWER's `research_truncated` field, in the answer's own register. What
+     * this drives is the Herleitung, which reads `tools` for where the chain
+     * stopped.
+     */
+    truncated: z.boolean().optional().catch(undefined),
     query: z.string().optional().catch(undefined),
     shelves: z.array(z.string()).optional().catch(undefined),
     source_count: z.number().optional().catch(undefined),

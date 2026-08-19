@@ -60,6 +60,30 @@ export const PREVIEW_EXCLUDED: Record<string, 'needsModel' | 'needsDocuments'> =
   document_grid: 'needsDocuments',
 }
 
+/**
+ * The statute half of the `legal_basis` pair.
+ *
+ * `CARD_PREVIEW_FIXTURES` is keyed by card type, so it can hold exactly one
+ * `legal_basis` — and one is not enough for the card whose whole point is which
+ * tier of Baurecht it cites. A Gesetz keeps the law blue and the RIS badge, an
+ * OIB-Richtlinie takes the indigo accent and the OIB badge, and neither is
+ * derived from the law name: both come off `lane`. Rendered next to the fixture
+ * on `/dev/cards`, which is where the two are compared.
+ */
+export const LEGAL_BASIS_STATUTE: CardInput = {
+  type: 'legal_basis',
+  law: 'Wiener Bauordnung',
+  lane: 'baurecht_ris',
+  // A Gesetz has a Fassung, not an Ausgabe — the honest value here is none, and
+  // the card renders without it rather than inventing one.
+  article: '87',
+  section: 'Abs. 4',
+  summary:
+    'Bauliche Anlagen sind so zu errichten, dass die Standsicherheit und der Brandschutz während der gesamten Nutzungsdauer gewährleistet sind.',
+  original_text:
+    'Bauwerke müssen so geplant und ausgeführt werden, dass sie den zu erwartenden Einwirkungen standhalten.',
+}
+
 /** One sample card per renderable type, in authoring (schema-input) shape. */
 const RAW_FIXTURES: CardInput[] = [
   {
@@ -73,9 +97,16 @@ const RAW_FIXTURES: CardInput[] = [
       'Barrierefreier Aufzug ab 3 oberirdischen Geschossen',
     ],
   },
+  // The OIB tier: `lane` paints the indigo accent and the OIB badge, and the
+  // Ausgabe is what makes the citation checkable rather than merely named. Its
+  // statute counterpart is `LEGAL_BASIS_STATUTE` below — the map is keyed by
+  // type, so only one of the two can be the gallery's fixture; the pair exists
+  // so the difference the lane makes can be seen side by side.
   {
     type: 'legal_basis',
     law: 'OIB-Richtlinie 2',
+    lane: 'baurecht_oib',
+    edition: 'Ausgabe Mai 2023',
     article: '3.1.1',
     section: 'Tabelle 1a',
     summary: 'Die maximale Brandabschnittsfläche für oberirdische Geschosse in GK 4 beträgt 1.200 m².',
@@ -260,6 +291,126 @@ const RAW_FIXTURES: CardInput[] = [
       },
     ],
     reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
+  },
+  {
+    // Carries the HARD state a platform owner has to see: two documents the
+    // conversation settled (one held, one still to obtain), three it did not,
+    // and two that are conditional with the case spelled out. The tally under
+    // the title counts all of that itself — including the „ungeklärt" three,
+    // which a progress bar would have quietly folded into „not done".
+    type: 'document_checklist',
+    title: 'Einreichunterlagen – Neubau Wohngebäude, Wien',
+    items: [
+      {
+        label: 'Einreichplan',
+        requirement: 'required',
+        issuer: 'Ziviltechniker:in',
+        status: 'present',
+        note: 'dreifach, im Maßstab 1:100',
+        reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. a' },
+      },
+      {
+        label: 'Baubeschreibung',
+        requirement: 'required',
+        issuer: 'Ziviltechniker:in',
+        reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. b' },
+      },
+      {
+        label: 'Energieausweis',
+        requirement: 'required',
+        issuer: 'befugte Fachperson',
+        status: 'missing',
+        reference: OIB6,
+      },
+      {
+        label: 'Grundbuchsauszug',
+        requirement: 'conditional',
+        condition: 'nur wenn der Bauwerber nicht Eigentümer der Liegenschaft ist',
+        issuer: 'Bauwerber',
+      },
+      {
+        label: 'Gutachten der MA 19',
+        requirement: 'conditional',
+        condition: 'nur bei einem Gebäude in einer Schutzzone',
+        issuer: 'Baubehörde',
+      },
+    ],
+    reference: { document: 'Wiener Bauordnung', section: '§ 63' },
+  },
+  {
+    // Three clocks running from three different events, which is the reason
+    // this is not three callouts. Every period is the Bestimmung's wording and
+    // none of them is a date — the backend rejects one, and the gallery should
+    // show what the card looks like when that rule is kept.
+    type: 'deadline_timeline',
+    title: 'Fristen im Bauverfahren – Wien',
+    deadlines: [
+      {
+        label: 'Beschwerdefrist',
+        period: 'binnen vier Wochen',
+        starts_from: 'ab Zustellung des Baubewilligungsbescheids',
+        actor: 'Nachbar oder Bauwerber',
+        consequence: 'Der Bescheid wird rechtskräftig.',
+        reference: { document: 'VwGVG', section: '§ 7 Abs. 4' },
+      },
+      {
+        label: 'Geltungsdauer der Baubewilligung',
+        period: 'binnen vier Jahren ist mit dem Bau zu beginnen',
+        starts_from: 'ab Rechtskraft der Baubewilligung',
+        actor: 'Bauwerber',
+        consequence: 'Die Baubewilligung erlischt.',
+        reference: { document: 'Wiener Bauordnung', section: '§ 74 Abs. 1' },
+      },
+      {
+        label: 'Fertigstellungsanzeige',
+        period: 'unverzüglich',
+        starts_from: 'ab Fertigstellung des Bauvorhabens',
+        actor: 'Bauwerber',
+        reference: { document: 'Wiener Bauordnung', section: '§ 128' },
+      },
+    ],
+  },
+  {
+    // One row is `unchanged`, one carries no `before` — the two states a
+    // uniformly „everything gets stricter" fixture would hide, and both are
+    // states a reader has to be able to recognise at a glance.
+    type: 'change_impact',
+    title: 'Fluchtniveau über 11 m – was sich ändert',
+    factor: 'Fluchtniveau',
+    from_value: '7 bis 11 m',
+    to_value: 'über 11 m',
+    consequences: [
+      {
+        aspect: 'Gebäudeklasse',
+        before: 'GK 4',
+        after: 'GK 5',
+        direction: 'tightens',
+        reference: { document: 'OIB-Begriffsbestimmungen', section: 'Gebäudeklassen' },
+      },
+      {
+        aspect: 'Feuerwiderstand tragender Bauteile',
+        before: 'R 60',
+        after: 'R 90',
+        direction: 'tightens',
+        detail: 'Die Anforderung gilt für die tragenden Bauteile der oberirdischen Geschoße.',
+        reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
+      },
+      {
+        aspect: 'Aufzug',
+        after: 'Aufzug erforderlich',
+        direction: 'tightens',
+        reference: OIB4,
+      },
+      {
+        aspect: 'Schallschutz zwischen den Wohnungen',
+        before: 'DnT,w mindestens 55 dB',
+        after: 'DnT,w mindestens 55 dB',
+        direction: 'unchanged',
+        detail: 'Der Schallschutz hängt an der Nutzung, nicht an der Gebäudeklasse.',
+        reference: { document: 'OIB-Richtlinie 5', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
+      },
+    ],
+    reference: { document: 'OIB-Begriffsbestimmungen', section: 'Gebäudeklassen' },
   },
   {
     // One chip without a `hint` on purpose: the tooltip is an extra, and the

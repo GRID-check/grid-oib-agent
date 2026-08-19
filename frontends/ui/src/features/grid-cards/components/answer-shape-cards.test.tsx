@@ -34,6 +34,55 @@ describe('VerdictHeaderCard', () => {
     // The grounding norm rides in the shared citation footer.
     expect(screen.getByText('OIB-Richtlinie 4')).toBeInTheDocument()
   })
+
+  it('sets the verdict at the largest step in the system, and steps it down for a long one', () => {
+    // §B1: the card IS the figure. 30px is the biggest type anywhere in the
+    // card set, and the branch is on the STRING rather than the viewport —
+    // „Hauptgeschoßfußbodenoberkante über 22 m" is too long for one line in the
+    // 636px desktop column and the 314px phone one alike.
+    const { unmount } = render(
+      <VerdictHeaderCard verdict="1,10 m" subject="Geländerhöhe" confidence={null} />,
+    )
+    expect(screen.getByText('1,10 m')).toHaveClass('card-figure-30')
+    unmount()
+
+    const long = 'Hauptgeschoßfußbodenoberkante über 22 m'
+    render(<VerdictHeaderCard verdict={long} subject="Hochhaus" confidence={null} />)
+    expect(screen.getByText(long), `${long.length} characters cannot hold 30px`).toHaveClass(
+      'card-figure-24',
+    )
+  })
+
+  it('renders confidence as three segments filled to level, and still writes the word', () => {
+    // A pill is legible but not COMPARABLE: two answers side by side give the
+    // reader two words and no sense of which one the product is surer of.
+    // Three segments is exact rather than a rounding — the enum has exactly
+    // three values, so the gauge encodes the field and interpolates nothing.
+    render(<VerdictHeaderCard verdict="REI 90" subject="Feuerwiderstand" confidence="medium" />)
+
+    // Found through the WORD rather than through the cells' own classes: the
+    // word is the part of this that carries meaning, and the gauge's shape is
+    // exactly the part expected to be retuned.
+    const row = screen.getByText('mittlere Sicherheit').parentElement
+    const cells = row?.querySelectorAll('span[aria-hidden="true"] > span') ?? []
+    expect(cells).toHaveLength(3)
+    expect(Array.from(cells).map((cell) => cell.classList.contains('bg-foreground'))).toEqual([
+      true,
+      true,
+      false,
+    ])
+  })
+
+  it('leaves the gauge out entirely when the answer carries no confidence', () => {
+    const { container } = render(
+      <VerdictHeaderCard verdict="Nicht geregelt" subject="Wartungsleiter" confidence={null} />,
+    )
+
+    expect(
+      container.querySelectorAll('span[aria-hidden="true"] > span'),
+      'an empty gauge would read as "lowest confidence", which is a claim the card was not given',
+    ).toHaveLength(0)
+  })
 })
 
 /**
@@ -171,6 +220,28 @@ describe('ConditionTreeCard', () => {
     expect(screen.queryByText('trifft zu')).not.toBeInTheDocument()
     // Nothing opens on the reader's behalf, and nothing is contrasted.
     expect(screen.queryByText('Bei GK 1–3 gilt:')).not.toBeInTheDocument()
+  })
+
+  it('marks one case even when a stored card claims several', () => {
+    // Field evidence: a „Feuerwiderstand in GK 4" tree arrived with all three
+    // branches active, so the reader saw three simultaneous outcomes each
+    // captioned „für dieses Projekt gilt". Pydantic now rejects that shape, but
+    // a card is data that outlives the code that wrote it — a stored answer
+    // from before the validator still has to render as ONE decision or none.
+    render(
+      <ConditionTreeCard
+        title="Erforderliche Feuerwiderstandsklasse"
+        question="Lage des Bauteils"
+        branches={[
+          { condition: 'oberstes oberirdisches Geschoß', outcome: 'R 60', active: true },
+          { condition: 'sonstiges oberirdisches Geschoß', outcome: 'R 60', active: true },
+          { condition: 'unterirdisches Geschoß', outcome: 'R 90 und A2', active: true },
+        ]}
+        reference={null}
+      />,
+    )
+
+    expect(screen.getAllByText('trifft zu')).toHaveLength(1)
   })
 })
 

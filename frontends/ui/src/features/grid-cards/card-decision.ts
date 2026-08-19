@@ -85,6 +85,14 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // all of it already on the client. Looking at another step decides nothing,
   // exactly as reading a non-active branch of the condition tree does not.
   process_map: 'presentational',
+  // The Einreichliste, the Fristen and the impact of a change all only unfold
+  // what the answer already sent. Ticking a document off, starting a clock or
+  // accepting a consequence would be commitments — none of the three offers
+  // any of that, and the click is one reader's view of data already on the
+  // client.
+  document_checklist: 'presentational',
+  deadline_timeline: 'presentational',
+  change_impact: 'presentational',
   // Follow-up chips only PREFILL the composer — no request, no write, and
   // the user still presses send. A queued draft they can ignore is not a
   // decision, so there is nothing to remember across a reload.

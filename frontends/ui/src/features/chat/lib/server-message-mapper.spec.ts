@@ -283,6 +283,22 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(mapped!.showViewReport).toBe(true)
   })
 
+  it('restores the truncation note, so a reloaded answer still says it stopped early', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { ...provenance, researchTruncated: true } } }),
+    )
+
+    expect(mapped!.researchTruncated).toBe(true)
+  })
+
+  it('does not invent a truncation for an answer that never had one', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance } }),
+    )
+
+    expect(mapped!.researchTruncated).toBeUndefined()
+  })
+
   it('ignores a provenance blob written by some other build', () => {
     // Narrowed, not cast: the server bounds this on write, but a row written
     // earlier is whatever it was, and a bad value must not reach a renderer.

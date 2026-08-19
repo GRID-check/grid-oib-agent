@@ -155,6 +155,16 @@ export const chat: typeof en.chat = {
     citationsRemoved:
       '{count, plural, one {# Quellenangabe entfernt} other {# Quellenangaben entfernt}} (nicht verifizierbar)',
     citationsRemovedReasonsLabel: 'Gründe',
+    // Die Recherche wurde an der Iterationsgrenze abgebrochen, nicht beendet.
+    // Eine Aussage über die BELEGLAGE, keine Fehlermeldung und kein Urteil über
+    // die Antwort — deshalb im selben Register wie die Quellenzeile darüber.
+    // Unabhängig von der Selbsteinschätzung: die bewertet, ob die Aussagen
+    // belegt sind, nicht ob die Suche zu Ende gelaufen ist.
+    researchTruncated:
+      'Recherche vorzeitig beendet — die Antwort stützt sich auf die bis dahin gefundenen Belege',
+    // Derselbe Sachverhalt, wenn die Antwort gar keine Quellen nennt: der Satz
+    // oben verspräche „die bis dahin gefundenen Belege“, die es nicht gibt.
+    researchTruncatedWithoutSources: 'Recherche vorzeitig beendet, bevor Belege gefunden wurden',
   },
   // Die Antwort aus Piloti herausbekommen — für Prüfvermerk, Mail, Einreichung.
   // Zwei Icon-Schaltflächen in der Metazeile der Antwort; die zweite gibt es nur,
@@ -193,6 +203,9 @@ export const chat: typeof en.chat = {
     aiGenerated:
       'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
     legalBasis: 'Rechtsgrundlage',
+    // Tooltip auf dem OIB-/RIS-Abzeichen: das Abzeichen selbst ist ein
+    // Eigenname und in beiden Sprachen gleich — hier steht, was er bedeutet.
+    authority: 'Rechtsquelle: {tag}',
     viewOib: 'OIB-Richtlinie ansehen',
     verifyRis: 'In RIS prüfen',
     conditionTree: {
@@ -302,6 +315,74 @@ export const chat: typeof en.chat = {
       // auf einem Bildschirmfoto genau dieses Abschnitts mitgeht.
       elsewhereNotice: 'Nur zur Ansicht — dieses Projekt steht bei Schritt {step}: {label}',
       backToCurrent: 'Zurück zu {label}',
+    },
+    // ── Einreichunterlagen ──────────────────────────────────────────────
+    // Die Zahlen in der Übersicht rechnet die Karte selbst aus den Zeilen —
+    // es gibt kein Feld auf der Leitung, das ihnen widersprechen könnte.
+    documentChecklist: {
+      eyebrow: 'Unterlagen',
+      itemAria: 'Unterlage: {label}',
+      requirement: {
+        required: 'erforderlich',
+        conditional: 'bedingt',
+      },
+      // Der Zustand EINER Zeile. „nicht bekannt" ist der Normalfall: nur was
+      // im Gespräch stand, darf hier stehen.
+      status: {
+        present: 'liegt vor',
+        missing: 'fehlt',
+        unknown: 'nicht bekannt',
+      },
+      // Dieselben Begriffe als Beiwort, damit „3 vorhanden" und „2 fehlend"
+      // grammatikalisch stehen, wo „3 liegt vor" falsch wäre.
+      tally: {
+        required: 'erforderlich',
+        conditional: 'bedingt',
+        present: 'vorhanden',
+        missing: 'fehlend',
+        unknown: 'ungeklärt',
+      },
+      tallyAria: 'Stand der Unterlagen',
+      // Steht statt der zweiten Zeile, wenn zu keiner Unterlage etwas bekannt
+      // ist. Eine Leiste, die dann „0 von 5" zeigte, wäre eine Behauptung
+      // über das Projekt und keine Zusammenfassung der Karte.
+      noStatus: 'Ob Sie diese Unterlagen bereits haben, geht aus dem Gespräch nicht hervor.',
+      condition: 'Bedingung',
+      issuer: 'Ausgestellt von',
+      form: 'Form',
+      basis: 'Grundlage',
+    },
+    // ── Fristen ─────────────────────────────────────────────────────────
+    deadlineTimeline: {
+      eyebrow: 'Fristen',
+      deadlineAria: 'Frist {index}: {label}',
+      startsFrom: 'Fristbeginn',
+      consequence: 'Wenn versäumt',
+      actor: 'Zuständig',
+      basis: 'Grundlage',
+      // Der Satz, der die Karte ehrlich hält: Die Reihenfolge ist gezeichnet,
+      // die Länge nicht — die Fristen laufen ab verschiedenen Ereignissen.
+      notToScale: 'Die Reihenfolge ist maßstabslos dargestellt: Jede Frist läuft ab einem eigenen Ereignis.',
+      noDatesNote: 'Die Fristen stehen so, wie sie die Bestimmung formuliert. Diese Karte rechnet kein Datum aus.',
+    },
+    // ── Auswirkung einer Änderung ───────────────────────────────────────
+    changeImpact: {
+      eyebrow: 'Auswirkung',
+      consequenceAria: 'Auswirkung: {aspect}',
+      changeWithBefore: '{factor}: {from} → {to}',
+      changeWithoutBefore: '{factor} → {to}',
+      // Steht unter der Kopfzeile, wenn der Ausgangswert fehlt. „Bisher" leer
+      // zu lassen wäre die stillere, aber falschere Variante.
+      currentUnknown: 'Der Ausgangswert geht aus dem Gespräch nicht hervor.',
+      direction: {
+        tightens: 'verschärft',
+        relaxes: 'gelockert',
+        unchanged: 'unverändert',
+      },
+      before: 'bisher',
+      after: 'dann',
+      unknownBefore: 'bisher nicht bekannt',
+      basis: 'Grundlage',
     },
     verdictHeader: {
       confidenceHigh: 'hohe Sicherheit',
@@ -738,6 +819,16 @@ export const chat: typeof en.chat = {
       // Quellenspalten in der Luft und die Form springt, sobald die Antwort da ist.
       findingsPendingTab: 'Einschätzung',
       findingsPending: 'Quellen werden abgewogen …',
+      // Die Recherche lief nicht zu Ende, sondern gegen ihre Iterationsgrenze.
+      // Im Einschätzungsknoten, weil er die Frage „was lag der Antwort
+      // zugrunde?“ beantwortet — und dazu gehört, wo die Kette abbrach.
+      // {tool} ist der zuletzt AUSGEFÜHRTE Schritt, nicht der nächste: welchen
+      // das Modell als Nächstes gewählt hätte, weiß niemand — es kam nicht mehr
+      // dazu, ihn vorzuschlagen.
+      findingsTruncatedStep: 'Recherche hier beendet — zuletzt gelaufen: {tool}',
+      // Wenn kein Schritt zu benennen ist (das Budget war vor dem ersten
+      // Werkzeug erschöpft): lieber weniger sagen als etwas erfinden.
+      findingsTruncated: 'Recherche hier beendet: das Budget war aufgebraucht',
       branchesTab: 'Folgewege',
       branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },

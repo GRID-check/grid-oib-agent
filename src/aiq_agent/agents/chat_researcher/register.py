@@ -209,10 +209,16 @@ _STREAM_EXTRA_FIELDS = (
     "answer_confidence_capped_reason",
     "answer_confidence_reason",
     "citations_removed",
+    # The research turn ran out of budget before it ran out of question.
+    "research_truncated",
     "job_admission_rejected",
     "retry_after_seconds",
-    # Agent Skills: which skills ran this turn (forced first, then invoked).
+    # Agent Skills: which skills ran this turn — i.e. whose instructions the
+    # model actually fetched, in the order it fetched them — and the
+    # ``grid-hidden`` subset the disclosure mutes until the reader opens the
+    # reasoning view.
     "skills_activated",
+    "skills_hidden",
 )
 
 
@@ -265,6 +271,67 @@ def _result_field(result: object, name: str) -> Any:
     if value is None and isinstance(result, dict):
         value = result.get(name)
     return value
+
+
+def _apply_transparency_extras(response: ChatResponse, result: object) -> None:
+    """Lift the transparency extras (WP-A) and the Agent Skills pair off the
+    finished graph state onto the answer.
+
+    Every field follows the same rule: surfaced only when applicable, never
+    null-spammed — the frontend renders these on PRESENCE, so an empty value on
+    the wire is not the same as no value. ``_STREAM_EXTRA_FIELDS`` then carries
+    whatever was set here onto the terminal chunk, and the aiq_api handler onto
+    the websocket frame. See docs/architecture/backend-deep-dive.md.
+
+    A module-level function rather than inline code in ``_run`` because it is
+    the *crossing* from graph state to answer: state field name in, response
+    attribute out. Inline, it could only be exercised by standing up the whole
+    NAT workflow, which is why ``skills_hidden`` could be set by the shallow
+    researcher, declared by the frontend, and still never reach a reader.
+    """
+    from .agent import derive_routing_decision
+
+    depth_decision = _result_field(result, "depth_decision")
+    routing_decision = derive_routing_decision(_result_field(result, "user_intent"), depth_decision)
+    routing_reason = getattr(depth_decision, "raw_reasoning", None)
+    escalation_reason = _result_field(result, "escalation_reason")
+    answer_confidence_capped_reason = _result_field(result, "answer_confidence_capped_reason")
+    answer_confidence_reason = _result_field(result, "answer_confidence_reason")
+    citations_removed = _result_field(result, "citations_removed")
+    research_truncated = _result_field(result, "research_truncated")
+    job_admission_rejected = _result_field(result, "job_admission_rejected")
+    retry_after_seconds = _result_field(result, "retry_after_seconds")
+    skills_activated = _result_field(result, "skills_activated")
+    skills_hidden = _result_field(result, "skills_hidden")
+
+    if routing_decision:
+        response.routing_decision = routing_decision
+    if routing_reason:
+        response.routing_reason = routing_reason
+    if escalation_reason:
+        response.escalation_reason = escalation_reason
+    if answer_confidence_capped_reason:
+        response.answer_confidence_capped_reason = answer_confidence_capped_reason
+    if answer_confidence_reason:
+        response.answer_confidence_reason = answer_confidence_reason
+    if citations_removed:
+        response.citations_removed = citations_removed
+    # Truthiness, not `is not None`: the field is True-or-absent by
+    # construction, and an accidental False must stay off the wire rather
+    # than reach a frontend that renders on presence.
+    if research_truncated:
+        response.research_truncated = True
+    if job_admission_rejected:
+        response.job_admission_rejected = True
+        if retry_after_seconds is not None:
+            response.retry_after_seconds = retry_after_seconds
+    if skills_activated:
+        response.skills_activated = skills_activated
+        # Only alongside the list it is a subset of, and only when non-empty:
+        # an empty mute list is the same fact as no mute list, and putting it on
+        # the wire would null-spam a frame the frontend reads on presence.
+        if skills_hidden:
+            response.skills_hidden = skills_hidden
 
 
 def _response_to_chunks(response: ChatResponse, *, stream: bool) -> list[ChatResponseChunk]:
@@ -1125,22 +1192,6 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             result.get("verified_sources") if isinstance(result, dict) else None
         )
 
-        # Transparency extras (WP-A): each surfaced only when applicable (never
-        # null-spammed), riding the same terminal-chunk extras lift as the fields
-        # above. See docs/architecture/backend-deep-dive.md.
-        from .agent import derive_routing_decision
-
-        depth_decision = _result_field(result, "depth_decision")
-        routing_decision = derive_routing_decision(_result_field(result, "user_intent"), depth_decision)
-        routing_reason = getattr(depth_decision, "raw_reasoning", None)
-        escalation_reason = _result_field(result, "escalation_reason")
-        answer_confidence_capped_reason = _result_field(result, "answer_confidence_capped_reason")
-        answer_confidence_reason = _result_field(result, "answer_confidence_reason")
-        citations_removed = _result_field(result, "citations_removed")
-        job_admission_rejected = _result_field(result, "job_admission_rejected")
-        retry_after_seconds = _result_field(result, "retry_after_seconds")
-        skills_activated = _result_field(result, "skills_activated")
-
         # Exit after response when --input is provided
         if "--input" in sys.argv:
             import threading
@@ -1164,24 +1215,9 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             response.answer_confidence = answer_confidence
         if verified_sources:
             response.sources = verified_sources
-        if routing_decision:
-            response.routing_decision = routing_decision
-        if routing_reason:
-            response.routing_reason = routing_reason
-        if escalation_reason:
-            response.escalation_reason = escalation_reason
-        if answer_confidence_capped_reason:
-            response.answer_confidence_capped_reason = answer_confidence_capped_reason
-        if answer_confidence_reason:
-            response.answer_confidence_reason = answer_confidence_reason
-        if citations_removed:
-            response.citations_removed = citations_removed
-        if job_admission_rejected:
-            response.job_admission_rejected = True
-            if retry_after_seconds is not None:
-                response.retry_after_seconds = retry_after_seconds
-        if skills_activated:
-            response.skills_activated = skills_activated
+        # Transparency extras (WP-A) and the Agent Skills pair, read off the
+        # finished graph state and attached here.
+        _apply_transparency_extras(response, result)
 
         # Post-processing phase: kick off memory reflection AFTER the answer is
         # ready. Fire-and-forget — it runs on the event loop without delaying the

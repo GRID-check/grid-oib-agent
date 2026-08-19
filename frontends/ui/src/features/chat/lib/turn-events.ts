@@ -128,3 +128,39 @@ export const turnEventLiveText = (
   }
   return null
 }
+
+/**
+ * Where a truncated turn's chain stopped, or `null` if it was never truncated.
+ *
+ * The reader is told THAT the search stopped by the answer frame's
+ * `research_truncated`. This is the other half — WHERE it stopped — and it
+ * deliberately does not ride the answer frame with it: where the chain broke
+ * off is a fact about the turn's process, the process is what the step stream
+ * carries, and the Herleitung is built from that stream. The same fact on two
+ * wires is two things to keep in agreement.
+ *
+ * `lastTool` is the last tool that RAN. Not "the tool it was about to run":
+ * the ceiling is checked before the model is asked for anything, so nothing was
+ * ever proposed and there is no next step to name. Claiming one would be
+ * inventing the most interesting part of the record.
+ */
+export interface ResearchTruncation {
+  lastTool?: string
+}
+
+/** Step slot the backend emits the budget record under (`status:budget`). */
+const BUDGET_SLOT = 'budget'
+
+export const researchTruncation = (steps: TurnEventStep[]): ResearchTruncation | null => {
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const step = steps[i]
+    if (!step || !isStatusStepName(step.functionName || '')) continue
+    for (const payload of parseStepEventPayloads(stepEventPayload(step))) {
+      if (payload.slot !== BUDGET_SLOT || payload.truncated !== true) continue
+      const tools = payload.tools?.filter((name) => name.trim().length > 0) ?? []
+      const lastTool = tools.length > 0 ? tools[tools.length - 1] : undefined
+      return lastTool ? { lastTool } : {}
+    }
+  }
+  return null
+}

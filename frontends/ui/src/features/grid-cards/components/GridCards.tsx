@@ -1,6 +1,7 @@
 import { type FC } from 'react'
 import type { GridCard } from '@/shared/cards/schemas'
 import { cardKey } from '../card-decision'
+import { CardSetProvider } from '../card-set'
 import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
@@ -15,6 +16,9 @@ import { KeyTakeawaysCard } from './KeyTakeawaysCard'
 import { CalloutCard } from './CalloutCard'
 import { CalculationCard } from './CalculationCard'
 import { ProcessMapCard } from './ProcessMapCard'
+import { DocumentChecklistCard } from './DocumentChecklistCard'
+import { DeadlineTimelineCard } from './DeadlineTimelineCard'
+import { ChangeImpactCard } from './ChangeImpactCard'
 import { FollowUpsCard } from './FollowUpsCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
@@ -222,6 +226,48 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
           title={card.title}
           steps={card.steps ?? []}
           current_step={card.current_step}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'document_checklist') {
+    return (
+      <FadeIn distance={6}>
+        <DocumentChecklistCard
+          title={card.title}
+          items={card.items ?? []}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'deadline_timeline') {
+    return (
+      <FadeIn distance={6}>
+        <DeadlineTimelineCard
+          title={card.title}
+          deadlines={card.deadlines ?? []}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'change_impact') {
+    return (
+      <FadeIn distance={6}>
+        <ChangeImpactCard
+          title={card.title}
+          factor={card.factor}
+          from_value={card.from_value}
+          to_value={card.to_value}
+          consequences={card.consequences ?? []}
           reference={card.reference}
           note={card.note}
         />
@@ -625,20 +671,25 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId, messageId, ind
   }
 
   return (
-    <div className="flex w-full flex-col gap-3">
-      {positions.map((index) => {
-        const card = cards[index]
-        if (!card) return null
-        return (
-          <GridCardItem
-            key={cardKey(card, index)}
-            card={card}
-            index={index}
-            projectId={projectId}
-            messageId={messageId}
-          />
-        )
-      })}
-    </div>
+    // The provider gets the WHOLE array, never `positions`: a cross-card rule
+    // is about the answer, and this stack may be holding only the cards the
+    // prose did not claim (see `card-set.tsx`).
+    <CardSetProvider cards={cards}>
+      <div className="flex w-full flex-col gap-3">
+        {positions.map((index) => {
+          const card = cards[index]
+          if (!card) return null
+          return (
+            <GridCardItem
+              key={cardKey(card, index)}
+              card={card}
+              index={index}
+              projectId={projectId}
+              messageId={messageId}
+            />
+          )
+        })}
+      </div>
+    </CardSetProvider>
   )
 }

@@ -27,6 +27,7 @@ import { TURN_EVENT_KEYS } from '@/adapters/api/step-event-schemas'
 import {
   isStatusStepName,
   isTurnEventStepName,
+  researchTruncation,
   stepEventPayload,
   turnEventLiveText,
 } from './turn-events'
@@ -298,5 +299,36 @@ describe('stepEventPayload — decoded exactly once', () => {
 
   test('no payload at all is undefined, not an empty parse', () => {
     expect(stepEventPayload({ functionName: 'status:x' })).toBeUndefined()
+  })
+})
+
+describe('researchTruncation — where a cut-off turn stopped', () => {
+  const budget = (extra: Record<string, unknown>) =>
+    event('status:budget', { kind: 'status', channel: 'technical', slot: 'budget', ...extra })
+
+  test('a turn with no budget step was never truncated', () => {
+    expect(researchTruncation([status('retrieval:0', 'status.retrieval.plain', { corpus: 'knowledge' })])).toBeNull()
+  })
+
+  test('the last tool of the shape is where the chain stopped', () => {
+    const found = researchTruncation([
+      budget({ truncated: true, tools: ['use_skill', 'knowledge_search', 'find_elements', 'light_incidence'] }),
+    ])
+    expect(found).toEqual({ lastTool: 'light_incidence' })
+  })
+
+  test('truncated with no tools at all still reports the truncation', () => {
+    // The budget can be gone before the first tool runs. "Truncated, and I
+    // cannot name a step" is a true thing to say; inventing one is not.
+    expect(researchTruncation([budget({ truncated: true, tools: [] })])).toEqual({})
+  })
+
+  test('a budget step that is not a truncation says nothing', () => {
+    // The slot is reserved for the record; only `truncated` makes it one.
+    expect(researchTruncation([budget({ ceiling: 9, spent: 4 })])).toBeNull()
+  })
+
+  test('a non-status step is never mined for one', () => {
+    expect(researchTruncation([event('knowledge_search', { slot: 'budget', truncated: true })])).toBeNull()
   })
 })

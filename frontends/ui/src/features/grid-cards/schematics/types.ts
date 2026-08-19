@@ -267,3 +267,67 @@ export interface ProcessStepData {
   produces?: string[] | null
   reference?: NormReferenceData | null
 }
+
+/**
+ * Whether a document is always needed, or only in a defined case. Mirrors
+ * `DocumentRequirement` in `src/aiq_agent/cards/models.py`.
+ */
+export type DocumentRequirement = 'required' | 'conditional'
+
+/**
+ * Whether the reader already HAS a document.
+ *
+ * Two values, not three: „not stated" is the field being ABSENT. The renderer
+ * draws an absent status as unknown and never as `missing`, because a document
+ * nobody asked about is not a document the reader lacks.
+ */
+export type DocumentStatus = 'present' | 'missing'
+
+/** One document on an Einreichliste, with the state a bare list drops. */
+export interface RequiredDocumentData {
+  label: string
+  requirement: DocumentRequirement
+  /** Present exactly when `requirement` is `conditional` — the backend enforces both halves. */
+  condition?: string | null
+  issuer?: string | null
+  /** Only ever set from what the conversation established. Absent = unknown. */
+  status?: DocumentStatus | null
+  reference?: NormReferenceData | null
+  note?: string | null
+}
+
+/**
+ * One Frist of a Verfahren.
+ *
+ * `period` is the Bestimmung's own wording („binnen vier Wochen") and
+ * `starts_from` the event the clock runs from — required, because a period
+ * anchored to nothing cannot be placed by the reader. Neither may contain a
+ * calendar date; the backend rejects one.
+ */
+export interface DeadlineData {
+  label: string
+  period: string
+  starts_from: string
+  actor?: string | null
+  consequence?: string | null
+  reference?: NormReferenceData | null
+}
+
+/** Which way a consequence moves for the reader. */
+export type ChangeDirection = 'tightens' | 'relaxes' | 'unchanged'
+
+/**
+ * One requirement that moves when the trigger fact moves.
+ *
+ * `reference` is REQUIRED here and optional almost everywhere else: this card
+ * is read to plan against, so a consequence nobody can look up is omitted from
+ * the card rather than listed bare.
+ */
+export interface ChangeConsequenceData {
+  aspect: string
+  before?: string | null
+  after: string
+  direction: ChangeDirection
+  reference: NormReferenceData
+  detail?: string | null
+}

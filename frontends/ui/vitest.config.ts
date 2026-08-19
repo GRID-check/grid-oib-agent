@@ -38,6 +38,7 @@ export default defineConfig({
       'scheduler/**/*.spec.mjs',
       'observability/**/*.spec.mjs',
       'scripts/**/*.spec.mjs',
+      'eslint-rules/**/*.spec.mjs',
     ],
     exclude: ['**/mocks/**', '**/node_modules/**'],
     setupFiles: ['./config/vitest/polyfills.ts', './config/vitest/vitest.setup.ts'],

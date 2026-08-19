@@ -593,8 +593,15 @@ functions:
     #   * PARALLEL calls each cost one, so a model emitting three per turn gets
     #     two round trips out of five, not five — and this surface runs frontier
     #     models, which emit parallel calls routinely;
-    #   * `use_skill` is a real tool call, so the BIM budget is one below the
-    #     number written here before any measurement happens.
+    #   * `use_skill` is a real tool call — but the skills this DEPLOYMENT
+    #     forces (`delivery: standard`, currently piloti-voice and
+    #     piloti-cards) are no longer charged here. The register reserves one
+    #     iteration per standard skill on top of this number
+    #     (`reserved_tool_iterations`), because otherwise publishing a second
+    #     house skill in the dashboard silently shortens every research chain
+    #     in the product by one, with no deploy and nothing to notice it. The
+    #     floors below still count ONE `use_skill` — the one the QUESTION
+    #     spends, on a skill the model or the user chose.
     #
     # Floors traced against the tool surface as it now stands (survey landed
     # since the number was last touched, and it shortened exactly one shape):
@@ -609,10 +616,14 @@ functions:
     # At 5 the two multi-element chains truncate AT OR BEFORE the measurement
     # that answers the question, and forced synthesis then writes an answer from
     # declared values — the 3,00-m-instead-of-2,70-m failure this whole branch
-    # started from. Truncation is also SILENT: the synthesis anchor says
-    # „exhausted your research budget" to the MODEL and asks for no disclosure to
-    # the reader, and `[CONFIDENCE:…]` grades SOURCE grounding, not whether
-    # evidence-gathering was cut off.
+    # started from. Truncation is still silent TO THE READER — the synthesis
+    # anchor says „exhausted your research budget" to the MODEL and asks for no
+    # disclosure, and `[CONFIDENCE:…]` grades SOURCE grounding, not whether
+    # evidence-gathering was cut off — but it is no longer invisible to US: it
+    # now emits a `status:budget` telemetry step and a `Research budget
+    # exhausted` warning carrying the ceiling, the spend, the round count and
+    # the ordered tool shape, so "how often, and on which questions" is a query
+    # rather than a guess. Whether the READER is told is a product decision.
     #
     # 6 is the bare floor with no repair budget, and a storey-name miss is the
     # commonest repair on this surface. 7 = floor + one repair. Higher buys a
@@ -626,7 +637,10 @@ functions:
     #
     # 7 serial iterations = 15 node visits + forced synthesis, well under
     # `recursion_limit` 30 (`max_llm_turns * 2 + 10`), so this does not need
-    # max_llm_turns moved with it.
+    # max_llm_turns moved with it. The two reserved skill iterations take the
+    # worst case to 9 = 19 node visits + synthesis, still under 30 — and a
+    # third standard skill would take it to 21, so the reserve is bounded by
+    # what the platform owner publishes and wants watching if that grows.
     max_tool_iterations: 7
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.

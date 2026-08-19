@@ -8,10 +8,11 @@
  * So each card is rendered as a titled table or a labelled block: the same
  * facts, in the form Word can carry, edit and search.
  *
- * ## One walker, not twenty-seven renderers
+ * ## One walker, not forty renderers
  *
- * The catalogue has twenty-seven card types and grows. Twenty-seven bespoke
- * renderers would mean the export silently loses a card type on the day the
+ * The catalogue has forty card types and grows — it was twenty-seven when this
+ * was written, which is the argument making itself. Forty bespoke renderers
+ * would mean the export silently loses a card type on the day the
  * next one ships — the exact failure this feature exists to prevent, because a
  * finding missing from an exported file reads as a finding the answer never
  * made. So the renderer walks the card's OWN fields and dispatches on the shape

@@ -18,6 +18,13 @@
  * away rather than doubling the height of a card whose value is being small.
  * Local `useState` only — nothing is committed, so there is nothing to persist
  * (`presentational` in CARD_INTERACTIVITY).
+ *
+ * THE WIDTH CAP is the card's mark (`docs/design/grid-card-charter.md` §A5:
+ * "the only card narrower than the column"). A remark that spans the whole
+ * column reads as a section of the answer; one that stops short of it reads as
+ * an aside, which is exactly what it is. `46ch` is a measure rather than a
+ * pixel width, so it stays an aside whatever the column does, and on a phone
+ * the column is narrower than the cap and nothing binds.
  */
 
 import { useState, type FC } from 'react'
@@ -88,7 +95,7 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
   const Icon = tone.icon
 
   return (
-    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 relative gap-0 overflow-hidden py-3.5 pl-5 pr-4 shadow-xs">
+    <Card className="relative max-w-[46ch] gap-0 overflow-hidden py-3.5 pl-5 pr-4 shadow-xs">
       {/* The accent edge rides the card's own left border rather than being a
           border-left of its own: `overflow-hidden` clips it to the radius, so
           the tone reads at full strength without rounding the corner twice. */}
@@ -105,23 +112,23 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             {/* Hand-rolled rather than `SectionLabel`, because this eyebrow
-                carries the kind's ink: SectionLabel hard-codes the muted one
-                and `cn` cannot dedupe it against a project-custom `text-*`
-                utility, so the two would fight on CSS order. */}
-            <span className={cn('text-[10.5px] font-medium uppercase tracking-wider', tone.ink)}>
-              {tone.label(t)}
-            </span>
-            {title && <p className="text-sm font-semibold text-foreground">{title}</p>}
+                carries the kind's ink where SectionLabel hard-codes the muted
+                one — so it reaches for the ramp's Eyebrow step directly. And
+                it shares a baseline with the title instead of sitting on a row
+                of its own: that quirk is this card's identity and stays
+                (grid-card-charter.md §B1 — do not "fix" it). */}
+            <span className={cn('card-eyebrow', tone.ink)}>{tone.label(t)}</span>
+            {title && <p className="card-title text-foreground">{title}</p>}
           </div>
 
-          <p className="max-w-prose text-[13.5px] leading-[1.6] text-default">{text}</p>
+          <p className="card-body text-default">{text}</p>
 
           {detail && (
             <Collapsible open={open} onOpenChange={setOpen}>
               <CollapsibleTrigger
                 className={cn(
                   '-ml-1 mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5',
-                  'text-xs font-medium text-muted-foreground',
+                  'card-caption font-medium text-muted-foreground',
                   'transition-colors duration-quick ease-out hover:text-foreground',
                   'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
                 )}
@@ -138,7 +145,7 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
               </CollapsibleTrigger>
 
               <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
-                <p className="mt-1.5 max-w-prose border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
+                <p className="card-caption mt-1.5 border-l-2 border-border pl-3 text-muted-foreground">
                   {detail}
                 </p>
               </CollapsibleContent>

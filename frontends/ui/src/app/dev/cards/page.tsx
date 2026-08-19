@@ -17,10 +17,14 @@ import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { SummaryCard } from '@/features/grid-cards/components/SummaryCard'
 import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
+import { VerdictHeaderCard } from '@/features/grid-cards/components/VerdictHeaderCard'
 import { ConditionTreeCard } from '@/features/grid-cards/components/ConditionTreeCard'
 import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
 import { CalculationCard } from '@/features/grid-cards/components/CalculationCard'
 import { ProcessMapCard } from '@/features/grid-cards/components/ProcessMapCard'
+import { DocumentChecklistCard } from '@/features/grid-cards/components/DocumentChecklistCard'
+import { DeadlineTimelineCard } from '@/features/grid-cards/components/DeadlineTimelineCard'
+import { ChangeImpactCard } from '@/features/grid-cards/components/ChangeImpactCard'
 import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
 import { RequirementChecklistCard } from '@/features/grid-cards/components/RequirementChecklistCard'
@@ -82,6 +86,38 @@ function Gallery() {
             'Treppenhaus als gesicherter Fluchtbereich erforderlich',
             'Barrierefreier Aufzug ab 3 oberirdischen Geschossen',
           ]}
+        />
+      </Section>
+
+      {/* The §A2 cross-card rule, which only exists when both cards are on
+          screen: the same summary under a verdict header drops its 17px H1 to
+          the 14px Title step, because a 17px headline and a 30px verdict
+          arriving together give the reader two places to start. Rendered
+          through the dispatcher so it goes through the same provider the chat
+          uses — the rule is invisible from either component alone. */}
+      <Section id="summary_under_verdict">
+        <GridCards
+          cards={
+            [
+              {
+                type: 'verdict_header',
+                verdict: 'Gebäudeklasse 4',
+                subject: 'Einstufung des Gebäudes',
+                confidence: 'high',
+              },
+              {
+                type: 'summary',
+                title: 'Gebäudeklasse 4 – Anforderungen im Überblick',
+                content:
+                  'Für Ihr Wohngebäude mit Fluchtniveau 9,8 m gilt Gebäudeklasse 4. Daraus folgen erhöhte Anforderungen an Brandschutz und Erschließung.',
+                key_points: [
+                  'Fluchtniveau 9,8 m → GK 4 (Grenze: 11 m)',
+                  'Treppenhaus als gesicherter Fluchtbereich erforderlich',
+                ],
+              },
+            ] as GridCard[]
+          }
+          projectId={null}
         />
       </Section>
 
@@ -257,12 +293,193 @@ function Gallery() {
         />
       </Section>
 
+      {/* Two cards, because the pair IS the review: the first has statuses the
+          conversation settled and the tally counts them; the second has none at
+          all and says so in a sentence where the first draws numbers. A single
+          fixture would only ever show one of the two, and the one it hid is the
+          common case. */}
+      <Section id="document_checklist">
+        <DocumentChecklistCard
+          title="Einreichunterlagen – Neubau Wohngebäude, Wien"
+          items={[
+            {
+              label: 'Einreichplan',
+              requirement: 'required',
+              issuer: 'Ziviltechniker:in',
+              status: 'present',
+              note: 'dreifach, im Maßstab 1:100',
+              reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. a' },
+            },
+            {
+              label: 'Baubeschreibung',
+              requirement: 'required',
+              issuer: 'Ziviltechniker:in',
+              reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. b' },
+            },
+            {
+              label: 'Energieausweis',
+              requirement: 'required',
+              issuer: 'befugte Fachperson',
+              status: 'missing',
+              reference: OIB6,
+            },
+            {
+              label: 'Grundbuchsauszug',
+              requirement: 'conditional',
+              condition: 'nur wenn der Bauwerber nicht Eigentümer der Liegenschaft ist',
+              issuer: 'Bauwerber',
+            },
+            {
+              label: 'Gutachten der MA 19',
+              requirement: 'conditional',
+              condition: 'nur bei einem Gebäude in einer Schutzzone',
+              issuer: 'Baubehörde',
+            },
+          ]}
+          reference={{ document: 'Wiener Bauordnung', section: '§ 63' }}
+        />
+        <DocumentChecklistCard
+          title="Einreichunterlagen – Zubau, ohne Angaben zum Stand"
+          items={[
+            {
+              label: 'Auswechslungsplan',
+              requirement: 'required',
+              issuer: 'Ziviltechniker:in',
+              reference: { document: 'Wiener Bauordnung', section: '§ 73' },
+            },
+            {
+              label: 'Statische Vorbemessung',
+              requirement: 'conditional',
+              condition: 'nur bei Eingriff in tragende Bauteile',
+              issuer: 'Tragwerksplanung',
+            },
+            {
+              label: 'Zustimmung der Miteigentümer',
+              requirement: 'conditional',
+              condition: 'nur bei Wohnungseigentum',
+              issuer: 'Bauwerber',
+            },
+          ]}
+          note="Die Gemeinde kann im Einzelfall weitere Unterlagen verlangen."
+        />
+      </Section>
+
+      {/* The rail is evenly spaced on purpose: four weeks and four years do not
+          share a timeline, because each one starts from a different event. What
+          to review here is that the drawing never suggests otherwise, and that
+          no period has quietly become a date. */}
+      <Section id="deadline_timeline">
+        <DeadlineTimelineCard
+          title="Fristen im Bauverfahren – Wien"
+          deadlines={[
+            {
+              label: 'Beschwerdefrist',
+              period: 'binnen vier Wochen',
+              starts_from: 'ab Zustellung des Baubewilligungsbescheids',
+              actor: 'Nachbar oder Bauwerber',
+              consequence: 'Der Bescheid wird rechtskräftig.',
+              reference: { document: 'VwGVG', section: '§ 7 Abs. 4' },
+            },
+            {
+              label: 'Geltungsdauer der Baubewilligung',
+              period: 'binnen vier Jahren ist mit dem Bau zu beginnen',
+              starts_from: 'ab Rechtskraft der Baubewilligung',
+              actor: 'Bauwerber',
+              consequence: 'Die Baubewilligung erlischt.',
+              reference: { document: 'Wiener Bauordnung', section: '§ 74 Abs. 1' },
+            },
+            {
+              label: 'Baubeginnsanzeige',
+              period: 'vor Beginn der Bauführung',
+              starts_from: 'bezogen auf den beabsichtigten Baubeginn',
+            },
+            {
+              label: 'Fertigstellungsanzeige',
+              period: 'unverzüglich',
+              starts_from: 'ab Fertigstellung des Bauvorhabens',
+              actor: 'Bauwerber',
+              reference: { document: 'Wiener Bauordnung', section: '§ 128' },
+            },
+          ]}
+        />
+      </Section>
+
+      {/* Again a pair. The first knows where the project stands today, so the
+          header reads „7 bis 11 m → über 11 m"; the second does not, and has to
+          say that rather than print a plausible starting point. The fourth row
+          of the first card is `unchanged`, which is the value that keeps the
+          card from reading as a list of penalties. */}
+      <Section id="change_impact">
+        <ChangeImpactCard
+          title="Fluchtniveau über 11 m – was sich ändert"
+          factor="Fluchtniveau"
+          from_value="7 bis 11 m"
+          to_value="über 11 m"
+          consequences={[
+            {
+              aspect: 'Gebäudeklasse',
+              before: 'GK 4',
+              after: 'GK 5',
+              direction: 'tightens',
+              reference: { document: 'OIB-Begriffsbestimmungen', section: 'Gebäudeklassen' },
+            },
+            {
+              aspect: 'Feuerwiderstand tragender Bauteile',
+              before: 'R 60',
+              after: 'R 90',
+              direction: 'tightens',
+              detail: 'Die Anforderung gilt für die tragenden Bauteile der oberirdischen Geschoße.',
+              reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
+            },
+            {
+              aspect: 'Aufzug',
+              after: 'Aufzug erforderlich',
+              direction: 'tightens',
+              reference: OIB4,
+            },
+            {
+              aspect: 'Schallschutz zwischen den Wohnungen',
+              before: 'DnT,w mindestens 55 dB',
+              after: 'DnT,w mindestens 55 dB',
+              direction: 'unchanged',
+              detail: 'Der Schallschutz hängt an der Nutzung, nicht an der Gebäudeklasse.',
+              reference: { document: 'OIB-Richtlinie 5', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
+            },
+          ]}
+          reference={{ document: 'OIB-Begriffsbestimmungen', section: 'Gebäudeklassen' }}
+        />
+        <ChangeImpactCard
+          title="Nutzungsänderung zu Beherbergung – was sich ändert"
+          factor="Hauptnutzung"
+          to_value="Beherbergungsstätte"
+          consequences={[
+            {
+              aspect: 'Fluchtwegbreite',
+              after: 'mindestens 1,20 m',
+              direction: 'tightens',
+              reference: { document: 'OIB-Richtlinie 2', section: 'Pkt. 5', edition: 'Ausgabe Mai 2023' },
+            },
+            {
+              aspect: 'Barrierefreie Zimmer',
+              after: 'anteilig barrierefrei auszuführen',
+              direction: 'tightens',
+              reference: OIB4,
+            },
+          ]}
+          note="Ob eine Widmungsänderung nötig ist, hängt vom Flächenwidmungsplan ab."
+        />
+      </Section>
+
       {/* Four chips of very different lengths, because the thing to review here
           is that a long question truncates to one line instead of turning the
-          chip into a paragraph — and that the set still reads as an offer. */}
+          chip into a paragraph — and that the set still reads as an offer with
+          no frame around it. The title is a real headline rather than a
+          restatement of the eyebrow: the backend's own guidance is to omit it
+          („omit to let the questions stand alone"), so the fixture that earns
+          its place is the one where the model had something to add. */}
       <Section id="follow_ups">
         <FollowUpsCard
-          title="Weiterführende Fragen"
+          title="Was Sie als Nächstes klären sollten"
           items={[
             { question: 'Wie wird das Fluchtniveau genau gemessen?', hint: 'Messpunkt und Bezugsebene' },
             { question: 'Welche Anforderungen gelten für mein Projekt konkret?' },
@@ -272,6 +489,41 @@ function Gallery() {
                 'Wie weise ich die Feuerwiderstandsklasse REI 60 der tragenden Bauteile im Einreichplan nach?',
             },
           ]}
+        />
+      </Section>
+
+      {/* The card IS the figure, so the thing to review is the figure: a short
+          verdict at 30px, a long compound at the 24px step it drops to above 24
+          characters, and the confidence gauge at all three of its levels —
+          including the answer with no confidence at all, where the gauge is
+          absent rather than empty. */}
+      <Section id="verdict_header">
+        <VerdictHeaderCard
+          verdict="1,10 m"
+          subject="Erforderliche Geländerhöhe"
+          reference={OIB4}
+          confidence="high"
+          confidence_reason={null}
+        />
+      </Section>
+
+      <Section id="verdict_header_long">
+        <VerdictHeaderCard
+          verdict="Hauptgeschoßfußbodenoberkante über 22 m"
+          subject="Einstufung als Hochhaus"
+          reference={OIB2}
+          confidence="medium"
+          confidence_reason="Die Wiener Bauordnung misst den Bezugspunkt abweichend; für ein Grundstück in Wien ist der Wert gesondert zu prüfen."
+        />
+      </Section>
+
+      <Section id="verdict_header_bare">
+        <VerdictHeaderCard
+          verdict="Nicht geregelt"
+          subject="Mindestbreite einer Wartungsleiter"
+          reference={null}
+          confidence="low"
+          confidence_reason={null}
         />
       </Section>
 
@@ -305,14 +557,31 @@ function Gallery() {
         />
       </Section>
 
+      {/* Both tiers of Baurecht, because the difference between them is the
+          card's whole subject and it is invisible in a single sample: the OIB
+          citation takes the indigo accent, the OIB badge and its Ausgabe; the
+          statute keeps the law blue, the RIS badge and has no Ausgabe to name.
+          Neither is derived from the law string — both come off `lane`. */}
       <Section id="legal_basis">
         <LegalBasisCard
           type="legal_basis"
           law="OIB-Richtlinie 2"
+          lane="baurecht_oib"
+          edition="Ausgabe Mai 2023"
           article="3.1.1"
           section="Tabelle 1a"
           summary="Die maximale Brandabschnittsfläche für oberirdische Geschosse in GK 4 beträgt 1.200 m²."
           original_text="Brandabschnitte dürfen eine Nettogrundfläche von höchstens 1.200 m² und eine Längenausdehnung von höchstens 60 m aufweisen."
+        />
+        <LegalBasisCard
+          type="legal_basis"
+          law="Wiener Bauordnung"
+          lane="baurecht_ris"
+          edition={null}
+          article="87"
+          section="Abs. 4"
+          summary="Bauliche Anlagen sind so zu errichten, dass die Standsicherheit und der Brandschutz während der gesamten Nutzungsdauer gewährleistet sind."
+          original_text="Bauwerke müssen so geplant und ausgeführt werden, dass sie den zu erwartenden Einwirkungen standhalten."
         />
       </Section>
 

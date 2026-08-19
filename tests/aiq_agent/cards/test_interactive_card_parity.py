@@ -11,6 +11,11 @@ side (``CARD_INTERACTIVITY`` in ``card-decision.ts``, whose exhaustive typing
 makes a NEW card type fail ``tsc`` until someone classifies it). These tests
 fail if the two ever disagree, so the obligation cannot be quietly dropped on
 one side.
+
+The same reasoning runs one step further at the bottom of this file: a card type
+must also HAVE a renderer. Both checks read the frontend source from the backend
+suite on purpose — a card type is born here, and the author adding one should
+not have to run the frontend tests to learn what they owe.
 """
 
 import re
@@ -70,3 +75,49 @@ def test_every_card_type_is_classified_in_the_frontend():
         f"({TS_CARD_DECISION}). Decide whether each one asks the user to commit to "
         "something; if it does, its answer must be persisted on the message."
     )
+
+
+# A card type can clear every guard in this file and still draw nothing.
+#
+# ``GridCardItem`` dispatches on the discriminator in a flat chain of
+# ``if (card.type === '…')`` tests that ends in ``return null``. So a type that
+# is in the union, classified in ``CARD_INTERACTIVITY`` and given a preview
+# fixture STILL renders an empty gap when nobody wrote its branch — the model
+# says it made a finding and the reader sees nothing. Nothing about that is
+# visible from the backend, which is where card types are born.
+#
+# The frontend mounts every type for real
+# (``GridCards.render-coverage.spec.tsx``, which also catches a branch that
+# exists but paints nothing). This is the cheap mirror, here for the same reason
+# as ``test_every_card_type_is_classified_in_the_frontend`` above: a backend
+# author who adds a card type without running the frontend suite still sees the
+# obligation fail in the suite they DO run.
+TS_GRID_CARDS = REPO_ROOT / "frontends" / "ui" / "src" / "features" / "grid-cards" / "components" / "GridCards.tsx"
+
+
+def _ts_rendered_types() -> set[str]:
+    """The card types ``GridCardItem`` has a dispatch branch for."""
+    source = TS_GRID_CARDS.read_text(encoding="utf-8")
+    return set(re.findall(r"card\.type === '(\w+)'", source))
+
+
+def test_every_card_type_has_a_renderer():
+    """A card in the union with no branch renders nothing, silently.
+
+    Asserted over the WHOLE union rather than only the model-facing types: a
+    system card is emitted by a tool instead of by the model, but it is put in
+    front of the same reader and must draw the same way.
+    """
+    missing = _card_types() - _ts_rendered_types()
+    assert not missing, (
+        f"Card type(s) {sorted(missing)} have no renderer branch in {TS_GRID_CARDS}. "
+        "GridCardItem falls through to `return null`, so a card of that type reaches "
+        "the user as an empty gap in the answer — no warning, no dropped card. Add the "
+        "branch (and a preview fixture) before the type ships."
+    )
+
+
+def test_renderer_branches_are_real_card_types():
+    """A renamed card must not leave a dead branch behind."""
+    orphaned = _ts_rendered_types() - _card_types()
+    assert not orphaned, f"{TS_GRID_CARDS} dispatches on {sorted(orphaned)}, which the card union no longer has."

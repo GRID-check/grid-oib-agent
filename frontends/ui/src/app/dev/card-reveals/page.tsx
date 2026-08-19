@@ -26,8 +26,17 @@
 import { useEffect, type FC, type ReactNode } from 'react'
 import { CalculationCard } from '@/features/grid-cards/components/CalculationCard'
 import { ProcessMapCard } from '@/features/grid-cards/components/ProcessMapCard'
+import { DocumentChecklistCard } from '@/features/grid-cards/components/DocumentChecklistCard'
+import { DeadlineTimelineCard } from '@/features/grid-cards/components/DeadlineTimelineCard'
+import { ChangeImpactCard } from '@/features/grid-cards/components/ChangeImpactCard'
 import { I18nProvider } from '@/i18n'
-import type { CalculationStepData, ProcessStepData } from '@/features/grid-cards/schematics/types'
+import type {
+  CalculationStepData,
+  ChangeConsequenceData,
+  DeadlineData,
+  ProcessStepData,
+  RequiredDocumentData,
+} from '@/features/grid-cards/schematics/types'
 
 const OIB4 = { document: 'OIB-Richtlinie 4', section: 'Pkt. 3.2', edition: 'Ausgabe Mai 2023' }
 const OIB6 = { document: 'OIB-Richtlinie 6', section: 'Pkt. 4.2', edition: 'Ausgabe Mai 2023' }
@@ -115,6 +124,98 @@ const VERFAHREN: ProcessStepData[] = [
     summary: 'Nach Fertigstellung, mit den Ausführungsbestätigungen.',
     actor: 'Bauwerber',
     requires: ['Ausführungsbestätigungen der Fachplaner'],
+  },
+]
+
+const UNTERLAGEN: RequiredDocumentData[] = [
+  {
+    label: 'Einreichplan',
+    requirement: 'required',
+    issuer: 'Ziviltechniker:in',
+    status: 'present',
+    note: 'dreifach, im Maßstab 1:100',
+    reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. a' },
+  },
+  {
+    label: 'Baubeschreibung',
+    requirement: 'required',
+    issuer: 'Ziviltechniker:in',
+    reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. b' },
+  },
+  {
+    label: 'Energieausweis',
+    requirement: 'required',
+    issuer: 'befugte Fachperson',
+    status: 'missing',
+    reference: OIB6,
+  },
+  {
+    label: 'Grundbuchsauszug',
+    requirement: 'conditional',
+    condition: 'nur wenn der Bauwerber nicht Eigentümer der Liegenschaft ist',
+    issuer: 'Bauwerber',
+    reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. e' },
+  },
+  {
+    label: 'Gutachten der MA 19',
+    requirement: 'conditional',
+    condition: 'nur bei einem Gebäude in einer Schutzzone',
+    issuer: 'Baubehörde',
+  },
+]
+
+const FRISTEN: DeadlineData[] = [
+  {
+    label: 'Beschwerdefrist',
+    period: 'binnen vier Wochen',
+    starts_from: 'ab Zustellung des Baubewilligungsbescheids',
+    actor: 'Nachbar oder Bauwerber',
+    consequence: 'Der Bescheid wird rechtskräftig.',
+    reference: { document: 'VwGVG', section: '§ 7 Abs. 4' },
+  },
+  {
+    label: 'Geltungsdauer der Baubewilligung',
+    period: 'binnen vier Jahren ist mit dem Bau zu beginnen',
+    starts_from: 'ab Rechtskraft der Baubewilligung',
+    actor: 'Bauwerber',
+    consequence: 'Die Baubewilligung erlischt.',
+    reference: { document: 'Wiener Bauordnung', section: '§ 74 Abs. 1' },
+  },
+  {
+    label: 'Fertigstellungsanzeige',
+    period: 'unverzüglich',
+    starts_from: 'ab Fertigstellung des Bauvorhabens',
+    actor: 'Bauwerber',
+    reference: { document: 'Wiener Bauordnung', section: '§ 128' },
+  },
+]
+
+/**
+ * Deliberately a card that knows the DESTINATION and not the starting point —
+ * the common case, and the one where a plausible „bisher" would be an
+ * invention. Neither the header nor any row has a `before`, so the shot carries
+ * both of the card's unknown states at once.
+ */
+const NUTZUNGSAENDERUNG: ChangeConsequenceData[] = [
+  {
+    aspect: 'Fluchtwegbreite',
+    after: 'mindestens 1,20 m',
+    direction: 'tightens',
+    detail: 'Gemessen als lichte Breite im ungünstigsten Querschnitt des Fluchtwegs.',
+    reference: { document: 'OIB-Richtlinie 2', section: 'Pkt. 5', edition: 'Ausgabe Mai 2023' },
+  },
+  {
+    aspect: 'Barrierefreie Zimmer',
+    after: 'anteilig barrierefrei auszuführen',
+    direction: 'tightens',
+    reference: { document: 'OIB-Richtlinie 4', section: 'Pkt. 5', edition: 'Ausgabe Mai 2023' },
+  },
+  {
+    aspect: 'Schallschutz zwischen den Zimmern',
+    before: 'DnT,w mindestens 55 dB',
+    after: 'DnT,w mindestens 55 dB',
+    direction: 'unchanged',
+    reference: { document: 'OIB-Richtlinie 5', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
   },
 ]
 
@@ -216,8 +317,51 @@ export default function CardRevealsPreviewPage() {
           </div>
         </Block>
 
+        <Block
+          title="Unterlagen – bedingte Unterlage aufgeklappt"
+          note="A conditional document opened: the case that makes it necessary, who issues it and where it is prescribed. Above it the derived tally — 3 erforderlich / 2 bedingt, then 1 vorhanden / 1 fehlend / 3 ungeklärt — which is the card counting its own rows, including the three nobody has asked about."
+        >
+          <div data-preview="unterlagen">
+            <DocumentChecklistCard
+              title="Einreichunterlagen – Neubau Wohngebäude, Wien"
+              items={UNTERLAGEN}
+              reference={{ document: 'Wiener Bauordnung', section: '§ 63' }}
+            />
+          </div>
+        </Block>
+
+        <Block
+          title="Fristen – eine Frist aufgeklappt"
+          note="The Beschwerdefrist opened onto what happens when it lapses, who has to act and the Bestimmung it stands in. Every period is still the provision's own wording; the footer says out loud that the rail is not to scale and that the card works out no dates."
+        >
+          <div data-preview="fristen">
+            <DeadlineTimelineCard title="Fristen im Bauverfahren – Wien" deadlines={FRISTEN} />
+          </div>
+        </Block>
+
+        <Block
+          title="Auswirkung – ohne bekannten Ausgangswert"
+          note="The state a change-impact card is most often in: the destination is the question's own hypothesis, the starting point was never established. The header says so instead of printing a plausible „bisher“, and the opened row repeats it where the before/after pair would otherwise sit empty."
+        >
+          <div data-preview="auswirkung">
+            <ChangeImpactCard
+              title="Nutzungsänderung zu Beherbergung – was sich ändert"
+              factor="Hauptnutzung"
+              to_value="Beherbergungsstätte"
+              consequences={NUTZUNGSAENDERUNG}
+              note="Ob eine Widmungsänderung nötig ist, hängt vom Flächenwidmungsplan ab."
+            />
+          </div>
+        </Block>
+
         <Open block="sources" />
         <Open block="elsewhere" fromEnd={3} />
+        {/* The 4th of five rows — the first conditional one. */}
+        <Open block="unterlagen" fromEnd={2} />
+        {/* The first of three Fristen. */}
+        <Open block="fristen" fromEnd={3} />
+        {/* The first of three consequences, the one with no `before`. */}
+        <Open block="auswirkung" fromEnd={3} />
       </main>
     </I18nProvider>
   )

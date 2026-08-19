@@ -77,7 +77,8 @@ def _build_tool_description() -> str:
         + _CARD_DOCTRINE
         + "\n\nHOW. Pass `card_json`: a JSON object with a `type` field plus that type's fields. "
         "Unless a card's exact shape is already in this conversation, call `describe_card` with the "
-        "type first — guessing the nesting wastes a turn on a validation error. Fields marked * are "
+        "type first — one call, several type names at once, so looking a shape up is never a reason "
+        "to skip a card the answer called for. Fields marked * are "
         "required; omit optional ones rather than passing null. Numbers are plain JSON numbers. For "
         "schematic cards, supply the measured/actual value from the question or project profile and "
         "the OIB limit in `required`; if a value is unknown, omit it and set that check's status to "

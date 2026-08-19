@@ -32,7 +32,12 @@ export function SectionLabel({
   return (
     <Comp
       className={cn(
-        'text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground',
+        // `card-eyebrow` (app/globals.css) is the Eyebrow step of the card type
+        // ramp, and it is the SAME spec as the design language's product-wide
+        // eyebrow — so it is defined once, there, and this primitive adds the
+        // muted ink. CalloutCard is the one place that reaches for the class
+        // directly, because its eyebrow carries the tone's ink instead.
+        'card-eyebrow text-muted-foreground',
         Icon && 'flex items-center gap-1.5',
         className,
       )}

@@ -2498,3 +2498,280 @@ class TestMeasurementSourcesDoNotGroundCitations:
         assert self._measurement_sources(result)
         assert events.record_turn.call_args.kwargs["cited_count"] == 0
         assert events.record_turn.call_args.kwargs["source_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# The research budget: what it counts, and what it must stop counting
+# ---------------------------------------------------------------------------
+
+
+class TestTheResearchBudgetIsNotSpentOnForcedSkills:
+    """``max_tool_iterations`` is the RESEARCH ceiling, not the tool-call ceiling.
+
+    The budget is charged per CALL (``new_iterations += len(response.tool_calls)``),
+    and the deployment forces two standard skills, so on this fleet the model
+    has to spend two of them on ``use_skill`` before it may read a single
+    source. The config's traced floors assume ONE, which is how an OIB 3
+    daylight chain — knowledge_search, find_elements, relations, overhang,
+    light_incidence — lands exactly on the ceiling and gets forced into
+    synthesis before the measurement that answers the question.
+
+    So the overhead the DEPLOYMENT imposes is reserved on top of the number,
+    and the research ceiling stops depending on how many house skills the
+    platform owner happens to have published.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_citation_pipeline(self):
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
+            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as verify,
+            patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as sanitize,
+        ):
+            verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
+                verified_report=content, removed_citations=[]
+            )
+            sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
+            yield
+
+    def _agent(self, reserved: int, iterations: int = 3):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=llm)
+        return (
+            ShallowResearcherAgent(
+                llm_provider=provider,
+                tools=[web_search_tool],
+                max_tool_iterations=iterations,
+                reserved_tool_iterations=reserved,
+            ),
+            llm,
+        )
+
+    def test_the_reserve_is_added_to_the_ceiling_not_taken_from_it(self):
+        agent, _ = self._agent(reserved=2, iterations=7)
+        # The research budget is untouched — it is what the config's floors are
+        # traced against — and the forced-skill overhead rides on top of it.
+        assert agent.max_tool_iterations == 7
+        assert agent.tool_iteration_ceiling == 9
+
+    def test_a_deployment_with_no_standard_skills_is_unchanged(self):
+        agent, _ = self._agent(reserved=0, iterations=7)
+        assert agent.tool_iteration_ceiling == 7
+
+    @pytest.mark.asyncio
+    async def test_the_reserved_calls_do_not_end_the_research(self):
+        """The behaviour, not the arithmetic: two skill calls, then full research.
+
+        With a 3-call research budget and two forced skills, a turn that opens
+        both skills must still get three research calls. Charge the skills to
+        the research budget and the third one never happens — the model is
+        handed the "you have exhausted your research budget" anchor instead,
+        with no tools bound, and whatever it had by then becomes the answer.
+        """
+        agent, llm = self._agent(reserved=2, iterations=3)
+        calls = [
+            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "a"}, "id": "c1"}]),
+            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "b"}, "id": "c2"}]),
+            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "c"}, "id": "c3"}]),
+            AIMessage(content="Die Antwort [1]."),
+        ]
+        llm.ainvoke = AsyncMock(side_effect=calls)
+
+        # Two `use_skill` calls are already charged when research begins.
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie tief ist der Lichteinfall?")],
+            tool_iterations=2,
+        )
+        await agent.run(state)
+
+        anchored = [
+            index
+            for index, call in enumerate(llm.ainvoke.call_args_list)
+            if any("exhausted your research budget" in str(m.content) for m in call.args[0])
+        ]
+        # Calls 0, 1 and 2 are the three research calls the budget promises;
+        # only call 3, with the budget genuinely spent, may be forced synthesis.
+        # Charge the two skill loads to the research budget and the anchor
+        # arrives on call 1 instead — two thirds of the research never happens.
+        assert anchored == [3], (
+            f"forced synthesis fired on LLM call(s) {anchored}; expected only the last. "
+            "The forced-skill calls were charged to the research budget."
+        )
+        assert llm.ainvoke.await_count == 4
+
+
+class TestTruncationIsObservable:
+    """Silent truncation is the worst failure this product has; make it countable.
+
+    Hitting the ceiling means evidence-gathering was CUT OFF and the answer was
+    written from whatever had been gathered by then. ``[CONFIDENCE:…]`` does not
+    cover it — that grades whether the claims are sourced, not whether the
+    search finished — so before this there was nothing anywhere that could
+    answer "how often does this happen, and on which question shapes".
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_citation_pipeline(self):
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
+            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as verify,
+            patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as sanitize,
+        ):
+            verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
+                verified_report=content, removed_citations=[]
+            )
+            sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
+            yield
+
+    @pytest.fixture
+    def steps(self):
+        """Every custom step pushed during the test, as parsed payloads."""
+        import json
+
+        from nat.builder.context import ContextState
+        from nat.utils.reactive.subject import Subject
+
+        state = ContextState.get()
+        state.active_span_id_stack.set(["root"])
+        state._event_stream.set(Subject())
+        seen: list[dict] = []
+
+        def _on_next(step) -> None:
+            payload = step.payload
+            body = getattr(payload.data, "input", None)
+            if isinstance(body, str) and str(payload.event_type).endswith("START"):
+                seen.append({"step": payload.name, **json.loads(body)})
+
+        state.event_stream.get().subscribe(_on_next)
+        yield seen
+        state.active_span_id_stack.set(["root"])
+        state._event_stream.set(Subject())
+
+    async def _truncated_run(self):
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=llm)
+        agent = ShallowResearcherAgent(
+            llm_provider=provider,
+            tools=[web_search_tool],
+            max_tool_iterations=3,
+            reserved_tool_iterations=2,
+        )
+        # A run that already spent its whole ceiling: two skill loads and three
+        # searches — the shape of an OIB measurement chain walking into the wall.
+        history = [
+            HumanMessage(content="Wie tief ist der Lichteinfall?"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "use_skill", "args": {"skill_name": "piloti-voice"}, "id": "s1"},
+                    {"name": "use_skill", "args": {"skill_name": "piloti-cards"}, "id": "s2"},
+                ],
+            ),
+            AIMessage(content="", tool_calls=[{"name": "knowledge_search", "args": {}, "id": "k1"}]),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "find_elements", "args": {}, "id": "f1"},
+                    {"name": "light_incidence", "args": {}, "id": "l1"},
+                ],
+            ),
+        ]
+        state = ShallowResearchAgentState(messages=history, tool_iterations=5)
+        await agent.run(state)
+
+    @pytest.mark.asyncio
+    async def test_the_log_says_what_was_cut_off_and_on_what_shape(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.agents.shallow_researcher.agent"):
+            await self._truncated_run()
+
+        lines = [m for m in caplog.messages if "Research budget exhausted" in m]
+        assert lines, f"the turn was cut off and left no countable record of it; warnings logged were {caplog.messages}"
+        line = lines[0]
+        # The numbers that make "how often" answerable per deployment…
+        assert "ceiling=5" in line
+        assert "research_budget=3" in line
+        assert "reserved=2" in line
+        assert "spent=5" in line
+        # …rounds beside calls, because one greedy parallel batch and a long
+        # walk into the wall are different failures…
+        assert "rounds=3" in line
+        assert "skill_calls=2" in line
+        # …and the SHAPE, which is what makes "on which questions" answerable
+        # without putting the reader's own words in a log line.
+        assert "shape=use_skill>use_skill>knowledge_search>find_elements>light_incidence" in line
+        assert "Lichteinfall" not in line
+
+    @pytest.mark.asyncio
+    async def test_the_turn_records_the_truncation_as_telemetry(self, steps):
+        await self._truncated_run()
+
+        records = [step for step in steps if step.get("slot") == "budget"]
+        assert records, (
+            "evidence-gathering was cut off and the turn emitted no truncation telemetry — "
+            f"nothing here can answer how often it happens; steps were {[s.get('step') for s in steps]}"
+        )
+        record = records[0]
+        assert record["truncated"] is True
+        assert (record["ceiling"], record["research_budget"], record["reserved"]) == (5, 3, 2)
+        assert record["spent"] == 5
+        assert record["rounds"] == 3
+        assert record["tools"][:2] == ["use_skill", "use_skill"]
+        # Technical channel, and therefore no `key`: whether the READER is told
+        # the answer stopped early is a product decision, and a live key would
+        # make it silently.
+        assert record["channel"] == "technical"
+        assert "key" not in record
+
+    @pytest.mark.asyncio
+    async def test_the_answer_carries_the_fact_out_of_the_graph(self):
+        """The log is for us; this field is the half the reader gets.
+
+        Telemetry answers "how often". It cannot put a line under the answer
+        the reader is looking at, and that answer is the one place where "the
+        search stopped early" changes what a person does next.
+        """
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=llm)
+        agent = ShallowResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=2)
+
+        truncated = await agent.run(
+            ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")], tool_iterations=2)
+        )
+        assert truncated.research_truncated is True
+
+    @pytest.mark.asyncio
+    async def test_an_answer_that_finished_its_research_claims_nothing(self):
+        """Absent, not False: presence is the fact, so nothing has to read a default."""
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=llm)
+        agent = ShallowResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
+
+        finished = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
+        assert finished.research_truncated is None
+
+    @pytest.mark.asyncio
+    async def test_a_turn_that_finishes_inside_its_budget_records_nothing(self, steps):
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=llm)
+        agent = ShallowResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
+
+        await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
+
+        assert [s for s in steps if s.get("slot") == "budget"] == []

@@ -130,11 +130,14 @@ class ShallowResearchAgentState(BaseModel):
     # block. Set by the register layer before ``run()`` on research turns when
     # skills are enabled; None otherwise.
     skills_block: str | None = None
-    # Ordered names of the skills activated THIS turn (forced first, then
-    # model-invoked via ``use_skill``, deduped). Set by the register layer
-    # after ``run()`` whenever skills are enabled on a research turn; None on
-    # meta turns / disabled config — the chat node lifts it onto the terminal
-    # ChatResponse only when present.
+    # Ordered names of the skills whose BODY reached the model this turn, in
+    # delivery order, deduped. DELIVERED, not forced: the disclosure renders
+    # this as "what shaped this answer", and a forced skill contributes only
+    # its NAME to the prompt until the model calls ``use_skill`` — so a model
+    # that ignores the forced block has read nothing, and this list is empty.
+    # Set by the register layer after ``run()`` whenever skills are enabled on
+    # a research turn; None on meta turns / disabled config — the chat node
+    # lifts it onto the terminal ChatResponse only when present.
     skills_activated: list[str] | None = None
     # The subset of ``skills_activated`` marked ``grid-hidden`` — a skill that
     # runs on every answer (the house voice) is named in the disclosure but
@@ -142,6 +145,19 @@ class ShallowResearchAgentState(BaseModel):
     # dropped: the transparency doctrine forbids a class of instruction the
     # product declines to admit ran.
     skills_hidden: list[str] | None = None
+    # TRUE when this turn hit its tool-iteration ceiling and was forced into
+    # synthesis — i.e. evidence-gathering was CUT OFF rather than finished, and
+    # the answer is written from whatever had been gathered by then. Set by
+    # ``agent_node`` at the forced-synthesis branch; absent (None) on every turn
+    # that finished inside its budget, so presence IS the fact and no reader has
+    # to interpret a False.
+    #
+    # A BOOLEAN, deliberately. Where the chain stopped is a fact about the
+    # turn's PROCESS, not about the answer, and the process channel already
+    # carries it: the ``status:budget`` step emitted alongside this flag carries
+    # the ordered tool shape, and the Herleitung is built from that step stream.
+    # Putting the tool name here too would be the same fact on two wires.
+    research_truncated: bool | None = None
     # Transparency summary of citations dropped by ``verify_citations`` this turn
     # (``{"count": int, "reasons": [str, ...]}``). Populated by ``run()`` ONLY
     # when ≥1 citation was removed; None otherwise. The chat orchestrator lifts

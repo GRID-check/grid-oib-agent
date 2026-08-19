@@ -343,3 +343,70 @@ describe('buildGraph — a card animates once, not once per re-pack', () => {
     expect(order.size).toBe(0)
   })
 })
+
+describe('a turn that was CUT OFF says so where the fan converges', () => {
+  const budgetStep = (tools: string[]) => ({
+    id: 's-budget',
+    userMessageId: 'u1',
+    category: 'tools' as const,
+    functionName: 'status:budget',
+    displayName: 'status:budget',
+    content: JSON.stringify({
+      kind: 'status',
+      channel: 'technical',
+      slot: 'budget',
+      truncated: true,
+      tools,
+    }),
+    timestamp: new Date(),
+    isComplete: true,
+  })
+
+  const findings = (g: ReturnType<typeof buildGraph>) =>
+    g.nodes.find((n) => n.id === 'findings')?.data as
+      | { truncation?: { before: string; step?: string; after: string; mono: boolean } }
+      | undefined
+
+  test('a truncated turn with nothing found still gets an assessment node', () => {
+    // The worst case: cut off before it found anything. Without this the graph
+    // simply stops after the framing card with nothing anywhere saying why.
+    const props: ReasoningFlowProps = { ...base, steps: [budgetStep(['knowledge_search'])] }
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    expect(g.nodes.find((n) => n.id === 'findings')).toBeDefined()
+    expect(findings(g)?.truncation?.step).toBe('thinking.stepName.corpus')
+  })
+
+  test('a tool with no reader-facing name is shown as the identifier it is', () => {
+    // `light_incidence` matches no naming rule. Title-casing it into "Light
+    // Incidence" would dress an identifier as a noun — the one thing this trace
+    // must not invent — so it renders verbatim, in mono.
+    const props: ReasoningFlowProps = {
+      ...base,
+      steps: [budgetStep(['use_skill', 'find_elements', 'light_incidence'])],
+    }
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    expect(findings(g)?.truncation).toMatchObject({ step: 'light_incidence', mono: true })
+  })
+
+  test('truncated with no tool named falls back to saying less', () => {
+    const props: ReasoningFlowProps = { ...base, steps: [budgetStep([])] }
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    expect(findings(g)?.truncation).toEqual({
+      before: 'thinking.node.findingsTruncated',
+      after: '',
+      mono: false,
+    })
+  })
+
+  test('a turn that finished its research carries no truncation line', () => {
+    const props: ReasoningFlowProps = { ...base, answerConfidence: 'high' }
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    expect(findings(g)?.truncation).toBeUndefined()
+  })
+
+  test('while the turn is still live the graph claims nothing about the ending', () => {
+    const props: ReasoningFlowProps = { ...base, steps: [budgetStep(['knowledge_search'])], live: true }
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    expect(findings(g)?.truncation).toBeUndefined()
+  })
+})

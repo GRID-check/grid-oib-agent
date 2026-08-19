@@ -1532,6 +1532,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       if (assistantMessage.citationsRemoved) {
         provenance.citationsRemoved = assistantMessage.citationsRemoved
       }
+      if (assistantMessage.researchTruncated) provenance.researchTruncated = true
       // The POINTER, not the report: a colleague fetches the document through the
       // path that already serves it rather than being handed a copy in a message
       // row.

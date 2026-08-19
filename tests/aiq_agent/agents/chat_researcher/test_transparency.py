@@ -496,3 +496,96 @@ class TestCitationsRemovedEndToEnd:
 
         # Reset at the turn boundary, never set → absent (None).
         assert result.get("citations_removed") is None
+
+
+class TestResearchTruncatedEndToEnd:
+    """Truncation is a fact about the ANSWER, so it rides the answer's frame.
+
+    The shallow agent already logs it and emits it as telemetry; neither of
+    those can put a line under the answer a person is reading, which is the one
+    place "the search stopped before it finished" changes what they do next.
+    """
+
+    @staticmethod
+    def _orchestration():
+        async def shallow_orchestration(state):
+            return {
+                "user_intent": IntentResult(intent="research", raw=None),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="Simple"),
+            }
+
+        return shallow_orchestration
+
+    @staticmethod
+    def _agent(shallow_fn, deep_fn=None):
+        return ChatResearcherAgent(
+            intent_classifier_fn=TestResearchTruncatedEndToEnd._orchestration(),
+            shallow_research_fn=shallow_fn,
+            deep_research_fn=deep_fn or (lambda state: None),
+            clarifier_fn=None,
+            enable_escalation=True,
+            enable_clarifier=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_truncated_shallow_turn_reaches_the_terminal_state(self):
+        async def shallow_truncated(state):
+            result = MagicMock()
+            result.messages = list(state.messages) + [AIMessage(content="Antwort [1].")]
+            result.escalation_requested = False
+            result.answer_confidence_marker = None
+            result.verified_sources = None
+            result.citations_removed = None
+            result.research_truncated = True
+            return result
+
+        state = ChatResearcherState(messages=[HumanMessage(content="Wie tief ist der Lichteinfall?")])
+        result = await self._agent(shallow_truncated).run(state, thread_id="t")
+
+        assert result["research_truncated"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_complete_turn_carries_no_flag_at_all(self):
+        async def shallow_complete(state):
+            result = MagicMock()
+            result.messages = list(state.messages) + [AIMessage(content="Antwort [1].")]
+            result.escalation_requested = False
+            result.answer_confidence_marker = None
+            result.verified_sources = None
+            result.citations_removed = None
+            result.research_truncated = None
+            return result
+
+        state = ChatResearcherState(messages=[HumanMessage(content="Was gilt?")])
+        result = await self._agent(shallow_complete).run(state, thread_id="t")
+
+        # Absent, never False: the note renders on presence, so a False here
+        # would be one more default for a reader to interpret.
+        assert result.get("research_truncated") is None
+
+    @pytest.mark.asyncio
+    async def test_a_shallow_turn_that_escalates_drops_the_flag(self):
+        """The deep report replaces this answer, so its budget is not the reader's news."""
+
+        async def shallow_escalating(state):
+            result = MagicMock()
+            result.messages = list(state.messages) + [
+                AIMessage(content=f"Reicht nicht. {ESCALATION_MARKER}"),
+            ]
+            result.escalation_requested = True
+            result.answer_confidence_marker = None
+            result.verified_sources = None
+            result.citations_removed = None
+            result.research_truncated = True
+            return result
+
+        async def deep(state):
+            result = MagicMock()
+            result.messages = list(state.messages) + [AIMessage(content="Deep report.")]
+            result.citations_removed = None
+            return result
+
+        state = ChatResearcherState(messages=[HumanMessage(content="Was gilt?")])
+        result = await self._agent(shallow_escalating, deep).run(state, thread_id="t")
+
+        assert result.get("research_truncated") is None

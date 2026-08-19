@@ -282,6 +282,10 @@ class TestAResearchTurn:
         refactor ever inlined forced bodies into the prompt "to be safe", the
         always-on cost this whole design avoids would come back and no other
         test would catch it.
+
+        And because that is the deliberate design, the DISCLOSURE has to agree
+        with it: the same turn must report that neither house skill shaped the
+        answer, because neither one did.
         """
         llm = _scripted_llm(_answer())
         state = ShallowResearchAgentState(
@@ -292,10 +296,45 @@ class TestAResearchTurn:
         result, _ = await _run_turn(llm, state)
 
         assert "use_skill" in _bound_tool_names(llm)
-        assert result.skills_activated == [VOICE, CARDS]
         given = _everything_the_model_was_given(llm)
         assert VOICE_PHRASE not in given
         assert CARDS_PHRASE not in given
+        # The reader is told nothing shaped this answer, because nothing did.
+        # `skills_activated` is what the "Skills used" panel renders as the
+        # record of the answer's provenance; naming a skill whose instructions
+        # never reached the model is a false statement about the answer in a
+        # product sold on traceability.
+        assert result.skills_activated == []
+
+    @pytest.mark.asyncio
+    async def test_only_the_skill_the_model_opened_is_named(self, bypass_citation_pipeline):
+        """Half-obeyed is the ordinary case, and the one a flat list gets wrong.
+
+        The model opens the voice and skips the cards. The answer really was
+        written in the house voice and really was not shaped by the card
+        judgement, and the record has to say exactly that — the mixed case is
+        where "forced == activated" stops being a rounding error and starts
+        being a wrong answer to "why does this answer look like this?".
+        """
+        loads_voice_only = AIMessage(
+            content="",
+            tool_calls=[{"name": "use_skill", "args": {"skill_name": VOICE}, "id": "call-voice"}],
+        )
+        llm = _scripted_llm(loads_voice_only, _answer())
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch muss das Geländer sein?")],
+            requires_sources=True,
+        )
+
+        result, _ = await _run_turn(llm, state)
+
+        given = _everything_the_model_was_given(llm)
+        assert VOICE_PHRASE in given
+        assert CARDS_PHRASE not in given
+        assert result.skills_activated == [VOICE]
+        # And the hidden subset follows the same fact rather than the forcing:
+        # the disclosure mutes what it names, and it names what was delivered.
+        assert result.skills_hidden == [VOICE]
 
 
 class TestAConversationalTurn:
@@ -470,9 +509,13 @@ class TestHiddenIsRoutedNeverDropped:
         result, _ = await _run_turn(llm, state)
 
         activations = [event for event in events if event["phase"] == "activated"]
-        assert [event["name"] for event in activations] == [VOICE, CARDS]
+        # SET, not sequence: the model asks for both skills in one parallel
+        # batch and the tool node executes them concurrently, so which body is
+        # handed over first is scheduling. What is a contract is that both
+        # announce, once each.
+        assert sorted(event["name"] for event in activations) == sorted([VOICE, CARDS])
         # One step per skill: sharing a name would collapse them into one.
-        assert [event["step"] for event in activations] == [f"skill:{VOICE}", f"skill:{CARDS}"]
+        assert sorted(event["step"] for event in activations) == sorted([f"skill:{VOICE}", f"skill:{CARDS}"])
         for event in activations:
             assert event["channel"] == "technical"
             # No `key` is what keeps it off the live line — the same withholding

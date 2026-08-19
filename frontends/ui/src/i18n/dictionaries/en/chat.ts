@@ -166,6 +166,16 @@ export const chat = {
     citationsRemoved:
       '{count, plural, one {# citation} other {# citations}} removed (not verifiable)',
     citationsRemovedReasonsLabel: 'Reasons',
+    // Evidence-gathering was cut off at the iteration ceiling. A statement
+    // about the EVIDENCE, not an error and not a verdict on the answer — hence
+    // the same register as the sources row above it. Independent of the
+    // confidence chip, which grades whether the claims are sourced rather than
+    // whether the search ran to the end.
+    researchTruncated:
+      'The search stopped before it was finished — this answer rests on the evidence gathered up to that point',
+    // The same fact for an answer that cites nothing: the sentence above would
+    // promise evidence that is not there.
+    researchTruncatedWithoutSources: 'The search stopped before it was finished, and before it had found anything',
   },
   // Getting the answer OUT of the app — the paste into a report, a mail, a
   // submission. Two icon buttons in the answer's meta row; the second one only
@@ -203,6 +213,9 @@ export const chat = {
   },
   cards: {
     legalBasis: 'Legal basis',
+    // Tooltip on the OIB / RIS tier badge: the badge itself is a proper noun
+    // that reads the same in both locales, so this is what says what it MEANS.
+    authority: 'Authority: {tag}',
     viewOib: 'View OIB Richtlinie',
     verifyRis: 'Verify in RIS',
     aiGenerated:
@@ -314,6 +327,73 @@ export const chat = {
       // with a screenshot of that panel alone.
       elsewhereNotice: 'For reference only — this project is at step {step}: {label}',
       backToCurrent: 'Back to {label}',
+    },
+    // ── Submission documents ────────────────────────────────────────────
+    // The counts in the overview are worked out by the card from its own rows,
+    // so there is no field on the wire for a summary to disagree with.
+    documentChecklist: {
+      eyebrow: 'Documents',
+      itemAria: 'Document: {label}',
+      requirement: {
+        required: 'required',
+        conditional: 'conditional',
+      },
+      // The state of ONE row. „not known" is the normal case: only what the
+      // conversation established may stand here.
+      status: {
+        present: 'on hand',
+        missing: 'missing',
+        unknown: 'not known',
+      },
+      // The same words as modifiers, so a count reads grammatically.
+      tally: {
+        required: 'required',
+        conditional: 'conditional',
+        present: 'on hand',
+        missing: 'missing',
+        unknown: 'unresolved',
+      },
+      tallyAria: 'State of the dossier',
+      // Stands in for the second row when nothing is known about any document.
+      // A bar reading „0 of 5" there would be a claim about the project rather
+      // than a summary of the card.
+      noStatus: 'Whether you already hold these documents does not follow from the conversation.',
+      condition: 'Condition',
+      issuer: 'Issued by',
+      form: 'Form',
+      basis: 'Basis',
+    },
+    // ── Deadlines ───────────────────────────────────────────────────────
+    deadlineTimeline: {
+      eyebrow: 'Deadlines',
+      deadlineAria: 'Deadline {index}: {label}',
+      startsFrom: 'Clock starts',
+      consequence: 'If missed',
+      actor: 'Responsible',
+      basis: 'Basis',
+      // The sentence that keeps the card honest: the order is drawn, the
+      // length is not — each period runs from its own event.
+      notToScale: 'The order is drawn, not the lengths: each period runs from an event of its own.',
+      noDatesNote: 'Every period is carried as the provision words it. This card works out no dates.',
+    },
+    // ── Impact of a change ──────────────────────────────────────────────
+    changeImpact: {
+      eyebrow: 'Impact',
+      consequenceAria: 'Impact: {aspect}',
+      changeWithBefore: '{factor}: {from} → {to}',
+      changeWithoutBefore: '{factor} → {to}',
+      // Under the header when the current value is absent. Leaving „before"
+      // blank would be the quieter but less truthful option.
+      currentUnknown: 'The current value does not follow from the conversation.',
+      direction: {
+        tightens: 'tightens',
+        relaxes: 'relaxes',
+        unchanged: 'unchanged',
+      },
+      before: 'before',
+      after: 'then',
+      unknownBefore: 'current value not known',
+      basis: 'Basis',
     },
     verdictHeader: {
       confidenceHigh: 'high confidence',
@@ -748,6 +828,15 @@ export const chat = {
       // shape jumps when the answer lands.
       findingsPendingTab: 'Assessment',
       findingsPending: 'Weighing the sources …',
+      // The search did not finish; it ran into its iteration ceiling. It
+      // belongs in the assessment node because that node answers "what was
+      // this answer built on?", and where the chain broke off is part of it.
+      // {tool} is the last step that RAN, never the next one: nobody knows
+      // what the model would have chosen, because it never got to propose it.
+      findingsTruncatedStep: 'The search ended here — the last step it ran was {tool}',
+      // When there is no step to name (the budget was gone before the first
+      // tool), say less rather than invent one.
+      findingsTruncated: 'The search ended here: the budget was spent',
       branchesTab: 'Next steps',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },

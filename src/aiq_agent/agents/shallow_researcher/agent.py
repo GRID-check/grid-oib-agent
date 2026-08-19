@@ -53,6 +53,7 @@ from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.norm_registry import doctrine_for
 from aiq_agent.common.norm_registry import parcel_note
 from aiq_agent.common.norm_registry import render_block_for_prompt
+from aiq_agent.common.turn_status import emit_research_truncated
 
 from ...common import LLMProvider
 from ...common import LLMRole
@@ -136,6 +137,41 @@ def _is_search_tool(tool_name: str) -> bool:
     if _tool_basename(tool_name) in _FILE_DISCOVERY_BASENAMES:
         return True
     return get_source_id_for_tool(tool_name) is not None
+
+
+def _tool_call_rounds(messages: Sequence[Any]) -> int:
+    """How many LLM turns of this run asked for tools at all.
+
+    Rounds, not calls: the model emits its calls in parallel batches, so
+    "7 calls" says nothing about how far the investigation actually got and
+    "3 rounds of 7 calls" says everything. The pair is what makes a truncation
+    log readable — a run that burnt its budget in one greedy batch is a
+    different failure from one that walked into the ceiling step by step.
+    """
+    return sum(1 for message in messages if getattr(message, "tool_calls", None))
+
+
+def _tool_call_shape(messages: Sequence[Any], *, limit: int = 24) -> list[str]:
+    """The ordered basenames of every tool this run called.
+
+    The SHAPE of a question, standing in for the question itself: a truncated
+    ``use_skill>use_skill>knowledge_search>find_elements>…`` is the recognisable
+    fingerprint of an OIB 3 daylight chain, and grouping truncations by it is
+    how "on which question shapes" gets answered. Deliberately the tool names
+    and never the arguments — a query string is the reader's own words, and a
+    warning log is not a place to put them.
+
+    Capped, because the list is a fingerprint and not a transcript.
+    """
+    shape: list[str] = []
+    for message in messages:
+        for call in getattr(message, "tool_calls", None) or []:
+            name = call.get("name") if isinstance(call, dict) else getattr(call, "name", None)
+            if name:
+                shape.append(_tool_basename(str(name)))
+            if len(shape) >= limit:
+                return shape
+    return shape
 
 
 def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -329,6 +365,7 @@ class ShallowResearcherAgent:
         system_prompt: str | None = None,
         max_llm_turns: int = 10,
         max_tool_iterations: int = 5,
+        reserved_tool_iterations: int = 0,
         callbacks: list[Any] | None = None,
         tool_search: ToolSearchSettings | None = None,
         deferred_tool_loading: DeferredToolLoadingSettings | None = None,
@@ -342,8 +379,17 @@ class ShallowResearcherAgent:
             system_prompt: Optional custom system prompt. If not provided,
                           loads system.j2 from prompts.
             max_llm_turns: Maximum LLM interaction turns (default 10).
-            max_tool_iterations: Maximum tool-calling iterations before forcing
-                                synthesis (default 5).
+            max_tool_iterations: The RESEARCH budget — tool calls the turn may
+                spend looking things up before synthesis is forced (default 5).
+            reserved_tool_iterations: Extra tool calls granted ON TOP of the
+                research budget for overhead the turn did not choose. The
+                caller sets it to the number of skills this deployment FORCES
+                (``delivery: standard``): each one costs a ``use_skill`` call
+                the question never asked for, and charging those to the research
+                budget makes the effective research ceiling shrink every time
+                the platform owner publishes another house skill — silently,
+                and on exactly the long measurement chains that need the room.
+                Default 0, so every existing caller is unchanged.
             callbacks: Optional list of LangGraph callbacks.
             tool_search: Optional retrieval-based tool narrowing. None (or a
                 disabled settings object) leaves every path below exactly as it
@@ -359,6 +405,7 @@ class ShallowResearcherAgent:
         self.tools = list(tools)
         self.max_llm_turns = max_llm_turns
         self.max_tool_iterations = max_tool_iterations
+        self.reserved_tool_iterations = max(0, reserved_tool_iterations)
         self.callbacks = callbacks or []
         self.tool_search = tool_search if (tool_search is not None and tool_search.enabled) else None
         self.deferred_tool_loading = (
@@ -600,6 +647,19 @@ class ShallowResearcherAgent:
             self._narrowed_bindings[chosen] = bound
         return bound, [ti for ti in tools_info if ti.get("name") in chosen]
 
+    @property
+    def tool_iteration_ceiling(self) -> int:
+        """The tool-call count at which synthesis is forced.
+
+        ``max_tool_iterations`` is the RESEARCH budget and stays exactly what
+        the config's traced floors measure. The reserve on top of it pays for
+        the ``use_skill`` calls the deployment forces on every research turn:
+        without it, publishing a second standard skill takes an iteration away
+        from every measurement chain in the product, and the only symptom is
+        an answer written from declared values instead of measured ones.
+        """
+        return self.max_tool_iterations + self.reserved_tool_iterations
+
     def _build_graph(self) -> CompiledStateGraph:
         """Build the LangGraph StateGraph."""
 
@@ -696,8 +756,43 @@ class ShallowResearcherAgent:
             processed_history = list(messages)
 
             try:
-                if iterations >= self.max_tool_iterations:
-                    logger.warning("Max iterations (%d) reached. Forcing synthesis.", iterations)
+                if iterations >= self.tool_iteration_ceiling:
+                    # TRUNCATION. Not "the loop finished" — the turn ran out of
+                    # budget mid-investigation and the answer below is written
+                    # from whatever happened to be gathered by then. It is the
+                    # worst failure this product has (see the traced floors in
+                    # `configs/config_oib_openrouter.yml`) and until now the only
+                    # trace it left was one warning with a single number in it,
+                    # so nobody could answer "how often, and on which questions".
+                    # `[CONFIDENCE:…]` does not cover it: that grades whether the
+                    # claims are sourced, not whether the search was cut off.
+                    #
+                    # What is recorded is the SHAPE of the run — the ordered tool
+                    # names — because that is what makes the population
+                    # answerable ("every Lichteinfall chain truncates after
+                    # find_elements") without logging the reader's question.
+                    shape = _tool_call_shape(messages)
+                    skill_calls = shape.count("use_skill")
+                    logger.warning(
+                        "Research budget exhausted: forcing synthesis "
+                        "(ceiling=%d research_budget=%d reserved=%d spent=%d rounds=%d "
+                        "skill_calls=%d shape=%s)",
+                        self.tool_iteration_ceiling,
+                        self.max_tool_iterations,
+                        self.reserved_tool_iterations,
+                        iterations,
+                        _tool_call_rounds(messages),
+                        skill_calls,
+                        ">".join(shape) or "-",
+                    )
+                    emit_research_truncated(
+                        ceiling=self.tool_iteration_ceiling,
+                        research_budget=self.max_tool_iterations,
+                        reserved=self.reserved_tool_iterations,
+                        spent=iterations,
+                        rounds=_tool_call_rounds(messages),
+                        shape=shape,
+                    )
 
                     # Anchor instruction at the end to combat "Loss in the Middle"
                     synthesis_anchor = HumanMessage(
@@ -714,6 +809,10 @@ class ShallowResearcherAgent:
                         "messages": [response],
                         "tool_iterations": iterations,
                         "cached_system_prompt": rendered_system_prompt,
+                        # Carried out of the graph so the ANSWER can say it, not
+                        # just the log. Everything above this line is for us;
+                        # this field is the half the reader gets.
+                        "research_truncated": True,
                     }
 
                 full_messages = [system_message] + processed_history

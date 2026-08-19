@@ -132,6 +132,14 @@ class ChatResearcherState(BaseModel):
     # Present only when citation verification removed ≥1 citation from the answer:
     # ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated, max 5).
     citations_removed: dict[str, Any] | None = None
+    # TRUE when the research turn was cut off at its tool-iteration ceiling and
+    # forced into synthesis. Absent on every turn that finished inside its
+    # budget: presence is the fact. Lifted onto the terminal ChatResponse as
+    # ``research_truncated`` so the answer can say that its evidence-gathering
+    # stopped early — which is orthogonal to ``answer_confidence`` (that grades
+    # whether the claims are sourced; a truncated answer can be perfectly
+    # grounded in the little it did find).
+    research_truncated: bool | None = None
     # Marks the answer text as a queue-rejection notice (deep-research admission
     # control refused the job), NOT a research answer.
     job_admission_rejected: bool | None = None
@@ -145,9 +153,21 @@ class ChatResearcherState(BaseModel):
     # also need registering in the checkpointer serde allowlist
     # (aiq_agent/common/__init__.py).
     force_skills: list[str] | None = None
-    # Ordered names of the skills activated THIS turn (forced first, then
-    # model-invoked via ``use_skill``, deduped). Set on the success path of
+    # Ordered names of the skills whose BODY reached the model this turn, in
+    # delivery order (``use_skill``), deduped — never a skill that was merely
+    # forced, which shaped nothing. Set on the success path of
     # ``_finalize_shallow_answer`` and lifted onto the terminal ChatResponse
     # ONLY when present (escaped escalations and generation failures leave it
     # None), the ``skills_activated`` transparency extra.
     skills_activated: list[str] | None = None
+    # The subset of ``skills_activated`` marked ``grid-hidden`` — the house
+    # voice and the card grammar, craft machinery the reader has no use for
+    # reading as a topic. Carried for the same reason and by the same route as
+    # ``skills_activated`` (set on the success path of
+    # ``_finalize_shallow_answer``, dropped on escalation, lifted onto the
+    # terminal ChatResponse only when non-empty): the disclosure NAMES these
+    # skills like any other — the transparency doctrine forbids an instruction
+    # class the product declines to admit ran — and only DE-EMPHASISES them
+    # until the reader turns the reasoning view on. Absent means "none hidden",
+    # which is why the frontend mutes nothing when it never arrives.
+    skills_hidden: list[str] | None = None
