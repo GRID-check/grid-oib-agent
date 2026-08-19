@@ -9,12 +9,13 @@ from langchain_core.messages import HumanMessage
 from aiq_agent.agents.chat_researcher.register import _aggregate_documents_across_collections
 from aiq_agent.agents.chat_researcher.register import _fold_chunks_to_response
 from aiq_agent.agents.chat_researcher.register import _iter_answer_deltas
-from aiq_agent.agents.chat_researcher.register import _reflection_answer_is_substantive
+from aiq_agent.agents.chat_researcher.register import _post_answer_turn_facts
 from aiq_agent.agents.chat_researcher.register import _response_to_chunks
 from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
 from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
 from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
 from aiq_agent.common import _create_chat_response
+from aiq_agent.stages import TurnFacts
 
 
 class _Doc:
@@ -207,39 +208,61 @@ class _Intent:
         self.intent = intent
 
 
-class _State:
-    def __init__(self, intent):
-        self.user_intent = _Intent(intent)
+class _TurnState:
+    def __init__(self, **fields):
+        for name, value in fields.items():
+            setattr(self, name, value)
 
 
-class TestReflectionAnswerIsSubstantive:
-    """Gate that keeps memory reflection off meta/error/insufficiency turns."""
+class TestPostAnswerTurnFacts:
+    """The crossing from finished graph state to a stage's inputs.
 
-    def test_real_research_answer_passes(self):
-        assert _reflection_answer_is_substantive(_State("research"), "The building is Gebäudeklasse 4.")
+    Every fact here is one a deterministic gate is allowed to decide on, so a
+    fact that silently fails to cross is a gate that silently cannot enforce its
+    own rule — which is exactly what happened to `research_truncated`.
+    """
 
-    def test_meta_intent_skipped(self):
-        assert not _reflection_answer_is_substantive(_State("meta"), "Hello! How can I help?")
+    def _facts(self, state, response=None, **overrides):
+        kwargs = {
+            "result": state,
+            "response": response or _create_chat_response("answer", response_id="r", model="m"),
+            "query_text": "Wie hoch darf die Brüstung sein?",
+            "answer_text": "Mindestens 100 cm.",
+            "cards": None,
+            "deep_research_job_id": None,
+            "answer_confidence": None,
+        }
+        kwargs.update(overrides)
+        return _post_answer_turn_facts(TurnFacts(project_id="proj_1"), **kwargs)
 
-    def test_error_intent_skipped(self):
-        assert not _reflection_answer_is_substantive(_State("error"), "Something went wrong.")
+    def test_the_request_scoped_half_survives(self):
+        facts = self._facts(_TurnState())
+        assert facts.project_id == "proj_1"
+        assert facts.query == "Wie hoch darf die Brüstung sein?"
+        assert facts.answer == "Mindestens 100 cm."
 
-    def test_insufficiency_answer_skipped(self):
-        assert not _reflection_answer_is_substantive(
-            _State("research"), "I don't have enough information to answer that."
-        )
+    def test_truncation_crosses(self):
+        assert self._facts(_TurnState(research_truncated=True)).research_truncated is True
+        assert self._facts(_TurnState()).research_truncated is False
 
-    def test_canned_error_answer_skipped(self):
-        assert not _reflection_answer_is_substantive(
-            _State("research"), "An error occurred while researching your question. Please try again."
-        )
+    def test_intent_crosses_from_state_or_dict(self):
+        assert self._facts(_TurnState(user_intent=_Intent("meta"))).intent == "meta"
+        assert self._facts({"user_intent": _Intent("research")}).intent == "research"
+        assert self._facts(_TurnState()).intent is None
 
-    def test_empty_answer_skipped(self):
-        assert not _reflection_answer_is_substantive(_State("research"), "   ")
+    def test_routing_decision_crosses_off_the_answer(self):
+        response = _create_chat_response("answer", response_id="r", model="m")
+        response.routing_decision = "deep"
+        assert self._facts(_TurnState(), response=response).routing_decision == "deep"
 
-    def test_works_with_dict_result(self):
-        assert _reflection_answer_is_substantive({"user_intent": _Intent("research")}, "A concrete finding.")
-        assert not _reflection_answer_is_substantive({"user_intent": _Intent("meta")}, "hi there")
+    def test_emitted_card_types_cross(self):
+        facts = self._facts(_TurnState(), cards=[{"type": "follow_ups"}, {"type": "checklist"}, {}, "junk"])
+        assert facts.emitted_card_types == frozenset({"follow_ups", "checklist"})
+
+    def test_deep_research_stub_and_confidence_cross(self):
+        facts = self._facts(_TurnState(), deep_research_job_id="job_1", answer_confidence="high")
+        assert facts.deep_research_job_id == "job_1"
+        assert facts.answer_confidence == "high"
 
 
 def _answer_response(text, *, cards=None, sources=None, confidence=None, **extras):
