@@ -5,15 +5,19 @@ import { AgentResponse } from './AgentResponse'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
-import type { ConversationMemoryItem } from '../hooks/use-conversation-memory'
+import type { MessageStages } from '@/lib/conversations/message-stages'
 
-// The answer owns the memory fetch (the merged footer's meta row must know
-// whether "Piloti noted N" has anything to show), so the hook is stubbed here.
-const memory = vi.hoisted(() => ({ items: [] as ConversationMemoryItem[] }))
-
-vi.mock('../hooks/use-conversation-memory', () => ({
-  useConversationMemory: () => ({ items: memory.items, loading: false }),
-}))
+/**
+ * A turn the post-answer reflection stage recorded something for. No hook is
+ * stubbed: what the „Piloti noted" chip shows is now a property of the MESSAGE,
+ * delivered by the stage's frame, rather than a poll of the project's memory
+ * that every rendered answer fired for itself.
+ */
+const NOTED: MessageStages = {
+  memoryReflection: {
+    items: [{ id: 'mem-1', kind: 'decision', content: 'Fluchtweg über den Innenhof' }],
+  },
+}
 
 // Mock the layout store
 const mockOpenRightPanel = vi.fn()
@@ -82,7 +86,6 @@ describe('AgentResponse', () => {
     vi.clearAllMocks()
     mockImportJobStream.mockClear()
     mockLoadResearchPanelTab.mockClear()
-    memory.items = []
   })
 
   test('renders response content', () => {
@@ -349,16 +352,6 @@ describe('AgentResponse', () => {
   // The provenance footer is ONE tinted zone with two parts: the sources block
   // and a single meta row (confidence + memory left, thumbs + timestamp right).
   describe('merged provenance footer (default card)', () => {
-    const memoryItem: ConversationMemoryItem = {
-      id: 'mem-1',
-      kind: 'decision',
-      content: 'Fluchtweg über den Innenhof',
-      confidence: 'high',
-      provenanceType: 'in_turn',
-      sourceConversationId: 'conv-1',
-      createdAt: '2026-07-17T10:00:00Z',
-    }
-
     const citations = [
       {
         id: 'c-1',
@@ -371,12 +364,11 @@ describe('AgentResponse', () => {
 
     test('keeps the memory chip when confidence, feedback and timestamp are all absent', () => {
       // Memory is the only thing the row has to hold — it must still mount.
-      memory.items = [memoryItem]
-
       render(
         <AgentResponse
           content="Answer"
           conversationId="conv-1"
+          stages={NOTED}
           showConfidenceChip={false}
           showAnswerFeedback={false}
         />
@@ -425,13 +417,12 @@ describe('AgentResponse', () => {
     })
 
     test('holds confidence, memory, the thumbs row and the timestamp in ONE row', () => {
-      memory.items = [memoryItem]
-
       render(
         <AgentResponse
           content="Answer"
           messageId="m1"
           conversationId="conv-1"
+          stages={NOTED}
           answerConfidence="high"
           timestamp={new Date('2026-07-17T10:30:00')}
         />
@@ -488,13 +479,12 @@ describe('AgentResponse', () => {
     })
 
     test('the acting cluster still leaves the pills in the wrapping row', () => {
-      memory.items = [memoryItem]
-
       render(
         <AgentResponse
           content="Answer"
           messageId="m1"
           conversationId="conv-1"
+          stages={NOTED}
           answerConfidence="high"
         />
       )
