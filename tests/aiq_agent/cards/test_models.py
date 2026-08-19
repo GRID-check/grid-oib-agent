@@ -2,6 +2,9 @@
 
 import typing
 
+import pytest
+from pydantic import ValidationError
+
 from aiq_agent.cards.models import LegalBasisCard
 from aiq_agent.cards.models import MemoryProposalCard
 from aiq_agent.cards.models import grid_card_adapter
@@ -511,6 +514,15 @@ class TestFollowUpsCard:
     about to send. So it must be sendable as it stands, and the set must be a
     set: two to four, because one chip is not a choice and five is a menu the
     reader has to work through instead of an offer they can take.
+
+    The card is RETIRED (`SYSTEM_CARD_TYPES`; see `test_follow_ups_retired.py`)
+    and this suite is what makes the retirement survivable: the model may not
+    emit a new one, and every one already stored keeps parsing to exactly this
+    shape on every render. So these assertions go through `grid_card_adapter`,
+    the adapter the read path uses, and NOT through `validate_cards`, which is a
+    model-output path and now drops the type before a single field is looked at.
+    Asserting a rejection through `validate_cards` would pass for the wrong
+    reason and stop testing the shape at all.
     """
 
     def test_follow_ups_validates_and_keeps_the_hint_optional(self):
@@ -536,17 +548,20 @@ class TestFollowUpsCard:
         # read all of it before they can take any of it.
         one = {"type": "follow_ups", "items": [{"question": "Und dann?"}]}
         five = {"type": "follow_ups", "items": [{"question": f"Frage {i}?"} for i in range(5)]}
-        assert validate_cards([one, five]) == []
+        for raw in (one, five):
+            with pytest.raises(ValidationError):
+                grid_card_adapter.validate_python(raw)
 
     def test_follow_ups_rejects_an_empty_question(self):
         # The question IS the payload: an empty one prefills the composer with
         # nothing and the chip becomes a click that appears to do nothing.
         raw = {"type": "follow_ups", "items": [{"question": ""}, {"question": "Was gilt in Wien?"}]}
-        assert validate_cards([raw]) == []
+        with pytest.raises(ValidationError):
+            grid_card_adapter.validate_python(raw)
 
     def test_follow_ups_needs_no_title(self):
         raw = {"type": "follow_ups", "items": [{"question": "Erste Frage?"}, {"question": "Zweite Frage?"}]}
-        [card] = validate_cards([raw])
+        card = grid_card_adapter.validate_python(raw).model_dump(exclude_none=True)
         assert "title" not in card
 
     def test_the_worked_example_round_trips_and_shows_four_different_moves(self):
@@ -561,34 +576,28 @@ class TestFollowUpsCard:
         assert len(set(questions)) == len(questions)
         assert all(q.endswith("?") for q in questions), "each question is sent as written"
 
-    def test_render_card_details_spells_out_the_follow_up_block(self):
+    def test_the_shape_is_no_longer_handed_to_the_model(self):
+        # `render_card_details` is `describe_card` and the skills substrate's
+        # `grid-cards` block. It spelled the `FollowUp` block out while the card
+        # was model-facing; now that the card is retired, handing the shape back
+        # would be the one way a skill author could put it into context again.
+        # The read path is unaffected — the tests above validate the same shape
+        # through `grid_card_adapter`, which is what a stored card goes through.
         from aiq_agent.cards.catalog import render_card_details
 
-        detail = render_card_details(["follow_ups"])
-        assert '"follow_ups"' in detail
-        assert "FollowUp = {" in detail
+        assert render_card_details(["follow_ups"]) == ""
 
-    def test_the_doctrine_keeps_the_contract_and_not_the_craft(self):
-        # The trigger and the placement rules are the TOOL'S contract and are
-        # paid on every turn, so they stay here. What makes a *good* set of
-        # follow-ups — anchored to what the answer introduced, four different
-        # kinds of move — is craft, and craft lives in the `piloti-cards` skill
-        # (asserted in tests/aiq_agent/skills/test_seeded_platform_skills.py).
-        # A trigger nobody is pointed at is a card that never gets emitted.
+    def test_the_doctrine_no_longer_carries_its_trigger_or_its_rule(self):
+        # The trigger and the placement rule were the TOOL's contract, paid on
+        # every turn. The stage carries what they said now — the two exceptions
+        # became gate conditions — so what is left here is only the cost, and the
+        # cost of describing a card the model may not emit is the whole cost.
         from aiq_agent.cards.register import _CARD_DOCTRINE
 
-        assert "follow_ups" in _CARD_DOCTRINE
-        # The DEFAULT comes first and the exceptions after it. The rule used to
-        # be three prohibitions with no default in front of them, and the card
-        # went unemitted on turns that fit it — with its shape already inlined,
-        # so nothing but the wording was in the way.
-        default = _CARD_DOCTRINE.index("follow_ups closes a subject-matter answer by default")
-        assert default < _CARD_DOCTRINE.index("Two narrow exceptions")
-        # Placement, and when NOT to: a chat turn has no subject to go deeper
-        # into, and an answer that already asked a question would be asking twice.
-        assert "LAST" in _CARD_DOCTRINE
-        assert "conversational or off-topic" in _CARD_DOCTRINE
-        # The craft paragraphs are gone from the always-loaded description.
+        assert "follow_ups" not in _CARD_DOCTRINE
+        assert "closes a subject-matter answer by default" not in _CARD_DOCTRINE
+        assert "conversational or off-topic" not in _CARD_DOCTRINE
+        # The craft paragraphs were never here and must not arrive now.
         assert "NAME something" not in _CARD_DOCTRINE
         assert "DIFFERENT KINDS" not in _CARD_DOCTRINE
 

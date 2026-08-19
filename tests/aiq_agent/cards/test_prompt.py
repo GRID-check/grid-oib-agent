@@ -119,13 +119,12 @@ class TestTheDoctrineReachesThePostHocPath:
     def test_the_trigger_table_is_rendered(self):
         prompt = build_card_generation_prompt()
         assert "WHEN TO EMIT ONE" in prompt
-        # A sample across the table's kinds: a schematic trigger, the two
-        # generic ones that fire on an ordinary answer, and the closer.
+        # A sample across the table's kinds: a schematic trigger and the two
+        # generic ones that fire on an ordinary answer.
         assert "a riser, tread or stair width" in prompt
         assert "-> stair_diagram" in prompt
         assert "the two to five points the reader must leave with" in prompt
         assert "changes what the reader DOES" in prompt
-        assert "-> follow_ups" in prompt
 
     def test_the_negative_default_survives(self):
         # The trigger table without its counterweight is an instruction to
@@ -144,10 +143,30 @@ class TestTheDoctrineReachesThePostHocPath:
         assert prompt.count("Two content cards") == 1
         assert "Two content cards is the ceiling and one is often right" not in prompt
 
-    def test_the_follow_ups_rule_survives(self):
+    def test_the_retired_card_reaches_this_path_nowhere(self):
+        """`follow_ups` is refused by this path's own validator, so describing it costs twice.
+
+        `validate_cards` drops every `SYSTEM_CARD_TYPES` member before looking at
+        a field, so a prompt that still asked for the card would spend input
+        tokens describing it and output tokens building it, and the result would
+        be thrown away without a word to the model. The rule, the trigger row,
+        the shape, the worked example and the craft paragraph all had to go
+        together — leaving any one of them is an invitation the validator then
+        refuses.
+
+        What this costs is real and is written down rather than glossed: a
+        finished deep-research REPORT now carries no follow-up questions at all,
+        because the post-answer stage's gate skips a turn with a
+        `deep_research_job_id` (§7.6). Covering the report path means a stage on
+        the job runner, which is separate work.
+        """
         prompt = build_card_generation_prompt()
-        assert "follow_ups closes a subject-matter answer by default" in prompt
-        assert "LAST" in prompt
+        assert "follow_ups" not in prompt
+        assert "closes a subject-matter answer by default" not in prompt
+        # The ordering rule used to end on "follow_ups last", which was the only
+        # place the word survived the removals above.
+        assert "WHERE THEY GO" in prompt
+        assert "the verdict first, the substance after it" in prompt
 
     def test_both_surfaces_render_the_one_doctrine(self):
         # The pairing that keeps this from becoming a copy: neither surface
@@ -232,7 +251,6 @@ class TestTheCraftThatCouldNotBeInherited:
         assert "would a reader who reads ONLY this card" in prompt  # key_takeaways
         assert "ONE headline value" in prompt  # verdict_header
         assert "A second callout" in prompt  # callout
-        assert "must NAME something the report" in prompt  # follow_ups
 
     def test_the_three_table_shaped_cards_are_told_apart(self):
         prompt = build_card_generation_prompt()
