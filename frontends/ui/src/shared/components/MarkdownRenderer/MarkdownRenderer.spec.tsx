@@ -503,4 +503,36 @@ Visit [our site](https://example.com) for more.
       expect(screen.getByText(/Bold with/)).toBeInTheDocument()
     })
   })
+
+  describe('the streaming stabilizer is linear in the length of a line', () => {
+    /**
+     * The delimiter-row test used to read `/^\s*\|?\s*:?-{1,}/`, putting two
+     * `\s*` either side of an optional pipe. On a line of pure whitespace the
+     * engine can split that whitespace between them in quadratically many ways:
+     * 32k tabs took 1,034ms. This runs on every token of every streaming answer,
+     * and the answer's text comes from a model writing over retrieved documents,
+     * so the length of a line is not ours to bound.
+     *
+     * An absolute budget, not a ratio: healthy timings here are microseconds and
+     * a ratio between two of those is noise. 400ms sits well below the defect
+     * and four orders of magnitude above healthy.
+     */
+    test('a long run of whitespace under a table does not stall the render', () => {
+      const content = `| Bauteil | REI |\n|${'\t'.repeat(32_000)}\n`
+
+      const started = performance.now()
+      render(<MarkdownRenderer content={content} isStreaming />)
+      const elapsed = performance.now() - started
+
+      expect(elapsed).toBeLessThan(400)
+    })
+
+    test('a real delimiter row is still recognised, so the table is not escaped', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'| Bauteil | REI |\n| :--- | ---: |\n| Wand | 90 |'} isStreaming />
+      )
+
+      expect(container.querySelector('table')).not.toBeNull()
+    })
+  })
 })

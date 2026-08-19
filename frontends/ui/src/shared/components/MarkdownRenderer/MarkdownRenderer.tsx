@@ -61,7 +61,12 @@ function stabilizeStreamingMarkdown(raw: string): string {
   while (start > 0 && lines[start - 1].trim().startsWith('|')) start--
   if (end - start >= 1) {
     const tableLines = lines.slice(start, end)
-    const hasDelimiterRow = tableLines.some((l) => /^\s*\|?\s*:?-{1,}/.test(l) && l.includes('-'))
+    // `(?:\|\s*)?` rather than `\|?\s*`: the earlier form put two `\s*` either
+    // side of an optional pipe, and on a line of pure whitespace the engine can
+    // split that whitespace between them in quadratically many ways — 32k tabs
+    // took 1,034ms. Requiring a literal pipe to enter the group removes the
+    // overlap, and this runs on every token of every streaming answer.
+    const hasDelimiterRow = tableLines.some((l) => /^\s*(?:\|\s*)?:?-/.test(l) && l.includes('-'))
     if (!hasDelimiterRow) {
       // Escape the leading pipes so react-markdown renders them as text, not a
       // broken table, until the delimiter row streams in. Backslashes first:
