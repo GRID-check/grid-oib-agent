@@ -446,6 +446,53 @@ body {
   letter-spacing: 0.24em;
 }
 
+/* THE DRAWING SHEET — the app's one piece of texture, and the piece of the
+   identity that is actually ours.
+
+   `frontends/web` paints the whole marketing page on a 28px drafting grid with
+   a 168px (6×28) major grid, and calls its coloured panels "sheets of drafting
+   paper". That is not decoration: an architect's working surface IS a gridded
+   sheet, and it is the one visual idea in this product's world that a generic
+   SaaS template will never arrive at.
+
+   In the app it is deliberately NOT the page background — a dense compliance UI
+   on a grid is noise, and the site's own version is a landing-page gesture at
+   landing-page scale. It goes exactly where the app would otherwise show a bare
+   plane: an empty state's panel, the empty chat. A blank surface reading as an
+   unused sheet rather than as a missing screen is the whole point.
+
+   Alpha sits just under the site's own (0.05 → 0.04 light, 0.05 dark): far
+   enough down that it never competes with content, far enough up that it is
+   actually a grid rather than a rumour. Both were tried — 0.018 photographed as
+   a blank panel, which is the failure this texture exists to prevent.
+
+   A `@layer components` rule rather than an `@utility` block, and the reason is
+   mechanical: an `@utility` is emitted only when the class-name scanner finds a
+   candidate, and under this build it did not emit for this class — the panel
+   photographed as a blank rectangle while `scale-press` two lines below it
+   compiled fine. A layered rule is unconditional. Nothing is lost: this needs
+   no `hover:`/`md:` variants, and its one state change (dark) is written below
+   rather than through the `dark:` variant. */
+@layer components {
+  .drafting-sheet {
+    --sheet-line: color-mix(in oklch, var(--foreground) 4%, transparent);
+    background-image:
+      linear-gradient(to right, var(--sheet-line) 0 1px, transparent 1px),
+      linear-gradient(to bottom, var(--sheet-line) 0 1px, transparent 1px);
+    background-size: 28px 28px;
+    /* `center top`, which is the marketing site's own origin (global.css). Same
+       module AND same phase means the grid a reader saw on piloti.at continues
+       into the product instead of restarting half a square off. */
+    background-position: center top;
+  }
+
+  /* Dark needs a hair more: the line is paper-white on charcoal, and a light
+     line on a dark ground loses more to its surround than the reverse. */
+  .dark .drafting-sheet {
+    --sheet-line: color-mix(in oklch, var(--foreground) 6%, transparent);
+  }
+}
+
 @utility scale-press {
   transform: scale(0.98);
 }
@@ -487,6 +534,10 @@ body {
      the product that inherit theirs today, and a step here would move all of
      them. */
   .card-eyebrow {
+    /* Set in the display face, like the site's own uppercase eyebrows: a
+       tracked-out 10.5px cap line is pure texture, and it is the cheapest place
+       in the app to be recognisably Piloti rather than recognisably shadcn. */
+    font-family: var(--font-display);
     font-size: 10.5px;
     font-weight: 500;
     text-transform: uppercase;

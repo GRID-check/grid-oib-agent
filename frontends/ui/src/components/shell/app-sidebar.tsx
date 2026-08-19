@@ -620,7 +620,10 @@ function SidebarBrand({ iconRail }: { iconRail: boolean }) {
           'focus-visible:ring-ring/60 rounded-md focus-visible:outline-none focus-visible:ring-2',
           iconRail
             ? 'flex h-7 items-center justify-center'
-            : 'text-foreground text-[19px] font-semibold tracking-[-0.015em]'
+            : // The wordmark, in the site's lockup — see components/brand/logo.tsx.
+              // 15px rather than 19px: caps at 0.2em tracking occupy the same
+              // optical width as the old 19px mixed-case setting.
+              'text-foreground font-logo text-[15px] font-medium uppercase tracking-logo'
         )}
       >
         {iconRail ? <Logo kind="logo-only" size="small" /> : 'Piloti'}

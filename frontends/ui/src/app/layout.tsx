@@ -10,7 +10,7 @@
 
 import { type ReactNode } from 'react'
 import { type Metadata, type Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import localFont from 'next/font/local'
 import { connection } from 'next/server'
 import { ChunkReloadGuard } from './chunk-reload-guard'
 import { Providers } from './providers'
@@ -32,15 +32,78 @@ import { getDictionary } from '@/i18n'
 import './globals.css'
 import { isAuthRequired } from '@/lib/auth/auth-required'
 
-const geistSans = Geist({
-  subsets: ['latin'],
-  variable: '--font-geist-sans',
+/**
+ * THE FOUR FACES ARE THE MARKETING SITE'S FOUR FACES.
+ *
+ * These are byte-identical copies of the woff2 files `frontends/web` serves
+ * (Inter, Archivo, Poppins, IBM Plex Mono — all SIL OFL 1.1), not lookalikes
+ * fetched separately: an architect who reads piloti.at and then opens the app
+ * should not be able to tell that two teams built them. Self-hosted through
+ * `next/font/local` rather than `next/font/google`, for the same reason the
+ * site self-hosts — no third-party request on first paint, and the file that
+ * ships is the file that was reviewed.
+ *
+ *   serif    Instrument Serif  THE STATEMENT — one moment per surface, ≥24px
+ *   display  Archivo/HN        THE WORKING VOICE — titles, headings, eyebrows, stats
+ *   sans     Inter             body, controls, everything unmarked
+ *   mono     IBM Plex Mono     identifiers — job ids, § refs, collection names
+ *   logo     Poppins           the wordmark, and nothing else
+ *
+ * TWO FACES, TWO JOBS, AND THE SPLIT IS THE POINT. The grotesk is what the
+ * product speaks in all day: it is neutral on purpose, it holds at 13px, and a
+ * dense compliance UI needs exactly that. The serif is what the BRAND says —
+ * the hero on the site, the greeting on an empty thread — and it appears once
+ * per surface, at display size, or not at all.
+ *
+ * Instrument Serif and not a text serif (Spectral was tried and reverted): a
+ * text serif blown up to 70px reads as a book paragraph enlarged, which is what
+ * made the first attempt look dated. This is a DISPLAY face — condensed, high
+ * contrast, drawn for size — the open equivalent of the Domaine/Canela class
+ * that premium editorial brands use. The corollary is the hard floor: it has
+ * only a 400 weight and it thins out fast, so below ~24px it is never used.
+ *
+ * `display: 'swap'` throughout: a legal answer that is invisible for 200ms is
+ * worse than one that reflows.
+ */
+const interSans = localFont({
+  src: './fonts/inter-var-latin.woff2',
+  variable: '--font-inter',
+  weight: '400 600',
   display: 'swap',
 })
 
-const geistMono = Geist_Mono({
-  subsets: ['latin'],
-  variable: '--font-geist-mono',
+const instrumentSerif = localFont({
+  src: [
+    { path: './fonts/instrument-serif-400-latin.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/instrument-serif-400-italic-latin.woff2', weight: '400', style: 'italic' },
+  ],
+  variable: '--font-instrument-serif',
+  display: 'swap',
+})
+
+const archivoDisplay = localFont({
+  src: './fonts/archivo-var-latin.woff2',
+  variable: '--font-archivo',
+  weight: '400 700',
+  display: 'swap',
+})
+
+const poppinsLogo = localFont({
+  src: [
+    { path: './fonts/poppins-400-latin.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/poppins-500-latin.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/poppins-600-latin.woff2', weight: '600', style: 'normal' },
+  ],
+  variable: '--font-poppins',
+  display: 'swap',
+})
+
+const plexMono = localFont({
+  src: [
+    { path: './fonts/ibm-plex-mono-400-latin.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/ibm-plex-mono-500-latin.woff2', weight: '500', style: 'normal' },
+  ],
+  variable: '--font-plex-mono',
   display: 'swap',
 })
 
@@ -148,7 +211,7 @@ const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => 
     <html
       lang={locale}
       id="style-root"
-      className={`${geistSans.variable} ${geistMono.variable}`}
+      className={`${interSans.variable} ${instrumentSerif.variable} ${archivoDisplay.variable} ${poppinsLogo.variable} ${plexMono.variable}`}
       suppressHydrationWarning
     >
       <body className="bg-surface-base text-foreground font-sans antialiased">

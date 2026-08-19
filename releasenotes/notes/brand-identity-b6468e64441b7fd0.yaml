@@ -1,0 +1,15 @@
+---
+improvements:
+  - >
+    Piloti now looks like Piloti everywhere. The app and the website share one
+    identity: the same typefaces, the same green, the same drafting grid under
+    an empty screen.
+  - >
+    Headlines have a voice of their own. The website's hero and the greeting on
+    an empty chat are set in a display serif, while everything you work in stays
+    in the plain, legible face it was.
+  - >
+    The green marks what is live or chosen: the field you are typing in, a
+    switch you have turned on, the option you picked, and work that is still
+    running. Buttons stay black, and source colours still mean where an answer
+    came from.

@@ -2,6 +2,12 @@
 
 > Branding note (2026-07-17): the user-facing product brand — wordmark, tab titles, all UI copy — is **Piloti** (`src/lib/brand.ts`). GRID remains the internal/platform name, including this design language and its tokens (e.g. the `--grid-blue` alias).
 
+> **The strategy half of this document is [`brand-identity.md`](brand-identity.md)** —
+> purpose, positioning, the audience, brand architecture, voice, and the rules
+> that govern the wordmark, the accent and the type system. This file says what
+> a component looks like; that one says what it is for. The living specimen of
+> both is `/dev/brand-identity`.
+
 The single reference every page redesign builds against. Goal: an **understated, premium, precise** tool for architects doing building-compliance work — Linear/Vercel/Stripe-dashboard restraint, not consumer SaaS. Calm, trustworthy, dense-but-legible. No gradients, no emojis, no decorative color.
 
 The visual language is **warm paper monochrome + one brand accent + provenance signal colors** (adopted from the click-dummy overhaul, see `docs/design/click-dummy-overhaul-spec.md` §1/§4): warm paper surfaces, a near-black ink ramp, hairline alpha-ink borders, layered soft shadows, **near-black action buttons** — and the *only* chroma in the app is the source/provenance signal system.
@@ -90,10 +96,19 @@ the "Belegt durch" chips cannot drift. The type is `SourceTint = SourceSignal |
 
 The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero greeting** (the one larger moment, chat empty state only), and the **uppercase ~10.5px eyebrow/label convention** (wide tracking, muted ink).
 
+**Two voices, and one of them only makes statements.** `font-display`
+(Helvetica Neue → Archivo) is the working voice and carries everything
+functional: page titles, section and card headings, uppercase eyebrows, numeric
+stats. `font-serif` (Instrument Serif) is the statement face — **one moment per
+surface, never below 24px**: in the app that is the empty-thread greeting and
+nothing else. Body and controls are `font-sans` (Inter); identifiers are
+`font-mono` (IBM Plex Mono); `font-logo` (Poppins) is the wordmark and nothing
+else. Both surfaces share all five faces. See `brand-identity.md` §5.3.
+
 | Role | Classes |
 |---|---|
-| Hero greeting (chat empty state only, ≈23px) | `text-[23px] font-semibold tracking-tight` |
-| Page title (≈20px) | `text-xl font-semibold tracking-tight` |
+| Hero greeting (chat empty state only, ≈32px) | `font-serif text-[32px] font-normal tracking-normal` — the app's one statement |
+| Page title (≈20px) | `font-display text-xl font-semibold tracking-tight` (use `PageHeader`) |
 | Section heading | `text-lg font-semibold tracking-tight` |
 | Card/subsection title | `text-sm font-semibold` |
 | Eyebrow / label (uppercase ≈10.5px) | `text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground` (existing `text-xs` eyebrows are acceptable until a screen is restyled) |

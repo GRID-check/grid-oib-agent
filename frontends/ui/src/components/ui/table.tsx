@@ -77,7 +77,12 @@ const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<
   ({ className, ...props }, ref) => (
     <td
       ref={ref}
-      className={cn('px-3 py-2.5 align-middle [&:has([role=checkbox])]:w-10 [&:has([role=checkbox])]:pr-0', className)}
+      // `tabular-nums`: a column of figures is only comparable if the figures
+      // are the same width. It affects digits only, so text cells are untouched.
+      className={cn(
+        'px-3 py-2.5 align-middle tabular-nums [&:has([role=checkbox])]:w-10 [&:has([role=checkbox])]:pr-0',
+        className,
+      )}
       {...props}
     />
   ),

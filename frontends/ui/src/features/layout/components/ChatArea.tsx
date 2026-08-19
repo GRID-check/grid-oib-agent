@@ -1453,7 +1453,11 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
   return (
     <div
-      className="flex flex-1 flex-col items-center justify-center px-6 pt-20 sm:pt-16"
+      // `drafting-sheet` — an empty thread is a fresh sheet, and this is the
+      // largest bare plane in the product, so it is where the texture earns its
+      // place (see globals.css). It disappears the moment a turn is rendered:
+      // the grid is under the invitation to draw, never under the drawing.
+      className="drafting-sheet flex flex-1 flex-col items-center justify-center px-6 pt-20 sm:pt-16"
       style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
     >
       {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
@@ -1464,9 +1468,11 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
         </span>
       </div>
 
-      {/* Hero greeting — the one larger moment in the app, and the only place
-          the ramp's 23px step is used (design language, "Type ramp"). */}
-      <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
+      {/* Hero greeting — THE app's one statement, and the only place the serif
+          appears in the product (brand-identity.md §5.3). 32px, weight 400:
+          Instrument Serif has a single weight and needs the size, and an empty
+          thread is the one screen with the room to give it. */}
+      <h1 className="font-serif text-foreground text-center text-[clamp(1.75rem,1.25rem+1.6vw,2.125rem)] leading-[1.15] font-normal tracking-normal">
         {heading}
       </h1>
 

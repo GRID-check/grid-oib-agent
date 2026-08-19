@@ -223,19 +223,30 @@
   --ink-active: oklch(0.86 0.005 93);
   --ink-border: oklch(0.958 0.004 91.4); /* hairlines are alpha paper on charcoal */
 
-  /* ---- Piloti green (dark) — the ramp flips, exactly as the marketing site
-     does it: the olive is the pop on paper, the LIME is the pop on the dark
-     panel (#22271a there, warm charcoal here). Using the light olive on
-     charcoal would be a 2.7:1 smudge; the lime is 10:1 on the app background
-     and 9:1 on a card. ---- */
-  --brand: oklch(0.804 0.139 128.4); /* #a4d06a */
-  --brand-hover: oklch(0.85 0.125 128);
-  --brand-active: oklch(0.75 0.135 128);
-  --brand-foreground: oklch(0.263 0.024 125.1); /* the site's panel green, as ink on a lime fill */
-  --brand-text: oklch(0.86 0.1 126); /* on --brand-tint */
-  --brand-tint: oklch(0.317 0.045 128); /* deep olive chip surface, ~0.07L above --card */
+  /* ---- Piloti green (dark) — the ramp lifts, it does not brighten.
+
+     The light olive is a 2.7:1 smudge on charcoal, so dark needs its own step;
+     the question is which one. The site's lime (#a4d06a) is the obvious answer
+     and the wrong one — at 0.139 chroma it is a display colour, sized for a
+     hero panel, and on a 16px switch or a 4px progress bar it stops reading as
+     an accent and starts reading as a highlighter.
+
+     So dark takes the OTHER green the marketing site already uses on its dark
+     panels: `--color-on-dark-label` #a4b47a, the olive-sage its eyebrow labels
+     and tags are set in. Same family, half the chroma, 7.9:1 on the app
+     background and 7.2:1 on a card — legible everywhere, loud nowhere, and
+     grounded in the site rather than invented for the app. ---- */
+  --brand: oklch(0.743 0.081 121); /* #a4b47a — the site's on-dark label green */
+  --brand-hover: oklch(0.8 0.075 121);
+  --brand-active: oklch(0.69 0.08 121);
+  --brand-foreground: oklch(0.263 0.024 125.1); /* the site's panel green, as ink on a green fill */
+  --brand-text: oklch(0.86 0.07 124); /* on --brand-tint, 8.4:1 */
+  --brand-tint: oklch(0.317 0.045 128); /* #2b361d — deep olive chip surface, ~0.07L above --card */
   --brand-tint-strong: oklch(0.371 0.048 128.8);
-  --brand-pop: oklch(0.804 0.139 128.4);
+  /* The lime survives as `--brand-pop` and nothing currently spends it: it is
+     the site's hero green, kept for a moment that genuinely wants a display
+     colour, not for chrome. */
+  --brand-pop: oklch(0.804 0.139 128.4); /* #a4d06a */
 
   /* ---- legacy alias: lifted law blue for dark surfaces ---- */
   --grid-blue: oklch(0.711 0.125 266); /* lifted #2359d3 */
@@ -571,6 +582,43 @@
   --transition-duration-ambient: var(--motion-ambient);
   --transition-duration-ambient-slow: var(--motion-ambient-slow);
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  /* ---- type: five faces, five jobs, shared with the marketing site.
+
+       --font-serif    Instrument Serif  the STATEMENT — one moment per surface,
+                                         ≥24px, never in dense UI
+       --font-display  Archivo / HN      the WORKING VOICE — page titles, section
+                                         headings, eyebrows, labels, stats
+       --font-sans     Inter             body, controls, everything unmarked
+       --font-mono     IBM Plex Mono     identifiers, paragraphs, measured values
+       --font-logo     Poppins           the wordmark, nothing else
+
+     THE TWO-FACE SPLIT IS THE IDENTITY, and it is a split of ROLE, not of taste.
+     The grotesk is the voice the product works in — neutral by design, legible
+     at 13px, invisible over an eight-hour day. The serif is the voice the BRAND
+     speaks in, and a brand does not speak continuously: one statement per
+     surface (the site's hero, the greeting on an empty thread), at display
+     size, or nothing.
+
+     THE 24px FLOOR IS NOT A GUIDELINE. Instrument Serif is a display face with
+     a single 400 weight and high stroke contrast; at 20px it goes thin and
+     spindly next to a 14px Inter paragraph, and at 13px it is illegible. A
+     text serif was tried here first (Spectral) precisely because it survives
+     small sizes — and it failed the opposite way, reading as an enlarged book
+     page at hero scale. One face cannot do both jobs; this one does the big
+     job, and the grotesk keeps the small one.
+
+     `--font-display` puts 'Helvetica Neue' AHEAD of Archivo exactly as
+     `frontends/web` does: on macOS the site renders in Helvetica Neue and
+     Archivo is the fallback everywhere else, so copying the stack (rather than
+     just the font) is what makes the two surfaces match per platform instead of
+     matching only on Linux. ---- */
+  --font-sans: var(--font-inter), Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: var(--font-instrument-serif), 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --font-display: 'Helvetica Neue', var(--font-archivo), Archivo, Helvetica, sans-serif;
+  --font-logo: var(--font-poppins), Poppins, 'Helvetica Neue', Archivo, sans-serif;
+  --font-mono: var(--font-plex-mono), 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* The wordmark's tracking, from the site's `--tracking-logo`. It belongs to
+     the logo lockup, not to the type scale — nothing else may use it. */
+  --tracking-logo: 0.2em;
 }

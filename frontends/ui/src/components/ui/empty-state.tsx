@@ -37,7 +37,12 @@ export function EmptyState({
     <div
       className={cn(
         'flex w-full min-w-0 flex-col items-center justify-center text-center',
-        variant === 'panel' ? 'rounded-lg border border-dashed bg-muted/25 px-6 py-12' : 'py-10',
+        // The panel is a sheet with nothing drawn on it yet — see the
+        // `drafting-sheet` note in globals.css. The `bare` variant sits inside
+        // an existing card and stays plain: two grids stacked read as moiré.
+        variant === 'panel'
+          ? 'drafting-sheet rounded-lg border border-dashed bg-muted/25 px-6 py-12'
+          : 'py-10',
         className,
       )}
       {...props}

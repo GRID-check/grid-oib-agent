@@ -30,7 +30,8 @@ export function StatCard({ label, value, hint, icon, className, ...props }: Stat
           </div>
         ) : null}
         <div className="min-w-0">
-          <div className="text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
+          {/* The number is a headline, so it takes the headline face. */}
+          <div className="font-display text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
           <div className="mt-1 text-sm text-muted-foreground">{label}</div>
           {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
         </div>

@@ -29,6 +29,25 @@
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
 }
+/* Instrument Serif — the STATEMENT face. Added 2026-08 with the corporate
+   identity (docs/design/brand-identity.md §5.3). A display serif with one
+   weight and high contrast: it carries the hero and the narrative beats at
+   40px and up, and it is never used below 24px or for anything the reader has
+   to work in. Everything functional stays Archivo/Helvetica Neue. */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/instrument-serif-400-italic-latin.woff2') format('woff2');
+}
 @font-face {
   font-family: Poppins;
   font-style: normal;
@@ -85,40 +104,51 @@
   --color-on-dark-tag: #8fa06a;
 
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* The statement face: the hero and the narrative beats, ≥24px, never body
+     copy and never a UI label. See docs/design/brand-identity.md §5.3. */
+  --font-serif: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
   --font-display: 'Helvetica Neue', Archivo, Helvetica, sans-serif;
   --font-logo: Poppins, 'Helvetica Neue', Archivo, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
   /* Type scale. The display sizes are fluid and carry their own leading,
      tracking and weight, so a heading is one utility (`text-h2`) instead of a
-     size/leading/tracking triplet repeated in every section. */
+     size/leading/tracking triplet repeated in every section.
+
+     The steps carry WEIGHT 400 and relaxed tracking since the headlines moved
+     to Instrument Serif (2026-08). Both follow from the face: it ships a single
+     400 weight, so a `700` here would ask the browser to synthesise a bold and
+     smear the contrast the face exists for; and its tight, high-contrast
+     drawing already reads as precision, where the old grotesk tracking
+     (-0.032em) closed the counters. A heading that must be a grotesk (a blog
+     h2, a card title) sets `font-display` and its own weight. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1.45;
 
   --text-display: clamp(2.25rem, 4.8vw, 4.375rem);
   --text-display--line-height: 1;
-  --text-display--letter-spacing: -0.032em;
-  --text-display--font-weight: 700;
+  --text-display--letter-spacing: -0.008em;
+  --text-display--font-weight: 400;
 
   --text-h1: clamp(2.25rem, 5.5vw, 4.5rem);
   --text-h1--line-height: 1.04;
-  --text-h1--letter-spacing: -0.025em;
-  --text-h1--font-weight: 700;
+  --text-h1--letter-spacing: -0.006em;
+  --text-h1--font-weight: 400;
 
   --text-h2: clamp(1.75rem, 4vw, 3.125rem);
   --text-h2--line-height: 1.08;
-  --text-h2--letter-spacing: -0.02em;
-  --text-h2--font-weight: 700;
+  --text-h2--letter-spacing: -0.005em;
+  --text-h2--font-weight: 400;
 
   --text-h3: clamp(1.625rem, 3.5vw, 2.75rem);
   --text-h3--line-height: 1.12;
-  --text-h3--letter-spacing: -0.018em;
-  --text-h3--font-weight: 700;
+  --text-h3--letter-spacing: -0.004em;
+  --text-h3--font-weight: 400;
 
   --text-h4: clamp(1.375rem, 2.6vw, 2.375rem);
   --text-h4--line-height: 1.15;
-  --text-h4--letter-spacing: -0.018em;
-  --text-h4--font-weight: 700;
+  --text-h4--letter-spacing: -0.004em;
+  --text-h4--font-weight: 400;
 
   --tracking-label: 0.14em;
   --tracking-logo: 0.2em;
@@ -314,7 +344,7 @@ html:not(.js) [data-solution-card] {
   margin-top: 1.15em;
 }
 .prose-piloti h1 {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-size: 1.875rem;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -363,7 +393,9 @@ html:not(.js) [data-solution-card] {
 .prose-piloti blockquote {
   border-left: 3px solid var(--color-accent-400);
   padding-left: 1.1em;
-  font-style: italic;
+  font-family: var(--font-serif);
+  font-size: 1.35em;
+  line-height: 1.4;
   color: var(--color-ink);
 }
 .prose-piloti code {

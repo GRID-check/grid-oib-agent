@@ -35,7 +35,12 @@ export function PageHeader({
   const titleRow = (
     <>
       <div className="min-w-0">
-        <h1 className="text-balance text-xl font-semibold tracking-tight">{title}</h1>
+        {/* `font-display`, NOT the serif. A page title is 20px — under the
+            serif's 24px floor (tokens.css), where a display face goes spindly
+            beside the 14px Inter subtitle under it. The serif's one appearance
+            in the app is the empty-thread greeting; every working title is the
+            grotesk. */}
+        <h1 className="font-display text-balance text-xl font-semibold tracking-tight">{title}</h1>
         {subtitle && (
           <p className="mt-1 text-pretty text-sm text-muted-foreground">{subtitle}</p>
         )}

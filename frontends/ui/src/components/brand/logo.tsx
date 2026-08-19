@@ -22,10 +22,14 @@ const markSize: Record<NonNullable<LogoProps['size']>, string> = {
   large: 'size-10',
 }
 
+// One step below the previous scale at every size, because the wordmark is now
+// UPPERCASE and tracked out to 0.2em: caps plus letterspacing read roughly a
+// step larger than the same number in mixed case, so keeping the old sizes
+// would have grown the lockup rather than restyled it.
 const wordmarkSize: Record<NonNullable<LogoProps['size']>, string> = {
-  small: 'text-sm',
-  medium: 'text-lg',
-  large: 'text-2xl',
+  small: 'text-xs',
+  medium: 'text-base',
+  large: 'text-xl',
 }
 
 export const Logo: FC<LogoProps> = ({ kind = 'horizontal', size = 'medium', className }) => {
@@ -40,8 +44,18 @@ export const Logo: FC<LogoProps> = ({ kind = 'horizontal', size = 'medium', clas
       >
         <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" />
       </svg>
+      {/* The wordmark is the site's wordmark: Poppins medium, uppercase, 0.2em
+          tracking (`frontends/web` atoms/Logo.astro). It is the one place
+          `font-logo` and `tracking-logo` may be used. */}
       {kind === 'horizontal' && (
-        <span className={cn('font-semibold tracking-tight text-foreground', wordmarkSize[size])}>{PRODUCT_NAME}</span>
+        <span
+          className={cn(
+            'font-logo font-medium uppercase tracking-logo text-foreground',
+            wordmarkSize[size],
+          )}
+        >
+          {PRODUCT_NAME}
+        </span>
       )}
     </span>
   )

@@ -306,7 +306,11 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
         // Blockquotes
         blockquote: ({ children }) => (
-          <blockquote className="border-base text-subtle my-3 border-l-2 pl-4 italic leading-relaxed">
+          // The accent marks the quoted passage's edge — a cited paragraph is
+          // "the chosen source", which is the accent's own sentence. The text
+          // itself stays Inter: the brand serif is a display face with a 24px
+          // floor, and a quotation runs at reading size.
+          <blockquote className="border-brand/40 text-subtle my-3 border-l-2 pl-4 leading-relaxed">
             {children}
           </blockquote>
         ),
