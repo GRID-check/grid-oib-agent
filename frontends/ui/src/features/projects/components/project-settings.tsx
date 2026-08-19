@@ -32,6 +32,7 @@ import { ApplicableStandards } from './applicable-standards'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectMemoryPanel } from './project-memory-panel'
+import { ProjectReindexCard } from './project-reindex-card'
 import { ProjectRenameButton } from './project-rename-button'
 import { ProjectMembersForm } from '@/components/projects/project-members-form'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
@@ -185,6 +186,15 @@ export function ProjectSettings({
       <StaggerItem>
         <ProjectMemoryPanel projectId={data.id} />
       </StaggerItem>
+
+      {/* Knowledge index — rebuild every document's chunks. Destroys nothing a
+          user uploaded, so it sits above the danger zone rather than inside it,
+          but it is gated the same way: the API requires a document write. */}
+      {canManageProject && (
+        <StaggerItem>
+          <ProjectReindexCard projectId={data.id} />
+        </StaggerItem>
+      )}
 
       {/* Danger zone — soft delete with grace-period restore. Only shown to
           users who can actually delete (project:manage). */}

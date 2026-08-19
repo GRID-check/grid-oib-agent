@@ -473,6 +473,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="data-toolbar-selection"]',
   },
   {
+    id: 'project-reindex',
+    mobile: true,
+    path: '/dev/project-reindex',
+    description:
+      'Project settings — the knowledge-index card that rebuilds every document’s chunks, shown at rest and in flight. It sits above the danger zone because it destroys nothing a user uploaded, only the derived index answers are grounded on.',
+    waitFor: '[data-testid="project-reindex-preview"]',
+  },
+  {
     id: 'platform-norms',
     mobile: true,
     path: '/dev/platform-norms',

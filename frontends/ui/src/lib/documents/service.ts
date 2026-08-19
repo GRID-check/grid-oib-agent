@@ -824,6 +824,104 @@ export async function reingestDocument(
   return { id: doc.id, status, jobId }
 }
 
+export interface ReindexProjectResult {
+  projectId: string
+  /** Documents whose old chunks were removed and which are ingesting again. */
+  queued: number
+  /** Rows with no stored object, or still mid-flight — nothing to rebuild from. */
+  skipped: number
+  /** Display names whose chunk delete failed, so they were deliberately NOT re-dispatched. */
+  failed: string[]
+}
+
+/** Chunk-delete + re-dispatch runs this many documents at a time. */
+const REINDEX_CONCURRENCY = 4
+
+/**
+ * Rebuild every document's chunks in one project.
+ *
+ * Distinct from `reingestDocument`, which is a RETRY: that one refuses anything
+ * whose status is not `failed`, because re-dispatching a healthy document is a
+ * different and more dangerous operation. This is that operation, and the danger
+ * is duplication — the ingest endpoint downloads and indexes, it does not replace,
+ * so dispatching a document that already has chunks leaves BOTH sets in the
+ * collection, both retrievable and both rendering as a valid citation.
+ *
+ * So the delete is a PRECONDITION here, not a courtesy. `deleteDocument` swallows
+ * a failed chunk-delete on purpose (the durable row and object cleanup matter more,
+ * and leftover chunks get swept by the next reconcile). The same failure here means
+ * the opposite: dispatching after it would create the duplicate this whole function
+ * exists to avoid. A document whose delete fails is reported and left alone.
+ *
+ * Reach for this after a change to how chunks are BUILT rather than to what they are
+ * built from — a chunker change alters no file, so nothing in the ordinary upload
+ * path would notice.
+ */
+export async function reindexProject(
+  session: AuthorizedSession,
+  projectId: string,
+): Promise<ReindexProjectResult> {
+  await requireProjectAccess(session, projectId, 'project:documents:write')
+
+  const rows = await listProjectDocuments(projectId, session.organizationId)
+  const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }
+
+  const redispatch = async (row: DocumentListRow): Promise<void> => {
+    // Re-resolved rather than trusted from the list: this is the same read the
+    // single-document path uses, it carries the storage key and bucket the list
+    // row does not, and it re-checks access per document.
+    const doc = await getAccessibleDocument(session, row.id, 'write')
+    if (!doc.storageKey || doc.status === 'pending' || doc.status === 'processing') {
+      result.skipped += 1
+      return
+    }
+
+    // The bucket the object is ACTUALLY in — see `reingestDocument` for why
+    // defaulting this breaks per-organization documents in two directions.
+    const response = await fetch(
+      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_ids: [doc.filename] }),
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      },
+    )
+    if (!response.ok) {
+      throw new Error(`chunk delete returned ${response.status}`)
+    }
+
+    await dispatchDocument({
+      organizationId: session.organizationId,
+      projectId: doc.projectId,
+      documentId: doc.id,
+      filename: doc.filename,
+      storageKey: doc.storageKey,
+      storageBucket: doc.storageBucket,
+      collectionName: doc.collectionName,
+    })
+    result.queued += 1
+  }
+
+  // Bounded rather than unbounded: a project with hundreds of documents would
+  // otherwise open that many backend connections at once and time the request out.
+  let next = 0
+  const workers = Array.from({ length: Math.min(REINDEX_CONCURRENCY, rows.length) }, async () => {
+    while (next < rows.length) {
+      const row = rows[next++]
+      try {
+        await redispatch(row)
+      } catch {
+        // One document's failure must not abandon the rest of the project.
+        result.failed.push(documentDisplayName(row))
+      }
+    }
+  })
+  await Promise.all(workers)
+
+  return result
+}
+
 /**
  * Replace a document's controlled tags. Requires `project:edit`. The document
  * row maps to the backend's `(collectionName, filename)` summary key; the edit
