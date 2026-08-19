@@ -135,6 +135,27 @@ llms:
     # routing noise returns. `seed` is the lever those models do expose; it is
     # best-effort (providers may still vary) but it is what remains. Keep BOTH:
     # temperature serves models that honour it, seed serves the rest.
+    #
+    # MEASURED, 2026-08. The caveat above is real — openai/gpt-5.6-luna's
+    # supported_parameters carries `seed` but NOT `temperature` or `top_p`, so
+    # both of those lines are dropped by the gateway — but the noise it predicts
+    # is NOT what shows up. Run-to-run, the depth decision is stable: the same
+    # question, 6 identical calls, returned the same depth every time on every
+    # model that answered, across 8 candidate models.
+    #
+    # The variance is ACROSS MODELS, not across runs, and that is the harder
+    # problem, because which model serves this role is not decided here. It is
+    # an admin's dashboard choice (Platform -> Models / org override, applied by
+    # `apply_model_override(llm, AgentGroup.INTENT)`), so `model_name` below is
+    # only the boot fallback. On the same prompt and the same question set,
+    # three of eight candidate models routed plain single-topic OIB questions to
+    # deep research and five did not.
+    #
+    # That is why the shallow-vs-deep boundary no longer lives only in
+    # `prompts/intent_classification.j2`: the prompt asks for two independent
+    # signals and `_gate_deep_route` in nodes/intent_classifier.py takes the AND
+    # of them in code, so the boundary survives a model swap made with a click
+    # and no deploy. Do not move that policy back into prose.
     temperature: 0
     seed: 1
     top_p: 1.0
