@@ -529,8 +529,8 @@ The acceptance test for every design here: **a reader extracts the card's headli
 **5. No meaning that lives only in the pixels.**
 `src/lib/answer-export/cards.ts` is a generic field walker: it turns each card into tables and labelled blocks for .docx and markdown. **Anything expressed only through drawn geometry, colour, or spatial arrangement is lost on export.** Every concept in §B must therefore name a field or a word that carries its meaning in the export. Worked examples of the rule being satisfied:
 
-- `change_impact`'s struck-through `before` → `direction` is a wire field and its German word („verschärft") exports.
-- `norm_chain`'s stepped terrace → `rank` is a wire field and the „bindend"/„auslegend" tag exports.
+- `change_impact`'s struck-through `before` → `direction` is a wire field, and the export translates it through `answerExport.values.direction`, so „verschärft" — not `tightens` — reaches the document. The same map covers every other closed vocabulary a card carries (`operation`, `requirement`, `provenance`, `status`, …), and `label-coverage.spec.ts` derives the members from the card schema, so a member added to a `Literal` fails the build rather than shipping an English word.
+- `norm_chain`'s stepped terrace → `rank` is a wire field, and its word carries the tag with it: `answerExport.values.rank` spells `verordnung` as „Verordnung (bindend)" and `oenorm` as „ÖNORM (auslegend)". The terrace is a picture of that parenthesis; the export states it.
 - `requirement_checklist`'s tally bar → the derived sentence „3 von 7 offen" is text and exports; the bar is redundant reinforcement.
 - `deadline_timeline`'s dashed spine → the footer sentence saying the rail is not to scale exports.
 - `condition_tree`'s active branch → carried four ways including the Konjunktiv/Indikativ distinction in the German itself, which survives export, greyscale and cropping.

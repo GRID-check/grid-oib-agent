@@ -28,7 +28,7 @@ import { createTranslator } from '@/i18n/translate'
 import { de, en } from '@/i18n/dictionaries'
 import type { DocBlock } from './blocks'
 import { buildAnswerDocument, type AnswerDocumentInput } from './answer-document'
-import { CARD_EXPORT } from './cards'
+import { CARD_EXPORT, isCheck, SKIPPED_FIELDS } from './cards'
 import { gridCardSchema } from '@/shared/cards/schemas'
 import { previewFixtureFor } from '@/features/grid-cards/preview-fixtures'
 
@@ -329,6 +329,178 @@ describe('cards', () => {
     expect(output).toContain('liest das Modell des Projekts live')
   })
 
+  it('exports a typed table’s rows, headed by the columns the card declares', () => {
+    // `rows` is `list[list[str]]`. The walker handled arrays of scalars and
+    // arrays of objects and fell through both, so the card exported its column
+    // definitions and not one row — and PR #471 makes this the redirect target
+    // for every answer whose cases are all true at once, so the volume of
+    // findings routed through it is about to rise.
+    const output = text(
+      buildAnswerDocument(
+        input({
+          cards: [
+            {
+              type: 'typed_table',
+              title: 'Mindestmaße barrierefreie Erschließung',
+              columns: [
+                { label: 'Bauteil', type: 'text' },
+                { label: 'Mindestmaß', type: 'mass' },
+                { label: 'Fundstelle', type: 'norm' },
+              ],
+              rows: [
+                ['Türbreite', '80 cm', 'OIB 4, Pkt. 2.2'],
+                ['Rampenneigung', '6 %', 'OIB 4, Pkt. 2.3'],
+              ],
+            },
+          ],
+        }),
+        german,
+        'de'
+      )
+    )
+
+    expect(output).toContain('Bauteil | Mindestmaß | Fundstelle')
+    expect(output).toContain('Türbreite | 80 cm | OIB 4, Pkt. 2.2')
+    expect(output).toContain('Rampenneigung | 6 % | OIB 4, Pkt. 2.3')
+    // The column definitions are the header, so they are not ALSO printed as a
+    // table of their own — the card would otherwise name its columns twice.
+    expect(output).not.toContain('Spalten')
+  })
+
+  const schrittmass = (limit: Record<string, unknown>) => ({
+    type: 'calculation',
+    title: 'Schrittmaßregel',
+    steps: [
+      {
+        label: 'Schrittmaß',
+        operation: 'sum',
+        operands: [
+          { label: 'Steigung', value: 17.5, unit: 'cm', factor: 2 },
+          { label: 'Auftritt', value: 24, unit: 'cm' },
+        ],
+        unit: 'cm',
+      },
+    ],
+    limit,
+  })
+
+  it('names a limit as a limit, and its lower bound as a lower bound', () => {
+    // `CalculationLimit.value` is the BOUND, never the measured figure. The flat
+    // dictionary labelled it „Ist“ — so the Schrittmaßregel exported as
+    // „Obergrenze: 65; Ist: 59“, where 59 is the rule and not the stair.
+    const range = text(
+      buildAnswerDocument(
+        input({ cards: [schrittmass({ comparator: 'between', value: 59, upper: 65 })] }),
+        german,
+        'de'
+      )
+    )
+
+    expect(range).toContain('Untergrenze: 59')
+    expect(range).toContain('Obergrenze: 65')
+    expect(range).not.toContain('Ist: 59')
+
+    // With a one-sided comparator the same field is simply the bound.
+    const capped = text(
+      buildAnswerDocument(
+        input({ cards: [schrittmass({ comparator: '<=', value: 1.2 })] }),
+        german,
+        'de'
+      )
+    )
+
+    expect(capped).toContain('Grenzwert: 1.2')
+    expect(capped).not.toContain('Ist: 1.2')
+  })
+
+  it('labels a field by what it means on the card it is on', () => {
+    const documents = text(
+      buildAnswerDocument(
+        input({
+          cards: [
+            {
+              type: 'document_checklist',
+              title: 'Einreichunterlagen',
+              items: [
+                { label: 'Einreichplan', requirement: 'required' },
+                { label: 'Energieausweis', requirement: 'required' },
+              ],
+            },
+          ],
+        }),
+        german,
+        'de'
+      )
+    )
+    // „Anforderungen“ over a list of Unterlagen tells a Behörde the office
+    // submitted its documents as requirements.
+    expect(documents).toContain('Unterlagen')
+    expect(documents).not.toContain('Anforderungen')
+
+    const takeaways = text(
+      buildAnswerDocument(
+        input({
+          cards: [
+            {
+              type: 'key_takeaways',
+              title: 'Das Wichtigste',
+              items: [{ text: 'Fluchtniveau 9,80 m' }, { text: 'Gebäudeklasse 4' }],
+            },
+          ],
+        }),
+        german,
+        'de'
+      )
+    )
+    expect(takeaways).toContain('Kernaussagen')
+    expect(takeaways).not.toContain('Anforderungen')
+
+    // And the name still means what it always meant where it always meant it.
+    const requirements = text(buildAnswerDocument(input({ cards: [checklist] }), german, 'de'))
+    expect(requirements).toContain('Anforderungen')
+  })
+
+  it('prints a card’s closed vocabularies as words, not as wire values', () => {
+    const output = text(
+      buildAnswerDocument(
+        input({
+          cards: [
+            {
+              type: 'change_impact',
+              title: 'Auswirkung',
+              subject: 'Gebäudeklasse 5',
+              consequences: [
+                { aspect: 'Fluchtweg', direction: 'tightens', before: '40 m', after: '30 m' },
+              ],
+            },
+            {
+              type: 'norm_chain',
+              title: 'Normenkette',
+              links: [
+                { label: 'OIB-Richtlinie 4', rank: 'verordnung' },
+                { label: 'ÖNORM B 1600', rank: 'oenorm' },
+              ],
+            },
+            { type: 'callout', kind: 'frist', text: 'Binnen sechs Wochen ab Zustellung.' },
+          ],
+        }),
+        german,
+        'de'
+      )
+    )
+
+    expect(output).toContain('verschärft')
+    // The binding/interpretive weight the card draws as a terrace — the card
+    // charter (§D5) names this as an example of meaning surviving the export.
+    expect(output).toContain('Verordnung (bindend)')
+    expect(output).toContain('ÖNORM (auslegend)')
+    expect(output).toContain('Frist')
+
+    for (const wire of ['tightens', 'verordnung', 'oenorm', 'frist']) {
+      expect(output, `the wire value ${wire} reached the document`).not.toContain(wire)
+    }
+  })
+
   it('titles a card that has no title of its own from its type', () => {
     const output = text(
       buildAnswerDocument(
@@ -556,7 +728,14 @@ describe('every string in the document comes from a dictionary', () => {
       building_depth_m: 12,
       route_width: { label: 'Zufahrt', value: 3.5, required: 3, unit: 'm', status: 'pass' },
       gate_clearance_height: { label: 'Durchfahrt', value: 4, required: 3.5, unit: 'm', status: 'pass' },
-      aufstellflaeche: { label: 'Aufstellfläche', width_m: 5, length_m: 12 },
+      // `AufstellflaechePlan`: two `DimensionCheck`s and an optional third. The
+      // `{label, width_m, length_m}` this used to be is a shape the card has
+      // never had, so the assertion below was checking the walker against
+      // something the backend cannot emit.
+      aufstellflaeche: {
+        width: { label: 'Aufstellfläche Breite', value: 5, required: 5, unit: 'm', status: 'pass' },
+        length: { label: 'Aufstellfläche Länge', value: 12, required: 10, unit: 'm', status: 'pass' },
+      },
       walk_distance_to_entrance: { label: 'Weg', value: 60, required: 80, unit: 'm', status: 'pass' },
       reference: { document: 'TRVB F 134' },
     },
@@ -682,6 +861,69 @@ describe('every string in the document comes from a dictionary', () => {
     expect(unresolved, `unresolved translation keys in the ${locale} document`).toEqual([])
   })
 
+  /**
+   * The vocabularies the walker spells payload members with — read off the
+   * German dictionary, because that is the document being asserted.
+   */
+  const vocabularies = de.answerExport.values as Record<
+    string,
+    Record<string, string | undefined> | undefined
+  >
+
+  /**
+   * Every value the card's payload states, each as the spellings the document
+   * is allowed to use for it.
+   *
+   * Two spellings where the value is a member of a closed vocabulary: the word
+   * („verschärft“), or the wire value itself where the walker deliberately
+   * keeps it — `comparator` stays `<=` when it stands in front of a figure.
+   * Which of the two is used is the enum guard's business; this function only
+   * asks whether the value reached the page AT ALL.
+   *
+   * One subtraction, mirroring one the walker makes on purpose: the `label` of
+   * a `DimensionCheck` that is NOT a direct field of the card. Nested, a check
+   * hangs off a named field („Breite“ under „Aufstellfläche“) and that name is
+   * already on the page, so the check's own label would name the same quantity
+   * twice. Nothing measured is subtracted — value, required, unit, status,
+   * tolerance and provenance are all still demanded.
+   */
+  const payloadValues = (card: Record<string, unknown>): string[][] => {
+    const expected: string[][] = []
+    const walk = (name: string, value: unknown, direct: boolean): void => {
+      if (value === null || value === undefined) return
+      if (Array.isArray(value)) {
+        for (const entry of value) walk(name, entry, false)
+        return
+      }
+      if (typeof value === 'object') {
+        const record = value as Record<string, unknown>
+        const namedByItsField = isCheck(record) && !direct
+        for (const [key, entry] of Object.entries(record)) {
+          // The discriminator is the heading, not a value.
+          if (key === 'type') continue
+          if (key === 'label' && namedByItsField) continue
+          walk(key, entry, false)
+        }
+        return
+      }
+      if (typeof value === 'boolean') {
+        expected.push([de.answerExport.boolean[value ? 'true' : 'false']])
+        return
+      }
+      if (typeof value === 'number') {
+        expected.push([String(value)])
+        return
+      }
+      if (typeof value !== 'string' || !value.trim()) return
+      const word = vocabularies[name]?.[value]
+      expected.push(word ? [value, word] : [value])
+    }
+    for (const [name, value] of Object.entries(card)) {
+      if (!SKIPPED_FIELDS.has(name)) walk(name, value, true)
+    }
+    return expected
+  }
+
   it('exports every card in the catalogue, so none is silently lost', () => {
     // Card by card rather than all at once: a card that contributes NOTHING is
     // invisible in a document full of other cards, and "nothing" is exactly the
@@ -710,6 +952,46 @@ describe('every string in the document comes from a dictionary', () => {
         expect(output, `card ${card.type} is missing from the document`).toContain(heading)
       }
     }
+  })
+
+  /**
+   * The assertion above, made strict.
+   *
+   * "The card added something" is satisfied by a card that emits its heading
+   * and drops its data — which is exactly what `typed_table` did: `rows` is
+   * `list[list[str]]`, the walker handled arrays of scalars and arrays of
+   * objects and fell through both, so the card contributed its `columns` block
+   * and not one row. Length grew, the card was "exported", and every value in
+   * it was gone. So the question has to be asked of each VALUE, not of the
+   * card.
+   *
+   * Only `content` cards: a `live` card prints its title and one sentence
+   * saying the numbers cannot travel in a document, which is the whole point of
+   * that classification.
+   */
+  it('carries every value a card states, not just the card’s chrome', () => {
+    const findings = everyCardType.filter((card) => kindOf(card) === 'content')
+    let asserted = 0
+    const lost: string[] = []
+
+    for (const card of findings) {
+      const output = text(buildAnswerDocument(input({ cards: [card] }), german, 'de'))
+      for (const spellings of payloadValues(card)) {
+        asserted += 1
+        if (!spellings.some((spelling) => output.includes(spelling))) {
+          lost.push(`${String(card.type)}: ${JSON.stringify(spellings[0])}`)
+        }
+      }
+    }
+
+    expect(
+      lost.sort(),
+      'these values are stated by a card and absent from the document it produced — ' +
+        'the card emitted its chrome and dropped this part of its payload'
+    ).toEqual([])
+    // Guards the guard: a `payloadValues` that stopped descending would assert
+    // nothing while still passing.
+    expect(asserted).toBeGreaterThan(300)
   })
 
   it('drops every card classified as chrome, and only those', () => {

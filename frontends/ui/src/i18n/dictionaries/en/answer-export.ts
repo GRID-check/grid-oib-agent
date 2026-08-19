@@ -14,6 +14,12 @@
  * needing 27 label tables that would then drift apart. A name that is missing
  * here degrades to a humanized form of the field name rather than to nothing,
  * so a card type added upstream still exports with its data intact.
+ *
+ * `fieldsByPath` is the exception to that rule and is documented at its own
+ * definition: a handful of names mean something DIFFERENT on one card than they
+ * mean everywhere else, and one of them was printing a limit under the label of
+ * a measured value. Do not fold those back into `fields` — the flat map is
+ * still the default and still where a new name belongs.
  */
 export const answerExport = {
   /** Heading of the whole document when the conversation carries no title. */
@@ -91,23 +97,206 @@ export const answerExport = {
     ifc_element: 'Model element',
     ifc_diff: 'Model changes',
   },
-  /** `DimStatus` — the verdict on one checked value. */
-  status: {
-    pass: 'Meets requirement',
-    fail: 'Does not meet requirement',
-    warning: 'Check',
-    needs_input: 'Input required',
-  },
-  /** `Provenance` — who is making the claim about a measured value. */
-  provenance: {
-    declared: 'per model',
-    computed: 'measured',
-    inferred: 'presumed',
+  /**
+   * `values.<field>.<member>` — the closed vocabularies, in words.
+   *
+   * A card payload states `direction: 'tightens'`, `rank: 'verordnung'`,
+   * `operation: 'sum'`. Those are wire values: the app spells every one of them
+   * out on screen (`chat.cards.changeImpact.direction`,
+   * `chat.cards.normChain.rank`), and a document that printed the wire value
+   * instead would have dropped the part of the card that carried the finding.
+   * The card charter forbids exactly that (§D5, "no meaning that lives only in
+   * the pixels").
+   *
+   * Keyed by FIELD NAME, like `fields`, and for the same reason: `status` and
+   * `provenance` recur across the catalogue. `label-coverage.spec.ts` derives
+   * every enum member of every exported card from `shared/cards/schemas.json`
+   * and fails when one has no word here — so a member added to a `Literal` in
+   * `models.py` breaks the build rather than shipping an English word into a
+   * German Bauakt.
+   */
+  values: {
+    /** `DimStatus` on a checked value, and `DocumentStatus` on an Unterlage. */
+    status: {
+      pass: 'Meets requirement',
+      fail: 'Does not meet requirement',
+      warning: 'Check',
+      needs_input: 'Input required',
+      present: 'on hand',
+      missing: 'missing',
+    },
+    /** `Provenance` — who is making the claim about a measured value. */
+    provenance: {
+      declared: 'per model',
+      computed: 'measured',
+      inferred: 'presumed',
+    },
+    /**
+     * How a result must relate to its bound. Spelled out only where the
+     * comparator stands on its own line; beside a figure the walker keeps the
+     * symbol, because `<= 18 cm` reads as one quantity and "at most 18 cm"
+     * reads as a sentence in a table cell.
+     */
+    comparator: {
+      '<=': 'at most',
+      '>=': 'at least',
+      between: 'between',
+    },
+    /** `verdict_header.confidence` — how sure the answer is of its verdict. */
+    confidence: {
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+    },
+    /** `guardrail_check.context` — where the railing sits. */
+    context: {
+      balkon: 'Balkon',
+      loggia: 'Loggia',
+      stiege: 'Stiege',
+      fenster: 'Fenster',
+      dachterrasse: 'Dachterrasse',
+    },
+    /** `change_impact` — which way the change moves the requirement. */
+    direction: {
+      tightens: 'tightens',
+      relaxes: 'relaxes',
+      unchanged: 'unchanged',
+    },
+    /**
+     * `kind`, on three different cards — a callout's register, a section
+     * marker's role, a thermal component's place in the envelope. One entry per
+     * member because no two of the three spell a member the same way.
+     */
+    kind: {
+      hinweis: 'Note',
+      achtung: 'Caution',
+      frist: 'Deadline',
+      tipp: 'Tip',
+      fluchtniveau: 'Fluchtniveau',
+      threshold: 'Threshold',
+      reference: 'Reference line',
+      wall: 'External wall',
+      roof: 'Roof',
+      floor: 'Floor',
+      window: 'Window',
+      door: 'Door',
+    },
+    /** `legal_basis.lane` — which body publishes the source. */
+    lane: {
+      baurecht_oib: 'OIB',
+      baurecht_ris: 'RIS',
+    },
+    /**
+     * `acoustic_check` — which sound-insulation quantity is checked.
+     *
+     * The word AND the norm's own designation, the way the card draws it
+     * (`AcousticCheckCard.tsx` heads the gauge „DnT,w“ over „Luftschall“).
+     * Dropping the designation would leave a Bauphysiker with a German noun
+     * and nothing to look up.
+     */
+    metric: {
+      DnTw: 'Airborne (DnT,w)',
+      LnTw: 'Impact (LnT,w)',
+      Rw_res: 'Airborne, resulting (Rw,res)',
+    },
+    /** `CalculationOperation` — the five shapes a Rechenweg step may take. */
+    operation: {
+      sum: 'Sum',
+      product: 'Product',
+      quotient: 'Quotient',
+      percent_of: 'Percent of',
+      percent_ratio: 'Percentage ratio',
+    },
+    /**
+     * `norm_chain` — the link's rank, WITH whether it binds.
+     *
+     * The card draws the binding/interpretive split as a stepped terrace, and
+     * the charter (§D5) claims that split survives export. It does so here: the
+     * rank names of the Austrian legal order stay German in both locales — they
+     * are the instruments' names, not descriptions — and the parenthesis is the
+     * part that says what the terrace said.
+     */
+    rank: {
+      bundesgesetz: 'Bundesgesetz (binding)',
+      landesgesetz: 'Landesgesetz (binding)',
+      verordnung: 'Verordnung (binding)',
+      oib_richtlinie: 'OIB-Richtlinie (binding where declared)',
+      oenorm: 'ÖNORM (interpretive)',
+      leitfaden: 'Leitfaden (interpretive)',
+    },
+    /** `DocumentRequirement` — always needed, or only in certain Vorhaben. */
+    requirement: {
+      required: 'required',
+      conditional: 'conditional',
+    },
+    /** `dimension_diagram.shape` — what is being measured. */
+    shape: {
+      door: 'Door',
+      ramp: 'Ramp',
+      corridor: 'Corridor',
+      turning_circle: 'Turning circle',
+      threshold: 'Threshold',
+      parking_space: 'Parking space',
+    },
+    /** `setback_plan` — which edge of the parcel. */
+    side: {
+      front: 'front',
+      back: 'back',
+      left: 'left',
+      right: 'right',
+    },
+    /** `document_grid` — which library the document came out of. */
+    source: {
+      projekt: 'Project',
+      buero: 'Office',
+    },
+    /** `egress_diagram` — the turn after a run of the escape route. */
+    turn: {
+      straight: 'straight',
+      left: 'left',
+      right: 'right',
+    },
   },
   /** Yes/no for the boolean fields a card carries. */
   boolean: {
     true: 'Yes',
     false: 'No',
+  },
+  /**
+   * The exceptions to the flat `fields` map, keyed by PAYLOAD PATH.
+   *
+   * A deliberate departure from the one-entry-per-name rule above, for the
+   * names that mean two things. `items` is the requirement list's requirements,
+   * the Einreichliste's documents AND the key takeaways; `CalculationLimit`'s
+   * `value` is not a measured value at all but the bound it is held against, so
+   * the flat map's „Ist" printed the limit under the label of the measurement —
+   * a wrong number in a Bauakt, which is the worst artefact this product makes.
+   *
+   * A key is the path the walker stands at: the card type, then every field
+   * name descended through. A key may end in `?<sibling>=<member>` for a label
+   * that turns on a sibling field's value — `CalculationLimit.value` is the
+   * bound, and with `comparator: 'between'` it is specifically the lower one.
+   * That is the only such case in the catalogue.
+   *
+   * `label-coverage.spec.ts` resolves every key here against
+   * `shared/cards/schemas.json`, so an override whose path a card no longer has
+   * fails the build instead of silently ceasing to apply. Add an entry only for
+   * a name that genuinely means something else HERE; the flat map stays the
+   * default, and one more override is one more place two locales can drift.
+   */
+  fieldsByPath: {
+    calculation: {
+      limit: {
+        value: 'Limit',
+        'value?comparator=between': 'Lower bound',
+      },
+    },
+    document_checklist: {
+      items: 'Documents',
+    },
+    key_takeaways: {
+      items: 'Key takeaways',
+    },
   },
   fields: {
     // Shared across most cards

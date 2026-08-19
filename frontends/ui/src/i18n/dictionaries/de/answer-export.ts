@@ -12,7 +12,9 @@ import type { en } from '../en'
  * `label-coverage.spec.ts` leitet aus `shared/cards/schemas.json` ab, welche
  * Feldnamen der Export überhaupt beschriften kann, und schlägt fehl, sobald
  * einer davon hier fehlt — ein fehlender Schlüssel wird sonst zu einem
- * englischen Wort im deutschen Befund.
+ * englischen Wort im deutschen Befund. Dasselbe gilt für `values`: jedes
+ * Mitglied jedes `Literal` aus `models.py` braucht hier ein Wort, sonst stünde
+ * `Wirkung | tightens` in einem deutschen Bauakt.
  */
 export const answerExport: typeof en.answerExport = {
   documentTitle: 'Antwort',
@@ -78,20 +80,143 @@ export const answerExport: typeof en.answerExport = {
     ifc_element: 'Modellelement',
     ifc_diff: 'Modelländerungen',
   },
-  status: {
-    pass: 'Anforderung erfüllt',
-    fail: 'Anforderung nicht erfüllt',
-    warning: 'Zu prüfen',
-    needs_input: 'Angabe erforderlich',
-  },
-  provenance: {
-    declared: 'laut Modell',
-    computed: 'gemessen',
-    inferred: 'vermutlich',
+  values: {
+    status: {
+      pass: 'Anforderung erfüllt',
+      fail: 'Anforderung nicht erfüllt',
+      warning: 'Zu prüfen',
+      needs_input: 'Angabe erforderlich',
+      present: 'liegt vor',
+      missing: 'fehlt',
+    },
+    provenance: {
+      declared: 'laut Modell',
+      computed: 'gemessen',
+      inferred: 'vermutlich',
+    },
+    // Ausgeschrieben nur dort, wo der Vergleich allein in einer Zeile steht.
+    // Neben einer Zahl bleibt das Zeichen stehen: „<= 18 cm“ liest sich als
+    // eine Größe, „höchstens 18 cm“ als ein Satz in einer Tabellenzelle.
+    comparator: {
+      '<=': 'höchstens',
+      '>=': 'mindestens',
+      between: 'zwischen',
+    },
+    confidence: {
+      low: 'niedrig',
+      medium: 'mittel',
+      high: 'hoch',
+    },
+    context: {
+      balkon: 'Balkon',
+      loggia: 'Loggia',
+      stiege: 'Stiege',
+      fenster: 'Fenster',
+      dachterrasse: 'Dachterrasse',
+    },
+    direction: {
+      tightens: 'verschärft',
+      relaxes: 'gelockert',
+      unchanged: 'unverändert',
+    },
+    // `kind` auf drei Karten: Ton eines Hinweises, Rolle einer Bezugslinie,
+    // Lage eines Bauteils in der Hülle. Kein Mitglied kommt doppelt vor.
+    kind: {
+      hinweis: 'Hinweis',
+      achtung: 'Achtung',
+      frist: 'Frist',
+      tipp: 'Tipp',
+      fluchtniveau: 'Fluchtniveau',
+      threshold: 'Schwellenwert',
+      reference: 'Bezugslinie',
+      wall: 'Außenwand',
+      roof: 'Dach',
+      floor: 'Boden',
+      window: 'Fenster',
+      door: 'Tür',
+    },
+    lane: {
+      baurecht_oib: 'OIB',
+      baurecht_ris: 'RIS',
+    },
+    // Das Wort UND die Normbezeichnung, so wie die Karte sie zeichnet: ohne
+    // „DnT,w“ bleibt der Bauphysikerin ein deutsches Hauptwort und nichts zum
+    // Nachschlagen.
+    metric: {
+      DnTw: 'Luftschall (DnT,w)',
+      LnTw: 'Trittschall (LnT,w)',
+      Rw_res: 'Luftschall, resultierend (Rw,res)',
+    },
+    operation: {
+      sum: 'Summe',
+      product: 'Produkt',
+      quotient: 'Quotient',
+      percent_of: 'Prozent von',
+      percent_ratio: 'Prozentanteil',
+    },
+    // Der Rang MIT der Angabe, ob er bindet — die Karte zeichnet diesen
+    // Unterschied als Terrasse, und die Charta sagt zu, dass er den Export
+    // übersteht (§D5). Die Namen der österreichischen Rechtsordnung bleiben
+    // auch im Englischen stehen; die Klammer trägt, was die Terrasse zeigte.
+    rank: {
+      bundesgesetz: 'Bundesgesetz (bindend)',
+      landesgesetz: 'Landesgesetz (bindend)',
+      verordnung: 'Verordnung (bindend)',
+      oib_richtlinie: 'OIB-Richtlinie (bindend, wenn erklärt)',
+      oenorm: 'ÖNORM (auslegend)',
+      leitfaden: 'Leitfaden (auslegend)',
+    },
+    requirement: {
+      required: 'erforderlich',
+      conditional: 'bedingt',
+    },
+    shape: {
+      door: 'Tür',
+      ramp: 'Rampe',
+      corridor: 'Gang',
+      turning_circle: 'Wendekreis',
+      threshold: 'Schwelle',
+      parking_space: 'Stellplatz',
+    },
+    side: {
+      front: 'vorne',
+      back: 'hinten',
+      left: 'links',
+      right: 'rechts',
+    },
+    source: {
+      projekt: 'Projekt',
+      buero: 'Büro',
+    },
+    turn: {
+      straight: 'geradeaus',
+      left: 'links',
+      right: 'rechts',
+    },
   },
   boolean: {
     true: 'Ja',
     false: 'Nein',
+  },
+  // Die Ausnahmen zur flachen `fields`-Tabelle, nach PFAD im Kartenpayload.
+  // „Ist“ stand über dem Grenzwert einer Berechnung, „Anforderungen" über den
+  // Unterlagen einer Einreichliste — dieselbe Ursache, ein Name für zwei
+  // Bedeutungen. Der Schlüssel ist der Pfad, an dem der Walker steht; ein
+  // Schlüssel darf auf `?<Nachbarfeld>=<Wert>` enden, wenn die Bedeutung vom
+  // Wert eines Nachbarfelds abhängt. Siehe die englische Quelle.
+  fieldsByPath: {
+    calculation: {
+      limit: {
+        value: 'Grenzwert',
+        'value?comparator=between': 'Untergrenze',
+      },
+    },
+    document_checklist: {
+      items: 'Unterlagen',
+    },
+    key_takeaways: {
+      items: 'Kernaussagen',
+    },
   },
   fields: {
     title: 'Titel',

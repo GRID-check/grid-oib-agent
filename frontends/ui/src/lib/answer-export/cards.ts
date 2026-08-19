@@ -22,8 +22,22 @@
  *     row in a checks table, wherever on the card it sits;
  *   - a `NormReference` becomes the Fundstelle line;
  *   - an array of objects becomes a table, one column per key;
+ *   - an array of ARRAYS is a matrix — one row per entry — headed by whichever
+ *     sibling field names its columns (see {@link headerFieldFor});
  *   - short scalars pair up into a two-column label/value table;
  *   - long prose gets a labelled paragraph of its own.
+ *
+ * ## Words, not payload
+ *
+ * Two vocabularies sit between the payload and the page, both in the
+ * dictionary and both guarded against the schema by `label-coverage.spec.ts`:
+ *
+ *   - `fields.<name>` (with `fieldsByPath.<path>` overriding it where one name
+ *     means two things — see {@link fieldLabel}) names the field;
+ *   - `values.<name>.<member>` names a CLOSED VOCABULARY's member, so
+ *     `direction: tightens` prints „verschärft“ and not `tightens`. A member
+ *     this build has never heard of falls back to itself rather than to
+ *     nothing, on the same reasoning as an unknown field name.
  *
  * A card type that is not in {@link FIELD_ORDER} still exports every field it
  * carries; the order list only decides READING order, which is otherwise lost —
@@ -45,6 +59,14 @@
  */
 
 import type { Translator } from '@/i18n/translate'
+// The canonical dictionary, read for its SHAPE and never for its words: which
+// payload paths carry a label override, and which field names carry a closed
+// vocabulary. Every locale is annotated `typeof en.answerExport`, so that shape
+// is the same in all of them — reading it off English decides only WHETHER to
+// look a word up, and the word itself still comes from `t`. The alternative was
+// probing `t` for keys that are usually absent, which warns once per miss and
+// would have filled every dev console with the walker's own guesses.
+import { answerExport as canonicalDictionary } from '@/i18n/dictionaries/en/answer-export'
 import type { GridCard } from '@/shared/cards/schemas'
 import { compact, type DocBlock, type DocRun } from './blocks'
 
@@ -53,6 +75,51 @@ type CardRecord = Record<string, unknown>
 
 const isRecord = (value: unknown): value is CardRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** `{a: {b: 'x'}}` → `a.b`. Keys never contain a dot, so this is lossless. */
+const flattenKeys = (node: unknown, prefix: string, into: Set<string>): Set<string> => {
+  if (typeof node === 'string') {
+    into.add(prefix)
+    return into
+  }
+  if (isRecord(node)) {
+    for (const [key, child] of Object.entries(node)) {
+      flattenKeys(child, prefix ? `${prefix}.${key}` : key, into)
+    }
+  }
+  return into
+}
+
+/**
+ * The payload paths `fieldsByPath` overrides, as the walker spells them.
+ *
+ * A membership test rather than a `t` lookup: the override is the rare case,
+ * and asking the translator for a key that is usually absent warns on every
+ * miss.
+ */
+const OVERRIDDEN_PATHS = flattenKeys(canonicalDictionary.fieldsByPath, '', new Set<string>())
+
+/**
+ * The closed vocabularies, as `field -> members`.
+ *
+ * The MEMBERS are wire values and identical in every locale, so testing
+ * membership here rather than by asking `t` keeps the walker silent on the
+ * fields that are free text — `source` is an enum on `document_grid.documents`
+ * and a half-line of prose on `calculation.steps.operands`, and probing the
+ * translator for „Einreichplan, Schnitt A-A“ warns once per cell.
+ *
+ * Keying by NAME rather than by path is precise everywhere the catalogue is:
+ * no two of the thirteen vocabularies share a member spelling. `source` is the
+ * one place it is merely lucky — an operand whose source read exactly
+ * „projekt“ would come out capitalised — and that is the whole cost of a
+ * walker that needs no schema at runtime.
+ */
+const VOCABULARIES = new Map<string, Set<string>>(
+  Object.entries(canonicalDictionary.values).map(([field, members]) => [
+    field,
+    new Set(Object.keys(members)),
+  ])
+)
 
 /**
  * What a card type contributes to an exported document.
@@ -258,12 +325,20 @@ const FIELD_ORDER: Record<string, string[]> = {
   ],
   parking_requirement: ['car_spaces', 'bicycle_spaces', 'basis', 'reference', 'note'],
   document_grid: ['query', 'documents'],
+  typed_table: ['columns', 'rows', 'reference', 'note'],
 }
 
 /** Above this, a string is prose and gets its own paragraph rather than a cell. */
 const PROSE_LENGTH = 90
 
-const isCheck = (value: unknown): value is CardRecord =>
+/**
+ * A `DimensionCheck`.
+ *
+ * Exported for `answer-document.spec.ts`, which has to subtract exactly what
+ * the walker subtracts rather than keep a second copy of the shape test — the
+ * same reasoning as {@link SKIPPED_FIELDS}.
+ */
+export const isCheck = (value: unknown): value is CardRecord =>
   isRecord(value) &&
   typeof value.status === 'string' &&
   ('value' in value || 'required' in value || 'unit' in value)
@@ -271,8 +346,13 @@ const isCheck = (value: unknown): value is CardRecord =>
 const isReference = (value: unknown): value is CardRecord =>
   isRecord(value) && typeof value.document === 'string' && !('status' in value)
 
-/** The human label for a payload field name. */
-const fieldLabel = (name: string, t: Translator): string => {
+/**
+ * The human label for a payload field name, wherever the name appears.
+ *
+ * The flat `fields` map is the default and stays the common case. See
+ * {@link fieldLabel} for the paths that override it.
+ */
+const flatLabel = (name: string, t: Translator): string => {
   const label = t(`fields.${name}`)
   // `createTranslator` returns the dot-path when a key is missing. A card type
   // added upstream must still export with readable labels rather than with
@@ -280,8 +360,75 @@ const fieldLabel = (name: string, t: Translator): string => {
   return label.startsWith('answerExport.fields.') ? humanize(name) : label
 }
 
+/**
+ * The override key for a payload path, or `null` when the flat map is right.
+ *
+ * Two forms, both spelled the way the walker spells the path it is standing at
+ * (`calculation.limit.value`, `document_checklist.items`):
+ *
+ *   - `<path>` — this field means something different HERE than the name says
+ *     everywhere else;
+ *   - `<path>?<sibling>=<member>` — it means something different here only when
+ *     a sibling field carries a particular value. `CalculationLimit.value` is
+ *     the bound, and with `comparator: 'between'` it is specifically the LOWER
+ *     bound; nothing else in the catalogue has a label that turns on a
+ *     sibling's value (`CalculationStep.unit` is ignored on a `percent_ratio`
+ *     step, but that suppresses the field rather than renaming it).
+ *
+ * A variant wins over the plain path. Two variants matching at once would be
+ * ambiguous, so `label-coverage.spec.ts` requires every variant at a path to
+ * name the same sibling.
+ */
+const overrideKey = (path: string, siblings: CardRecord | undefined): string | null => {
+  if (siblings) {
+    for (const [name, value] of Object.entries(siblings)) {
+      if (typeof value !== 'string') continue
+      const variant = `${path}?${name}=${value}`
+      if (OVERRIDDEN_PATHS.has(variant)) return variant
+    }
+  }
+  return OVERRIDDEN_PATHS.has(path) ? path : null
+}
+
+/**
+ * The human label for the field the walker is standing at.
+ *
+ * `path` is the card type plus every field name descended through, which is
+ * exactly the path `label-coverage.spec.ts` derives from the card schema — so
+ * an override naming a path the schema no longer has is a failing test rather
+ * than an override that quietly stops applying. `siblings` is the record the
+ * field sits in, for the overrides that turn on a sibling's value.
+ */
+const fieldLabel = (
+  path: string,
+  name: string,
+  t: Translator,
+  siblings?: CardRecord
+): string => {
+  const key = overrideKey(path, siblings)
+  return key ? t(`fieldsByPath.${key}`) : flatLabel(name, t)
+}
+
 const humanize = (name: string): string =>
   name.replace(/_/g, ' ').replace(/^./, (character) => character.toUpperCase())
+
+/**
+ * A member of a closed vocabulary, as the word the reader knows it by.
+ *
+ * `tightens` is not a German word and neither is `verordnung` a label; both are
+ * wire values whose MEANING the app already spells out on screen
+ * (`chat.cards.changeImpact.direction`, `chat.cards.normChain.rank`). A
+ * document that prints the wire value instead has lost the part of the card
+ * that carried the finding — which the card charter forbids by name (§D5).
+ *
+ * A value that is not a member of its field's vocabulary — free text under a
+ * name that elsewhere is an enum, or a member added by a newer backend — is
+ * returned unchanged, on the same reasoning as an unknown field name. That
+ * fallback is why `label-coverage.spec.ts` has to derive the members from the
+ * schema: nothing at runtime would notice a missing one.
+ */
+const valueText = (name: string, value: string, t: Translator): string =>
+  VOCABULARIES.get(name)?.has(value) ? t(`values.${name}.${value}`) : value
 
 /**
  * A scalar, as text.
@@ -291,21 +438,18 @@ const humanize = (name: string): string =>
  * and a decimal separator swapped on the way out is a number the reader cannot
  * match against either.
  */
-const scalarText = (value: unknown, t: Translator): string => {
+const scalarText = (name: string, value: unknown, t: Translator): string => {
   if (typeof value === 'boolean') return t(value ? 'boolean.true' : 'boolean.false')
   if (typeof value === 'number') return String(value)
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') return valueText(name, value, t)
   return ''
 }
 
 const isScalar = (value: unknown): value is string | number | boolean =>
   typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
 
-const statusText = (value: unknown, t: Translator): string => {
-  if (typeof value !== 'string') return ''
-  const label = t(`status.${value}`)
-  return label.startsWith('answerExport.status.') ? value : label
-}
+const statusText = (value: unknown, t: Translator): string =>
+  typeof value === 'string' ? valueText('status', value, t) : ''
 
 /** `2.47 cm`, or the empty string when the number was never stated. */
 const measure = (value: unknown, unit: unknown): string => {
@@ -330,10 +474,15 @@ const referenceText = (reference: CardRecord): string =>
  * models.py). `missing` is the sentence the reader acts on, so it is appended
  * to the verdict rather than left in the payload.
  */
-const checkRow = (name: string, check: CardRecord, t: Translator): DocRun[][] => {
+const checkRow = (
+  path: string,
+  name: string,
+  check: CardRecord,
+  t: Translator
+): DocRun[][] => {
   const provenance =
-    typeof check.provenance === 'string' ? t(`provenance.${check.provenance}`) : ''
-  const qualifier = provenance && !provenance.startsWith('answerExport.') ? ` (${provenance})` : ''
+    typeof check.provenance === 'string' ? valueText('provenance', check.provenance, t) : ''
+  const qualifier = provenance && provenance !== check.provenance ? ` (${provenance})` : ''
   // The tolerance sits between the figure and its unit — `18.2 ±0.5 cm`, the
   // way a Bauphysik report writes it — so the band is read as part of the
   // measurement rather than as a second quantity.
@@ -346,20 +495,40 @@ const checkRow = (name: string, check: CardRecord, t: Translator): DocRun[][] =>
   const missing = typeof check.missing === 'string' && check.missing ? `\n${check.missing}` : ''
 
   return [
-    [{ text: (typeof check.label === 'string' && check.label) || fieldLabel(name, t) }],
+    [{ text: (typeof check.label === 'string' && check.label) || fieldLabel(path, name, t) }],
     [{ text: actual ? `${actual}${qualifier}` : '' }],
     [{ text: required ? `${comparator}${required}` : '' }],
     [{ text: `${statusText(check.status, t)}${missing}` }],
   ]
 }
 
-/** Anything nested inside a table cell, flattened to text. */
-const nestedText = (value: unknown, t: Translator): string => {
-  if (isScalar(value)) return scalarText(value, t)
-  if (Array.isArray(value)) return value.map((entry) => nestedText(entry, t)).filter(Boolean).join('; ')
+/**
+ * Anything nested inside a table cell, flattened to text.
+ *
+ * `path` and `name` travel with the value so a leaf three levels down is
+ * labelled and spelled by the same two vocabularies a top-level field is. An
+ * array keeps its field's path: its entries are that field, not children of it.
+ */
+const nestedText = (path: string, name: string, value: unknown, t: Translator): string => {
+  if (isScalar(value)) return scalarText(name, value, t)
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => nestedText(path, name, entry, t))
+      .filter(Boolean)
+      .join('; ')
+  }
   if (isCheck(value)) {
+    // The check's own `label` is deliberately not repeated here. Nested, a
+    // check always hangs off a named field — „Breite“ under „Aufstellfläche“,
+    // a „Prüfung“ column beside its `metric` — and that name is already on the
+    // page, so printing the check's label as well would name the same quantity
+    // twice in one cell. At the card's top level there IS no other name, which
+    // is why `checkRow` prefers it there.
     const actual = measure(value.value, value.unit)
     const required = measure(value.required, value.unit)
+    // The comparator stays the symbol it is written as here, because it sits
+    // directly in front of the figure — `(<= 18 cm)` reads as one quantity
+    // where „(höchstens 18 cm)“ reads as a sentence inside a cell.
     const comparator = typeof value.comparator === 'string' ? `${value.comparator} ` : ''
     return [actual, required ? `(${comparator}${required})` : '', statusText(value.status, t)]
       .filter(Boolean)
@@ -369,7 +538,10 @@ const nestedText = (value: unknown, t: Translator): string => {
   if (isRecord(value)) {
     return Object.entries(value)
       .filter(([key]) => key !== 'type')
-      .map(([key, entry]) => `${fieldLabel(key, t)}: ${nestedText(entry, t)}`)
+      .map(
+        ([key, entry]) =>
+          `${fieldLabel(`${path}.${key}`, key, t, value)}: ${nestedText(`${path}.${key}`, key, entry, t)}`
+      )
       .filter((part) => !part.endsWith(': '))
       .join('; ')
   }
@@ -385,7 +557,7 @@ const nestedText = (value: unknown, t: Translator): string => {
  * compartment's area, a component's U-value) becomes one readable cell rather
  * than a table inside a table, which Word renders but nobody reads.
  */
-const objectTable = (rows: CardRecord[], t: Translator): DocBlock => {
+const objectTable = (path: string, rows: CardRecord[], t: Translator): DocBlock => {
   const keys: string[] = []
   for (const row of rows) {
     for (const key of Object.keys(row)) {
@@ -394,13 +566,56 @@ const objectTable = (rows: CardRecord[], t: Translator): DocBlock => {
   }
   return {
     kind: 'table',
-    head: keys.map((key) => fieldLabel(key, t)),
+    // No siblings: a header stands over every row, so it cannot depend on the
+    // value one of them happens to carry.
+    head: keys.map((key) => fieldLabel(`${path}.${key}`, key, t)),
     rows: rows.map((row) =>
-      keys.map((key) => [
-        { text: key === 'status' ? statusText(row[key], t) : nestedText(row[key], t) },
-      ])
+      keys.map((key) => [{ text: nestedText(`${path}.${key}`, key, row[key], t) }])
     ),
   }
+}
+
+/**
+ * An array of arrays as a table, one row per entry.
+ *
+ * `typed_table.rows` is the shape: `list[list[str]]`, one cell per column, and
+ * the walker's other two array branches both miss it — the entries are neither
+ * scalars nor records, so before this existed the card exported its column
+ * headers and not one of its rows. `head` comes from a sibling field that names
+ * the columns (see {@link headerFieldFor}); without one the matrix is still
+ * exported, headerless, because unnamed data beats no data.
+ */
+const matrixTable = (matrix: unknown[][], head: string[] | undefined, t: Translator): DocBlock => ({
+  kind: 'table',
+  head,
+  // Cells are plain values in a column whose meaning the header carries, so
+  // they are spelled with no field name of their own.
+  rows: matrix.map((row) => row.map((value) => [{ text: nestedText('', '', value, t) }])),
+})
+
+const isMatrix = (value: unknown): value is unknown[][] =>
+  Array.isArray(value) && value.length > 0 && value.every((row) => Array.isArray(row))
+
+/**
+ * The sibling field that names a matrix's columns, if the card has one.
+ *
+ * A shape rule, not a card-type list: a matrix `n` cells wide is headed by a
+ * sibling array of exactly `n` labelled objects. `typed_table` is the only card
+ * in the catalogue built that way today (its `_square_rows` validator is what
+ * makes the widths agree), and a second one would be picked up without this
+ * function learning its name.
+ */
+const headerFieldFor = (card: CardRecord, matrix: unknown[][]): string | null => {
+  const width = Math.max(...matrix.map((row) => row.length))
+  for (const [name, value] of Object.entries(card)) {
+    if (SKIPPED_FIELDS.has(name) || value === matrix) continue
+    if (!Array.isArray(value) || value.length !== width) continue
+    const labels = value.every(
+      (entry) => isRecord(entry) && typeof entry.label === 'string' && entry.label.trim()
+    )
+    if (labels) return name
+  }
+  return null
 }
 
 /** Accumulates adjacent fields of the same shape so they share one table. */
@@ -411,14 +626,17 @@ class CardBody {
 
   constructor(private readonly t: Translator) {}
 
-  scalar(name: string, value: unknown): void {
+  scalar(path: string, name: string, value: unknown, siblings: CardRecord): void {
     this.flushChecks()
-    this.scalars.push([[{ text: fieldLabel(name, this.t) }], [{ text: scalarText(value, this.t) }]])
+    this.scalars.push([
+      [{ text: fieldLabel(path, name, this.t, siblings) }],
+      [{ text: scalarText(name, value, this.t) }],
+    ])
   }
 
-  check(name: string, value: CardRecord): void {
+  check(path: string, name: string, value: CardRecord): void {
     this.flushScalars()
-    this.checks.push(checkRow(name, value, this.t))
+    this.checks.push(checkRow(path, name, value, this.t))
   }
 
   block(block: DocBlock): void {
@@ -448,11 +666,13 @@ class CardBody {
     if (this.checks.length === 0) return
     this.blocks.push({
       kind: 'table',
+      // Headed from the flat map alone: these four columns stand over rows
+      // gathered from several different fields, so no one path owns them.
       head: [
-        fieldLabel('label', this.t),
-        fieldLabel('value', this.t),
-        fieldLabel('required', this.t),
-        fieldLabel('status', this.t),
+        flatLabel('label', this.t),
+        flatLabel('value', this.t),
+        flatLabel('required', this.t),
+        flatLabel('status', this.t),
       ],
       rows: this.checks,
     })
@@ -509,19 +729,37 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
   }
 
   const body = new CardBody(t)
+  const fields = orderedFields(card, type)
 
-  for (const name of orderedFields(card, type)) {
+  // Which field heads which matrix, resolved before the walk so the header
+  // field is not ALSO printed as a table of its own — `typed_table` would
+  // otherwise carry its column names twice, once as data and once as a header.
+  const headerFields = new Map<string, string>()
+  const consumed = new Set<string>()
+  for (const name of fields) {
+    const field = card[name]
+    if (!isMatrix(field)) continue
+    const header = headerFieldFor(card, field)
+    if (header && !consumed.has(header)) {
+      headerFields.set(name, header)
+      consumed.add(header)
+    }
+  }
+
+  for (const name of fields) {
     const field = card[name]
     if (field === null || field === undefined) continue
+    if (consumed.has(name)) continue
+    const path = `${type}.${name}`
 
     if (isCheck(field)) {
-      body.check(name, field)
+      body.check(path, name, field)
       continue
     }
 
     if (isReference(field)) {
       const text = referenceText(field)
-      if (text) body.labelled(fieldLabel(name, t), text)
+      if (text) body.labelled(fieldLabel(path, name, t, card), text)
       const excerpt = typeof field.excerpt === 'string' ? field.excerpt.trim() : ''
       // The literal sentence the value rests on. Quoted, never paraphrased —
       // it is the one part of a card a reviewer checks against the regulation.
@@ -531,37 +769,51 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
 
     if (Array.isArray(field)) {
       if (field.length === 0) continue
+      const label = fieldLabel(path, name, t, card)
+      if (isMatrix(field)) {
+        const header = headerFields.get(name)
+        const head = header
+          ? (card[header] as CardRecord[]).map((column) => String(column.label))
+          : undefined
+        body.flush()
+        // A headed matrix needs no label of its own: the card's title stands
+        // over it and the header row names every column, so the field's own
+        // name („Kriterien“ over a `typed_table`) would only mis-describe it.
+        if (!head) body.block({ kind: 'paragraph', runs: [{ text: label, bold: true }] })
+        body.block(matrixTable(field, head, t))
+        continue
+      }
       if (field.every((entry) => isScalar(entry))) {
         body.flush()
-        body.block({ kind: 'paragraph', runs: [{ text: fieldLabel(name, t), bold: true }] })
+        body.block({ kind: 'paragraph', runs: [{ text: label, bold: true }] })
         body.block({
           kind: 'bullets',
-          items: field.map((entry) => [{ text: scalarText(entry, t) }]),
+          items: field.map((entry) => [{ text: scalarText(name, entry, t) }]),
         })
         continue
       }
       const rows = field.filter(isRecord)
       if (rows.length > 0) {
         body.flush()
-        body.block({ kind: 'paragraph', runs: [{ text: fieldLabel(name, t), bold: true }] })
-        body.block(objectTable(rows, t))
+        body.block({ kind: 'paragraph', runs: [{ text: label, bold: true }] })
+        body.block(objectTable(path, rows, t))
       }
       continue
     }
 
     if (isRecord(field)) {
-      const text = nestedText(field, t)
-      if (text) body.labelled(fieldLabel(name, t), text)
+      const text = nestedText(path, name, field, t)
+      if (text) body.labelled(fieldLabel(path, name, t, card), text)
       continue
     }
 
     if (isScalar(field)) {
-      const text = scalarText(field, t)
+      const text = scalarText(name, field, t)
       if (!text.trim()) continue
       if (text.length > PROSE_LENGTH || text.includes('\n')) {
-        body.labelled(fieldLabel(name, t), text)
+        body.labelled(fieldLabel(path, name, t, card), text)
       } else {
-        body.scalar(name, field)
+        body.scalar(path, name, field, card)
       }
     }
   }
