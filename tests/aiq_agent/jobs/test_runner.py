@@ -2347,7 +2347,7 @@ class TestCitedSourceRegistryResolution:
 
 
 class TestVerifiedCitedSourceStream:
-    """"Cited" is claimed only for citations the FINAL, verified report carries.
+    """ "Cited" is claimed only for citations the FINAL, verified report carries.
 
     ``_emit_cited_sources`` used to run on raw ``on_llm_end`` content, which is
     produced before ``verify_citations`` (in ``DeepResearcherAgent._finalize``)
@@ -2379,19 +2379,37 @@ class TestVerifiedCitedSourceStream:
         assert any(item.get("url") == "https://example.com/a" for item in cited)
 
     def test_a_citation_verification_stripped_is_never_announced(self):
-        """The real verifier decides; the stream only reports its verdict."""
+        """The real verifier decides; the stream only reports its verdict.
+
+        The stripped citation here is a DOCUMENT the run genuinely retrieved,
+        not an invented URL, and that distinction is the whole test. A
+        fabricated URL is refused by the callback's own registry check on its
+        own, so a draft-driven stream would decline to announce it anyway and
+        the assertion would hold whether or not the emit site was ever fixed —
+        false comfort, in the shape of a passing test.
+
+        So the never-retrieved URL is hung off the line naming the real OIB
+        Richtlinie. Verification reads the URL, finds it unbacked, and drops
+        the whole line, so the verified report no longer claims that document —
+        while the DRAFT still names it and the callback's document matcher
+        would happily accept it, because the run really did retrieve it. That
+        is a stripped citation the old code announced.
+        """
         from aiq_agent.common.citation_verification import verify_citations
 
         registry = _kb_registry()
         draft = (
-            "Brandabschnitte sind zu begrenzen [1]. Weiters [2]. Zusätzlich [3].\n\n"
+            "Brandabschnitte sind zu begrenzen [1]. Weiters [2].\n\n"
             "## Quellen\n"
-            "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+            "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12: "
+            "https://fabricated.example.org/nie-abgerufen\n"
             "- [2] [Web] Beispiel: https://example.com/a\n"
-            "- [3] [Web] Erfunden: https://fabricated.example.org/nie-abgerufen\n"
         )
         verification = verify_citations(draft, registry)
         assert verification.removed_citations, "fixture no longer exercises a stripped citation"
+        assert "oib-rl_2_ausgabe_mai_2023.pdf" not in verification.verified_report, (
+            "fixture no longer strips the RETRIEVED document, so it cannot discriminate"
+        )
 
         callback = DeepResearchEventCallback(source_registry=registry)
         emitted, patcher = _capture_artifacts(callback)
@@ -2399,7 +2417,11 @@ class TestVerifiedCitedSourceStream:
             callback.on_llm_end(_StubLLMResult(draft + "x" * 200), run_id="run-1")
             callback.emit_final_report(verification.verified_report)
 
-        cited_urls = [item.get("url") for item in _cited(emitted)]
+        cited = _cited(emitted)
+        cited_urls = [item.get("url") for item in cited]
+        cited_keys = [item.get("citation_key") for item in cited]
+        # The retrieved-but-stripped document: announcing it is the real bug.
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" not in cited_keys
         assert "https://fabricated.example.org/nie-abgerufen" not in cited_urls
         assert "https://example.com/a" in cited_urls
 
