@@ -35,6 +35,13 @@ vars:
   EXE: '{{if eq OS "windows"}}.exe{{end}}'
   PY: '{{.VENV_BIN}}/python{{.EXE}}'
   RUFF: '{{.VENV_BIN}}/ruff{{.EXE}}'
+  # Release-note tooling runs OUTSIDE the project environment on purpose. reno is
+  # needed by two tasks and one workflow, never by the product, so putting it in
+  # `[dependency-groups]` would add a resolver constraint (and uv.lock churn) to
+  # every backend install for tooling none of them uses. `--no-project` builds a
+  # throwaway env from uv's cache instead — offline after the first run.
+  RENO: uv run --no-project --with reno==4.1.0 reno --rel-notes-dir releasenotes
+  RELNOTES: uv run --no-project --with reno==4.1.0 python scripts/release_notes.py
 
 env:
   # The documented footgun, removed. Without this pytest resolves `aiq_agent`
@@ -292,6 +299,42 @@ tasks:
       - npm run preview
 
   # ── repo-wide ───────────────────────────────────────────────────────────────
+
+  # ── release notes (releasenotes/ -> piloti.at/changelog) ────────────────────
+  #
+  # Every user-visible change ships a note; the notes are published to the
+  # marketing site automatically on merge. The full rules are in
+  # docs/contributing/release-notes.md, the mandate is in AGENTS.md.
+
+  release:note:
+    desc: 'Start a release note for the change you are making: task release:note -- <slug>'
+    cmds:
+      # reno picks the filename (slug + random suffix), which is what keeps two
+      # branches from ever colliding on the same note file.
+      - '{{.RENO}} new {{.CLI_ARGS}}'
+
+  release:lint:
+    desc: Check the release notes against the house rules (CI runs this on every PR)
+    cmds:
+      # Ours first: it is the one that reads the notes as published prose.
+      - '{{.RELNOTES}} lint'
+      # reno's own lint catches the structural problems ours does not look for
+      # (a note on no branch, a malformed section body).
+      - '{{.RENO}} lint .'
+
+  release:preview:
+    desc: reno's own report — the notes grouped by the release they shipped in
+    cmds:
+      - '{{.RENO}} report .'
+
+  release:changelog:
+    desc: Regenerate frontends/web/src/data/changelog.json from the notes
+    # Normally you never run this: the release-notes workflow does it on merge to
+    # develop and commits the result. Run it locally to preview the page, or to
+    # resolve a conflict in the generated file (regenerate, do not hand-merge).
+    # Without OPENROUTER_API_KEY the German side falls back to English.
+    cmds:
+      - '{{.RELNOTES}} publish {{.CLI_ARGS}}'
 
   lint:repo:
     desc: pre-commit across the whole repo — the same scope CI lints

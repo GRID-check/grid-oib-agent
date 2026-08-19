@@ -1,0 +1,53 @@
+{
+  "$comment": "GENERATED FILE — do not edit. Written by scripts/release_notes.py from releasenotes/notes/ and committed by .github/workflows/release-notes.yml on merge to develop. Regenerate with `task release:changelog`.",
+  "sectionTitles": {
+    "features": {
+      "en": "New features",
+      "de": "Neue Funktionen"
+    },
+    "improvements": {
+      "en": "Improvements",
+      "de": "Verbesserungen"
+    },
+    "fixes": {
+      "en": "Fixes",
+      "de": "Fehlerbehebungen"
+    },
+    "security": {
+      "en": "Security",
+      "de": "Sicherheit"
+    },
+    "deprecations": {
+      "en": "Deprecations",
+      "de": "Auslaufende Funktionen"
+    },
+    "upgrade": {
+      "en": "Upgrade notes",
+      "de": "Hinweise zur Umstellung"
+    },
+    "other": {
+      "en": "Other",
+      "de": "Sonstiges"
+    }
+  },
+  "releases": [
+    {
+      "id": "2026-08-19",
+      "kind": "date",
+      "version": null,
+      "date": "2026-08-19",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Piloti now publishes a changelog. Every change you can notice in the product is written down in plain language and appears at piloti.at/changelog, in German and English, on the day it ships.",
+              "de": "Piloti veröffentlicht jetzt ein Changelog. Jede Änderung, die Sie im Produkt bemerken, wird in verständlicher Sprache dokumentiert und erscheint am Tag der Veröffentlichung auf piloti.at/changelog auf Deutsch und Englisch."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

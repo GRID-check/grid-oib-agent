@@ -29,3 +29,7 @@
 - name: tests
   color: "c2e0c6"
   description: "Test code and fixtures"
+
+- name: no-release-note
+  color: "e4e669"
+  description: "Exempt from the mandatory release note — no user can observe this change"
