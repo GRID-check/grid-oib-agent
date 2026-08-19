@@ -5,6 +5,13 @@ Persistent memory for the recursive improvement loop toward ONE goal:
 reads this first, updates it, and re-arms.
 
 ## Operating rules (learned the hard way)
+- **Finish by asking "anything else that would make this better?"** (standing
+  instruction from the user). Landing the task is not the end of the task. Every
+  sprint closes with that question asked deliberately and ANSWERED — either with
+  the next item, or with a stated reason the surface is done. The best findings
+  of this run came from asking it: the deep path's disclaimer, the inert
+  `grid-agents: deep_researcher`, and the gallery rendering in English were all
+  found after the work that preceded them was already "done".
 - **Max 2 concurrent build agents.** Three at once exhausted the account
   session limit (21:10 UTC) and killed an agent mid-flight with no output.
 - **Explicit file ownership per agent**, disjoint. Concurrent agents in this
@@ -522,3 +529,36 @@ pytest 3861 passed / 42 skipped · ruff check clean · ruff format 331 files cle
 · tsc 0 errors · lint 0 errors (2 known warnings) · vitest 50 files/799 tests
 (grid-cards + i18n + layout) and 61 files/1230 tests (chat + shared).
 Still NO open PR and still no CI — that decision is the user's.
+
+## Asking "anything else?" — round 1 (2026-08-19)
+Opened `visual/screenshots/chat-turn.light.png`, the only committed screenshot
+of a WHOLE finished answer. I had reviewed the card gallery repeatedly and never
+this. Findings:
+
+**The canonical finished answer contains no card and no follow-ups.** The
+question in it — „Wie viele Rettungswege brauche ich für ein Bürogebäude der
+Gebäudeklasse 4 in Wien?" — is textbook `requirement_checklist` (first Fluchtweg,
+second Fluchtweg, the 40 m limit) and textbook `follow_ups`. The fixture predates
+every card built this run and was never updated.
+
+Two consequences, and the second is the serious one:
+1. Our own showcase of a finished answer does not exercise the answer layer.
+2. **Nobody has ever seen a card INSIDE an answer.** Every card has been reviewed
+   in the gallery, isolated, on a bare page. "Does this look right in a gallery"
+   and "does this look right wedged between two paragraphs, under a lede, above a
+   provenance footer, at the thread's real column width" are different questions,
+   and only the second one is the product. Marker placement (`[[card:N]]`), the
+   lede + `verdict_header` interaction the `piloti-cards` skill adjudicates, and
+   whether two cards in one answer crowd it — none of that is visible anywhere.
+
+Confirmed working in the same image: „Herleitung · 1 Schritt · 4 Quellen" (the
+plural fix), „AUSGEFÜHRT: OIB-Wissen" (the step-label fix), „Einschätzung: hoch",
+and the copy actions sitting with the thumbs rather than adrift.
+
+### Sprint 11 (queued)
+- **`/dev/chat-turn` must show the answer layer.** A finished answer carrying an
+  inline-placed card, a second card at the fallback position, a lede long enough
+  to trigger, and follow-up chips — at desktop AND mobile width. This is the
+  review surface the whole run has been missing.
+- Then look at it and fix what it exposes.
+
