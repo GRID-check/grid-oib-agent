@@ -1,12 +1,13 @@
 # Post-answer stages — a platform primitive
 
-> **Status:** **slices 0, 1 and 2 are built** (`src/aiq_agent/stages/`, memory
-> reflection migrated onto it, the kill switch moved per-turn, `follow_ups`
-> running `silent`, and the whole client half — frame schema, `onStage`, the
-> `stages` key on the message row, and the rail below the answer — rendering
-> from the §4 fixtures with no backend). **Slice 3 is what connects them**:
-> nothing a reader can see changes until `follow_ups` flips to
-> `delivery="frame"` and `aiq_api` registers the sink. Slices 3–4b are still
+> **Status:** **slices 0, 1, 2 and 3 are built** (`src/aiq_agent/stages/`, memory
+> reflection migrated onto it, the kill switch moved per-turn, the whole client
+> half — frame schema, `onStage`, the `stages` key on the message row, and the
+> rail below the answer — and, as of slice 3, the two halves connected:
+> `aiq_api` publishes the frame sink, `follow_ups` declares
+> `delivery="frame"`, and the `post-answer-follow-ups` flag is on for one
+> organization and off everywhere else. **A real turn now produces a real frame
+> that reaches a browser and renders the rail.** Slices 4 and 4b are still
 > design. Paragraphs corrected on
 > contact with the code are marked **[as built]** — each states the correction
 > and why the original was wrong.
@@ -468,6 +469,29 @@ patching the dependency. `_registry.send` takes any `BaseModel` and calls
 `model_dump()`, so Grid can own its own frame model. This is the whole reason the
 frame type is `grid_`-prefixed.
 
+> **[as built, slice 3]** The implementation is `GridStageMessage` and
+> `send_stage_frame` in `aiq_api/websocket_reconnect.py`, registered by
+> `register_stage_frame_sink(send_stage_frame)` at **import** of
+> `aiq_api/plugin.py`, next to `install_reconnectable_handler()`. Import-time and
+> not inside `add_routes`, because that is what "the front end starts up" means:
+> a process that never loads this front end — a CLI run, a Dask job worker —
+> leaves the sink unset, and a `frame` stage there still runs, is still bounded
+> and still records its outcome. It simply has nobody to tell, which
+> `delivery.py` already documents as a normal state.
+>
+> Two things the envelope enforces at that boundary rather than trusting the
+> producer for. **`payload` is dropped when absent, not serialised as `null`**:
+> the contract says a payload rides a `ready` frame and nothing else, and the
+> client tests for the key's presence, so a null would put a payload-shaped hole
+> on every declined turn — the exact `payload-on-a-non-ready-frame` shape §9's
+> `rejected` fixtures require a client to drop. And **`status` is a Literal of
+> the three that reach a reader**: the runner maps `timeout` onto `failed` and
+> never emits `skipped`/`disabled`, so anything else arriving here is a producer
+> bug, refused and reported undelivered rather than forwarded to a client with no
+> rendering for it. `v`, by contrast, is carried from the producer rather than
+> pinned here — two halves of one envelope each asserting their own version
+> number is how they come to disagree silently.
+
 **Also deliberately not reused:** yielding an extra chunk from the workflow
 generator after the terminal one. The handler's loop would forward it as another
 `IN_PROGRESS` response frame (`websocket_reconnect.py:1362-1370`) and the client
@@ -647,8 +671,11 @@ FOLLOW_UPS = StageSpec(
 
 > **[as built]** Three corrections, all in `src/aiq_agent/stages/follow_ups.py`.
 >
-> **`delivery="silent"`, not `"frame"`.** Slice 1 is the measurement; the frame
-> is slice 3. Everything else in the declaration is live.
+> **`delivery="silent"` in slice 1, `"frame"` from slice 3.** Slice 1 was the
+> measurement and shipped `silent` deliberately; slice 3 flipped it, and nothing
+> else about how the stage runs changed — same gate, same 20s bound, same
+> scheduling after the answer is written and never awaited. Everything else in
+> the declaration was live from slice 1.
 >
 > **`max_output_tokens=512`, not 300, and its own `llms:` entry.** 300 is the
 > *content* estimate, not a ceiling: a realistic four-question German body
@@ -1036,6 +1063,18 @@ envelope (`lib/request-context.ts:313-315` → `project_context.py:332`), replac
 the single `memoryReflectionEnabled` boolean with `stagesEnabled: string[]`.
 Keep the old header for one release so a mixed deployment does not go dark.
 
+> **[as built, slice 3] — the rollout, concretely.** The
+> `post-answer-follow-ups` WorkOS flag exists and is enabled for **exactly one
+> organization**: `flagEnabled: true`, `accessType: SOME` with a single
+> `organizations` entry and `defaultEnabled: false`, so a newly created tenant
+> does not inherit it. The production environment has the flag off entirely
+> (`accessType: NONE`). Because the set is re-read per turn through
+> `GET /api/internal/stages` behind the 30s cache, clearing the org from the flag
+> stops the frames within a turn or two — no deploy, no reconnect, and no effect
+> on the answer either way. `defaultOn: false` in `POST_ANSWER_STAGE_FLAGS` is
+> what the non-enforcing deployments see, so "off everywhere else" holds without
+> WorkOS too.
+
 **One defect to fix while here:** the flag is evaluated at socket upgrade
 (`app/api/auth/websocket-scope/route.ts:57-62`), so today the kill switch does not
 reach an open tab. Move the evaluation into the per-turn envelope so "off" means
@@ -1237,12 +1276,31 @@ Written here because "contract-first" is unenforceable without it.
   > nothing for a frame builder to assert about them, and they are where the
   > version-skew behaviour of §4.1 stops being a promise.
   >
-  > **The Python reader does not exist yet** — slice 1 shipped `delivery="silent"`
-  > and has no frame to build. Until it does, the TypeScript side reads
-  > `stages/runner.py` directly and asserts the frame type, the envelope version
-  > and the builder's key set against the fixtures, the way
-  > `research-truncated-wire.spec.ts` already reads `websocket_reconnect.py`.
-  > Slice 3 should replace that with the Python fixture test, not add to it.
+  > **[as built, slice 3] The Python reader is
+  > `tests/aiq_agent/stages/test_frame_contract.py`**, and the stand-in is gone.
+  > While slice 1 shipped `delivery="silent"` there was no frame to build, so the
+  > TypeScript side stood in for the missing half by reading `stages/runner.py`
+  > as text and pinning the frame type, the envelope version and the builder's
+  > key set with regexes. That was deleted in the same commit that landed the
+  > real reader rather than kept beside it: two tests asserting the same thing by
+  > different routes is how one of them quietly stops meaning anything, and the
+  > one that would have stopped meaning anything is the one that greps another
+  > language's source for a constant.
+  >
+  > The real reader says three things the stand-in could not. **Exhaustiveness is
+  > derived from the registry**, not from a literal list — every stage declaring
+  > `delivery="frame"` must have a fixture for each of `ready`/`empty`/`failed`,
+  > so on the day §10's slice 4b flips `memory_reflection`, the test fails and
+  > names the three fixtures it needs instead of a frame shape shipping that no
+  > client was built against. The reverse holds too: **no fixture may describe a
+  > `silent` stage**, which writes its own durable state and tells nobody. And a
+  > **`ready` fixture's payload must validate against its own stage's
+  > `payload_model`** — otherwise the fixture is fiction, because a payload the
+  > stage's own model rejects becomes `failed` long before it reaches a frame.
+  >
+  > Changing the fixture file fails BOTH halves; changing one half's code fails
+  > only that half. That asymmetry is the contract working, and it was verified
+  > by doing it.
 - **Frontend, no backend:** `/dev/chat-turn?variant=follow-ups-rail` renders the
   rail from a fixture, plus a variant with the rail absent, so the "no space
   reserved" claim of §8 is a screenshot and not an assertion.
@@ -1260,7 +1318,7 @@ alone. Nothing else may start before 0.**
 | **0** ✅ | **BUILT.** The primitive: `stages/` package, `StageSpec`, `TurnFacts`, runner (semaphore + timeout + span), registry, sink interface. Reflection ported onto it, behaviour-identical, flag unchanged. No new stage, no frame. Carries the §1.4 and §1.5 fixes and the §7.8 kill-switch fix. | — | yes — a pure refactor with the §1.4/§1.5 fixes | revert |
 | **1** ✅ | **BUILT.** Backend `follow_ups`: gate, handler, prompt, payload model. `delivery="silent"` — **it runs and is measured, and delivers nothing.** Carries `StageEmpty` (§2.4), per-stage cost on the span (§7.4) and the backend↔BFF stage-flag parity guard. | 0 | yes | flag off |
 | **2** ✅ | **BUILT.** Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures, which now exist as `shared/stages/frames.json`. Carries the §8 correction (three arrival conditions, not two) and the §6.2 one. | — (contract only) | yes — renders from fixtures with no backend | revert |
-| **3** | Wire them: sink registration in `aiq_api`, `delivery="frame"`, flag on for one org. | 0,1,2 | yes | flag off |
+| **3** ✅ | **BUILT.** Wire them: `aiq_api` publishes the frame sink (`GridStageMessage` + `send_stage_frame`, registered at plugin import), `follow_ups` declares `delivery="frame"`, and the `post-answer-follow-ups` flag is on for one organization and off everywhere else. Carries the §9 contract test's Python half, which replaces the slice-2 stand-in. | 0,1,2 | yes | flag off |
 | **4** | Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal, export skip (§7.10). | 3 **observed** | yes | revert step 1 of §7.10 |
 | **4b** | Reflection's own frame + the per-turn chip; delete the poll (§5.1, §1.7). | 3 | yes | flag off |
 
@@ -1301,6 +1359,28 @@ Then the specific risks:
    to a socket mid-turn. Mitigation: the sink is a separate frame type the client
    dispatches separately; the send is `try/except` with the outcome recorded, and
    a failed send is `outcome:"failed"`, never a raise.
+
+   > **[as built, slice 3]** This risk is now an assertion rather than a
+   > mitigation.
+   > `tests/aiq_agent/stages/test_the_answer_survives_a_failing_stage.py` runs the
+   > real `schedule_post_answer_stages`, the real sink, the real
+   > `WebSocketSessionRegistry` and the real message handler over a recording
+   > socket, with the stage tasks deliberately left in flight while the answer is
+   > being written — the only arrangement in which a stage COULD corrupt the
+   > stream — and compares the **bytes**: a turn whose stage raises, is
+   > rate-limited, times out, or returns a payload its own model rejects must put
+   > the same answer frames on the socket, in the same order, as a turn with no
+   > stage at all. It also pins that scheduling returns before any handler has
+   > run, that a stage which never finishes does not hold up the close of the
+   > turn, and that a sink which raises is neither an exception in the turn nor a
+   > stage marked failed. One correction to the phrasing above: an undelivered
+   > send is **not** `outcome:"failed"` — see §7.1's note; only a sink that raises
+   > is caught, and it is still not a stage failure.
+   >
+   > What is deliberately NOT asserted is the ORDER the two kinds of frame arrive
+   > in. That is a genuine race and §7.7 says nothing may depend on it. The rule
+   > that a rail must not appear while the answer is still streaming is enforced
+   > client-side, at arrival, per §8.
 3. **The turn identity is a shim, not a fix.** `(conversation_id, ws_parent_id)`
    works because the browser holds both halves. It does **not** let the backend
    attach output to a message when the browser is gone, so **a stage's output is

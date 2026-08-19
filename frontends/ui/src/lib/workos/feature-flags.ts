@@ -19,9 +19,10 @@ export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
 
 /**
  * Slug of the flag gating the async post-answer follow-up-questions stage.
- * The stage currently delivers nothing to the reader — it runs so its skip
- * rate, empty rate and true per-turn cost can be measured before any chip is
- * rendered (docs/architecture/post-answer-stages.md §10, slice 1).
+ * The stage delivers a `grid_stage_message` frame that renders as a rail below
+ * the answer; it ran `silent` for one slice first so its skip rate, empty rate
+ * and true per-turn cost were measured before any reader saw a chip
+ * (docs/architecture/post-answer-stages.md §10, slices 1 and 3).
  */
 export const FOLLOW_UPS_FLAG = 'post-answer-follow-ups'
 
@@ -103,9 +104,9 @@ export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
     id: 'follow_ups',
     flag: FOLLOW_UPS_FLAG,
     envVar: 'GRID_STAGE_FOLLOW_UPS_ENABLED',
-    // OFF, as every new stage is: it costs an LLM call per substantive answer
-    // and, in this slice, delivers nothing at all. It is switched on per org to
-    // be measured.
+    // OFF, as every new stage is: it costs an LLM call per substantive answer.
+    // It is switched on per org — one, for now — and off again without a
+    // deploy, which is the whole of this feature's rollback story.
     defaultOn: false,
   },
 ]

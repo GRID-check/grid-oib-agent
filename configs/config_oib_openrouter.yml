@@ -853,7 +853,8 @@ workflow:
   # BFF (`GET /api/internal/stages`): the `post-answer-follow-ups` WorkOS flag
   # when GRID_ENFORCE_FEATURE_FLAGS is on, otherwise
   # GRID_STAGE_FOLLOW_UPS_ENABLED, which — like every new stage — defaults OFF.
-  # The stage currently delivers NOTHING to the reader; it runs so its skip
-  # rate, empty rate and true per-turn cost can be measured before any chip is
-  # rendered (post-answer-stages.md §10, slice 1).
+  # The stage delivers a `grid_stage_message` frame, rendered as a rail below
+  # the answer card. It ran `silent` for one slice first, so its skip rate,
+  # empty rate and true per-turn cost were measured before any reader saw a chip
+  # (post-answer-stages.md §10, slices 1 and 3).
   follow_ups_llm: follow_ups_llm
