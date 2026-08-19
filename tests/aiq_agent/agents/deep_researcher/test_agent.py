@@ -75,6 +75,34 @@ def output_markdown_file(markdown: str | None = None) -> dict:
     }
 
 
+def streaming_graph_mock(*chunks, error: BaseException | None = None, hang: bool = False) -> MagicMock:
+    """A mock compiled graph that STREAMS, the way run() now drives it.
+
+    run() calls ``astream(state, config=..., stream_mode="values", ...)`` rather
+    than ``ainvoke`` so a cut-off run still has the last graph state to salvage.
+    The mock yields ``chunks`` in order (each one a full graph state, as
+    ``stream_mode="values"`` produces), then optionally raises ``error`` or hangs
+    forever so the wall-clock guard can fire. Call args land on ``.astream``, so
+    config/durability assertions read from there.
+    """
+    graph = MagicMock()
+    graph.with_config = MagicMock(return_value=graph)
+
+    def _astream(*_args, **_kwargs):
+        async def _generate():
+            for chunk in chunks:
+                yield chunk
+            if error is not None:
+                raise error
+            if hang:
+                await asyncio.sleep(3600)
+
+        return _generate()
+
+    graph.astream = MagicMock(side_effect=_astream)
+    return graph
+
+
 @pytest.fixture(autouse=True)
 def mock_research_summarization_middleware():
     """Avoid requiring a concrete BaseChatModel for researcher runnable construction tests."""
@@ -183,15 +211,12 @@ class TestDeepResearcherAgent:
     @pytest.fixture
     def mock_create_deep_agent(self):
         """Create a mock for create_deep_agent (deepagents)."""
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(
-            return_value={
+        return streaming_graph_mock(
+            {
                 "messages": [AIMessage(content="Deep research answer")],
                 "files": output_markdown_file(),
             }
         )
-        return mock_agent
 
     def test_init_with_defaults(self, mock_llm_provider, real_tool, mock_create_deep_agent):
         """Test DeepResearcherAgent initialization with defaults."""

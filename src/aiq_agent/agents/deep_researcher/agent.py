@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,12 @@ from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
+from aiq_agent.common.turn_status import CUTOFF_STEP_LIMIT
+from aiq_agent.common.turn_status import CUTOFF_WALL_CLOCK
+from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
+from aiq_agent.common.turn_status import DEGRADED_NO_VALID_CITATIONS
+from aiq_agent.common.turn_status import emit_answer_degraded
+from aiq_agent.common.turn_status import emit_deep_research_cutoff
 
 from .custom_middleware import SourceRegistryMiddleware
 from .deepagents_runtime import DeepAgentsRuntime
@@ -58,6 +65,109 @@ AGENT_DIR = Path(__file__).parent
 #: ``agent_type`` uses, the string the Skills tab writes, and the string
 #: resolved here are the same string.
 SKILL_AGENT = "deep_researcher"
+
+#: How much salvaged report is worth shipping. Below this the "report" is a
+#: stub — a heading, a half sentence, the writer's opening line — and handing it
+#: to a reader under a "was cut off" banner would be worse than the honest
+#: failure: it looks like an answer. A cutoff with less than this raises the
+#: original error instead.
+MIN_SALVAGE_REPORT_CHARS = 200
+
+
+class _NeverRaised(Exception):
+    """Placeholder so ``except _GRAPH_RECURSION_ERRORS`` is always a valid clause.
+
+    ``except ()`` is a syntactically fine but semantically dead clause, and an
+    empty tuple is what a failed guarded import would otherwise leave behind.
+    Catching a class nothing ever raises is the same no-op, spelled safely.
+    """
+
+
+try:  # langgraph's error module is not part of any stability promise we rely on
+    from langgraph.errors import GraphRecursionError
+
+    _GRAPH_RECURSION_ERRORS: tuple[type[BaseException], ...] = (GraphRecursionError,)
+except ImportError:  # pragma: no cover - only on a langgraph that moved the name
+    logger.warning(
+        "langgraph.errors.GraphRecursionError is unavailable; a deep run that exhausts "
+        "the orchestrator's step limit will fail instead of salvaging its partial report"
+    )
+    _GRAPH_RECURSION_ERRORS = (_NeverRaised,)
+
+#: The banner's opening, in the report and in the length check that ignores it.
+_HONESTY_BANNER_PREFIX = "> **Hinweis:**"
+
+#: What a reader is told the run ran out of. Deliberately coarse: the operator
+#: channel carries the token, the reader gets the kind of limit and nothing that
+#: pretends to be an error taxonomy.
+_CUTOFF_LIMIT_LABELS = {
+    CUTOFF_WALL_CLOCK: "Zeitlimits",
+    CUTOFF_STEP_LIMIT: "Schritt-Limits",
+}
+
+
+def _set_state_field(result: Any, key: str, value: Any) -> None:
+    """Set ``key`` on a graph state that may be a dict or an object.
+
+    LangGraph hands back a plain dict today, but the salvage path also sees
+    whatever the last streamed chunk happened to be, so both shapes are
+    supported. Guarded: annotating the state is transparency, never a reason to
+    lose an answer that is otherwise ready to ship.
+    """
+    try:
+        if isinstance(result, dict):
+            result[key] = value
+        else:
+            setattr(result, key, value)
+    except Exception:  # noqa: BLE001 - annotation must never fail the run
+        logger.debug("Could not set state field %r", key, exc_info=True)
+
+
+def _prepend_honesty_banner(
+    report: str,
+    *,
+    cutoff_reason: str | None,
+    degraded_reasons: list[str] | None,
+) -> str:
+    """Put the answer's own limitations at the top of the answer.
+
+    German, like every other line this product writes to a reader, and in the
+    register of the job runner's ``FAILURE_NOTICE``: factual, short, Sie-form,
+    no invented error taxonomy. It rides the REPORT rather than only the state
+    flags because the report is what travels furthest — into the conversation,
+    the job output, the exported PDF — and someone reading only that must still
+    be able to tell that it is partial.
+    """
+    sentences: list[str] = []
+    if cutoff_reason is not None:
+        limit = _CUTOFF_LIMIT_LABELS.get(cutoff_reason)
+        if limit:
+            sentences.append(
+                f"Diese Recherche wurde wegen des erreichten {limit} vorzeitig beendet, "
+                "der folgende Bericht ist daher unvollständig."
+            )
+        else:
+            sentences.append("Diese Recherche wurde vorzeitig beendet, der folgende Bericht ist daher unvollständig.")
+    if degraded_reasons:
+        sentences.append("Die Angaben konnten nicht vollständig geprüft werden und sind nur eingeschränkt belastbar.")
+    if not sentences:
+        return report
+    return f"{_HONESTY_BANNER_PREFIX} {' '.join(sentences)}\n\n{report.lstrip()}"
+
+
+def _salvaged_report_length(text: str) -> int:
+    """Length of the salvaged report itself, not counting the banner.
+
+    The banner is roughly a hundred characters the agent wrote about itself.
+    Counting it toward :data:`MIN_SALVAGE_REPORT_CHARS` would let a stub clear
+    the bar purely because we had labelled it as a stub.
+    """
+    body = text
+    if body.startswith(_HONESTY_BANNER_PREFIX):
+        _, separator, remainder = body.partition("\n\n")
+        if separator:
+            body = remainder
+    return len(body.strip())
 
 
 def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -442,149 +552,358 @@ class DeepResearcherAgent:
                 invoke_config["configurable"] = {"thread_id": self.job_id}
                 ainvoke_kwargs["durability"] = "async"
 
+            # The graph is STREAMED, not awaited as one opaque call, purely so a
+            # cutoff has something to salvage. ``stream_mode="values"`` yields the
+            # full graph state after every step, so the newest one we saw is the
+            # run's last known state — including any report the writer already
+            # persisted to /shared/output.md. Awaiting ``ainvoke`` instead meant
+            # the wall-clock and step-limit cutoffs raised out of a call that had
+            # never returned a state, and every research note, captured source,
+            # and finished-but-unreturned report died with the exception.
+            last_state: Any = None
+            started = time.monotonic()
+
+            async def _consume() -> Any:
+                nonlocal last_state
+                async for chunk in agent.astream(
+                    state,
+                    config=invoke_config or None,
+                    stream_mode="values",
+                    **ainvoke_kwargs,
+                ):
+                    last_state = chunk
+                return last_state
+
             # Wall-clock budget: per-call request_timeout bounds a single HTTP
             # request, recursion_limit bounds step COUNT — neither bounds total
             # run time, so a pathological run could otherwise hold a worker
             # slot forever.
-            invocation = agent.ainvoke(state, config=invoke_config or None, **ainvoke_kwargs)
-            if self.max_run_seconds > 0:
-                try:
-                    result = await asyncio.wait_for(invocation, timeout=self.max_run_seconds)
-                except TimeoutError as exc:
-                    raise TimeoutError(
+            try:
+                if self.max_run_seconds > 0:
+                    result = await asyncio.wait_for(_consume(), timeout=self.max_run_seconds)
+                else:
+                    result = await _consume()
+            except TimeoutError as exc:
+                return self._finalize_cutoff(
+                    last_state,
+                    cutoff_reason=CUTOFF_WALL_CLOCK,
+                    elapsed_seconds=time.monotonic() - started,
+                    source_registry_middleware=source_registry_middleware,
+                    callbacks=callbacks,
+                    original=TimeoutError(
                         f"deep research exceeded the {self.max_run_seconds} s wall-clock budget"
-                    ) from exc
-            else:
-                result = await invocation
-
-            final_message = self._extract_final_markdown(result)
-            if final_message is None:
-                # The writer normally persists the report to /shared/output.md.
-                # When it doesn't — the agent went off-task, replied only
-                # conversationally, or ran out of steps mid-write — fall back to
-                # its last message so the user gets the produced content instead
-                # of a hard job failure. Raise only when there is truly nothing.
-                fallback = self._extract_last_message_text(result)
-                if fallback is None:
-                    if self.enable_citation_verification and not source_registry_middleware.has_sources():
-                        # No report AND no captured sources: research never
-                        # produced anything salvageable.
-                        raise self._empty_source_registry_error()
-                    raise ValueError("writer-agent did not produce a final Markdown answer")
-                logger.warning(
-                    "writer-agent did not persist a report to /shared/output.md; "
-                    "falling back to the agent's last message (%d chars) instead of failing the job",
-                    len(fallback),
+                    ),
+                    cause=exc,
                 )
-                final_message = fallback
-
-            # Post-process: verify citations against source registry
-            if self.enable_citation_verification and source_registry_middleware.has_sources():
-                registry = source_registry_middleware.active_registry()
-                verification = verify_citations(
-                    final_message,
-                    registry,
-                    reference_sources=source_registry_middleware.get_source_entries(mode="compact"),
+            except _GRAPH_RECURSION_ERRORS as exc:
+                # The orchestrator ran out of steps. Identical treatment to the
+                # clock: whatever it had produced by step N is still worth more
+                # than an error page.
+                return self._finalize_cutoff(
+                    last_state,
+                    cutoff_reason=CUTOFF_STEP_LIMIT,
+                    elapsed_seconds=time.monotonic() - started,
+                    source_registry_middleware=source_registry_middleware,
+                    callbacks=callbacks,
+                    original=exc,
+                    cause=exc,
                 )
-                unverified_quote_count = 0
-                if verification.removed_citations:
-                    removed_details = []
-                    for c in verification.removed_citations:
-                        url_match = re.search(r"https?://\S+", c.get("line", ""))
-                        url_str = url_match.group(0).rstrip(".,;)") if url_match else "(no url)"
-                        removed_details.append(f"[{c['number']}] {c['reason']}: {url_str}")
-                    logger.info(
-                        "Citation verification removed %d invalid citation(s):\n  %s",
-                        len(verification.removed_citations),
-                        "\n  ".join(removed_details),
-                    )
-                    # Transparency: surface the removal on the result state so the
-                    # chat orchestrator can lift it onto the terminal chunk. Only
-                    # set when ≥1 citation was actually removed (field stays absent
-                    # otherwise). result is the LangGraph state dict validated below.
-                    citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
-                    if citations_removed_summary is not None:
-                        result["citations_removed"] = citations_removed_summary
-                final_message = verification.verified_report
-                # Quote verification: verify_citations only proves each cited
-                # SOURCE is real, not that a QUOTED sentence actually appears in
-                # it. Catch the weak model's "real section, fabricated quote"
-                # pattern by checking each quoted span against the retrieved
-                # passage text. Fail-open: annotate inline, never strip.
-                unverified_quotes = verify_quoted_spans(final_message, registry)
-                if unverified_quotes:
-                    final_message = annotate_unverified_quotes(final_message, unverified_quotes)
-                    unverified_quote_count = len(unverified_quotes)
-                    logger.info(
-                        "Citation verification: %d quoted span(s) not verbatim in any retrieved "
-                        "passage; annotated inline",
-                        len(unverified_quotes),
-                    )
-                if not verification.valid_citations:
-                    logger.warning(
-                        "Citation verification found no valid citations in writer-agent output; "
-                        "returning the generated report without failing the job. "
-                        "This may indicate unsupported citation formatting or over-aggressive verification."
-                    )
 
-                # Citation-health ledger: one batch per deep-research run, the
-                # same shape the shallow researcher posts. Deep reports carry no
-                # self-assessed confidence marker, so no cap reason is recorded.
-                #
-                # The whole registry IS this run's retrieval here — the deep
-                # researcher builds a fresh SourceRegistry per run (ADR-0018),
-                # unlike the shallow agent's registry, which is cumulative
-                # across a conversation and therefore needs the per-turn capture
-                # log to keep source_count comparable to cited_count. The
-                # asymmetry is intentional; do not "align" them.
-                registry_sources = registry.all_sources()
-                citation_events.record_turn(
-                    agent="deep",
-                    source_count=len(registry_sources),
-                    cited_count=len(verification.valid_citations),
-                    removed_citations=list(verification.removed_citations),
-                    unverified_quote_count=unverified_quote_count,
-                    grounded=bool(verification.valid_citations),
-                    source_origins=[
-                        source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources
-                    ],
-                    source_tools=[entry.tool_name or None for entry in registry_sources],
-                    # Source IDENTITIES (URL / document key) — never report prose.
-                    retrieved_source_labels=[label for label in map(source_label, registry_sources) if label],
-                    cited_source_labels=[
-                        label
-                        for label in ((c.get("citation_key") or c.get("url")) for c in verification.valid_citations)
-                        if label
-                    ],
-                )
-            elif self.enable_citation_verification:
-                # A completed report exists but no sources were ever captured:
-                # every finding is ungrounded (the writer answered from model
-                # memory), so the report cannot be citation-verified. Fail the
-                # job loudly instead of shipping an unverifiable report — an
-                # empty registry at the end of a research run is a failure, not
-                # a degraded success.
-                raise self._empty_source_registry_error()
-
-            # Post-process: sanitize report (strip body URLs, shortened URLs, unsafe URLs)
-            sanitization = sanitize_report(final_message)
-            final_message = sanitization.sanitized_report
-
-            # Re-emit the verified/sanitized report so the frontend overwrites
-            # the raw version that on_llm_end auto-emitted during ainvoke().
-            for cb in callbacks:
-                if hasattr(cb, "emit_final_report"):
-                    cb.emit_final_report(final_message)
-                    break
-
-            self._replace_last_message_content(result, final_message)
-
-            logger.info("=" * 80)
-            logger.info("Deep Research Subagent: Workflow complete")
-            logger.info("Final answer length: %d characters", len(final_message))
-            logger.info("=" * 80)
-            return DeepResearchAgentState.model_validate(result)
+            return self._finalize(
+                result,
+                source_registry_middleware=source_registry_middleware,
+                callbacks=callbacks,
+                cutoff_reason=None,
+            )
 
         except Exception as ex:
             logger.error("Deep Research Subagent failed: %s", ex, exc_info=True)
             raise
+
+    def _finalize_cutoff(
+        self,
+        last_state: Any,
+        *,
+        cutoff_reason: str,
+        elapsed_seconds: float,
+        source_registry_middleware: SourceRegistryMiddleware,
+        callbacks: list[Any],
+        original: BaseException,
+        cause: BaseException,
+    ) -> DeepResearchAgentState:
+        """Salvage a cut-off run, or re-raise loudly when there is nothing to save.
+
+        The salvage bar, deliberately conservative: post-processing has to yield
+        a report of at least :data:`MIN_SALVAGE_REPORT_CHARS` characters, and the
+        run's normal grounding guard still applies — a run that captured no
+        sources still fails with ``EmptySourceRegistryError`` rather than shipping
+        an unciteable stub under a "was cut off" banner. Anything that clears the
+        bar is returned MARKED, never quietly.
+        """
+        source_count = 0
+        try:
+            source_count = len(source_registry_middleware.active_registry().all_sources())
+        except Exception:  # noqa: BLE001 - counting must not mask the cutoff
+            logger.debug("Could not count captured sources on cutoff", exc_info=True)
+
+        if last_state is None:
+            emit_deep_research_cutoff(
+                reason=cutoff_reason,
+                salvaged=False,
+                source_count=source_count,
+                report_chars=0,
+                elapsed_seconds=elapsed_seconds,
+            )
+            logger.error(
+                "Deep research cut off (%s) after %.1fs with NO partial state to salvage "
+                "(captured sources: %d)",
+                cutoff_reason,
+                elapsed_seconds,
+                source_count,
+            )
+            raise original from cause
+
+        try:
+            finalized = self._finalize(
+                last_state,
+                source_registry_middleware=source_registry_middleware,
+                callbacks=callbacks,
+                cutoff_reason=cutoff_reason,
+            )
+        except Exception as salvage_error:
+            # Salvage failed its own guards (no report, nothing grounded). The
+            # cutoff is the real story, so raise THAT — with the salvage failure
+            # attached so the log shows why nothing was recoverable.
+            emit_deep_research_cutoff(
+                reason=cutoff_reason,
+                salvaged=False,
+                source_count=source_count,
+                report_chars=0,
+                elapsed_seconds=elapsed_seconds,
+            )
+            logger.error(
+                "Deep research cut off (%s) after %.1fs; nothing salvageable (%s: %s)",
+                cutoff_reason,
+                elapsed_seconds,
+                type(salvage_error).__name__,
+                salvage_error,
+            )
+            raise original from salvage_error
+
+        report_chars = _salvaged_report_length(self._extract_last_message_text(finalized) or "")
+        if report_chars < MIN_SALVAGE_REPORT_CHARS:
+            # Post-processing produced something, but not enough of something.
+            # A stub under a truncation banner still reads as an answer, so it
+            # is treated as nothing to salvage and the cutoff is raised loudly.
+            emit_deep_research_cutoff(
+                reason=cutoff_reason,
+                salvaged=False,
+                source_count=source_count,
+                report_chars=report_chars,
+                elapsed_seconds=elapsed_seconds,
+            )
+            logger.error(
+                "Deep research cut off (%s) after %.1fs; salvaged only %d char(s), below the "
+                "%d-char bar — failing the run instead of shipping a stub",
+                cutoff_reason,
+                elapsed_seconds,
+                report_chars,
+                MIN_SALVAGE_REPORT_CHARS,
+            )
+            raise original from cause
+
+        emit_deep_research_cutoff(
+            reason=cutoff_reason,
+            salvaged=True,
+            source_count=source_count,
+            report_chars=report_chars,
+            elapsed_seconds=elapsed_seconds,
+        )
+        logger.warning(
+            "Deep research cut off (%s) after %.1fs; SALVAGED a %d-char report from "
+            "%d captured source(s) instead of failing the run",
+            cutoff_reason,
+            elapsed_seconds,
+            report_chars,
+            source_count,
+        )
+        return finalized
+
+    def _finalize(
+        self,
+        result: Any,
+        *,
+        source_registry_middleware: SourceRegistryMiddleware,
+        callbacks: list[Any],
+        cutoff_reason: str | None,
+    ) -> DeepResearchAgentState:
+        """Turn a graph state into the finished, verified, honestly-labelled answer.
+
+        Shared by the normal path and the salvage path so a cut-off run is
+        post-processed by exactly the same citation verification, quote
+        verification and sanitisation as a complete one — the only difference
+        being the banner and the flags that say it was cut off.
+        """
+        degraded_reasons: list[str] = []
+
+        final_message = self._extract_final_markdown(result)
+        if final_message is None:
+            # The writer normally persists the report to /shared/output.md.
+            # When it doesn't — the agent went off-task, replied only
+            # conversationally, or ran out of steps mid-write — fall back to
+            # its last message so the user gets the produced content instead
+            # of a hard job failure. Raise only when there is truly nothing.
+            fallback = self._extract_last_message_text(result)
+            if fallback is None:
+                if self.enable_citation_verification and not source_registry_middleware.has_sources():
+                    # No report AND no captured sources: research never
+                    # produced anything salvageable.
+                    raise self._empty_source_registry_error()
+                raise ValueError("writer-agent did not produce a final Markdown answer")
+            logger.warning(
+                "writer-agent did not persist a report to /shared/output.md; "
+                "falling back to the agent's last message (%d chars) instead of failing the job",
+                len(fallback),
+            )
+            # Not just a log line any more: an answer that is a chat message
+            # wearing a report's clothes is materially weaker than a written
+            # report, and the reader is now told so.
+            degraded_reasons.append(DEGRADED_NO_REPORT_FILE)
+            final_message = fallback
+
+        # Post-process: verify citations against source registry
+        if self.enable_citation_verification and source_registry_middleware.has_sources():
+            registry = source_registry_middleware.active_registry()
+            verification = verify_citations(
+                final_message,
+                registry,
+                reference_sources=source_registry_middleware.get_source_entries(mode="compact"),
+            )
+            unverified_quote_count = 0
+            if verification.removed_citations:
+                removed_details = []
+                for c in verification.removed_citations:
+                    url_match = re.search(r"https?://\S+", c.get("line", ""))
+                    url_str = url_match.group(0).rstrip(".,;)") if url_match else "(no url)"
+                    removed_details.append(f"[{c['number']}] {c['reason']}: {url_str}")
+                logger.info(
+                    "Citation verification removed %d invalid citation(s):\n  %s",
+                    len(verification.removed_citations),
+                    "\n  ".join(removed_details),
+                )
+                # Transparency: surface the removal on the result state so the
+                # chat orchestrator can lift it onto the terminal chunk. Only
+                # set when >=1 citation was actually removed (field stays absent
+                # otherwise). result is the LangGraph state dict validated below.
+                citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
+                if citations_removed_summary is not None:
+                    _set_state_field(result, "citations_removed", citations_removed_summary)
+            final_message = verification.verified_report
+            # Quote verification: verify_citations only proves each cited
+            # SOURCE is real, not that a QUOTED sentence actually appears in
+            # it. Catch the weak model's "real section, fabricated quote"
+            # pattern by checking each quoted span against the retrieved
+            # passage text. Fail-open: annotate inline, never strip.
+            unverified_quotes = verify_quoted_spans(final_message, registry)
+            if unverified_quotes:
+                final_message = annotate_unverified_quotes(final_message, unverified_quotes)
+                unverified_quote_count = len(unverified_quotes)
+                logger.info(
+                    "Citation verification: %d quoted span(s) not verbatim in any retrieved "
+                    "passage; annotated inline",
+                    len(unverified_quotes),
+                )
+            if not verification.valid_citations:
+                logger.warning(
+                    "Citation verification found no valid citations in writer-agent output; "
+                    "returning the generated report without failing the job. "
+                    "This may indicate unsupported citation formatting or over-aggressive verification."
+                )
+                # A report with nothing provably grounded looked exactly like a
+                # good one until here. It still ships — over-aggressive
+                # verification is a real possibility, so this is not a failure —
+                # but it no longer ships silently.
+                degraded_reasons.append(DEGRADED_NO_VALID_CITATIONS)
+
+            # Citation-health ledger: one batch per deep-research run, the
+            # same shape the shallow researcher posts. Deep reports carry no
+            # self-assessed confidence marker, so no cap reason is recorded.
+            #
+            # The whole registry IS this run's retrieval here — the deep
+            # researcher builds a fresh SourceRegistry per run (ADR-0018),
+            # unlike the shallow agent's registry, which is cumulative
+            # across a conversation and therefore needs the per-turn capture
+            # log to keep source_count comparable to cited_count. The
+            # asymmetry is intentional; do not "align" them.
+            registry_sources = registry.all_sources()
+            citation_events.record_turn(
+                agent="deep",
+                source_count=len(registry_sources),
+                cited_count=len(verification.valid_citations),
+                removed_citations=list(verification.removed_citations),
+                unverified_quote_count=unverified_quote_count,
+                grounded=bool(verification.valid_citations),
+                source_origins=[
+                    source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources
+                ],
+                source_tools=[entry.tool_name or None for entry in registry_sources],
+                # Source IDENTITIES (URL / document key) — never report prose.
+                retrieved_source_labels=[label for label in map(source_label, registry_sources) if label],
+                cited_source_labels=[
+                    label
+                    for label in ((c.get("citation_key") or c.get("url")) for c in verification.valid_citations)
+                    if label
+                ],
+            )
+        elif self.enable_citation_verification:
+            # A completed report exists but no sources were ever captured:
+            # every finding is ungrounded (the writer answered from model
+            # memory), so the report cannot be citation-verified. Fail the
+            # job loudly instead of shipping an unverifiable report — an
+            # empty registry at the end of a research run is a failure, not
+            # a degraded success.
+            raise self._empty_source_registry_error()
+
+        # Post-process: sanitize report (strip body URLs, shortened URLs, unsafe URLs)
+        sanitization = sanitize_report(final_message)
+        final_message = sanitization.sanitized_report
+
+        # A cut-off run is salvaged, never disguised. The banner rides the REPORT
+        # itself rather than only the state flags, because the report is the
+        # artifact that travels furthest — into the conversation, the job output,
+        # and the exported document — and a flag that only the live socket
+        # understands would not reach a reader opening the PDF next week.
+        if cutoff_reason is not None or degraded_reasons:
+            final_message = _prepend_honesty_banner(
+                final_message,
+                cutoff_reason=cutoff_reason,
+                degraded_reasons=degraded_reasons,
+            )
+
+        if cutoff_reason is not None:
+            _set_state_field(result, "research_truncated", True)
+            _set_state_field(result, "truncation_reason", cutoff_reason)
+        if degraded_reasons:
+            _set_state_field(result, "degraded_reasons", list(degraded_reasons))
+            emit_answer_degraded(agent="deep", reasons=degraded_reasons)
+
+        # Re-emit the verified/sanitized report so the frontend overwrites
+        # the raw version that on_llm_end auto-emitted during the stream.
+        for cb in callbacks:
+            if hasattr(cb, "emit_final_report"):
+                cb.emit_final_report(final_message)
+                break
+
+        self._replace_last_message_content(result, final_message)
+
+        logger.info("=" * 80)
+        logger.info("Deep Research Subagent: Workflow complete")
+        logger.info("Final answer length: %d characters", len(final_message))
+        if cutoff_reason or degraded_reasons:
+            logger.info(
+                "Answer shipped MARKED (cutoff=%s degraded=%s)",
+                cutoff_reason or "-",
+                ",".join(degraded_reasons) or "-",
+            )
+        logger.info("=" * 80)
+        return DeepResearchAgentState.model_validate(result)

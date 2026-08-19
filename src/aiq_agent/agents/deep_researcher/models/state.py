@@ -59,6 +59,22 @@ class DeepResearchAgentState(BaseModel):
     # The chat orchestrator lifts it onto the terminal chunk via
     # ``_normalize_citations_removed``.
     citations_removed: dict[str, Any] | None = None
+    # Evidence-gathering was CUT OFF, not completed: the run hit its wall-clock
+    # budget or the orchestrator's step limit and the answer was salvaged from
+    # whatever it had reached by then. Set ONLY on a cutoff (None otherwise), so
+    # presence is the fact — the same contract the shallow researcher's
+    # ``research_truncated`` uses, and the field the websocket layer already
+    # lifts onto the terminal frame.
+    research_truncated: bool | None = None
+    # WHY the run was cut off, as a stable token (``wall_clock`` / ``step_limit``)
+    # for the operator channel. Never prose: the reader is told about truncation
+    # by the report's own banner, in the product's voice.
+    truncation_reason: str | None = None
+    # Ways this answer is weaker than a clean run, as stable tokens
+    # (``no_report_file``, ``no_valid_citations``). These used to be
+    # ``logger.warning`` only — a degraded answer shipped looking exactly like a
+    # good one. Empty/None means the run degraded in none of the known ways.
+    degraded_reasons: list[str] | None = None
     # The tenant whose skills this run resolves (``x-grid-organization-id`` on
     # the synchronous path). Carried on the STATE rather than read from the
     # request context because deep research runs in a Dask worker, where no
