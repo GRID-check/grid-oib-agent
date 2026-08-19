@@ -2,6 +2,7 @@
 
 import typing
 
+from aiq_agent.cards.models import LegalBasisCard
 from aiq_agent.cards.models import MemoryProposalCard
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.models import validate_cards
@@ -1229,3 +1230,86 @@ class TestTheThreeNewCardsAreInTheDoctrineAndNotInTheCraft:
             assert block in detail
         # The worked examples ride along so the model copies the nesting exactly.
         assert "Einreichunterlagen" in detail
+
+
+class TestTheCitationSaysWhichAuthorityAndWhichAusgabe:
+    """`legal_basis` carries its Baurecht tier and its Ausgabe on the wire.
+
+    Both are provenance, not decoration. The tier decides which accent the
+    product's proof-of-work card paints, and it has to be a LANE key so the one
+    helper that decides OIB-vs-RIS (`accentForLane`) can read it — the card and
+    the "Belegt durch" chips must not be able to disagree about one document.
+    The Ausgabe is what separates a citation an architect can look up from one
+    they cannot.
+    """
+
+    def test_a_citation_carries_its_lane_and_its_edition(self):
+        card = grid_card_adapter.validate_python(
+            {
+                "type": "legal_basis",
+                "law": "OIB-Richtlinie 2",
+                "lane": "baurecht_oib",
+                "edition": "Ausgabe Mai 2023",
+            }
+        )
+        assert card.lane == "baurecht_oib"
+        assert card.edition == "Ausgabe Mai 2023"
+
+    def test_both_are_optional_and_default_to_unstated(self):
+        # A card that names neither is still the proof; requiring either would
+        # drop the whole citation over a display field the model may not know.
+        card = grid_card_adapter.validate_python({"type": "legal_basis", "law": "Wiener Bauordnung"})
+        assert card.lane is None
+        assert card.edition is None
+
+    def test_the_lane_vocabulary_is_the_one_accent_for_lane_reads(self):
+        # Not 'oib' | 'law' (that is the accent it RESOLVES TO): the frontend
+        # helper matches on the `baurecht_oib` lane family, so the wire has to
+        # speak lanes.
+        lane_field = LegalBasisCard.model_fields["lane"]
+        assert typing.get_args(typing.get_args(lane_field.annotation)[0]) == ("baurecht_oib", "baurecht_ris")
+
+    def test_a_finer_oib_lane_folds_onto_the_oib_tier(self):
+        card = grid_card_adapter.validate_python(
+            {"type": "legal_basis", "law": "OIB-Leitfaden", "lane": "baurecht_oib_leitfaden"}
+        )
+        assert card.lane == "baurecht_oib"
+
+    def test_any_other_ris_rank_folds_onto_the_ris_tier(self):
+        for lane in ("baurecht_land", "baurecht_bund", "baurecht_verordnung", "baurecht_ris"):
+            card = grid_card_adapter.validate_python({"type": "legal_basis", "law": "BO", "lane": lane})
+            assert card.lane == "baurecht_ris", lane
+
+    def test_an_unclassified_document_claims_no_tier(self):
+        # `baurecht_basis` is the DEFAULT lane of a document nobody classified.
+        # Letting the `baurecht` prefix promote it to RIS would have an
+        # unclassified upload claim to be an Austrian legal source.
+        card = grid_card_adapter.validate_python(
+            {"type": "legal_basis", "law": "Bescheid MA 37", "lane": "baurecht_basis"}
+        )
+        assert card.lane is None
+
+    def test_a_lane_outside_the_baurecht_family_claims_no_tier(self):
+        for lane in ("norm_extern", "behoerde", "projekt", "buero", "web", "", "nonsense"):
+            card = grid_card_adapter.validate_python({"type": "legal_basis", "law": "ÖNORM B 1600", "lane": lane})
+            assert card.lane is None, lane
+
+    def test_an_unknown_lane_never_costs_the_card(self):
+        # The renderer degrades to the stratum colour; Pydantic rejecting the
+        # card would drop the proof instead of the field.
+        assert validate_cards([{"type": "legal_basis", "law": "X", "lane": "made_up"}]) == [
+            {"type": "legal_basis", "law": "X"}
+        ]
+
+    def test_the_worked_example_shows_the_model_both_fields(self):
+        # Top-level card fields are rendered to the model WITHOUT their
+        # descriptions (`_card_shape(..., with_desc=False)`), so the example is
+        # the only place it learns what to put in a controlled-vocabulary field.
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+        from aiq_agent.cards.catalog import render_card_details
+
+        assert CARD_EXAMPLES["legal_basis"]["lane"] == "baurecht_oib"
+        assert CARD_EXAMPLES["legal_basis"]["edition"] == "Ausgabe Mai 2023"
+        detail = render_card_details(["legal_basis"])
+        assert '"baurecht_oib" | "baurecht_ris"' in detail
+        assert "Ausgabe Mai 2023" in detail

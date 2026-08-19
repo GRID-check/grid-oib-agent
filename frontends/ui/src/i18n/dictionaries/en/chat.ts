@@ -203,6 +203,9 @@ export const chat = {
   },
   cards: {
     legalBasis: 'Legal basis',
+    // Tooltip on the OIB / RIS tier badge: the badge itself is a proper noun
+    // that reads the same in both locales, so this is what says what it MEANS.
+    authority: 'Authority: {tag}',
     viewOib: 'View OIB Richtlinie',
     verifyRis: 'Verify in RIS',
     aiGenerated:

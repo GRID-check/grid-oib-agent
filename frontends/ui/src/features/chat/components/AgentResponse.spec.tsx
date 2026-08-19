@@ -218,6 +218,8 @@ describe('AgentResponse', () => {
       {
         type: 'legal_basis' as const,
         law: 'GDPR',
+        lane: null,
+        edition: null,
         article: '5',
         section: '1',
         summary: 'Summary of the legal basis',
@@ -319,6 +321,8 @@ describe('AgentResponse', () => {
         {
           type: 'legal_basis' as const,
           law: 'OIB-Richtlinie 2',
+          lane: 'baurecht_oib' as const,
+          edition: 'Ausgabe Mai 2023',
           article: null,
           section: 'Pkt. 5.1.1',
           summary: null,

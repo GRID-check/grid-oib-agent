@@ -60,6 +60,30 @@ export const PREVIEW_EXCLUDED: Record<string, 'needsModel' | 'needsDocuments'> =
   document_grid: 'needsDocuments',
 }
 
+/**
+ * The statute half of the `legal_basis` pair.
+ *
+ * `CARD_PREVIEW_FIXTURES` is keyed by card type, so it can hold exactly one
+ * `legal_basis` — and one is not enough for the card whose whole point is which
+ * tier of Baurecht it cites. A Gesetz keeps the law blue and the RIS badge, an
+ * OIB-Richtlinie takes the indigo accent and the OIB badge, and neither is
+ * derived from the law name: both come off `lane`. Rendered next to the fixture
+ * on `/dev/cards`, which is where the two are compared.
+ */
+export const LEGAL_BASIS_STATUTE: CardInput = {
+  type: 'legal_basis',
+  law: 'Wiener Bauordnung',
+  lane: 'baurecht_ris',
+  // A Gesetz has a Fassung, not an Ausgabe — the honest value here is none, and
+  // the card renders without it rather than inventing one.
+  article: '87',
+  section: 'Abs. 4',
+  summary:
+    'Bauliche Anlagen sind so zu errichten, dass die Standsicherheit und der Brandschutz während der gesamten Nutzungsdauer gewährleistet sind.',
+  original_text:
+    'Bauwerke müssen so geplant und ausgeführt werden, dass sie den zu erwartenden Einwirkungen standhalten.',
+}
+
 /** One sample card per renderable type, in authoring (schema-input) shape. */
 const RAW_FIXTURES: CardInput[] = [
   {
@@ -73,9 +97,16 @@ const RAW_FIXTURES: CardInput[] = [
       'Barrierefreier Aufzug ab 3 oberirdischen Geschossen',
     ],
   },
+  // The OIB tier: `lane` paints the indigo accent and the OIB badge, and the
+  // Ausgabe is what makes the citation checkable rather than merely named. Its
+  // statute counterpart is `LEGAL_BASIS_STATUTE` below — the map is keyed by
+  // type, so only one of the two can be the gallery's fixture; the pair exists
+  // so the difference the lane makes can be seen side by side.
   {
     type: 'legal_basis',
     law: 'OIB-Richtlinie 2',
+    lane: 'baurecht_oib',
+    edition: 'Ausgabe Mai 2023',
     article: '3.1.1',
     section: 'Tabelle 1a',
     summary: 'Die maximale Brandabschnittsfläche für oberirdische Geschosse in GK 4 beträgt 1.200 m².',

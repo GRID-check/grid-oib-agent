@@ -24,14 +24,87 @@ class SummaryCard(BaseModel):
 
 
 class LegalBasisCard(BaseModel):
-    """A legal norm, regulation, or OIB Richtlinie that grounds the answer."""
+    """A legal norm, regulation, or OIB Richtlinie that grounds the answer.
+
+    ## Why `lane` is a lane key and not `'oib' | 'law'`
+
+    The card paints the OIB accent (``--source-oib``) rather than the generic
+    law blue for an OIB-Richtlinie, because OIB and RIS are the two tiers
+    architects compare most often. The frontend decides that in exactly one
+    place, ``accentForLane`` (``features/chat/lib/source-kinds.ts``), and that
+    helper takes a FINE LANE KEY — the same vocabulary ``norm_registry
+    .lane_for_hit`` stamps on every retrieved chunk and every citation chip.
+
+    So this field carries lane keys verbatim. A parallel ``'oib' | 'law'``
+    vocabulary would read as the accent it resolves TO, and would need a second
+    mapping on the frontend to be usable — which is the drift ``accentForLane``
+    exists to prevent, and would let this card and the "Belegt durch" chips
+    disagree about the same document.
+
+    Only the two tiers the card actually renders are offered; every other lane
+    ``lane_for_hit`` can produce normalises onto them or onto None (see
+    :meth:`_normalise_lane`).
+    """
 
     type: Literal["legal_basis"]
     law: str = Field(min_length=1, description="Name of the law, regulation, or OIB Richtlinie")
+    lane: Literal["baurecht_oib", "baurecht_ris"] | None = Field(
+        default=None,
+        description=(
+            "Which tier of Baurecht this citation is. "
+            '"baurecht_oib" for an OIB-Richtlinie, -Leitfaden or -Erläuterung; '
+            '"baurecht_ris" for a Gesetz or Verordnung published in RIS (Bauordnung, '
+            "Bautechnikverordnung, Bundes-/Landesgesetz). The name you just wrote in `law` almost "
+            "always decides it, so fill it in whenever you can name the source at all — leaving it "
+            "out costs the card its accent. Omit it ONLY when the citation is genuinely neither: an "
+            "ÖNORM, a Bescheid, an Erlass, or a document you cannot place. Never guess a tier — the "
+            "card claims an authority off this field, and this is the citation an architect verifies."
+        ),
+    )
+    edition: str | None = Field(
+        default=None,
+        description=(
+            "Ausgabe of the cited document, copied verbatim, e.g. 'Ausgabe Mai 2023'. „OIB-Richtlinie "
+            "2“ without its Ausgabe is not verifiable, so supply it whenever the source states one. "
+            "Omit it when the source states none (most Gesetze carry a Fassung, not an Ausgabe) or "
+            "when you did not see it: an invented Ausgabe makes an unverifiable citation look verified."
+        ),
+    )
     article: str | None = Field(default=None, description="Relevant article or paragraph number")
     section: str | None = Field(default=None, description="Relevant section or chapter")
     summary: str | None = Field(default=None, description="Plain-language summary of the legal relevance")
     original_text: str | None = Field(default=None, description="Literal excerpt from the source, if available")
+
+    @field_validator("lane", mode="before")
+    @classmethod
+    def _normalise_lane(cls, value: Any) -> Any:
+        """Fold any real lane key onto the two rendered tiers, unknown onto None.
+
+        ``lane_for_hit`` produces thirteen lane keys and the model is shown two,
+        so a plausible near-miss (``baurecht_land``, ``baurecht_oib_leitfaden``)
+        must not cost the whole card. This is the product's proof-of-work card:
+        rejecting it over an optional *display* field would drop the proof, not
+        the field.
+
+        Anything that is not authoritative Baurecht folds to None and renders
+        neutral — the pre-schema rendering, so an absent lane is a no-op rather
+        than a hole. ``baurecht_basis`` is excluded by name even though it
+        carries the ``baurecht`` prefix: it is the default lane of a document
+        nobody has classified, and letting it inherit the RIS tier is exactly
+        the failure ``authorityTag`` is written to avoid — an unclassified
+        upload claiming to be an Austrian legal source, the strongest provenance
+        claim this product can make.
+        """
+        if value is None:
+            return None
+        key = str(value).strip().lower()
+        if key.startswith("baurecht_oib"):
+            return "baurecht_oib"
+        if key == "baurecht_basis":
+            return None
+        if key.startswith("baurecht"):
+            return "baurecht_ris"
+        return None
 
 
 # Canonical project-profile fact keys (mirrors the intake definition in

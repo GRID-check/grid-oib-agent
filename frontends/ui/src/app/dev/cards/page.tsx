@@ -485,14 +485,31 @@ function Gallery() {
         />
       </Section>
 
+      {/* Both tiers of Baurecht, because the difference between them is the
+          card's whole subject and it is invisible in a single sample: the OIB
+          citation takes the indigo accent, the OIB badge and its Ausgabe; the
+          statute keeps the law blue, the RIS badge and has no Ausgabe to name.
+          Neither is derived from the law string — both come off `lane`. */}
       <Section id="legal_basis">
         <LegalBasisCard
           type="legal_basis"
           law="OIB-Richtlinie 2"
+          lane="baurecht_oib"
+          edition="Ausgabe Mai 2023"
           article="3.1.1"
           section="Tabelle 1a"
           summary="Die maximale Brandabschnittsfläche für oberirdische Geschosse in GK 4 beträgt 1.200 m²."
           original_text="Brandabschnitte dürfen eine Nettogrundfläche von höchstens 1.200 m² und eine Längenausdehnung von höchstens 60 m aufweisen."
+        />
+        <LegalBasisCard
+          type="legal_basis"
+          law="Wiener Bauordnung"
+          lane="baurecht_ris"
+          edition={null}
+          article="87"
+          section="Abs. 4"
+          summary="Bauliche Anlagen sind so zu errichten, dass die Standsicherheit und der Brandschutz während der gesamten Nutzungsdauer gewährleistet sind."
+          original_text="Bauwerke müssen so geplant und ausgeführt werden, dass sie den zu erwartenden Einwirkungen standhalten."
         />
       </Section>
 

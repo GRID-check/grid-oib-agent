@@ -193,6 +193,9 @@ export const chat: typeof en.chat = {
     aiGenerated:
       'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
     legalBasis: 'Rechtsgrundlage',
+    // Tooltip auf dem OIB-/RIS-Abzeichen: das Abzeichen selbst ist ein
+    // Eigenname und in beiden Sprachen gleich — hier steht, was er bedeutet.
+    authority: 'Rechtsquelle: {tag}',
     viewOib: 'OIB-Richtlinie ansehen',
     verifyRis: 'In RIS prüfen',
     conditionTree: {
