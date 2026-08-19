@@ -17,7 +17,7 @@
     "@keystatic/astro": "^5.0.6",
     "@keystatic/core": "^0.6.3",
     "astro": "^7.1.6",
-    "motion": "^12.43.0",
+    "motion": "^13.1.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "sharp": "^0.35.3",
