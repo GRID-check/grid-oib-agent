@@ -92,9 +92,7 @@ def test_every_card_type_is_classified_in_the_frontend():
 # as ``test_every_card_type_is_classified_in_the_frontend`` above: a backend
 # author who adds a card type without running the frontend suite still sees the
 # obligation fail in the suite they DO run.
-TS_GRID_CARDS = (
-    REPO_ROOT / "frontends" / "ui" / "src" / "features" / "grid-cards" / "components" / "GridCards.tsx"
-)
+TS_GRID_CARDS = REPO_ROOT / "frontends" / "ui" / "src" / "features" / "grid-cards" / "components" / "GridCards.tsx"
 
 
 def _ts_rendered_types() -> set[str]:
@@ -122,6 +120,4 @@ def test_every_card_type_has_a_renderer():
 def test_renderer_branches_are_real_card_types():
     """A renamed card must not leave a dead branch behind."""
     orphaned = _ts_rendered_types() - _card_types()
-    assert not orphaned, (
-        f"{TS_GRID_CARDS} dispatches on {sorted(orphaned)}, which the card union no longer has."
-    )
+    assert not orphaned, f"{TS_GRID_CARDS} dispatches on {sorted(orphaned)}, which the card union no longer has."
