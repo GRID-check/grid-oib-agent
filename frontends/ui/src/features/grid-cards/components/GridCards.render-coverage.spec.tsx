@@ -174,16 +174,20 @@ function fixtureFor(type: string): GridCard | undefined {
 /**
  * `required` per card type, read off the canonical JSON Schema.
  *
- * NOT read off the Zod mirror, though that is the schema everything else here
- * uses. The generator flattens every nested `$ref` to `z.any()`, and `z.any()`
- * accepts a missing key — so Zod believes `energy_performance.hwb` and every
- * other object-valued field is optional, when `models.py` requires them. A
- * minimal instance built from Zod's answer is a card the backend could never
- * emit, and the eight schematic cards it produced crashed on a field that is
- * required in the only place that decides: the Pydantic models. `schemas.json`
- * is generated from those models and pinned to them by `test_schema_sync.py`,
- * so it is the honest source for this question. Zod still does the PARSING, so
- * the stripped card comes back with its defaults filled.
+ * Read off the JSON Schema rather than off the Zod mirror, because this file
+ * is asking what `models.py` REQUIRES and `schemas.json` is generated from
+ * those models and pinned to them by `test_schema_sync.py`. Zod still does the
+ * PARSING, so the stripped card comes back with its defaults filled.
+ *
+ * It once had to be read here because the Zod mirror could not answer at all:
+ * the generator flattened every nested `$ref` to `z.any()`, `z.any()` accepts
+ * a missing key, and so Zod believed `energy_performance.hwb` and every other
+ * object-valued field was optional when `models.py` requires them — a minimal
+ * instance built from Zod's answer was a card the backend could never emit,
+ * and the eight schematic cards it produced crashed on a required field.
+ * `scripts/generate-card-schemas.mjs` resolves those refs now (guarded by
+ * `src/shared/cards/nested-fields.spec.ts`), so the two sources agree; the
+ * canonical one is still the one to ask.
  */
 const REQUIRED_FIELDS: Record<string, string[]> = Object.fromEntries(
   Object.values((cardJsonSchema as JsonSchemaDocument).$defs)
