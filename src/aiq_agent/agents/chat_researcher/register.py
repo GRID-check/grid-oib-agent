@@ -821,6 +821,14 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         except Exception:
             logger.warning("Could not build memory_reflection_llm; reflection disabled", exc_info=True)
 
+    # The models the post-answer stages run on, keyed by agent group so the
+    # runner can apply the org's override and BYOK credential per group without
+    # anything here naming a stage. A group with no model is the capability bit:
+    # its stages are a no-op, and — see the flag resolution below — a no-op must
+    # cost nothing, not a per-turn round-trip.
+    _stage_llms = {AgentGroup.MEMORY_REFLECTION: reflection_llm}
+    _any_stage_llm = any(llm is not None for llm in _stage_llms.values())
+
     checkpointer = await get_checkpointer(config.checkpoint_db)
 
     agent = ChatResearcherAgent(
@@ -929,9 +937,18 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 # opposite of what a kill switch is for. Same shape as the live
                 # digest above: ask the BFF, and fall back to the frozen value
                 # only when the call fails.
-                _enabled_stages = await resolve_enabled_stages(
-                    organization_id=_org_id,
-                    memory_reflection_enabled=_ctx.memory_reflection_enabled,
+                #
+                # Skipped entirely when no stage has a model to run on: the flag
+                # would decide nothing, and a deployment that compiled the stages
+                # out must not pay an internal round-trip per turn for the
+                # privilege.
+                _enabled_stages = (
+                    await resolve_enabled_stages(
+                        organization_id=_org_id,
+                        memory_reflection_enabled=_ctx.memory_reflection_enabled,
+                    )
+                    if _any_stage_llm
+                    else frozenset()
                 )
 
                 _stage_facts = TurnFacts(
@@ -1271,7 +1288,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             # Keyed by agent group, not by stage id: the runner applies the org's
             # model override and its ADR-0022 BYOK credential per group, here,
             # while the override header is still readable.
-            llms={AgentGroup.MEMORY_REFLECTION: reflection_llm},
+            llms=_stage_llms,
         )
 
         # Deliver the fully verified/sanitized answer as a progressive stream:
