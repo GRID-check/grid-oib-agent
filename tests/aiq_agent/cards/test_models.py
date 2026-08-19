@@ -840,3 +840,369 @@ class TestBothNewCardsAreInTheDoctrineAndNotInTheCraft:
 
         assert "Ziviltechniker" not in _CARD_DOCTRINE
         assert "renderer" not in _CARD_DOCTRINE
+
+
+class TestAForkMarksAtMostOneCase:
+    """The field failure this validator exists for.
+
+    „Welche Feuerwiderstandsklasse brauchen tragende Bauteile in GK 4?" came
+    back as a `condition_tree` with all three branches `active` — oberstes
+    Geschoß R 60, sonstiges Geschoß R 60, unterirdisches Geschoß R 90 und A2 —
+    and the opened one read „FÜR DIESES PROJEKT GILT: R 60". Three simultaneous
+    answers, each captioned as the one that applies. Nothing stopped it, and it
+    looks like a decision was made when none was, which is worse than no card.
+
+    Those three rows are not a fork at all: all of them are true at once, of
+    different parts of the same building. The message therefore has to say more
+    than „invalid" — `emit_card` shows it back to the model, so it names the
+    card the content actually wants.
+    """
+
+    @staticmethod
+    def _tree(**overrides):
+        raw = {
+            "type": "condition_tree",
+            "title": "Erforderliche Feuerwiderstandsklasse",
+            "question": "Gebäudeklasse",
+            "branches": [
+                {"condition": "GK 1–3", "outcome": "REI 30"},
+                {"condition": "GK 4", "outcome": "REI 60"},
+                {"condition": "GK 5", "outcome": "REI 90"},
+            ],
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_one_marked_case_is_the_normal_shape(self):
+        branches = [
+            {"condition": "GK 1–3", "outcome": "REI 30"},
+            {"condition": "GK 4", "outcome": "REI 60", "active": True},
+        ]
+        [card] = validate_cards([self._tree(branches=branches)])
+        assert [b.get("active") for b in card["branches"]] == [None, True]
+
+    def test_no_marked_case_is_also_fine(self):
+        # Not knowing which case applies is a state the card renders honestly;
+        # it is guessing that is forbidden, not abstaining.
+        [card] = validate_cards([self._tree()])
+        assert not any(b.get("active") for b in card["branches"])
+
+    def test_two_marked_cases_are_rejected(self):
+        branches = [
+            {"condition": "oberstes oberirdisches Geschoß", "outcome": "R 60", "active": True},
+            {"condition": "sonstiges oberirdisches Geschoß", "outcome": "R 60", "active": True},
+            {"condition": "unterirdisches Geschoß", "outcome": "R 90 und A2", "active": True},
+        ]
+        assert validate_cards([self._tree(branches=branches)]) == []
+
+    def test_the_error_names_typed_table_so_the_retry_can_act_on_it(self):
+        import pytest
+
+        from aiq_agent.cards.models import ConditionTreeCard
+
+        branches = [
+            {"condition": "oberstes oberirdisches Geschoß", "outcome": "R 60", "active": True},
+            {"condition": "unterirdisches Geschoß", "outcome": "R 90 und A2", "active": True},
+        ]
+        with pytest.raises(ValueError) as excinfo:
+            ConditionTreeCard.model_validate(self._tree(branches=branches))
+
+        message = str(excinfo.value)
+        # The useful half of the message is not that it is invalid but which
+        # card the content wants instead, and which branches collided.
+        assert "typed_table" in message
+        assert "oberstes oberirdisches Geschoß" in message
+        assert "unterirdisches Geschoß" in message
+
+    def test_the_doctrine_states_the_test_rather_than_only_the_topic(self):
+        from aiq_agent.cards.register import _CARD_DOCTRINE
+
+        # A trigger line the model can APPLY: cases that exclude each other, at
+        # most one of them marked — and the escape hatch for rows that do not.
+        assert "exclude each other" in _CARD_DOCTRINE
+        assert "all true at once" in _CARD_DOCTRINE
+
+
+class TestTheEinreichlisteCarriesStateNotNames:
+    """`document_checklist` — the answer to „was brauche ich für die Einreichung"."""
+
+    @staticmethod
+    def _liste(**overrides):
+        raw = {
+            "type": "document_checklist",
+            "title": "Einreichunterlagen – Neubau Wien",
+            "items": [
+                {"label": "Einreichplan", "requirement": "required", "issuer": "Ziviltechniker:in"},
+                {
+                    "label": "Grundbuchsauszug",
+                    "requirement": "conditional",
+                    "condition": "nur wenn der Bauwerber nicht Eigentümer ist",
+                },
+            ],
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_validates_and_keeps_the_reading_order(self):
+        from aiq_agent.cards.models import DocumentChecklistCard
+
+        card = grid_card_adapter.validate_python(self._liste())
+        assert isinstance(card, DocumentChecklistCard)
+        assert [item.label for item in card.items] == ["Einreichplan", "Grundbuchsauszug"]
+
+    def test_a_conditional_document_must_say_on_what(self):
+        # The whole point of marking a document conditional is that the reader
+        # can tell whether it applies to them. Without the condition it is the
+        # markdown list again, and the card would be claiming to add what it
+        # does not add.
+        items = [
+            {"label": "Einreichplan", "requirement": "required"},
+            {"label": "Grundbuchsauszug", "requirement": "conditional"},
+        ]
+        assert validate_cards([self._liste(items=items)]) == []
+
+    def test_an_always_required_document_carries_no_condition(self):
+        items = [
+            {"label": "Einreichplan", "requirement": "required", "condition": "nur bei Neubau"},
+            {"label": "Baubeschreibung", "requirement": "required"},
+        ]
+        assert validate_cards([self._liste(items=items)]) == []
+
+    def test_an_unstated_status_stays_unstated(self):
+        # The one claim this card makes about the READER's project. Absent has
+        # to survive validation as absent — the renderer draws it as unknown,
+        # and a default of 'missing' would tell someone their dossier is behind.
+        [card] = validate_cards([self._liste()])
+        assert all("status" not in item for item in card["items"])
+
+    def test_the_card_carries_no_totals_for_a_renderer_to_contradict(self):
+        from aiq_agent.cards.models import DocumentChecklistCard
+
+        # Same invariant as `calculation`: the tally („3 erforderlich, 1
+        # vorhanden, 3 ungeklärt") is derived in the component from the rows,
+        # so there is no field here for a stated count to disagree with.
+        fields = set(DocumentChecklistCard.model_fields)
+        assert not fields & {"count", "total", "required_count", "progress", "complete"}
+
+    def test_one_document_is_a_sentence_and_seventeen_is_a_form(self):
+        one = self._liste(items=[{"label": "Einreichplan", "requirement": "required"}])
+        many = self._liste(items=[{"label": f"Beilage {i}", "requirement": "required"} for i in range(17)])
+        assert validate_cards([one, many]) == []
+
+    def test_the_worked_example_round_trips_and_shows_both_halves(self):
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+
+        card = grid_card_adapter.validate_python(CARD_EXAMPLES["document_checklist"])
+        assert card.type == "document_checklist"
+        # The example has to teach BOTH: a document whose status the
+        # conversation settled, and — in the majority — documents whose status
+        # it did not. An example answering every row teaches answering every row.
+        assert any(item.status is not None for item in card.items)
+        assert sum(item.status is None for item in card.items) > sum(item.status is not None for item in card.items)
+        assert any(item.requirement == "conditional" and item.condition for item in card.items)
+
+
+class TestAFristIsCarriedAsWrittenNeverAsADate:
+    """`deadline_timeline` — several clocks, each running from its own event."""
+
+    @staticmethod
+    def _fristen(**overrides):
+        raw = {
+            "type": "deadline_timeline",
+            "title": "Fristen im Bauverfahren – Wien",
+            "deadlines": [
+                {
+                    "label": "Beschwerdefrist",
+                    "period": "binnen vier Wochen",
+                    "starts_from": "ab Zustellung des Bescheids",
+                    "consequence": "Der Bescheid wird rechtskräftig.",
+                },
+                {
+                    "label": "Fertigstellungsanzeige",
+                    "period": "unverzüglich",
+                    "starts_from": "ab Fertigstellung des Bauvorhabens",
+                },
+            ],
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_validates_and_keeps_the_sequence(self):
+        from aiq_agent.cards.models import DeadlineTimelineCard
+
+        card = grid_card_adapter.validate_python(self._fristen())
+        assert isinstance(card, DeadlineTimelineCard)
+        assert [d.label for d in card.deadlines] == ["Beschwerdefrist", "Fertigstellungsanzeige"]
+
+    def test_a_frist_without_its_trigger_cannot_be_built(self):
+        # A period nobody can place is not usable, and a reader who assumes the
+        # wrong trigger misses the Frist by the gap between the two events. The
+        # field is required so the answer omits the Frist rather than floating it.
+        from aiq_agent.cards.models import Deadline
+
+        assert Deadline.model_fields["starts_from"].is_required()
+
+    def test_a_computed_calendar_date_is_rejected_in_either_field(self):
+        # The product does not know this project's Zustelldatum, so any date
+        # here was worked out from nothing. Both the German and the ISO spelling.
+        for bad in ("bis 14.03.2026", "bis 14. 3. 2026", "bis 2026-03-14"):
+            assert validate_cards([self._fristen(deadlines=[
+                {"label": "Beschwerdefrist", "period": bad, "starts_from": "ab Zustellung"},
+                {"label": "Anzeige", "period": "unverzüglich", "starts_from": "ab Fertigstellung"},
+            ])]) == []
+            assert validate_cards([self._fristen(deadlines=[
+                {"label": "Beschwerdefrist", "period": "binnen vier Wochen", "starts_from": bad},
+                {"label": "Anzeige", "period": "unverzüglich", "starts_from": "ab Fertigstellung"},
+            ])]) == []
+
+    def test_the_wordings_a_bauordnung_actually_uses_survive(self):
+        # The guard must not eat the legitimate half: numbers, paragraph marks
+        # and ordinals all appear in real Fristen.
+        good = [
+            {"label": "Beschwerdefrist", "period": "binnen 4 Wochen", "starts_from": "ab Zustellung (§ 7 Abs. 4)"},
+            {"label": "Geltungsdauer", "period": "binnen vier Jahren", "starts_from": "ab Rechtskraft"},
+        ]
+        [card] = validate_cards([self._fristen(deadlines=good)])
+        assert card["deadlines"][0]["period"] == "binnen 4 Wochen"
+
+    def test_the_date_pattern_is_linear_against_a_pumped_input(self):
+        # A recent CodeQL alert and three ReDoS fixes came out of this area, so
+        # every new pattern is pumped rather than eyeballed. Both alternatives
+        # are fixed-width with no nested quantifier, so the worst case is one
+        # pass; anything super-linear would blow far past this budget.
+        import time
+
+        from aiq_agent.cards.models import _CALENDAR_DATE
+
+        for pump in ("1." * 100_000, "2026-" * 100_000, "0" * 200_000):
+            started = time.perf_counter()
+            _CALENDAR_DATE.search(pump)
+            assert time.perf_counter() - started < 1.0
+
+    def test_one_frist_is_a_callout_and_nine_is_a_calendar(self):
+        one = self._fristen(deadlines=[
+            {"label": "Beschwerdefrist", "period": "binnen vier Wochen", "starts_from": "ab Zustellung"},
+        ])
+        nine = self._fristen(deadlines=[
+            {"label": f"Frist {i}", "period": "binnen vier Wochen", "starts_from": "ab Zustellung"} for i in range(9)
+        ])
+        assert validate_cards([one, nine]) == []
+
+    def test_the_worked_example_round_trips_without_a_single_date(self):
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+        from aiq_agent.cards.models import _CALENDAR_DATE
+
+        card = grid_card_adapter.validate_python(CARD_EXAMPLES["deadline_timeline"])
+        assert card.type == "deadline_timeline"
+        assert all(not _CALENDAR_DATE.search(d.period + d.starts_from) for d in card.deadlines)
+        # The example is copied for its shape, so every Frist has to model the
+        # habit: the trigger event named, in words.
+        assert all(d.starts_from.strip() for d in card.deadlines)
+
+
+class TestAChangeCostsSomethingAndSaysWhere:
+    """`change_impact` — one fact moves, and the requirements that follow."""
+
+    @staticmethod
+    def _impact(**overrides):
+        raw = {
+            "type": "change_impact",
+            "title": "Fluchtniveau über 11 m – was sich ändert",
+            "factor": "Fluchtniveau",
+            "from_value": "7 bis 11 m",
+            "to_value": "über 11 m",
+            "consequences": [
+                {
+                    "aspect": "Feuerwiderstand tragender Bauteile",
+                    "before": "R 60",
+                    "after": "R 90",
+                    "direction": "tightens",
+                    "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1"},
+                }
+            ],
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_validates_and_routes(self):
+        from aiq_agent.cards.models import ChangeImpactCard
+
+        card = grid_card_adapter.validate_python(self._impact())
+        assert isinstance(card, ChangeImpactCard)
+        assert card.consequences[0].direction == "tightens"
+
+    def test_a_consequence_without_a_fundstelle_is_rejected(self):
+        # This card is read to PLAN against — a Ziviltechniker decides whether
+        # to keep the Fluchtniveau under 11 m by it. A consequence nobody can
+        # look up is a consequence nobody can act on, so it is omitted from the
+        # card rather than listed bare.
+        consequences = [{"aspect": "Aufzug", "after": "Aufzug erforderlich", "direction": "tightens"}]
+        assert validate_cards([self._impact(consequences=consequences)]) == []
+
+    def test_an_unknown_starting_point_stays_unknown(self):
+        # `from_value` is a claim about where the project stands TODAY, and the
+        # question usually only supplies the destination. Absent survives as
+        # absent; the card says so rather than printing a plausible value.
+        raw = self._impact()
+        del raw["from_value"]
+        [card] = validate_cards([raw])
+        assert "from_value" not in card
+
+    def test_a_row_cannot_say_unchanged_while_changing(self):
+        consequences = [
+            {
+                "aspect": "Feuerwiderstand",
+                "before": "R 60",
+                "after": "R 90",
+                "direction": "unchanged",
+                "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1"},
+            }
+        ]
+        assert validate_cards([self._impact(consequences=consequences)]) == []
+
+    def test_a_row_that_does_not_move_cannot_claim_it_tightens(self):
+        consequences = [
+            {
+                "aspect": "Schallschutz",
+                "before": "DnT,w mindestens 55 dB",
+                "after": "DnT,w mindestens 55 dB",
+                "direction": "tightens",
+                "reference": {"document": "OIB-Richtlinie 5", "section": "Tabelle 1"},
+            }
+        ]
+        assert validate_cards([self._impact(consequences=consequences)]) == []
+
+    def test_the_card_carries_no_tally_for_a_renderer_to_contradict(self):
+        from aiq_agent.cards.models import ChangeImpactCard
+
+        fields = set(ChangeImpactCard.model_fields)
+        assert not fields & {"tightened", "relaxed", "count", "summary", "severity"}
+
+    def test_the_worked_example_round_trips_and_teaches_the_hard_cases(self):
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+
+        card = grid_card_adapter.validate_python(CARD_EXAMPLES["change_impact"])
+        assert card.type == "change_impact"
+        # Every consequence cites, one row does NOT move, and one row has no
+        # `before` — the three habits the example exists to transfer.
+        assert all(c.reference for c in card.consequences)
+        assert any(c.direction == "unchanged" for c in card.consequences)
+        assert any(c.before is None for c in card.consequences)
+
+
+class TestTheThreeNewCardsAreInTheDoctrineAndNotInTheCraft:
+    def test_each_has_a_trigger_line(self):
+        from aiq_agent.cards.register import _CARD_DOCTRINE
+
+        assert "-> document_checklist" in _CARD_DOCTRINE
+        assert "-> deadline_timeline" in _CARD_DOCTRINE
+        assert "-> change_impact" in _CARD_DOCTRINE
+
+    def test_render_card_details_spells_out_the_nested_shapes(self):
+        from aiq_agent.cards.catalog import render_card_details
+
+        detail = render_card_details(["document_checklist", "deadline_timeline", "change_impact"])
+        for block in ("RequiredDocument = {", "Deadline = {", "ChangeConsequence = {"):
+            assert block in detail
+        # The worked examples ride along so the model copies the nesting exactly.
+        assert "Einreichunterlagen" in detail
