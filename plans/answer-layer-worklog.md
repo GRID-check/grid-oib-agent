@@ -659,3 +659,34 @@ than lowered. The regression test asserts the MECHANISM both iterations shared
   it. Belongs in `features/layout/lib/citation-markers.ts`, where markers are
   spliced into the mdast.
 
+## Sprint 12B `8f3a77eb` — the lesson generalised, and six of eight crossings were blind
+Applied `ce47667b`'s shape (a flag that crosses a boundary; both sides tested,
+the crossing not) to the rest of the answer layer. Twelve mutations, twelve now
+fire. **Not caught before:**
+
+| crossing | what the mutation cost |
+|---|---|
+| `skills_hidden` / `skills_activated` wire → transparency bundle | zero specs mentioned it; `tsc` clean |
+| Python↔TS field NAME (`_SKILLS_EXTRA_FIELDS`) | a rename on either side is silent |
+| `AgentResponse` → `SkillsUsedDisclosure` props | disclosure goes quiet |
+| **`binding_status` wire key rename** | all 3,909 backend + all TS tests green, **every binding pill dark**. `422766d4` hardened the PERSIST path and carries `binding_note` only; the fixture check is a subset check, and `wire_sources.json` never carried `binding_status` |
+| **`[[card:N]]` plugin dropped from the answer's plugin list** | worse than I assumed: the card **VANISHES**, it does not fall back — `unplacedCardIndices` still counts it placed. `AgentResponse.spec` stubs `MarkdownRenderer` to a bare span, so nothing saw it |
+| `unplacedCardIndices` → fallback block | fallback silently empty |
+| **`delivery: 'standard'` → `standard: true` on the BFF read path** | the TS half of `ce47667b`'s hole; rename it with its own spec and the fleet loses its voice, both suites green |
+| **`metadata: { ...skill.metadata }` → `{}` in `resolveAll`** | takes `grid-hidden`, `grid-cards` AND `grid-title` with it — **a regression that already happened once and left no guard behind** |
+
+Two crossings span Python and TypeScript and cannot live in one test. Each is
+now pinned to ONE named artifact rather than an integration harness:
+`tests/fixtures/skills_resolve/resolve_payload.json` (new) and
+`tests/fixtures/citation_pipeline/wire_sources.json` (extended with
+`binding_status`, both golden sources incl. the `unbekannt` one).
+
+**Judged not worth pinning, with reasons:** `rank` rides every citation and has
+NO frontend consumer at all — there is no crossing, only an unused field. And
+the `ChatArea → MessageRenderer → AgentResponse` prop hop, because pinning it
+means mounting `ChatArea`, which AGENTS.md itself holds up as the thing not to
+build more tests on; the hop either side is pinned, which brackets it.
+
+**No product defect.** Every crossing behaves correctly today; what was missing
+was anything watching them.
+
