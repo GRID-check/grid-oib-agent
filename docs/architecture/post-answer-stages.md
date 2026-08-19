@@ -1,9 +1,10 @@
 # Post-answer stages — a platform primitive
 
-> **Status:** **slice 0 is built** (`src/aiq_agent/stages/`, memory reflection
-> migrated onto it, the kill switch moved per-turn). Slices 1–4b are still
-> design. Paragraphs corrected on contact with the code are marked
-> **[as built]** — each states the correction and why the original was wrong.
+> **Status:** **slices 0 and 1 are built** (`src/aiq_agent/stages/`, memory
+> reflection migrated onto it, the kill switch moved per-turn, and `follow_ups`
+> running `silent`). Slices 2–4b are still design. Paragraphs corrected on
+> contact with the code are marked **[as built]** — each states the correction
+> and why the original was wrong.
 > **Scope:** the *stage* as a reusable shape, its wire contract, and the two
 > instances that must run on it — memory reflection (exists, in a bespoke form)
 > and follow-up questions (new).
@@ -354,6 +355,16 @@ class StageOutcome:
 has no next question". A stage that cannot say "nothing, on purpose" forces its
 handler to invent output.
 
+> **[as built] — `empty` alone is not enough.** Slice 1 found the gap the moment
+> it had two ways of producing nothing: a model that returns no questions and a
+> model that returns four unusable ones are opposite verdicts — the first says
+> the gate let through a turn there was nothing in, the second says the prompt
+> is not landing — and both landed in one bucket, which is the exact defect this
+> design exists to avoid. A handler may now return `StageEmpty(reason=…)`
+> instead of `None`; the runner keeps the reason on the outcome and on the span.
+> It is deliberately **not** a new status: `empty` stays a first-class success
+> on the wire, and the reason is telemetry a client never sees.
+
 ### 2.5 Registration point
 
 `src/aiq_agent/stages/registry.py`, a module-level `register_stage()` and
@@ -629,6 +640,49 @@ FOLLOW_UPS = StageSpec(
 )
 ```
 
+> **[as built]** Three corrections, all in `src/aiq_agent/stages/follow_ups.py`.
+>
+> **`delivery="silent"`, not `"frame"`.** Slice 1 is the measurement; the frame
+> is slice 3. Everything else in the declaration is live.
+>
+> **`max_output_tokens=512`, not 300, and its own `llms:` entry.** 300 is the
+> *content* estimate, not a ceiling: a realistic four-question German body
+> measures 117 tokens and four at the field limits measure 204, so 300 leaves
+> almost no headroom — and a body truncated mid-JSON converts a good set into
+> `failed`. Worse, `max_tokens` is spent by reasoning tokens too, and this
+> group's reasoning effort is a platform-owner setting, so the stage's own
+> ceiling could be consumed before a single question is written. This is the
+> trap `memory_reflection` documents and avoids by declaring no ceiling at all.
+> The fix is a dedicated `follow_ups_llm` at `reasoning_effort: none`
+> (`ris_planner_llm`'s precedent — a cheap twin so one role's setting does not
+> weaken another's) with `request_timeout: 15` and one retry, which sits under
+> the stage's 20s `asyncio` bound so a slow provider produces a recorded
+> `timeout` rather than a stage that was already dead when the bound fired.
+>
+> **The prompt does not see the "project profile".** `TurnFacts` never carried
+> it — the composed profile's substantive half is the memory digest, capped at
+> 6,000 characters, which would roughly double a per-turn cost accepted for a
+> navigation aid. `bundesland` is carried instead: a handful of tokens, and it
+> is what makes a Land-specific next question possible at all. The "narrower
+> onto this project" move is anchored by the answer's own words.
+>
+> **What was mined, and what it became.** `_FOLLOW_UPS_RULE`'s two exceptions
+> became gate conditions rather than prompt text (`routing_meta`,
+> `answer_ends_in_question`); `FollowUpsCard`/`FollowUp` supplied anchoring,
+> spread, the composer-prefill semantics and what a hint is; `_POST_HOC_CRAFT`'s
+> `follow_ups` paragraph and `_POST_HOC_GROUNDING` supplied "you did not write
+> this and cannot change it" and "two anchored questions beat four with two of
+> them filler"; the German „Anschlussfragen: vier verschiedene Züge" section of
+> the seeded `piloti-cards` skill supplied the bad/good worked pair, which is
+> the only place the four *kinds* of move are shown rather than described.
+>
+> One thing the doctrine only asked for is now **enforced**: a question must
+> share a content word with the answer (prefix-matched, so German inflection
+> does not break a real anchor). That makes the documented bad set — „Erzähl mir
+> mehr dazu", „Was gilt sonst noch?" — something the stage cannot emit rather
+> than something it is told not to. Items are dropped individually, so one
+> filler question costs only itself.
+
 `timeout_s = 20.0` and not 30: this stage's whole value is that the chips arrive
 while the reader is still on the answer. A set of questions that lands after the
 reader has typed their own is worse than none, because it moves the page. 20s is
@@ -830,12 +884,44 @@ Cost is already covered: `track_llm_costs` writes `llm_usage_events` per stage
 LLM call with the stage's identity (`reflection.py:456-464` is the template), so
 "what do stages cost this org this month" is answerable on day one.
 
+> **[as built] — it was not answerable *per stage*.** `llm_usage_events` has no
+> stage and no agent-group column: a row carries model, tokens, cost and the
+> conversation, so two stages on one turn are one undifferentiated pair of rows.
+> §7.5's "spend is attributed to `AgentGroup.FOLLOW_UPS` in `llm_usage_events`"
+> does not hold. The ledger stays as it is — it is the auditable record and its
+> shape is not this design's to change — and the **span** now carries what the
+> stage spent, read off the tracker that was already wrapping the handler:
+> `metadata.prompt_tokens`, `completion_tokens`, `cost_usd`, `llm_calls`, next
+> to the `outcome`, the `reason` and the `durationMs` that were already there.
+> "What does this stage cost per turn" is then the same `GROUP BY` as every
+> other question. `llm_calls: 0` on a run that happened is itself a signal: the
+> handler returned without asking the model.
+
 ### 7.5 Cost ceiling
 
 - **Per turn, per stage: one LLM call, bounded by `max_output_tokens` and
   `timeout_s`.** No stage may make two.
 - **`follow_ups`: ~2,270 prompt tokens/turn**, against 136 for the current inline
   card. The product owner accepted this knowingly; it is not relitigated here.
+
+  > **[as built] — measured, cl100k_base.** The estimate is roughly the **worst
+  > case**, not the typical turn. Fixed system prompt: **681**. A representative
+  > turn — the 729-character German answer from the repo's own
+  > `/dev/chat-turn?variant=follow-ups` fixture — costs **925** prompt tokens,
+  > about 40% of the estimate. The shortest turn the gate lets through (the
+  > 400-character floor) costs **834**. Only a turn that saturates *both* input
+  > slices with German prose reaches **2,463**, which then exceeds the estimate
+  > slightly. Output: **117** tokens for a realistic four-question German body.
+  > So the product owner was quoted a number that a typical turn does not cost;
+  > the true figure is ~925, and 2,270 is what a very long answer costs. Both
+  > ceilings are pinned by a test, the same way the `emit_card` and post-hoc
+  > prompt budgets are.
+  >
+  > The 136 tokens said to be recovered measure **109** on the chat path
+  > (`_FOLLOW_UPS_RULE` 84 + the trigger row 15 + the restraint exemption 10);
+  > the fourth item in §7.10's list, the `follow_ups` paragraph of
+  > `_POST_HOC_CRAFT`, is another 117 but is paid once per finished
+  > deep-research report, not per chat turn.
   What *is* stated: the 136 tokens are **recovered**, not doubled — they leave the
   always-on catalogue (`_FOLLOW_UPS_RULE` at `catalog.py:135-140`, the trigger row
   at `:123`, the restraint exemption at `:171`) in the same change that adds the
@@ -869,6 +955,29 @@ each is a fact the backend already has:
 
 Each failed condition produces `outcome:"skipped"` with that condition as
 `reason`, so the gate's own correctness is measurable rather than assumed.
+
+> **[as built]** Three notes from writing it.
+>
+> **`intent` is read before `routing_decision`.** `derive_routing_decision`
+> folds `out_of_scope` into `"meta"` for the transparency surface
+> (`agent.py:74-75`), so a gate that reads routing first files every off-topic
+> redirect under small talk — and "how many redirects did the gate catch" is one
+> of the numbers this slice is for. The reasons as built are
+> `deep_research_job`, `intent_out_of_scope`, `routing_meta`, `routing_error`,
+> `research_truncated`, `empty_turn`, `canned_non_answer`, `answer_too_short`,
+> `answer_ends_in_question`.
+>
+> **`emitted_card_types` is deliberately NOT a condition**, although §2.3 put
+> the field there for exactly this kind of use. A turn where the answering model
+> already emitted a `follow_ups` card is precisely the turn the stage is being
+> measured against; skipping those would leave the empty rate measured only on
+> turns the model had already declined once, which is the one sample that cannot
+> answer "does the gate pick better turns than the model does". It becomes a
+> reasonable condition again once slice 4 has retired the card.
+>
+> **The two `_FOLLOW_UPS_RULE` exceptions became gate conditions, not prompt
+> text.** They are decidable in Python over the finished answer, and a condition
+> the gate enforces is a number while the same condition in a prompt is a hope.
 
 `memory_reflection` keeps its predicate (`register.py:67-89`) verbatim, moved
 into a `gate`, plus the `research_truncated` skip from §1.4.
@@ -947,6 +1056,14 @@ is a map lookup, not a WorkOS round-trip.
 > `POST_ANSWER_STAGE_FLAGS` in `lib/workos/feature-flags.ts`, and
 > `isMemoryReflectionEnabled` delegates to it so the socket path and the per-turn
 > path cannot disagree.
+>
+> **[as built, slice 1]** That registry is the half a new stage is most likely
+> to be shipped without: a stage the backend declares and `POST_ANSWER_STAGE_FLAGS`
+> omits is never in the served set, so it is `disabled / flag_off` on every turn
+> forever, with nothing logged and no way for an operator to switch it on. The
+> file said so in a comment. `tests/aiq_agent/stages/test_stage_flag_parity.py`
+> is that comment enforced — id, flag slug and env var must match on both ends —
+> the same move `test_agent_group_parity` makes for the `AgentGroup` mirror.
 
 ### 7.9 Backpressure
 
@@ -1087,7 +1204,7 @@ alone. Nothing else may start before 0.**
 | # | slice | depends on | independently shippable | reversible by |
 |---|---|---|---|---|
 | **0** ✅ | **BUILT.** The primitive: `stages/` package, `StageSpec`, `TurnFacts`, runner (semaphore + timeout + span), registry, sink interface. Reflection ported onto it, behaviour-identical, flag unchanged. No new stage, no frame. Carries the §1.4 and §1.5 fixes and the §7.8 kill-switch fix. | — | yes — a pure refactor with the §1.4/§1.5 fixes | revert |
-| **1** | Backend `follow_ups`: gate, handler, prompt, payload model. `delivery="silent"` — **it runs and is measured, and delivers nothing.** | 0 | yes | flag off |
+| **1** ✅ | **BUILT.** Backend `follow_ups`: gate, handler, prompt, payload model. `delivery="silent"` — **it runs and is measured, and delivers nothing.** Carries `StageEmpty` (§2.4), per-stage cost on the span (§7.4) and the backend↔BFF stage-flag parity guard. | 0 | yes | flag off |
 | **2** | Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures. | — (contract only) | yes — renders from fixtures with no backend | revert |
 | **3** | Wire them: sink registration in `aiq_api`, `delivery="frame"`, flag on for one org. | 0,1,2 | yes | flag off |
 | **4** | Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal, export skip (§7.10). | 3 **observed** | yes | revert step 1 of §7.10 |
@@ -1165,3 +1282,13 @@ Then the specific risks:
    `frontends/ui/src/lib/model-config/agent-groups.ts` or the Platform → Models
    surface silently omits it (`common/model_overrides.py:64-67` says so).
    Mechanical, easy to forget, caught by the existing sync test.
+
+   > **[as built]** Done, and the sync test is what forced it — it failed with
+   > "Extra items in the right set: 'follow_ups'" until the registry entry
+   > existed. The group is declared `reasoningOff`, for the reason in §5.2: the
+   > stage's output-token ceiling is spent by reasoning tokens too, so a
+   > reasoning-mandatory model here truncates the JSON and the stage silently
+   > returns nothing. The `AgentGroup` is its own and not `MEMORY_REFLECTION`'s
+   > because the `llms` map is keyed by group — one key can hold one model, and
+   > the two stages' capability bits have to be independent, or unsetting
+   > `memory_reflection_llm` would silence follow-ups too.
