@@ -14,7 +14,7 @@ meant to grow.
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **33 model-facing types plus 2 system types**, in four families. The families
+— **35 model-facing types plus 2 system types**, in four families. The families
 are not decoration: each answers
 "where does a number on this card come from?" differently, and that answer is
 what decides whether the model may emit the card at all, on which surface, and
@@ -37,6 +37,8 @@ answer it has just written.
 | `key_takeaways` | „Das Wichtigste" — the 2–5 points the reader must leave with. The generic card for an answer with no dimension and no fork in it; a row with a `detail` expands, a row without one is not a button | `title`, `items[]` (`text`, `detail`) |
 | `callout` | ONE remark that changes what the reader does — a `hinweis`, `achtung`, `frist` or `tipp`. Deliberately small; at most one per answer, because a second puts both back at the weight of the prose around them | `kind`, `text`, `title`, `detail` |
 | `follow_ups` | 2–4 next questions, each anchored to something this answer introduced. Clicking one PREFILLS the composer — the user still presses send, and nothing reaches the backend on click | `title`, `items[]` (`question`, `hint`) |
+| `calculation` | The derivation behind a computed number — the Schrittmaßregel, a GFZ, a Brandlast, a U-value from its resistances. **There is no result field**: the model supplies operands, an operation from a closed set (`sum`, `product`, `quotient`, `percent_of`, `percent_ratio`) and the limit; the renderer computes, propagates the ± band, rounds and judges | `title`, `steps[]` (`label`, `operation`, `operands[]`, `unit`), `limit`, `reference`, `note` |
+| `process_map` | An ordered procedure — Einreichung → Bauverhandlung → Baubewilligung → Fertigstellungsanzeige — with the step this project stands at, and what each step requires and produces revealed on click | `title`, `steps[]` (`label`, `summary`, `actor`, `duration`, `requires[]`, `produces[]`, `reference`), `current_step`, `reference`, `note` |
 
 **Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
 in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
@@ -105,6 +107,38 @@ persisted on the message; see
 [Interactive cards](#interactive-cards-the-answer-must-be-persisted).
 
 `validate_cards()` validates against the union and drops null fields.
+
+### `calculation` has nowhere to put a wrong answer
+
+The schematic cards hold their invariant by having the renderer do every piece of
+geometry and ratio arithmetic itself, so a drawing cannot disagree with its own
+numbers. `calculation` is the same idea applied to arithmetic the answer states
+in words, and it is enforced by ABSENCE: there is no result field anywhere on the
+wire. The model supplies the operands, the operation and the limit; the renderer
+produces the result, the propagated tolerance and the verdict. A stated result
+that disagrees with its own operands is the worst artefact this product can make,
+because a card is the part that gets screenshotted into an Einreichung — so the
+schema simply offers no place to write one.
+
+The operation is a closed set of five shapes rather than an expression the
+renderer parses. A grammar would hand the model arbitrary formulas and hand the
+renderer the job of re-deriving intent, and the first ambiguous parse —
+precedence, a unit inside the expression, a stray bracket — puts a confident
+wrong number on the card. `quotient` covers `U = 1 ÷ R` with a numerator of 1,
+which is why there is no separate `reciprocal`. A derivation needing two stages
+writes two steps, the second naming the first by index; the reference must point
+strictly backwards, so a card that cannot be computed never reaches the client.
+
+Three consequences worth knowing before changing it:
+
+- **The ± band travels.** `sum` scales it by |factor|, `product` and `quotient`
+  add relative errors: 2 × (17 ± 0,5) + 30 → 64 ± 1,0. A band on a `declared`
+  figure is ignored, because that is the file's claim and not our measurement.
+- **Undecidable is not partial.** A missing operand yields no result and the
+  missing-value phrase, never a partial sum, and it propagates down the chain.
+- **The display yields, the arithmetic does not.** House precision is two
+  decimals unless rounding to it would move the value across the limit — 0,2506
+  W/(m²K) against „≤ 0,25" prints 0,251, not „0,25 — nicht erfüllt".
 
 ### The five IFC cards carry identifiers, not numbers
 
@@ -493,9 +527,9 @@ without re-plumbing generation or transport.
 
 ## Card catalog
 
-The catalog is the thirty-five types tabulated under
-[Current card types](#current-card-types) — twelve structured, fifteen schematic,
-six model-facing IFC and two system — and that is the only place in this document
+The catalog is the thirty-seven types tabulated under
+[Current card types](#current-card-types) — fourteen structured, fifteen
+schematic, six model-facing IFC and two system — and that is the only place in this document
 where they are listed, on purpose: a card type appearing in two tables means one
 of them is already wrong. See
 [ADR-0012](../adr/0012-cards-as-rich-ui-layer.md).
