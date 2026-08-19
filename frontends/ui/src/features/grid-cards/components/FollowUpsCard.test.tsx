@@ -80,6 +80,30 @@ describe('FollowUpsCard', () => {
     expect(setComposerPrefill).toHaveBeenCalledWith('Wie wird das Fluchtniveau genau gemessen?')
   })
 
+  it('has no frame around it — the chips sit straight on the answer surface', () => {
+    // The flat register (grid-card-charter.md §A1/§B1). This card closes every
+    // subject-matter answer, so its box was the most-seen box in the product,
+    // and it is also the one card that is not evidence: nothing here belongs in
+    // an Einreichung, and being the only unframed trailing block says so.
+    const { container } = render(<FollowUpsCard title={null} items={items} />)
+
+    expect(
+      container.querySelector('[data-slot="card"]'),
+      'follow_ups is the flat register — a `Card` here puts a border back at the bottom of every answer',
+    ).toBeNull()
+
+    // The chips keep their OWN chrome, which is why the frame could go.
+    expect(screen.getByRole('button', { name: /Fluchtniveau/ })).toHaveClass('border', 'shadow-xs')
+  })
+
+  it('renders nothing at all when the offer is empty', () => {
+    // Not an eyebrow over a blank row: with no frame there is not even a box
+    // left to explain the gap.
+    const { container } = render(<FollowUpsCard title="Weiterführende Fragen" items={[]} />)
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('carries the whole question in the tooltip, with the hint after it', () => {
     render(<FollowUpsCard title={null} items={items} />)
 

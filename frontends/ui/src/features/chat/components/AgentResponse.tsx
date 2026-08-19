@@ -21,6 +21,7 @@ import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
+import { CardSetProvider } from '@/features/grid-cards/card-set'
 import { remarkCardMarkers, unplacedCardIndices } from '@/features/grid-cards/card-markers'
 import { MarkdownSlotProvider } from '@/shared/components/MarkdownRenderer/slot-context'
 import type { GridCard } from '@/shared/cards/schemas'
@@ -328,7 +329,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       // a card that ends the answer for as long as the answer is still arriving.
       return (
         <div className="mb-3 block!">
-          <GridCardItem card={card} index={index} projectId={projectId} messageId={messageId} />
+          {/* The whole answer's cards, not just this one: a card placed inline
+              by a marker still has to know what ELSE the answer is carrying —
+              `summary` and `verdict_header` must not both claim the top of it
+              (grid-card-charter.md §A2). See `grid-cards/card-set.tsx`. */}
+          <CardSetProvider cards={cards ?? []}>
+            <GridCardItem card={card} index={index} projectId={projectId} messageId={messageId} />
+          </CardSetProvider>
         </div>
       )
     },

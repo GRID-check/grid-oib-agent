@@ -17,6 +17,7 @@ import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { SummaryCard } from '@/features/grid-cards/components/SummaryCard'
 import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
+import { VerdictHeaderCard } from '@/features/grid-cards/components/VerdictHeaderCard'
 import { ConditionTreeCard } from '@/features/grid-cards/components/ConditionTreeCard'
 import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
 import { CalculationCard } from '@/features/grid-cards/components/CalculationCard'
@@ -85,6 +86,38 @@ function Gallery() {
             'Treppenhaus als gesicherter Fluchtbereich erforderlich',
             'Barrierefreier Aufzug ab 3 oberirdischen Geschossen',
           ]}
+        />
+      </Section>
+
+      {/* The §A2 cross-card rule, which only exists when both cards are on
+          screen: the same summary under a verdict header drops its 17px H1 to
+          the 14px Title step, because a 17px headline and a 30px verdict
+          arriving together give the reader two places to start. Rendered
+          through the dispatcher so it goes through the same provider the chat
+          uses — the rule is invisible from either component alone. */}
+      <Section id="summary_under_verdict">
+        <GridCards
+          cards={
+            [
+              {
+                type: 'verdict_header',
+                verdict: 'Gebäudeklasse 4',
+                subject: 'Einstufung des Gebäudes',
+                confidence: 'high',
+              },
+              {
+                type: 'summary',
+                title: 'Gebäudeklasse 4 – Anforderungen im Überblick',
+                content:
+                  'Für Ihr Wohngebäude mit Fluchtniveau 9,8 m gilt Gebäudeklasse 4. Daraus folgen erhöhte Anforderungen an Brandschutz und Erschließung.',
+                key_points: [
+                  'Fluchtniveau 9,8 m → GK 4 (Grenze: 11 m)',
+                  'Treppenhaus als gesicherter Fluchtbereich erforderlich',
+                ],
+              },
+            ] as GridCard[]
+          }
+          projectId={null}
         />
       </Section>
 
@@ -439,10 +472,14 @@ function Gallery() {
 
       {/* Four chips of very different lengths, because the thing to review here
           is that a long question truncates to one line instead of turning the
-          chip into a paragraph — and that the set still reads as an offer. */}
+          chip into a paragraph — and that the set still reads as an offer with
+          no frame around it. The title is a real headline rather than a
+          restatement of the eyebrow: the backend's own guidance is to omit it
+          („omit to let the questions stand alone"), so the fixture that earns
+          its place is the one where the model had something to add. */}
       <Section id="follow_ups">
         <FollowUpsCard
-          title="Weiterführende Fragen"
+          title="Was Sie als Nächstes klären sollten"
           items={[
             { question: 'Wie wird das Fluchtniveau genau gemessen?', hint: 'Messpunkt und Bezugsebene' },
             { question: 'Welche Anforderungen gelten für mein Projekt konkret?' },
@@ -452,6 +489,41 @@ function Gallery() {
                 'Wie weise ich die Feuerwiderstandsklasse REI 60 der tragenden Bauteile im Einreichplan nach?',
             },
           ]}
+        />
+      </Section>
+
+      {/* The card IS the figure, so the thing to review is the figure: a short
+          verdict at 30px, a long compound at the 24px step it drops to above 24
+          characters, and the confidence gauge at all three of its levels —
+          including the answer with no confidence at all, where the gauge is
+          absent rather than empty. */}
+      <Section id="verdict_header">
+        <VerdictHeaderCard
+          verdict="1,10 m"
+          subject="Erforderliche Geländerhöhe"
+          reference={OIB4}
+          confidence="high"
+          confidence_reason={null}
+        />
+      </Section>
+
+      <Section id="verdict_header_long">
+        <VerdictHeaderCard
+          verdict="Hauptgeschoßfußbodenoberkante über 22 m"
+          subject="Einstufung als Hochhaus"
+          reference={OIB2}
+          confidence="medium"
+          confidence_reason="Die Wiener Bauordnung misst den Bezugspunkt abweichend; für ein Grundstück in Wien ist der Wert gesondert zu prüfen."
+        />
+      </Section>
+
+      <Section id="verdict_header_bare">
+        <VerdictHeaderCard
+          verdict="Nicht geregelt"
+          subject="Mindestbreite einer Wartungsleiter"
+          reference={null}
+          confidence="low"
+          confidence_reason={null}
         />
       </Section>
 

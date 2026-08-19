@@ -1,6 +1,7 @@
 import { FlatCompat } from '@eslint/eslintrc'
 import requireTenantScope from './eslint-rules/require-tenant-scope.mjs'
 import motionVocabulary from './eslint-rules/motion-vocabulary.mjs'
+import cardTypeScale from './eslint-rules/card-type-scale.mjs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -24,8 +25,32 @@ const gridRules = {
   rules: {
     'require-tenant-scope': requireTenantScope,
     'motion-vocabulary': motionVocabulary,
+    'card-type-scale': cardTypeScale,
   },
 }
+
+/**
+ * The cards that have been through a charter sprint and now carry ONLY the
+ * §A2 type ramp. One line per card, added by the sprint that migrates it.
+ *
+ * The list is here rather than inside the rule on purpose: the charter's
+ * migration is deliberately incremental ("a flag-day rewrite of 200 call sites
+ * is not worth the review burden"), so the set of compliant files is real
+ * project state, and config is where a reviewer looks for it. A rule carrying
+ * its own exemption list would instead report "clean" while eleven cards still
+ * carried an off-ramp size.
+ *
+ * Sprint 1 (charter §C): follow_ups, key_takeaways, verdict_header, summary,
+ * callout, the two proposal cards.
+ */
+const CARDS_ON_THE_TYPE_RAMP = [
+  'src/features/grid-cards/components/FollowUpsCard.tsx',
+  'src/features/grid-cards/components/KeyTakeawaysCard.tsx',
+  'src/features/grid-cards/components/VerdictHeaderCard.tsx',
+  'src/features/grid-cards/components/SummaryCard.tsx',
+  'src/features/grid-cards/components/CalloutCard.tsx',
+  'src/features/grid-cards/components/ProposalShell.tsx',
+]
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -49,6 +74,15 @@ export default [
     // See eslint-rules/motion-vocabulary.mjs.
     files: ['src/**/*.{ts,tsx}'],
     rules: { 'grid/motion-vocabulary': 'warn' },
+  },
+  {
+    // Thirteen font sizes is how the card set lost its hierarchy, and every one
+    // of them looked reasonable at the call site that introduced it. ERROR, not
+    // warn, because unlike the motion utilities there is no legacy to be
+    // tolerant of here: a file only enters this list once it is already clean.
+    // See eslint-rules/card-type-scale.mjs and grid-card-charter.md §A2.
+    files: CARDS_ON_THE_TYPE_RAMP,
+    rules: { 'grid/card-type-scale': 'error' },
   },
   {
     files: ['src/**/*.{ts,tsx}'],

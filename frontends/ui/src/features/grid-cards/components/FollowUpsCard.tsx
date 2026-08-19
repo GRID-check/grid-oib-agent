@@ -28,11 +28,24 @@
  * the reader has to read; truncated with the whole question in the `title`, the
  * set can still be taken in at a glance. The optional `hint` rides in that same
  * tooltip rather than as a second line, for the same reason.
+ *
+ * NO FRAME (`docs/design/grid-card-charter.md` §A1 flat register, §B1). This
+ * card closes every subject-matter answer by default, so its box is seen more
+ * often than any other box in the product — and a large share of the
+ * "everything is a card" feeling is this one frame, seen a hundred times. The
+ * chips already carry their own border and shadow; a bordered card around them
+ * is a card inside a card's worth of chrome for content that is not evidence at
+ * all. Which is the second reason: this is the one card that must never be
+ * screenshotted into an Einreichung, and being the only unframed trailing block
+ * says so before anyone reads it.
+ *
+ * `mt-5` is the block's own 20px of air. The trailing offer stands away from
+ * the evidence above it — that separation is doing the work the border used to
+ * do, and it is the only thing this card has instead.
  */
 
 import { type FC } from 'react'
 import { CornerDownRight, MessageCircleQuestion } from 'lucide-react'
-import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useChatStore } from '@/features/chat/store'
 import { useTranslations } from '@/i18n'
@@ -51,7 +64,12 @@ interface FollowUpsCardProps {
  */
 const CHIP = cn(
   'group inline-flex h-8 max-w-full items-center gap-1.5 rounded-md border px-[13px]',
-  'bg-card text-foreground/85 shadow-xs text-xs font-medium',
+  // On a phone a chip is given a floor of 12rem and the row wraps, so each
+  // question gets a line of its own: „Wie wird das Hauptgeschoß…" is still a
+  // usable offer where „Wie…" is not. On desktop the chips size to their
+  // content, because four of them fit across 636px and a set the eye takes in
+  // at once is the whole affordance.
+  'max-sm:min-w-[12rem] bg-card text-foreground/85 shadow-xs card-caption font-medium',
   'transition-colors duration-quick ease-out motion-reduce:transition-none',
   'hover:bg-accent hover:text-foreground',
   'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
@@ -61,18 +79,24 @@ const CHIP = cn(
 export const FollowUpsCard: FC<FollowUpsCardProps> = ({ title, items }) => {
   const t = useTranslations('chat')
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
+  // An empty set renders NOTHING — not an eyebrow over an empty row. An offer
+  // with nothing in it is an unkept promise, and with no frame there is not
+  // even a box left to explain the gap.
+  const questions = items.filter((item) => Boolean(item?.question))
+
+  if (questions.length === 0) return null
 
   return (
-    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-2.5 p-5 shadow-xs">
+    <div className="mt-5 flex flex-col gap-2.5">
       <SectionLabel icon={MessageCircleQuestion}>{t('cards.followUps.eyebrow')}</SectionLabel>
-      {title && <p className="text-sm font-semibold text-foreground">{title}</p>}
+      {title && <p className="card-title text-foreground">{title}</p>}
 
       <div
         className="flex flex-wrap items-center gap-2"
         role="group"
         aria-label={t('cards.followUps.groupAria')}
       >
-        {items.map((item, index) => (
+        {questions.map((item, index) => (
           <button
             key={`${item.question}-${index}`}
             type="button"
@@ -90,6 +114,6 @@ export const FollowUpsCard: FC<FollowUpsCardProps> = ({ title, items }) => {
           </button>
         ))}
       </div>
-    </Card>
+    </div>
   )
 }
