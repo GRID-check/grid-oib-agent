@@ -610,8 +610,11 @@ export const chat: typeof en.chat = {
     // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
     // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
     activity: {
-      understanding: 'Frage wird erfasst …',
-      planning: 'Vorgehen wird geplant …',
+      // Gleiche Wörter wie die Chips darunter (`stepName.understanding` =
+      // „Einordnung“, `stepName.routing` = „Rechercheweg“): Lesende sollen ein
+      // Vokabular lernen, nicht zwei für dieselbe Sache.
+      understanding: 'Frage wird eingeordnet …',
+      planning: 'Rechercheweg wird festgelegt …',
       searchingWeb: 'Web wird durchsucht …',
       searchingKnowledge: 'OIB-Wissen wird durchsucht …',
       searchingRis: 'RIS (österreichisches Recht) wird durchsucht …',
@@ -662,11 +665,16 @@ export const chat: typeof en.chat = {
         // Klassifikators ist Freitext in der Sprache des Modells und steht
         // deshalb nie hier — sie wird zitiert, zugeschrieben, in der
         // nachgeordneten Zeile `routing.line` weiter unten.
+        // Jede Zeile nennt, was die Lesenden davon haben, nicht was das System
+        // gerade aufsetzt: „wird vorbereitet“ beschreibt einen Vorgang im
+        // Inneren, „einschlägige Stellen werden gesucht“ eine Arbeitsweise, die
+        // Planende aus ihrem eigenen Alltag kennen. `meta` heißt hier wörtlich
+        // wie in der Herleitung (`routing.decision.meta`) — ein Weg, ein Wort.
         routing: {
-          meta: 'Gespräch — keine Recherche nötig',
+          meta: 'Direktantwort — keine Recherche nötig',
           outOfScope: 'Frage außerhalb des Fachgebiets',
-          shallow: 'Kurzrecherche wird vorbereitet',
-          deep: 'Tiefenrecherche wird vorbereitet',
+          shallow: 'Kurzrecherche: einschlägige Stellen werden gesucht',
+          deep: 'Tiefenrecherche: mehrere Quellen werden geprüft',
         },
         // `{query}` sind die eigenen Worte der Lesenden, zurückgespiegelt —
         // nie übersetzt, und vom Backend gekürzt, damit die Zeile passt.
@@ -681,7 +689,10 @@ export const chat: typeof en.chat = {
           remember: 'Notiz wird gespeichert …',
           card: 'Ergebniskarte wird erstellt …',
         },
-        citations: 'Belege werden geprüft …',
+        // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
+        // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle
+        // gegen das, was tatsächlich abgerufen wurde.
+        citations: 'Belege werden gegen die Quellen geprüft …',
         escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
       },
     },
@@ -829,6 +840,47 @@ export const chat: typeof en.chat = {
       // Wenn kein Schritt zu benennen ist (das Budget war vor dem ersten
       // Werkzeug erschöpft): lieber weniger sagen als etwas erfinden.
       findingsTruncated: 'Recherche hier beendet: das Budget war aufgebraucht',
+      // ── Was die Antwort NICHT ist ───────────────────────────────────────
+      //
+      // Zwei Aufzeichnungen, die die Tiefenrecherche über ihre eigenen Grenzen
+      // führt — beide auf dem technischen Kanal, beide bislang unsichtbar: ein
+      // Lauf, der in die Zeit- oder Schrittgrenze lief, und eine Antwort, die
+      // erkennbar schwächer ausgeliefert wurde. Bis sie hier standen, sah eine
+      // nach zwei von zehn geplanten Suchen abgebrochene Antwort genauso aus
+      // wie eine vollständige.
+      //
+      // Formuliert als Aussagen, mit denen Planende etwas anfangen können, nie
+      // als die Telemetrie, aus der sie stammen. Die Aufzeichnung führt auch
+      // die Berichtslänge in Zeichen mit; dafür gibt es bewusst keine Zeile —
+      // eine Zeichenzahl benennt einen Mechanismus, sonst nichts.
+      limits: {
+        label: 'Einschränkungen',
+        deepCutoff: {
+          // Woran der Lauf endete. `other` deckt einen Grund ab, den dieser
+          // Build nicht kennt — DASS vorzeitig Schluss war, stimmt in jedem Fall.
+          time: 'Die Tiefenrecherche erreichte die Zeitgrenze.',
+          steps: 'Die Tiefenrecherche erreichte ihre Schrittgrenze.',
+          other: 'Die Tiefenrecherche wurde vorzeitig beendet.',
+          // …und ob etwas davon zu retten war. Diese Hälfte entscheidet, wie
+          // viel Gewicht die Antwort darüber tragen kann.
+          salvaged: 'Was bis dahin belegt war, ist in die Antwort eingegangen.',
+          nothing: 'Ergebnisse lagen zu diesem Zeitpunkt keine vor.',
+          // Wie weit sie kam. Nur genannt, wenn es etwas zu nennen gibt: null
+          // Quellen ist eine wahre Zahl, die sich wie ein Urteil liest — und
+          // `nothing` oben sagt bereits die ehrliche Fassung davon.
+          sources:
+            '{count, plural, one {# Quelle war bis dahin gesichtet} other {# Quellen waren bis dahin gesichtet}}.',
+          after: 'Abbruch nach {minutes, plural, one {# Minute} other {# Minuten}}.',
+        },
+        // Die Antwort ging schwächer raus als ein sauberer Lauf. Diese Zeilen
+        // sind der Hinweis, vor dem Verlassen darauf selbst nachzusehen.
+        degraded: {
+          noReport:
+            'Es wurde kein Recherchebericht abgelegt — die Antwort steht nur hier im Verlauf.',
+          noCitations:
+            'Keine Belegstelle hielt der Prüfung stand. Bitte schlagen Sie die Angaben vor der Verwendung selbst nach.',
+        },
+      },
       branchesTab: 'Folgewege',
       branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },

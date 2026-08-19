@@ -72,6 +72,7 @@ async def write_job_turn(
     answer: str,
     cards: list[Any] | None = None,
     skills_activated: list[str] | None = None,
+    sources: list[Any] | None = None,
 ) -> None:
     """Write the job's question and its answer into the conversation.
 
@@ -85,6 +86,14 @@ async def write_job_turn(
     office's own working method had shaped the answer, while the reader of an
     interactive turn could. Same metadata key, so the UI renders both from one
     code path.
+
+    ``sources`` is that same argument for the answer's provenance, and it only
+    matters on RELOAD: the live panel has the job output, but a thread reopened
+    tomorrow has nothing but this row. Written under the backend's own wire
+    spelling because the BFF's ``normalizeAgentAnswerMetadata`` is what turns it
+    into the stored ``citations`` envelope — spelling it any other way here
+    would store a key that reader never looks at, which is a message whose
+    citations are silently gone rather than one that fails loudly.
     """
     if not conversation_id:
         return
@@ -114,6 +123,8 @@ async def write_job_turn(
     metadata["deep_research_job_id"] = job_id
     if skills_activated:
         metadata["skills_activated"] = list(skills_activated)
+    if sources:
+        metadata["sources"] = list(sources)
 
     try:
         await post_internal_conversation_message(

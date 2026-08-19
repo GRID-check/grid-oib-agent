@@ -22,6 +22,7 @@ from aiq_agent.common import load_prompt
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
@@ -190,6 +191,74 @@ def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dic
     return {"count": len(removed_citations), "reasons": reasons}
 
 
+def _cited_sources_to_wire(registry: Any, valid_citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Resolve the citations that survived verification back to wire sources.
+
+    ``verify_citations`` proves each ``[N]`` marker points at a source the run
+    really captured, and it is the ONLY place the ``[N]``→source binding exists.
+    Everything a reader needs from a citation — the page to open the PDF at, the
+    snippet to hover, the lane and binding note that say whether the norm binds
+    them — lives on the registry entry behind that binding. Deep research
+    computed both halves and then threw them away, so a deep answer's citations
+    reached the frontend as bare numbers scraped back out of the Markdown while
+    a shallow answer's arrived structured. This is the join, mirroring
+    ``ShallowResearcherAgent``'s so both agents emit one shape.
+
+    Deduplicated by entry identity in first-cited order: four passages of one
+    Richtlinie are four citations but the reader wants the document once, and
+    the first mention is the one whose ``[N]`` the prose leads with.
+
+    Guarded twice over, because this runs on the SALVAGE path as well as the
+    normal one and a truncated run is the likeliest producer of a half-built
+    entry: one source that fails to serialise costs the reader that single chip,
+    and a registry that fails outright costs the provenance block — never the
+    finished answer it hangs off.
+    """
+    wire_sources: list[dict[str, Any]] = []
+    try:
+        seen_ids: set[int] = set()
+        for citation in valid_citations:
+            entry = None
+            if citation.get("citation_key"):
+                entry = registry.entry_for_citation_key(citation["citation_key"])
+            elif citation.get("url"):
+                entry = registry.entry_for_url(citation["url"])
+            if entry is None or id(entry) in seen_ids:
+                continue
+            seen_ids.add(id(entry))
+            number = citation.get("number")
+            try:
+                wire_sources.append(
+                    source_entry_to_wire(entry, number=number if isinstance(number, int) else None)
+                )
+            except Exception:  # noqa: BLE001 - one bad source must not zero out the rest
+                logger.warning(
+                    "Skipping source that failed wire serialization: %s",
+                    getattr(entry, "url", None) or getattr(entry, "citation_key", None),
+                    exc_info=True,
+                )
+    except Exception:  # noqa: BLE001 - provenance is never worth failing an answer for
+        logger.warning("Could not resolve cited sources for the citation wire", exc_info=True)
+    return wire_sources
+
+
+def _apply_renumbering(wire_sources: list[dict[str, Any]], renumber_map: dict[int, int] | None) -> None:
+    """Re-label the wire sources with the numbers the READER will see.
+
+    ``sanitize_report`` closes the gaps that ``verify_citations``' removals left
+    in the ``[N]`` sequence, so the numbers captured during verification are
+    stale by the time the report ships. Without this remap a chip is labelled
+    ``[3]`` while the prose pointing at it now says ``[2]``, and the inline
+    marker's anchor scrolls to a row that does not exist.
+    """
+    if not renumber_map:
+        return
+    for source in wire_sources:
+        number = source.get("number")
+        if isinstance(number, int):
+            source["number"] = renumber_map.get(number, number)
+
+
 def _skills_block(runtime: SkillRuntime) -> str | None:
     """The writer's skills section: the catalog, then what is required of it.
 
@@ -217,6 +286,12 @@ class DeepResearchRunArtifacts:
     tool_set: DeepResearchToolSet
     middleware_set: DeepResearchMiddlewareSet
     callbacks: list[Any]
+    #: This run's resolved skills. Carried here rather than staying local to
+    #: ``_prepare_run`` because the runtime accumulates the activation list
+    #: DURING the run, and ``_finalize`` is what reports it — a runtime that
+    #: went out of scope at graph-build time is why deep research shipped
+    #: ``skills_activated=None`` on every answer while shallow reported it.
+    skill_runtime: SkillRuntime
 
 
 class DeepResearcherAgent:
@@ -353,6 +428,7 @@ class DeepResearcherAgent:
             tool_set=tool_set,
             middleware_set=middleware_set,
             callbacks=callbacks,
+            skill_runtime=skill_runtime,
         )
 
     @staticmethod
@@ -370,6 +446,13 @@ class DeepResearcherAgent:
         headers because there is no request — and falls back to the request
         context for the synchronous path and for evaluation runs.
 
+        ``force_skills`` comes off the state too, and it is the user's own
+        explicit instruction: a skill ticked in the composer, or named by a
+        scheduled run. Passing it as ``force_names`` is what puts the skill's
+        body in front of the writer instead of merely listing its name in the
+        catalog — without it, a turn the user escalated to deep research
+        silently ignored the skill they had just asked for.
+
         Nothing here can fail the run: ``resolve_served_skills`` swallows its
         own errors and an empty skill set produces an empty runtime, no tool and
         no prompt block, which is exactly the shape of a run that has no skills.
@@ -385,7 +468,7 @@ class DeepResearcherAgent:
             except Exception:  # noqa: BLE001 - no NAT context in sync/eval paths
                 organization_id = None
         skills = resolve_served_skills(SKILL_AGENT, organization_id)
-        runtime = SkillRuntime(skills=skills)
+        runtime = SkillRuntime(skills=skills, force_names=state.force_skills)
         if skills:
             from aiq_agent.skills.events import emit_skills_offered
 
@@ -485,6 +568,7 @@ class DeepResearcherAgent:
         agent = run_artifacts.graph
         source_registry_middleware = run_artifacts.source_registry_middleware
         callbacks = run_artifacts.callbacks
+        skill_runtime = run_artifacts.skill_runtime
 
         messages = state.messages
         if messages:
@@ -590,6 +674,7 @@ class DeepResearcherAgent:
                     elapsed_seconds=time.monotonic() - started,
                     source_registry_middleware=source_registry_middleware,
                     callbacks=callbacks,
+                    skill_runtime=skill_runtime,
                     original=TimeoutError(f"deep research exceeded the {self.max_run_seconds} s wall-clock budget"),
                     cause=exc,
                 )
@@ -603,6 +688,7 @@ class DeepResearcherAgent:
                     elapsed_seconds=time.monotonic() - started,
                     source_registry_middleware=source_registry_middleware,
                     callbacks=callbacks,
+                    skill_runtime=skill_runtime,
                     original=exc,
                     cause=exc,
                 )
@@ -611,6 +697,7 @@ class DeepResearcherAgent:
                 result,
                 source_registry_middleware=source_registry_middleware,
                 callbacks=callbacks,
+                skill_runtime=skill_runtime,
                 cutoff_reason=None,
             )
 
@@ -626,6 +713,7 @@ class DeepResearcherAgent:
         elapsed_seconds: float,
         source_registry_middleware: SourceRegistryMiddleware,
         callbacks: list[Any],
+        skill_runtime: SkillRuntime | None = None,
         original: BaseException,
         cause: BaseException,
     ) -> DeepResearchAgentState:
@@ -665,6 +753,7 @@ class DeepResearcherAgent:
                 last_state,
                 source_registry_middleware=source_registry_middleware,
                 callbacks=callbacks,
+                skill_runtime=skill_runtime,
                 cutoff_reason=cutoff_reason,
             )
         except Exception as salvage_error:
@@ -726,12 +815,50 @@ class DeepResearcherAgent:
         )
         return finalized
 
+    @staticmethod
+    def _record_skill_transparency(result: Any, skill_runtime: SkillRuntime | None) -> None:
+        """Say which skills shaped this report, and shout when a forced one did not.
+
+        The runtime accumulates activations while the graph runs; nothing wrote
+        them back, so ``skills_activated`` was None on every deep answer and the
+        thread showed no skill transparency at all — while the same skill on the
+        same question, answered shallow, was named. Mirrors the shallow
+        researcher's post-run block so both agents report the same two facts.
+
+        DELIVERED, not merely forced: a skill whose body the model never opened
+        shaped nothing and must not be claimed. Its counterpart — the turn told
+        the model to apply a skill and it never asked for it — is the failure
+        nobody can see from the answer, so it is logged loudly. What the READER
+        should be told about it is a product decision, not this function's.
+
+        Guarded whole: transparency about an answer must never unmake it.
+        """
+        if skill_runtime is None:
+            return
+        try:
+            activated = list(skill_runtime.activated)
+            if activated:
+                _set_state_field(result, "skills_activated", activated)
+            hidden = list(skill_runtime.hidden_activated)
+            if hidden:
+                _set_state_field(result, "skills_hidden", hidden)
+            unread = skill_runtime.forced_not_activated
+            if unread:
+                logger.warning(
+                    "Deep research: forced skills never loaded by the writer: %s (activated=%s)",
+                    ", ".join(unread),
+                    ", ".join(activated) or "-",
+                )
+        except Exception:  # noqa: BLE001 - reporting skills must never fail the run
+            logger.warning("Could not record deep-research skill transparency", exc_info=True)
+
     def _finalize(
         self,
         result: Any,
         *,
         source_registry_middleware: SourceRegistryMiddleware,
         callbacks: list[Any],
+        skill_runtime: SkillRuntime | None = None,
         cutoff_reason: str | None,
     ) -> DeepResearchAgentState:
         """Turn a graph state into the finished, verified, honestly-labelled answer.
@@ -739,9 +866,18 @@ class DeepResearcherAgent:
         Shared by the normal path and the salvage path so a cut-off run is
         post-processed by exactly the same citation verification, quote
         verification and sanitisation as a complete one — the only difference
-        being the banner and the flags that say it was cut off.
+        being the banner and the flags that say it was cut off. That sharing is
+        why the transparency this writes — the structured sources, the skills
+        that shaped the report — is built with the same guards on both paths: a
+        run that was cut off still owes the reader whatever provenance it did
+        manage to capture.
         """
         degraded_reasons: list[str] = []
+        # The sources this report cited, wire-ready. Collected inside the
+        # verification branch (only the verifier knows which citations are real)
+        # but serialised onto the state below, AFTER sanitisation has settled
+        # the numbers the reader will actually see.
+        wire_sources: list[dict[str, Any]] = []
 
         final_message = self._extract_final_markdown(result)
         if final_message is None:
@@ -821,6 +957,12 @@ class DeepResearcherAgent:
                 # but it no longer ships silently.
                 degraded_reasons.append(DEGRADED_NO_VALID_CITATIONS)
 
+            # Resolve the surviving citations back to their registry entries and
+            # serialise them for the wire. Everything needed was already in hand
+            # here and was previously discarded after logging, which is why a
+            # deep reader got numbers and nothing to click.
+            wire_sources = _cited_sources_to_wire(registry, list(verification.valid_citations))
+
             # Citation-health ledger: one batch per deep-research run, the
             # same shape the shallow researcher posts. Deep reports carry no
             # self-assessed confidence marker, so no cap reason is recorded.
@@ -839,7 +981,23 @@ class DeepResearcherAgent:
                 removed_citations=list(verification.removed_citations),
                 unverified_quote_count=unverified_quote_count,
                 grounded=bool(verification.valid_citations),
+                # Deep research has NO single-source fallback — an ungrounded
+                # report hard-fails with EmptySourceRegistryError rather than
+                # borrowing the one source lying around (deliberate strictness;
+                # do not align it with shallow). Stated explicitly so the
+                # dashboard's fallback rate reads "deep never falls back"
+                # instead of inheriting a default nobody chose.
+                fallback_used=False,
                 source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources],
+                # The retrieval lane of each CITED source, which the dashboard's
+                # defect mix breaks down by. Only the wire entries carry it —
+                # the lane is derived during serialisation, not stored on the
+                # registry entry — so this is the first run at which deep can
+                # report it at all. No ``confidence_capped_reason``: a deep
+                # report writes no confidence marker, so there is no cap to
+                # report and inventing one would put a fabricated reason on the
+                # platform's dashboard.
+                source_lanes=[source.get("lane") for source in wire_sources],
                 source_tools=[entry.tool_name or None for entry in registry_sources],
                 # Source IDENTITIES (URL / document key) — never report prose.
                 retrieved_source_labels=[label for label in map(source_label, registry_sources) if label],
@@ -861,6 +1019,15 @@ class DeepResearcherAgent:
         # Post-process: sanitize report (strip body URLs, shortened URLs, unsafe URLs)
         sanitization = sanitize_report(final_message)
         final_message = sanitization.sanitized_report
+        # Sanitisation renumbers the surviving ``[N]`` markers, so the chips have
+        # to follow the prose or they point at rows that no longer exist.
+        _apply_renumbering(wire_sources, sanitization.renumber_map)
+        if wire_sources:
+            # Absent, never empty: a run that cited nothing resolvable says so by
+            # carrying no field, exactly like ``degraded_reasons`` below — a
+            # surface cannot tell "we checked and found none" from "we lost them"
+            # once an empty list is written.
+            _set_state_field(result, "verified_sources", wire_sources)
 
         # A cut-off run is salvaged, never disguised. The banner rides the REPORT
         # itself rather than only the state flags, because the report is the
@@ -873,6 +1040,8 @@ class DeepResearcherAgent:
                 cutoff_reason=cutoff_reason,
                 degraded_reasons=degraded_reasons,
             )
+
+        self._record_skill_transparency(result, skill_runtime)
 
         if cutoff_reason is not None:
             _set_state_field(result, "research_truncated", True)

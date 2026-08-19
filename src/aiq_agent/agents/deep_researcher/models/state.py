@@ -83,3 +83,33 @@ class DeepResearchAgentState(BaseModel):
     # ``force_skills``. None means anonymous — the run then resolves no
     # organization skills and writes its report without them.
     organization_id: str | None = None
+    # Structured provenance for the sources this report actually CITED:
+    # wire-ready dicts from ``source_entry_to_wire``, each carrying the ``[N]``
+    # label it wears in the prose plus the locator (document/file/page), the
+    # coarse ``kind`` and the norm registry's binding note. Same field name and
+    # same shape as the shallow researcher's, because the two feed one reader:
+    # the job runner lifts it into the job output and into the message metadata
+    # as ``sources``, where the BFF's ``normalizeAgentAnswerMetadata`` decodes
+    # it into the stored ``citations`` envelope. Without it a deep answer's
+    # citations were nothing but numbers parsed back out of the Markdown — no
+    # open-PDF-at-page, no hover snippet, no authority badge — even though the
+    # run had resolved every one of those facts and then dropped them.
+    # None when the run cited nothing it could resolve to a captured source.
+    verified_sources: list[dict[str, Any]] | None = None
+    # Skill names the incoming request FORCED for this run (the user ticked them
+    # in the composer, or a scheduled run named one). The job runner injects
+    # them the same way it injects ``project_context`` — and until this field
+    # existed the injection was guarded out silently, so escalating a turn to
+    # deep research quietly discarded an explicit instruction. None = none forced.
+    force_skills: list[str] | None = None
+    # Ordered names of the skills whose BODY reached the writer, forced ones
+    # first. DELIVERED, not merely forced: this is rendered to the reader as
+    # "what shaped this answer", and a skill the model never opened shaped
+    # nothing. None when the run resolved or activated no skills.
+    skills_activated: list[str] | None = None
+    # The subset of ``skills_activated`` marked ``grid-hidden`` — a skill that
+    # runs on every answer (the house voice) is still named in the disclosure,
+    # just de-emphasised until the reader opens the reasoning view. Named, never
+    # dropped: the transparency doctrine forbids a class of instruction the
+    # product declines to admit ran.
+    skills_hidden: list[str] | None = None

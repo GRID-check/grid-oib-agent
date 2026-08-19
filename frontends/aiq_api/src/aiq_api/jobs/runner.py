@@ -1017,7 +1017,15 @@ async def run_agent_job(
                     if hasattr(event_store, "flush"):
                         event_store.flush()
 
-                    output = _build_job_output(report, cards=cards, transparency=transparency)
+                    # The answer's structured provenance, read once and handed to
+                    # BOTH surfaces below: the job output feeds the live Report
+                    # panel, the message metadata feeds the thread on reload. A
+                    # source list that reached only one of them is the bug this
+                    # closes, one layer up.
+                    verified_sources = _extract_verified_sources(result)
+                    output = _build_job_output(
+                        report, cards=cards, transparency=transparency, sources=verified_sources
+                    )
                     # Sticky terminal statuses: never flip a job the reaper or
                     # cancel route already finalized (FAILURE/INTERRUPTED) back
                     # to SUCCESS.
@@ -1035,6 +1043,7 @@ async def run_agent_job(
                         answer=report,
                         cards=cards,
                         skills_activated=_extract_skills_activated(result),
+                        sources=verified_sources,
                     )
                     logger.info(
                         "Job %s completed (report: %d chars, cards: %d)",
@@ -1461,7 +1470,40 @@ def _extract_skills_activated(result: Any) -> list[str] | None:
     return names or None
 
 
-def _build_job_output(report: str, *, cards: list[Any] | None, transparency: dict[str, Any]) -> dict[str, Any]:
+def _extract_verified_sources(result: Any) -> list[dict[str, Any]] | None:
+    """The structured provenance of a finished run's answer, or ``None``.
+
+    Each entry is one source the report CITED, as the agent's citation
+    verification resolved it: the ``[N]`` label it wears in the prose, the
+    document/file/page locator the reader opens a PDF with, the coarse ``kind``
+    and the norm registry's binding note. The socket path lifts exactly this
+    field off the state and posts it as ``sources``; the job path reduced the
+    whole state to a report string, so a deep answer delivered as a job arrived
+    with nothing but numbers scraped back out of its own Markdown — no
+    open-at-page, no hover snippet, no authority badge — while the same answer
+    streamed live arrived fully attributed.
+
+    Read defensively (state object OR dict, entries type-checked one by one)
+    because the runner is agent-agnostic by design: an agent whose state carries
+    no such field contributes nothing here, and one that carries a malformed
+    version contributes nothing rather than an unopenable chip.
+    """
+    value = getattr(result, "verified_sources", None)
+    if value is None and isinstance(result, dict):
+        value = result.get("verified_sources")
+    if not isinstance(value, list):
+        return None
+    sources = [source for source in value if isinstance(source, dict) and source]
+    return sources or None
+
+
+def _build_job_output(
+    report: str,
+    *,
+    cards: list[Any] | None,
+    transparency: dict[str, Any],
+    sources: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """The dict a finished job persists as its ``output``.
 
     A named function rather than three inline lines because this dict IS the
@@ -1472,10 +1514,17 @@ def _build_job_output(report: str, *, cards: list[Any] | None, transparency: dic
     present-and-empty: no ``cards: []`` on a run that produced none, and no
     ``research_truncated: false`` on a run that completed — the same contract
     that field keeps on the chat path, so a client can key off existence.
+
+    ``sources`` is spelled the way the backend spells it everywhere else on the
+    wire (``websocket_reconnect``'s terminal frame, the message metadata), so
+    the live Report panel and a rehydrated thread read one contract rather than
+    two dialects of the same list.
     """
     output: dict[str, Any] = {"report": report}
     if cards:
         output["cards"] = cards
+    if sources:
+        output["sources"] = sources
     output.update(transparency)
     return output
 
