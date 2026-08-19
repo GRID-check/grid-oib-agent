@@ -495,9 +495,30 @@ feature. Either way the metadata stops lying.
    `DeepResearchAgentState` has no such field, so an attached skill reaches the
    run only through the composed prompt.
 
+## Sprint 9B landed `8adfe2ab` → rebased as part of the batch
+The card layer was saying ~110 of its own words as hardcoded German literals —
+untranslatable, invisible to `key-coverage.spec.ts`, and unreachable by whoever
+edits copy. All routed. The `statusLabel` "cannot call a hook" constraint an
+earlier agent recorded as unfixable WAS fixable: the repo already had the
+pattern (`applicable-standards.tsx` passes a `Translator` as an argument), so
+the pure helpers now take one and no literal is left in the kit.
+Correctly-hardcoded findings, stated rather than implied: symbols (`±0,00`, `Ø`,
+the north arrow's `N`, the A++–G ladder), units, and — the interesting one —
+`TypedTableCard`'s verdict vocabulary and `DimensionDiagramCard`'s `pick`
+keywords, which look like copy but are the words the BACKEND writes, matched to
+tint a cell or locate a dimension. Translating the matcher would only stop it
+recognising its own input; annotated so it is not audited again.
+**Warning recorded:** `npm run format` produces a very large unrelated diff —
+the repo is not prettier-clean and has no format gate.
+
 ## Branch state (checked 2026-08-19 ~00:20 UTC)
 **PR #461 is MERGED** (17:58 UTC, head `6ea82566`, now in develop). Everything
 after it — 40 commits — sits on the branch with **no open PR and no CI run**.
 Local verification is green (pytest 3834/42, ruff clean, tsc 0 errors) but no
 sharded vitest, no CodeQL and no image build has seen any of it.
-Branch is 9 behind develop; rebase deferred while an agent was still writing.
+**REBASED onto `origin/develop` (b2c61bde) and force-pushed — 42 commits, zero
+conflicts, 0 behind.** Post-rebase verification, all green:
+pytest 3861 passed / 42 skipped · ruff check clean · ruff format 331 files clean
+· tsc 0 errors · lint 0 errors (2 known warnings) · vitest 50 files/799 tests
+(grid-cards + i18n + layout) and 61 files/1230 tests (chat + shared).
+Still NO open PR and still no CI — that decision is the user's.
