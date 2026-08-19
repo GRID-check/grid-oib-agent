@@ -18,10 +18,20 @@ leaves the next one just as blind.
 
 What is pinned is the relationship the code actually obeys: **every name the
 register lifts must survive the crossing to the frame** — NOT equality of the
-two sides. The aiq_api lift is the wider list: it also names ``skills_hidden``,
-which nothing on this path sets (the shallow researcher records it on its own
-state and the chat node never carries it across), so pinning equality would pin
-a rule the code does not follow.
+two sides. The direction is the point. The handler lifts names off whatever
+response reaches it, so it may legitimately know a field this register never
+sets, and pinning equality would report the wider list as the bug.
+``skills_hidden`` was that case until the chat agent learned to carry it: the
+shallow researcher recorded the ``grid-hidden`` subset on its own state, the
+chat node dropped it, and the disclosure rendered the house voice at full weight
+on every answer. Both lists name it now.
+
+What this file does NOT pin is how a field gets ONTO the answer in the first
+place — it builds the ``ChatResponse`` itself. Adding a name to
+``_STREAM_EXTRA_FIELDS`` therefore passes here whether or not anything ever sets
+it, which is exactly how ``skills_hidden`` could be declared end to end and
+still reach nobody. The hop from graph state to answer is pinned per field, one
+file over, in ``test_hidden_skills_reach_the_answer.py``.
 
 The assertion is the real crossing rather than a comparison of two source
 files: a response carrying a sentinel per lifted name is turned into chunks by

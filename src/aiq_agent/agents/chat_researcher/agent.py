@@ -118,6 +118,7 @@ def _finalize_shallow_answer(
     verified_sources: list[dict[str, Any]] | None = None,
     citations_removed: dict[str, Any] | None = None,
     skills_activated: list[str] | None = None,
+    skills_hidden: list[str] | None = None,
     research_truncated: bool | None = None,
 ) -> dict[str, Any]:
     """Build the node update for a successful/insufficient shallow answer.
@@ -203,6 +204,9 @@ def _finalize_shallow_answer(
             # The deep research report replaces this answer, so no skills-ran
             # signal from the superseded shallow turn must leak to the terminal.
             "skills_activated": None,
+            # Its hidden subset goes with it: a mute list for a disclosure that
+            # is not rendered would outlive the answer it describes.
+            "skills_hidden": None,
             # Same reason: the shallow turn's truncation is not a fact about the
             # deep report the reader is about to get.
             "research_truncated": None,
@@ -231,6 +235,7 @@ def _finalize_shallow_answer(
         "verified_sources": verified_sources,
         "citations_removed": citations_removed,
         "skills_activated": skills_activated,
+        "skills_hidden": skills_hidden,
         "research_truncated": research_truncated,
     }
 
@@ -597,6 +602,15 @@ class ChatResearcherAgent:
             if not isinstance(skills_activated, list) or not all(isinstance(name, str) for name in skills_activated):
                 skills_activated = None
 
+            # The muted subset rides with the list it is a subset of, validated
+            # the same fail-open way: a shallow result that does not carry the
+            # field (an older state, a stub) reads as "nothing hidden", which
+            # renders every activated skill at full weight — the same disclosure
+            # this code shipped with before the field existed.
+            skills_hidden = getattr(result, "skills_hidden", None)
+            if not isinstance(skills_hidden, list) or not all(isinstance(name, str) for name in skills_hidden):
+                skills_hidden = None
+
             # Presence is the fact: True or absent, never False. A shallow agent
             # that does not carry the field at all (an older state, a stub in a
             # test) reads as "not truncated", which is the safe direction — the
@@ -617,6 +631,7 @@ class ChatResearcherAgent:
                     verified_sources=verified_sources,
                     citations_removed=citations_removed,
                     skills_activated=skills_activated,
+                    skills_hidden=skills_hidden,
                     research_truncated=research_truncated,
                 )
             if new_messages:
@@ -633,6 +648,7 @@ class ChatResearcherAgent:
                     verified_sources=verified_sources,
                     citations_removed=citations_removed,
                     skills_activated=skills_activated,
+                    skills_hidden=skills_hidden,
                     research_truncated=research_truncated,
                 )
             return {"messages": [], "shallow_result": None}

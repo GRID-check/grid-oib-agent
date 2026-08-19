@@ -160,3 +160,14 @@ class ChatResearcherState(BaseModel):
     # ONLY when present (escaped escalations and generation failures leave it
     # None), the ``skills_activated`` transparency extra.
     skills_activated: list[str] | None = None
+    # The subset of ``skills_activated`` marked ``grid-hidden`` — the house
+    # voice and the card grammar, craft machinery the reader has no use for
+    # reading as a topic. Carried for the same reason and by the same route as
+    # ``skills_activated`` (set on the success path of
+    # ``_finalize_shallow_answer``, dropped on escalation, lifted onto the
+    # terminal ChatResponse only when non-empty): the disclosure NAMES these
+    # skills like any other — the transparency doctrine forbids an instruction
+    # class the product declines to admit ran — and only DE-EMPHASISES them
+    # until the reader turns the reasoning view on. Absent means "none hidden",
+    # which is why the frontend mutes nothing when it never arrives.
+    skills_hidden: list[str] | None = None
