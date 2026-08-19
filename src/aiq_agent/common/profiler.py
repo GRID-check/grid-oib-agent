@@ -357,6 +357,7 @@ def track_agent_profile(
     agent_name: str,
     job_id: str | None = None,
     identity: dict[str, str | None] | None = None,
+    metadata: dict[str, Any] | None = None,
 ):
     """Activate span capture for the enclosed agent run.
 
@@ -366,6 +367,12 @@ def track_agent_profile(
     from callers with no live request (async job workers, background
     reflection), same convention as ``track_llm_costs``. Never lets
     profiling setup/teardown failures break the answer path.
+
+    ``metadata`` is attached to that root span and is read **at teardown**, so a
+    caller may keep filling the same dict inside the block with facts that are
+    only known once the block is done — which is how a post-answer stage records
+    the outcome it reached (``{"stage": …, "outcome": "timeout"}``) on the one
+    span it emits.
     """
     profiler: AgentProfiler | None = None
     profiler_token = None
@@ -381,7 +388,7 @@ def track_agent_profile(
             turn_id=str(uuid.uuid4()),
             job_id=job_id,
         )
-        root_span_id = profiler.start_span("turn", agent_name)
+        root_span_id = profiler.start_span("turn", agent_name, metadata=metadata)
         profiler_token = agent_profiler_var.set(profiler)
         span_token = current_span_var.set(root_span_id)
     except Exception:

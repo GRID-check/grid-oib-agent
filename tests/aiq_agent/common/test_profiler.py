@@ -164,6 +164,20 @@ class TestTrackAgentProfile:
         assert spans[0]["name"] == "chat_researcher"
         assert spans[0]["parentSpanId"] is None
 
+    def test_root_span_metadata_is_read_at_teardown(self):
+        """A post-answer stage only knows its outcome once the block is done, so
+        the metadata dict it hands in has to be read at teardown, not at open."""
+        metadata = {"stage": "memory_reflection", "outcome": "pending"}
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with track_agent_profile(
+                agent_name="stage:memory_reflection",
+                identity={"organization_id": "org_1"},
+                metadata=metadata,
+            ):
+                metadata["outcome"] = "timeout"
+        span = post.call_args.args[0]["spans"][0]
+        assert span["metadata"] == {"stage": "memory_reflection", "outcome": "timeout"}
+
     def test_configure_hook_attaches_handler_to_langchain_config(self):
         """The DRY seam: any callback manager configured inside the context
         must pick up the profiler without agent code opting in."""
