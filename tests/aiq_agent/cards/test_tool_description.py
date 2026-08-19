@@ -10,11 +10,15 @@ import pytest
 from aiq_agent.cards.catalog import _CARD_HONESTY
 from aiq_agent.cards.catalog import _CARD_RESTRAINT
 from aiq_agent.cards.catalog import _CARD_TRIGGER_TABLE
+from aiq_agent.cards.catalog import _FOLLOW_UPS_RULE
+from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+from aiq_agent.cards.catalog import _interactive_note
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
+from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.models import GridCard
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.register import _CARD_EXAMPLES
@@ -37,7 +41,6 @@ _EXAMPLE_EXEMPT = {
     "ifc_element",
     "ifc_diff",
     "summary",
-    "legal_basis",
     "stair_diagram",
     "dimension_diagram",
     "setback_plan",
@@ -134,51 +137,111 @@ class TestToolDescription:
         assert "At most one per turn" in desc
 
 
-class TestTheDefaultIsPositive:
-    """The doctrine has to READ as "emit it", not as "cards are risky".
+class TestTheDoctrineStaysCalibrated:
+    """The doctrine must invite a card without demanding one, and it is MEASURED.
 
-    The failure this guards is not a missing card type and not a missing
-    trigger. Asked „Wie läuft das Baubewilligungsverfahren in Wien ab?" — almost
-    the words of the ``process_map`` trigger line — the model answered in a
-    numbered prose list, and two turns later named the card it should have
-    emitted and built a good one on the first attempt. It knew, and did not
-    reach. ``follow_ups`` went missing on the same turn with its shape already
-    inlined in ``grid-cards``, so a `describe_card` round-trip was not the cost
-    standing in the way either.
+    Two field observations bound this from opposite sides, and both are real.
 
-    What was in the way was the balance. Measured on the text the model sees,
-    the always-on doctrine ran 2.4 : 1 restraint to invitation, and the ONE
-    sentence stating a default (`An answer that turns on a dimension gets its
-    card by default`) was scoped to the six schematic rows — leaving the other
-    twelve triggers as a table of permissions with a `WHEN NOT TO` paragraph
-    under it. These assertions pin the rebalance so a later edit cannot walk it
-    back a clause at a time, which is exactly how it arrived.
+    Under-emission, specific: asked „Wie läuft das Baubewilligungsverfahren in
+    Wien ab?" — almost the words of the ``process_map`` trigger line — the model
+    answered in numbered prose, then two turns later named the card and built a
+    good one on the first attempt. ``follow_ups`` has never been seen at all,
+    with its shape already inlined in ``grid-cards``, so a `describe_card`
+    round-trip was never the cost in the way.
+
+    Over-emission, general: the product owner's reading of the fleet is that
+    cards "do get put out quite good". So the general rate was not the problem,
+    and pushing on it buys only the failure the charter's anti-goal D.8 names —
+    a card that restates the prose beside it, which "cannot be made beautiful,
+    only bigger". That charter names ``_CARD_RESTRAINT`` as where the rule is
+    enforced, so this doctrine is load-bearing for it.
+
+    The first fix overcorrected and this suite is the record of it. The original
+    default was scoped to one card class ("an answer that turns on a DIMENSION
+    gets its card by default"), measuring 2.4 : 1 restraint to invitation; the
+    rewrite made a match an obligation and swung to 0.9 : 1, i.e. net
+    invitation. The landing point is a match as a REASON, at ~1.4 : 1.
+
+    So the assertions below pin a BAND, not a direction. Either edge is a
+    regression and neither is visible in a diff.
     """
 
-    def test_the_default_covers_the_whole_table_not_one_class_of_card(self):
-        doctrine = render_card_doctrine()
-        assert "A match in this table IS a card, by default" in doctrine
-        # And the scoped version it replaced is gone: it read as a rule about
-        # measurements, which `process_map` and `follow_ups` are not.
-        assert "An answer that turns on a dimension gets its card by default" not in doctrine
+    #: Span-level polarity of the always-on doctrine PROSE, cl100k tokens.
+    #: Deliberately excludes the trigger rows and the card index: those are
+    #: vocabulary, and counting them would swamp the prose that sets the
+    #: disposition. Measured at 1.42 : 1 when written (invitation 167,
+    #: restraint 237).
+    MIN_RESTRAINT_RATIO = 1.15
+    MAX_RESTRAINT_RATIO = 1.75
 
-    def test_the_doctrine_names_writing_prose_instead_as_the_failure(self):
-        # The observation itself, stated to the model. A trigger table lists
-        # what is ALLOWED; only this says which way to err.
-        doctrine = render_card_doctrine()
-        assert "knowing which one fits and" in doctrine
-        assert "writing the answer as prose anyway" in doctrine
-        assert "Not emitting on a match is" in doctrine
+    @staticmethod
+    def _polarity() -> tuple[int, int]:
+        """(invitation, restraint) tokens over the doctrine's prose blocks."""
+        import tiktoken
 
-    def test_the_positive_default_outweighs_the_volume_rule(self):
-        # Not a style preference — a measurement. The prose that invites a card
-        # must not be shorter than the prose that limits how many, or the whole
-        # block reads as a warning with a list attached.
-        tiktoken = pytest.importorskip("tiktoken")
         encoding = tiktoken.get_encoding("cl100k_base")
+        count = lambda text: len(encoding.encode(text))  # noqa: E731
 
-        invitation = _CARD_TRIGGER_TABLE.split("The trigger, then the card:")[0]
-        assert len(encoding.encode(invitation)) > len(encoding.encode(_CARD_RESTRAINT))
+        head = _CARD_TRIGGER_TABLE.split("The trigger, then the card:")[0]
+        follow_ups_default, follow_ups_exceptions = _FOLLOW_UPS_RULE.split("Two narrow exceptions:")
+        picker_invitation = _MODEL_PICKER_NOTE.split("It renders")[0]
+
+        invitation = count(head) + count(follow_ups_default) + count(picker_invitation)
+        restraint = (
+            count("Two narrow exceptions:" + follow_ups_exceptions)
+            + count(_CARD_RESTRAINT)
+            + count(_interactive_note())
+        )
+        return invitation, restraint
+
+    def test_the_doctrine_sits_inside_its_calibration_band(self):
+        pytest.importorskip("tiktoken")
+        invitation, restraint = self._polarity()
+        ratio = restraint / invitation
+
+        assert self.MIN_RESTRAINT_RATIO <= ratio <= self.MAX_RESTRAINT_RATIO, (
+            f"The always-on card doctrine reads {ratio:.2f} : 1 restraint to invitation "
+            f"(invitation {invitation} tokens, restraint {restraint}), outside the "
+            f"{self.MIN_RESTRAINT_RATIO}–{self.MAX_RESTRAINT_RATIO} band. Below the band the "
+            "doctrine reads as an obligation and buys cards that restate the prose beside them "
+            "(charter anti-goal D.8); above it, it reads as a disclaimer and specific cards stop "
+            "being emitted at all. Moving this band is a decision about the fleet's emission rate "
+            "and needs a field observation behind it, not a rewording."
+        )
+
+    def test_a_trigger_match_is_a_reason_and_not_an_obligation(self):
+        doctrine = render_card_doctrine()
+        # A reason to reach for the card...
+        assert "is a reason to" in doctrine
+        assert "rather than mere permission" in doctrine
+        # ...and the restatement test sits INSIDE the invitation, so the
+        # invitation is self-limiting rather than leaning on WHEN NOT TO alone.
+        assert "carries more than the sentence beside it" in doctrine
+        # Not an obligation: no clause making non-emission the exception, and no
+        # naming of prose-instead as a failure. Both read as "always emit".
+        assert "IS a card, by default" not in doctrine
+        assert "Not emitting on a match is" not in doctrine
+        assert "one failure mode" not in doctrine
+
+    def test_the_default_is_not_scoped_to_one_class_of_card(self):
+        # The original defect, and the one thing the rewrite must not give back:
+        # a default naming only measurements left `process_map` matching its
+        # trigger word for word and still coming back as prose.
+        doctrine = render_card_doctrine()
+        assert "An answer that turns on a dimension gets its card by default" not in doctrine
+        assert "This table maps content to card" in doctrine
+
+    def test_the_specific_cards_keep_their_own_imperative_in_the_always_on_index(self):
+        # What actually carries the two observed misses, now that the head is a
+        # reason rather than an obligation. These live in the L1 index, are paid
+        # on every turn already, and push per CARD instead of across the table —
+        # which is the difference between fixing a miss and raising the rate.
+        index = render_card_index()
+        assert '"process_map": Emit for' in index
+        assert '"follow_ups": Emit at the END' in index
+        assert '"key_takeaways": Emit for' in index
+        assert '"callout": Emit for' in index
+        assert '"calculation": Emit for' in index
 
     def test_the_anti_fabrication_rule_stands_apart_and_outranks_the_triggers(self):
         # The one rule that must NOT be softened to get more cards. It was a
@@ -194,14 +257,28 @@ class TestTheDefaultIsPositive:
         assert "fabricate" not in _CARD_RESTRAINT
         assert doctrine.count("Never fabricate a field") == 1
 
-    def test_the_volume_rule_is_a_budget_to_spend(self):
-        # Same number as before — two — said as a budget rather than as a cap,
-        # and with the follow_ups exemption that until now only the German skill
-        # carried. A model that counts follow_ups against the two has one slot
-        # for the card the answer was actually about.
-        assert "there to be SPENT" in _CARD_RESTRAINT
+    def test_the_volume_rule_reads_as_a_ceiling(self):
+        # The charter names this constant as where "no card that restates the
+        # prose beside it" is enforced, so it may not read as an invitation to
+        # spend. It briefly said "a budget and it is there to be SPENT"; a rule
+        # that invites spending cannot enforce a restatement veto.
+        assert "ceiling" in _CARD_RESTRAINT
+        assert "there to be SPENT" not in _CARD_RESTRAINT
+        assert "budget" not in _CARD_RESTRAINT
+        # What the same pass added and this keeps: the follow_ups exemption (a
+        # model counting it against the two has one slot left for the card the
+        # answer was about) and the two cases where none is right.
         assert "follow_ups does not count against it" in _CARD_RESTRAINT
-        assert "Two cards in a turn is plenty" not in _CARD_RESTRAINT
+        assert "only repeats the sentence above it" in _CARD_RESTRAINT
+        assert "says in the same words" in _CARD_RESTRAINT
+
+    def test_follow_ups_leads_with_its_default_before_its_exceptions(self):
+        # The card the user has never seen, and the one place a general push was
+        # NOT the answer: its own rule was three prohibitions with no default in
+        # front of them. Kept even as the head was moderated, because it rests
+        # on an observation rather than on the broad-shyness theory.
+        default = _FOLLOW_UPS_RULE.index("closes a subject-matter answer by default")
+        assert default < _FOLLOW_UPS_RULE.index("Two narrow exceptions")
 
     def test_looking_a_shape_up_is_not_framed_as_a_cost(self):
         # Cause two, addressed for 20 tokens instead of the ~693 it costs to

@@ -568,6 +568,7 @@ CARD_CHAIN = (
     "0054_piloti_cards_standard_skill",
     "0058_piloti_cards_derivation_and_process",
     "0059_piloti_cards_the_recognised_card",
+    "0060_piloti_cards_dossier_and_change",
 )
 
 
@@ -713,6 +714,98 @@ def test_the_card_seed_does_not_buy_emission_with_always_on_shapes():
         "process_map's shape got cheap enough to reconsider inlining it; re-measure and decide, "
         "rather than letting the list widen because nothing objected."
     )
+
+
+def test_the_card_seed_carries_the_craft_for_the_three_dossier_types():
+    """``0060``: the paragraph half of the rule a new card type owes.
+
+    A new type owes a trigger line to the always-on tool description and a
+    paragraph to this skill, and the paragraph is the half that costs nothing
+    visible to omit — the trigger is what makes the card emit at all, so it never
+    gets forgotten. ``document_checklist``, ``deadline_timeline`` and
+    ``change_impact`` shipped their triggers first; this is the other half.
+
+    Named in German, like every other card in this body, because the skill is
+    German prose and calls a thing what a reader would call it. Backticks are
+    reserved for what the model literally writes.
+    """
+    from aiq_agent.cards.register import _CARD_DOCTRINE
+
+    body = _unwrapped(_effective_row("piloti-cards")["body"])
+
+    # The tool carries the triggers ...
+    for card_type in ("document_checklist", "deadline_timeline", "change_impact"):
+        assert card_type in _CARD_DOCTRINE
+
+    # ... and the skill carries what no trigger line has room to say.
+    # A Unterlagenliste is a list of STATES, and the card totals them — so a
+    # guessed status corrupts the tally and not just its own row.
+    assert "## Unterlagenliste: Zustände, nicht Namen" in body
+    assert "Setzen Sie `status` ausschließlich dort, wo das Gespräch es hergegeben hat" in body
+    assert "verfälscht daher nicht nur seine Zeile, sondern auch die Bilanz" in body
+    # One Frist is a Hinweis; several make the ORDER the answer. Never a date,
+    # and never a Frist without the event its clock starts from.
+    assert "## Fristenlauf: die Reihenfolge ist die Auskunft" in body
+    assert "Eine einzelne Frist ist ein Hinweis" in body
+    assert "niemals als Datum" in body
+    assert "lassen Sie die Frist weg, statt sie ohne Anker hinzuschreiben" in body
+    # Order, not duration — the charter's anti-goal D.1 in the model's own words.
+    assert "zeichnet die Reihenfolge, nicht die Dauer" in body
+    # A consequence without a Fundstelle cannot be acted on, so it is left out;
+    # and "unverändert" is half the answer rather than a wasted row.
+    assert "## Auswirkung einer Änderung: was ein Wechsel kostet" in body
+    assert "ohne Fundstelle lassen Sie sie weg" in body
+    assert 'scheuen Sie „unverändert" nicht' in body
+    assert "Den Ausgangswert setzen Sie nur, wenn das Gespräch ihn hergegeben hat" in body
+
+    # German names, not wire type values — the convention this body follows.
+    for wire_name in ("`condition_tree`", "`typed_table`", "`callout`", "`document_checklist`"):
+        assert wire_name not in body
+
+
+def test_the_bedingungsbaum_vorfrage_sits_with_the_selection_guidance():
+    """``0060``: a DISCRIMINATOR, so it joins the section that already discriminates.
+
+    This one prevents a wrong card rather than encouraging a right one, which is
+    why it was taken at full strength while a frequency argument elsewhere in the
+    same batch was tempered. The defect it names is specific and observed: three
+    branches marked active at once read as a decision that was never taken, which
+    is worse than no card — the model must mark none when it does not know.
+
+    Placed as a ``###`` inside „Bedingungsbaum, typisierte Tabelle, Vergleich"
+    rather than as a fourth ``##``, because a per-card heading would file a
+    selection rule under one of the two cards it chooses between.
+    """
+    raw = _effective_row("piloti-cards")["body"]
+    body = _unwrapped(raw)
+
+    assert "### Die Vorfrage zum Bedingungsbaum: kann mehr als eine Zeile gelten?" in body
+    assert "**Kann mehr als eine Zeile gleichzeitig zutreffen?**" in body
+    assert "Wenn ja, ist es nie ein Baum" in body
+    # The observed defect, and the honest alternative to guessing.
+    assert "sehen aus wie eine getroffene Entscheidung, obwohl keine getroffen wurde" in body
+    assert '„ich weiß es nicht" ist eine Auskunft, geraten ist keine' in body
+    # The worked case, which is a typisierte Tabelle and not a tree.
+    assert "Feuerwiderstand tragender Bauteile in GK 4" in body
+    assert "gelten alle drei zugleich" in body
+
+    # It nests under the selection section, and does not open a new top-level one.
+    headings = [line for line in raw.splitlines() if line.startswith("## ") or line.startswith("### ")]
+    vorfrage = headings.index("### Die Vorfrage zum Bedingungsbaum: kann mehr als eine Zeile gelten?")
+    assert headings[vorfrage - 1] == "## Bedingungsbaum, typisierte Tabelle, Vergleich"
+
+
+def test_the_closing_calibration_stays_the_last_word_of_the_body():
+    """New card paragraphs go BEFORE the budget section, never after it.
+
+    „Das Kartenbudget einer Antwort" is the body's calibration and it works by
+    being read last. Appending a new card's paragraph after it would leave the
+    body ending on "here is another card you could emit", which is the drift this
+    whole line of work exists to keep out — the product owner's reading is that
+    emission is already fine.
+    """
+    headings = [line for line in _effective_row("piloti-cards")["body"].splitlines() if line.startswith("## ")]
+    assert headings[-1] == "## Das Kartenbudget einer Antwort"
 
 
 def test_every_card_type_with_a_trigger_has_its_craft_in_the_seed():

@@ -77,12 +77,28 @@ MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_complianc
 # no answer to place a marker into. The CRAFT — which of the generic cards actually improves an
 # ordinary answer — lives in the `piloti-cards` platform skill for the answering agents, and in a
 # post-hoc-truthful short form in `prompt.py` for the batch generator, which has no skill runtime.
+#
+# The HEAD of this table is calibrated, and both directions of miscalibration have now been seen in
+# the field. It once said "an answer that turns on a DIMENSION gets its card by default" — a default
+# scoped to six of the twenty-odd rows below, which left `process_map` matching its trigger almost
+# word for word and still coming back as a numbered prose list. Generalising that default is the
+# fix, and the first attempt at it overcorrected: "a match IS a card, by default and unasked", plus
+# an instruction that not emitting was an exception needing a justification, read as an obligation
+# across every row. The product owner's reading of the fleet is that emission is broadly fine, so
+# the general rate was never the problem and pushing on it can only buy restatement — the one thing
+# anti-goal D.8 exists to forbid.
+#
+# So a match is a REASON, not an obligation, and the clause about carrying more than the sentence
+# beside it puts the restatement test in the invitation itself rather than leaving it all to
+# `_CARD_RESTRAINT`. The two cards actually observed missing are pushed where it costs nothing
+# general: `follow_ups` by its own rule below, `process_map` (and `calculation`, `callout`,
+# `key_takeaways`) by the "Emit for …" imperative each already carries in the always-on L1 index.
 _CARD_TRIGGER_TABLE = """\
-WHEN TO EMIT ONE. A match in this table IS a card, by default and unasked — the card is the
-drawing, list or ordering the reader would otherwise have made in their head, and prose hands
-them that work back. If you can NAME the card that fits, emit it: knowing which one fits and
-writing the answer as prose anyway is this tool's one failure mode. Not emitting on a match is
-the exception, and it needs a reason from WHEN NOT TO. The trigger, then the card:
+WHEN TO EMIT ONE. This table maps content to card. A row that matches your answer is a reason to
+reach for that card rather than mere permission — a measurement, an ordered Verfahren or a set of
+criteria written out as prose makes the reader rebuild in their head what the card would have
+shown them. Emit it where the match is clear and the card
+carries more than the sentence beside it. The trigger, then the card:
   a riser, tread or stair width            -> stair_diagram
   a clear width, ramp or turning circle    -> dimension_diagram
   an escape route with segments            -> egress_diagram
@@ -141,16 +157,20 @@ with an invented limit in it is worse than the prose alone, because it is the pa
 screenshotted into a submission. A value you do not have is left out or marked "needs_input", never
 estimated to make the card look finished. This rule outranks every trigger above."""
 
-# The volume rule, and only that. It is CALIBRATION, not discouragement: it says how much of the
-# budget a turn has, in a section short enough that it cannot outweigh the table it qualifies. It
-# used to carry the anti-fabrication rule and the "two is plenty" cap in one paragraph, under a
-# heading that read as the counterweight to the whole trigger table — and the observed failure was
-# a model that named the right card afterwards and had written prose instead.
+# The volume rule, and only that — a CEILING, said as a ceiling. It briefly read as "a budget and
+# it is there to be SPENT", which is the one framing this rule must not have: the charter names
+# this constant as where anti-goal D.8 ("no card that restates the prose beside it") is enforced,
+# and a rule that invites spending cannot enforce a restatement veto. What it keeps from that pass
+# is the follow_ups exemption — a model counting follow_ups against the two has one slot left for
+# the card the answer was actually about — and the two cases where none is right.
+#
+# It no longer carries the anti-fabrication rule, which moved to `_CARD_HONESTY`: sharing a
+# paragraph meant a model discounting "two is plenty" as tone discounted "never fabricate" with it.
 _CARD_RESTRAINT = """\
-WHEN NOT TO. Two content cards is a turn's budget and it is there to be SPENT — one is the usual
-number, three is too many, and follow_ups does not count against it. None is right in two cases: a
-one-line factual answer, where the card only repeats the sentence above it, and a card that would
-say what the prose beside it says in the same words — cut the card, keep the sentence."""
+WHEN NOT TO. Two content cards is a turn's ceiling and one is often the right number;
+follow_ups does not count against it. None is right in two cases: a one-line factual answer, where the card
+only repeats the sentence above it, and a card that would say what the prose beside it
+says in the same words — cut the card, keep the sentence."""
 
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
@@ -336,6 +356,23 @@ CARD_EXAMPLES: dict[str, dict] = {
         ),
         "patch": [{"op": "add", "path": "/facts/fluchtniveau", "value": ">22m"}],
         "preview": [{"label": "Escape level", "before": "11–22m", "after": "> 22m"}],
+    },
+    # `lane` and `edition` are the whole reason this card carries an example.
+    # Neither is guessable from the shape line alone: `lane` is a controlled
+    # vocabulary whose members read as opaque keys, and `edition` is the field
+    # that separates a citation an architect can look up from one they cannot.
+    "legal_basis": {
+        "type": "legal_basis",
+        "law": "OIB-Richtlinie 2",
+        "lane": "baurecht_oib",
+        "edition": "Ausgabe Mai 2023",
+        "article": "3.1.1",
+        "section": "Tabelle 1a",
+        "summary": "Die maximale Brandabschnittsfläche für oberirdische Geschosse in GK 4 beträgt 1.200 m².",
+        "original_text": (
+            "Brandabschnitte dürfen eine Nettogrundfläche von höchstens 1.200 m² und eine "
+            "Längenausdehnung von höchstens 60 m aufweisen."
+        ),
     },
     "requirement_checklist": {
         "type": "requirement_checklist",

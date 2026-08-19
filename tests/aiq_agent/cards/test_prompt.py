@@ -133,7 +133,7 @@ class TestTheDoctrineReachesThePostHocPath:
         # go on a card, and how many — and this path pays for both.
         prompt = build_card_generation_prompt()
         assert "WHEN NOT TO" in prompt
-        assert "Two content cards is a turn's budget" in prompt
+        assert "Two content cards is a turn's ceiling" in prompt
         assert "Never fabricate a field, a reference or a number" in prompt
 
     def test_the_volume_rule_is_stated_once_across_the_two_blocks(self):
@@ -142,7 +142,7 @@ class TestTheDoctrineReachesThePostHocPath:
         # numbers a paragraph apart is how they drift; the doctrine owns it.
         prompt = build_card_generation_prompt()
         assert prompt.count("Two content cards") == 1
-        assert "Two content cards is the ceiling" not in prompt
+        assert "Two content cards is the ceiling and one is often right" not in prompt
 
     def test_the_follow_ups_rule_survives(self):
         prompt = build_card_generation_prompt()
