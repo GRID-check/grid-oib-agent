@@ -315,7 +315,7 @@ function Gallery() {
               reference: { document: 'Wiener Bauordnung', section: '§ 73' },
             },
             {
-              label: 'Statischer Vorbemessung',
+              label: 'Statische Vorbemessung',
               requirement: 'conditional',
               condition: 'nur bei Eingriff in tragende Bauteile',
               issuer: 'Tragwerksplanung',
