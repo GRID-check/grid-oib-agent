@@ -191,9 +191,13 @@ class IntentClassifier:
             from aiq_agent.knowledge.inventory import set_listing_shelf
 
             set_listing_shelf(None)
+            # No query at all is the weakest possible evidence for the most
+            # expensive route: "deep" here spent minutes and a plan-approval
+            # interrupt on nothing. Degenerate input takes the cheap path, like
+            # every other unclear case below.
             return {
                 "user_intent": IntentResult(intent="research", raw=None),
-                "depth_decision": DepthDecision(decision="deep", raw_reasoning="No query"),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="No query"),
             }
 
         user_info = state.user_info or {}
@@ -288,6 +292,23 @@ class IntentClassifier:
             intent = raw_intent if raw_intent in ("meta", "research", "out_of_scope") else "research"
             research_depth = (parsed.get("research_depth") or "shallow").strip().lower()
             depth_reasoning = parsed.get("depth_reasoning") or ""
+
+            # The user rejected a research plan earlier in this conversation.
+            # That is a durable statement about what they want, so the deep
+            # route is off for the rest of the thread and the model's "deep"
+            # is downgraded HERE — before the status line is emitted and
+            # before ``depth_decision`` reaches ``route_after_orchestration``
+            # or ``derive_routing_decision``. Downgrading in one place is what
+            # keeps the live line, the routing_decision on the answer and the
+            # agent that actually ran from disagreeing with each other.
+            #
+            # ``depth_reasoning`` is dropped with it: it is rendered to the
+            # reader as the model's own words for why this route, and the
+            # model's words argue for a route we are not taking.
+            if research_depth == "deep" and state.deep_research_declined:
+                logger.info("Depth 'deep' downgraded to 'shallow': plan already rejected in this conversation")
+                research_depth = "shallow"
+                depth_reasoning = ""
 
             # Say which way the turn is going, NOW. This decision is settled
             # about a second into the turn, and until this line it only ever

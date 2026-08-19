@@ -44,6 +44,8 @@ class ChatResearcherState(BaseModel):
         skip_clarifier: When True the clarifier node is bypassed regardless of
             ``enable_clarifier``.  Set automatically for API-key and anonymous
             callers so headless workflows do not stall waiting for user input.
+        deep_research_declined: Sticky per-conversation flag set when the user
+            rejects a research plan; suppresses the deep route thereafter.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -67,6 +69,21 @@ class ChatResearcherState(BaseModel):
     focus_shelf: str | None = None
     cards: list[dict[str, Any]] | None = None
     skip_clarifier: bool = False
+    # STICKY, for the life of the conversation: the user rejected a research
+    # plan. A rejection is not a cancel — the question is still on the table and
+    # is answered on the shallow path in the same turn — but it is also durable
+    # information about what this reader wants, so it keeps the deep route (both
+    # the classifier's "deep" and the shallow agent's [ESCALATE_TO_DEEP]) from
+    # putting another plan in front of them for the rest of the thread. A user
+    # who has said no to a plan should not have to say it again.
+    #
+    # It survives the turn boundary by being DELIBERATELY ABSENT from the input
+    # dict `run()` builds: fields listed there are overwritten with the fresh
+    # per-turn state's defaults, fields omitted keep their checkpointed value.
+    # Adding it to that dict would reset it every turn and make it useless.
+    # A new conversation is a new thread and therefore a clean slate — that is
+    # the deliberate way back to deep research.
+    deep_research_declined: bool | None = None
     project_context: str | None = None
     # Set when a deep-research run is dispatched as an async job. Carried as a
     # STRUCTURED signal to the frontend (instead of the frontend regex-parsing
