@@ -15,10 +15,14 @@ from unittest.mock import patch
 
 import pytest
 
+from aiq_api.jobs.runner import _DEGRADED_EVENT_FIELDS
 from aiq_api.jobs.runner import _GRAPH_RECURSION_ERROR_MSG
 from aiq_api.jobs.runner import _WALL_CLOCK_TIMEOUT_MSG
+from aiq_api.jobs.runner import JOB_DEGRADED_EVENT_TYPE
 from aiq_api.jobs.runner import CancellationMonitor
+from aiq_api.jobs.runner import _build_job_output
 from aiq_api.jobs.runner import _create_agent_instance
+from aiq_api.jobs.runner import _extract_answer_transparency
 from aiq_api.jobs.runner import _extract_skills_activated
 from aiq_api.jobs.runner import _purge_deep_checkpoint
 from aiq_api.jobs.runner import _resolve_deep_research_checkpointer
@@ -472,9 +476,7 @@ class TestExtractAnswerTransparency:
 
     def test_degraded_reasons_keeps_only_the_stable_tokens(self) -> None:
         state = SimpleNamespace(degraded_reasons=["no_report_file", None, 3, "", "no_valid_citations"])
-        assert _extract_answer_transparency(state) == {
-            "degraded_reasons": ["no_report_file", "no_valid_citations"]
-        }
+        assert _extract_answer_transparency(state) == {"degraded_reasons": ["no_report_file", "no_valid_citations"]}
 
     def test_an_empty_degraded_list_is_not_a_claim(self) -> None:
         assert _extract_answer_transparency(SimpleNamespace(degraded_reasons=[])) == {}

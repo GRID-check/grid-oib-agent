@@ -1001,9 +1001,7 @@ async def run_agent_job(
                                 {
                                     "type": JOB_DEGRADED_EVENT_TYPE,
                                     "data": {
-                                        key: transparency[key]
-                                        for key in _DEGRADED_EVENT_FIELDS
-                                        if key in transparency
+                                        key: transparency[key] for key in _DEGRADED_EVENT_FIELDS if key in transparency
                                     },
                                 }
                             )
