@@ -94,6 +94,64 @@ test was asserting against a shape that never existed — say so in the summary.
 `NODE_ENV`-gated). A stray `console.log` shipping to production logs is a
 finding, not a warning to wave through.
 
+## 2b. Prove the test fails without the fix
+
+Do not assert that your test would have caught the bug. **Remove the fix, run
+the test, watch it fail, put the fix back, and report the numbers** ("reverting
+the wiring fails 3 of its 4 cases"). Restore byte-for-byte and say that you did.
+
+A test written against a bug you have already fixed is written blind. It passes,
+which feels like proof, and the only question that matters — *would it have gone
+red before?* — is the one thing a passing run cannot answer.
+
+This is not hypothetical here. A committed test named
+`…_stripped_is_never_announced` asserted that a fabricated URL never reaches the
+cited-source stream. It never did — but it never could have, fix or no fix: the
+callback rejects any URL absent from the registry, so the invented one failed an
+unrelated check first. The test passed identically against the code it was
+written to pin. It read as coverage of the announce-before-verify bug and was
+coverage of nothing.
+
+That is worse than an absent test. An absent test is a known hole; a vacuous one
+occupies the hole's place in the suite, so nobody looks again. Fixing it meant
+finding an input the code path would otherwise have accepted — a *genuinely
+retrieved* document whose citation verification strips — which is exactly the
+thinking the revert-check forces and the green run does not.
+
+If a test cannot be made to fail, one of two things is true: the fix is not doing
+what you think, or the test is aimed at the wrong thing. Both are findings. Say
+which.
+
+## 2c. An implementation nobody calls is not done
+
+**Grep for a caller of every symbol you add, and test the JOIN, not just the
+parts.** A module with no importer, a prop no parent passes, a setter with no
+producer — each is dead code wearing a passing suite.
+
+Three times in one work session a complete, correct implementation shipped
+imported by nobody, and every test on both sides of the gap stayed green,
+because each side was genuinely correct in isolation:
+
+- A WinAnsi transliteration table — written, reviewed, tested, imported by
+  nobody. `≤ 40 m` kept printing as `d 40 m` in compliance PDFs: the comparator
+  inverted while the number beside it stayed right, and nothing went red.
+- A three-tier source-registry resolver with a full API and its own tests — no
+  producer ever handed it a registry.
+- `truncation_reason` / `degraded_reasons` — wire schema, sanitizer, storage,
+  reload decoder, German and English strings, and a renderer with matching
+  props that **no caller passed**.
+
+The pattern is structural, not careless: whoever owns the parts cannot see the
+join, so the join is the thing that needs the test. Prefer a choke point over a
+convention — the transliteration is wired by making the renderers import a
+wrapping `Text`, because applying a function at twenty call sites works exactly
+until the twenty-first, and that failure is silent.
+
+When a lane is split across agents or PRs, name the joining field or symbol up
+front and have both sides pin it; a test that reads the *other* side's source
+for the expected name is cheap and catches a rename that two green suites will
+not.
+
 ## 3. Documentation is part of the change
 
 Per AGENTS.md this is not a follow-up. In the SAME change, update whichever
@@ -146,6 +204,8 @@ explicit "not verified because …":
 - Lint/typecheck: <ruff / tsc results; `npm run lint` exit code>
 - `any` introduced: NONE <or name each site and why no real type was reachable>
 - New/regression tests added: <names>
+- Revert-check: <"removed <fix>, N of M cases failed, restored" | why not possible>
+- Caller exists for every new symbol: <grep evidence | n/a — nothing new added>
 - Live/LLM validation: <what was called, result | n/a because …>
 - UI evidence: <screenshot path / quoted copy | n/a because …>
 - Docs updated: <files | none needed because …>
