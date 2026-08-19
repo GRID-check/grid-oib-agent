@@ -116,20 +116,27 @@ def test_forcing_a_skill_does_not_activate_it() -> None:
     assert runtime.forced_not_activated == ("beta",)
 
 
-def test_activation_order_is_delivery_order() -> None:
+def test_what_was_delivered_is_reported_in_the_order_it_was_asked_for() -> None:
+    """Membership is delivery; order is the forced block's order.
+
+    Raw delivery order is not reportable: a model opens both house skills in
+    one PARALLEL batch and the tool node runs them concurrently, so which body
+    lands first is scheduling noise — and a reader's panel that reorders itself
+    between two identical turns is a worse answer to "what shaped this?" than a
+    stable one. So the reported order stays what the user asked for, then the
+    fleet floor, then what the model chose. Only membership changed.
+    """
     runtime = _runtime(forced=["beta"])
-    tools = runtime.build_tools()
-    tool = next(t for t in tools if t.name == "use_skill")
+    tool = _use_skill(runtime)
     assert tool.invoke({"skill_name": "alpha"}) == "alpha body"
-    # The model opened `alpha` first, so `alpha` is first — a forced skill has
-    # no head start it has not earned by being read.
     assert runtime.activated == ("alpha",)
     assert tool.invoke({"skill_name": "beta"}) == "beta body"
-    assert runtime.activated == ("alpha", "beta")
+    # `beta` was delivered second and is reported first: it is the forced one.
+    assert runtime.activated == ("beta", "alpha")
     assert runtime.forced_not_activated == ()
     # Re-invoking the same skill does not duplicate it.
     tool.invoke({"skill_name": "alpha"})
-    assert runtime.activated == ("alpha", "beta")
+    assert runtime.activated == ("beta", "alpha")
 
 
 def test_forced_block_names_only_forced_skills() -> None:
@@ -255,7 +262,9 @@ class TestActivationEvents:
         assert [e["name"] for e in activations] == ["titel", "beta"]
         # One STEP per skill: sharing a name collapses N skills into one step.
         assert [e["step"] for e in activations] == ["skill:titel", "skill:beta"]
-        assert runtime.activated == ("titel", "beta")
+        # The EVENTS are in the order things happened; the reported list is in
+        # the order the forced block reads (see `activated`).
+        assert runtime.activated == ("beta", "titel")
         assert runtime.forced == ("beta",)
 
     def test_forced_and_model_chosen_differ_only_in_who_decided(self, context_state) -> None:

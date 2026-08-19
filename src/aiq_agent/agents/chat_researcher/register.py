@@ -211,7 +211,8 @@ _STREAM_EXTRA_FIELDS = (
     "citations_removed",
     "job_admission_rejected",
     "retry_after_seconds",
-    # Agent Skills: which skills ran this turn (forced first, then invoked).
+    # Agent Skills: which skills ran this turn — i.e. whose instructions the
+    # model actually fetched, in the order it fetched them.
     "skills_activated",
 )
 

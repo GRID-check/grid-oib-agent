@@ -145,8 +145,9 @@ class ChatResearcherState(BaseModel):
     # also need registering in the checkpointer serde allowlist
     # (aiq_agent/common/__init__.py).
     force_skills: list[str] | None = None
-    # Ordered names of the skills activated THIS turn (forced first, then
-    # model-invoked via ``use_skill``, deduped). Set on the success path of
+    # Ordered names of the skills whose BODY reached the model this turn, in
+    # delivery order (``use_skill``), deduped — never a skill that was merely
+    # forced, which shaped nothing. Set on the success path of
     # ``_finalize_shallow_answer`` and lifted onto the terminal ChatResponse
     # ONLY when present (escaped escalations and generation failures leave it
     # None), the ``skills_activated`` transparency extra.

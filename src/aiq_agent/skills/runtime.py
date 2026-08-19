@@ -104,9 +104,9 @@ class SkillRuntime:
     Attributes:
         skills: The resolved skill set for this run (builtin + org, allowlisted).
         force_names: Skill names the user's request forced for this run.
-        activated: Ordered skill names whose BODY was delivered this run, in
-            delivery order. Never a name that was merely forced — see the
-            module docstring.
+        activated: Skill names whose BODY was delivered this run — forced ones
+            first, in force order, then the model's own, in call order. Never a
+            name that was merely forced; see the module docstring.
     """
 
     def __init__(self, skills: tuple[Skill, ...] = (), force_names: list[str] | None = None) -> None:
@@ -154,13 +154,22 @@ class SkillRuntime:
 
     @property
     def activated(self) -> tuple[str, ...]:
-        """Skills whose BODY reached the model, in delivery order.
+        """Skills whose BODY reached the model — forced first, then invoked.
 
         This is what ``skills_activated`` reports and what the disclosure
         renders as "what shaped this answer". A forced skill the model never
         opened is NOT here — see :attr:`forced_not_activated`.
+
+        MEMBERSHIP is delivery; ORDER is not. Raw delivery order is not a fact
+        worth reporting: a model opens both house skills in ONE parallel batch
+        and the tool node runs them concurrently, so which body lands first is
+        scheduling noise that would reorder the reader's panel between two
+        identical turns. The order is therefore the one the forced block reads
+        in — what the user asked for, then the fleet floor, then what the model
+        chose. Only the membership changed.
         """
-        return tuple(self._activated)
+        forced_first = [name for name in self._forced if name in self._activated_seen]
+        return tuple(forced_first + [name for name in self._activated if name not in self._forced_seen])
 
     @property
     def forced_not_activated(self) -> tuple[str, ...]:
@@ -204,7 +213,7 @@ class SkillRuntime:
 
         return tuple(
             name
-            for name in self._activated
+            for name in self.activated
             if (skill := self._by_name.get(name)) is not None and skill_hidden(skill.metadata)
         )
 

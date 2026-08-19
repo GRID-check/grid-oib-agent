@@ -306,6 +306,36 @@ class TestAResearchTurn:
         # product sold on traceability.
         assert result.skills_activated == []
 
+    @pytest.mark.asyncio
+    async def test_only_the_skill_the_model_opened_is_named(self, bypass_citation_pipeline):
+        """Half-obeyed is the ordinary case, and the one a flat list gets wrong.
+
+        The model opens the voice and skips the cards. The answer really was
+        written in the house voice and really was not shaped by the card
+        judgement, and the record has to say exactly that — the mixed case is
+        where "forced == activated" stops being a rounding error and starts
+        being a wrong answer to "why does this answer look like this?".
+        """
+        loads_voice_only = AIMessage(
+            content="",
+            tool_calls=[{"name": "use_skill", "args": {"skill_name": VOICE}, "id": "call-voice"}],
+        )
+        llm = _scripted_llm(loads_voice_only, _answer())
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch muss das Geländer sein?")],
+            requires_sources=True,
+        )
+
+        result, _ = await _run_turn(llm, state)
+
+        given = _everything_the_model_was_given(llm)
+        assert VOICE_PHRASE in given
+        assert CARDS_PHRASE not in given
+        assert result.skills_activated == [VOICE]
+        # And the hidden subset follows the same fact rather than the forcing:
+        # the disclosure mutes what it names, and it names what was delivered.
+        assert result.skills_hidden == [VOICE]
+
 
 class TestAConversationalTurn:
     """The token-budget guarantee — the link with the most to lose and the least
@@ -479,9 +509,13 @@ class TestHiddenIsRoutedNeverDropped:
         result, _ = await _run_turn(llm, state)
 
         activations = [event for event in events if event["phase"] == "activated"]
-        assert [event["name"] for event in activations] == [VOICE, CARDS]
+        # SET, not sequence: the model asks for both skills in one parallel
+        # batch and the tool node executes them concurrently, so which body is
+        # handed over first is scheduling. What is a contract is that both
+        # announce, once each.
+        assert sorted(event["name"] for event in activations) == sorted([VOICE, CARDS])
         # One step per skill: sharing a name would collapse them into one.
-        assert [event["step"] for event in activations] == [f"skill:{VOICE}", f"skill:{CARDS}"]
+        assert sorted(event["step"] for event in activations) == sorted([f"skill:{VOICE}", f"skill:{CARDS}"])
         for event in activations:
             assert event["channel"] == "technical"
             # No `key` is what keeps it off the live line — the same withholding

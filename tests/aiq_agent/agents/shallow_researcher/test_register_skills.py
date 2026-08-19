@@ -52,8 +52,12 @@ def _make_agent_stub():
         agent = MagicMock()
         agent.run = AsyncMock(side_effect=lambda state: state)
         agent.build_tools = kwargs.get("tools")
+        agent.init_kwargs = kwargs
+        built.append(agent)
         return agent
 
+    built: list = []
+    _factory.built = built
     return _factory
 
 
@@ -69,14 +73,24 @@ def _skill(name: str):
     return skill
 
 
-def _skill_runtime(resolved, force_names):
+def _skill_runtime(resolved, force_names, *, activated=None, standard_count=0):
+    """A stand-in runtime.
+
+    ``activated`` defaults to the forced names because most of these tests are
+    about the register's wiring rather than about delivery — but it is a
+    SEPARATE argument, because forcing a skill and the model actually reading
+    it are separate facts (``SkillRuntime.forced_not_activated``).
+    """
     runtime = MagicMock()
     runtime.prompt_block.return_value = "## Verfügbare Skills"
     runtime.forced_block.return_value = "## Aktive Skills (vom Nutzer erzwungen)"
     runtime.build_tools.return_value = [MagicMock(name="use_skill")]
-    runtime.activated = list(force_names or [])
+    runtime.activated = list(force_names or []) if activated is None else list(activated)
     runtime.skills = tuple(resolved)
     runtime.forced = tuple(force_names or ())
+    runtime.forced_not_activated = tuple(n for n in (force_names or ()) if n not in runtime.activated)
+    runtime.hidden_activated = ()
+    runtime.standard_count = standard_count
     return runtime
 
 
@@ -365,4 +379,81 @@ async def test_unknown_forced_skill_passes_through_allowlist():
         # The runtime is asked for a name it does not hold; the runtime's own
         # contract (test_runtime.py) turns that into "not forced", never an error.
         RuntimeCls.assert_called_once_with(skills=resolved, force_names=["mystery-skill"])
+        await gen.aclose()
+
+
+@pytest.mark.asyncio
+async def test_the_forced_house_skills_get_their_own_iteration_budget():
+    """A standard skill is deployment overhead, and the research budget is not it.
+
+    ``max_tool_iterations`` is charged per tool CALL, so every skill the fleet
+    forces takes one iteration off every research chain in the product before a
+    single source is read — silently, and worst on the long measurement chains
+    the config's floors were traced against. The register knows how many the
+    deployment forces, so it reserves exactly that many on top.
+    """
+    builder = _FakeBuilder({"web_search_tool": web_search_tool})
+    config = ShallowResearchAgentConfig(
+        llm="research_llm",
+        tools=["web_search_tool"],
+        skills_enabled=True,
+        max_tool_iterations=7,
+    )
+    resolved = (_skill("piloti-voice"), _skill("piloti-cards"))
+    runtime = _skill_runtime(resolved, [], activated=[], standard_count=2)
+    stub = _make_agent_stub()
+
+    with (
+        patch.object(register_module, "ShallowResearcherAgent", stub),
+        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
+        patch("aiq_agent.skills.SkillRuntime", return_value=runtime),
+        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+    ):
+        ResolverCls.return_value.resolve.return_value = resolved
+
+        run_fn, gen = await _get_run_fn(config, builder)
+        await run_fn(ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")], requires_sources=True))
+
+        kwargs = stub.built[-1].init_kwargs
+        # The research budget is untouched: it is what the traced floors in
+        # config_oib_openrouter.yml measure, and they assume ONE use_skill.
+        assert kwargs["max_tool_iterations"] == 7
+        assert kwargs["reserved_tool_iterations"] == 2
+        await gen.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_forced_skill_the_model_never_opened_is_not_reported_as_used(caplog):
+    """`skills_activated` is the answer's provenance, so it carries deliveries only.
+
+    The register lifts ``SkillRuntime.activated`` onto the result and the
+    frontend renders it as "what shaped this answer". A skill that was forced
+    but never fetched shaped nothing — and the fact that it was asked for and
+    ignored is not lost either, it goes to the log, where it can be counted per
+    deployment ("the house voice reached 8 answers in 10").
+    """
+    builder = _FakeBuilder({"web_search_tool": web_search_tool})
+    config = ShallowResearchAgentConfig(llm="research_llm", tools=["web_search_tool"], skills_enabled=True)
+    resolved = (_skill("piloti-voice"), _skill("piloti-cards"))
+    runtime = _skill_runtime(resolved, ["piloti-voice", "piloti-cards"], activated=["piloti-voice"])
+
+    with (
+        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
+        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
+        patch("aiq_agent.skills.SkillRuntime", return_value=runtime),
+        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+    ):
+        ResolverCls.return_value.resolve.return_value = resolved
+
+        run_fn, gen = await _get_run_fn(config, builder)
+        result = await run_fn(
+            ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")], requires_sources=True)
+        )
+
+        assert result.skills_activated == ["piloti-voice"]
+        unread = [m for m in caplog.messages if "Forced skills never loaded" in m]
+        assert unread and "piloti-cards" in unread[0], (
+            f"a forced skill the model ignored left no trace at all; warnings were {caplog.messages}"
+        )
+        assert "piloti-voice" not in unread[0].split("(activated")[0]
         await gen.aclose()
