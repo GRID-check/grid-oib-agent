@@ -546,6 +546,8 @@ A new card uses the shell and picks one of three registers, or it does not ship.
 **8. No card that restates the prose beside it.**
 Already doctrine (catalog.py `_CARD_RESTRAINT`) and also a design rule: a card that is a restatement cannot be made beautiful, only bigger. If a proposed redesign only works by giving the card more to say, the card should not have been emitted.
 
+The test is FORM, not facts — a scope the doctrine states out loud since two field transcripts were cut by the broad reading. An answer whose prose already enumerates its cases shares every fact with the card that would show them, so "says what the prose says" vetoed exactly the answers a card helps most. Three Lagen with their Anforderung and Fundstelle as a table is not three sentences said again; it is three sentences the reader no longer has to align by hand. Same words in the same shape still loses the card.
+
 **9. No sketch stroke on anything that is not physical geometry** — and no crisp stroke on physical geometry inside the schematics. The rule cuts both ways, which is why `parking_requirement` is on the fix list and `energy_performance` is exempted by name.
 
 **10. No new dependency.**

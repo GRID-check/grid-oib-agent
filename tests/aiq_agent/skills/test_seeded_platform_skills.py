@@ -32,6 +32,7 @@ import re
 import pytest
 
 from aiq_agent.cards.catalog import model_facing_card_types
+from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.skills.models import MAX_DESCRIPTION_CHARS
 from aiq_agent.skills.models import Skill
 from aiq_agent.skills.models import _validate_metadata
@@ -497,6 +498,105 @@ def test_the_card_scope_migration_changes_only_the_scope():
     assert not _guard_hashes("0056_piloti_cards_chat_scope")
 
 
+def test_the_two_cards_the_doctrine_redirects_to_are_reachable_without_a_round_trip():
+    """``0061``: `typed_table` and `process_map` join the inlined shapes.
+
+    ``grid-cards`` is read twice and only the first reading is obvious. It is
+    the author's card PREFERENCE, and — because ``_preferred_cards_block``
+    appends ``render_card_details()`` for exactly those types — it also decides
+    which SHAPES are in context at the moment the model would emit. The five
+    inlined since 0054 did not include either card the doctrine spends its words
+    redirecting TO: ``catalog``'s trigger table sends "rows that are all true at
+    once" to ``typed_table`` and this very body works the GK 4 case through to
+    it, while ``process_map`` is the card the „wie läuft das ab" transcript was
+    supposed to produce. Both were a ``describe_card`` round trip away while
+    ``condition_tree``'s full shape sat already rendered — and the observed
+    answer took the condition_tree.
+
+    Asserted through ``preferred_cards`` rather than on the JSON text, because
+    the read path is what the runtime uses and a name it silently drops would
+    leave this passing over a list that inlines nothing.
+    """
+    row = _effective_row("piloti-cards")
+    inlined = preferred_cards(json.loads(row["metadata"]))
+
+    assert "typed_table" in inlined
+    assert "process_map" in inlined
+    # The five that were already there are still there, in their order: this
+    # migration adds, it does not re-curate.
+    assert [c for c in inlined if c not in {"typed_table", "process_map"}] == [
+        "verdict_header",
+        "condition_tree",
+        "key_takeaways",
+        "callout",
+        "follow_ups",
+    ]
+    # And they resolve to real shapes — an inlined name the catalog has since
+    # renamed costs the turn the shape without costing it the token budget.
+    detail = render_card_details(inlined)
+    assert '"typed_table"' in detail and '"process_map"' in detail
+
+
+def test_the_reachable_shapes_migration_changes_only_the_card_list():
+    """``0061`` restates the whole row and writes back ``metadata`` alone.
+
+    Same pattern and same hazard as ``0056``: the last ``INSERT`` on disk has to
+    be the row a fresh database ends up with, so the body is restated — and its
+    ``ON CONFLICT`` writes only ``metadata``, so a body edited here would ship as
+    a diff reviewers read and no database ever applies. Byte-identity against
+    ``0060`` is the only thing that keeps the restatement honest.
+
+    The guard is 0060's BODY hash rather than the metadata it changes, unlike
+    0056. Reason: an owner who has rewritten the prose owns the whole row, card
+    preferences included, and a preference list naming shapes their body no
+    longer discusses is worse than leaving their row alone. ``created_by`` is not
+    a guard anywhere in this chain — the dashboard patches ``body`` and never
+    touches it, so an edited row still reads ``system``.
+    """
+    previous = next(row for tag, row in SEEDS if tag.startswith("0060_"))
+    current = next(row for tag, row in SEEDS if tag.startswith("0061_"))
+
+    assert current["name"] == previous["name"] == "piloti-cards"
+    assert current["body"] == previous["body"]
+    assert current["description"] == previous["description"]
+    assert current["delivery"] == previous["delivery"]
+    assert current["published"] == previous["published"]
+
+    before = json.loads(previous["metadata"])
+    after = json.loads(current["metadata"])
+    assert {k: v for k, v in after.items() if k != "grid-cards"} == {
+        k: v for k, v in before.items() if k != "grid-cards"
+    }
+    assert set(split_metadata_list(after["grid-cards"])) - set(split_metadata_list(before["grid-cards"])) == {
+        "typed_table",
+        "process_map",
+    }
+
+    forward = (DRIZZLE_DIR / "0061_piloti_cards_reachable_shapes.sql").read_text(encoding="utf-8")
+    body_hash = hashlib.md5(previous["body"].encode("utf-8")).hexdigest()
+    assert _guard_hashes("0061_piloti_cards_reachable_shapes") == [body_hash]
+    assert '"created_by"' not in forward.split("ON CONFLICT")[1]
+    # Only metadata is written back. `body`/`description` in the SET clause would
+    # make this a body migration that belongs in CARD_CHAIN instead.
+    conflict = forward.split("ON CONFLICT")[1]
+    assert '"metadata" = EXCLUDED."metadata"' in conflict
+    assert '"body" = EXCLUDED' not in conflict
+    assert '"description" = EXCLUDED' not in conflict
+    # Re-running must be a NO-OP, not an idempotent write: without this clause
+    # every replay bumps `updated_at` on a row it did not change.
+    assert 'IS DISTINCT FROM EXCLUDED."metadata"' in conflict
+
+    down = (DRIZZLE_DIR / "0061_piloti_cards_reachable_shapes.down.sql").read_text(encoding="utf-8")
+    # Both directions gate on the SAME body hash, because neither touches the
+    # body: a row whose prose was edited through the dashboard is left alone
+    # going forward and coming back.
+    assert re.findall(r"md5\([^)]*\)\s*=\s*'([0-9a-f]{32})'", down) == [body_hash]
+    # And the rollback restores 0060's exact list, gated on the one 0061 wrote,
+    # so an owner who has since re-chosen their cards keeps them.
+    assert f"'\"{before['grid-cards']}\"'" in down
+    assert after["grid-cards"] in down
+
+
 def test_the_card_skill_is_not_promised_to_a_surface_that_emits_no_cards():
     """Why ``piloti-cards`` went the OTHER way from ``piloti-voice``.
 
@@ -684,35 +784,55 @@ def test_the_card_seed_keeps_every_honesty_rule_the_rebalance_could_have_softene
     assert "Löschen Sie gedanklich alle Karten" in body
 
 
-def test_the_card_seed_does_not_buy_emission_with_always_on_shapes():
-    """Widening ``grid-cards`` was the other candidate fix, and it is not this one.
+#: cl100k_base tokens for the whole inlined-shape block, measured at 2,157 when
+#: 0061 widened the list from five types to seven (1,199 + 265 for
+#: ``typed_table`` + 693 for ``process_map``). A CEILING with room for one more
+#: ordinary shape, not a pin on today's number.
+MAX_INLINED_SHAPE_TOKENS = 2_500
 
-    ``process_map``'s shape costs +693 cl100k tokens on EVERY turn this skill
-    loads — which is every answering turn, since it is standard delivery — to
-    save one `describe_card` call on the minority of turns that ask about a
-    Verfahren. And ``follow_ups`` is the disproof that inlining causes emission:
-    it is in this list already and went missing on the same answer.
 
-    So the five stay five, and the cost of a lookup is answered in words instead
-    (``test_looking_a_shape_up_is_not_framed_as_a_cost``). Asserted against the
-    catalog rather than as a literal count so that widening the list has to
-    argue with a measurement.
+def test_widening_the_inlined_shapes_stayed_a_priced_decision():
+    """``grid-cards`` may only grow against a measurement, and this is it.
+
+    This assertion used to run the other way. It held the list at five and said
+    so in those words: ``process_map``'s shape costs +693 cl100k tokens on EVERY
+    turn this skill loads — every answering turn, since it is standard delivery
+    — to save one ``describe_card`` call on the minority of turns that ask about
+    a Verfahren, and ``follow_ups`` proves inlining does not cause emission,
+    being in the list already and missing from the same answer.
+
+    What changed is not the price but what the price buys. ``follow_ups`` shows
+    inlining is not SUFFICIENT for emission; the transcript that widened the list
+    shows the other direction, where an answer took ``condition_tree`` — whose
+    shape was rendered and in front of it — over the ``typed_table`` the doctrine
+    and the body below both redirect it to, which was a round trip away. Inlining
+    is not what makes a card get emitted; it is what stops the already-chosen
+    card from being the more expensive of two. That is a narrower claim and it is
+    the one the field evidence actually supports.
+
+    So the escape hatch the old assertion left open ("widening has to argue with
+    a measurement") was taken, and this now guards the same thing from the other
+    side: the block is priced, and it may not creep past a stated ceiling
+    unmeasured. The words answering the cost of a lookup stay too
+    (``test_looking_a_shape_up_is_not_framed_as_a_cost``) — the round trip is
+    still what every card outside this list costs.
     """
-    from aiq_agent.cards.catalog import render_card_details
-
     metadata = json.loads(_effective_row("piloti-cards")["metadata"])
     inlined = preferred_cards(metadata)
-    assert "process_map" not in inlined
+
+    # The list is a SET of ordinary answer shapes, not the catalog. `calculation`
+    # stayed out: it fires on a narrower answer than any of the seven and its
+    # shape is among the most expensive.
     assert "calculation" not in inlined
-    assert "follow_ups" in inlined
+    assert len(inlined) < 10, "grid-cards is becoming the catalog; that is what describe_card is for"
 
     tiktoken = pytest.importorskip("tiktoken")
     encoding = tiktoken.get_encoding("cl100k_base")
-    with_process = len(encoding.encode(render_card_details((*inlined, "process_map"))))
-    without = len(encoding.encode(render_card_details(inlined)))
-    assert with_process - without > 500, (
-        "process_map's shape got cheap enough to reconsider inlining it; re-measure and decide, "
-        "rather than letting the list widen because nothing objected."
+    cost = len(encoding.encode(render_card_details(inlined)))
+    assert cost <= MAX_INLINED_SHAPE_TOKENS, (
+        f"the inlined card shapes cost {cost} cl100k tokens, over the {MAX_INLINED_SHAPE_TOKENS} "
+        "ceiling. Every turn that delivers this standard skill pays it whether or not a card is "
+        "emitted. Re-measure and decide rather than letting the list widen because nothing objected."
     )
 
 

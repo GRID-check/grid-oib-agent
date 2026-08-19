@@ -852,13 +852,26 @@ class TypedColumn(BaseModel):
     )
 
 
+# The opening line of this docstring IS the always-on L1 index entry
+# (`catalog.render_card_index` takes the first line and nothing else), so it is
+# written as an imperative in the same register as `process_map`, `callout` and
+# `key_takeaways`. It read as pure description — "A generic table whose columns
+# declare their type so cells render right" — while being the card TWO doctrine
+# rows and the `condition_tree` docstring both redirect to. A redirect only lands
+# if the destination says "emit me" as loudly as the card doing the redirecting;
+# the field case was an answer that took `condition_tree` because that card's
+# shape was already in context and its own line told the model to emit it.
 class TypedTableCard(BaseModel):
-    """A generic table whose columns declare their type so cells render right.
+    """Emit for rows that are all true at once, and for any table no card covers.
 
-    Emit for a tabular answer no purpose-built card covers — one card for the
-    long tail instead of a bespoke type per table. Each column names its `type`
-    so the frontend right-aligns measurements and dates, renders a verdict as a
-    status chip and a norm as emphasised, rather than every cell as flat text.
+    Rows that hold SIMULTANEOUSLY — the topmost storey AND the other storeys AND
+    the basement, three parts of one building rather than three cases of one
+    project — belong here and not in a `condition_tree`, whose branches are
+    mutually exclusive. This is also the long tail: a tabular answer no
+    purpose-built card covers gets this one card instead of a bespoke type per
+    table. Each column names its `type` so the frontend right-aligns measurements
+    and dates, renders a verdict as a status chip and a norm as emphasised,
+    rather than every cell as flat text.
     """
 
     type: Literal["typed_table"]

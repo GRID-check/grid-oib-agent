@@ -1,6 +1,7 @@
 """Tests for the conversation-scoped CardRegistry and the emit_card tool path."""
 
 import json
+import logging
 
 import pytest
 
@@ -160,6 +161,86 @@ class TestEmitCardRejectsSystemCards:
         assert "system-emitted" in msg
         # Nothing was added to the registry.
         assert reg.snapshot() == []
+
+
+class TestARefusedCardIsVisibleAfterTheTurn:
+    """ "The model never tried" and "we refused it" must not look the same in a log.
+
+    Diagnosing a turn that shipped without its card ran into this: only the
+    SUCCESS path logged, so a turn where the model called ``emit_card`` and got a
+    validation error back left exactly the same silence as one where it never
+    called at all. The two have opposite fixes — the first is a shape the model
+    cannot fill in, the second is a doctrine that never got the card named — and
+    with nothing to separate them the choice is a guess.
+
+    ``warning`` rather than ``info``: each of these is a card the reader was
+    meant to get and did not, and it is invisible from the answer, which reads
+    as a perfectly ordinary reply with no card on it.
+    """
+
+    @staticmethod
+    async def _emit_real(registry, payload) -> str:
+        from unittest.mock import MagicMock
+
+        from aiq_agent.cards.register import EmitCardConfig
+        from aiq_agent.cards.register import emit_card
+
+        token = set_card_registry(registry)
+        try:
+            async with emit_card(EmitCardConfig(), MagicMock()) as info:
+                return await info.single_fn(card_json=payload if isinstance(payload, str) else json.dumps(payload))
+        finally:
+            reset_card_registry(token)
+
+    @pytest.mark.asyncio
+    async def test_a_validation_failure_logs_the_type_the_model_reached_for(self, caplog):
+        reg = get_or_create_card_registry("conv-refusal-1")
+        reg.clear()
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards.register"):
+            msg = await self._emit_real(reg, {"type": "process_map", "title": "Bauverfahren"})
+
+        assert msg.startswith("Error")
+        records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert records, "a refused card left no trace at all — the exact gap this closes"
+        # The TYPE is the load-bearing half: it says which card the model knew it
+        # wanted, which is the one thing a silent turn cannot tell you.
+        assert "process_map" in records[0].getMessage()
+        assert "rejected" in records[0].getMessage()
+
+    @pytest.mark.asyncio
+    async def test_unparseable_json_logs_too(self, caplog):
+        reg = get_or_create_card_registry("conv-refusal-2")
+        reg.clear()
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards.register"):
+            msg = await self._emit_real(reg, "{not json")
+
+        assert msg.startswith("Error")
+        assert any("not valid JSON" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+    @pytest.mark.asyncio
+    async def test_a_system_card_refusal_logs_too(self, caplog):
+        reg = get_or_create_card_registry("conv-refusal-3")
+        reg.clear()
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards.register"):
+            msg = await self._emit_real(
+                reg, {"type": "memory_proposal", "title": "X", "content": "Y", "scope": "project"}
+            )
+
+        assert msg.startswith("Error")
+        assert any("memory_proposal" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+    @pytest.mark.asyncio
+    async def test_a_successful_card_logs_at_info_and_not_as_a_warning(self, caplog):
+        # The success line predates this and stays where it is: a refusal is the
+        # abnormal outcome and has to be greppable apart from the normal one.
+        reg = get_or_create_card_registry("conv-refusal-4")
+        reg.clear()
+        with caplog.at_level(logging.INFO, logger="aiq_agent.cards.register"):
+            msg = await self._emit_real(reg, {"type": "summary", "title": "Treppe"})
+
+        assert not msg.startswith("Error")
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("registered a 'summary' card" in r.getMessage() for r in caplog.records)
 
 
 class TestEmitCardPlacementMarker:

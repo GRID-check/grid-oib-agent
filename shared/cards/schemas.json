@@ -4144,7 +4144,7 @@
       "type": "object"
     },
     "TypedTableCard": {
-      "description": "A generic table whose columns declare their type so cells render right.\n\nEmit for a tabular answer no purpose-built card covers \u2014 one card for the\nlong tail instead of a bespoke type per table. Each column names its `type`\nso the frontend right-aligns measurements and dates, renders a verdict as a\nstatus chip and a norm as emphasised, rather than every cell as flat text.",
+      "description": "Emit for rows that are all true at once, and for any table no card covers.\n\nRows that hold SIMULTANEOUSLY \u2014 the topmost storey AND the other storeys AND\nthe basement, three parts of one building rather than three cases of one\nproject \u2014 belong here and not in a `condition_tree`, whose branches are\nmutually exclusive. This is also the long tail: a tabular answer no\npurpose-built card covers gets this one card instead of a bespoke type per\ntable. Each column names its `type` so the frontend right-aligns measurements\nand dates, renders a verdict as a status chip and a norm as emphasised,\nrather than every cell as flat text.",
       "properties": {
         "columns": {
           "description": "Column definitions, left-to-right",

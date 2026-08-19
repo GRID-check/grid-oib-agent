@@ -93,12 +93,24 @@ MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_complianc
 # `_CARD_RESTRAINT`. The two cards actually observed missing are pushed where it costs nothing
 # general: `follow_ups` by its own rule below, `process_map` (and `calculation`, `callout`,
 # `key_takeaways`) by the "Emit for …" imperative each already carries in the always-on L1 index.
+#
+# The NAMING clause is the one thing the dial-back took out that had to come back. Its predecessor
+# read "if you can NAME the card that fits, emit it: knowing which one fits and writing the answer
+# as prose anyway is this tool's one failure mode" — and it went out with the obligation framing it
+# happened to sit next to, which is why it is restated here on its own. It carries no duty; it
+# closes a gap the rest of the table cannot reach. Every other sentence here is about RECOGNISING
+# the card, and the two transcripts that produced this pass show recognition working and emission
+# not following it: asked again in plainer words, the model named the right card and built it well
+# on the first attempt. The step being lost is between knowing and doing, so that is the step this
+# sentence names — not "you must", but "you have already decided".
 _CARD_TRIGGER_TABLE = """\
 WHEN TO EMIT ONE. This table maps content to card. A row that matches your answer is a reason to
 reach for that card rather than mere permission — a measurement, an ordered Verfahren or a set of
 criteria written out as prose makes the reader rebuild in their head what the card would have
 shown them. Emit it where the match is clear and the card
-carries more than the sentence beside it. The trigger, then the card:
+carries more than the sentence beside it. Naming the card IS the decision: once you can say which
+card this answer is, emitting it is the step that follows, not a second judgement.
+The trigger, then the card:
   a riser, tread or stair width            -> stair_diagram
   a clear width, ramp or turning circle    -> dimension_diagram
   an escape route with segments            -> egress_diagram
@@ -164,13 +176,23 @@ estimated to make the card look finished. This rule outranks every trigger above
 # is the follow_ups exemption — a model counting follow_ups against the two has one slot left for
 # the card the answer was actually about — and the two cases where none is right.
 #
+# The restatement veto is real and it stays. What it needed was a SCOPE, because as written it read
+# on the wrong cases: an answer whose prose already enumerates its cases shares every fact with the
+# card that would show them, so "says what the prose says" vetoed exactly the answers a card helps
+# most. Both field transcripts are that shape. The discriminator is form against facts — a table of
+# three Lagen with their Anforderung and Fundstelle is not three sentences said again, it is three
+# sentences the reader no longer has to align by hand — so sharing facts with the paragraph is
+# stated here as never sufficient on its own. Same words in the same shape still loses the card.
+#
 # It no longer carries the anti-fabrication rule, which moved to `_CARD_HONESTY`: sharing a
 # paragraph meant a model discounting "two is plenty" as tone discounted "never fabricate" with it.
 _CARD_RESTRAINT = """\
 WHEN NOT TO. Two content cards is a turn's ceiling and one is often the right number;
 follow_ups does not count against it. None is right in two cases: a one-line factual answer, where the card
 only repeats the sentence above it, and a card that would say what the prose beside it
-says in the same words — cut the card, keep the sentence."""
+says in the same words — cut the card, keep the sentence. That second case is about FORM, not
+facts: three Lagen with their Anforderung and Fundstelle as a table is not a restatement of three
+sentences, it is the same facts in a shape prose cannot hold. Shared facts alone never cut a card."""
 
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
