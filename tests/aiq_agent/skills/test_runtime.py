@@ -100,18 +100,36 @@ def test_prompt_block_lists_descriptions_only() -> None:
     assert "beta body" not in block
 
 
-def test_forced_names_come_first_in_activation_order() -> None:
+def test_forcing_a_skill_does_not_activate_it() -> None:
+    """A force is an instruction; activation is a delivery.
+
+    `forced_block()` contributes a heading and the skill's NAME — the body
+    travels through `use_skill` and nowhere else. So a model that ignores the
+    instruction has read nothing, and `activated` (which the disclosure renders
+    as "this shaped the answer") must not claim otherwise. This is the whole
+    defect: with an LLM that never calls the tool, the reader was told the
+    house voice wrote an answer it never saw.
+    """
     runtime = _runtime(forced=["beta"])
     assert runtime.forced == ("beta",)
-    assert runtime.activated == ("beta",)
+    assert runtime.activated == ()
+    assert runtime.forced_not_activated == ("beta",)
+
+
+def test_activation_order_is_delivery_order() -> None:
+    runtime = _runtime(forced=["beta"])
     tools = runtime.build_tools()
     tool = next(t for t in tools if t.name == "use_skill")
     assert tool.invoke({"skill_name": "alpha"}) == "alpha body"
-    # Model invocation appends after the forced entry.
-    assert runtime.activated == ("beta", "alpha")
+    # The model opened `alpha` first, so `alpha` is first — a forced skill has
+    # no head start it has not earned by being read.
+    assert runtime.activated == ("alpha",)
+    assert tool.invoke({"skill_name": "beta"}) == "beta body"
+    assert runtime.activated == ("alpha", "beta")
+    assert runtime.forced_not_activated == ()
     # Re-invoking the same skill does not duplicate it.
     tool.invoke({"skill_name": "alpha"})
-    assert runtime.activated == ("beta", "alpha")
+    assert runtime.activated == ("alpha", "beta")
 
 
 def test_forced_block_names_only_forced_skills() -> None:
@@ -125,8 +143,10 @@ def test_forced_block_names_only_forced_skills() -> None:
 def test_force_unknown_skill_is_ignored() -> None:
     runtime = SkillRuntime(skills=(S1,), force_names=["ghost", "alpha"])
     assert runtime.forced == ("alpha",)
-    assert runtime.activated == ("alpha",)
     assert runtime.forced_block().startswith("## Active skills")
+    # A name nobody can resolve is not "forced and unread" either — there is no
+    # skill to have read.
+    assert runtime.forced_not_activated == ("alpha",)
 
 
 def test_forced_block_none_when_nothing_forced() -> None:
@@ -225,18 +245,25 @@ class TestActivationEvents:
         # Re-invoking an already-active skill must not say so a second time.
         tool.invoke({"skill_name": "titel"})
 
+        # The forced skill announces nothing until its body is handed over:
+        # "applying the Brandschutznachweis skill" said before the model has
+        # read a word of it is the live-line version of the same false claim.
+        assert [e["name"] for e in events if e["phase"] == "activated"] == ["titel"]
+        tool.invoke({"skill_name": "beta"})
+
         activations = [e for e in events if e["phase"] == "activated"]
-        assert [e["name"] for e in activations] == ["beta", "titel"]
+        assert [e["name"] for e in activations] == ["titel", "beta"]
         # One STEP per skill: sharing a name collapses N skills into one step.
-        assert [e["step"] for e in activations] == ["skill:beta", "skill:titel"]
-        # Forced-first ordering is unchanged by the announcement.
-        assert runtime.activated == ("beta", "titel")
+        assert [e["step"] for e in activations] == ["skill:titel", "skill:beta"]
+        assert runtime.activated == ("titel", "beta")
         assert runtime.forced == ("beta",)
 
     def test_forced_and_model_chosen_differ_only_in_who_decided(self, context_state) -> None:
         events = self._sink(context_state)
         runtime = SkillRuntime(skills=(TITLED, TITLED_TWO), force_names=["titel"])
-        _use_skill(runtime).invoke({"skill_name": "titel-zwei"})
+        tool = _use_skill(runtime)
+        tool.invoke({"skill_name": "titel"})
+        tool.invoke({"skill_name": "titel-zwei"})
 
         by_name = {e["name"]: e for e in events if e["phase"] == "activated"}
         assert by_name["titel"]["forced"] is True
@@ -370,7 +397,12 @@ def test_standard_skills_are_applied_without_being_asked_for() -> None:
     # and a description the model may or may not open is not fleet policy.
     runtime = SkillRuntime(skills=(S1, STANDARD))
     assert "haus-stil" in runtime.forced
-    assert "haus-stil" in runtime.activated
+    assert "haus-stil" in (runtime.forced_block() or "")
+    # …but "applied" is the instruction, not yet the fact: it becomes activated
+    # when the model fetches the body, like every other skill.
+    assert runtime.activated == ()
+    _use_skill(runtime).invoke({"skill_name": "haus-stil"})
+    assert runtime.activated == ("haus-stil",)
 
 
 def test_an_ordinary_skill_is_not_forced() -> None:
@@ -391,6 +423,9 @@ def test_user_forces_are_listed_before_standard_skills() -> None:
 def test_a_user_forced_standard_skill_is_not_listed_twice() -> None:
     runtime = SkillRuntime(skills=(S1, STANDARD), force_names=["haus-stil"])
     assert runtime.forced == ("haus-stil",)
+    tool = _use_skill(runtime)
+    tool.invoke({"skill_name": "haus-stil"})
+    tool.invoke({"skill_name": "haus-stil"})
     assert runtime.activated.count("haus-stil") == 1
 
 
@@ -417,11 +452,13 @@ def test_hidden_activated_is_the_grid_hidden_subset() -> None:
     # the reasoning view is open. Resolved here because only the runtime holds a
     # standard skill's metadata; the invocable list the disclosure reads excludes it.
     runtime = SkillRuntime(skills=(S1, HIDDEN_STD))
+    _use_skill(runtime).invoke({"skill_name": "haus-stimme"})
     assert "haus-stimme" in runtime.activated
     assert runtime.hidden_activated == ("haus-stimme",)
 
 
 def test_an_ordinary_activated_skill_is_not_hidden() -> None:
     runtime = SkillRuntime(skills=(S1, STANDARD))  # STANDARD carries no grid-hidden
+    _use_skill(runtime).invoke({"skill_name": "haus-stil"})
     assert "haus-stil" in runtime.activated
     assert runtime.hidden_activated == ()

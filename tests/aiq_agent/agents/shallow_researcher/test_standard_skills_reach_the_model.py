@@ -282,6 +282,10 @@ class TestAResearchTurn:
         refactor ever inlined forced bodies into the prompt "to be safe", the
         always-on cost this whole design avoids would come back and no other
         test would catch it.
+
+        And because that is the deliberate design, the DISCLOSURE has to agree
+        with it: the same turn must report that neither house skill shaped the
+        answer, because neither one did.
         """
         llm = _scripted_llm(_answer())
         state = ShallowResearchAgentState(
@@ -292,10 +296,15 @@ class TestAResearchTurn:
         result, _ = await _run_turn(llm, state)
 
         assert "use_skill" in _bound_tool_names(llm)
-        assert result.skills_activated == [VOICE, CARDS]
         given = _everything_the_model_was_given(llm)
         assert VOICE_PHRASE not in given
         assert CARDS_PHRASE not in given
+        # The reader is told nothing shaped this answer, because nothing did.
+        # `skills_activated` is what the "Skills used" panel renders as the
+        # record of the answer's provenance; naming a skill whose instructions
+        # never reached the model is a false statement about the answer in a
+        # product sold on traceability.
+        assert result.skills_activated == []
 
 
 class TestAConversationalTurn:

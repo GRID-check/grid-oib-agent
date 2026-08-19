@@ -520,3 +520,54 @@ def emit_escalation(reason: str | None = None) -> None:
     """
     reason_text = " ".join(str(reason).split()) if reason else ""
     emit_status("escalation", KEY_ESCALATION, reason=clip(reason_text, MAX_REASON_CHARS) or None)
+
+
+#: Slot for the budget-exhaustion record. Its own slot, so it never overwrites
+#: a retrieval line and the frontend's name dedupe keeps it apart.
+BUDGET_SLOT = "budget"
+
+
+def emit_research_truncated(
+    *,
+    ceiling: int,
+    research_budget: int,
+    reserved: int,
+    spent: int,
+    rounds: int,
+    shape: list[str] | None = None,
+) -> None:
+    """Record that evidence-gathering was CUT OFF, not completed.
+
+    Technical channel, and therefore no ``key``: whether the reader should be
+    told "this answer stopped early" is a product decision, and shipping a live
+    key would make it silently. What this is for is the operator question the
+    config comment has been asking in prose for a release — *how often does
+    truncation happen, and on which question shapes* — which needs the event to
+    exist at all before it can be counted.
+
+    Args:
+        ceiling: The tool-call count that triggered forced synthesis.
+        research_budget: ``max_tool_iterations`` — the part of the ceiling the
+            question itself was allowed to spend.
+        reserved: The part granted for forced-skill overhead.
+        spent: Tool calls charged when the ceiling was hit (≥ ceiling: a
+            parallel batch can cross it by more than one).
+        rounds: LLM turns that asked for tools — the pair with ``spent`` that
+            distinguishes one greedy batch from a long walk into the wall.
+        shape: Ordered tool basenames of the run. Names only; a query string is
+            the reader's own words and does not belong in telemetry.
+    """
+    payload: dict[str, Any] = {
+        "kind": "status",
+        "channel": CHANNEL_TECHNICAL,
+        "slot": BUDGET_SLOT,
+        "truncated": True,
+        "ceiling": ceiling,
+        "research_budget": research_budget,
+        "reserved": reserved,
+        "spent": spent,
+        "rounds": rounds,
+    }
+    if shape:
+        payload["tools"] = list(shape)
+    push_custom_step(f"{STATUS_STEP_PREFIX}{BUDGET_SLOT}", payload)

@@ -173,11 +173,14 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                     allow = set(config.skill_allowlist)
                     resolved_skills = tuple(s for s in resolved_skills if s.name in allow)
                 skill_runtime = SkillRuntime(skills=resolved_skills, force_names=state.force_skills)
-                # Announce the catalog BEFORE the LLM runs. Constructing the
-                # runtime already announced each FORCED skill by its human
-                # title (SkillRuntime._record_activation), so a `/name`
-                # invocation is named to the user before the first token
-                # rather than in `skills_activated[]` after the answer.
+                # Announce the catalog BEFORE the LLM runs: what was resolved
+                # and what the user forced, on the technical channel. The
+                # per-skill announcement does NOT happen here — a forced skill
+                # is a name in the prompt until the model calls `use_skill`,
+                # and saying "applying X" before its body has been handed over
+                # is a claim the turn cannot yet make. It fires at delivery
+                # instead, which on a normal turn is still well before the
+                # first answer token.
                 from aiq_agent.skills.events import emit_skills_offered
 
                 emit_skills_offered(skill_runtime)
@@ -202,6 +205,17 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                     tools=run_tools,
                     max_llm_turns=config.max_llm_turns,
                     max_tool_iterations=config.max_tool_iterations,
+                    # The skills this DEPLOYMENT forces are overhead, not
+                    # research: nobody asked for them on this turn and each one
+                    # costs a `use_skill` call before a single source is read.
+                    # Charged to `max_tool_iterations` they would shorten every
+                    # research chain by one per published standard skill — the
+                    # config's traced floors assume ONE `use_skill`, and this
+                    # fleet already forces two. Reserved here rather than
+                    # written into the config number because the count is a
+                    # property of what the platform owner has published, which
+                    # changes without a deploy.
+                    reserved_tool_iterations=(skill_runtime.standard_count if skill_runtime is not None else 0),
                     callbacks=callbacks,
                     # The per-run agent is narrowed by data_sources/skills, so
                     # it indexes a DIFFERENT tool set — it has to carry the
@@ -243,10 +257,26 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 )
             result = await active_agent.run(state)
             if skill_runtime is not None:
+                # Delivered, not merely forced: `skills_activated` is rendered
+                # to the reader as what shaped this answer, so a skill the
+                # model never opened must not be in it (SkillRuntime.activated).
                 result.skills_activated = list(skill_runtime.activated)
                 hidden = list(skill_runtime.hidden_activated)
                 if hidden:
                     result.skills_hidden = hidden
+                # The other half of the same fact, and the one nobody can see
+                # from the answer: the turn instructed the model to apply these
+                # and it never asked for them. Logged rather than reported —
+                # what the READER should be shown about it is a product
+                # decision — but countable per deployment, which is what makes
+                # "the house voice reached 8 answers in 10" knowable at all.
+                unread = skill_runtime.forced_not_activated
+                if unread:
+                    logger.warning(
+                        "Forced skills never loaded by the model: %s (activated=%s)",
+                        ", ".join(unread),
+                        ", ".join(skill_runtime.activated) or "-",
+                    )
             return result
         except EmptySourceRegistryError:
             # A scoped miss (this-file / this-shelf) is a valid empty
