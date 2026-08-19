@@ -562,3 +562,35 @@ and the copy actions sitting with the thumbs rather than adrift.
   review surface the whole run has been missing.
 - Then look at it and fix what it exposes.
 
+## Asking "anything else?" — round 2: the always-on budget
+The voice grew 37% in one sprint (2,214 → 3,025). Nobody had measured the TOTAL
+we have been adding to all night. Measured with tiktoken, cl100k_base:
+
+| always-on, per RESEARCH turn | tok |
+|---|---|
+| `researcher.j2` (raw template) | 7,128 |
+| `emit_card` description | 1,834 |
+| `describe_card` description | 69 |
+| `piloti-voice` body | 3,025 |
+| `piloti-cards` body | 2,612 |
+| inlined card shapes (5) | 1,199 |
+| **total** | **15,867** |
+
+That is what stands in front of the model before the question, the project
+context, the knowledge inventory or any tool output.
+
+**A worry I had, checked and WRONG:** I assumed the two forced skills also load
+on a „hallo". They do not. `shallow_researcher/register.py:164` gates the whole
+skill runtime on `state.requires_sources or state.force_skills`, so a
+conversational or off-topic turn pays the prompt and the tool descriptions and
+none of the 5,637 tokens of skill prose. The gate was already right.
+
+**The real question, which is a judgement call and therefore the user's:**
+5,637 tokens of German writing craft on every research turn is a lot of "how to
+write" for a model that also has to research. The cost is not the issue — this is
+a static, cacheable prefix on a cheap tier. Instruction COMPETITION is: Anthropic's
+context-engineering guidance is explicit that more instruction is not monotonically
+better, and we have never tested whether the answer improves across the last
+thousand tokens of it. That is a Langfuse question, not a repo question — flagging,
+not acting.
+
