@@ -105,6 +105,7 @@ import {
   listMessagesForConversation,
   listVisibleConversations,
   markConversationDeleting,
+  mergeMessageMetadata,
   updateConversationMetaInOrg,
   updateConversationTitleInOrg,
   upsertConversationRead,
@@ -120,6 +121,7 @@ import {
   markConversationRead,
   persistInternalConversationMessages,
   updateConversationTitle,
+  updateMessageDetail,
 } from './service'
 
 const CONVERSATION_ID = 'conv_1'
@@ -936,6 +938,79 @@ describe('read state (spec CC-18, IB-9)', () => {
  * model phrased its JSON slightly differently. A non-2xx is the opposite case —
  * the endpoint broke its own always-200 contract — and stays at ERROR.
  */
+/**
+ * A post-answer stage's output reaches the message row through the SAME route
+ * the card decisions and the provenance already use
+ * (`docs/architecture/post-answer-stages.md` §4.3, §7.3).
+ *
+ * That reuse is the design's tenant-isolation claim: `messages` is already
+ * covered by `grid_secure_table` and the route already requires `collaborator`,
+ * so a stage adds **zero rows to `grid_secure_table`** — the thing the isolation
+ * job would otherwise have to re-prove.
+ */
+describe('a stage writes its output onto the message row (post-answer-stages §4.3)', () => {
+  const MESSAGE_ID = '9c2a4c5e-7a1f-4a25-b0a2-2f3f7d0d5b21'
+  const stages = { followUps: { items: [{ question: 'Und bei Hanglage?' }] } }
+
+  beforeEach(() => {
+    vi.mocked(mergeMessageMetadata).mockResolvedValue({ id: MESSAGE_ID } as never)
+  })
+
+  it('refuses a viewer — recording a stage is contributing, not reading', async () => {
+    stubConversation({ visibility: 'private', createdBy: 'user_other' })
+    vi.mocked(findGrantForSubject).mockResolvedValue({ role: 'viewer' } as never)
+
+    await expect(
+      updateMessageDetail(session, CONVERSATION_ID, MESSAGE_ID, { stages }),
+    ).rejects.toThrow(NotFoundError)
+    expect(mergeMessageMetadata).not.toHaveBeenCalled()
+  })
+
+  it('deep-merges by STAGE key, so two stages on one turn do not erase each other', async () => {
+    // §7.7: two independent stages address the same turn and each PATCHes only
+    // its own output. A plain top-level merge would let the second win outright.
+    stubConversation({ createdBy: 'user_me' })
+
+    await updateMessageDetail(session, CONVERSATION_ID, MESSAGE_ID, { stages })
+
+    expect(mergeMessageMetadata).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      MESSAGE_ID,
+      { stages },
+      ['stages'],
+    )
+  })
+
+  it('bounds what the client sent before it reaches the column', async () => {
+    stubConversation({ createdBy: 'user_me' })
+
+    await updateMessageDetail(session, CONVERSATION_ID, MESSAGE_ID, {
+      stages: {
+        followUps: { items: [{ question: 'x'.repeat(2000) }, ...Array(9).fill({ question: 'Noch?' })] },
+        aStageFromTheFuture: { anything: 'unbounded' },
+      },
+    })
+
+    const [, , metadata] = vi.mocked(mergeMessageMetadata).mock.calls[0]
+    const stored = (metadata as { stages: { followUps: { items: { question: string }[] } } }).stages
+    expect(Object.keys(stored)).toEqual(['followUps'])
+    expect(stored.followUps.items).toHaveLength(4)
+    expect(stored.followUps.items[0].question).toHaveLength(300)
+  })
+
+  it('writes nothing at all when nothing survives sanitisation', async () => {
+    // No no-op write under a row lock for a payload with nothing usable in it.
+    stubConversation({ createdBy: 'user_me' })
+    vi.mocked(findMessageInConversation).mockResolvedValue({ id: MESSAGE_ID } as never)
+
+    await updateMessageDetail(session, CONVERSATION_ID, MESSAGE_ID, {
+      stages: { aStageFromTheFuture: { items: [] } },
+    })
+
+    expect(mergeMessageMetadata).not.toHaveBeenCalled()
+  })
+})
+
 describe('generating a conversation title — severity of a handled failure', () => {
   const titleInput = { messages: [{ role: 'user' as const, content: 'Brandschutz im Stiegenhaus?' }] }
 

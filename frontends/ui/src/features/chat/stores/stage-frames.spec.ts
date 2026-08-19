@@ -46,6 +46,7 @@ const mockConversationsClient = vi.hoisted(() => ({
   listMessages: vi.fn().mockResolvedValue([]),
   createMessage: vi.fn().mockResolvedValue(undefined),
   createMessages: vi.fn().mockResolvedValue(undefined),
+  updateMessageStages: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/adapters/api/conversations-client', () => ({
   conversationsClient: mockConversationsClient,
@@ -144,6 +145,21 @@ describe('a ready frame lands on the turn it addresses', () => {
     expect(storedOn('msg-answer')?.followUps?.items).toHaveLength(2)
   })
 
+  it('mirrors what it stored onto the server message row', async () => {
+    // The browser is what persists it, and that is not an implementation
+    // detail: the agent tier holds the turn id and the browser holds the row id
+    // (§1.6). The half that owns the row does the writing.
+    useChatStore.getState().applyStageFrame(READY)
+
+    await vi.waitFor(() =>
+      expect(mockConversationsClient.updateMessageStages).toHaveBeenCalledWith(
+        'conv-1',
+        'msg-answer',
+        { followUps: { items: expect.arrayContaining([expect.objectContaining({ question: expect.any(String) })]) } },
+      ),
+    )
+  })
+
   it('drops a payload its own contract rejects', () => {
     expect(
       useChatStore.getState().applyStageFrame({ ...READY, payload: { items: [{ hint: 'nur ein Hinweis' }] } }),
@@ -162,6 +178,7 @@ describe('a frame with nothing to show changes nothing', () => {
   it.each(['empty', 'failed'] as const)('%s is rendered as nothing and persisted as nothing', (status) => {
     expect(useChatStore.getState().applyStageFrame({ ...READY, status, payload: undefined })).toBeNull()
     expect(storedOn('msg-answer')).toBeUndefined()
+    expect(mockConversationsClient.updateMessageStages).not.toHaveBeenCalled()
   })
 })
 

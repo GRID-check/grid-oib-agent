@@ -1570,6 +1570,11 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       'applyStageFrame'
     )
 
+    // Mirrored to the server row so the chips survive a reload, a colleague's
+    // view and another device — the same best-effort mirror the provenance and
+    // the card decisions already use.
+    void get()._persistStageOutput(target.id, { followUps: payload })
+
     return target.id
   },
 

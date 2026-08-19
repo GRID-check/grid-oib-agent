@@ -1269,6 +1269,13 @@ export interface ChatActions {
    * transcript records what was decided and a colleague's reload sees it settled.
    */
   _persistPromptState: (messageId: string, response: string) => Promise<void>
+  /**
+   * Mirror a post-answer stage's output onto its message row
+   * (`docs/architecture/post-answer-stages.md` §4.3). Best-effort, like the
+   * other mirrors: the chips are already rendered from the store, so losing it
+   * costs the replay, not the turn.
+   */
+  _persistStageOutput: (messageId: string, stages: MessageStages) => Promise<void>
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void
