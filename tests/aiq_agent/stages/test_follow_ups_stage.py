@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages import get_stage
 from aiq_agent.stages.follow_ups import FOLLOW_UPS
+from aiq_agent.stages.follow_ups import FOLLOW_UPS_SYSTEM_PROMPT
 from aiq_agent.stages.follow_ups import FollowUpQuestion
 from aiq_agent.stages.follow_ups import FollowUpsPayload
 from aiq_agent.stages.follow_ups import build_user_prompt
@@ -299,3 +300,60 @@ class TestPromptInputs:
         double a per-turn cost accepted for a navigation aid."""
         digest = '- [decision | high] "Bauherr wählt Flachdach"'
         assert digest not in build_user_prompt(_facts(memory_digest=digest))
+
+
+class TestCostCeiling:
+    """The measured per-turn cost, pinned.
+
+    Slice 1 exists to answer "what does this actually cost", so a prompt edit
+    that quietly doubles the bill has to fail rather than land in the number
+    the decision is made on. Same discipline as the `emit_card` and post-hoc
+    ceilings in `tests/aiq_agent/cards/`.
+
+    Measured with cl100k_base when written: 681 tokens of fixed system prompt;
+    925 on a representative turn (the 729-character answer from the repo's own
+    `/dev/chat-turn` follow-ups fixture); 2,463 with both input caps saturated
+    with German prose. The design estimated ~2,270 per turn — which turns out
+    to be roughly the WORST case, not the typical one.
+    """
+
+    #: The fixed half, paid on every turn that passes the gate.
+    MAX_SYSTEM_TOKENS = 800
+    #: The whole prompt when both input slices are full. Nothing can exceed this
+    #: except by raising a cap.
+    MAX_WORST_CASE_TOKENS = 2_600
+
+    @staticmethod
+    def _encoding():
+        tiktoken = pytest.importorskip("tiktoken")
+        return tiktoken.get_encoding("cl100k_base")
+
+    def test_the_fixed_prompt_stays_under_its_ceiling(self):
+        encoding = self._encoding()
+        tokens = len(encoding.encode(FOLLOW_UPS_SYSTEM_PROMPT))
+        assert tokens <= self.MAX_SYSTEM_TOKENS, (
+            f"The follow-ups system prompt is {tokens} tokens, over the {self.MAX_SYSTEM_TOKENS} "
+            "ceiling. This is paid on every substantive answer. Craft that teaches how to WRITE an "
+            "answer belongs in the `piloti-cards` skill; what belongs here is only what is decidable "
+            "by reading a finished one."
+        )
+
+    def test_a_saturated_turn_stays_under_its_ceiling(self):
+        """The input caps are what make the cost bounded by something other than
+        how long the answer was."""
+        encoding = self._encoding()
+        facts = _facts(query="Frage. " * 600, answer="Ein Satz über das Fluchtniveau. " * 400, bundesland="Vorarlberg")
+        prompt = FOLLOW_UPS_SYSTEM_PROMPT + build_user_prompt(facts)
+        tokens = len(encoding.encode(prompt))
+        assert tokens <= self.MAX_WORST_CASE_TOKENS, (
+            f"A saturated follow-ups turn costs {tokens} prompt tokens, over the "
+            f"{self.MAX_WORST_CASE_TOKENS} ceiling. Either the slices grew or the framing did."
+        )
+
+    def test_the_output_ceiling_has_room_for_a_full_set(self):
+        """512 output tokens against a measured 117 for four real German
+        questions with hints, and 204 for four at the length limits. A body
+        truncated mid-JSON turns a good set into a `failed` outcome."""
+        encoding = self._encoding()
+        body = json.dumps({"items": GOOD_ITEMS}, ensure_ascii=False)
+        assert len(encoding.encode(body)) * 2 < FOLLOW_UPS.max_output_tokens
