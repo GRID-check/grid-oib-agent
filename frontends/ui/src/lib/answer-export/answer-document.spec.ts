@@ -28,6 +28,8 @@ import { createTranslator } from '@/i18n/translate'
 import { de, en } from '@/i18n/dictionaries'
 import type { DocBlock } from './blocks'
 import { buildAnswerDocument, type AnswerDocumentInput } from './answer-document'
+import { gridCardSchema } from '@/shared/cards/schemas'
+import { previewFixtureFor } from '@/features/grid-cards/preview-fixtures'
 
 const german = createTranslator(de, 'answerExport')
 const english = createTranslator(en, 'answerExport')
@@ -349,7 +351,16 @@ describe('cards', () => {
  * through both locales, and any dot-path that survives is the failure.
  */
 describe('every string in the document comes from a dictionary', () => {
-  const everyCardType = [
+  /**
+   * Hand-written bodies, keyed by card type.
+   *
+   * Rich on purpose — the point is to push every field name and every enum
+   * value through the dictionaries, which a minimal card would not. It is NOT
+   * the list of card types: that comes off the union below, so a type nobody
+   * wrote a body for still gets exported (from its gallery fixture) rather than
+   * silently sitting this describe block out.
+   */
+  const authoredCards: Record<string, unknown>[] = [
     { type: 'summary', title: 'Kurzfassung', content: 'Kurz.', key_points: ['A', 'B'] },
     { type: 'legal_basis', law: 'OIB 2', article: '§ 3', section: 'Pkt. 5', summary: 'Kurz.', original_text: 'Wortlaut.' },
     {
@@ -526,7 +537,33 @@ describe('every string in the document comes from a dictionary', () => {
     { type: 'ifc_schedule', title: 'Raumbuch' },
     { type: 'ifc_element', title: 'Wand', global_id: '0abc' },
     { type: 'ifc_diff', title: 'Änderungen', base_model_file: 'a.ifc' },
+    { type: 'ifc_model_picker', title: 'Modelle des Projekts' },
   ]
+
+  /**
+   * One card of every type in the catalogue.
+   *
+   * Derived from `gridCardSchema` rather than typed out. The hand-written array
+   * this replaced could not fail: a card type added to the union simply never
+   * entered it, so "every card in the catalogue" was a claim about a list, not
+   * about the catalogue — and thirteen types were outside it. Anything without
+   * an authored body falls back to the gallery's preview fixture, which
+   * `preview-fixtures.spec.ts` already forces a new type to supply.
+   */
+  const authored = new Map(authoredCards.map((card) => [card.type as string, card]))
+  const everyCardType: Record<string, unknown>[] = [...gridCardSchema.optionsMap.keys()]
+    .filter((type): type is string => typeof type === 'string')
+    .map((type) => authored.get(type) ?? (previewFixtureFor(type) as Record<string, unknown> | undefined))
+    .filter((card): card is Record<string, unknown> => card !== undefined)
+
+  it('covers every card type in the union', () => {
+    const covered = new Set(everyCardType.map((card) => card.type))
+    const uncovered = [...gridCardSchema.optionsMap.keys()].filter((type) => !covered.has(type))
+    expect(
+      uncovered,
+      'no authored body and no preview fixture — add one, or the export is untested for this type'
+    ).toEqual([])
+  })
 
   it.each([
     ['de', german],
@@ -549,11 +586,23 @@ describe('every string in the document comes from a dictionary', () => {
   })
 
   it('exports every card in the catalogue, so none is silently lost', () => {
-    const output = text(buildAnswerDocument(input({ cards: everyCardType }), german, 'de'))
+    // Card by card rather than all at once: a card that contributes NOTHING is
+    // invisible in a document full of other cards, and "nothing" is exactly the
+    // failure — a finding the answer made that the exported file does not.
+    const withoutCards = text(buildAnswerDocument(input({ cards: [] }), german, 'de')).length
 
     for (const card of everyCardType) {
-      const heading = 'title' in card ? (card.title as string) : ''
-      expect(output, `card ${card.type} is missing from the document`).toContain(heading)
+      const output = text(buildAnswerDocument(input({ cards: [card] }), german, 'de'))
+      expect(
+        output.length,
+        `card ${card.type} added nothing to the document`
+      ).toBeGreaterThan(withoutCards)
+      // Where the card carries a heading of its own, that heading is what the
+      // reader looks for in the file.
+      const heading = typeof card.title === 'string' ? card.title : ''
+      if (heading) {
+        expect(output, `card ${card.type} is missing from the document`).toContain(heading)
+      }
     }
   })
 })
