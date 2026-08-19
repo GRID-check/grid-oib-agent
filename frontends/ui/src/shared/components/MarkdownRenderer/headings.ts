@@ -133,10 +133,39 @@ const ESCAPE_RE = /\\([\\`*_{}[\]()#+\-.!~<>|])/g
  * shapes the citation numbering produces on purpose. Collapsing `[2][3]` to
  * "2" would print a number the report never wrote, and would move the id.
  */
+/**
+ * How many times the tag pass may repeat before the text is forced clean.
+ *
+ * Removing one tag can COMPLETE another — „<scr<b>ipt>" is two tags to this
+ * pattern, and stripping the inner one leaves „<script>" behind. A single pass
+ * is therefore an incomplete sanitizer, which is what CodeQL flags. Real prose
+ * settles in one pass and adversarial nesting in a handful; the cap keeps the
+ * work linear rather than letting a crafted heading pay per-tag for a rescan.
+ */
+const MAX_TAG_PASSES = 8
+
+/**
+ * Drop inline HTML tags, including any a previous removal completed.
+ *
+ * The final `<` sweep is the guarantee rather than the loop: a heading built to
+ * outlast eight passes is not a heading, and dropping its angle brackets is a
+ * worse display string than it deserves but never a tag that got through. In
+ * this codebase the result is React text and a slug of `[a-z0-9-]`, neither of
+ * which is an HTML sink — the completeness is defence in depth, not the only
+ * thing standing between a heading and an injection.
+ */
+const stripHtmlTags = (text: string): string => {
+  let current = text
+  for (let pass = 0; pass < MAX_TAG_PASSES; pass += 1) {
+    const next = current.replace(HTML_TAG_RE, '')
+    if (next === current) return next
+    current = next
+  }
+  return current.replace(/</g, '')
+}
+
 export const headingDisplayText = (raw: string): string =>
-  raw
-    .replace(INLINE_LINK_RE, '$1')
-    .replace(HTML_TAG_RE, '')
+  stripHtmlTags(raw.replace(INLINE_LINK_RE, '$1'))
     .replace(CODE_SPAN_RE, '$1')
     .replace(STRIKE_RE, '$1')
     .replace(STAR_EMPHASIS_RE, '$1')

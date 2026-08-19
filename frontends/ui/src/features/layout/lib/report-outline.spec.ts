@@ -332,3 +332,35 @@ describe('heading extraction is linear in the length of the markdown', () => {
     expect(outline[0].text).toContain('https://oib.at')
   })
 })
+
+describe('inline HTML in a heading is removed completely', () => {
+  /**
+   * Removing one tag can COMPLETE another: „<scr<b>ipt>" is two tags to the
+   * pattern, and stripping the inner one leaves „<script>" behind. A single
+   * pass is an incomplete sanitizer — CodeQL's js/incomplete-multi-character-
+   * sanitization, and the alert that blocked this branch.
+   *
+   * The result here is React text and a slug of `[a-z0-9-]`, so neither output
+   * is an HTML sink; completeness is defence in depth rather than the only
+   * thing between a heading and an injection. It is asserted anyway, because
+   * "not a sink today" is not a property a later refactor preserves.
+   */
+  test('a tag hidden by another tag does not survive the strip', () => {
+    const outline = extractReportOutline('## Kennwerte <scr<b>ipt>alert(1)</scr<b>ipt>\n')
+
+    expect(outline[0].text).not.toContain('<script')
+    expect(outline[0].text).not.toContain('<')
+  })
+
+  test('a heading built to outlast the passes still yields no tag', () => {
+    const outline = extractReportOutline(`## ${'<a'.repeat(200)}${'>'.repeat(200)}Kennwerte\n`)
+
+    expect(outline[0]?.text ?? '').not.toContain('<')
+  })
+
+  test('ordinary prose keeps its angle bracket', () => {
+    const outline = extractReportOutline('## Wenn a < b gilt\n')
+
+    expect(outline[0].text).toBe('Wenn a < b gilt')
+  })
+})
