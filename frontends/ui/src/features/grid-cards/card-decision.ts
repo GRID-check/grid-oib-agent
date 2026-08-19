@@ -77,6 +77,14 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // written and nothing would be annoying to redo.
   key_takeaways: 'presentational',
   callout: 'presentational',
+  // The Rechenweg computes its own result from the operands it was given and
+  // reveals where those numbers came from on click. Nothing is written, and
+  // the disclosure is one reader's view of data that already arrived.
+  calculation: 'presentational',
+  // Opening a step of the Verfahren shows what that step needs and produces —
+  // all of it already on the client. Looking at another step decides nothing,
+  // exactly as reading a non-active branch of the condition tree does not.
+  process_map: 'presentational',
   // Follow-up chips only PREFILL the composer — no request, no write, and
   // the user still presses send. A queued draft they can ignore is not a
   // decision, so there is nothing to remember across a reload.

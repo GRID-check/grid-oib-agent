@@ -94,6 +94,8 @@ drawing they would have made. The trigger, then the card:
   the answer's single headline number or ruling, at the top -> verdict_header
   an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
   a tabular answer no purpose-built card covers -> typed_table
+  a number the answer WORKED OUT rather than looked up -> calculation
+  a Verfahren, Ablauf or „wie läuft das ab" -> process_map
   the two to five points the reader must leave with -> key_takeaways
   one caveat, deadline or tip that changes what the reader DOES -> callout
   an answer this reader will have a next question about -> follow_ups"""
@@ -429,6 +431,91 @@ CARD_EXAMPLES: dict[str, dict] = {
     # example has to show the spread rather than describe it. Note also that
     # every `question` is a full sentence with a question mark: it is sent as
     # written, so a topic label would arrive in the composer as a fragment.
+    # The example the model copies has to make the one hard rule obvious: there
+    # is NO result field. It shows the Schrittmaßregel because that is the
+    # arithmetic every Austrian architect knows by heart — 2 × 17 + 30 = 64
+    # against 59–65 — so a model that fills this in wrongly is visibly wrong,
+    # and a reader who sees the card knows immediately what it is claiming to
+    # have done. The rule's own multiplier rides as `factor` rather than as a
+    # second operand, because 2 is part of the Bestimmung and not a quantity
+    # anybody measured, and only a `factor` can say that.
+    "calculation": {
+        "type": "calculation",
+        "title": "Schrittmaßregel – Treppenlauf Haus A",
+        "steps": [
+            {
+                "label": "Schrittmaß",
+                "operation": "sum",
+                "unit": "cm",
+                "operands": [
+                    {
+                        "label": "Steigung",
+                        "value": 17.0,
+                        "unit": "cm",
+                        "factor": 2,
+                        "provenance": "computed",
+                        "tolerance": 0.5,
+                        "source": "Einreichplan, Schnitt A-A",
+                    },
+                    {"label": "Auftritt", "value": 30.0, "unit": "cm", "provenance": "declared"},
+                ],
+            }
+        ],
+        "limit": {
+            "comparator": "between",
+            "value": 59,
+            "upper": 65,
+            "label": "Schrittmaßregel",
+            "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 3.2", "edition": "Ausgabe Mai 2023"},
+        },
+    },
+    # Two things this example exists to teach. The steps carry their `requires`
+    # and `produces` — a map that only names the stations is the numbered list
+    # it replaces, and the click then opens onto nothing. And `current_step` is
+    # SET here, so the model sees that a project's position is a field it may
+    # fill; the description is where it learns to omit it rather than guess.
+    "process_map": {
+        "type": "process_map",
+        "title": "Baubewilligungsverfahren – Wien",
+        "current_step": 2,
+        "steps": [
+            {
+                "label": "Einreichung",
+                "summary": "Einreichunterlagen werden bei der Baubehörde eingebracht.",
+                "actor": "Bauwerber",
+                "requires": ["Einreichplan", "Baubeschreibung", "Energieausweis"],
+                "produces": ["Aktenzeichen"],
+                "reference": {"document": "Wiener Bauordnung", "section": "§ 63"},
+            },
+            {
+                "label": "Bauverhandlung",
+                "summary": "Mündliche Verhandlung mit den Nachbarn und den Amtssachverständigen.",
+                "actor": "Baubehörde",
+                "duration": "binnen sechs Wochen nach Einreichung",
+                "produces": ["Verhandlungsschrift"],
+                "reference": {"document": "Wiener Bauordnung", "section": "§ 70"},
+            },
+            {
+                "label": "Baubewilligung",
+                "summary": "Bescheid mit den Auflagen aus der Verhandlung.",
+                "actor": "Baubehörde",
+                "produces": ["Baubewilligungsbescheid"],
+            },
+            {
+                "label": "Baubeginnsanzeige",
+                "summary": "Baubeginn ist der Behörde anzuzeigen.",
+                "actor": "Bauwerber",
+                "requires": ["rechtskräftige Baubewilligung"],
+            },
+            {
+                "label": "Fertigstellungsanzeige",
+                "summary": "Nach Fertigstellung mit den Ausführungsbestätigungen.",
+                "actor": "Bauwerber",
+                "requires": ["Ausführungsbestätigungen der Fachplaner"],
+            },
+        ],
+        "reference": {"document": "Wiener Bauordnung", "section": "§§ 60 ff."},
+    },
     "follow_ups": {
         "type": "follow_ups",
         "items": [

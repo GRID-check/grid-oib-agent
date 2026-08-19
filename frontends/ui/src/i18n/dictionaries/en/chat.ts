@@ -280,6 +280,41 @@ export const chat = {
       more: 'More on this',
       less: 'Less',
     },
+    calculation: {
+      eyebrow: 'Derivation',
+      result: 'Result',
+      limitLabel: 'Limit',
+      // A range limit, e.g. the Schrittmaßregel's 59–65 cm. Built by the code
+      // from two bounds, so the dash and the word order belong here.
+      limitRange: '{lower}–{upper} {unit}',
+      // An operand that is the result of an earlier step, named under it.
+      fromStep: 'from step {step}',
+      // Stands where the result would stand. Never a partial number: a
+      // derivation missing an input has no result, and printing one anyway is
+      // the exact failure this card exists to make impossible.
+      undecidable: 'Cannot be derived from the figures given.',
+      undefinedResult: 'Divided by zero — the result is not defined.',
+      sourcesMore: 'Where the figures come from',
+      sourcesLess: 'Less',
+      // Said inside the disclosure, where the reader is already checking the
+      // inputs: the card did the arithmetic, so what they audit is the inputs.
+      computedNote: 'The result is computed by this card from the figures above, not copied from the answer.',
+    },
+    processMap: {
+      eyebrow: 'Procedure',
+      current: 'you are here',
+      done: 'done',
+      stepAria: 'Step {step}: {label}',
+      requires: 'Requires',
+      produces: 'Produces',
+      actor: 'Responsible',
+      duration: 'Deadline',
+      basis: 'Basis',
+      // Rides INSIDE an opened step that is not the current one, so it travels
+      // with a screenshot of that panel alone.
+      elsewhereNotice: 'For reference only — this project is at step {step}: {label}',
+      backToCurrent: 'Back to {label}',
+    },
     verdictHeader: {
       confidenceHigh: 'high confidence',
       confidenceMedium: 'medium confidence',

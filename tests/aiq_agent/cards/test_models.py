@@ -603,3 +603,234 @@ class TestTheCatalogTellsTheModelToCopyNotGuess:
         # The two failure modes it exists to prevent, named.
         assert "never infer them" in body
         assert "missing.remedy" in body
+
+
+class TestTheCalculationCardCannotStateItsOwnAnswer:
+    """The card's honesty rests on what the schema does NOT have.
+
+    `calculation` is the one card whose payload is the INPUT to an arithmetic
+    the renderer performs. If the model could state a result, a Rechenweg whose
+    result disagreed with its own operands would validate happily — and that is
+    the artefact that gets screenshotted into an Einreichung. So the absence of
+    a result field is a property worth asserting, not an implementation detail.
+    """
+
+    def _schrittmass(self) -> dict:
+        return {
+            "type": "calculation",
+            "title": "Schrittmaßregel – Treppenlauf Haus A",
+            "steps": [
+                {
+                    "label": "Schrittmaß",
+                    "operation": "sum",
+                    "unit": "cm",
+                    "operands": [
+                        {"label": "Steigung", "value": 17.0, "unit": "cm", "factor": 2},
+                        {"label": "Auftritt", "value": 30.0, "unit": "cm"},
+                    ],
+                }
+            ],
+            "limit": {"comparator": "between", "value": 59, "upper": 65},
+        }
+
+    def test_no_field_anywhere_lets_the_model_state_a_result(self):
+        from aiq_agent.cards.models import CalculationCard
+        from aiq_agent.cards.models import CalculationLimit
+        from aiq_agent.cards.models import CalculationStep
+
+        for model in (CalculationCard, CalculationStep, CalculationLimit):
+            assert not {"result", "value", "total", "outcome"} & set(model.model_fields) - {"value"}
+        # `CalculationLimit.value` is the BOUND, which is read out of the
+        # Bestimmung — the one number on this card the model is meant to supply.
+        assert "value" not in CalculationStep.model_fields
+        assert "value" not in CalculationCard.model_fields
+
+    def test_a_stated_result_does_not_survive_validation(self):
+        raw = self._schrittmass()
+        raw["steps"][0]["result"] = 999.0
+        [card] = validate_cards([raw])
+        assert "result" not in card["steps"][0], "a model-supplied result must not reach the renderer"
+
+    def test_the_five_operations_are_the_whole_vocabulary(self):
+        from aiq_agent.cards.models import CalculationStep
+
+        operation = CalculationStep.model_fields["operation"].annotation
+        assert set(typing.get_args(operation)) == {"sum", "product", "quotient", "percent_of", "percent_ratio"}
+
+    def test_the_fixed_arity_operations_reject_a_third_operand(self):
+        # A quotient of three numbers has no unambiguous reading, and guessing
+        # one is exactly the parse this card exists to avoid.
+        for operation in ("quotient", "percent_of", "percent_ratio"):
+            raw = self._schrittmass()
+            raw["steps"][0]["operation"] = operation
+            raw["steps"][0]["operands"].append({"label": "Drittes", "value": 1.0})
+            assert validate_cards([raw]) == [], operation
+
+    def test_a_factor_belongs_only_to_a_sum(self):
+        # `factor` is the RULE's own multiplier. On a product it would be a
+        # second measured quantity smuggled in without a label of its own.
+        raw = self._schrittmass()
+        raw["steps"][0]["operation"] = "product"
+        assert validate_cards([raw]) == []
+
+    def test_a_step_reference_must_point_backwards(self):
+        raw = self._schrittmass()
+        raw["steps"][0]["operands"][0] = {"label": "Rges", "step": 1}
+        assert validate_cards([raw]) == [], "a self reference has no value to read"
+
+        forward = self._schrittmass()
+        forward["steps"][0]["operands"][0] = {"label": "Rges", "step": 2}
+        assert validate_cards([forward]) == []
+
+    def test_a_reference_carries_no_value_of_its_own(self):
+        # Two answers to the same question; the renderer would have to pick one.
+        raw = self._schrittmass()
+        raw["steps"].append(
+            {
+                "label": "U-Wert",
+                "operation": "quotient",
+                "operands": [{"label": "", "value": 1.0}, {"label": "Rges", "step": 1, "value": 4.0}],
+            }
+        )
+        assert validate_cards([raw]) == []
+
+    def test_a_bare_constant_may_go_unlabelled_but_a_quantity_may_not(self):
+        # The 1 in a U-value's 1 ÷ R names itself. Everything a reader has to
+        # look up gets its name under it in the derivation line, so the field
+        # stays required — it is only the min-length that gives way.
+        from aiq_agent.cards.models import CalculationOperand
+
+        assert CalculationOperand.model_fields["label"].is_required()
+        assert CalculationOperand(label="", value=1.0).label == ""
+
+    def test_a_two_step_derivation_chains_by_reference(self):
+        raw = {
+            "type": "calculation",
+            "title": "U-Wert Außenwand",
+            "steps": [
+                {
+                    "label": "Wärmedurchgangswiderstand",
+                    "operation": "sum",
+                    "unit": "m²K/W",
+                    "operands": [
+                        {"label": "Rsi", "value": 0.13, "unit": "m²K/W"},
+                        {"label": "Dämmung", "value": 3.5, "unit": "m²K/W"},
+                    ],
+                },
+                {
+                    "label": "U-Wert",
+                    "operation": "quotient",
+                    "unit": "W/(m²K)",
+                    "operands": [{"label": "", "value": 1.0}, {"label": "Rges", "step": 1}],
+                },
+            ],
+        }
+        [card] = validate_cards([raw])
+        assert card["steps"][1]["operands"][1]["step"] == 1
+
+    def test_a_range_limit_needs_both_bounds_the_right_way_round(self):
+        for limit in (
+            {"comparator": "between", "value": 59},
+            {"comparator": "between", "value": 65, "upper": 59},
+            {"comparator": "<=", "value": 65, "upper": 70},
+        ):
+            raw = self._schrittmass()
+            raw["limit"] = limit
+            assert validate_cards([raw]) == [], limit
+
+    def test_the_worked_example_round_trips(self):
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+
+        card = grid_card_adapter.validate_python(CARD_EXAMPLES["calculation"])
+        assert card.type == "calculation"
+        # The example has to SHOW the provenance vocabulary, not just allow it —
+        # a derived number is only as honest as the inputs it was built from.
+        assert card.steps[0].operands[0].provenance == "computed"
+        assert card.steps[0].operands[0].tolerance == 0.5
+
+    def test_render_card_details_spells_out_the_nested_blocks(self):
+        from aiq_agent.cards.catalog import render_card_details
+
+        detail = render_card_details(["calculation"])
+        assert '"calculation"' in detail
+        assert "CalculationStep = {" in detail
+        assert "CalculationOperand = {" in detail
+        assert "CalculationLimit = {" in detail
+
+
+class TestTheProcessMapMarksOnePositionOrNone:
+    """`current_step` is the model's ONE positional claim; the rest is derived.
+
+    A map that quietly defaults to step 1 tells a reader they have a
+    Baubewilligung they may not have, so an absent or out-of-range position has
+    to stay absent all the way through.
+    """
+
+    def _verfahren(self, **overrides) -> dict:
+        raw = {
+            "type": "process_map",
+            "title": "Baubewilligungsverfahren – Wien",
+            "steps": [
+                {"label": "Einreichung", "requires": ["Einreichplan"], "produces": ["Aktenzeichen"]},
+                {"label": "Bauverhandlung", "duration": "binnen sechs Wochen"},
+                {"label": "Baubewilligung", "produces": ["Baubewilligungsbescheid"]},
+            ],
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_validates_with_a_marked_position(self):
+        [card] = validate_cards([self._verfahren(current_step=2)])
+        assert card["current_step"] == 2
+        assert card["steps"][0]["requires"] == ["Einreichplan"]
+
+    def test_an_unmarked_map_stays_unmarked(self):
+        # `validate_cards` drops nulls, and the frontend schema defaults the
+        # field back to null — what must never happen is a position appearing
+        # where the model stated none.
+        [card] = validate_cards([self._verfahren()])
+        assert "current_step" not in card
+
+    def test_a_position_outside_the_procedure_is_rejected_not_clamped(self):
+        # Clamping would silently move the reader to a step they are not at.
+        assert validate_cards([self._verfahren(current_step=0)]) == []
+        assert validate_cards([self._verfahren(current_step=4)]) == []
+
+    def test_two_steps_is_not_a_procedure_and_nine_is_a_flowchart(self):
+        two = self._verfahren(steps=[{"label": "Einreichung"}, {"label": "Bescheid"}])
+        nine = self._verfahren(steps=[{"label": f"Schritt {i}"} for i in range(9)])
+        assert validate_cards([two, nine]) == []
+
+    def test_a_duration_is_written_never_computed(self):
+        # The Frist is a string on purpose: a date this card worked out would be
+        # a legal statement about the reader's project.
+        from aiq_agent.cards.models import ProcessStep
+
+        assert ProcessStep.model_fields["duration"].annotation == str | None
+
+    def test_the_worked_example_round_trips_and_opens_onto_something(self):
+        from aiq_agent.cards.catalog import CARD_EXAMPLES
+
+        card = grid_card_adapter.validate_python(CARD_EXAMPLES["process_map"])
+        assert card.type == "process_map"
+        # A map whose steps carry only labels is the numbered list it replaces,
+        # and the click then opens onto nothing.
+        assert any(step.requires or step.produces for step in card.steps)
+        assert any(step.reference for step in card.steps)
+
+
+class TestBothNewCardsAreInTheDoctrineAndNotInTheCraft:
+    def test_each_has_a_trigger_line(self):
+        from aiq_agent.cards.register import _CARD_DOCTRINE
+
+        assert "-> calculation" in _CARD_DOCTRINE
+        assert "-> process_map" in _CARD_DOCTRINE
+
+    def test_the_craft_is_not_paid_for_on_every_turn(self):
+        # Same rule the follow_ups trigger follows: the trigger is the tool's
+        # contract, and what makes a card WORTH emitting belongs in the
+        # `piloti-cards` skill, which is a database row rather than a deploy.
+        from aiq_agent.cards.register import _CARD_DOCTRINE
+
+        assert "Ziviltechniker" not in _CARD_DOCTRINE
+        assert "renderer" not in _CARD_DOCTRINE

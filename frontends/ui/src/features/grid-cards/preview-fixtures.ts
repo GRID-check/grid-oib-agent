@@ -186,6 +186,82 @@ const RAW_FIXTURES: CardInput[] = [
     detail: 'Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.',
   },
   {
+    // Carries a MEASURED operand with its band, because that is the hard state:
+    // the result the card computes is 64,0 cm ±1,0, which sits inside the
+    // Schrittmaßregel's 59–65 cm at every point of the band. The gallery reader
+    // should see that the card decided that itself.
+    type: 'calculation',
+    title: 'Schrittmaßregel – Treppenlauf Haus A',
+    steps: [
+      {
+        label: 'Schrittmaß',
+        operation: 'sum',
+        unit: 'cm',
+        operands: [
+          {
+            label: 'Steigung',
+            value: 17,
+            unit: 'cm',
+            factor: 2,
+            provenance: 'computed',
+            tolerance: 0.5,
+            source: 'Einreichplan, Schnitt A-A',
+          },
+          { label: 'Auftritt', value: 30, unit: 'cm', provenance: 'declared' },
+        ],
+      },
+    ],
+    limit: {
+      comparator: 'between',
+      value: 59,
+      upper: 65,
+      label: 'Schrittmaßregel',
+      reference: OIB4,
+    },
+  },
+  {
+    type: 'process_map',
+    title: 'Baubewilligungsverfahren – Wien',
+    current_step: 2,
+    steps: [
+      {
+        label: 'Einreichung',
+        summary: 'Einreichunterlagen werden bei der Baubehörde eingebracht.',
+        actor: 'Bauwerber',
+        requires: ['Einreichplan', 'Baubeschreibung', 'Energieausweis'],
+        produces: ['Aktenzeichen'],
+        reference: { document: 'Wiener Bauordnung', section: '§ 63' },
+      },
+      {
+        label: 'Bauverhandlung',
+        summary: 'Mündliche Verhandlung mit Nachbarn und Amtssachverständigen.',
+        actor: 'Baubehörde',
+        duration: 'binnen sechs Wochen',
+        produces: ['Verhandlungsschrift'],
+        reference: { document: 'Wiener Bauordnung', section: '§ 70' },
+      },
+      {
+        label: 'Baubewilligung',
+        summary: 'Bescheid mit den Auflagen aus der Verhandlung.',
+        actor: 'Baubehörde',
+        produces: ['Baubewilligungsbescheid'],
+      },
+      {
+        label: 'Baubeginnsanzeige',
+        summary: 'Der Baubeginn ist der Behörde anzuzeigen.',
+        actor: 'Bauwerber',
+        requires: ['rechtskräftige Baubewilligung'],
+      },
+      {
+        label: 'Fertigstellungsanzeige',
+        summary: 'Nach Fertigstellung, mit den Ausführungsbestätigungen.',
+        actor: 'Bauwerber',
+        requires: ['Ausführungsbestätigungen der Fachplaner'],
+      },
+    ],
+    reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
+  },
+  {
     // One chip without a `hint` on purpose: the tooltip is an extra, and the
     // gallery should not suggest that a follow-up is incomplete without one.
     type: 'follow_ups',

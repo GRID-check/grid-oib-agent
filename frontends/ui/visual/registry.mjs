@@ -323,6 +323,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'main',
   },
   {
+    id: 'card-reveals',
+    mobile: true,
+    path: '/dev/card-reveals',
+    description:
+      "The two cards whose value is behind a click, driven into that state before the shot. The Rechenweg with its sources open (provenance tag, ± band and where each figure is written down, plus the line saying the card computed the result rather than copying it); the same card on a derivation whose exact result would ROUND onto the other side of its limit, which is the shot that proves the printed number and the printed verdict cannot disagree; and the Verfahrensablauf with a step opened AGAINST the one the project is at — dashed chrome, the correcting sentence inside the panel, while the current row keeps its node and its \u201Ehier stehen Sie\u201C chip. None of it is visible in the gallery, which photographs both cards folded.",
+    waitFor: '[data-testid="card-reveals-preview"]',
+  },
+  {
     id: 'condition-tree',
     mobile: true,
     path: '/dev/condition-tree',

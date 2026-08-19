@@ -190,6 +190,305 @@
       "title": "BuildingSectionCard",
       "type": "object"
     },
+    "CalculationCard": {
+      "description": "Emit for the arithmetic behind a number \u2014 the Rechenweg a Ziviltechniker re-checks.\n\nWhenever the answer computes something (the Schrittma\u00dfregel, a GFZ, a\nBrandlast, a required parking count, a U-value from its resistances), this\ncard is the derivation laid out line by line instead of a sentence the\nreader has to re-derive to trust.\n\nYOU SUPPLY THE INPUTS, NEVER THE ANSWER. Give each operand its label, value\nand unit, name the operation, and give the limit if there is one. The card\nevaluates every step itself, carries the tolerance bands through, formats\nthe numbers in Austrian convention and decides pass/fail. There is no field\nfor a result, and that absence is the feature: a stated result that\ndisagreed with its own operands would be the worst artefact this product can\nproduce, because this is the part that gets screenshotted into a submission.\n\nSeveral steps chain by reference: a later operand can name an earlier step\n(`step: 1`) instead of carrying a value, so a two-stage derivation stays\nauditable rather than collapsing into one pre-computed figure.",
+      "properties": {
+        "limit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CalculationLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung the LAST step's result is checked against. Omit when the answer only derives a figure"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. what the figure does not cover",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the RULE behind the derivation is written (the limit may carry its own)"
+        },
+        "steps": {
+          "description": "The derivation in order, most cards one step. A later step may reference an earlier one's result",
+          "items": {
+            "$ref": "#/$defs/CalculationStep"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "title": {
+          "description": "What is being computed, e.g. 'Schrittma\u00dfregel \u2013 Treppenlauf Haus A'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "calculation",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "steps"
+      ],
+      "title": "CalculationCard",
+      "type": "object"
+    },
+    "CalculationLimit": {
+      "description": "The Bestimmung the derived result is held against.\n\nThe comparator and the bound are the model's to supply \u2014 they are read out\nof the Richtlinie. The VERDICT is not: the renderer compares its own\ncomputed result against this and colours the card accordingly, so a card\ncannot show a green tick above arithmetic that fails.",
+      "properties": {
+        "comparator": {
+          "description": "How the result must relate to the bound: at most, at least, or inside a range",
+          "enum": [
+            "<=",
+            ">=",
+            "between"
+          ],
+          "title": "Comparator",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional name of the limit, e.g. 'Schrittma\u00dfregel'; omit when the reference says it",
+          "title": "Label"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the bound is written. Never invent one"
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With 'between': the upper bound, e.g. 65 for the Schrittma\u00dfregel's 59\u201365 cm. Otherwise omit",
+          "title": "Upper"
+        },
+        "value": {
+          "description": "The bound. With 'between', this is the LOWER bound",
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "comparator",
+        "value"
+      ],
+      "title": "CalculationLimit",
+      "type": "object"
+    },
+    "CalculationOperand": {
+      "description": "One number entering a step of the derivation, with where it came from.\n\nEither a literal ``value`` or a reference to an earlier ``step`` \u2014 never\nboth, because a stated value beside a reference is two answers to the same\nquestion and the renderer would have to pick one.\n\nCarries the same provenance vocabulary as :class:`DimensionCheck`, for the\nsame reason: a derived number is only as honest as its inputs, and a\nSchrittma\u00df computed from a measurement of ours is our claim, not the\narchitect's. The renderer propagates every band it is given into the result,\nso a tolerance dropped here is a tolerance dropped from the answer.",
+      "properties": {
+        "factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only on a 'sum': the RULE's own multiplier for this term, e.g. 2 in the Schrittma\u00dfregel '2 \u00d7 Steigung + Auftritt'. Negative subtracts the term. Omit for a plain +1 \u2014 never use it to smuggle a second measured quantity in, which is what a 'product' step is for",
+          "title": "Factor"
+        },
+        "label": {
+          "description": "What this number IS, e.g. 'Steigung', 'Bruttogeschossfl\u00e4che', 'Grundfl\u00e4che'. Empty ONLY for a bare constant that names itself, such as the 1 in a U-value's 1 \u00f7 R \u2014 everything a reader has to look up needs its name under it",
+          "title": "Label",
+          "type": "string"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "enum": [
+                "declared",
+                "computed",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where `value` came from, copied from the ifc_measure answer's own provenance: 'declared' (the IFC file states it), 'computed' (we measured it off the geometry), 'inferred' (a heuristic). Leave null for a figure the user typed or a limit read out of the Bestimmung. NEVER guess it",
+          "title": "Provenance"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional half-line naming WHERE the figure is written down, e.g. 'Einreichplan, Schnitt A-A' or 'Bebauungsplan PD 8123'. Revealed when the reader expands the derivation's sources",
+          "title": "Source"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Instead of a value: the 1-based index of an EARLIER step whose result this operand is. Must point strictly backwards. With this set, leave value, unit, provenance and tolerance null \u2014 the renderer takes them from the step it names",
+          "title": "Step"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The \u00b1 band on `value`, in the SAME unit \u2014 copied from the ifc_measure answer, and only meaningful with provenance 'computed'. The renderer propagates it through every following step, so this is what decides whether the derived result is genuinely on one side of a limit",
+          "title": "Tolerance"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unit of this operand, e.g. 'cm', 'm\u00b2', 'MJ'; omit for a bare count or a ratio",
+          "title": "Unit"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number itself. Leave null when it is not known \u2014 the renderer then shows the step as undecidable instead of a result, which is the honest outcome. Must be null when `step` is set",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "CalculationOperand",
+      "type": "object"
+    },
+    "CalculationStep": {
+      "description": "One line of the Rechenweg: an operation over its operands.\n\nThe step states no result. The renderer evaluates ``operation`` over\n``operands`` and prints what it computed \u2014 which is the whole point of the\ncard, so there is no field here for the model to disagree with it in.",
+      "properties": {
+        "label": {
+          "description": "What this step computes, e.g. 'Schrittma\u00df', 'Geschossfl\u00e4chenzahl'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "operands": {
+          "description": "The numbers going in, in the order they are read. 'quotient', 'percent_of' and 'percent_ratio' take EXACTLY two",
+          "items": {
+            "$ref": "#/$defs/CalculationOperand"
+          },
+          "maxItems": 6,
+          "minItems": 2,
+          "title": "Operands",
+          "type": "array"
+        },
+        "operation": {
+          "description": "Which of the five shapes this step is: 'sum' (\u03a3 factor \u00d7 value), 'product' (\u03a0 value), 'quotient' (first \u00f7 second), 'percent_of' (second, as a percentage, OF first), 'percent_ratio' (first \u00f7 second \u00d7 100, a percentage)",
+          "enum": [
+            "sum",
+            "product",
+            "quotient",
+            "percent_of",
+            "percent_ratio"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unit of THIS step's result, e.g. 'cm', 'm\u00b2', 'W/(m\u00b2K)'; omit for a dimensionless ratio like a GFZ. Ignored on 'percent_ratio', whose result is always a percentage",
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "label",
+        "operation",
+        "operands"
+      ],
+      "title": "CalculationStep",
+      "type": "object"
+    },
     "CalloutCard": {
       "description": "Emit for the single caveat, deadline or tip that must not drown in a paragraph.\n\nOne framed remark, deliberately small and domain-free. `kind` sets the tone\nAND is printed as a word ('Hinweis', 'Achtung', 'Frist', 'Tipp'), so the\nsignal survives for a reader who cannot separate the colours. Use at most\none per answer: inside a paragraph the sentence that changes what the reader\nDOES reads at the same weight as the sentence beside it, and a second\ncallout puts both back at that weight.",
       "properties": {
@@ -2624,6 +2923,160 @@
       "title": "ParkingRequirementCard",
       "type": "object"
     },
+    "ProcessMapCard": {
+      "description": "Emit for \u201ewie l\u00e4uft das ab\" \u2014 the ordered Verfahren, with where this project stands.\n\nEinreichung \u2192 Bauverhandlung \u2192 Baubewilligung \u2192 Baubeginnsanzeige \u2192\nFertigstellungsanzeige currently comes back as a numbered list, which says\nthe order and nothing else: not what each step needs, not what it yields,\nand not where the reader is. The card draws the procedure as a rail and\nopens a step on click to show its requirements, its result and its\nGrundlage \u2014 everything already on the client, so no further question is\nneeded to see it.\n\nMark `current_step` ONLY when the conversation actually says where the\nproject stands. The renderer derives the rest from it (earlier steps are\ndone, later ones ahead), so guessing it tells the reader they have a\nBaubewilligung they may not have.",
+      "properties": {
+        "current_step": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "1-based index of the step this project is AT. Everything before it renders as done and everything after as ahead, so set it only when the conversation says so \u2014 omit it rather than guessing, and the map renders with nothing marked",
+          "title": "Current Step"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. that a Land deviates",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The law the procedure as a whole rests on, e.g. the Land's Bauordnung"
+        },
+        "steps": {
+          "description": "The stations in order, first to last. Under three is not a procedure; over eight is a flowchart",
+          "items": {
+            "$ref": "#/$defs/ProcessStep"
+          },
+          "maxItems": 8,
+          "minItems": 3,
+          "title": "Steps",
+          "type": "array"
+        },
+        "title": {
+          "description": "The procedure's name, e.g. 'Baubewilligungsverfahren \u2013 Wien'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "process_map",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "steps"
+      ],
+      "title": "ProcessMapCard",
+      "type": "object"
+    },
+    "ProcessStep": {
+      "description": "One station of a Verfahren, with what it needs and what it produces.",
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who acts at this step, e.g. 'Bauwerber', 'Baubeh\u00f6rde', 'Ziviltechniker'",
+          "title": "Actor"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long the step runs or the Frist attached to it, AS WRITTEN \u2014 'binnen sechs Wochen', '8 Wochen ab Einreichung'. Never a date: nothing here is calculated, and a computed deadline would be a legal statement about this project that the card cannot make",
+          "title": "Duration"
+        },
+        "label": {
+          "description": "The step's name, e.g. 'Einreichung', 'Bauverhandlung'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "produces": {
+          "description": "What comes out of it, e.g. 'Baubewilligungsbescheid', 'Verhandlungsschrift'",
+          "items": {
+            "type": "string"
+          },
+          "title": "Produces",
+          "type": "array"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung governing this step, e.g. the Bauordnung paragraph. Never invent one"
+        },
+        "requires": {
+          "description": "What must be in hand for this step, e.g. 'Einreichplan', 'Baubeschreibung', 'Energieausweis'",
+          "items": {
+            "type": "string"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One short line saying what happens here \u2014 shown in the row, so keep it to a clause",
+          "title": "Summary"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "ProcessStep",
+      "type": "object"
+    },
     "ProjectProfilePatchCard": {
       "description": "Propose an update to the project brief (hard project facts) \u2014 applied only if the user accepts.",
       "properties": {
@@ -3378,6 +3831,7 @@
     "mapping": {
       "acoustic_check": "#/$defs/AcousticCheckCard",
       "building_section": "#/$defs/BuildingSectionCard",
+      "calculation": "#/$defs/CalculationCard",
       "callout": "#/$defs/CalloutCard",
       "comparison_table": "#/$defs/ComparisonTableCard",
       "condition_tree": "#/$defs/ConditionTreeCard",
@@ -3403,6 +3857,7 @@
       "memory_proposal": "#/$defs/MemoryProposalCard",
       "norm_chain": "#/$defs/NormChainCard",
       "parking_requirement": "#/$defs/ParkingRequirementCard",
+      "process_map": "#/$defs/ProcessMapCard",
       "project_profile_patch": "#/$defs/ProjectProfilePatchCard",
       "requirement_checklist": "#/$defs/RequirementChecklistCard",
       "setback_plan": "#/$defs/SetbackPlanCard",
@@ -3447,6 +3902,12 @@
     },
     {
       "$ref": "#/$defs/CalloutCard"
+    },
+    {
+      "$ref": "#/$defs/CalculationCard"
+    },
+    {
+      "$ref": "#/$defs/ProcessMapCard"
     },
     {
       "$ref": "#/$defs/FollowUpsCard"

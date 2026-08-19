@@ -268,6 +268,41 @@ export const chat: typeof en.chat = {
       more: 'Mehr dazu',
       less: 'Weniger',
     },
+    calculation: {
+      eyebrow: 'Rechenweg',
+      result: 'Ergebnis',
+      limitLabel: 'Grenzwert',
+      // Ein Bereich als Grenzwert, etwa 59–65 cm der Schrittmaßregel. Der
+      // Gedankenstrich wird vom Code gesetzt, also steht die Form hier.
+      limitRange: '{lower}–{upper} {unit}',
+      // Ein Operand, der das Ergebnis eines früheren Schritts ist.
+      fromStep: 'aus Schritt {step}',
+      // Steht dort, wo das Ergebnis stünde. Nie eine halbe Zahl: einem
+      // Rechenweg ohne alle Werte fehlt das Ergebnis, und eines trotzdem
+      // hinzuschreiben ist genau der Fehler, den diese Karte ausschließt.
+      undecidable: 'Mit den vorliegenden Angaben nicht berechenbar.',
+      undefinedResult: 'Durch null geteilt — das Ergebnis ist nicht definiert.',
+      sourcesMore: 'Woher die Zahlen kommen',
+      sourcesLess: 'Weniger',
+      // Steht in der Aufklappung, wo die Eingangswerte ohnehin geprüft werden:
+      // gerechnet hat die Karte, zu prüfen sind die Werte.
+      computedNote: 'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
+    },
+    processMap: {
+      eyebrow: 'Verfahrensablauf',
+      current: 'hier stehen Sie',
+      done: 'erledigt',
+      stepAria: 'Schritt {step}: {label}',
+      requires: 'Voraussetzungen',
+      produces: 'Ergebnis',
+      actor: 'Zuständig',
+      duration: 'Frist',
+      basis: 'Grundlage',
+      // Steht INNERHALB eines geöffneten anderen Schritts, damit der Hinweis
+      // auf einem Bildschirmfoto genau dieses Abschnitts mitgeht.
+      elsewhereNotice: 'Nur zur Ansicht — dieses Projekt steht bei Schritt {step}: {label}',
+      backToCurrent: 'Zurück zu {label}',
+    },
     verdictHeader: {
       confidenceHigh: 'hohe Sicherheit',
       confidenceMedium: 'mittlere Sicherheit',
