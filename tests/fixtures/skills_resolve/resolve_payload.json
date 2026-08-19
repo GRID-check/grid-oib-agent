@@ -1,0 +1,39 @@
+[
+  {
+    "name": "oib-fire-check",
+    "description": "Prüft das Projekt gegen den OIB-Brandschutz.",
+    "body": "Handle als Brandschutzprüfer.",
+    "metadata": {
+      "grid-catalog": "curated"
+    },
+    "origin": "platform"
+  },
+  {
+    "name": "data-table-analysis",
+    "description": "Analysiert Tabellen deterministisch.",
+    "body": "# Data Table Analysis\n\nRechne deterministisch.",
+    "metadata": {},
+    "origin": "platform"
+  },
+  {
+    "name": "buero-detailpruefung",
+    "description": "Prüft ein Detail gegen die Büroregeln.",
+    "body": "Vergleiche das Detail mit dem Regeldetail.",
+    "metadata": {
+      "grid-agents": "shallow_researcher"
+    },
+    "origin": "org"
+  },
+  {
+    "name": "piloti-voice",
+    "description": "Schreibt jede Antwort in der Hausstimme.",
+    "body": "Kein Vorbehalt vor der Aussage.",
+    "metadata": {
+      "grid-title": "Piloti-Stimme",
+      "grid-hidden": "true",
+      "grid-cards": "summary,calculation"
+    },
+    "origin": "platform",
+    "standard": true
+  }
+]
