@@ -104,10 +104,25 @@ export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
     id: 'follow_ups',
     flag: FOLLOW_UPS_FLAG,
     envVar: 'GRID_STAGE_FOLLOW_UPS_ENABLED',
-    // OFF, as every new stage is: it costs an LLM call per substantive answer.
-    // It is switched on per org — one, for now — and off again without a
-    // deploy, which is the whole of this feature's rollback story.
-    defaultOn: false,
+    // ON. It shipped OFF, as every new stage does, and was switched on per org
+    // while the empty rate and the per-turn cost were read off the
+    // `stage:follow_ups` spans. It is ON for every organization in both WorkOS
+    // environments now, and the in-answer `follow_ups` CARD it replaces has been
+    // retired (`SYSTEM_CARD_TYPES`), so this stage is the only thing that
+    // produces follow-up questions at all.
+    //
+    // That is what moves the default: `defaultOn` is what a deployment without
+    // the flag product sees, and leaving it false there would mean a Grid with
+    // no follow-ups anywhere and nothing to switch on. It is a shipped core
+    // capability now, on the same footing as `memory_reflection` — including the
+    // capability bit, so a workflow config with no `follow_ups_llm` is still a
+    // no-op rather than a failure.
+    //
+    // Turning the WorkOS flag off still stops the frames within a turn or two,
+    // no deploy and no reconnect, and the answer is unaffected either way. What
+    // it no longer does is fall back to the card: reversing that is §7.10 step 1
+    // — take `follow_ups` out of `SYSTEM_CARD_TYPES` and roll back `0062`.
+    defaultOn: true,
   },
 ]
 

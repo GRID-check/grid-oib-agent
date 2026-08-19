@@ -1,14 +1,18 @@
 # Post-answer stages — a platform primitive
 
-> **Status:** **slices 0, 1, 2 and 3 are built** (`src/aiq_agent/stages/`, memory
+> **Status:** **slices 0, 1, 2, 3 and 4 are built** (`src/aiq_agent/stages/`, memory
 > reflection migrated onto it, the kill switch moved per-turn, the whole client
 > half — frame schema, `onStage`, the `stages` key on the message row, and the
 > rail below the answer — and, as of slice 3, the two halves connected:
-> `aiq_api` publishes the frame sink, `follow_ups` declares
-> `delivery="frame"`, and the `post-answer-follow-ups` flag is on for one
-> organization and off everywhere else. **A real turn now produces a real frame
-> that reaches a browser and renders the rail.** Slices 4 and 4b are still
-> design. Paragraphs corrected on
+> `aiq_api` publishes the frame sink and `follow_ups` declares
+> `delivery="frame"`. **A real turn produces a real frame that reaches a browser
+> and renders the rail.** As of **slice 4** the in-answer `follow_ups` CARD is
+> retired (`SYSTEM_CARD_TYPES`, its prompt weight removed on every surface,
+> migration `0062`), and the `post-answer-follow-ups` flag is on for **all**
+> organisations in **both** environments — the product owner overrode the
+> ordering rule that made retirement wait on observation, so the revert path was
+> performed and verified rather than assumed (§7.10). Slice 4b is still design.
+> Paragraphs corrected on
 > contact with the code are marked **[as built]** — each states the correction
 > and why the original was wrong.
 > **Scope:** the *stage* as a reusable shape, its wire contract, and the two
@@ -1015,6 +1019,10 @@ Each failed condition produces `outcome:"skipped"` with that condition as
 > turns the model had already declined once, which is the one sample that cannot
 > answer "does the gate pick better turns than the model does". It becomes a
 > reasonable condition again once slice 4 has retired the card.
+> **[as built, slice 4]** It is now available — the card is retired, so
+> `emitted_card_types` can no longer contain `follow_ups` on a new turn and the
+> condition would never fire. The field stays on `TurnFacts` for the next stage
+> that wants it; the gate is unchanged.
 >
 > **The two `_FOLLOW_UPS_RULE` exceptions became gate conditions, not prompt
 > text.** They are decidable in Python over the finished answer, and a condition
@@ -1074,6 +1082,18 @@ Keep the old header for one release so a mixed deployment does not go dark.
 > on the answer either way. `defaultOn: false` in `POST_ANSWER_STAGE_FLAGS` is
 > what the non-enforcing deployments see, so "off everywhere else" holds without
 > WorkOS too.
+>
+> **[as built, slice 4] — this is no longer the rollout.** The product owner
+> widened it: `flagEnabled: true`, `accessType: ALL`, `defaultEnabled: true` in
+> **both** the Staging and Production WorkOS environments, so every existing
+> organisation is served the stage and a newly created one inherits it.
+> `defaultOn` in `POST_ANSWER_STAGE_FLAGS` moved to `true` with it, and for a
+> reason the flag state alone does not carry: `defaultOn` is what a deployment
+> *without* the flag product reads, and with the card retired a `false` there
+> would mean a Grid with no follow-up questions at all and nothing to switch on.
+> The stage is a shipped core capability now, on the same footing as
+> `memory_reflection` — capability bit included, so a workflow config with no
+> `follow_ups_llm` is still a no-op rather than a failure.
 
 **One defect to fix while here:** the flag is evaluated at socket upgrade
 (`app/api/auth/websocket-scope/route.ts:57-62`), so today the kill switch does not
@@ -1163,22 +1183,55 @@ export (`lib/answer-export/cards.ts`, walked generically). They must keep workin
    trigger row (`:123`), the restraint exemption (`:171`), and the `follow_ups`
    paragraph in the post-hoc craft note (`cards/prompt.py:53-59`, which moves
    into the stage's own prompt). This is the 136 tokens/turn.
+
+   > **[as built] — the 136 is right, and the 109 above was right too.** They
+   > measure different things. `render_card_doctrine()` loses exactly **109**
+   > tokens (`_FOLLOW_UPS_RULE` 84 + the trigger row 15 + the restraint exemption
+   > 10), which is what §7.5's correction measured. Step 1 then removes the
+   > card's **L1 index line** as well — `render_card_index()` withholds every
+   > `SYSTEM_CARD_TYPES` member — and that is the missing **27**. Together the
+   > always-on `emit_card` description falls **2,240 → 2,104**, i.e. 136 tokens
+   > on every chat turn, which is the figure §7.5 originally claimed. The
+   > correction that doubted it was measuring step 2 without step 1.
+   >
+   > **Two surfaces the list did not name, both larger than the chat path.**
+   > The `piloti-cards` skill inlines the shapes of whatever `grid-cards` names
+   > (`skills/runtime.py::_preferred_cards_block`), and it carries a German
+   > craft section, „Anschlussfragen: vier verschiedene Züge". Both are paid on
+   > every research turn, because `delivery: standard` makes the body every
+   > research turn's. Migration `0062_piloti_cards_retire_follow_ups` removes
+   > the list entry, the section, the two sentences in the closing budget
+   > section that spend the budget on the card, and the description's promise of
+   > it: the shapes block **2,157 → 1,881** and the body **5,239 → 4,791**, i.e.
+   > **724 tokens per research turn**.
+   >
+   > Removing the list entry is not tidiness. `preferred_cards` filters
+   > `grid-cards` against `model_facing_card_types()`, so a retired name left in
+   > the list is silently dropped on every read — a seed naming a card the
+   > runtime never sees, which is exactly the drift
+   > `test_seeded_grid_cards_survive_the_read_path` exists to catch.
+   >
+   > The post-hoc prompt falls **12,654 → 12,127** per finished report. All
+   > figures are tiktoken `cl100k_base`, measured over the rendered strings.
 3. **Leave the pydantic model, the Zod schema and `FollowUpsCard.tsx` in place.**
    `validateGridCards` drops anything that fails the union
    (`shared/cards/schemas.ts:18-33`), so removing the member would make every old
    thread lose its chips *and* log a warning per card. `GridCards.tsx:278-284`
    keeps rendering stored ones.
-4. **The export.** On `origin/develop` a stored `follow_ups` card *is* exported
-   into a Word document under the "Findings" heading by the generic walker
-   (`lib/answer-export/cards.ts`, `answer-document.ts:128-130`) — despite
-   `FollowUpsCard.tsx:36-40` saying this is "the one card that must never be
-   screenshotted into an Einreichung". **That fix is already in flight**: the
-   working tree on this branch carries an uncommitted `cards.ts` change
-   introducing an exhaustive `ExportKind` map with `follow_ups: 'chrome'`
-   (dropped from the document). This design depends on that landing and adds
-   nothing to it. New-path output is never exported at all, since it does not
-   live in `cards` — a second reason the stage's payload must not be written back
-   into `metadata.cards`.
+4. ~~**The export.**~~ **[as built] — done, and not by this slice.** The
+   change this step described as "already in flight" landed in **PR #474**
+   (`acb3c81f`), well before slice 4 started. `CARD_EXPORT` in
+   `lib/answer-export/cards.ts` classifies `follow_ups: 'chrome'` and
+   `cardBlocks` returns `[]` for a chrome card — *not even the heading*, because
+   an empty „Weiterführende Fragen" under „Befunde" would still put the app's own
+   chrome inside the findings section, and `answer-document.ts` omits „Befunde"
+   entirely when chrome was the only card. Pinned by
+   `answer-export/answer-document.spec.ts`, "cards that are the app talking, not
+   the answer". Slice 4 verified this and added nothing to it.
+
+   New-path output is never exported at all, since it does not live in `cards` —
+   a second reason the stage's payload must not be written back into
+   `metadata.cards`.
 
 **What a reader sees after the change:** an old thread renders its stored chips
 inside the answer, where they were; a new thread renders its chips below the
@@ -1191,6 +1244,30 @@ reader is looking at.
 flag off after step 1 leaves the product with *no* follow-ups. Step 1 must
 therefore ship **after** the stage is on and observed, not before. §10 orders it
 that way.
+
+> **[as built, slice 4] — the ordering rule was overridden, so the revert was
+> exercised instead of assumed.** The product owner asked for slice 4 finished
+> now, with the flag on for **all** organisations in **both** WorkOS
+> environments, rather than waiting on the observation the rule required. That
+> removes the safety net the rule provided: the flag is still a per-turn kill
+> switch for the frames, but it no longer falls back to the card, so switching it
+> off now means an org with no follow-up questions rather than the old ones.
+>
+> Because the net is gone, "step 1 is the revert path" was checked rather than
+> believed. The revert was **performed** in a scratch commit — `follow_ups` taken
+> back out of `SYSTEM_CARD_TYPES` and `0062` rolled back against a real
+> PostgreSQL 16 — and the card came back on every surface it had left:
+> `emit_card` accepted one again, `render_card_index` and
+> `render_card_doctrine` carried it again, `render_card_details` handed its shape
+> back, and the seeded row was byte-identical to what `0061` wrote. The scratch
+> commit was then reset. Both directions of `0062` are guarded on the body's md5
+> and not on `created_by`, so a row edited through the dashboard is untouched
+> going forward and coming back.
+>
+> What the revert does **not** restore is the emitted cards of the turns that ran
+> while the card was retired. There is nothing to restore — those turns have the
+> stage's frames on their message rows instead, and they keep rendering either
+> way. Reverting changes what the *next* turn does, not what past turns hold.
 
 ---
 
@@ -1319,7 +1396,7 @@ alone. Nothing else may start before 0.**
 | **1** ✅ | **BUILT.** Backend `follow_ups`: gate, handler, prompt, payload model. `delivery="silent"` — **it runs and is measured, and delivers nothing.** Carries `StageEmpty` (§2.4), per-stage cost on the span (§7.4) and the backend↔BFF stage-flag parity guard. | 0 | yes | flag off |
 | **2** ✅ | **BUILT.** Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures, which now exist as `shared/stages/frames.json`. Carries the §8 correction (three arrival conditions, not two) and the §6.2 one. | — (contract only) | yes — renders from fixtures with no backend | revert |
 | **3** ✅ | **BUILT.** Wire them: `aiq_api` publishes the frame sink (`GridStageMessage` + `send_stage_frame`, registered at plugin import), `follow_ups` declares `delivery="frame"`, and the `post-answer-follow-ups` flag is on for one organization and off everywhere else. Carries the §9 contract test's Python half, which replaces the slice-2 stand-in. | 0,1,2 | yes | flag off |
-| **4** | Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal, export skip (§7.10). | 3 **observed** | yes | revert step 1 of §7.10 |
+| **4** ✅ | **BUILT.** Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal (catalog, post-hoc craft, and the seeded skill's `grid-cards` list + craft section via `0062`), export skip already done by PR #474 (§7.10). The `post-answer-follow-ups` flag is on for ALL orgs in both environments and `defaultOn` follows it. | 3 | yes | revert step 1 of §7.10 — **performed and verified**, not assumed |
 | **4b** | Reflection's own frame + the per-turn chip; delete the poll (§5.1, §1.7). | 3 | yes | flag off |
 
 **Slice 0 is the one that must not be skipped**, and it is also the one that pays
@@ -1334,6 +1411,16 @@ the gate is wrong and we learn it for the price of an LLM call, not a rollback.
 **Ordering rule for slice 4:** the card is retired only after the stage has been
 observed delivering. Retiring first would leave the product with no follow-ups if
 the stage disappoints.
+
+> **[as built] — overridden by the product owner, deliberately.** Slice 4 shipped
+> without waiting for the observation, with the flag widened to every
+> organisation in both environments in the same move. The rule was a safety net
+> and the net is gone; what replaces it is that the revert path it named was
+> **exercised end to end** rather than trusted. See §7.10's `[as built, slice 4]`
+> note for what was performed and what it proved. The honest reading is that
+> slice 4 is now reversible-in-fact rather than never-needed, which is a weaker
+> guarantee than the rule offered and a stronger one than "we assume step 1
+> works".
 
 ---
 
