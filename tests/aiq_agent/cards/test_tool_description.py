@@ -7,10 +7,10 @@ the worked examples must stay valid against the live card models.
 
 import pytest
 
-from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import _CARD_HONESTY
 from aiq_agent.cards.catalog import _CARD_RESTRAINT
 from aiq_agent.cards.catalog import _CARD_TRIGGER_TABLE
+from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
