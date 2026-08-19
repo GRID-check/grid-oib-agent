@@ -172,6 +172,28 @@ describe('ConditionTreeCard', () => {
     // Nothing opens on the reader's behalf, and nothing is contrasted.
     expect(screen.queryByText('Bei GK 1–3 gilt:')).not.toBeInTheDocument()
   })
+
+  it('marks one case even when a stored card claims several', () => {
+    // Field evidence: a „Feuerwiderstand in GK 4" tree arrived with all three
+    // branches active, so the reader saw three simultaneous outcomes each
+    // captioned „für dieses Projekt gilt". Pydantic now rejects that shape, but
+    // a card is data that outlives the code that wrote it — a stored answer
+    // from before the validator still has to render as ONE decision or none.
+    render(
+      <ConditionTreeCard
+        title="Erforderliche Feuerwiderstandsklasse"
+        question="Lage des Bauteils"
+        branches={[
+          { condition: 'oberstes oberirdisches Geschoß', outcome: 'R 60', active: true },
+          { condition: 'sonstiges oberirdisches Geschoß', outcome: 'R 60', active: true },
+          { condition: 'unterirdisches Geschoß', outcome: 'R 90 und A2', active: true },
+        ]}
+        reference={null}
+      />,
+    )
+
+    expect(screen.getAllByText('trifft zu')).toHaveLength(1)
+  })
 })
 
 describe('TypedTableCard', () => {

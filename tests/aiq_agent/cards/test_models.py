@@ -1046,14 +1046,32 @@ class TestAFristIsCarriedAsWrittenNeverAsADate:
         # The product does not know this project's Zustelldatum, so any date
         # here was worked out from nothing. Both the German and the ISO spelling.
         for bad in ("bis 14.03.2026", "bis 14. 3. 2026", "bis 2026-03-14"):
-            assert validate_cards([self._fristen(deadlines=[
-                {"label": "Beschwerdefrist", "period": bad, "starts_from": "ab Zustellung"},
-                {"label": "Anzeige", "period": "unverzüglich", "starts_from": "ab Fertigstellung"},
-            ])]) == []
-            assert validate_cards([self._fristen(deadlines=[
-                {"label": "Beschwerdefrist", "period": "binnen vier Wochen", "starts_from": bad},
-                {"label": "Anzeige", "period": "unverzüglich", "starts_from": "ab Fertigstellung"},
-            ])]) == []
+            assert (
+                validate_cards(
+                    [
+                        self._fristen(
+                            deadlines=[
+                                {"label": "Beschwerdefrist", "period": bad, "starts_from": "ab Zustellung"},
+                                {"label": "Anzeige", "period": "unverzüglich", "starts_from": "ab Fertigstellung"},
+                            ]
+                        )
+                    ]
+                )
+                == []
+            )
+            assert (
+                validate_cards(
+                    [
+                        self._fristen(
+                            deadlines=[
+                                {"label": "Beschwerdefrist", "period": "binnen vier Wochen", "starts_from": bad},
+                                {"label": "Anzeige", "period": "unverzüglich", "starts_from": "ab Fertigstellung"},
+                            ]
+                        )
+                    ]
+                )
+                == []
+            )
 
     def test_the_wordings_a_bauordnung_actually_uses_survive(self):
         # The guard must not eat the legitimate half: numbers, paragraph marks
@@ -1080,12 +1098,17 @@ class TestAFristIsCarriedAsWrittenNeverAsADate:
             assert time.perf_counter() - started < 1.0
 
     def test_one_frist_is_a_callout_and_nine_is_a_calendar(self):
-        one = self._fristen(deadlines=[
-            {"label": "Beschwerdefrist", "period": "binnen vier Wochen", "starts_from": "ab Zustellung"},
-        ])
-        nine = self._fristen(deadlines=[
-            {"label": f"Frist {i}", "period": "binnen vier Wochen", "starts_from": "ab Zustellung"} for i in range(9)
-        ])
+        one = self._fristen(
+            deadlines=[
+                {"label": "Beschwerdefrist", "period": "binnen vier Wochen", "starts_from": "ab Zustellung"},
+            ]
+        )
+        nine = self._fristen(
+            deadlines=[
+                {"label": f"Frist {i}", "period": "binnen vier Wochen", "starts_from": "ab Zustellung"}
+                for i in range(9)
+            ]
+        )
         assert validate_cards([one, nine]) == []
 
     def test_the_worked_example_round_trips_without_a_single_date(self):
