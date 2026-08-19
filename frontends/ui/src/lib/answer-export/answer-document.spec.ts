@@ -28,6 +28,7 @@ import { createTranslator } from '@/i18n/translate'
 import { de, en } from '@/i18n/dictionaries'
 import type { DocBlock } from './blocks'
 import { buildAnswerDocument, type AnswerDocumentInput } from './answer-document'
+import { CARD_EXPORT } from './cards'
 import { gridCardSchema } from '@/shared/cards/schemas'
 import { previewFixtureFor } from '@/features/grid-cards/preview-fixtures'
 
@@ -343,6 +344,98 @@ describe('cards', () => {
 })
 
 /**
+ * The cards a document must NOT carry.
+ *
+ * The opposite failure to the one above, and the harder one to see: a card that
+ * exports fine but does not belong in a record of what was established. The
+ * three questions this answer did not answer, printed under „Befunde" with
+ * their items table headed „Anforderungen", tell a Behörde that the office
+ * submitted open questions as requirements.
+ */
+describe('cards that are the app talking, not the answer', () => {
+  const followUps = {
+    type: 'follow_ups',
+    items: [
+      { question: 'Wie wird das Fluchtniveau gemessen?', hint: 'Messpunkt und Bezugsebene' },
+      { question: 'Was wäre bei Gebäudeklasse 5 anders?' },
+    ],
+  }
+
+  it('leaves the follow-up questions out of the document entirely', () => {
+    const output = text(buildAnswerDocument(input({ cards: [followUps] }), german, 'de'))
+
+    expect(output).not.toContain('Wie wird das Fluchtniveau gemessen?')
+    // Not even the heading: an empty „Weiterführende Fragen" under „Befunde"
+    // would still be the app's chrome inside the findings section.
+    expect(output).not.toContain('Fragen')
+  })
+
+  it('omits the findings section altogether when chrome was the only card', () => {
+    // The section heading is built from whether any card produced blocks, so a
+    // card that contributes nothing must not leave „Befunde" standing empty.
+    const output = text(buildAnswerDocument(input({ cards: [followUps] }), german, 'de'))
+    expect(output).not.toContain('Befunde')
+  })
+
+  it('does not report a proposal whose outcome it cannot know', () => {
+    // `metadata.cardInteractions` holds the accept/reject, and the export never
+    // reads it — so a printed patch would state a change to the project brief
+    // that may never have been applied. Same for the memory write.
+    const output = text(
+      buildAnswerDocument(
+        input({
+          cards: [
+            {
+              type: 'project_profile_patch',
+              title: 'Projektkontext aktualisieren',
+              rationale: 'Fluchtniveau über 22 m.',
+              patch: [{ op: 'add', path: '/facts/fluchtniveau', value: '>22m' }],
+            },
+            { type: 'memory_proposal', title: 'Merken?', content: 'REI 90 durchgängig', kind: 'preference', confidence: 'high' },
+          ],
+        }),
+        german,
+        'de'
+      )
+    )
+
+    expect(output).not.toContain('Projektkontext aktualisieren')
+    expect(output).not.toContain('/facts/fluchtniveau')
+    expect(output).not.toContain('Merken?')
+  })
+
+  it('drops the model picker, which on paper is a question about which model', () => {
+    const output = text(
+      buildAnswerDocument(
+        input({
+          cards: [{ type: 'ifc_model_picker', title: 'Welches Modell möchten Sie öffnen?' }],
+        }),
+        german,
+        'de'
+      )
+    )
+
+    expect(output).not.toContain('Welches Modell')
+  })
+
+  it('still exports a card of a type this build has never heard of', () => {
+    // Stored cards are re-read on every export and may name a type emitted
+    // before a rename, or by a newer backend. Unknown must mean "walk it", not
+    // "drop it": a finding missing from the file reads as one never made.
+    const output = text(
+      buildAnswerDocument(
+        input({ cards: [{ type: 'a_card_from_the_future', title: 'Neue Karte', note: 'Ein Befund.' }] }),
+        german,
+        'de'
+      )
+    )
+
+    expect(output).toContain('Neue Karte')
+    expect(output).toContain('Ein Befund.')
+  })
+})
+
+/**
  * The guard that keeps the document localized.
  *
  * `createTranslator` answers a missing key with the key itself, so a dictionary
@@ -550,6 +643,10 @@ describe('every string in the document comes from a dictionary', () => {
    * an authored body falls back to the gallery's preview fixture, which
    * `preview-fixtures.spec.ts` already forces a new type to supply.
    */
+  /** How the renderer classifies this card — the single source for the split. */
+  const kindOf = (card: Record<string, unknown>) =>
+    CARD_EXPORT[card.type as keyof typeof CARD_EXPORT]
+
   const authored = new Map(authoredCards.map((card) => [card.type as string, card]))
   const everyCardType: Record<string, unknown>[] = [...gridCardSchema.optionsMap.keys()]
     .filter((type): type is string => typeof type === 'string')
@@ -589,9 +686,18 @@ describe('every string in the document comes from a dictionary', () => {
     // Card by card rather than all at once: a card that contributes NOTHING is
     // invisible in a document full of other cards, and "nothing" is exactly the
     // failure — a finding the answer made that the exported file does not.
+    //
+    // Except the chrome types, which contribute nothing ON PURPOSE. That
+    // exception is read off `CARD_EXPORT` rather than typed out here, so the
+    // list of cards this assertion excuses cannot drift from the list the
+    // renderer actually drops.
     const withoutCards = text(buildAnswerDocument(input({ cards: [] }), german, 'de')).length
+    const findings = everyCardType.filter((card) => kindOf(card) !== 'chrome')
+    // Guards the guard: classifying the catalogue as chrome would make the
+    // loop below run over nothing and pass.
+    expect(findings.length).toBeGreaterThan(30)
 
-    for (const card of everyCardType) {
+    for (const card of findings) {
       const output = text(buildAnswerDocument(input({ cards: [card] }), german, 'de'))
       expect(
         output.length,
@@ -604,5 +710,21 @@ describe('every string in the document comes from a dictionary', () => {
         expect(output, `card ${card.type} is missing from the document`).toContain(heading)
       }
     }
+  })
+
+  it('drops every card classified as chrome, and only those', () => {
+    const withoutCards = text(buildAnswerDocument(input({ cards: [] }), german, 'de'))
+
+    const dropped = everyCardType
+      .filter((card) => text(buildAnswerDocument(input({ cards: [card] }), german, 'de')) === withoutCards)
+      .map((card) => String(card.type))
+    const chrome = everyCardType.filter((card) => kindOf(card) === 'chrome').map((card) => String(card.type))
+
+    expect(
+      dropped.sort(),
+      'the cards the document leaves out must be exactly the cards CARD_EXPORT calls chrome — ' +
+        'anything else here is either a finding silently lost or chrome printed under „Befunde“'
+    ).toEqual(chrome.sort())
+    expect(chrome.length).toBeGreaterThan(0)
   })
 })

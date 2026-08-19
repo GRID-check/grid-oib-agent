@@ -36,9 +36,16 @@
  * the model cannot be misquoted. A document cannot do that, so those cards are
  * exported as their title plus one line saying so. Silence would tell the
  * reader the answer had no such finding.
+ *
+ * ## The cards that are chrome, and ARE dropped
+ *
+ * See {@link CARD_EXPORT}. A handful of card types are the app talking to the
+ * reader rather than the answer stating a finding, and a document whose purpose
+ * is to record what was established has no place for them.
  */
 
 import type { Translator } from '@/i18n/translate'
+import type { GridCard } from '@/shared/cards/schemas'
 import { compact, type DocBlock, type DocRun } from './blocks'
 
 /** A stored card: validated upstream, but read here as untrusted jsonb. */
@@ -48,20 +55,108 @@ const isRecord = (value: unknown): value is CardRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
- * Cards whose content is fetched live from the project's IFC model.
+ * What a card type contributes to an exported document.
  *
- * Listed by name rather than detected, because "carries no values" is a
- * property of the card's CONTRACT, not of one instance: an `ifc_schedule` with
- * a `storey` set still has no areas in it, and guessing from the payload would
- * start exporting these the day one of them grows a scalar field.
+ *   - `content` — a finding. Walked field by field; the overwhelming default.
+ *   - `live` — its values are fetched from the project's IFC model at render
+ *     time, so a document cannot carry them. Exported as its title plus one
+ *     line saying so, because silence would tell the reader the answer had no
+ *     such finding. Listed by name rather than detected, because "carries no
+ *     values" is a property of the card's CONTRACT, not of one instance: an
+ *     `ifc_schedule` with a `storey` set still has no areas in it, and guessing
+ *     from the payload would start exporting these the day one of them grows a
+ *     scalar field.
+ *   - `chrome` — the app addressing the reader, not the answer recording a
+ *     finding. Emitted as nothing at all.
  */
-const LIVE_CARD_TYPES = new Set([
-  'ifc_viewer',
-  'ifc_compliance',
-  'ifc_schedule',
-  'ifc_element',
-  'ifc_diff',
-])
+type ExportKind = 'content' | 'live' | 'chrome'
+
+/**
+ * ⚠️ ADDING A CARD TYPE? YOU MUST CLASSIFY IT HERE. ⚠️
+ *
+ * Exhaustive over `GridCard['type']`, so `npm run generate:cards` regenerating
+ * the union with a new type is a `tsc` failure until a line is added — the same
+ * checkpoint `CARD_INTERACTIVITY` provides for card decisions, and for the same
+ * reason: the alternative is a card type that quietly does the wrong thing in a
+ * file that has already left the product.
+ *
+ * Classify as `chrome` only when the card asks something rather than states
+ * something. The test is what a Behörde would make of it in a Bauakt: an
+ * unanswered question, a picker, or a proposal awaiting a decision the document
+ * cannot report the outcome of is not a finding, and printing it under „Befunde"
+ * claims it is one. Everything else is `content` — a card missing from an
+ * exported file reads as a finding the answer never made, which is the failure
+ * this whole feature exists to prevent, so the doubtful case exports.
+ */
+export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
+  // Three questions this answer did NOT answer, offered as composer prefills.
+  // The card charter says of this one that it "must never be screenshotted into
+  // a submission" (docs/design/grid-card-charter.md §B1) — it is the one card
+  // that is not evidence.
+  follow_ups: 'chrome',
+  // A picker: tiles that open one of the project's IFC models in the viewer. It
+  // carries no file names at all (the renderer resolves them from the live
+  // model list), so on paper it is a heading asking which model you meant.
+  ifc_model_picker: 'chrome',
+  // The two interactive cards (ADR-0030). Both ASK — "Remember this?", "Update
+  // the project brief?" — and the answer lives in `metadata.cardInteractions`,
+  // which the export never reads. So the document cannot say whether the user
+  // accepted or declined, and printing the proposal as a finding states a
+  // change to the brief that may never have been applied.
+  memory_proposal: 'chrome',
+  project_profile_patch: 'chrome',
+
+  // Read live from the project's model; exported as a title plus `liveCard`.
+  ifc_viewer: 'live',
+  ifc_compliance: 'live',
+  ifc_schedule: 'live',
+  ifc_element: 'live',
+  ifc_diff: 'live',
+
+  // Findings. Walked field by field.
+  summary: 'content',
+  legal_basis: 'content',
+  requirement_checklist: 'content',
+  comparison_table: 'content',
+  verdict_header: 'content',
+  condition_tree: 'content',
+  typed_table: 'content',
+  norm_chain: 'content',
+  key_takeaways: 'content',
+  callout: 'content',
+  calculation: 'content',
+  process_map: 'content',
+  document_checklist: 'content',
+  deadline_timeline: 'content',
+  change_impact: 'content',
+  building_section: 'content',
+  stair_diagram: 'content',
+  dimension_diagram: 'content',
+  setback_plan: 'content',
+  egress_diagram: 'content',
+  daylight_incidence: 'content',
+  guardrail_check: 'content',
+  density_check: 'content',
+  fire_access_plan: 'content',
+  acoustic_check: 'content',
+  fire_compartment: 'content',
+  thermal_envelope: 'content',
+  energy_performance: 'content',
+  elevator_requirement: 'content',
+  parking_requirement: 'content',
+  document_grid: 'content',
+}
+
+/**
+ * How this build would export a stored card of the given type.
+ *
+ * Unknown types export as `content`. Old messages are re-read on every export
+ * and a stored card may name a type this build has never heard of — one emitted
+ * before a rename, or by a newer backend against an older frontend. Dropping it
+ * would lose a finding; walking its fields prints what it carries.
+ */
+export const exportKindOf = (type: string): ExportKind =>
+  CARD_EXPORT[type as GridCard['type']] ?? 'content'
 
 /** Fields no card should print. */
 const SKIPPED_FIELDS = new Set([
@@ -390,9 +485,15 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
   // signature, so a `typeof` on `value.type` does not survive the assignment.
   if (typeof type !== 'string') return []
 
+  const kind = exportKindOf(type)
+  // Nothing at all — not even the heading. A „Weiterführende Fragen" heading
+  // with no questions under it would still put the app's own chrome inside the
+  // findings section.
+  if (kind === 'chrome') return []
+
   const heading: DocBlock = { kind: 'heading', level: 3, text: cardHeading(card, type, t) }
 
-  if (LIVE_CARD_TYPES.has(type)) {
+  if (kind === 'live') {
     const note = typeof card.note === 'string' ? card.note.trim() : ''
     return compact([
       heading,
