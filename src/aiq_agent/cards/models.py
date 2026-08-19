@@ -1,5 +1,6 @@
 """Pydantic models for Grid response cards."""
 
+import re
 from typing import Annotated
 from typing import Any
 from typing import Literal
@@ -717,6 +718,14 @@ class ConditionTreeCard(BaseModel):
     case with its outcome, and the branch matching the current project is
     marked `active`. Exactly the structure that otherwise becomes nested prose
     the reader has to re-collapse into a table in their head.
+
+    THE CASES MUST BE MUTUALLY EXCLUSIVE. A fork means the project sits in
+    exactly one of them, which is why at most one branch may be `active` and why
+    the renderer writes the active outcome as 'für dieses Projekt gilt'. Rows
+    that are all true at once — the fire resistance of the topmost storey AND of
+    the other storeys AND of the basement, which are three parts of the same
+    building rather than three cases of one project — are a `typed_table`, not a
+    tree.
     """
 
     type: Literal["condition_tree"]
@@ -724,6 +733,33 @@ class ConditionTreeCard(BaseModel):
     question: str = Field(min_length=1, description="The factor the answer depends on, e.g. 'Gebäudeklasse'")
     branches: list[ConditionBranch] = Field(min_length=1, description="The cases and their outcomes, in reading order")
     reference: NormReference | None = Field(default=None, description="Overall source when the branches share one")
+
+    @model_validator(mode="after")
+    def _at_most_one_active_branch(self) -> "ConditionTreeCard":
+        """Reject a tree that marks more than one case as the project's own.
+
+        Observed in the field: 'Feuerwiderstandsklasse in GK 4' came back with
+        all three branches `active` — oberstes Geschoß R 60, sonstiges Geschoß
+        R 60, unterirdisches Geschoß R 90 und A2 — and the opened one read 'FÜR
+        DIESES PROJEKT GILT: R 60'. Three simultaneous answers, each claiming to
+        be the one that applies. That looks like a decision was made when none
+        was, which is worse than no card, and nothing anywhere stopped it.
+
+        The message is written to be ACTED ON rather than merely understood:
+        `emit_card` feeds a validation error back to the model, and the useful
+        half is not 'this is invalid' but which card the content actually wants.
+        """
+        active = [b.condition for b in self.branches if b.active is True]
+        if len(active) > 1:
+            raise ValueError(
+                "a condition_tree marks at most ONE branch active, because a fork means the project sits in "
+                f"exactly one case — {len(active)} were marked ({', '.join(active)}). If those rows are all "
+                "true at the same time (different parts of one building, not different cases of one project), "
+                "this is not a fork: re-emit it as a typed_table whose columns name the distinguishing feature, "
+                "the requirement and the Fundstelle. If it IS a fork, mark only the case that applies, or leave "
+                "every branch unmarked when the conversation has not established which one does."
+            )
+        return self
 
 
 class TypedColumn(BaseModel):
@@ -1284,6 +1320,340 @@ class ProcessMapCard(BaseModel):
         return self
 
 
+# ── The dossier, the clocks, and the cost of a change ────────────────────────
+# Three more shapes an Austrian building-code answer takes constantly and that
+# were still written as prose. Each is built around the field the prose version
+# silently drops.
+#
+# All three obey the invariant `calculation` established: THE MODEL SUPPLIES
+# INPUTS, THE RENDERER DERIVES WHAT IS DERIVABLE. None of them carries a count,
+# a total or a tally on the wire — the checklist's „4 von 9 vorhanden" and the
+# impact card's „3 verschärft, 1 gelockert" are computed by the component from
+# the rows themselves, so there is nothing for a stated summary to disagree
+# with. And none of them carries a date: a Frist is the Bauordnung's own wording
+# („binnen sechs Wochen ab Zustellung"), never a calendar day this product
+# worked out, because it does not know the Zustelldatum.
+
+
+DocumentRequirement = Literal["required", "conditional"]
+"""Whether a document is always needed, or only in certain Vorhaben."""
+
+DocumentStatus = Literal["present", "missing"]
+"""Whether the reader already HAS a document — a claim about their project.
+
+Deliberately two values and not three. „Not stated" is the field being absent,
+not a third literal, so the only way to say something about a document's status
+is to say something the conversation established.
+"""
+
+
+class RequiredDocument(BaseModel):
+    """One document on the Einreichliste, with the state a bare list drops.
+
+    „Was brauche ich für die Einreichung?" is one of the most common questions
+    there is, and as a markdown list the answer carries the NAMES and nothing
+    else: not whether a document is always required or only for this kind of
+    Vorhaben, not who has to produce it, and not which ones the reader already
+    holds. Those three are the whole of the reader's next hour of work.
+    """
+
+    label: str = Field(min_length=1, description="The document's name, e.g. 'Einreichplan', 'Energieausweis'")
+    requirement: DocumentRequirement = Field(
+        description=(
+            "'required' when every Einreichung of this kind needs it, 'conditional' when it depends on the "
+            "Vorhaben. A conditional document MUST say on what in `condition` — one whose condition you do "
+            "not know is left off the list, never listed as required"
+        )
+    )
+    condition: str | None = Field(
+        default=None,
+        description=(
+            "REQUIRED with 'conditional' and forbidden otherwise: the case that makes this document "
+            "necessary, e.g. 'nur bei Gebäuden mit mehr als 2 Wohnungen' or 'nur im Schutzzonenbereich'. "
+            "One clause, as the Bestimmung words it"
+        ),
+    )
+    issuer: str | None = Field(
+        default=None,
+        description=(
+            "Who produces it — 'Ziviltechniker:in', 'Ingenieurkonsulent:in für Vermessungswesen', "
+            "'Bauwerber', 'Baubehörde'. Omit rather than guess; a wrong issuer sends the reader to the "
+            "wrong office"
+        ),
+    )
+    status: DocumentStatus | None = Field(
+        default=None,
+        description=(
+            "ONLY from what this conversation established: 'present' when the user said they already have "
+            "it, 'missing' when they said they do not. Leave it unset otherwise — the card then renders the "
+            "document as unknown, which is the truth, and never as a default. Guessing it tells the reader "
+            "their dossier is further along (or further behind) than it is"
+        ),
+    )
+    reference: NormReference | None = Field(
+        default=None, description="The Bestimmung requiring this document. Never invent one"
+    )
+    note: str | None = Field(
+        default=None,
+        description="Optional one clause on FORM rather than substance, e.g. 'dreifach, in Papierform'",
+    )
+
+    @model_validator(mode="after")
+    def _a_condition_belongs_to_a_conditional_document(self) -> "RequiredDocument":
+        # The two halves of the same rule. A conditional entry with no condition
+        # is the prose list again — the reader cannot tell whether it applies to
+        # them — and a required entry that carries one is two answers at once.
+        if self.requirement == "conditional" and not (self.condition or "").strip():
+            raise ValueError(
+                "a 'conditional' document must state its `condition`; omit the document entirely rather than "
+                "listing a condition you do not know"
+            )
+        if self.requirement == "required" and self.condition:
+            raise ValueError("a 'required' document applies always, so it carries no `condition'")
+        return self
+
+
+class DocumentChecklistCard(BaseModel):
+    """Emit for „welche Unterlagen brauche ich" — the Einreichliste as a worked list.
+
+    The answer to that question is not a list of names, it is a list of STATES:
+    which documents are always required, which depend on the Vorhabensart and on
+    what, who issues each, and — where the conversation said so — which the
+    reader already has. A markdown list carries none of that, so the reader
+    re-derives it from the surrounding prose every time.
+
+    The card lets them work down it: each row shows whether it is required or
+    conditional and what is known about it, and a click opens the condition, the
+    issuer, the Fundstelle and the form. Everything arrived with the card, so
+    nothing is fetched.
+
+    Set `status` on a document ONLY where the conversation established it. The
+    card derives its own tally (how many are in hand, how many are still open)
+    from the rows, so a status guessed to make the list look complete makes the
+    tally wrong too.
+    """
+
+    type: Literal["document_checklist"]
+    title: str = Field(min_length=1, description="What the list is FOR, e.g. 'Einreichunterlagen – Neubau Wien'")
+    items: list[RequiredDocument] = Field(
+        min_length=2,
+        max_length=16,
+        description="The documents, in the order the reader should work down them. One document is a sentence",
+    )
+    reference: NormReference | None = Field(
+        default=None, description="The Bestimmung listing the Einreichunterlagen, e.g. the Land's Bauordnung"
+    )
+    note: str | None = Field(
+        default=None, description="Optional one-line caveat, e.g. that the Gemeinde may ask for more"
+    )
+
+
+# A calendar date anywhere in a Frist is the one thing this card must never
+# carry. Both patterns are fixed-width and unanchored with no nested quantifier
+# and no alternation that can match the same span two ways, so matching is
+# linear in the length of the string — pumped against 100k characters of '1.'
+# and of '2026-' in `tests/aiq_agent/cards/test_models.py`.
+_CALENDAR_DATE = re.compile(r"\d{1,2}\.\s?\d{1,2}\.\s?\d{2,4}|\d{4}-\d{2}-\d{2}")
+
+
+class Deadline(BaseModel):
+    """One Frist of a Bauverfahren: how long it runs, and what starts the clock.
+
+    `starts_from` is required, and that is the design. A period without its
+    trigger („binnen sechs Wochen" — from what?) is not usable: the reader
+    cannot place it, and a reader who assumes the wrong trigger misses the Frist
+    by exactly the gap between the two events. Where the answer does not know
+    what starts a clock, the Frist is left off the card rather than shown as a
+    number with no anchor.
+    """
+
+    label: str = Field(min_length=1, description="The Frist's name, e.g. 'Einspruchsfrist', 'Baubeginnsanzeige'")
+    period: str = Field(
+        min_length=1,
+        description=(
+            "How long it runs, AS THE BESTIMMUNG WORDS IT — 'binnen sechs Wochen', 'vier Jahre', "
+            "'unverzüglich'. NEVER a calendar date and never a date you computed: the product does not know "
+            "this project's Zustelldatum, and a wrong date on a card is worse than no card. Dates are "
+            "rejected by the validator"
+        ),
+    )
+    starts_from: str = Field(
+        min_length=1,
+        description=(
+            "WHAT STARTS THE CLOCK, and the field that makes the Frist usable — 'ab Zustellung des "
+            "Bescheids', 'ab Rechtskraft der Baubewilligung', 'ab Fertigstellung'. Required: a Frist whose "
+            "trigger you do not know is omitted, not shown anchored to nothing"
+        ),
+    )
+    actor: str | None = Field(
+        default=None, description="Who has to act inside it, e.g. 'Bauwerber', 'Nachbar', 'Baubehörde'"
+    )
+    consequence: str | None = Field(
+        default=None,
+        description=(
+            "What happens when it lapses, e.g. 'Der Bescheid wird rechtskräftig.' — one clause. Omit when "
+            "the answer does not say; this is the half a reader is most tempted to assume"
+        ),
+    )
+    reference: NormReference | None = Field(
+        default=None, description="The Bestimmung the Frist stands in. Never invent one"
+    )
+
+    @model_validator(mode="after")
+    def _no_calendar_dates(self) -> "Deadline":
+        for field_name in ("period", "starts_from"):
+            if _CALENDAR_DATE.search(getattr(self, field_name)):
+                raise ValueError(
+                    f"`{field_name}` contains a calendar date; a Frist is carried as the Bestimmung words it "
+                    "('binnen sechs Wochen ab Zustellung'), never as a day. This product does not know when "
+                    "the Bescheid was served, so a computed date would be a legal statement about the "
+                    "reader's project that nothing supports"
+                )
+        return self
+
+
+class DeadlineTimelineCard(BaseModel):
+    """Emit for the FRISTEN of a Verfahren — several clocks, in the order they run.
+
+    `callout` carries one Frist. A Bauverfahren has several in sequence —
+    Einspruchsfrist, Baubeginnsanzeige, Fertigstellungsfrist, Geltungsdauer der
+    Bewilligung — and their ORDER, together with what starts each one, IS the
+    information. As prose they arrive as four sentences the reader has to sort
+    themselves, and the sorting is where the mistake happens.
+
+    Every Frist is carried in the Bauordnung's own words and none is turned into
+    a date. The card draws them as a sequence, not to scale: the periods are
+    measured in different units and run from different events, so a bar whose
+    length meant anything would be claiming a shared timeline that does not
+    exist.
+    """
+
+    type: Literal["deadline_timeline"]
+    title: str = Field(min_length=1, description="What the Fristen belong to, e.g. 'Fristen im Bauverfahren – Wien'")
+    deadlines: list[Deadline] = Field(
+        min_length=2,
+        max_length=8,
+        description=(
+            "The Fristen in the order they run. Two is the minimum, because ONE Frist is a callout — the "
+            "sequence is what this card is for"
+        ),
+    )
+    reference: NormReference | None = Field(
+        default=None, description="The law the Fristen stand in, when they share one"
+    )
+    note: str | None = Field(
+        default=None, description="Optional one-line caveat, e.g. that a Land counts a Frist differently"
+    )
+
+
+ChangeDirection = Literal["tightens", "relaxes", "unchanged"]
+"""Which way a consequence moves for the reader.
+
+'unchanged' earns its place: half of „was ändert sich" is answered by naming the
+requirement a planner EXPECTS to move and saying that it does not. Without the
+value the model has only the choice of leaving it out (and the reader assumes it
+changed) or mislabelling it.
+"""
+
+
+class ChangeConsequence(BaseModel):
+    """One requirement that moves when the trigger fact moves, with its Fundstelle.
+
+    `reference` is required here and optional almost everywhere else. This card
+    exists to be planned against — a Ziviltechniker reads it and decides whether
+    to keep the Fluchtniveau under 11 m — so a consequence nobody can look up is
+    a consequence nobody can act on. One without a Fundstelle is left off the
+    card, not listed bare.
+    """
+
+    aspect: str = Field(
+        min_length=1,
+        description="WHAT is affected, e.g. 'Feuerwiderstand tragender Bauteile', 'Zweiter Fluchtweg'",
+    )
+    before: str | None = Field(
+        default=None,
+        description=(
+            "What applies BEFORE the change, e.g. 'REI 30'. Omit when the conversation has not established "
+            "the current case — an invented 'before' invents the size of the change"
+        ),
+    )
+    after: str = Field(min_length=1, description="What applies AFTER the change, e.g. 'REI 90 und A2'")
+    direction: ChangeDirection = Field(
+        description=(
+            "'tightens' when the change costs the reader more (a higher class, an added requirement), "
+            "'relaxes' when it costs less, 'unchanged' when this requirement is one a planner would expect "
+            "to move and it does not"
+        )
+    )
+    reference: NormReference = Field(
+        description="Where THIS consequence is written. Required — a consequence you cannot cite is omitted"
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Optional sentence or two, revealed on click: what the new requirement means in practice",
+    )
+
+    @model_validator(mode="after")
+    def _direction_matches_the_two_values(self) -> "ChangeConsequence":
+        # Only checkable when both sides are stated, and then it is worth
+        # checking: a row reading 'REI 30 → REI 90, unverändert' is the card
+        # contradicting itself in the reader's own line of sight.
+        if self.before is None:
+            return self
+        same = self.before.strip() == self.after.strip()
+        if same and self.direction != "unchanged":
+            raise ValueError("`before` and `after` are the same, so `direction` is 'unchanged'")
+        if not same and self.direction == "unchanged":
+            raise ValueError("`direction` is 'unchanged' but `before` and `after` differ; say which way it moves")
+        return self
+
+
+class ChangeImpactCard(BaseModel):
+    """Emit for „was passiert, wenn X sich ändert" — one changed fact, and what it costs.
+
+    The card a planner needs while the design is still moving: „was passiert,
+    wenn das Fluchtniveau über 11 m geht?" — the Gebäudeklasse changes, and with
+    it the required fire resistance, the second escape route and the lift. As
+    prose that is a paragraph whose consequences the reader has to separate from
+    each other and pair back to their sources.
+
+    Not a `condition_tree`. The tree shows which case the project is IN; this
+    shows what a MOVE would cost, so it names one trigger fact, its two values,
+    and the consequences that follow — each with its own Fundstelle and each
+    marked as tightening or relaxing. The card counts the directions itself, so
+    there is no summary field to disagree with the rows.
+
+    `from_value` is optional because the current state is a claim about this
+    project: state it only where the conversation established it. `to_value` is
+    the hypothesis the question itself supplies, so it is always known.
+    """
+
+    type: Literal["change_impact"]
+    title: str = Field(
+        min_length=1, description="The change, as a heading, e.g. 'Fluchtniveau über 11 m – was sich ändert'"
+    )
+    factor: str = Field(
+        min_length=1, description="The ONE fact that moves, e.g. 'Fluchtniveau', 'Anzahl der Wohnungen'"
+    )
+    from_value: str | None = Field(
+        default=None,
+        description=(
+            "Its value now, e.g. '7–11 m'. Omit when the conversation has not established where the project "
+            "stands — never guess it, exactly as a process_map's position is never guessed"
+        ),
+    )
+    to_value: str = Field(min_length=1, description="Its value after the change, e.g. 'über 11 m'")
+    consequences: list[ChangeConsequence] = Field(
+        min_length=1,
+        max_length=8,
+        description="What follows, most important first. Each carries its own Fundstelle",
+    )
+    reference: NormReference | None = Field(
+        default=None, description="The Bestimmung that makes the FACTOR decisive, e.g. the Gebäudeklassen table"
+    )
+    note: str | None = Field(default=None, description="Optional one-line caveat, e.g. what the list does not cover")
+
+
 # ── Document-surfacing card (system-emitted) ─────────────────────────────────
 # Surfaced by the `surface_documents` tool from a REAL vector search over the
 # project + Büroarchiv corpus — never fabricated by the model (it is a system
@@ -1613,6 +1983,9 @@ GridCard = (
     | CalloutCard
     | CalculationCard
     | ProcessMapCard
+    | DocumentChecklistCard
+    | DeadlineTimelineCard
+    | ChangeImpactCard
     | FollowUpsCard
     | BuildingSectionCard
     | StairDiagramCard
@@ -1648,11 +2021,16 @@ __all__ = [
     "CalculationOperand",
     "CalculationStep",
     "CalloutCard",
+    "ChangeConsequence",
+    "ChangeImpactCard",
     "ChecklistItem",
     "ComparisonRow",
     "ComparisonTableCard",
     "ConditionBranch",
     "ConditionTreeCard",
+    "Deadline",
+    "DeadlineTimelineCard",
+    "DocumentChecklistCard",
     "DocumentGridCard",
     "FollowUp",
     "FollowUpsCard",
@@ -1672,6 +2050,7 @@ __all__ = [
     "NormChainLink",
     "ProcessMapCard",
     "ProcessStep",
+    "RequiredDocument",
     "SurfacedDocument",
     "ProjectProfilePatchCard",
     "ProjectProfilePatchOperation",

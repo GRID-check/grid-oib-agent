@@ -549,6 +549,156 @@
       "title": "CalloutCard",
       "type": "object"
     },
+    "ChangeConsequence": {
+      "description": "One requirement that moves when the trigger fact moves, with its Fundstelle.\n\n`reference` is required here and optional almost everywhere else. This card\nexists to be planned against \u2014 a Ziviltechniker reads it and decides whether\nto keep the Fluchtniveau under 11 m \u2014 so a consequence nobody can look up is\na consequence nobody can act on. One without a Fundstelle is left off the\ncard, not listed bare.",
+      "properties": {
+        "after": {
+          "description": "What applies AFTER the change, e.g. 'REI 90 und A2'",
+          "minLength": 1,
+          "title": "After",
+          "type": "string"
+        },
+        "aspect": {
+          "description": "WHAT is affected, e.g. 'Feuerwiderstand tragender Bauteile', 'Zweiter Fluchtweg'",
+          "minLength": 1,
+          "title": "Aspect",
+          "type": "string"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What applies BEFORE the change, e.g. 'REI 30'. Omit when the conversation has not established the current case \u2014 an invented 'before' invents the size of the change",
+          "title": "Before"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional sentence or two, revealed on click: what the new requirement means in practice",
+          "title": "Detail"
+        },
+        "direction": {
+          "description": "'tightens' when the change costs the reader more (a higher class, an added requirement), 'relaxes' when it costs less, 'unchanged' when this requirement is one a planner would expect to move and it does not",
+          "enum": [
+            "tightens",
+            "relaxes",
+            "unchanged"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Where THIS consequence is written. Required \u2014 a consequence you cannot cite is omitted"
+        }
+      },
+      "required": [
+        "aspect",
+        "after",
+        "direction",
+        "reference"
+      ],
+      "title": "ChangeConsequence",
+      "type": "object"
+    },
+    "ChangeImpactCard": {
+      "description": "Emit for \u201ewas passiert, wenn X sich \u00e4ndert\" \u2014 one changed fact, and what it costs.\n\nThe card a planner needs while the design is still moving: \u201ewas passiert,\nwenn das Fluchtniveau \u00fcber 11 m geht?\" \u2014 the Geb\u00e4udeklasse changes, and with\nit the required fire resistance, the second escape route and the lift. As\nprose that is a paragraph whose consequences the reader has to separate from\neach other and pair back to their sources.\n\nNot a `condition_tree`. The tree shows which case the project is IN; this\nshows what a MOVE would cost, so it names one trigger fact, its two values,\nand the consequences that follow \u2014 each with its own Fundstelle and each\nmarked as tightening or relaxing. The card counts the directions itself, so\nthere is no summary field to disagree with the rows.\n\n`from_value` is optional because the current state is a claim about this\nproject: state it only where the conversation established it. `to_value` is\nthe hypothesis the question itself supplies, so it is always known.",
+      "properties": {
+        "consequences": {
+          "description": "What follows, most important first. Each carries its own Fundstelle",
+          "items": {
+            "$ref": "#/$defs/ChangeConsequence"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Consequences",
+          "type": "array"
+        },
+        "factor": {
+          "description": "The ONE fact that moves, e.g. 'Fluchtniveau', 'Anzahl der Wohnungen'",
+          "minLength": 1,
+          "title": "Factor",
+          "type": "string"
+        },
+        "from_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its value now, e.g. '7\u201311 m'. Omit when the conversation has not established where the project stands \u2014 never guess it, exactly as a process_map's position is never guessed",
+          "title": "From Value"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. what the list does not cover",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung that makes the FACTOR decisive, e.g. the Geb\u00e4udeklassen table"
+        },
+        "title": {
+          "description": "The change, as a heading, e.g. 'Fluchtniveau \u00fcber 11 m \u2013 was sich \u00e4ndert'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "to_value": {
+          "description": "Its value after the change, e.g. '\u00fcber 11 m'",
+          "minLength": 1,
+          "title": "To Value",
+          "type": "string"
+        },
+        "type": {
+          "const": "change_impact",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "factor",
+        "to_value",
+        "consequences"
+      ],
+      "title": "ChangeImpactCard",
+      "type": "object"
+    },
     "ChecklistItem": {
       "description": "One requirement in a checklist, with its verdict and grounding.",
       "properties": {
@@ -771,7 +921,7 @@
       "type": "object"
     },
     "ConditionTreeCard": {
-      "description": "A decision tree (Bedingungsbaum) for an answer that turns on one factor.\n\nEmit for the domain's most common answer shape \u2014 'it depends on the\nGeb\u00e4udeklasse'. `question` names the deciding factor; each branch pairs a\ncase with its outcome, and the branch matching the current project is\nmarked `active`. Exactly the structure that otherwise becomes nested prose\nthe reader has to re-collapse into a table in their head.",
+      "description": "A decision tree (Bedingungsbaum) for an answer that turns on one factor.\n\nEmit for the domain's most common answer shape \u2014 'it depends on the\nGeb\u00e4udeklasse'. `question` names the deciding factor; each branch pairs a\ncase with its outcome, and the branch matching the current project is\nmarked `active`. Exactly the structure that otherwise becomes nested prose\nthe reader has to re-collapse into a table in their head.\n\nTHE CASES MUST BE MUTUALLY EXCLUSIVE. A fork means the project sits in\nexactly one of them, which is why at most one branch may be `active` and why\nthe renderer writes the active outcome as 'f\u00fcr dieses Projekt gilt'. Rows\nthat are all true at once \u2014 the fire resistance of the topmost storey AND of\nthe other storeys AND of the basement, which are three parts of the same\nbuilding rather than three cases of one project \u2014 are a `typed_table`, not a\ntree.",
       "properties": {
         "branches": {
           "description": "The cases and their outcomes, in reading order",
@@ -915,6 +1065,132 @@
         "reference"
       ],
       "title": "DaylightIncidenceCard",
+      "type": "object"
+    },
+    "Deadline": {
+      "description": "One Frist of a Bauverfahren: how long it runs, and what starts the clock.\n\n`starts_from` is required, and that is the design. A period without its\ntrigger (\u201ebinnen sechs Wochen\" \u2014 from what?) is not usable: the reader\ncannot place it, and a reader who assumes the wrong trigger misses the Frist\nby exactly the gap between the two events. Where the answer does not know\nwhat starts a clock, the Frist is left off the card rather than shown as a\nnumber with no anchor.",
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who has to act inside it, e.g. 'Bauwerber', 'Nachbar', 'Baubeh\u00f6rde'",
+          "title": "Actor"
+        },
+        "consequence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What happens when it lapses, e.g. 'Der Bescheid wird rechtskr\u00e4ftig.' \u2014 one clause. Omit when the answer does not say; this is the half a reader is most tempted to assume",
+          "title": "Consequence"
+        },
+        "label": {
+          "description": "The Frist's name, e.g. 'Einspruchsfrist', 'Baubeginnsanzeige'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "period": {
+          "description": "How long it runs, AS THE BESTIMMUNG WORDS IT \u2014 'binnen sechs Wochen', 'vier Jahre', 'unverz\u00fcglich'. NEVER a calendar date and never a date you computed: the product does not know this project's Zustelldatum, and a wrong date on a card is worse than no card. Dates are rejected by the validator",
+          "minLength": 1,
+          "title": "Period",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung the Frist stands in. Never invent one"
+        },
+        "starts_from": {
+          "description": "WHAT STARTS THE CLOCK, and the field that makes the Frist usable \u2014 'ab Zustellung des Bescheids', 'ab Rechtskraft der Baubewilligung', 'ab Fertigstellung'. Required: a Frist whose trigger you do not know is omitted, not shown anchored to nothing",
+          "minLength": 1,
+          "title": "Starts From",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "period",
+        "starts_from"
+      ],
+      "title": "Deadline",
+      "type": "object"
+    },
+    "DeadlineTimelineCard": {
+      "description": "Emit for the FRISTEN of a Verfahren \u2014 several clocks, in the order they run.\n\n`callout` carries one Frist. A Bauverfahren has several in sequence \u2014\nEinspruchsfrist, Baubeginnsanzeige, Fertigstellungsfrist, Geltungsdauer der\nBewilligung \u2014 and their ORDER, together with what starts each one, IS the\ninformation. As prose they arrive as four sentences the reader has to sort\nthemselves, and the sorting is where the mistake happens.\n\nEvery Frist is carried in the Bauordnung's own words and none is turned into\na date. The card draws them as a sequence, not to scale: the periods are\nmeasured in different units and run from different events, so a bar whose\nlength meant anything would be claiming a shared timeline that does not\nexist.",
+      "properties": {
+        "deadlines": {
+          "description": "The Fristen in the order they run. Two is the minimum, because ONE Frist is a callout \u2014 the sequence is what this card is for",
+          "items": {
+            "$ref": "#/$defs/Deadline"
+          },
+          "maxItems": 8,
+          "minItems": 2,
+          "title": "Deadlines",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. that a Land counts a Frist differently",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The law the Fristen stand in, when they share one"
+        },
+        "title": {
+          "description": "What the Fristen belong to, e.g. 'Fristen im Bauverfahren \u2013 Wien'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "deadline_timeline",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "deadlines"
+      ],
+      "title": "DeadlineTimelineCard",
       "type": "object"
     },
     "DensityCheckCard": {
@@ -1183,6 +1459,64 @@
         "reference"
       ],
       "title": "DimensionDiagramCard",
+      "type": "object"
+    },
+    "DocumentChecklistCard": {
+      "description": "Emit for \u201ewelche Unterlagen brauche ich\" \u2014 the Einreichliste as a worked list.\n\nThe answer to that question is not a list of names, it is a list of STATES:\nwhich documents are always required, which depend on the Vorhabensart and on\nwhat, who issues each, and \u2014 where the conversation said so \u2014 which the\nreader already has. A markdown list carries none of that, so the reader\nre-derives it from the surrounding prose every time.\n\nThe card lets them work down it: each row shows whether it is required or\nconditional and what is known about it, and a click opens the condition, the\nissuer, the Fundstelle and the form. Everything arrived with the card, so\nnothing is fetched.\n\nSet `status` on a document ONLY where the conversation established it. The\ncard derives its own tally (how many are in hand, how many are still open)\nfrom the rows, so a status guessed to make the list look complete makes the\ntally wrong too.",
+      "properties": {
+        "items": {
+          "description": "The documents, in the order the reader should work down them. One document is a sentence",
+          "items": {
+            "$ref": "#/$defs/RequiredDocument"
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Items",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. that the Gemeinde may ask for more",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung listing the Einreichunterlagen, e.g. the Land's Bauordnung"
+        },
+        "title": {
+          "description": "What the list is FOR, e.g. 'Einreichunterlagen \u2013 Neubau Wien'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "document_checklist",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "items"
+      ],
+      "title": "DocumentChecklistCard",
       "type": "object"
     },
     "DocumentGridCard": {
@@ -3174,6 +3508,100 @@
       "title": "ProjectProfilePatchPreviewItem",
       "type": "object"
     },
+    "RequiredDocument": {
+      "description": "One document on the Einreichliste, with the state a bare list drops.\n\n\u201eWas brauche ich f\u00fcr die Einreichung?\" is one of the most common questions\nthere is, and as a markdown list the answer carries the NAMES and nothing\nelse: not whether a document is always required or only for this kind of\nVorhaben, not who has to produce it, and not which ones the reader already\nholds. Those three are the whole of the reader's next hour of work.",
+      "properties": {
+        "condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "REQUIRED with 'conditional' and forbidden otherwise: the case that makes this document necessary, e.g. 'nur bei Geb\u00e4uden mit mehr als 2 Wohnungen' or 'nur im Schutzzonenbereich'. One clause, as the Bestimmung words it",
+          "title": "Condition"
+        },
+        "issuer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who produces it \u2014 'Ziviltechniker:in', 'Ingenieurkonsulent:in f\u00fcr Vermessungswesen', 'Bauwerber', 'Baubeh\u00f6rde'. Omit rather than guess; a wrong issuer sends the reader to the wrong office",
+          "title": "Issuer"
+        },
+        "label": {
+          "description": "The document's name, e.g. 'Einreichplan', 'Energieausweis'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one clause on FORM rather than substance, e.g. 'dreifach, in Papierform'",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung requiring this document. Never invent one"
+        },
+        "requirement": {
+          "description": "'required' when every Einreichung of this kind needs it, 'conditional' when it depends on the Vorhaben. A conditional document MUST say on what in `condition` \u2014 one whose condition you do not know is left off the list, never listed as required",
+          "enum": [
+            "required",
+            "conditional"
+          ],
+          "title": "Requirement",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "present",
+                "missing"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ONLY from what this conversation established: 'present' when the user said they already have it, 'missing' when they said they do not. Leave it unset otherwise \u2014 the card then renders the document as unknown, which is the truth, and never as a default. Guessing it tells the reader their dossier is further along (or further behind) than it is",
+          "title": "Status"
+        }
+      },
+      "required": [
+        "label",
+        "requirement"
+      ],
+      "title": "RequiredDocument",
+      "type": "object"
+    },
     "RequirementChecklistCard": {
       "description": "A requirement checklist: several pass/fail criteria for one question.\n\nEmit when an answer boils down to a list of criteria read against the\nproject ('what do I have to meet for GK 4?', 'is the Bauansuchen\ncomplete?'). Each item carries its own verdict and, where possible, its own\nnorm reference; unknown items use status 'needs_input' \u2014 never a guess.",
       "properties": {
@@ -3833,11 +4261,14 @@
       "building_section": "#/$defs/BuildingSectionCard",
       "calculation": "#/$defs/CalculationCard",
       "callout": "#/$defs/CalloutCard",
+      "change_impact": "#/$defs/ChangeImpactCard",
       "comparison_table": "#/$defs/ComparisonTableCard",
       "condition_tree": "#/$defs/ConditionTreeCard",
       "daylight_incidence": "#/$defs/DaylightIncidenceCard",
+      "deadline_timeline": "#/$defs/DeadlineTimelineCard",
       "density_check": "#/$defs/DensityCheckCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
+      "document_checklist": "#/$defs/DocumentChecklistCard",
       "document_grid": "#/$defs/DocumentGridCard",
       "egress_diagram": "#/$defs/EgressDiagramCard",
       "elevator_requirement": "#/$defs/ElevatorRequirementCard",
@@ -3908,6 +4339,15 @@
     },
     {
       "$ref": "#/$defs/ProcessMapCard"
+    },
+    {
+      "$ref": "#/$defs/DocumentChecklistCard"
+    },
+    {
+      "$ref": "#/$defs/DeadlineTimelineCard"
+    },
+    {
+      "$ref": "#/$defs/ChangeImpactCard"
     },
     {
       "$ref": "#/$defs/FollowUpsCard"

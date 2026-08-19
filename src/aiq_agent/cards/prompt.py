@@ -60,9 +60,9 @@ pile up, so each has to pass its own test against the report you were given:
     routinely confused. Ask what the reader does with the rows: exactly one row applies to this
     project (condition_tree), all rows apply at once (typed_table), or the reader chooses one
     (comparison_table).
-Two content cards is the ceiling and one is often right — a verdict_header on top and one card
-carrying the substance is a full kit even for a very long report. follow_ups does not count
-against that: it repeats nothing from the text and sits at the end anyway."""
+A verdict_header on top and one card carrying the substance is a full kit even for a very long
+report — the shared doctrine above states the budget those two spend, and this path does not get
+its own."""
 
 # Ordering, which is the whole of what this path controls about placement. The runner attaches the
 # returned list to the finished report as-is (see `aiq_api.jobs.runner`), so list order IS render

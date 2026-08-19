@@ -315,6 +315,73 @@ export const chat = {
       elsewhereNotice: 'For reference only — this project is at step {step}: {label}',
       backToCurrent: 'Back to {label}',
     },
+    // ── Submission documents ────────────────────────────────────────────
+    // The counts in the overview are worked out by the card from its own rows,
+    // so there is no field on the wire for a summary to disagree with.
+    documentChecklist: {
+      eyebrow: 'Documents',
+      itemAria: 'Document: {label}',
+      requirement: {
+        required: 'required',
+        conditional: 'conditional',
+      },
+      // The state of ONE row. „not known" is the normal case: only what the
+      // conversation established may stand here.
+      status: {
+        present: 'on hand',
+        missing: 'missing',
+        unknown: 'not known',
+      },
+      // The same words as modifiers, so a count reads grammatically.
+      tally: {
+        required: 'required',
+        conditional: 'conditional',
+        present: 'on hand',
+        missing: 'missing',
+        unknown: 'unresolved',
+      },
+      tallyAria: 'State of the dossier',
+      // Stands in for the second row when nothing is known about any document.
+      // A bar reading „0 of 5" there would be a claim about the project rather
+      // than a summary of the card.
+      noStatus: 'Whether you already hold these documents does not follow from the conversation.',
+      condition: 'Condition',
+      issuer: 'Issued by',
+      form: 'Form',
+      basis: 'Basis',
+    },
+    // ── Deadlines ───────────────────────────────────────────────────────
+    deadlineTimeline: {
+      eyebrow: 'Deadlines',
+      deadlineAria: 'Deadline {index}: {label}',
+      startsFrom: 'Clock starts',
+      consequence: 'If missed',
+      actor: 'Responsible',
+      basis: 'Basis',
+      // The sentence that keeps the card honest: the order is drawn, the
+      // length is not — each period runs from its own event.
+      notToScale: 'The order is drawn, not the lengths: each period runs from an event of its own.',
+      noDatesNote: 'Every period is carried as the provision words it. This card works out no dates.',
+    },
+    // ── Impact of a change ──────────────────────────────────────────────
+    changeImpact: {
+      eyebrow: 'Impact',
+      consequenceAria: 'Impact: {aspect}',
+      changeWithBefore: '{factor}: {from} → {to}',
+      changeWithoutBefore: '{factor} → {to}',
+      // Under the header when the current value is absent. Leaving „before"
+      // blank would be the quieter but less truthful option.
+      currentUnknown: 'The current value does not follow from the conversation.',
+      direction: {
+        tightens: 'tightens',
+        relaxes: 'relaxes',
+        unchanged: 'unchanged',
+      },
+      before: 'before',
+      after: 'then',
+      unknownBefore: 'current value not known',
+      basis: 'Basis',
+    },
     verdictHeader: {
       confidenceHigh: 'high confidence',
       confidenceMedium: 'medium confidence',

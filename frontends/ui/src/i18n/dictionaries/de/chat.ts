@@ -303,6 +303,74 @@ export const chat: typeof en.chat = {
       elsewhereNotice: 'Nur zur Ansicht — dieses Projekt steht bei Schritt {step}: {label}',
       backToCurrent: 'Zurück zu {label}',
     },
+    // ── Einreichunterlagen ──────────────────────────────────────────────
+    // Die Zahlen in der Übersicht rechnet die Karte selbst aus den Zeilen —
+    // es gibt kein Feld auf der Leitung, das ihnen widersprechen könnte.
+    documentChecklist: {
+      eyebrow: 'Unterlagen',
+      itemAria: 'Unterlage: {label}',
+      requirement: {
+        required: 'erforderlich',
+        conditional: 'bedingt',
+      },
+      // Der Zustand EINER Zeile. „nicht bekannt" ist der Normalfall: nur was
+      // im Gespräch stand, darf hier stehen.
+      status: {
+        present: 'liegt vor',
+        missing: 'fehlt',
+        unknown: 'nicht bekannt',
+      },
+      // Dieselben Begriffe als Beiwort, damit „3 vorhanden" und „2 fehlend"
+      // grammatikalisch stehen, wo „3 liegt vor" falsch wäre.
+      tally: {
+        required: 'erforderlich',
+        conditional: 'bedingt',
+        present: 'vorhanden',
+        missing: 'fehlend',
+        unknown: 'ungeklärt',
+      },
+      tallyAria: 'Stand der Unterlagen',
+      // Steht statt der zweiten Zeile, wenn zu keiner Unterlage etwas bekannt
+      // ist. Eine Leiste, die dann „0 von 5" zeigte, wäre eine Behauptung
+      // über das Projekt und keine Zusammenfassung der Karte.
+      noStatus: 'Ob Sie diese Unterlagen bereits haben, geht aus dem Gespräch nicht hervor.',
+      condition: 'Bedingung',
+      issuer: 'Ausgestellt von',
+      form: 'Form',
+      basis: 'Grundlage',
+    },
+    // ── Fristen ─────────────────────────────────────────────────────────
+    deadlineTimeline: {
+      eyebrow: 'Fristen',
+      deadlineAria: 'Frist {index}: {label}',
+      startsFrom: 'Fristbeginn',
+      consequence: 'Wenn versäumt',
+      actor: 'Zuständig',
+      basis: 'Grundlage',
+      // Der Satz, der die Karte ehrlich hält: Die Reihenfolge ist gezeichnet,
+      // die Länge nicht — die Fristen laufen ab verschiedenen Ereignissen.
+      notToScale: 'Die Reihenfolge ist maßstabslos dargestellt: Jede Frist läuft ab einem eigenen Ereignis.',
+      noDatesNote: 'Die Fristen stehen so, wie sie die Bestimmung formuliert. Diese Karte rechnet kein Datum aus.',
+    },
+    // ── Auswirkung einer Änderung ───────────────────────────────────────
+    changeImpact: {
+      eyebrow: 'Auswirkung',
+      consequenceAria: 'Auswirkung: {aspect}',
+      changeWithBefore: '{factor}: {from} → {to}',
+      changeWithoutBefore: '{factor} → {to}',
+      // Steht unter der Kopfzeile, wenn der Ausgangswert fehlt. „Bisher" leer
+      // zu lassen wäre die stillere, aber falschere Variante.
+      currentUnknown: 'Der Ausgangswert geht aus dem Gespräch nicht hervor.',
+      direction: {
+        tightens: 'verschärft',
+        relaxes: 'gelockert',
+        unchanged: 'unverändert',
+      },
+      before: 'bisher',
+      after: 'dann',
+      unknownBefore: 'bisher nicht bekannt',
+      basis: 'Grundlage',
+    },
     verdictHeader: {
       confidenceHigh: 'hohe Sicherheit',
       confidenceMedium: 'mittlere Sicherheit',

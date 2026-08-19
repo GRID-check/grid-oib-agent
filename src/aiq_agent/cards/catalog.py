@@ -78,9 +78,11 @@ MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_complianc
 # ordinary answer — lives in the `piloti-cards` platform skill for the answering agents, and in a
 # post-hoc-truthful short form in `prompt.py` for the batch generator, which has no skill runtime.
 _CARD_TRIGGER_TABLE = """\
-WHEN TO EMIT ONE. An answer that turns on a dimension gets its card by default, not on request.
-A measurement written as a sentence makes the reader re-draw it in their head; the card is the
-drawing they would have made. The trigger, then the card:
+WHEN TO EMIT ONE. A match in this table IS a card, by default and unasked — the card is the
+drawing, list or ordering the reader would otherwise have made in their head, and prose hands
+them that work back. If you can NAME the card that fits, emit it: knowing which one fits and
+writing the answer as prose anyway is this tool's one failure mode. Not emitting on a match is
+the exception, and it needs a reason from WHEN NOT TO. The trigger, then the card:
   a riser, tread or stair width            -> stair_diagram
   a clear width, ramp or turning circle    -> dimension_diagram
   an escape route with segments            -> egress_diagram
@@ -92,10 +94,14 @@ drawing they would have made. The trigger, then the card:
   three or more pass/fail criteria         -> requirement_checklist
   two or more options weighed against each other -> comparison_table
   the answer's single headline number or ruling, at the top -> verdict_header
-  an answer that turns on the Gebäudeklasse (or one other factor) -> condition_tree
+  an answer turning on ONE factor whose cases exclude each other, at most one of them the reader's -> condition_tree
+  rows that are all true at once (parts of one building, not cases of one project) -> typed_table
   a tabular answer no purpose-built card covers -> typed_table
   a number the answer WORKED OUT rather than looked up -> calculation
   a Verfahren, Ablauf or „wie läuft das ab" -> process_map
+  „welche Unterlagen brauche ich" — the list is STATES, not names -> document_checklist
+  several Fristen in sequence — the order and what starts each clock is the answer -> deadline_timeline
+  „was passiert, wenn X sich ändert" — what a move COSTS, not which case applies -> change_impact
   the two to five points the reader must leave with -> key_takeaways
   one caveat, deadline or tip that changes what the reader DOES -> callout
   an answer this reader will have a next question about -> follow_ups"""
@@ -111,10 +117,10 @@ _MODEL_PICKER_TRIGGER = """
                                            -> ifc_model_picker"""
 
 _FOLLOW_UPS_RULE = """\
-At most one follow_ups per answer, and put it LAST — it is what the reader leaves on. Not on a
-conversational or off-topic turn, where there is no subject to go deeper into, and not on an answer
-that already ends by asking the user something: two questions competing for the same reply is how
-you get neither."""
+follow_ups closes a subject-matter answer by default — a good answer opens questions, and the
+reader should not have to phrase them. Exactly one, LAST. Two narrow exceptions: a conversational
+or off-topic turn, with no subject to go deeper into, and an answer that already ends by asking the
+user something, because two questions competing for the same reply is how you get neither."""
 
 _MODEL_PICKER_NOTE = """\
 The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
@@ -122,16 +128,28 @@ emit it INSTEAD of writing the file names as a prose bullet list. It renders the
 as tiles the user clicks to open the viewer directly — you supply only the heading, never the file
 names, so there is nothing to get wrong. You do not need to call ifc_query first to list them."""
 
-# The negative default, and the anti-fabrication rule that is the reason a card can be worse than
-# no card at all. Both surfaces pay for this one; the post-hoc path states it a second time, in
-# stronger terms, because there it is the only thing standing between a report and an invented
-# limit (see `prompt.py`).
+# The anti-fabrication rule: the reason a card can be worse than no card at all, and the ONE
+# instruction here that outranks a trigger. It is stated on its own, away from the volume rule,
+# because the two were one paragraph and read as one mood — and a model that discounts "two is
+# plenty" as tone discounts "never fabricate" with it. Both surfaces pay for this one; the post-hoc
+# path states it a second time, in stronger terms, because there it is the only thing standing
+# between a report and an invented limit (see `prompt.py`).
+_CARD_HONESTY = """\
+WHAT MAY GO ON ONE. Never fabricate a field, a reference or a number to fill a card out — a card
+with an invented limit in it is worse than the prose alone, because it is the part that gets
+screenshotted into a submission. A value you do not have is left out or marked "needs_input", never
+estimated to make the card look finished. This rule outranks every trigger above."""
+
+# The volume rule, and only that. It is CALIBRATION, not discouragement: it says how much of the
+# budget a turn has, in a section short enough that it cannot outweigh the table it qualifies. It
+# used to carry the anti-fabrication rule and the "two is plenty" cap in one paragraph, under a
+# heading that read as the counterweight to the whole trigger table — and the observed failure was
+# a model that named the right card afterwards and had written prose instead.
 _CARD_RESTRAINT = """\
-WHEN NOT TO. A one-line factual answer gets no card: one that repeats the sentence above it costs
-the reader a second pass over the same fact. Never fabricate a field, a reference or a number to
-fill a card out — a card with an invented limit in it is worse than the prose alone, because it is
-the part that gets screenshotted into a submission. Two cards in a turn is plenty; more than that
-and the written answer stops being the answer."""
+WHEN NOT TO. Two content cards is a turn's budget and it is there to be SPENT — one is the usual
+number, three is too many, and follow_ups does not count against it. None is right in two cases: a
+one-line factual answer, where the card only repeats the sentence above it, and a card that would
+say what the prose beside it says in the same words — cut the card, keep the sentence."""
 
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
@@ -516,6 +534,132 @@ CARD_EXAMPLES: dict[str, dict] = {
         ],
         "reference": {"document": "Wiener Bauordnung", "section": "§§ 60 ff."},
     },
+    # The list this replaces is a row of names, so the example has to be a row
+    # of STATES: two documents that are always required, one that is only needed
+    # in a defined case (and says which), and one the conversation established
+    # the reader already holds. Most entries carry NO `status` on purpose — an
+    # example where every row is answered would teach the model to answer every
+    # row, which is precisely the invention this card is shaped against.
+    "document_checklist": {
+        "type": "document_checklist",
+        "title": "Einreichunterlagen – Neubau Wohngebäude, Wien",
+        "items": [
+            {
+                "label": "Einreichplan",
+                "requirement": "required",
+                "issuer": "Ziviltechniker:in",
+                "status": "present",
+                "note": "dreifach, im Maßstab 1:100",
+                "reference": {"document": "Wiener Bauordnung", "section": "§ 63 Abs. 1 lit. a"},
+            },
+            {
+                "label": "Baubeschreibung",
+                "requirement": "required",
+                "issuer": "Ziviltechniker:in",
+                "reference": {"document": "Wiener Bauordnung", "section": "§ 63 Abs. 1 lit. b"},
+            },
+            {
+                "label": "Energieausweis",
+                "requirement": "required",
+                "issuer": "befugte Fachperson",
+                "status": "missing",
+                "reference": {"document": "OIB-Richtlinie 6", "section": "Pkt. 6", "edition": "Ausgabe Mai 2023"},
+            },
+            {
+                "label": "Grundbuchsauszug",
+                "requirement": "conditional",
+                "condition": "nur wenn der Bauwerber nicht Eigentümer der Liegenschaft ist",
+                "issuer": "Bauwerber",
+            },
+            {
+                "label": "Gutachten der MA 19",
+                "requirement": "conditional",
+                "condition": "nur im Schutzzonenbereich oder bei einem Gebäude in einer Schutzzone",
+                "issuer": "Baubehörde",
+            },
+        ],
+        "reference": {"document": "Wiener Bauordnung", "section": "§ 63"},
+    },
+    # Three clocks that run from three different events — which is the whole
+    # reason this is not four callouts. Every `period` is the Bestimmung's own
+    # wording and every `starts_from` names the event, so the example cannot be
+    # copied into a card carrying a date: the model sees „ab Zustellung" in the
+    # slot where it might otherwise have written one.
+    "deadline_timeline": {
+        "type": "deadline_timeline",
+        "title": "Fristen im Bauverfahren – Wien",
+        "deadlines": [
+            {
+                "label": "Beschwerdefrist",
+                "period": "binnen vier Wochen",
+                "starts_from": "ab Zustellung des Baubewilligungsbescheids",
+                "actor": "Nachbar oder Bauwerber",
+                "consequence": "Der Bescheid wird rechtskräftig.",
+                "reference": {"document": "VwGVG", "section": "§ 7 Abs. 4"},
+            },
+            {
+                "label": "Geltungsdauer der Baubewilligung",
+                "period": "binnen vier Jahren ist mit dem Bau zu beginnen",
+                "starts_from": "ab Rechtskraft der Baubewilligung",
+                "actor": "Bauwerber",
+                "consequence": "Die Baubewilligung erlischt.",
+                "reference": {"document": "Wiener Bauordnung", "section": "§ 74 Abs. 1"},
+            },
+            {
+                "label": "Fertigstellungsanzeige",
+                "period": "unverzüglich",
+                "starts_from": "ab Fertigstellung des Bauvorhabens",
+                "actor": "Bauwerber",
+                "reference": {"document": "Wiener Bauordnung", "section": "§ 128"},
+            },
+        ],
+    },
+    # Two things this example teaches. Every consequence carries its OWN
+    # Fundstelle, because that is the field the model is most tempted to hand up
+    # to the card and leave off the rows. And one row is `unchanged` with a
+    # `before` equal to its `after` — the answer to half of „was ändert sich" is
+    # naming the requirement a planner expects to move and saying that it does
+    # not. The lift row omits `before`, so the model sees that the current state
+    # is optional where the conversation never established it.
+    "change_impact": {
+        "type": "change_impact",
+        "title": "Fluchtniveau über 11 m – was sich ändert",
+        "factor": "Fluchtniveau",
+        "from_value": "7 bis 11 m",
+        "to_value": "über 11 m",
+        "consequences": [
+            {
+                "aspect": "Gebäudeklasse",
+                "before": "GK 4",
+                "after": "GK 5",
+                "direction": "tightens",
+                "reference": {"document": "OIB-Begriffsbestimmungen", "section": "Gebäudeklassen"},
+            },
+            {
+                "aspect": "Feuerwiderstand tragender Bauteile",
+                "before": "R 60",
+                "after": "R 90",
+                "direction": "tightens",
+                "detail": "Die Anforderung gilt für die tragenden Bauteile der oberirdischen Geschoße.",
+                "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1", "edition": "Ausgabe Mai 2023"},
+            },
+            {
+                "aspect": "Aufzug",
+                "after": "Aufzug erforderlich",
+                "direction": "tightens",
+                "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 3", "edition": "Ausgabe Mai 2023"},
+            },
+            {
+                "aspect": "Schallschutz zwischen den Wohnungen",
+                "before": "DnT,w mindestens 55 dB",
+                "after": "DnT,w mindestens 55 dB",
+                "direction": "unchanged",
+                "detail": "Der Schallschutz hängt an der Nutzung, nicht an der Gebäudeklasse.",
+                "reference": {"document": "OIB-Richtlinie 5", "section": "Tabelle 1", "edition": "Ausgabe Mai 2023"},
+            },
+        ],
+        "reference": {"document": "OIB-Begriffsbestimmungen", "section": "Gebäudeklassen"},
+    },
     "follow_ups": {
         "type": "follow_ups",
         "items": [
@@ -842,7 +986,7 @@ def render_card_doctrine(*, include_ifc_triggers: bool = True) -> str:
     parts = [_CARD_TRIGGER_TABLE + (_MODEL_PICKER_TRIGGER if include_ifc_triggers else ""), _FOLLOW_UPS_RULE]
     if include_ifc_triggers:
         parts.append(_MODEL_PICKER_NOTE)
-    parts.append(_CARD_RESTRAINT)
+    parts.extend((_CARD_HONESTY, _CARD_RESTRAINT))
     return "\n\n".join(parts)
 
 
