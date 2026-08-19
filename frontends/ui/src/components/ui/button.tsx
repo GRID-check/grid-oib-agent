@@ -38,7 +38,10 @@ const buttonVariants = cva(
           'border border-input bg-transparent hover:bg-accent hover:text-accent-foreground',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-accent',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
-        link: 'text-primary underline-offset-4 hover:underline active:scale-100',
+        // A link is not a filled action, so it is the one variant that takes
+        // the accent rather than ink — same as an anchor in prose and on the
+        // marketing site, where a link resolves to the olive green on hover.
+        link: 'text-brand underline-offset-4 hover:underline hover:text-brand-hover active:scale-100',
       },
       // Two pointers, two sizes. The desktop heights are tuned for a cursor,
       // which lands where it is pointed; a fingertip does not, and below ~44px

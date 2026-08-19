@@ -5,10 +5,18 @@
    docs/design/click-dummy-overhaul-spec.md §4 and
    docs/design/grid-design-language.md). Warm paper surfaces, a near-black ink
    ramp, hairline alpha-ink borders that composite correctly on any surface,
-   layered soft shadows for elevation, and NO brand accent color on actions —
-   the primary action is near-black ink. The only chroma is the
-   source/provenance signal system (--source-*, --status-*, --signal-*),
-   always paired with icon + label in the UI (color never travels alone).
+   layered soft shadows for elevation, and near-black ink as the ACTION color —
+   a primary button is still ink, never green. Chroma comes from exactly two
+   systems, and they do not overlap:
+
+     - the source/provenance signals (--source-*, --status-*, --signal-*),
+       which say where content CAME FROM, always paired with icon + label in
+       the UI (color never travels alone);
+     - the Piloti brand green (--brand-*), which says what is LIVE OR CHOSEN —
+       focus, checked, selected, in progress, and the product's own mark.
+
+   Ink presses, provenance attributes, green points. A token that cannot be
+   placed in one of those three sentences does not get colour.
 
    Three var vocabularies are defined here:
 
@@ -45,6 +53,40 @@
   --ink-hover: oklch(0.31 0.006 271.2); /* lifted ink for hover on ink surfaces */
   --ink-active: oklch(0.2 0.006 271.2); /* pressed ink */
   --ink-border: oklch(0.234 0.007 258.4); /* #1c1e21 — alpha-hairline base (rgba(28,30,33,…)) */
+
+  /* ---- Piloti green (light) — the brand accent, lifted from the marketing
+     site (frontends/web `--color-accent-*`: olive #5c6b42 → lime #a4d06a).
+
+     WHAT IT IS FOR, precisely: the green marks WHAT IS LIVE OR CHOSEN — focus,
+     checked, selected, in progress, and the product's own mark. It is NOT the
+     action colour (the primary button stays ink, see the design language) and
+     it is NOT a provenance signal. That split is the whole reason it can be
+     tasteful: ink still says "press this", the provenance hues still say "this
+     came from there", and green only ever says "this one, right now".
+
+     It must not be read as `--source-project` green (#17914d, Projektwissen).
+     The two are held apart by hue AND by role: project green is emerald
+     (hue 152) and only ever appears as a chip/tint next to a document icon and
+     a label; the brand green is olive-lime (hue ~128) and only ever appears on
+     interaction chrome, never carrying a source meaning.
+
+     `--brand` is the marketing accent-600 with chroma lifted ~35% (0.064 →
+     0.088). Same hue family, and the lift is what the change of scale costs:
+     on the marketing site that olive fills display type and whole panels, in
+     the app it has to still register as *colour* on a 13px label and a 1.5px
+     checkbox tick, where perceived chroma collapses. #5a7239 at 5.3:1 on warm
+     paper and 5.7:1 under white text, so it is AA as text AND as a fill. ---- */
+  --brand: oklch(0.5 0.088 128); /* #57703a — moss green, the accent */
+  --brand-hover: oklch(0.44 0.085 128);
+  --brand-active: oklch(0.4 0.078 128);
+  --brand-foreground: oklch(0.995 0 0); /* paper white on a green fill */
+  --brand-text: oklch(0.4 0.075 128); /* AA-readable on --brand-tint */
+  --brand-tint: oklch(0.951 0.024 122); /* washed green surface, the site's #eef2e4 family */
+  --brand-tint-strong: oklch(0.882 0.04 122.7); /* #d3ddc0 — hairlines and hover edges on the tint */
+  /* The lime itself. It is the pop on DARK ground only (that is all the
+     marketing site uses it for); on paper it fails contrast at any text size,
+     so light mode keeps it for filled-on-ink moments and nothing else. */
+  --brand-pop: oklch(0.804 0.139 128.4); /* #a4d06a */
 
   /* ---- legacy alias: the old accent name now resolves to the Baurecht/law
      signal blue (#2359d3). It is NOT the action color anymore. ---- */
@@ -108,7 +150,11 @@
   --border: color-mix(in oklch, var(--ink-border) 8%, transparent); /* hairline .08, composites everywhere */
   --input: color-mix(in oklch, var(--ink-border) 12%, transparent); /* .12 */
   --input-background: oklch(0.985 0.003 106.4); /* #fafaf8 — subtle surface, one step off card white */
-  --ring: color-mix(in oklch, var(--ink) 64%, transparent); /* ink-based focus ring */
+  /* The focus ring is the single most-repeated appearance of the accent: every
+     keyboard user meets it on every control, so it is where a brand colour
+     earns its keep. Held at 70% so it stays a ring rather than a second border
+     (the interactive recipe in components/ui/focus-ring.ts thins it again). */
+  --ring: color-mix(in oklch, var(--brand) 70%, transparent);
   --overlay: color-mix(in oklch, var(--ink) 35%, transparent); /* modal/backdrop scrim */
 
   --radius: 0.75rem; /* 12px — inside the dummy's 7–14px range */
@@ -139,7 +185,7 @@
   --text-color-base: oklch(0.29 0.006 272); /* strong body, one step off ink */
   --text-color-placeholder: oklch(0.632 0.006 106.6); /* #8a8a86 (ghost step: #b3b3af / oklch(0.766 0.006 106.5)) */
   --text-color-inverse: oklch(0.985 0.003 106.4);
-  --text-color-brand: var(--ink); /* brand/active accent is ink now, not blue */
+  --text-color-brand: var(--brand); /* the product mark, links, live indicators */
   --text-color-feedback-success: var(--source-project-text); /* #0f7a3d */
   --text-color-feedback-danger: var(--signal-error);
   --text-color-feedback-warning: var(--source-office-text); /* #96690e */
@@ -162,7 +208,6 @@
 
   /* hairline ramp: .08 border / .12 input / .16 strong / .22 selected / .32 max */
   --border-color-base: color-mix(in oklch, var(--ink-border) 8%, transparent);
-  --border-color-brand: color-mix(in oklch, var(--ink-border) 32%, transparent); /* strongest hairline — selected/active */
   --border-color-interaction-selected: color-mix(in oklch, var(--ink-border) 32%, transparent);
   --border-color-interaction-primary-base: var(--ink);
   --border-color-feedback-success: oklch(0.578 0.144 152.3 / 55%); /* #17914d */
@@ -177,6 +222,20 @@
   --ink-hover: oklch(0.9 0.004 91.4);
   --ink-active: oklch(0.86 0.005 93);
   --ink-border: oklch(0.958 0.004 91.4); /* hairlines are alpha paper on charcoal */
+
+  /* ---- Piloti green (dark) — the ramp flips, exactly as the marketing site
+     does it: the olive is the pop on paper, the LIME is the pop on the dark
+     panel (#22271a there, warm charcoal here). Using the light olive on
+     charcoal would be a 2.7:1 smudge; the lime is 10:1 on the app background
+     and 9:1 on a card. ---- */
+  --brand: oklch(0.804 0.139 128.4); /* #a4d06a */
+  --brand-hover: oklch(0.85 0.125 128);
+  --brand-active: oklch(0.75 0.135 128);
+  --brand-foreground: oklch(0.263 0.024 125.1); /* the site's panel green, as ink on a lime fill */
+  --brand-text: oklch(0.86 0.1 126); /* on --brand-tint */
+  --brand-tint: oklch(0.317 0.045 128); /* deep olive chip surface, ~0.07L above --card */
+  --brand-tint-strong: oklch(0.371 0.048 128.8);
+  --brand-pop: oklch(0.804 0.139 128.4);
 
   /* ---- legacy alias: lifted law blue for dark surfaces ---- */
   --grid-blue: oklch(0.711 0.125 266); /* lifted #2359d3 */
@@ -262,7 +321,7 @@
      token: 14% × 30% ≈ 4% paper alpha, so every input, textarea and select in
      dark mode rendered as an all-but-invisible wash instead of a field. */
   --input-background: oklch(0.222 0.006 86);
-  --ring: color-mix(in oklch, var(--foreground) 55%, transparent); /* paper-based focus ring */
+  --ring: color-mix(in oklch, var(--brand) 70%, transparent); /* the lime, at ring strength */
   /* A real scrim. Previously `--background` at 92% — the app's own plane at
      near-full opacity, which (with the dialog's backdrop-blur) erased the page
      behind a modal instead of dimming it, so a dialog lost all sense of
@@ -301,7 +360,7 @@
   --text-color-base: oklch(0.909 0.005 91.4);
   --text-color-placeholder: oklch(0.607 0.006 91.5); /* lifted: it sits on the darker input well */
   --text-color-inverse: oklch(0.199 0.006 86);
-  --text-color-brand: oklch(0.958 0.004 91.4); /* active accent is paper, not blue */
+  --text-color-brand: var(--brand);
   --text-color-feedback-success: var(--source-project);
   --text-color-feedback-danger: oklch(0.72 0.13 31.5);
   --text-color-feedback-warning: var(--source-office);
@@ -323,7 +382,6 @@
   --background-color-feedback-info-subtle: var(--source-law-tint);
 
   --border-color-base: color-mix(in oklch, var(--foreground) 12%, transparent);
-  --border-color-brand: color-mix(in oklch, var(--foreground) 38%, transparent);
   --border-color-interaction-selected: color-mix(in oklch, var(--foreground) 38%, transparent);
   --border-color-interaction-primary-base: var(--ink);
   --border-color-feedback-success: oklch(0.739 0.147 154.6 / 60%);
@@ -424,7 +482,17 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
-  --color-brand: var(--primary);
+  /* the accent. `--color-brand` used to alias --primary (ink); it is the green
+     now, which is what turns text-brand / bg-brand — the product mark, answer
+     citations, the thinking pulse, drop targets — green in one place. */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-text: var(--brand-text);
+  --color-brand-tint: var(--brand-tint);
+  --color-brand-tint-strong: var(--brand-tint-strong);
+  --color-brand-pop: var(--brand-pop);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);

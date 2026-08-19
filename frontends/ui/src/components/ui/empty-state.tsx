@@ -43,9 +43,17 @@ export function EmptyState({
       {...props}
     >
       {Icon && (
-        // A raised disc that catches the light (border + card surface + soft
-        // shadow) reads more considered than a flat muted circle.
-        <div className="mb-4 flex size-12 shrink-0 select-none items-center justify-center rounded-full border bg-card text-muted-foreground/70 shadow-sm">
+        // A raised disc that catches the light (border + soft shadow) reads more
+        // considered than a flat muted circle, and it is the one place the
+        // accent gets a SURFACE rather than a line: an empty screen has nothing
+        // else on it, so the faintest green tint is what keeps "there is
+        // nothing here yet" an invitation instead of a gray shrug. Tint, not
+        // fill — the glyph stays the quiet ink it always was, and the wash is
+        // `--brand` at 10% rather than `--brand-tint`, because the tint token is
+        // sized for TEXT to sit on: on charcoal it is an opaque olive plate, and
+        // a 48px olive disc in a dark panel reads as a blob. 10% composites over
+        // whatever surface the state lands on and stays a hint in both themes.
+        <div className="bg-brand/10 mb-4 flex size-12 shrink-0 select-none items-center justify-center rounded-full border text-muted-foreground/70 shadow-sm">
           <Icon className="size-5" aria-hidden />
         </div>
       )}

@@ -17,7 +17,9 @@ const Progress = React.forwardRef<
   >
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
-      className="bg-primary h-full w-full flex-1 rounded-full transition-transform duration-500 ease-out"
+      // In-flight work is green: the bar is the app saying "this is happening
+      // now", the same sentence the focus ring and the checked states speak.
+      className="bg-brand h-full w-full flex-1 rounded-full transition-transform duration-500 ease-out"
       style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
     />
   </ProgressPrimitive.Root>

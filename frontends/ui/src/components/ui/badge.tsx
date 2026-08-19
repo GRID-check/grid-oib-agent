@@ -19,6 +19,11 @@ const badgeVariants = cva(
         destructive:
           'border-transparent bg-destructive text-destructive-foreground [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20',
         outline: 'text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground',
+        // The accent as a label — for "live", "aktiv jetzt", "neu": states of
+        // THIS session, never a provenance claim (those are the `source-*`
+        // families, and they are the reason this one is a tint rather than a
+        // filled green block that would compete with them).
+        brand: 'border-transparent bg-brand-tint text-brand-text [a&]:hover:bg-brand-tint-strong',
         success:
           'border-transparent bg-success-subtle text-success',
         warning:

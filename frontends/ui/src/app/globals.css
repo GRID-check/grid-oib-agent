@@ -58,10 +58,23 @@ body {
   height: 100%;
 }
 
-/* Quiet, ink-tinted text selection (--primary is near-black ink in the warm
-   paper language; selection reads as a calm warm gray) */
+/* Text selection carries the accent. It is the one piece of colour the reader
+   produces themselves — dragging over a paragraph should feel like the product
+   answering, not like a browser default — and at 22% the green is a wash, so
+   the ink underneath stays fully legible on every surface it can land on. */
 ::selection {
-  background-color: color-mix(in oklch, var(--primary) 22%, transparent);
+  background-color: color-mix(in oklch, var(--brand) 22%, transparent);
+}
+
+/* The caret is green for the same reason the focus ring is: it marks where the
+   reader IS. Scoped to typing surfaces so nothing else inherits a caret colour
+   it never shows. */
+@layer base {
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--brand);
+  }
 }
 
 /* Smooth scrolling — only when user has no motion preference */
@@ -417,17 +430,13 @@ body {
   border-left-color: var(--border-color-feedback-danger);
 }
 
-@utility border-brand {
-  border-color: var(--border-color-brand);
-}
-
-@utility border-accent-primary {
-  border-color: var(--border-color-brand);
-}
-
-@utility ring-brand {
-  --tw-ring-color: var(--border-color-brand);
-}
+/* `border-brand` / `ring-brand` are NOT declared here on purpose. They used to
+   be static @utility blocks pinned to `--border-color-brand`, which meant
+   `border-brand/30` matched no rule at all and silently rendered borderless
+   (the defect `scripts/check-static-utility-modifiers.mjs` exists to catch).
+   They now come from the `--color-brand` theme colour in tokens.css, so the
+   accent has ONE name across background, text, border and ring — and the slash
+   modifier works on all four. */
 
 @utility tracking-display {
   letter-spacing: -0.04em;

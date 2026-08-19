@@ -760,6 +760,16 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="chat-toolbar-preview"]',
   },
   {
+    id: 'green-accent',
+    path: '/dev/green-accent',
+    description:
+      'Every appearance of the Piloti green in one frame — the ramp, a focused field, checked box/radio/switch, the chosen-option tick, a progress bar in flight, the brand label variants and a green link. Light shot is the olive on paper, dark shot is the lime on charcoal (the ramp flips, see tokens.css).',
+    waitFor: '[data-testid="green-accent-preview"]',
+    // Tab 1 is the layout's "Skip to content" link; Tab 2 lands on the field, so
+    // the focus ring — the accent's most-repeated appearance — is in the shot.
+    tabStops: 2,
+  },
+  {
     id: 'focus-ring',
     path: '/dev/focus-ring',
     description:

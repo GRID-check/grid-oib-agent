@@ -728,9 +728,14 @@ function RailNavItem({
             // through to behind the rail's own background (`sidebar-container`
             // is the nearest stacking context, and a non-positioned block's
             // background paints ABOVE negative-z children inside it).
+            // The ONE green thing in the rail: the icon of the row you are on.
+            // The label stays ink and the pill stays monochrome, so "you are
+            // here" is said once, in colour, on the smallest element that can
+            // carry it — a green fill behind the whole row would shout the same
+            // sentence at ten times the size.
             className={cn(
               'relative size-4 shrink-0',
-              active ? 'text-foreground' : 'text-muted-foreground'
+              active ? 'text-brand' : 'text-muted-foreground'
             )}
           />
           {/* `data-slot`, because the label is no longer the only <span> inside

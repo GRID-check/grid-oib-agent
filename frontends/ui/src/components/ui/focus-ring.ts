@@ -8,8 +8,12 @@
  * nothing. So there are exactly two, and every interactive primitive in
  * `components/ui` composes one of them rather than hand-rolling a third.
  *
- * The ring is ink (`--ring`), never blue — see `docs/design/grid-design-language.md`
- * ("Focus ring is ink-based, never blue").
+ * The ring is the Piloti green (`--ring` resolves to `--brand`) — see
+ * `docs/design/grid-design-language.md` ("the accent marks what is live or
+ * chosen"). It is deliberately NOT the action colour: a button is ink, and the
+ * ring around it is green, so "where am I" and "what does this do" are answered
+ * by two different signals instead of one doing both jobs badly. Never blue —
+ * blue belongs to the Baurecht provenance signal.
  */
 
 /**

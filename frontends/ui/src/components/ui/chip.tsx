@@ -31,6 +31,9 @@ const chipVariants = cva(
     variants: {
       variant: {
         default: 'border-transparent bg-primary/10 text-primary',
+        // Same rule as `Badge`'s brand variant: the accent labels what is live
+        // or chosen, and never stands in for a source signal.
+        brand: 'border-transparent bg-brand-tint text-brand-text',
         secondary: 'border-transparent bg-secondary text-secondary-foreground',
         outline: 'border-border text-foreground',
         muted: 'border-transparent bg-muted text-muted-foreground',

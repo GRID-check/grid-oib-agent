@@ -104,7 +104,9 @@ const SelectItem = React.forwardRef<
   >
     <span className="absolute right-2 flex size-4 items-center justify-center">
       <SelectPrimitive.ItemIndicator>
-        <CheckIcon className="size-4" />
+        {/* The tick is the accent: it marks the option that is CHOSEN, which is
+            the one sentence the green speaks. */}
+        <CheckIcon className="text-brand size-4" />
       </SelectPrimitive.ItemIndicator>
     </span>
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

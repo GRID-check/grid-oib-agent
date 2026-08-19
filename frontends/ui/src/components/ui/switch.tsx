@@ -40,7 +40,9 @@ const Switch = React.forwardRef<
       // over it without turning a settings row into a row of buttons.
       // The TRACK is colour, and colour never springs — an overshooting colour
       // lands outside its token. Plain tween, on the default duration.
-      'peer data-[state=checked]:bg-primary data-[state=unchecked]:bg-input inline-flex h-6 w-10 shrink-0 items-center rounded-full border border-transparent transition-colors duration-quick ease-out outline-none disabled:cursor-not-allowed disabled:opacity-50 touch-target',
+      // The ON track is the accent — a switch is the purest 'this is live'
+      // control in the app, which is exactly what the green is for.
+      'peer data-[state=checked]:bg-brand data-[state=unchecked]:bg-input inline-flex h-6 w-10 shrink-0 items-center rounded-full border border-transparent transition-colors duration-quick ease-out outline-none disabled:cursor-not-allowed disabled:opacity-50 touch-target',
       FOCUS_RING,
       className
     )}
