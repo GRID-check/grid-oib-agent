@@ -590,9 +590,7 @@ class DeepResearcherAgent:
                     elapsed_seconds=time.monotonic() - started,
                     source_registry_middleware=source_registry_middleware,
                     callbacks=callbacks,
-                    original=TimeoutError(
-                        f"deep research exceeded the {self.max_run_seconds} s wall-clock budget"
-                    ),
+                    original=TimeoutError(f"deep research exceeded the {self.max_run_seconds} s wall-clock budget"),
                     cause=exc,
                 )
             except _GRAPH_RECURSION_ERRORS as exc:
@@ -655,8 +653,7 @@ class DeepResearcherAgent:
                 elapsed_seconds=elapsed_seconds,
             )
             logger.error(
-                "Deep research cut off (%s) after %.1fs with NO partial state to salvage "
-                "(captured sources: %d)",
+                "Deep research cut off (%s) after %.1fs with NO partial state to salvage (captured sources: %d)",
                 cutoff_reason,
                 elapsed_seconds,
                 source_count,
@@ -809,8 +806,7 @@ class DeepResearcherAgent:
                 final_message = annotate_unverified_quotes(final_message, unverified_quotes)
                 unverified_quote_count = len(unverified_quotes)
                 logger.info(
-                    "Citation verification: %d quoted span(s) not verbatim in any retrieved "
-                    "passage; annotated inline",
+                    "Citation verification: %d quoted span(s) not verbatim in any retrieved passage; annotated inline",
                     len(unverified_quotes),
                 )
             if not verification.valid_citations:
@@ -843,9 +839,7 @@ class DeepResearcherAgent:
                 removed_citations=list(verification.removed_citations),
                 unverified_quote_count=unverified_quote_count,
                 grounded=bool(verification.valid_citations),
-                source_origins=[
-                    source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources
-                ],
+                source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources],
                 source_tools=[entry.tool_name or None for entry in registry_sources],
                 # Source IDENTITIES (URL / document key) — never report prose.
                 retrieved_source_labels=[label for label in map(source_label, registry_sources) if label],
