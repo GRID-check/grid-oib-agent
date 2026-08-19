@@ -461,7 +461,7 @@ describe('BaseKnowledge', () => {
     // Sync is incremental and gates on each PDF's sha256, so it does nothing for an
     // unchanged file. This is the control for rebuilding chunks after a change to how
     // they are BUILT, and it must not touch documents the admin did not select.
-    const fetchSpy = vi.fn((url: string) => {
+    const fetchSpy = vi.fn((url: string, _init?: RequestInit) => {
       if (url.includes('/reingest')) {
         return Promise.resolve(
           jsonResponse({ status: 'pending', queued: ['oib-richtlinie-2.pdf'], unknown: [], message: 'ok' }),
@@ -489,7 +489,7 @@ describe('BaseKnowledge', () => {
   })
 
   test('re-indexing nothing the corpus still has reports it instead of claiming success', async () => {
-    const fetchSpy = vi.fn((url: string) => {
+    const fetchSpy = vi.fn((url: string, _init?: RequestInit) => {
       if (url.includes('/reingest')) {
         return Promise.resolve(jsonResponse({ status: 'noop', queued: [], unknown: ['gone.pdf'], message: '' }))
       }
