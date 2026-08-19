@@ -189,3 +189,70 @@ describe('the client dispatches what the contract delivers', () => {
     expect(onResponse).toHaveBeenCalledTimes(1)
   })
 })
+
+/**
+ * The other half, read from its source.
+ *
+ * The fixture file is the contract, and the Python frame-builder test is
+ * supposed to be its second reader (§9). Until that test exists, this half can
+ * still be held to the same standard the transparency-extras pin already sets
+ * in this directory: read the Python and assert against it, because the Python
+ * half cannot be asserted from here any other way. Rename a key, bump the
+ * version or start shipping a status on the wire that this client does not
+ * know, and exactly one of these fails.
+ */
+describe('the backend builds the frame these fixtures describe', () => {
+  const repoRoot = join(process.cwd(), '..', '..')
+  const runner = () => readFileSync(join(repoRoot, 'src/aiq_agent/stages/runner.py'), 'utf8')
+
+  /** The literal `"key":` names inside `build_stage_frame`'s dict. */
+  const builderKeys = (): string[] => {
+    const body = runner().split('def build_stage_frame(')[1]
+    expect(body, 'build_stage_frame not found').toBeDefined()
+    const dict = body.split('frame: dict[str, Any] = {')[1]?.split('}')[0]
+    expect(dict, 'the frame dict literal not found').toBeDefined()
+    const keys = [...dict.matchAll(/"([^"]+)":/g)].map((match) => match[1])
+    // A guard on the guard: a regex that quietly stopped matching would make
+    // every assertion below pass over an empty list.
+    expect(keys).toContain('parent_id')
+    return keys
+  }
+
+  const constant = (name: string): string => {
+    const match = runner().match(new RegExp(`^${name} = (.+)$`, 'm'))
+    expect(match, `${name} not found`).not.toBeNull()
+    return match![1].trim()
+  }
+
+  test('the frame type and the envelope version agree with the fixtures', () => {
+    expect(constant('STAGE_FRAME_TYPE')).toBe(`'${fixtures().type}'`.replace(/'/g, '"'))
+    expect(constant('STAGE_FRAME_VERSION')).toBe(String(fixtures().v))
+  })
+
+  test('every key the builder writes is a key the fixtures carry', () => {
+    // `payload` is conditional and therefore absent from the dict literal; it
+    // is asserted by the ready fixture parsing above.
+    const fixtureKeys = new Set(Object.keys(fixtures().delivered['follow_ups.empty']))
+    for (const key of builderKeys()) {
+      expect(fixtureKeys.has(key), `the builder writes "${key}", which no fixture carries`).toBe(true)
+    }
+  })
+
+  test('every key the fixtures carry is a key this schema declares', () => {
+    // Declared, not merely tolerated: an undeclared field is silently stripped
+    // by the schema, which is exactly how a field reaches the client and then
+    // vanishes with nothing failing anywhere.
+    const declared = new Set(Object.keys(NATStageMessageSchema.shape))
+    for (const key of Object.keys(fixtures().delivered['follow_ups.ready'])) {
+      expect(declared.has(key), `the contract carries "${key}", which the schema drops`).toBe(true)
+    }
+  })
+
+  test('a timeout never reaches the wire as its own status', () => {
+    // The runner maps it onto `failed`, which is why `timeout` is a REJECTED
+    // fixture rather than a fourth delivered one — the client renders `failed`
+    // and `empty` identically and has nothing to do with the difference.
+    expect(runner()).toContain('status = "failed" if outcome.status == "timeout" else outcome.status')
+    expect(Object.keys(fixtures().delivered)).not.toContain('follow_ups.timeout')
+  })
+})
