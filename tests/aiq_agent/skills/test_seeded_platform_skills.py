@@ -692,3 +692,45 @@ def test_the_deep_writer_keeps_its_own_lead_as_the_floor_under_the_voice():
     # rather than as a second copy of this paragraph.
     assert "{{ skills_block }}" in writer
     assert "Active skills (required for this turn)" in writer
+
+
+def test_every_card_type_with_a_trigger_has_its_craft_in_the_seed():
+    """A new card type owes a trigger line to the tool and a paragraph to the skill.
+
+    This is the rule commit ``3f8c8e4a`` established and the one a new card type
+    is most likely to half-follow: the trigger line is what makes the card get
+    emitted at all, so it never gets forgotten, while the paragraph saying when
+    the card actually EARNS its place costs nothing visible to omit.
+
+    Asserted for the two shapes added after the split, because they are the first
+    types to go through it — ``calculation`` and ``process_map``. Both are named
+    by their German subject rather than their type name: the skill is German
+    prose and calls a thing what a reader would call it.
+    """
+    from aiq_agent.cards.register import _CARD_DOCTRINE
+
+    # The LAST seed naming this skill is the current body — `SEEDS` is in
+    # migration order and a later guarded DO UPDATE supersedes an earlier row.
+    # Taking the first match would assert against the body 0054 shipped and pass
+    # for text nobody ships any more.
+    body = [row for _, row in SEEDS if row["name"] == "piloti-cards"][-1]["body"]
+
+    # The tool carries the triggers ...
+    assert "calculation" in _CARD_DOCTRINE
+    assert "process_map" in _CARD_DOCTRINE
+
+    # ... and the skill carries what neither trigger line has room to say.
+    # The honesty property of `calculation`: there is no result field, because a
+    # stated result that disagrees with its own operands is the worst artefact
+    # this product can make.
+    assert "Rechenweg" in body
+    assert "Eingangswerte, nicht das Ergebnis" in body
+    # The factor in „2 x Steigung + Auftritt" belongs to the Bestimmung, not to a
+    # measurement — the one modelling decision a writer gets wrong unprompted.
+    assert "Der Faktor gehört der" in body
+    # `process_map` fails the other way: a row of bare station names is the
+    # numbered list it replaced, with a frame drawn round it.
+    assert "Verfahrensablauf" in body
+    assert "nummerierte Liste" in body
+    # And never guessing where the project stands.
+    assert "nur, wenn das Gespräch ihn hergibt" in body
