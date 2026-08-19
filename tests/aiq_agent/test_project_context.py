@@ -24,6 +24,34 @@ _INPUT_FIELD_MAP = {
 }
 
 
+class TestUserMessageId:
+    """The turn half of a post-answer stage's identity."""
+
+    class _Ctx:
+        def __init__(self, user_message_id):
+            self.user_message_id = user_message_id
+
+    def _patch(self, monkeypatch, value):
+        import nat.builder.context as nat_context
+
+        monkeypatch.setattr(nat_context.Context, "get", classmethod(lambda cls: self._Ctx(value)))
+
+    def test_reads_the_ws_parent_id(self, monkeypatch):
+        self._patch(monkeypatch, "msg_1755600000000_3")
+        assert pc.get_user_message_id_from_context() == "msg_1755600000000_3"
+
+    def test_nats_placeholder_is_not_an_identity(self, monkeypatch):
+        """ "default_id" is NAT's unset sentinel, shared by every turn of every
+        conversation. Treating it as a turn id would collapse them onto one
+        idempotency key and silence every turn after the first."""
+        self._patch(monkeypatch, "default_id")
+        assert pc.get_user_message_id_from_context() is None
+
+    def test_absent_off_the_websocket_path(self, monkeypatch):
+        self._patch(monkeypatch, None)
+        assert pc.get_user_message_id_from_context() is None
+
+
 class TestMemoryReflectionFlag:
     def test_true_header_enables(self, monkeypatch):
         monkeypatch.setattr(pc, "_read_header", lambda name: "true")

@@ -1,6 +1,7 @@
 """NAT register function for chat researcher agent."""
 
 import asyncio
+import dataclasses
 import logging
 from collections.abc import AsyncGenerator
 from typing import Annotated
@@ -13,6 +14,7 @@ from pydantic import Field
 from aiq_agent.cards.registry import get_or_create_card_registry
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
+from aiq_agent.common import AgentGroup
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_data_source_tools
@@ -30,6 +32,10 @@ from aiq_agent.observability.otel_header_redaction_exporter import (
 )
 from aiq_agent.observability.otlp_logging_method import ensure_registered as _ensure_otlp_logging_registered
 from aiq_agent.project_context import get_memory_reflection_enabled_from_context
+from aiq_agent.project_context import get_user_message_id_from_context
+from aiq_agent.stages import TurnFacts
+from aiq_agent.stages import schedule_post_answer_stages
+from aiq_agent.stages.flags import resolve_enabled_stages
 from nat.builder.builder import Builder
 from nat.builder.context import Context
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -54,38 +60,6 @@ _ensure_otlp_logging_registered()
 # (attached as an extra field on the response) survive NAT's CHAT_STREAM
 # serialization instead of being dropped by the lossy indirect str conversion.
 _ensure_nat_converters_registered()
-
-# Canned error/empty answers that must never trigger a memory-reflection pass.
-_REFLECTION_NON_ANSWERS = (
-    "No response generated.",
-    "An error occurred",
-    "The search tools did not return any results",
-    "I searched the available sources but couldn't retrieve anything usable",
-)
-
-
-def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
-    """Whether a turn's answer is worth running memory reflection on.
-
-    Skips meta/conversational and error turns (by classified intent) and the
-    canned insufficiency/error answers — none carry a durable, project-specific
-    finding, and reflecting on them only risks spurious writes.
-    """
-    from .agent import matches_escalation_keywords
-
-    text = (answer_text or "").strip()
-    if not text or any(text.startswith(prefix) for prefix in _REFLECTION_NON_ANSWERS):
-        return False
-    if matches_escalation_keywords(text):
-        return False
-
-    user_intent = getattr(result, "user_intent", None)
-    if user_intent is None and isinstance(result, dict):
-        user_intent = result.get("user_intent")
-    intent = getattr(user_intent, "intent", None)
-    if intent in {"meta", "error", "out_of_scope"}:
-        return False
-    return True
 
 
 def _admission_organization_id() -> str | None:
@@ -271,6 +245,55 @@ def _result_field(result: object, name: str) -> Any:
     if value is None and isinstance(result, dict):
         value = result.get(name)
     return value
+
+
+def _emitted_card_types(cards: object) -> frozenset[str]:
+    """Card types the model emitted in-turn, so a stage can decline to duplicate
+    something the reader already has. Defensive about the card shape: a stage
+    fact is never worth a failed turn."""
+    types: set[str] = set()
+    for card in cards or ():
+        card_type = card.get("type") if isinstance(card, dict) else getattr(card, "type", None)
+        if isinstance(card_type, str) and card_type:
+            types.add(card_type)
+    return frozenset(types)
+
+
+def _post_answer_turn_facts(
+    request_facts: TurnFacts,
+    *,
+    result: object,
+    response: ChatResponse,
+    query_text: str,
+    answer_text: str,
+    cards: object,
+    deep_research_job_id: str | None,
+    answer_confidence: str | None,
+) -> TurnFacts:
+    """Complete the turn's :class:`TurnFacts` from the finished graph state.
+
+    ``request_facts`` is the request-scoped half, captured earlier while the
+    request context was still live; this adds the turn-scoped half. A
+    module-level function rather than inline code in ``_run`` for the same reason
+    ``_apply_transparency_extras`` is one: it is the *crossing* from graph state
+    to a stage's inputs — state field name in, fact out — and inline it could
+    only be exercised by standing up the whole NAT workflow, which is how
+    ``research_truncated`` came to ride the wire for months without the one gate
+    that needed it ever reading it.
+    """
+    user_intent = _result_field(result, "user_intent")
+    intent = getattr(user_intent, "intent", None)
+    return dataclasses.replace(
+        request_facts,
+        query=query_text,
+        answer=answer_text,
+        intent=str(intent) if intent else None,
+        routing_decision=getattr(response, "routing_decision", None),
+        research_truncated=bool(_result_field(result, "research_truncated")),
+        deep_research_job_id=deep_research_job_id,
+        emitted_card_types=_emitted_card_types(cards),
+        answer_confidence=answer_confidence,
+    )
 
 
 def _apply_transparency_extras(response: ChatResponse, result: object) -> None:
@@ -609,6 +632,15 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
             "disables reflection entirely (no extra LLM call)."
         ),
     )
+    follow_ups_llm: LLMRef | None = Field(
+        default=None,
+        description=(
+            "Optional LLM for the async post-answer follow-up-questions stage. When set, after a "
+            "substantive answer is returned a background task reads the finished answer and names "
+            "the two to four questions it made askable. Unset disables the stage entirely (no "
+            "extra LLM call) — the capability bit of `flag AND capability`."
+        ),
+    )
 
 
 @register_function(config_type=ChatDeepResearcherConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -798,6 +830,26 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         except Exception:
             logger.warning("Could not build memory_reflection_llm; reflection disabled", exc_info=True)
 
+    # Optional LLM for the async post-answer follow-up-questions stage. Same
+    # shape and the same zero-cost-when-unset rule.
+    follow_ups_llm = None
+    if config.follow_ups_llm is not None:
+        try:
+            follow_ups_llm = await get_langchain_llm(builder, config.follow_ups_llm)
+        except Exception:
+            logger.warning("Could not build follow_ups_llm; the follow-ups stage is disabled", exc_info=True)
+
+    # The models the post-answer stages run on, keyed by agent group so the
+    # runner can apply the org's override and BYOK credential per group without
+    # anything here naming a stage. A group with no model is the capability bit:
+    # its stages are a no-op, and — see the flag resolution below — a no-op must
+    # cost nothing, not a per-turn round-trip.
+    _stage_llms = {
+        AgentGroup.MEMORY_REFLECTION: reflection_llm,
+        AgentGroup.FOLLOW_UPS: follow_ups_llm,
+    }
+    _any_stage_llm = any(llm is not None for llm in _stage_llms.values())
+
     checkpointer = await get_checkpointer(config.checkpoint_db)
 
     agent = ChatResearcherAgent(
@@ -862,12 +914,12 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             defaults are returned so the turn proceeds without a live digest.
             """
             _project_context = None
-            # Values the async memory-reflection stage needs, captured while the
-            # request context is still live (the task runs after this returns).
-            _reflection_project_id = None
-            _reflection_org_id = None
-            _reflection_memory_digest = None
-            _reflection_flag_enabled = False
+            # The request-scoped half of the post-answer stages' TurnFacts,
+            # captured while the request context is still live — the stage tasks
+            # run after this returns, when the context is gone. The turn-scoped
+            # half (query, answer, intent, truncation) is filled in at the call
+            # site with dataclasses.replace.
+            _stage_facts = TurnFacts()
             try:
                 from aiq_agent.project_context import GridRequestContext
                 from aiq_agent.project_context import compose_project_context
@@ -899,21 +951,41 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
                 _project_context = compose_project_context(_profile_context, _memory_digest)
 
-                if reflection_llm is not None:
-                    _reflection_flag_enabled = _ctx.memory_reflection_enabled
-                    _reflection_project_id = _project_id
-                    _reflection_org_id = _org_id
+                # Which post-answer stages are on is decided per TURN, not per
+                # socket. The feature header is written once at the WS upgrade
+                # and then frozen for the life of the connection, so an operator
+                # switching a stage off did not reach an already-open tab — the
+                # opposite of what a kill switch is for. Same shape as the live
+                # digest above: ask the BFF, and fall back to the frozen value
+                # only when the call fails.
+                #
+                # Skipped entirely when no stage has a model to run on: the flag
+                # would decide nothing, and a deployment that compiled the stages
+                # out must not pay an internal round-trip per turn for the
+                # privilege.
+                _enabled_stages = (
+                    await resolve_enabled_stages(
+                        organization_id=_org_id,
+                        memory_reflection_enabled=_ctx.memory_reflection_enabled,
+                    )
+                    if _any_stage_llm
+                    else frozenset()
+                )
+
+                _stage_facts = TurnFacts(
+                    conversation_id=nat_context_conversation_id,
+                    ws_parent_id=get_user_message_id_from_context(),
+                    organization_id=_org_id,
+                    project_id=_project_id,
+                    user_id=_ctx.user_id,
                     # Reflect against the digest the agent actually saw this turn.
-                    _reflection_memory_digest = _memory_digest
+                    memory_digest=_memory_digest,
+                    bundesland=_ctx.bundesland,
+                    enabled_stages=_enabled_stages,
+                )
             except ImportError:
                 pass
-            return (
-                _project_context,
-                _reflection_project_id,
-                _reflection_org_id,
-                _reflection_memory_digest,
-                _reflection_flag_enabled,
-            )
+            return (_project_context, _stage_facts)
 
         # Check if API keys are missing and return graceful error response
         if api_key_error_response:
@@ -1078,13 +1150,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # GET (cold-cache, ~0.5s socket timeout) is offloaded via asyncio.to_thread
         # so it overlaps the gather instead of blocking the loop serially after it.
         (
-            (
-                _project_context,
-                _reflection_project_id,
-                _reflection_org_id,
-                _reflection_memory_digest,
-                _reflection_flag_enabled,
-            ),
+            (_project_context, _stage_facts),
             available_documents,
             session_registry,
         ) = await asyncio.gather(
@@ -1219,37 +1285,32 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # finished graph state and attached here.
         _apply_transparency_extras(response, result)
 
-        # Post-processing phase: kick off memory reflection AFTER the answer is
-        # ready. Fire-and-forget — it runs on the event loop without delaying the
-        # response. Gated so it only reflects on a substantive research answer:
-        # deep-research job stubs carry no answer; meta/error turns and
-        # insufficiency answers ("I don't have enough information …") have nothing
-        # durable to record and would only invite spurious findings (audit gap).
-        # Runtime on/off is decided by the BFF (`isMemoryReflectionEnabled`):
-        # the `memory-reflection` WorkOS feature flag when flag enforcement is
-        # on, otherwise `GRID_MEMORY_REFLECTION_ENABLED` (default ON) — forwarded
-        # as a request header.
-        if reflection_llm is not None and _reflection_flag_enabled and not deep_research_job_id:
-            answer_text = response_content if isinstance(response_content, str) else str(response_content)
-            if _reflection_answer_is_substantive(result, answer_text):
-                from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
-                from aiq_agent.common import AgentGroup
-                from aiq_agent.common import apply_model_override
-                from aiq_agent.common import apply_org_credential
-
-                # Applied here — not inside the background task — because the
-                # override header is only readable while the request context is
-                # still live. The org's BYOK credential (ADR-0022) covers the
-                # reflection call too — it is tenant traffic like any other.
-                schedule_memory_reflection(
-                    llm=apply_org_credential(apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION)),
-                    query=query_text,
-                    answer=answer_text,
-                    project_id=_reflection_project_id,
-                    organization_id=_reflection_org_id,
-                    conversation_id=nat_context_conversation_id,
-                    memory_digest=_reflection_memory_digest,
-                )
+        # Post-processing phase: kick off the post-answer stages AFTER the answer
+        # is ready. Fire-and-forget — they run on the event loop without delaying
+        # the response, each under its own declared hard timeout, and each
+        # recording an outcome whether it ran or not.
+        #
+        # ONE call site for every stage. Which stages exist, what gates them and
+        # what they cost is declared in `aiq_agent/stages/`; adding a stage never
+        # touches this block again. Every fact a gate or handler may read is
+        # captured HERE, while the request context is still live, because the
+        # tasks outlive it.
+        schedule_post_answer_stages(
+            _post_answer_turn_facts(
+                _stage_facts,
+                result=result,
+                response=response,
+                query_text=query_text,
+                answer_text=(response_content if isinstance(response_content, str) else str(response_content)),
+                cards=cards,
+                deep_research_job_id=deep_research_job_id,
+                answer_confidence=answer_confidence,
+            ),
+            # Keyed by agent group, not by stage id: the runner applies the org's
+            # model override and its ADR-0022 BYOK credential per group, here,
+            # while the override header is still readable.
+            llms=_stage_llms,
+        )
 
         # Deliver the fully verified/sanitized answer as a progressive stream:
         # the already-final text is emitted as incremental deltas followed by a

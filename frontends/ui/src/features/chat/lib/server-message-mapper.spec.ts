@@ -346,6 +346,59 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
  * load showed NO card — the thread simply stopped mid-question and looked broken —
  * and the asker's own reload lost it too.
  */
+/**
+ * A post-answer stage's output is restored the same way `cards` is: through the
+ * same sanitiser that bounded it on the way IN
+ * (`docs/architecture/post-answer-stages.md` §4.4).
+ *
+ * Re-checked on read and not merely trusted, for the reason `validateGridCards`
+ * exists on this path — a row written by an older build is still whatever it
+ * was, and a renderer that trusts it blanks the whole conversation rather than
+ * that one message.
+ */
+describe('mapServerMessageToChatMessage — a post-answer stage', () => {
+  it('restores the chips a stage wrote onto the answer', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          stages: {
+            followUps: {
+              items: [{ question: 'Und bei Hanglage?', hint: 'tiefster Geländepunkt' }],
+            },
+          },
+        },
+      }),
+    )
+
+    expect(mapped!.stages?.followUps?.items).toEqual([
+      { question: 'Und bei Hanglage?', hint: 'tiefster Geländepunkt' },
+    ])
+  })
+
+  it('re-applies the bound to a row an older build wrote', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          stages: {
+            followUps: { items: Array(12).fill({ question: 'Noch eine Frage?' }) },
+            aStageFromTheFuture: { anything: 'unbounded' },
+          },
+        },
+      }),
+    )
+
+    expect(Object.keys(mapped!.stages!)).toEqual(['followUps'])
+    expect(mapped!.stages?.followUps?.items).toHaveLength(4)
+  })
+
+  it('leaves a message with no stage output without the key at all', () => {
+    const mapped = mapServerMessageToChatMessage(serverMessage({ role: 'assistant', metadata: {} }))
+    expect(mapped!.stages).toBeUndefined()
+  })
+})
+
 describe('mapServerMessageToChatMessage — a human-in-the-loop prompt', () => {
   const prompt = {
     promptType: 'choice',

@@ -105,6 +105,19 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     requirements: { requiredParameters: [], minContextLength: 32768 },
   },
   {
+    id: 'follow_ups',
+    label: 'Follow-up questions',
+    description:
+      'Post-answer background pass that reads the finished answer and proposes the two to four questions it just made askable. Short structured output; runs on substantive answers when enabled.',
+    configLlmRefs: ['follow_ups_llm'],
+    // Reasoning is deliberately OFF for this group (config_oib_openrouter.yml
+    // `follow_ups_llm` sets `reasoning_effort: none`): the stage declares a hard
+    // output-token ceiling, and on a reasoning-mandatory model the reasoning
+    // tokens are spent against that same ceiling, so the JSON body is truncated
+    // and a working stage silently becomes one that returns nothing.
+    requirements: { requiredParameters: [], minContextLength: 32768, reasoningOff: true },
+  },
+  {
     id: 'ingest_vlm',
     label: 'Document vision (ingestion)',
     description:

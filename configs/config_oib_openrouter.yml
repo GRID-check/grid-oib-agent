@@ -289,6 +289,28 @@ llms:
     request_timeout: 120
     reasoning_effort: medium
 
+  # Post-answer follow-up questions — one short structured-output call over a
+  # finished answer. A dedicated entry rather than a second use of card_llm for
+  # two reasons the stage depends on. reasoning_effort is `none`: the stage
+  # declares a hard output-token ceiling and reasoning tokens are spent against
+  # that same ceiling, so a thinking model would truncate the JSON body and turn
+  # a working stage into one that silently returns nothing (the trap
+  # memory_reflection documents and avoids by declaring no ceiling at all).
+  # request_timeout sits UNDER the stage's 20s asyncio bound with one retry, so
+  # a slow provider produces a recorded timeout rather than a stage that was
+  # already dead when the bound fired.
+  follow_ups_llm:
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 1024
+    max_retries: 1
+    request_timeout: 15
+    reasoning_effort: none
+
   # Compliance pipeline — Stage 1 requirement derivation + Stage 2 evidence
   # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
   compliance_llm:
@@ -818,8 +840,20 @@ workflow:
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}
   card_generator_llm: card_llm
   # Enables the async post-answer memory-reflection stage (reuses the cheap
-  # card_llm). This only makes the capability AVAILABLE; whether it runs per
-  # request is gated at runtime solely by the `memory-reflection` WorkOS
-  # feature flag (no env-var fallback; anonymous/non-WorkOS deployments
-  # cannot enable it).
+  # card_llm). This only makes the capability AVAILABLE; whether it runs is
+  # decided per TURN by the BFF (`GET /api/internal/stages`): the
+  # `memory-reflection` WorkOS flag when GRID_ENFORCE_FEATURE_FLAGS is on,
+  # otherwise GRID_MEMORY_REFLECTION_ENABLED, which defaults ON — so a
+  # non-WorkOS deployment DOES get the stage. (The previous claim here, "solely
+  # the WorkOS feature flag, no env-var fallback", contradicted
+  # `feature-flags.ts` and has been wrong since that fallback was added.)
   memory_reflection_llm: card_llm
+  # Enables the async post-answer follow-up-questions stage. As above, this only
+  # makes the capability AVAILABLE; whether it runs is decided per TURN by the
+  # BFF (`GET /api/internal/stages`): the `post-answer-follow-ups` WorkOS flag
+  # when GRID_ENFORCE_FEATURE_FLAGS is on, otherwise
+  # GRID_STAGE_FOLLOW_UPS_ENABLED, which — like every new stage — defaults OFF.
+  # The stage currently delivers NOTHING to the reader; it runs so its skip
+  # rate, empty rate and true per-turn cost can be measured before any chip is
+  # rendered (post-answer-stages.md §10, slice 1).
+  follow_ups_llm: follow_ups_llm

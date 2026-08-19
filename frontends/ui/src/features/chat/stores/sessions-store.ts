@@ -33,6 +33,7 @@ import { conversationMatchesProject, isJobConversation } from '../lib/project-sc
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
+import type { MessageStages } from '@/lib/conversations/message-stages'
 
 export type SessionsSlice = {
   currentUserId: string | null
@@ -99,6 +100,15 @@ export type SessionsSlice = {
   _persistTurnProvenance: () => Promise<void>
   /** Mirror the answer to a HITL prompt onto its message row (ADR-0037). */
   _persistPromptState: (messageId: string, response: string) => Promise<void>
+  /**
+   * Mirror a post-answer stage's output onto its message row
+   * (`docs/architecture/post-answer-stages.md` §4.3).
+   *
+   * Fired the moment a frame is accepted rather than at turn end, because there
+   * is no turn end left to hang it on: the answer settled seconds ago and this
+   * is the last thing that will ever happen to it.
+   */
+  _persistStageOutput: (messageId: string, stages: MessageStages) => Promise<void>
 }
 
 // Persistence helpers
@@ -1481,6 +1491,21 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       // over the socket and is rendered from the store. Losing this costs the
       // transcript, not the turn.
       console.warn('[persistPromptState] Failed:', err)
+    }
+  },
+
+  _persistStageOutput: async (messageId: string, stages: MessageStages) => {
+    const { currentConversation } = get()
+    if (!currentConversation) return
+    try {
+      const conversationsClient = await getConversationsClient()
+      await conversationsClient.updateMessageStages(currentConversation.id, messageId, { ...stages })
+    } catch (err) {
+      // Never surfaced, like the other mirrors: the chips are already on screen,
+      // rendered from the store. Losing this costs a colleague's view and the
+      // cross-device replay, not the turn — and the reader loses nothing they
+      // were promised, which is the whole licence a post-answer stage runs on.
+      console.warn('[persistStageOutput] Failed:', err)
     }
   },
 

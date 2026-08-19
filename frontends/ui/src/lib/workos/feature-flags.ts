@@ -17,6 +17,14 @@ import { enforcementOn } from '@/lib/authz/feature-flags'
 /** Slug of the flag gating the async post-answer memory-reflection stage. */
 export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
 
+/**
+ * Slug of the flag gating the async post-answer follow-up-questions stage.
+ * The stage currently delivers nothing to the reader — it runs so its skip
+ * rate, empty rate and true per-turn cost can be measured before any chip is
+ * rendered (docs/architecture/post-answer-stages.md §10, slice 1).
+ */
+export const FOLLOW_UPS_FLAG = 'post-answer-follow-ups'
+
 /** Slug of the flag gating per-org BYOK LLM credentials (ADR-0022). */
 export const BYOK_LLM_FLAG = 'byok-llm'
 
@@ -67,23 +75,91 @@ export async function isOrgFeatureEnabled(
 }
 
 /**
- * Whether the async post-answer memory-reflection stage runs for this org.
+ * One post-answer stage's runtime switch (see
+ * `docs/architecture/post-answer-stages.md` §7.8). The `id` mirrors the
+ * `StageSpec.id` declared in `src/aiq_agent/stages/`; `flag` and `envVar`
+ * mirror its `flag_slug` and `env_default`. Keep the two sides in step — a
+ * stage the backend declares but this registry omits can never be switched on.
+ */
+export interface PostAnswerStageFlag {
+  readonly id: string
+  readonly flag: string
+  readonly envVar: string
+  /** The value when flag enforcement is off and the env var is unset. */
+  readonly defaultOn: boolean
+}
+
+export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
+  {
+    id: 'memory_reflection',
+    flag: MEMORY_REFLECTION_FLAG,
+    envVar: 'GRID_MEMORY_REFLECTION_ENABLED',
+    // Memory reflection is a shipped core capability, not a dark-launched
+    // product gate, so like every non-dark feature it stays ON in environments
+    // without the flag product. New stages default OFF.
+    defaultOn: true,
+  },
+  {
+    id: 'follow_ups',
+    flag: FOLLOW_UPS_FLAG,
+    envVar: 'GRID_STAGE_FOLLOW_UPS_ENABLED',
+    // OFF, as every new stage is: it costs an LLM call per substantive answer
+    // and, in this slice, delivers nothing at all. It is switched on per org to
+    // be measured.
+    defaultOn: false,
+  },
+]
+
+/**
+ * Whether one post-answer stage runs for this org.
  *
  * With WorkOS flag enforcement on (GRID_ENFORCE_FEATURE_FLAGS=true) the
- * per-org `memory-reflection` flag is the source of truth (fail-closed).
- * Without enforcement the stage follows GRID_MEMORY_REFLECTION_ENABLED and
- * defaults ON — memory reflection is a shipped core capability, not a
- * dark-launched product gate, so it stays available in environments without
- * the flag product like every non-dark feature. The backend still no-ops
- * when no `memory_reflection_llm` is configured (the capability bit).
+ * per-org flag is the source of truth (fail-closed). Without enforcement the
+ * stage follows its env var. The backend still no-ops when no LLM is
+ * configured for the stage's agent group (the capability bit).
+ */
+export async function isPostAnswerStageEnabled(
+  stage: PostAnswerStageFlag,
+  organizationId: string | null | undefined,
+): Promise<boolean> {
+  if (enforcementOn()) {
+    return isOrgFeatureEnabled(stage.flag, organizationId)
+  }
+  return (process.env[stage.envVar] ?? String(stage.defaultOn)).toLowerCase() !== 'false'
+}
+
+/**
+ * The ids of every post-answer stage switched on for this org.
+ *
+ * Served per TURN (`GET /api/internal/stages`), not per socket upgrade: the
+ * upgrade-time evaluation could not reach an already-open tab, so an operator
+ * reaching for the kill switch did not actually switch anything off until every
+ * reader reconnected. A 30s flag cache sits underneath, so the per-turn cost is
+ * a map lookup rather than a WorkOS round-trip.
+ */
+export async function enabledPostAnswerStages(
+  organizationId: string | null | undefined,
+): Promise<string[]> {
+  const decisions = await Promise.all(
+    POST_ANSWER_STAGE_FLAGS.map(async (stage) =>
+      (await isPostAnswerStageEnabled(stage, organizationId)) ? stage.id : null,
+    ),
+  )
+  return decisions.filter((id): id is string => id !== null)
+}
+
+/**
+ * Whether the async post-answer memory-reflection stage runs for this org.
+ *
+ * Retained as the name the WebSocket-upgrade path uses; it now delegates to the
+ * stage registry above so there is one source of truth for the decision.
  */
 export async function isMemoryReflectionEnabled(
   organizationId: string | null | undefined,
 ): Promise<boolean> {
-  if (enforcementOn()) {
-    return isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, organizationId)
-  }
-  return (process.env.GRID_MEMORY_REFLECTION_ENABLED ?? 'true').toLowerCase() !== 'false'
+  const stage = POST_ANSWER_STAGE_FLAGS.find((entry) => entry.flag === MEMORY_REFLECTION_FLAG)
+  if (!stage) return false
+  return isPostAnswerStageEnabled(stage, organizationId)
 }
 
 /** Test hook: clear a specific org's flag cache entry. */

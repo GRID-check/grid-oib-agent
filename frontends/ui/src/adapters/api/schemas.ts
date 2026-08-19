@@ -56,6 +56,18 @@ export const NATMessageType = {
   USER_INTERACTION: 'user_interaction_message',
   OBSERVABILITY_TRACE: 'observability_trace_message',
   ERROR: 'error_message',
+  /**
+   * A post-answer STAGE's payload for one turn (`docs/architecture/post-answer-stages.md` §4).
+   *
+   * Grid-owned and `grid_`-prefixed, deliberately NOT a NAT enum member: NAT
+   * resolves its frame schemas through a vendored `StrEnum` that cannot gain a
+   * member without patching the dependency.
+   *
+   * Its own type, and not a second `system_response_message`, because a stage
+   * frame arrives BY DEFINITION when the turn is no longer streaming — and the
+   * response path drops anything that arrives then.
+   */
+  STAGE: 'grid_stage_message',
 } as const
 
 /** NAT workflow schema types */
@@ -413,6 +425,60 @@ export const NATObservabilityTraceMessageSchema = z
   })
   .passthrough()
 
+/**
+ * The contract version of the stage envelope this client understands.
+ *
+ * Pinned, not tolerated: `v` is bumped only when the envelope changes in a way
+ * that cannot be read by the previous shape, so a frame at another version is a
+ * frame this build genuinely cannot interpret. Failing the parse routes it into
+ * the warn-once-and-drop fallback, which is the same degradation an unknown
+ * frame type already gets.
+ */
+export const STAGE_FRAME_VERSION = 1
+
+/**
+ * The stage values this client renders. A frame naming any other stage fails
+ * the parse and is dropped — which is exactly what an old tab should do when a
+ * new backend starts shipping a stage it has never heard of (§4.1, additive
+ * only). Adding a stage here is a deliberate act with a renderer behind it.
+ */
+export const STAGE_IDS = ['follow_ups'] as const
+
+/**
+ * Post-answer stage frame (`docs/architecture/post-answer-stages.md` §4.1).
+ *
+ * `parent_id` is the correlation key and the ONLY one: the browser's WS turn id
+ * is the single id both halves genuinely share (§1.6). A frame whose
+ * `parent_id` matches no message is dropped silently.
+ *
+ * `status` rides even when there is nothing to show — `empty` is not the same
+ * fact as "no frame arrived", and only the former lets the client stop
+ * reserving space. `failed` carries no reason: failure reasons are machine keys
+ * for the ledger, not user-facing text, and the client renders `failed` and
+ * `empty` identically.
+ *
+ * `payload` is kept `unknown` here on purpose. This schema owns the ENVELOPE;
+ * what a given stage may put inside it belongs to that stage's own schema
+ * (`features/chat/lib/stage-payloads.ts`), which runs before anything is
+ * rendered or persisted. One schema that knew every stage's payload would have
+ * to be edited by every future stage, which is the coupling §2 exists to avoid.
+ *
+ * The one envelope invariant this schema cannot state — a payload may ride only
+ * a `ready` frame — is enforced where the frame is dispatched
+ * (`websocket-client.ts`), because a discriminated-union member may not carry a
+ * refinement.
+ */
+export const NATStageMessageSchema = z.object({
+  type: z.literal(NATMessageType.STAGE),
+  v: z.literal(STAGE_FRAME_VERSION),
+  conversation_id: z.string(),
+  parent_id: z.string().nullish(),
+  stage: z.enum(STAGE_IDS),
+  status: z.enum(['ready', 'empty', 'failed']),
+  payload: z.unknown().optional(),
+  timestamp: z.string().optional(),
+})
+
 /** Error content */
 export const NATErrorContentSchema = z.object({
   code: z.string(),
@@ -437,6 +503,7 @@ export const NATIncomingMessageSchema = z.discriminatedUnion('type', [
   NATSystemInteractionMessageSchema,
   NATObservabilityTraceMessageSchema,
   NATErrorMessageSchema,
+  NATStageMessageSchema,
 ])
 
 // ----------------------------------------------------------------------------
@@ -555,6 +622,8 @@ export type NATObservabilityTraceMessage = z.infer<typeof NATObservabilityTraceM
 export type NATIntermediateStepContent = z.infer<typeof NATIntermediateStepContentSchema>
 export type NATErrorMessage = z.infer<typeof NATErrorMessageSchema>
 export type NATErrorContent = z.infer<typeof NATErrorContentSchema>
+export type NATStageMessage = z.infer<typeof NATStageMessageSchema>
+export type StageId = (typeof STAGE_IDS)[number]
 export type NATIncomingMessage = z.infer<typeof NATIncomingMessageSchema>
 
 // Legacy WebSocket Types (kept for backwards compatibility)

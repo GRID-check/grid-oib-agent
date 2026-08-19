@@ -29,9 +29,15 @@
  *                      a `condition_tree` placed inline and a `process_map` left
  *                      unplaced, so it lands in the fallback block between the
  *                      prose and the provenance footer.
- *   • `follow-ups`   — an inline `callout` mid-answer and a `follow_ups` card
- *                      ENDING the answer, with the footer directly beneath it:
- *                      the chips must still read as part of the answer.
+ *   • `follow-ups-rail` — the SAME answer twice: once as it lands, and once
+ *                      with the post-answer follow-ups rail below it
+ *                      (`docs/architecture/post-answer-stages.md` §8, §9). The
+ *                      pair IS the evidence: the chips arrive two to six
+ *                      seconds late and reserve no space, so everything above
+ *                      them must be pixel-identical in the two turns. Read the
+ *                      screenshot by covering the rail — if the answer card,
+ *                      the provenance footer and the meta row do not line up,
+ *                      the design's licence to arrive late is void.
  *   • `verdict-lede` — the `verdict_header` + lede pair, the conflict the
  *                      `piloti-cards` skill adjudicates ("the card carries the
  *                      value, the prose carries the sentence that qualifies it,
@@ -63,6 +69,7 @@ import { I18nProvider } from '@/i18n'
 import { UserMessage } from '@/features/chat/components/UserMessage'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
+import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
 import type { ThinkingStep, CitationSource } from '@/features/chat/types'
 import type { GridCard } from '@/shared/cards/schemas'
 
@@ -230,8 +237,14 @@ const AnswerTurn: FC<{
   citations: CitationSource[]
   confidenceReason: string
   messageId: string
+  /**
+   * The post-answer follow-ups rail, when a stage delivered one. Rendered as
+   * ChatArea renders it — a SIBLING of the answer in the same 680px column,
+   * outside the answer surface, and last (§6.1).
+   */
+  rail?: { question: string; hint?: string }[]
   children?: ReactNode
-}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, children }) => (
+}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, children }) => (
   <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
     <div className="font-mono text-xs text-muted-foreground">{label}</div>
     {children}
@@ -246,16 +259,26 @@ const AnswerTurn: FC<{
         citations={citations}
       />
     </div>
-    <AgentResponse
-      content={answer}
-      timestamp={new Date('2024-01-15T14:30:12')}
-      cards={cards}
-      citations={citations}
-      answerConfidence="high"
-      answerConfidenceReason={confidenceReason}
-      routingDecision="shallow"
-      messageId={messageId}
-    />
+    {/* `gap-4` — the message column's real gap in ChatArea, so the distance
+        between the answer and the rail is the production one and not this
+        preview panel's own rhythm. */}
+    <div className="flex flex-col gap-4">
+      <AgentResponse
+        content={answer}
+        timestamp={new Date('2024-01-15T14:30:12')}
+        cards={cards}
+        citations={citations}
+        answerConfidence="high"
+        answerConfidenceReason={confidenceReason}
+        routingDecision="shallow"
+        messageId={messageId}
+      />
+      {rail && (
+        <div className="w-[680px] max-w-full">
+          <FollowUpsRail items={rail} />
+        </div>
+      )}
+    </div>
   </div>
 )
 
@@ -477,16 +500,19 @@ const followUpsCards: GridCard[] = [
     detail:
       'Ein Grundstück mit 2,50 m Gefälle über die Gebäudelänge hebt das Fluchtniveau um denselben Betrag und kann ein Projekt allein dadurch von GK 4 in GK 5 verschieben.',
   } as GridCard,
-  {
-    type: 'follow_ups',
-    title: 'Weiterführende Fragen',
-    items: [
-      { question: 'Welche Gebäudeklasse ergibt sich für mein Projekt?', hint: 'aus dem Grundriss und dem Schnitt' },
-      { question: 'Was ändert sich beim Sprung von GK 4 auf GK 5?', hint: 'Vergleich der Anforderungen' },
-      { question: 'Zählt mein Dachgeschoß als Aufenthaltsraum?' },
-      { question: 'Wie weise ich das Fluchtniveau im Einreichplan nach?' },
-    ],
-  } as GridCard,
+]
+
+/**
+ * What the `follow_ups` STAGE delivered for this turn — the payload shape of
+ * §4.2, which is deliberately the same shape the card always had. Four
+ * questions, because four is the ceiling and the ceiling is where the row
+ * wrapping on a phone is worth looking at.
+ */
+const followUpsStageItems = [
+  { question: 'Welche Gebäudeklasse ergibt sich für mein Projekt?', hint: 'aus dem Grundriss und dem Schnitt' },
+  { question: 'Was ändert sich beim Sprung von GK 4 auf GK 5?', hint: 'Vergleich der Anforderungen' },
+  { question: 'Zählt mein Dachgeschoß als Aufenthaltsraum?' },
+  { question: 'Wie weise ich das Fluchtniveau im Einreichplan nach?' },
 ]
 
 /* --- variant: verdict-lede ------------------------------------------------ */
@@ -560,7 +586,7 @@ const takeawaysCard: GridCard = {
   ],
 } as GridCard
 
-const ANSWER_VARIANTS = ['lede-card', 'two-cards', 'follow-ups', 'verdict-lede'] as const
+const ANSWER_VARIANTS = ['lede-card', 'two-cards', 'follow-ups-rail', 'verdict-lede'] as const
 type AnswerVariant = (typeof ANSWER_VARIANTS)[number]
 
 const isAnswerVariant = (value: string | null): value is AnswerVariant =>
@@ -595,17 +621,32 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
     )
   }
 
-  if (variant === 'follow-ups') {
+  if (variant === 'follow-ups-rail') {
+    // The same turn twice. Everything above the rail must be identical in the
+    // two panels — that comparison is what "reserves no space" LOOKS like, and
+    // it is the reason §9 asked for a screenshot here instead of an assertion.
     return (
-      <AnswerTurn
-        label="↓ FOLLOW-UPS — callout inline mid-answer, follow_ups ENDS the answer, provenance footer directly below"
-        question={followUpsQuestion}
-        answer={followUpsAnswer}
-        cards={followUpsCards}
-        citations={stairCitations}
-        confidenceReason="Definition und Messregel direkt aus OIB-RL 4 belegt"
-        messageId="msg-follow-ups"
-      />
+      <>
+        <AnswerTurn
+          label="↓ AS THE ANSWER LANDS — the stage has not answered yet, and nothing is held open for it"
+          question={followUpsQuestion}
+          answer={followUpsAnswer}
+          cards={followUpsCards}
+          citations={stairCitations}
+          confidenceReason="Definition und Messregel direkt aus OIB-RL 4 belegt"
+          messageId="msg-follow-ups-before"
+        />
+        <AnswerTurn
+          label="↓ TWO SECONDS LATER — the rail appended BELOW the answer card, outside it, in the same column"
+          question={followUpsQuestion}
+          answer={followUpsAnswer}
+          cards={followUpsCards}
+          citations={stairCitations}
+          confidenceReason="Definition und Messregel direkt aus OIB-RL 4 belegt"
+          messageId="msg-follow-ups-after"
+          rail={followUpsStageItems}
+        />
+      </>
     )
   }
 

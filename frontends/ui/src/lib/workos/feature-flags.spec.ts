@@ -9,7 +9,14 @@ vi.mock('./client', () => ({
   getWorkOS: () => ({ featureFlags: { listOrganizationFeatureFlags } }),
 }))
 
-import { _clearFeatureFlagCache, isMemoryReflectionEnabled, isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from './feature-flags'
+import {
+  _clearFeatureFlagCache,
+  enabledPostAnswerStages,
+  isMemoryReflectionEnabled,
+  isOrgFeatureEnabled,
+  MEMORY_REFLECTION_FLAG,
+  POST_ANSWER_STAGE_FLAGS,
+} from './feature-flags'
 
 beforeEach(async () => {
   vi.stubEnv('WORKOS_API_KEY', 'sk_test')
@@ -93,5 +100,39 @@ describe('isMemoryReflectionEnabled', () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     await expect(isMemoryReflectionEnabled(undefined)).resolves.toBe(false)
     expect(listOrganizationFeatureFlags).not.toHaveBeenCalled()
+  })
+})
+
+describe('enabledPostAnswerStages', () => {
+  it('mirrors the backend stage ids, not the flag slugs', () => {
+    // A stage the backend declares but this registry omits can never be
+    // switched on, so the ids have to be the StageSpec ids verbatim.
+    expect(POST_ANSWER_STAGE_FLAGS.map((stage) => stage.id)).toContain('memory_reflection')
+  })
+
+  it('lists a stage whose flag is on for the org', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: MEMORY_REFLECTION_FLAG }] })
+    await expect(enabledPostAnswerStages('org-1')).resolves.toEqual(['memory_reflection'])
+  })
+
+  it('omits a stage whose flag is off — the kill switch, per turn', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: 'other' }] })
+    await expect(enabledPostAnswerStages('org-1')).resolves.toEqual([])
+  })
+
+  it('follows the env fallback when enforcement is off', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', '')
+    await expect(enabledPostAnswerStages('org-1')).resolves.toEqual(['memory_reflection'])
+    vi.stubEnv('GRID_MEMORY_REFLECTION_ENABLED', 'false')
+    await expect(enabledPostAnswerStages('org-1')).resolves.toEqual([])
+  })
+
+  it('agrees with isMemoryReflectionEnabled — one source of truth', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: 'other' }] })
+    const [viaStages, viaLegacy] = [await enabledPostAnswerStages('org-1'), await isMemoryReflectionEnabled('org-1')]
+    expect(viaStages.includes('memory_reflection')).toBe(viaLegacy)
   })
 })

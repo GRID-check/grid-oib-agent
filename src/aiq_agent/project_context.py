@@ -545,6 +545,35 @@ def get_memory_reflection_enabled_from_context() -> bool:
     return GridRequestContext.from_context().memory_reflection_enabled
 
 
+def get_user_message_id_from_context() -> str | None:
+    """Best-effort read of the WebSocket ``user_message`` id of the active turn.
+
+    This is the ``parent_id`` the browser minted for the turn and the only id the
+    browser and the agent tier genuinely share, so it is what identifies a turn
+    to anything that runs after the answer (see
+    ``docs/architecture/post-answer-stages.md``). NAT sets it on the session
+    (``Context.user_message_id``) from the front end's ``_message_parent_id``.
+
+    Returns ``None`` off the WebSocket path (CLI, REST, job worker) and for NAT's
+    ``"default_id"`` placeholder — a constant shared by every turn of every
+    conversation is not an identity, and treating it as one would collapse all of
+    them onto a single key.
+    """
+    try:
+        from nat.builder.context import Context
+
+        ctx = Context.get()
+        if ctx is None:
+            return None
+        user_message_id = getattr(ctx, "user_message_id", None)
+        if not user_message_id or str(user_message_id) == "default_id":
+            return None
+        return str(user_message_id)
+    except Exception:
+        logger.debug("Failed to read user message id from NAT context", exc_info=True)
+        return None
+
+
 def get_conversation_id_from_context() -> str | None:
     """Best-effort read of the active conversation id for provenance."""
     try:

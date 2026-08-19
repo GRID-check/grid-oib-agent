@@ -31,6 +31,7 @@ import {
   type NATIntermediateStepContent,
   type NATErrorContent,
   type NATResponseTransparency,
+  type NATStageMessage,
   HumanPromptType,
 } from '@/adapters/api/websocket-client'
 import { checkBackendHealthCached, invalidateHealthCache } from '@/shared/hooks/use-backend-health'
@@ -686,6 +687,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const addUserMessage = useChatStore((s) => s.addUserMessage)
   const appendAgentResponseDelta = useChatStore((s) => s.appendAgentResponseDelta)
   const finalizeAgentResponse = useChatStore((s) => s.finalizeAgentResponse)
+  const setTurnWsParentId = useChatStore((s) => s.setTurnWsParentId)
+  const applyStageFrame = useChatStore((s) => s.applyStageFrame)
   const discardStreamingAssistantMessage = useChatStore((s) => s.discardStreamingAssistantMessage)
   const addAgentResponseWithMeta = useChatStore((s) => s.addAgentResponseWithMeta)
   const addThinkingStep = useChatStore((s) => s.addThinkingStep)
@@ -1115,6 +1118,12 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           return
         }
         acknowledgeOutgoingDelivery(parentId)
+        // The turn key, recorded from the turn's own frames
+        // (`docs/architecture/post-answer-stages.md` §1.6): the answer bubble is
+        // stamped with it as it is built, which is what lets a post-answer stage
+        // frame — whose only handle on the turn is this id — find its message
+        // seconds after the socket has gone quiet.
+        if (parentId) setTurnWsParentId(parentId)
         // A live frame proves the turn is progressing -- restart the
         // inactivity deadline from now.
         armStreamingWatchdog()
@@ -1315,6 +1324,26 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             maybeGenerateConversationName(finishedConversationId)
           }
         }
+      },
+
+      onStage: (frame: NATStageMessage) => {
+        // NOT behind the `isStreaming` guard `onResponse` runs under, and this
+        // is the whole reason a stage needs its own frame type: a stage frame
+        // arrives by definition when the turn is no longer streaming, so that
+        // guard would drop every one of them.
+        //
+        // No staleness check either. `isStaleMessage` compares against the
+        // socket's ACTIVE turn, and a stage frame is always about a turn that
+        // has already finished; the correlation is the `parent_id` on the
+        // message itself, which the store matches.
+        if (!frame.parent_id) return
+        applyStageFrame({
+          conversationId: frame.conversation_id,
+          parentId: frame.parent_id,
+          stage: frame.stage,
+          status: frame.status,
+          payload: frame.payload,
+        })
       },
 
       onIntermediateStep: (content: NATIntermediateStepContent | string, status: string, _parentId?: string) => {
@@ -1695,6 +1724,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [
     appendAgentResponseDelta,
     finalizeAgentResponse,
+    setTurnWsParentId,
+    applyStageFrame,
     discardStreamingAssistantMessage,
     addAgentResponseWithMeta,
     addThinkingStep,
@@ -1762,6 +1793,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       projectId: useChatStore.getState().projectId || undefined,
       callbacks: {
         onResponse: (...args) => latestCallbacksRef.current.onResponse?.(...args),
+        onStage: (...args) => latestCallbacksRef.current.onStage?.(...args),
         onIntermediateStep: (...args) => latestCallbacksRef.current.onIntermediateStep?.(...args),
         onHumanPrompt: (...args) => latestCallbacksRef.current.onHumanPrompt?.(...args),
         onError: (...args) => latestCallbacksRef.current.onError?.(...args),

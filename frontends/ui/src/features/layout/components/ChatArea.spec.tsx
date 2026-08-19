@@ -752,6 +752,91 @@ describe('ChatArea', () => {
  * which messages GROUP under one header, where the unread separator lands, and
  * whether the observer is told that the agent is busy on someone else's turn.
  */
+/**
+ * Where the follow-up chips live, structurally
+ * (`docs/architecture/post-answer-stages.md` §6, §8).
+ *
+ * Two claims are being pinned, and the second is the one that was worth
+ * verifying rather than assuming:
+ *
+ *   1. The chips are BELOW the answer and OUTSIDE it — the product owner's
+ *      ruling, and the whole point of moving them off the card.
+ *   2. The rail is the LAST element in the message's column. §8 spends its
+ *      entire "reserve no space" argument on that claim, so it is asserted
+ *      against the real DOM order rather than read off the JSX: if anything
+ *      ever gets appended after the rail, a late-arriving set of chips starts
+ *      pushing it, and the argument silently stops holding.
+ */
+describe('ChatArea — the follow-ups rail sits below the answer', () => {
+  const answerWithChips = (extra: MessageFixture[] = []): ChatStoreFixture => ({
+    currentConversation: {
+      id: 'c1',
+      messages: [
+        { id: 'user-1', role: 'user', content: 'Was ist das Fluchtniveau?', messageType: 'user' },
+        {
+          id: 'answer-1',
+          role: 'assistant',
+          content: 'Das Fluchtniveau ist …',
+          messageType: 'agent_response',
+          stages: { followUps: { items: [{ question: 'Und bei Hanglage?' }] } },
+        },
+        ...extra,
+      ],
+    },
+    isLoading: false,
+    hasHydrated: true,
+    isStreaming: false,
+    thinkingSteps: [],
+    respondToPrompt: mockRespondToPrompt,
+    dismissErrorCard: mockDismissErrorCard,
+    setComposerPrefill: mockSetComposerPrefill,
+    getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+  })
+
+  const renderWith = (state: ChatStoreFixture) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
+      selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state,
+    )
+    return render(<ChatArea isAuthenticated={true} />)
+  }
+
+  test('renders the rail outside the answer, as its sibling', () => {
+    renderWith(answerWithChips())
+
+    const rail = screen.getByTestId('follow-ups-rail')
+    const answer = screen.getByTestId('agent-response')
+    expect(rail).toBeInTheDocument()
+    // Outside: the rail is not a descendant of the answer surface. Inside it,
+    // the chips would be the footer chrome this change exists to stop them
+    // being.
+    expect(answer.contains(rail)).toBe(false)
+    // Below: same column, after the answer in document order.
+    expect(answer.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test('is the LAST element in its message column, so growing it moves nothing', () => {
+    renderWith(answerWithChips())
+
+    const rail = screen.getByTestId('follow-ups-rail')
+    // The message's own column — the element ChatArea gives each message.
+    const column = document.getElementById('message-answer-1')
+    expect(column).not.toBeNull()
+    expect(column!.contains(rail)).toBe(true)
+    // Nothing after it. `lastElementChild` rather than a count, because what
+    // matters is the POSITION: a sibling appended below the rail is what would
+    // make §8's "reserve nothing" argument false.
+    expect(column!.lastElementChild!.contains(rail)).toBe(true)
+  })
+
+  test('renders no rail for an answer no stage addressed', () => {
+    const state = answerWithChips()
+    state.currentConversation!.messages![1]!.stages = undefined
+    renderWith(state)
+
+    expect(screen.queryByTestId('follow-ups-rail')).not.toBeInTheDocument()
+  })
+})
+
 describe('ChatArea — shared thread', () => {
   const ME = 'user-1'
   const ANNA = 'user_anna'

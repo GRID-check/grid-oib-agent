@@ -14,6 +14,10 @@ const mockAddUserMessage = vi.fn()
 const mockAddAgentResponse = vi.fn()
 const mockAppendAgentResponseDelta = vi.fn()
 const mockFinalizeAgentResponse = vi.fn()
+/** The turn key crossing from the socket onto the answer (post-answer-stages §1.6). */
+const mockSetTurnWsParentId = vi.fn()
+/** Where a post-answer stage frame is applied; returns the message it landed on, or null. */
+const mockApplyStageFrame = vi.fn(() => null)
 const mockDiscardStreamingAssistantMessage = vi.fn()
 const mockAddAgentResponseWithMeta = vi.fn(() => 'msg-1')
 const mockAddThinkingStep = vi.fn(() => 'step-1')
@@ -72,6 +76,8 @@ const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration
     addAgentResponse: mockAddAgentResponse,
     appendAgentResponseDelta: mockAppendAgentResponseDelta,
     finalizeAgentResponse: mockFinalizeAgentResponse,
+    setTurnWsParentId: mockSetTurnWsParentId,
+    applyStageFrame: mockApplyStageFrame,
     discardStreamingAssistantMessage: mockDiscardStreamingAssistantMessage,
     addAgentResponseWithMeta: mockAddAgentResponseWithMeta,
     addThinkingStep: mockAddThinkingStep,
@@ -225,6 +231,15 @@ let capturedCallbacks: {
       [k: string]: unknown
     }
   ) => void
+  onStage?: (frame: {
+    type: string
+    v: number
+    conversation_id: string
+    parent_id?: string | null
+    stage: string
+    status: string
+    payload?: unknown
+  }) => void
   onIntermediateStep?: (content: unknown, status: string, parentId?: string) => void
   onHumanPrompt?: (promptId: string, parentId: string, prompt: unknown) => void
   onError?: (error: { code: string; message: string; details?: string }) => void
@@ -1756,6 +1771,8 @@ describe('useWebSocketChat', () => {
         addAgentResponse: mockAddAgentResponse,
         appendAgentResponseDelta: mockAppendAgentResponseDelta,
         finalizeAgentResponse: mockFinalizeAgentResponse,
+        setTurnWsParentId: mockSetTurnWsParentId,
+        applyStageFrame: mockApplyStageFrame,
         addAgentResponseWithMeta: localMockAddAgentResponseWithMeta,
         addThinkingStep: mockAddThinkingStep,
         appendToThinkingStep: mockAppendToThinkingStep,
@@ -3535,5 +3552,66 @@ describe('useWebSocketChat — a context-only send with no socket yet', () => {
       contextOnly: true,
       authorName: 'test@example.com',
     })
+  })
+})
+
+/**
+ * A post-answer stage frame is the one frame that arrives when the turn is
+ * OVER (`docs/architecture/post-answer-stages.md` §4.3).
+ *
+ * That is the whole reason it has a frame type of its own. `onResponse` drops
+ * anything that arrives while the store is not streaming — correctly, because a
+ * response frame arriving then belongs to a workflow that outlived its request.
+ * A stage frame arriving then is the normal case, and routing it through that
+ * guard would drop every single one.
+ */
+describe('useWebSocketChat — a post-answer stage frame', () => {
+  const frame = {
+    type: 'grid_stage_message',
+    v: 1,
+    conversation_id: 'conv-1',
+    parent_id: 'msg_1755600000000_3',
+    stage: 'follow_ups',
+    status: 'ready',
+    payload: { items: [{ question: 'Und bei Hanglage?' }] },
+  }
+
+  test('is applied although the turn is no longer streaming', () => {
+    renderWebSocketHook()
+    // The turn has settled — which is when a stage frame arrives, always.
+    mockStoreState.isStreaming = false
+
+    act(() => {
+      capturedCallbacks.onStage?.(frame)
+    })
+
+    expect(mockApplyStageFrame).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      parentId: 'msg_1755600000000_3',
+      stage: 'follow_ups',
+      status: 'ready',
+      payload: frame.payload,
+    })
+  })
+
+  test('drops a frame with no turn key rather than guessing which turn it meant', () => {
+    renderWebSocketHook()
+
+    act(() => {
+      capturedCallbacks.onStage?.({ ...frame, parent_id: null })
+    })
+
+    expect(mockApplyStageFrame).not.toHaveBeenCalled()
+  })
+
+  test('records the turn key from the answer frames, so a stage can find the answer', () => {
+    renderWebSocketHook()
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.('Das Fluchtniveau ist …', 'in_progress', false, 'msg_1755600000000_3')
+    })
+
+    expect(mockSetTurnWsParentId).toHaveBeenCalledWith('msg_1755600000000_3')
   })
 })
