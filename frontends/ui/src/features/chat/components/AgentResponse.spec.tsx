@@ -156,7 +156,7 @@ describe('AgentResponse', () => {
     const { container } = render(<AgentResponse content={longContent} />)
 
     // Verify content is rendered (container should have content)
-    expect(container.textContent).toContain('This is a very long response.')
+    expect(container.textContent).toContain('This is a very long response. ')
   })
 
   test('uses shared research panel loader when clicking "View Report" with jobId', async () => {
@@ -433,15 +433,76 @@ describe('AgentResponse', () => {
         />
       )
 
-      // The timestamp is a direct child of the meta row — no longer a span
-      // floating outside the card.
-      const metaRow = screen.getByText(/^\d{1,2}:\d{2}/).parentElement
+      // The timestamp lives inside the meta row — no longer a span floating
+      // outside the card. It sits in the row's acting cluster, which is a
+      // `display: contents` wrapper above `sm`, so on a desktop it is not a
+      // box: everything is still one row.
+      const metaRow = screen.getByText(/^\d{1,2}:\d{2}/).closest('.min-h-6')
       expect(metaRow).not.toBeNull()
       expect(metaRow).toContainElement(screen.getByText('Confidence: high'))
       expect(metaRow).toContainElement(screen.getByText('Piloti noted'))
       expect(metaRow).toContainElement(
         screen.getByRole('button', { name: 'Mark this answer as helpful' })
       )
+    })
+
+    // ── the row at phone width ──────────────────────────────────────────────
+    // jsdom does no layout, so the wrap itself cannot be observed. What CAN be
+    // asserted is the thing that decides it: whether a line break is even
+    // possible between the copy actions and the thumbs. It is not, because they
+    // are not siblings in the wrapping row any more — they are one flex item.
+    test('the copy actions and the thumbs cannot wrap apart at phone width', () => {
+      render(
+        <AgentResponse
+          content="Answer"
+          messageId="m1"
+          conversationId="conv-1"
+          answerConfidence="high"
+          timestamp={new Date('2026-07-17T10:30:00')}
+          citations={citations}
+        />
+      )
+
+      const copy = screen.getByRole('button', { name: 'Copy answer' })
+      const thumb = screen.getByRole('button', { name: 'Mark this answer as helpful' })
+      const metaRow = copy.closest('.min-h-6')
+      expect(metaRow).not.toBeNull()
+
+      // Both controls hang off ONE element that is not the wrapping row.
+      const cluster = copy.parentElement?.parentElement
+      expect(cluster).not.toBe(metaRow)
+      expect(cluster).toContainElement(thumb)
+      expect(cluster).toContainElement(screen.getByText(/^\d{1,2}:\d{2}/))
+
+      // Below `sm` that element is a full-width, non-wrapping flex line, so the
+      // row breaks before it and never inside it; above `sm` it is
+      // `display: contents` and the row is exactly what it was.
+      expect(cluster?.className).toContain('max-sm:flex')
+      expect(cluster?.className).toContain('max-sm:w-full')
+      expect(cluster?.className).toContain('max-sm:flex-nowrap')
+      expect(cluster?.className).toContain('contents')
+    })
+
+    test('the acting cluster still leaves the pills in the wrapping row', () => {
+      memory.items = [memoryItem]
+
+      render(
+        <AgentResponse
+          content="Answer"
+          messageId="m1"
+          conversationId="conv-1"
+          answerConfidence="high"
+        />
+      )
+
+      const metaRow = screen.getByText('Confidence: high').closest('.min-h-6')
+      const cluster = metaRow?.querySelector('.contents')
+      expect(cluster).not.toBeNull()
+      // The pills stay OUT of the acting cluster, so the row's one wrap point
+      // is between the two halves — which is where it belongs.
+      expect(cluster).not.toContainElement(screen.getByText('Confidence: high'))
+      expect(cluster).not.toContainElement(screen.getByText('Piloti noted'))
+      expect(metaRow?.className).toContain('flex-wrap')
     })
 
     test('renders the thumbs row in its compact inline layout inside the card', () => {

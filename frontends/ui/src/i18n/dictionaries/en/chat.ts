@@ -234,6 +234,209 @@ export const chat = {
       missingOnly:
         '"{subject}" is missing a figure. Which figure is needed here, and where do I get it?',
     },
+
+    // ── Shared schematic chrome ────────────────────────────────────────────
+    // `kit.tsx` draws fifteen cards. Its vocabulary lives here because it
+    // appears on every one of them: verdict, missing figure, provenance.
+    kit: {
+      eyebrow: 'Sketch',
+      status: {
+        pass: 'met',
+        fail: 'not met',
+        warning: 'borderline',
+        needsInput: 'figure missing',
+      },
+      // Stands where a number would stand that nobody knows. Never a guessed
+      // number — and never an empty slot, which reads as a fact about the
+      // building rather than a gap in the file.
+      missingValue: 'no figure given',
+      provenance: {
+        declared: 'per model',
+        computed: 'measured',
+        inferred: 'presumed',
+      },
+      // Long form for the tooltip, where there is room to say what the word means.
+      provenanceTitle: {
+        declared: 'This number is stated in the IFC file — the architect’s own figure.',
+        computed:
+          'Measured from the geometry, not declared. The tolerance is part of the statement.',
+        inferred: 'Derived from a heuristic. A suggestion to confirm, not a finding.',
+      },
+      toleranceStraddlesLimit:
+        'The measurement tolerance reaches across the limit: at this precision it is undecided whether the value is met. Measure more precisely for a formal check.',
+    },
+    followUps: {
+      eyebrow: 'Ask on',
+      groupAria: 'Follow-up questions',
+    },
+    keyTakeaways: {
+      eyebrow: 'What matters most',
+    },
+    callout: {
+      hinweis: 'Note',
+      achtung: 'Caution',
+      frist: 'Deadline',
+      tipp: 'Tip',
+      more: 'More on this',
+      less: 'Less',
+    },
+    verdictHeader: {
+      confidenceHigh: 'high confidence',
+      confidenceMedium: 'medium confidence',
+      confidenceLow: 'low confidence',
+    },
+    normChain: {
+      eyebrow: 'Chain of norms',
+      // Rank of the legal instrument. These are the names of the Austrian
+      // legal order and stay in German here too.
+      rank: {
+        bundesgesetz: 'Bundesgesetz',
+        landesgesetz: 'Landesgesetz',
+        verordnung: 'Verordnung',
+        oibRichtlinie: 'OIB-Richtlinie',
+        oenorm: 'ÖNORM',
+        leitfaden: 'Leitfaden',
+      },
+      binding: 'binding',
+      // An OIB-Richtlinie binds only once a Land declares it binding — that
+      // belongs on the link, not in a footnote.
+      bindingWhenDeclared: 'binding where declared',
+      interpretive: 'interpretive',
+    },
+    comparison: {
+      eyebrow: 'Comparison',
+      criterion: 'Criterion',
+    },
+    typedTable: {
+      eyebrow: 'Table',
+    },
+    // ── Labels inside the drawings ─────────────────────────────────────────
+    // What is written on the sketch itself. Symbols (±0,00, Ø, N), units and
+    // standard designations (A++ … G, DnT,w) are deliberately absent: they are
+    // the same mark in every language.
+    schematics: {
+      acoustic: {
+        soundClass: 'Sound insulation class',
+        airborne: 'Airborne sound',
+        impact: 'Impact sound',
+        airborneResultant: 'Airborne sound (resultant)',
+        lowerIsBetter: '↓ lower is better',
+        higherIsBetter: '↑ higher is better',
+        reserve: 'Margin +{margin} dB',
+        shortfall: 'Shortfall {margin} dB',
+      },
+      daylight: {
+        glassArea: 'Glazed area',
+        window: 'Window',
+        obstruction: '45° daylight angle — {label}',
+        requiredArea: 'Floor area {floor} m² → required glazed area ≥ {required} m² (10 %).',
+        obstructionPierces: 'The obstruction pierces the 45° daylight cone.',
+      },
+      density: {
+        coverage: 'Site coverage',
+        parcel: 'Parcel {area} m²',
+        builtUp: 'built',
+        builtUpUnknown: 'Built-up area: {missing}',
+        grossFloorArea: 'Gross floor area (BGF)',
+      },
+      egress: {
+        totalWalkLength: 'Total travel distance',
+      },
+      elevator: {
+        accessible: 'Accessible lift',
+        required: 'required',
+        notRequired: 'not required',
+        entranceLevel: 'Entrance level',
+        shaft: 'Lift',
+        // Storey label relative to the entrance level, in Austrian notation.
+        groundFloor: 'EG',
+        upperFloor: '{level}.OG',
+        basement: '{level}.KG',
+      },
+      energy: {
+        hwb: 'Heating demand (HWB)',
+        hwbMarker: 'HWB {value}',
+        fgee: 'Overall energy efficiency factor (fGEE)',
+      },
+      fireAccess: {
+        routeWidth: 'Access route width',
+        gateClearance: 'Gateway clear height',
+        aufstellflaecheWidth: 'Aufstellfläche width',
+        aufstellflaecheLength: 'Aufstellfläche length',
+        facadeDistance: 'Distance to facade',
+        walkToEntrance: 'Walk to entrance',
+        parcel: 'Parcel {width} × {depth} m',
+        route: 'ACCESS',
+        building: 'Building',
+        aufstellflaeche: 'Aufstellfläche',
+        entrance: 'Entrance',
+        street: 'STREET',
+        gebaeudeklasse: 'Gebäudeklasse',
+        walkTooFar: ' — the walk to the entrance exceeds the permitted distance.',
+      },
+      fireCompartment: {
+        storey: 'Storey {label}',
+        plan: 'Floor plan',
+      },
+      guardrail: {
+        context: {
+          balkon: 'Balcony',
+          loggia: 'Loggia',
+          stiege: 'Stairs',
+          fenster: 'Window',
+          dachterrasse: 'Roof terrace',
+        },
+        elevation: 'ELEVATION · {context}',
+        fallHeight: 'Fall height',
+        railHeight: 'Guardrail height',
+        maxOpening: 'max. opening width',
+        bottomGap: 'Bottom gap',
+        climbGuard: 'No-climb zone 15–60 cm',
+        atLeast: ' → min. {value}',
+        climbables:
+          'Horizontal elements suitable for climbing within the no-climb zone (15–60 cm).',
+      },
+      parking: {
+        car: 'Car parking spaces',
+        bicycle: 'Bicycle parking spaces',
+        // Abbreviation for parking spaces, used as the unit after the number.
+        unit: 'sp.',
+        basis: 'Basis',
+        short: '{provided} of {required} provided — {missing} short{overflow}',
+        surplus: '{provided} provided — surplus +{surplus}{overflow}',
+        exact: '{provided} of {required} provided{overflow}',
+        truncated: ' (excerpt)',
+        legend: 'Filled = provided, dashed = missing against the requirement.',
+      },
+      setback: {
+        side: {
+          front: 'front',
+          back: 'rear',
+          left: 'left',
+          right: 'right',
+        },
+        distance: 'Setback {side}',
+        parcel: 'Parcel {width} × {depth} m',
+        building: 'Building',
+        street: 'STREET',
+        tooClose: 'At least one setback falls short of the required distance.',
+      },
+      stair: {
+        section: 'SECTION',
+        plan: 'PLAN',
+        // Step notation as it appears in the section of an Austrian submission.
+        stepNotation: '{count} Stg · {rise}/{going} cm',
+        // Without rise and going only the count is left.
+        stepCount: '{count, plural, one {# step} other {# steps}}',
+      },
+      thermal: {
+        roof: 'Roof',
+        wall: 'External wall',
+        window: 'Window',
+        door: 'Door',
+        floor: 'Floor',
+      },
+    },
   },
   agentPrompt: {
     needsInput: 'Piloti needs your input',

@@ -13,6 +13,7 @@
 import { type FC } from 'react'
 import { ListTree } from 'lucide-react'
 import { SchematicCard } from '../schematics/kit'
+import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { NormChainLinkData, NormChainRank } from '../schematics/types'
 
@@ -22,31 +23,36 @@ interface NormChainCardProps {
 }
 
 interface RankMeta {
-  /** German label for the rank badge. */
-  label: string
+  /** Label for the rank badge. */
+  label: (t: Translator) => string
   /** Whether this rank binds (vs. merely interprets). */
   binding: boolean
   /** The binding tag word, when it needs a caveat. */
-  bindingTag?: string
+  bindingTag?: (t: Translator) => string
 }
 
 const RANK: Record<NormChainRank, RankMeta> = {
-  bundesgesetz: { label: 'Bundesgesetz', binding: true },
-  landesgesetz: { label: 'Landesgesetz', binding: true },
-  verordnung: { label: 'Verordnung', binding: true },
+  bundesgesetz: { label: (t) => t('cards.normChain.rank.bundesgesetz'), binding: true },
+  landesgesetz: { label: (t) => t('cards.normChain.rank.landesgesetz'), binding: true },
+  verordnung: { label: (t) => t('cards.normChain.rank.verordnung'), binding: true },
   // Binding only where a Land has declared it — the caveat rides in the tag so
   // the card never overstates the chain.
-  oib_richtlinie: { label: 'OIB-Richtlinie', binding: true, bindingTag: 'bindend, wenn erklärt' },
-  oenorm: { label: 'ÖNORM', binding: false },
-  leitfaden: { label: 'Leitfaden', binding: false },
+  oib_richtlinie: {
+    label: (t) => t('cards.normChain.rank.oibRichtlinie'),
+    binding: true,
+    bindingTag: (t) => t('cards.normChain.bindingWhenDeclared'),
+  },
+  oenorm: { label: (t) => t('cards.normChain.rank.oenorm'), binding: false },
+  leitfaden: { label: (t) => t('cards.normChain.rank.leitfaden'), binding: false },
 }
 
 export const NormChainCard: FC<NormChainCardProps> = ({ title, links }) => {
+  const t = useTranslations('chat')
   return (
-    <SchematicCard icon={ListTree} eyebrow="Normenkette" title={title}>
+    <SchematicCard icon={ListTree} eyebrow={t('cards.normChain.eyebrow')} title={title}>
       <ol className="flex flex-col">
         {links.map((link, index) => {
-          const meta = RANK[link.rank] ?? { label: link.rank, binding: false }
+          const meta = RANK[link.rank] ?? { label: () => link.rank, binding: false }
           const isLast = index === links.length - 1
           return (
             <li key={`${link.label}-${index}`} className="flex gap-3">
@@ -74,7 +80,7 @@ export const NormChainCard: FC<NormChainCardProps> = ({ title, links }) => {
                     {link.label}
                   </span>
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {meta.label}
+                    {meta.label(t)}
                   </span>
                   <span
                     className={cn(
@@ -82,7 +88,9 @@ export const NormChainCard: FC<NormChainCardProps> = ({ title, links }) => {
                       meta.binding ? 'text-foreground' : 'text-muted-foreground',
                     )}
                   >
-                    {meta.binding ? (meta.bindingTag ?? 'bindend') : 'auslegend'}
+                    {meta.binding
+                      ? (meta.bindingTag?.(t) ?? t('cards.normChain.binding'))
+                      : t('cards.normChain.interpretive')}
                   </span>
                 </div>
                 {link.note && (

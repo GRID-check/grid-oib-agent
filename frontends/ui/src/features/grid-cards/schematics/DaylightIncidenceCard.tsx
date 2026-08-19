@@ -30,6 +30,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchLine, sketchRect } from './rough'
+import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, DimStatus, NormReferenceData, ObstructionData } from './types'
 
 interface DaylightIncidenceCardProps {
@@ -57,6 +58,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const sill = window_sill_height_m ?? FALLBACK_SILL_M
   const head = Math.max(window_head_height_m ?? FALLBACK_HEAD_M, sill + 0.4)
 
@@ -99,7 +101,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
 
   const glassCheck: DimensionCheckData = {
     ...glass_area,
-    label: glass_area.label || 'Lichteintrittsfläche',
+    label: glass_area.label || t('cards.schematics.daylight.glassArea'),
     unit: glass_area.unit ?? 'm²',
     // ≥10 % of the floor area is arithmetic on provided data, not a guess —
     // derive the required area when the model left it null.
@@ -111,7 +113,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
   const checks: DimensionCheckData[] = [glassCheck]
   if (obstruction && lightStatus) {
     checks.push({
-      label: `Lichteinfall 45° — ${obstruction.label}`,
+      label: t('cards.schematics.daylight.obstruction', { label: obstruction.label }),
       value: obsH,
       required: obsD,
       unit: 'm',
@@ -126,7 +128,6 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
   return (
     <SchematicCard
       icon={Sun}
-      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}
@@ -188,8 +189,14 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
           stroke="var(--text-color-feedback-info)"
           strokeWidth={1.6}
         />
-        <SvgLabel x={wallX + wallW / 2} y={Y((sill + head) / 2)} anchor="middle" size={8} transform={`rotate(-90 ${wallX + wallW / 2} ${Y((sill + head) / 2)})`}>
-          Fenster
+        <SvgLabel
+          x={wallX + wallW / 2}
+          y={Y((sill + head) / 2)}
+          anchor="middle"
+          size={8}
+          transform={`rotate(-90 ${wallX + wallW / 2} ${Y((sill + head) / 2)})`}
+        >
+          {t('cards.schematics.daylight.window')}
         </SvgLabel>
 
         {/* sill + head heights, measured left of the wall */}
@@ -200,7 +207,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
           y1={baseY}
           x2={wallX - 26}
           y2={Y(sill)}
-          label={fmtDim(window_sill_height_m, 'm')}
+          label={fmtDim(window_sill_height_m, 'm', t)}
           status={window_sill_height_m == null ? 'needs_input' : undefined}
           color={window_sill_height_m == null ? undefined : 'var(--muted-foreground)'}
           labelOffset={-13}
@@ -212,7 +219,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
           y1={baseY}
           x2={wallX - 54}
           y2={Y(head)}
-          label={fmtDim(window_head_height_m, 'm')}
+          label={fmtDim(window_head_height_m, 'm', t)}
           status={window_head_height_m == null ? 'needs_input' : undefined}
           color={window_head_height_m == null ? undefined : 'var(--muted-foreground)'}
           labelOffset={-13}
@@ -287,7 +294,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
               y1={baseY - 12}
               x2={X(obsD)}
               y2={baseY - 12}
-              label={fmtDim(obsD, 'm')}
+              label={fmtDim(obsD, 'm', t)}
               color="var(--muted-foreground)"
               labelOffset={-9}
               fontSize={9}
@@ -299,7 +306,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
               y1={Y(sill)}
               x2={X(obsD) - 10}
               y2={Y(sill + obsH)}
-              label={fmtDim(obsH, 'm')}
+              label={fmtDim(obsH, 'm', t)}
               status={lightStatus}
               labelOffset={-12}
               fontSize={9}
@@ -312,8 +319,10 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
 
       {floorArea != null && (
         <p className="text-xs text-muted-foreground">
-          Bodenfläche {fmtNum(floorArea)} m² → erforderliche Lichteintrittsfläche ≥{' '}
-          {fmtNum(Math.round(floorArea * 10) / 100)} m² (10 %).
+          {t('cards.schematics.daylight.requiredArea', {
+            floor: fmtNum(floorArea),
+            required: fmtNum(Math.round(floorArea * 10) / 100),
+          })}
         </p>
       )}
 
@@ -321,7 +330,7 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
 
       {lightStatus === 'fail' && (
         <p className="text-xs font-medium" style={{ color: statusColor('fail') }}>
-          Die Verschattung durchdringt den 45°-Lichteinfallskegel.
+          {t('cards.schematics.daylight.obstructionPierces')}
         </p>
       )}
     </SchematicCard>

@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render as rtlRender, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { I18nProvider } from '@/i18n'
@@ -37,13 +37,13 @@ describe('VerdictHeaderCard', () => {
 })
 
 /**
- * The tree renders in German because the reader is Austrian; `fixedLocale`
+ * The cards render in German because the reader is Austrian; `fixedLocale`
  * pins it so the copy is the same on every machine, and skips the provider's
  * preference reconciliation (which would be a fetch, and this file asserts
  * there is none).
  */
-const renderDe = (ui: ReactElement) =>
-  render(
+const render = (ui: ReactElement) =>
+  rtlRender(
     <I18nProvider initialLocale="de" fixedLocale>
       {ui}
     </I18nProvider>,
@@ -77,7 +77,7 @@ describe('ConditionTreeCard', () => {
   })
 
   it('renders the deciding factor, every case, and marks the one that applies', () => {
-    renderDe(tree)
+    render(tree)
 
     expect(screen.getByText('Gebäudeklasse')).toBeInTheDocument()
     // Every case is present, open or not.
@@ -95,7 +95,7 @@ describe('ConditionTreeCard', () => {
 
   it('opens another case from data already on screen — no turn, no fetch', async () => {
     const user = userEvent.setup()
-    renderDe(tree)
+    render(tree)
 
     // GK 5 starts closed, so the norm it rests on is not in the document yet.
     // The section (unique to the branch) stands in for the whole reference
@@ -115,7 +115,7 @@ describe('ConditionTreeCard', () => {
 
   it('keeps the case that applies marked while another one is being read', async () => {
     const user = userEvent.setup()
-    renderDe(tree)
+    render(tree)
 
     await user.click(screen.getByRole('button', { name: new RegExp('^GK 5') }))
 
@@ -137,7 +137,7 @@ describe('ConditionTreeCard', () => {
 
   it('goes back to the case that applies from inside the previewed one', async () => {
     const user = userEvent.setup()
-    renderDe(tree)
+    render(tree)
 
     await user.click(screen.getByRole('button', { name: new RegExp('^GK 5') }))
     await user.click(screen.getByRole('button', { name: 'Zurück zu GK 4' }))
@@ -149,7 +149,7 @@ describe('ConditionTreeCard', () => {
 
   it('opens a case from the keyboard alone', async () => {
     const user = userEvent.setup()
-    renderDe(tree)
+    render(tree)
 
     await user.tab()
     expect(screen.getByRole('button', { name: new RegExp('^GK 1–3') })).toHaveFocus()
@@ -159,7 +159,7 @@ describe('ConditionTreeCard', () => {
   })
 
   it('contrasts nothing, and opens nothing, when no case is marked as applying', () => {
-    renderDe(
+    render(
       <ConditionTreeCard
         title="Erforderliche Feuerwiderstandsklasse"
         question="Gebäudeklasse"

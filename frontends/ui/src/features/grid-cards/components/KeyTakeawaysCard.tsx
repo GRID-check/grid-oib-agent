@@ -27,6 +27,7 @@ import { ChevronDown, Highlighter } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { SectionLabel } from '@/components/ui/section-label'
+import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { KeyTakeawayData } from '../schematics/types'
 
@@ -94,19 +95,22 @@ const TakeawayRow: FC<{ item: KeyTakeawayData; index: number }> = ({ item, index
   )
 }
 
-export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) => (
-  <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-2 p-5 shadow-xs">
-    <SectionLabel icon={Highlighter}>Das Wichtigste</SectionLabel>
-    {title && <p className="text-sm font-semibold text-foreground">{title}</p>}
+export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) => {
+  const t = useTranslations('chat')
+  return (
+    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-2 p-5 shadow-xs">
+      <SectionLabel icon={Highlighter}>{t('cards.keyTakeaways.eyebrow')}</SectionLabel>
+      {title && <p className="text-sm font-semibold text-foreground">{title}</p>}
 
-    {/* `divide-y` over one container rather than a border per row: the rules
+      {/* `divide-y` over one container rather than a border per row: the rules
         separate the takeaways without drawing a box around each one. */}
-    <ol className="-mx-1.5 mt-0.5 flex flex-col divide-y divide-border/60">
-      {items.map((item, index) => (
-        <li key={`${item.text}-${index}`}>
-          <TakeawayRow item={item} index={index} />
-        </li>
-      ))}
-    </ol>
-  </Card>
-)
+      <ol className="-mx-1.5 mt-0.5 flex flex-col divide-y divide-border/60">
+        {items.map((item, index) => (
+          <li key={`${item.text}-${index}`}>
+            <TakeawayRow item={item} index={index} />
+          </li>
+        ))}
+      </ol>
+    </Card>
+  )
+}

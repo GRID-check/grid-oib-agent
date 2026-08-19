@@ -8,10 +8,26 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render as rtlRender, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { I18nProvider } from '@/i18n'
 import userEvent from '@testing-library/user-event'
 import { KeyTakeawaysCard } from './KeyTakeawaysCard'
 import { CalloutCard } from './CalloutCard'
+
+/**
+ * The cards render in German because the reader is Austrian, and the copy now
+ * comes from the dictionary rather than from literals in the components. A
+ * test that renders without a provider sees the default locale (`en`), so the
+ * locale is pinned here; `fixedLocale` also skips the provider's preference
+ * reconciliation, which would be a fetch.
+ */
+const render = (ui: ReactElement) =>
+  rtlRender(
+    <I18nProvider initialLocale="de" fixedLocale>
+      {ui}
+    </I18nProvider>
+  )
 
 describe('KeyTakeawaysCard', () => {
   const items = [

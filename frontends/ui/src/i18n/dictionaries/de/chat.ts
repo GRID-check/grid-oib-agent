@@ -224,6 +224,210 @@ export const chat: typeof en.chat = {
       missingOnly:
         'Bei „{subject}“ fehlt eine Angabe. Welche Angabe wird dafür benötigt, und woher bekomme ich sie?',
     },
+
+    // ── Gemeinsame Schematik-Chrome ────────────────────────────────────────
+    // `kit.tsx` zeichnet fünfzehn Karten. Sein Wortschatz steht hier, weil er
+    // auf jeder einzelnen erscheint: Verdikt, fehlende Angabe, Herkunft.
+    kit: {
+      eyebrow: 'Skizze',
+      status: {
+        pass: 'erfüllt',
+        fail: 'nicht erfüllt',
+        warning: 'grenzwertig',
+        needsInput: 'Angabe fehlt',
+      },
+      // Steht dort, wo eine Zahl stünde, die niemand kennt. Nie eine geratene
+      // Zahl — ein leeres Feld liest sich als Aussage über das Gebäude.
+      missingValue: 'fehlende Angabe',
+      provenance: {
+        declared: 'laut Modell',
+        computed: 'gemessen',
+        inferred: 'vermutlich',
+      },
+      // Langform im Tooltip, wo Platz ist, das Wort zu erklären.
+      provenanceTitle: {
+        declared: 'Diese Zahl steht so in der IFC-Datei — eine Angabe der Architektin.',
+        computed: 'Aus der Geometrie gemessen, nicht deklariert. Die Toleranz gehört zur Aussage.',
+        inferred: 'Aus einer Heuristik abgeleitet. Ein Vorschlag zur Bestätigung, kein Befund.',
+      },
+      toleranceStraddlesLimit:
+        'Die Messtoleranz reicht über den Grenzwert: bei dieser Genauigkeit ist nicht entschieden, ob der Wert eingehalten ist. Für einen Nachweis genauer aufmessen.',
+    },
+    followUps: {
+      eyebrow: 'Weiterfragen',
+      groupAria: 'Weiterführende Fragen',
+    },
+    keyTakeaways: {
+      eyebrow: 'Das Wichtigste',
+    },
+    callout: {
+      hinweis: 'Hinweis',
+      achtung: 'Achtung',
+      frist: 'Frist',
+      tipp: 'Tipp',
+      more: 'Mehr dazu',
+      less: 'Weniger',
+    },
+    verdictHeader: {
+      confidenceHigh: 'hohe Sicherheit',
+      confidenceMedium: 'mittlere Sicherheit',
+      confidenceLow: 'geringe Sicherheit',
+    },
+    normChain: {
+      eyebrow: 'Normenkette',
+      // Rang des Rechtsakts. Die Namen sind die der österreichischen
+      // Rechtsordnung und bleiben auch im Englischen stehen.
+      rank: {
+        bundesgesetz: 'Bundesgesetz',
+        landesgesetz: 'Landesgesetz',
+        verordnung: 'Verordnung',
+        oibRichtlinie: 'OIB-Richtlinie',
+        oenorm: 'ÖNORM',
+        leitfaden: 'Leitfaden',
+      },
+      binding: 'bindend',
+      // Eine OIB-Richtlinie bindet erst, wenn ein Land sie für verbindlich
+      // erklärt — das steht am Glied, nicht in einer Fußnote.
+      bindingWhenDeclared: 'bindend, wenn erklärt',
+      interpretive: 'auslegend',
+    },
+    comparison: {
+      eyebrow: 'Vergleich',
+      criterion: 'Kriterium',
+    },
+    typedTable: {
+      eyebrow: 'Tabelle',
+    },
+    // ── Beschriftungen in den Zeichnungen ──────────────────────────────────
+    // Was in der Skizze selbst steht. Symbole (±0,00, Ø, N), Einheiten und
+    // Normbezeichnungen (A++ … G, DnT,w) stehen bewusst nicht hier: sie sind
+    // in jeder Sprache dasselbe Zeichen.
+    schematics: {
+      acoustic: {
+        soundClass: 'Schallschutzklasse',
+        airborne: 'Luftschall',
+        impact: 'Trittschall',
+        airborneResultant: 'Luftschall (resultierend)',
+        lowerIsBetter: '↓ niedriger ist besser',
+        higherIsBetter: '↑ höher ist besser',
+        reserve: 'Reserve +{margin} dB',
+        shortfall: 'Fehlbetrag {margin} dB',
+      },
+      daylight: {
+        glassArea: 'Lichteintrittsfläche',
+        window: 'Fenster',
+        obstruction: 'Lichteinfall 45° — {label}',
+        requiredArea:
+          'Bodenfläche {floor} m² → erforderliche Lichteintrittsfläche ≥ {required} m² (10 %).',
+        obstructionPierces: 'Die Verschattung durchdringt den 45°-Lichteinfallskegel.',
+      },
+      density: {
+        coverage: 'Bebauungsgrad',
+        parcel: 'Grundstück {area} m²',
+        builtUp: 'bebaut',
+        builtUpUnknown: 'bebaute Fläche: {missing}',
+        grossFloorArea: 'Bruttogeschossfläche (BGF)',
+      },
+      egress: {
+        totalWalkLength: 'Gehweglänge gesamt',
+      },
+      elevator: {
+        accessible: 'Barrierefreier Aufzug',
+        required: 'erforderlich',
+        notRequired: 'nicht erforderlich',
+        entranceLevel: 'Zugangsebene',
+        shaft: 'Aufzug',
+        // Geschossbezeichnung relativ zur Zugangsebene.
+        groundFloor: 'EG',
+        upperFloor: '{level}.OG',
+        basement: '{level}.KG',
+      },
+      energy: {
+        hwb: 'Heizwärmebedarf (HWB)',
+        hwbMarker: 'HWB {value}',
+        fgee: 'Gesamtenergieeffizienzfaktor (fGEE)',
+      },
+      fireAccess: {
+        routeWidth: 'Zufahrt Breite',
+        gateClearance: 'Durchfahrt lichte Höhe',
+        aufstellflaecheWidth: 'Aufstellfläche Breite',
+        aufstellflaecheLength: 'Aufstellfläche Länge',
+        facadeDistance: 'Abstand zur Fassade',
+        walkToEntrance: 'Weg zum Eingang',
+        parcel: 'Grundstück {width} × {depth} m',
+        route: 'ZUFAHRT',
+        building: 'Gebäude',
+        aufstellflaeche: 'Aufstellfläche',
+        entrance: 'Eingang',
+        street: 'STRASSE',
+        gebaeudeklasse: 'Gebäudeklasse',
+        walkTooFar: ' — der Weg zum Eingang überschreitet das zulässige Maß.',
+      },
+      fireCompartment: {
+        storey: 'Geschoss {label}',
+        plan: 'Grundriss',
+      },
+      guardrail: {
+        context: {
+          balkon: 'Balkon',
+          loggia: 'Loggia',
+          stiege: 'Stiege',
+          fenster: 'Fenster',
+          dachterrasse: 'Dachterrasse',
+        },
+        elevation: 'ANSICHT · {context}',
+        fallHeight: 'Absturzhöhe',
+        railHeight: 'Geländerhöhe',
+        maxOpening: 'max. Öffnungsweite',
+        bottomGap: 'Bodenspalt',
+        climbGuard: 'Kletterschutz 15–60 cm',
+        atLeast: ' → mind. {value}',
+        climbables:
+          'Horizontale, zum Aufklettern geeignete Elemente im Kletterschutzbereich (15–60 cm).',
+      },
+      parking: {
+        car: 'Kfz-Stellplätze',
+        bicycle: 'Fahrradabstellplätze',
+        // Abkürzung für Stellplätze, die als Einheit hinter der Zahl steht.
+        unit: 'Stpl.',
+        basis: 'Bemessung',
+        // Die Fehlmenge zählt: bei einem fehlenden Platz „1 fehlt“.
+        short:
+          '{provided} von {required} nachgewiesen — {missing, plural, one {# fehlt} other {# fehlen}}{overflow}',
+        surplus: '{provided} nachgewiesen — Überschuss +{surplus}{overflow}',
+        exact: '{provided} von {required} nachgewiesen{overflow}',
+        truncated: ' (Ausschnitt)',
+        legend: 'Gefüllt = nachgewiesen, gestrichelt = fehlend gegenüber der Anforderung.',
+      },
+      setback: {
+        side: {
+          front: 'vorne',
+          back: 'hinten',
+          left: 'links',
+          right: 'rechts',
+        },
+        distance: 'Abstand {side}',
+        parcel: 'Grundstück {width} × {depth} m',
+        building: 'Gebäude',
+        street: 'STRASSE',
+        tooClose: 'Mindestens ein Abstand unterschreitet das geforderte Maß.',
+      },
+      stair: {
+        section: 'SCHNITT',
+        plan: 'GRUNDRISS',
+        // Stufennotation, wie sie im Schnitt eines Einreichplans steht.
+        stepNotation: '{count} Stg · {rise}/{going} cm',
+        // Ohne Steigung und Auftritt bleibt nur die Anzahl.
+        stepCount: '{count, plural, one {# Stufe} other {# Stufen}}',
+      },
+      thermal: {
+        roof: 'Dach',
+        wall: 'Außenwand',
+        window: 'Fenster',
+        door: 'Tür',
+        floor: 'Boden',
+      },
+    },
   },
   agentPrompt: {
     awaitingOther: 'Piloti wartet auf {name}',

@@ -17,7 +17,7 @@ import {
   fitScale,
   fmtNum,
   LimitBar,
-  MISSING_LABEL,
+  missingLabel,
   SchematicCanvas,
   SchematicCard,
   statusColor,
@@ -25,6 +25,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchRect } from './rough'
+import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'
 
 interface DensityCheckCardProps {
@@ -86,7 +87,14 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
   reference,
   note,
 }) => {
-  const coverageCheck = deriveRatio(coverage, 'Bebauungsgrad', footprintArea, parcelArea, true)
+  const t = useTranslations('chat')
+  const coverageCheck = deriveRatio(
+    coverage,
+    t('cards.schematics.density.coverage'),
+    footprintArea,
+    parcelArea,
+    true
+  )
   const densityCheck = deriveRatio(density, 'GFZ', grossFloorArea, parcelArea, false)
 
   // Parcel box: area-true square-ish rectangle at 4:3, kept compact — the
@@ -117,7 +125,6 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
   return (
     <SchematicCard
       icon={Grid2x2}
-      eyebrow="Skizze"
       title={title}
       verdict={worstStatus([coverageCheck.status, densityCheck.status])}
       note={note}
@@ -127,7 +134,7 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
         {/* parcel, area to scale */}
         {sketchRect(px, py, PW, PD, 'density-parcel', { strokeWidth: 1.5 })}
         <SvgLabel x={px} y={py - 11} size={9}>
-          Grundstück {fmtNum(parcelArea)} m²
+          {t('cards.schematics.density.parcel', { area: fmtNum(parcelArea) })}
         </SvgLabel>
 
         {/* footprint, area ratio to scale — dashed placeholder when unknown */}
@@ -140,8 +147,15 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
               fillWeight: 0.5,
               hachureGap: 7,
             })}
-            <SvgLabel x={fMidX} y={fMidY - 6} anchor="middle" weight={600} fill="var(--foreground)" size={9.5}>
-              bebaut
+            <SvgLabel
+              x={fMidX}
+              y={fMidY - 6}
+              anchor="middle"
+              weight={600}
+              fill="var(--foreground)"
+              size={9.5}
+            >
+              {t('cards.schematics.density.builtUp')}
             </SvgLabel>
             <SvgLabel x={fMidX} y={fMidY + 7} anchor="middle" mono size={8.5}>
               {fmtNum(footprintArea ?? 0)} m²
@@ -173,7 +187,7 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
               strokeDasharray="5 4"
             />
             <SvgLabel x={fMidX} y={fMidY} anchor="middle" italic size={8.5}>
-              bebaute Fläche: {MISSING_LABEL}
+              {t('cards.schematics.density.builtUpUnknown', { missing: missingLabel(t) })}
             </SvgLabel>
           </g>
         )}
@@ -181,7 +195,8 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
 
       {grossFloorArea != null && (
         <p className="text-xs text-muted-foreground">
-          Bruttogeschossfläche (BGF): <span className="font-mono text-foreground">{fmtNum(grossFloorArea)} m²</span>
+          {t('cards.schematics.density.grossFloorArea')}:{' '}
+          <span className="font-mono text-foreground">{fmtNum(grossFloorArea)} m²</span>
         </p>
       )}
 

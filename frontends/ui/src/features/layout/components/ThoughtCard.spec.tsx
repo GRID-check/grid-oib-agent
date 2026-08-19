@@ -80,36 +80,21 @@ describe('ThoughtCard', () => {
   })
 
   describe('token usage', () => {
-    test('shows token usage when not streaming', () => {
-      render(
-        <ThoughtCard
-          thought={createThought({
-            isStreaming: false,
-            usage: { prompt_tokens: 100, completion_tokens: 50 },
-          })}
-        />
+    // Recorded on the thought, never rendered — see `ThoughtInfo.usage`. The
+    // count of our own tokens is not something a reader of the research can do
+    // anything with, and it has no unit they have ever been shown.
+    test('is never shown, streaming or finished', () => {
+      const usage = { prompt_tokens: 100, completion_tokens: 50 }
+
+      const { unmount } = render(
+        <ThoughtCard thought={createThought({ isStreaming: false, usage })} />
       )
+      expect(screen.queryByText(/100/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/\b50\b/)).not.toBeInTheDocument()
+      unmount()
 
-      expect(screen.getByText('Text volume: 100 in / 50 out')).toBeInTheDocument()
-    })
-
-    test('does not show token usage when streaming', () => {
-      render(
-        <ThoughtCard
-          thought={createThought({
-            isStreaming: true,
-            usage: { prompt_tokens: 100, completion_tokens: 50 },
-          })}
-        />
-      )
-
-      expect(screen.queryByText(/Text volume:/)).not.toBeInTheDocument()
-    })
-
-    test('does not show token usage when not provided', () => {
-      render(<ThoughtCard thought={createThought({ usage: undefined })} />)
-
-      expect(screen.queryByText(/Text volume:/)).not.toBeInTheDocument()
+      render(<ThoughtCard thought={createThought({ isStreaming: true, usage })} />)
+      expect(screen.queryByText(/100/)).not.toBeInTheDocument()
     })
   })
 

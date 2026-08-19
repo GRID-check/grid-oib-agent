@@ -35,6 +35,7 @@ import { CornerDownRight, MessageCircleQuestion } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useChatStore } from '@/features/chat/store'
+import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { FollowUpData } from '../schematics/types'
 
@@ -58,14 +59,19 @@ const CHIP = cn(
 )
 
 export const FollowUpsCard: FC<FollowUpsCardProps> = ({ title, items }) => {
+  const t = useTranslations('chat')
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
 
   return (
     <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-2.5 p-5 shadow-xs">
-      <SectionLabel icon={MessageCircleQuestion}>Weiterfragen</SectionLabel>
+      <SectionLabel icon={MessageCircleQuestion}>{t('cards.followUps.eyebrow')}</SectionLabel>
       {title && <p className="text-sm font-semibold text-foreground">{title}</p>}
 
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Weiterführende Fragen">
+      <div
+        className="flex flex-wrap items-center gap-2"
+        role="group"
+        aria-label={t('cards.followUps.groupAria')}
+      >
         {items.map((item, index) => (
           <button
             key={`${item.question}-${index}`}

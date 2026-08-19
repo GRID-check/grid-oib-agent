@@ -25,6 +25,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchRect } from './rough'
+import { useTranslations, type Translator } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData, SetbackSideData } from './types'
 
 interface SetbackPlanCardProps {
@@ -37,11 +38,17 @@ interface SetbackPlanCardProps {
   reference?: NormReferenceData | null
 }
 
-const SIDE_NAME: Record<SetbackSideData['side'], string> = {
-  front: 'vorne',
-  back: 'hinten',
-  left: 'links',
-  right: 'rechts',
+const sideName = (side: SetbackSideData['side'], t: Translator): string => {
+  switch (side) {
+    case 'front':
+      return t('cards.schematics.setback.side.front')
+    case 'back':
+      return t('cards.schematics.setback.side.back')
+    case 'left':
+      return t('cards.schematics.setback.side.left')
+    case 'right':
+      return t('cards.schematics.setback.side.right')
+  }
 }
 
 export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
@@ -53,6 +60,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
   sides,
   reference,
 }) => {
+  const t = useTranslations('chat')
   const side = (name: SetbackSideData['side']): SetbackSideData | undefined =>
     sides.find((s) => s.side === name)
   const left = side('left')
@@ -98,7 +106,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
   const viewH = streetY + 26
 
   const checks: DimensionCheckData[] = sides.map((s) => ({
-    label: `Abstand ${SIDE_NAME[s.side]}`,
+    label: t('cards.schematics.setback.distance', { side: sideName(s.side, t) }),
     value: s.actual_m,
     required: s.required_m,
     unit: 'm',
@@ -109,7 +117,6 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
   return (
     <SchematicCard
       icon={LandPlot}
-      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(sides.map((s) => s.status))}
       reference={reference}
@@ -118,7 +125,10 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
         {/* parcel */}
         {sketchRect(px, py, PW, PD, 'parcel', { strokeWidth: 1.5 })}
         <SvgLabel x={px} y={py - 11} size={9}>
-          Grundstück {fmtNum(parcelW)} × {fmtNum(parcelD)} m
+          {t('cards.schematics.setback.parcel', {
+            width: fmtNum(parcelW),
+            depth: fmtNum(parcelD),
+          })}
         </SvgLabel>
 
         {/* required-setback envelope, one edge per side */}
@@ -139,8 +149,15 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
           fillWeight: 0.5,
           hachureGap: 7,
         })}
-        <SvgLabel x={bMidX} y={bMidY - 6} anchor="middle" weight={600} fill="var(--foreground)" size={9.5}>
-          Gebäude
+        <SvgLabel
+          x={bMidX}
+          y={bMidY - 6}
+          anchor="middle"
+          weight={600}
+          fill="var(--foreground)"
+          size={9.5}
+        >
+          {t('cards.schematics.setback.building')}
         </SvgLabel>
         <SvgLabel x={bMidX} y={bMidY + 7} anchor="middle" mono size={8.5}>
           {fmtNum(buildingW)} × {fmtNum(buildingD)} m
@@ -153,7 +170,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
             y1={bMidY}
             x2={bx}
             y2={bMidY}
-            label={fmtDim(left.actual_m, 'm')}
+            label={fmtDim(left.actual_m, 'm', t)}
             status={left.status}
             labelOffset={-10}
             fontSize={9}
@@ -165,7 +182,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
             y1={bMidY}
             x2={px + PW}
             y2={bMidY}
-            label={fmtDim(right.actual_m, 'm')}
+            label={fmtDim(right.actual_m, 'm', t)}
             status={right.status}
             labelOffset={-10}
             fontSize={9}
@@ -177,7 +194,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
             y1={py}
             x2={bMidX}
             y2={by}
-            label={fmtDim(back.actual_m, 'm')}
+            label={fmtDim(back.actual_m, 'm', t)}
             status={back.status}
             labelOffset={back.actual_m == null ? -14 : -12}
             fontSize={9}
@@ -190,7 +207,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
             y1={by + BD}
             x2={bMidX}
             y2={py + PD}
-            label={fmtDim(front.actual_m, 'm')}
+            label={fmtDim(front.actual_m, 'm', t)}
             status={front.status}
             labelOffset={front.actual_m == null ? -14 : -12}
             fontSize={9}
@@ -202,7 +219,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
         <line x1={px - 14} y1={streetY} x2={px + PW + 14} y2={streetY} stroke="var(--muted-foreground)" strokeWidth={0.9} opacity={0.6} />
         <line x1={px - 14} y1={streetY + 10} x2={px + PW + 14} y2={streetY + 10} stroke="var(--muted-foreground)" strokeWidth={0.9} opacity={0.6} />
         <SvgLabel x={px + PW / 2} y={streetY + 5} anchor="middle" size={8} weight={600}>
-          STRASSE
+          {t('cards.schematics.setback.street')}
         </SvgLabel>
 
         {/* north arrow */}
@@ -233,7 +250,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
 
       {sides.some((s) => s.status === 'fail') && (
         <p className="text-xs font-medium" style={{ color: statusColor('fail') }}>
-          Mindestens ein Abstand unterschreitet das geforderte Maß.
+          {t('cards.schematics.setback.tooClose')}
         </p>
       )}
     </SchematicCard>

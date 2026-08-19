@@ -475,7 +475,6 @@ export const research: typeof en.research = {
     detailsWhenComplete: 'Details verfügbar, sobald die Generierung abgeschlossen ist',
     generating: 'Generiert',
     step: 'Schritt: {name}',
-    tokens: 'Textmenge: {prompt} Eingabe / {completion} Ausgabe',
     output: 'Ausgabe',
   },
 

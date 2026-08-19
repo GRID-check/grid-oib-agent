@@ -26,6 +26,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchCircle, sketchPath, sketchPolygon, sketchRect, type Point } from './rough'
+import { useTranslations, type Translator } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'
 
 type Shape = 'door' | 'ramp' | 'corridor' | 'turning_circle' | 'threshold' | 'parking_space'
@@ -56,7 +57,7 @@ const pick = (
     return unitIs != null && (d.unit ?? 'cm') === unitIs
   })
 
-const label = (d: DimensionCheckData): string => fmtDim(d.value, d.unit ?? 'cm')
+const label = (d: DimensionCheckData, t: Translator): string => fmtDim(d.value, d.unit ?? 'cm', t)
 
 /** Wall poché: dense hachure fill used for cut walls in plans/sections. */
 const POCHE = {
@@ -76,7 +77,7 @@ const HATCH_LIGHT = {
 
 /* ── door: front elevation, frame + leaf + handle ─────────────────────────── */
 
-const doorTemplate = (dims: DimensionCheckData[]): Template => {
+const doorTemplate = (dims: DimensionCheckData[], t: Translator): Template => {
   const widthDim = pick(dims, ['breite', 'durchgang', 'width'])
   const heightDim = pick(dims, ['höhe', 'hoehe', 'height'])
   const w = widthDim?.value ?? 90
@@ -141,7 +142,7 @@ const doorTemplate = (dims: DimensionCheckData[]): Template => {
               y1={floorY + 16}
               x2={ox + W}
               y2={floorY + 16}
-              label={label(widthDim)}
+              label={label(widthDim, t)}
               status={widthDim.status}
               labelOffset={9}
               fontSize={9.5}
@@ -157,7 +158,7 @@ const doorTemplate = (dims: DimensionCheckData[]): Template => {
               y1={floorY}
               x2={ox + W + f + 16}
               y2={oy}
-              label={label(heightDim)}
+              label={label(heightDim, t)}
               status={heightDim.status}
               labelOffset={13}
               fontSize={9.5}
@@ -174,7 +175,7 @@ const doorTemplate = (dims: DimensionCheckData[]): Template => {
 const toMetres = (d: DimensionCheckData | undefined): number | null =>
   d?.value == null ? null : (d.unit ?? 'cm') === 'cm' ? d.value / 100 : d.value
 
-const rampTemplate = (dims: DimensionCheckData[]): Template => {
+const rampTemplate = (dims: DimensionCheckData[], t: Translator): Template => {
   const slopeDim = pick(dims, ['neigung', 'gefälle', 'gefaelle', 'steigung'], '%')
   const lengthDim = pick(dims, ['länge', 'laenge', 'length'])
   const heightDim = pick(dims, ['höhe', 'hoehe', 'height', 'niveau'])
@@ -273,7 +274,7 @@ const rampTemplate = (dims: DimensionCheckData[]): Template => {
             italic={slopeDim.value == null}
             transform={`rotate(${angle} ${midX} ${midY - 10})`}
           >
-            {label(slopeDim)}
+            {label(slopeDim, t)}
           </SvgLabel>
         )}
         {/* length along the ground */}
@@ -286,7 +287,7 @@ const rampTemplate = (dims: DimensionCheckData[]): Template => {
               y1={groundY + 18}
               x2={endX}
               y2={groundY + 18}
-              label={label(lengthDim)}
+              label={label(lengthDim, t)}
               status={lengthDim.status}
               labelOffset={9}
               fontSize={9.5}
@@ -302,7 +303,7 @@ const rampTemplate = (dims: DimensionCheckData[]): Template => {
               y1={groundY}
               x2={endX + 16}
               y2={topY}
-              label={label(heightDim)}
+              label={label(heightDim, t)}
               status={heightDim.status}
               labelOffset={13}
               fontSize={9.5}
@@ -316,7 +317,7 @@ const rampTemplate = (dims: DimensionCheckData[]): Template => {
 
 /* ── corridor: plan with two cut walls and the clear width between ────────── */
 
-const corridorTemplate = (dims: DimensionCheckData[]): Template => {
+const corridorTemplate = (dims: DimensionCheckData[], t: Translator): Template => {
   const widthDim = pick(dims, ['breite', 'width'])
   const w = widthDim?.value ?? 120
   const wallCm = 25
@@ -357,7 +358,7 @@ const corridorTemplate = (dims: DimensionCheckData[]): Template => {
             y1={innerBottom}
             x2={dimX}
             y2={innerTop}
-            label={label(widthDim)}
+            label={label(widthDim, t)}
             status={widthDim.status}
             labelOffset={13}
             fontSize={9.5}
@@ -370,7 +371,7 @@ const corridorTemplate = (dims: DimensionCheckData[]): Template => {
 
 /* ── turning circle: wheelchair turning clearance in a room corner ────────── */
 
-const turningCircleTemplate = (dims: DimensionCheckData[]): Template => {
+const turningCircleTemplate = (dims: DimensionCheckData[], t: Translator): Template => {
   const diaDim = pick(dims, ['durchmesser', 'wende', 'breite', 'diameter'])
   const d = diaDim?.value ?? 150
   const k = fitScale(d, d, 168, 168)
@@ -406,7 +407,7 @@ const turningCircleTemplate = (dims: DimensionCheckData[]): Template => {
             y1={cy}
             x2={cx + D / 2}
             y2={cy}
-            label={`Ø ${label(diaDim)}`}
+            label={`Ø ${label(diaDim, t)}`}
             status={diaDim.status}
             labelOffset={-11}
             fontSize={9.5}
@@ -419,14 +420,14 @@ const turningCircleTemplate = (dims: DimensionCheckData[]): Template => {
 
 /* ── threshold: door-sill detail, centimetre scale ────────────────────────── */
 
-const thresholdTemplate = (dims: DimensionCheckData[]): Template => {
+const thresholdTemplate = (dims: DimensionCheckData[], t: Translator): Template => {
   const heightDim = pick(dims, ['höhe', 'hoehe', 'schwelle', 'height'])
-  const t = heightDim?.value ?? 2
-  const k = Math.min(fitScale(40, Math.max(t, 2) + 12, 250, 120), 9)
+  const sillCm = heightDim?.value ?? 2
+  const k = Math.min(fitScale(40, Math.max(sillCm, 2) + 12, 250, 120), 9)
   const x0 = 60
   const spanCm = 40
   const bumpW = 8 * k
-  const bumpH = Math.max(t, 0.4) * k
+  const bumpH = Math.max(sillCm, 0.4) * k
   const doorW = 4 * k
   const doorH = 9 * k
   const padTop = doorH + bumpH + 26
@@ -504,7 +505,7 @@ const thresholdTemplate = (dims: DimensionCheckData[]): Template => {
               y1={floorY}
               x2={bumpX + bumpW + 22}
               y2={floorY - bumpH}
-              label={label(heightDim)}
+              label={label(heightDim, t)}
               status={heightDim.status}
               labelOffset={13}
               fontSize={9.5}
@@ -518,7 +519,7 @@ const thresholdTemplate = (dims: DimensionCheckData[]): Template => {
 
 /* ── parking space: accessible bay in plan ────────────────────────────────── */
 
-const parkingTemplate = (dims: DimensionCheckData[]): Template => {
+const parkingTemplate = (dims: DimensionCheckData[], t: Translator): Template => {
   const widthDim = pick(dims, ['breite', 'width'])
   const lengthDim = pick(dims, ['länge', 'laenge', 'tiefe', 'length'])
   const w = widthDim?.value ?? 350
@@ -554,7 +555,7 @@ const parkingTemplate = (dims: DimensionCheckData[]): Template => {
               y1={y0 + H}
               x2={x0 - 16}
               y2={y0}
-              label={label(widthDim)}
+              label={label(widthDim, t)}
               status={widthDim.status}
               labelOffset={-13}
               fontSize={9.5}
@@ -570,7 +571,7 @@ const parkingTemplate = (dims: DimensionCheckData[]): Template => {
               y1={y0 + H + 18}
               x2={x0 + W}
               y2={y0 + H + 18}
-              label={label(lengthDim)}
+              label={label(lengthDim, t)}
               status={lengthDim.status}
               labelOffset={9}
               fontSize={9.5}
@@ -582,7 +583,7 @@ const parkingTemplate = (dims: DimensionCheckData[]): Template => {
   }
 }
 
-const TEMPLATES: Record<Shape, (dims: DimensionCheckData[]) => Template> = {
+const TEMPLATES: Record<Shape, (dims: DimensionCheckData[], t: Translator) => Template> = {
   door: doorTemplate,
   ramp: rampTemplate,
   corridor: corridorTemplate,
@@ -598,12 +599,12 @@ export const DimensionDiagramCard: FC<DimensionDiagramCardProps> = ({
   reference,
   note,
 }) => {
-  const template = (TEMPLATES[shape] ?? doorTemplate)(dimensions)
+  const t = useTranslations('chat')
+  const template = (TEMPLATES[shape] ?? doorTemplate)(dimensions, t)
 
   return (
     <SchematicCard
       icon={Ruler}
-      eyebrow="Skizze"
       title={title}
       verdict={worstStatus(dimensions.map((d) => d.status))}
       note={note}

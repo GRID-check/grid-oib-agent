@@ -24,6 +24,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { SectionLabel } from '@/components/ui/section-label'
+import { useTranslations } from '@/i18n'
 import { AskAboutChip } from './AskAboutChip'
 import { statusColor, statusLabel } from '../schematics/kit'
 import type { ChecklistItemData, DimStatus, NormReferenceData } from '../schematics/types'
@@ -52,6 +53,7 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const sameAsFooter = (ref: NormReferenceData): boolean =>
     reference != null && ref.document === reference.document && ref.section === reference.section
 
@@ -80,7 +82,7 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
               <Icon
                 className="mt-[3px] size-3.5 shrink-0"
                 style={{ color }}
-                aria-label={statusLabel(item.status)}
+                aria-label={statusLabel(item.status, t)}
               />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-[13.5px] leading-[1.6] text-default">{item.label}</span>
@@ -96,7 +98,7 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
                 {item.status !== 'pass' && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[11px] font-medium" style={{ color }}>
-                      {statusLabel(item.status)}
+                      {statusLabel(item.status, t)}
                     </span>
                     {item.status === 'needs_input' && (
                       <AskAboutChip subject={item.label} missing={item.detail} />

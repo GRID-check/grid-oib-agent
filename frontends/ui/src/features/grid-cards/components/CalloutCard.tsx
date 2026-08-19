@@ -24,6 +24,7 @@ import { useState, type FC } from 'react'
 import { CalendarClock, ChevronDown, CircleAlert, Info, Lightbulb, type LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { CalloutKind } from '../schematics/types'
 
@@ -36,7 +37,7 @@ interface CalloutCardProps {
 
 interface CalloutTone {
   /** The kind in words — the carrier of the signal; the tint only reinforces it. */
-  label: string
+  label: (t: Translator) => string
   icon: LucideIcon
   /** Ink for the icon and the eyebrow. */
   ink: string
@@ -47,13 +48,38 @@ interface CalloutTone {
 }
 
 const TONES: Record<CalloutKind, CalloutTone> = {
-  hinweis: { label: 'Hinweis', icon: Info, ink: 'text-info', well: 'bg-info-subtle', edge: 'bg-info' },
-  achtung: { label: 'Achtung', icon: CircleAlert, ink: 'text-error', well: 'bg-danger-subtle', edge: 'bg-danger' },
-  frist: { label: 'Frist', icon: CalendarClock, ink: 'text-warning', well: 'bg-warning-subtle', edge: 'bg-warning' },
-  tipp: { label: 'Tipp', icon: Lightbulb, ink: 'text-success', well: 'bg-success-subtle', edge: 'bg-success' },
+  hinweis: {
+    label: (t) => t('cards.callout.hinweis'),
+    icon: Info,
+    ink: 'text-info',
+    well: 'bg-info-subtle',
+    edge: 'bg-info',
+  },
+  achtung: {
+    label: (t) => t('cards.callout.achtung'),
+    icon: CircleAlert,
+    ink: 'text-error',
+    well: 'bg-danger-subtle',
+    edge: 'bg-danger',
+  },
+  frist: {
+    label: (t) => t('cards.callout.frist'),
+    icon: CalendarClock,
+    ink: 'text-warning',
+    well: 'bg-warning-subtle',
+    edge: 'bg-warning',
+  },
+  tipp: {
+    label: (t) => t('cards.callout.tipp'),
+    icon: Lightbulb,
+    ink: 'text-success',
+    well: 'bg-success-subtle',
+    edge: 'bg-success',
+  },
 }
 
 export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail }) => {
+  const t = useTranslations('chat')
   const [open, setOpen] = useState(false)
   // `?? TONES.hinweis`, because `kind` arrives through a `z.any()`-typed union
   // member: an unknown value must render as a neutral remark rather than crash
@@ -82,7 +108,9 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
                 carries the kind's ink: SectionLabel hard-codes the muted one
                 and `cn` cannot dedupe it against a project-custom `text-*`
                 utility, so the two would fight on CSS order. */}
-            <span className={cn('text-[10.5px] font-medium uppercase tracking-wider', tone.ink)}>{tone.label}</span>
+            <span className={cn('text-[10.5px] font-medium uppercase tracking-wider', tone.ink)}>
+              {tone.label(t)}
+            </span>
             {title && <p className="text-sm font-semibold text-foreground">{title}</p>}
           </div>
 
@@ -98,7 +126,7 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
                   'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
                 )}
               >
-                {open ? 'Weniger' : 'Mehr dazu'}
+                {open ? t('cards.callout.less') : t('cards.callout.more')}
                 <ChevronDown
                   className={cn(
                     'size-3.5',

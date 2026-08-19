@@ -461,7 +461,6 @@ export const research = {
     detailsWhenComplete: 'Details available when generation completes',
     generating: 'Generating',
     step: 'Step: {name}',
-    tokens: 'Text volume: {prompt} in / {completion} out',
     output: 'Output',
   },
 

@@ -660,7 +660,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             timestamp floating outside the card — same information, one
             hairline, no band-on-band clutter. The sources row must not draw
             its own divider here (the body hairline already separates), so it
-            takes withDivider={false}. */}
+            takes withDivider={false}. On a phone the meta row reflows rather
+            than growing a second band: the acting half travels as one piece. */}
         <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
           <AnswerSourcesRow
             documents={documents}
@@ -693,16 +694,38 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               )}
               <MemoryNotedChip items={memoryItems} />
               {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
-              {/* Copy the answer out — markdown, with or without its sources
-                  written out. Before the thumbs: "take this with you" is what
-                  the reader wants first; rating it is the afterthought. */}
-              {hasAnswerActions && (
-                <AnswerActions content={content} body={body} documents={documents} />
-              )}
-              {hasFeedback && messageId && (
-                <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
-              )}
-              {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
+              {/* The acting half of the row — copy, thumbs, time — as ONE flex
+                  item below `sm`, so the row can only ever break between the
+                  pills and this cluster, never inside it.
+
+                  These used to be three loose items in a wrapping row, and at
+                  phone width the break landed between the copy buttons and the
+                  thumbs: two controls drawn in deliberately identical language
+                  (24px ghost glyph, muted at rest, `touch-target`) ended up on
+                  different lines, reading as two unrelated affordances instead
+                  of one footnote strip. `w-full` also right-aligns the cluster
+                  on its own line, so the actions keep the corner they occupy on
+                  a desktop.
+
+                  A second ROW is not the fix: the footer is deliberately one
+                  tinted zone under a single hairline, and giving the actions a
+                  band of their own puts back the band-on-band stack this footer
+                  was consolidated to remove. This is the same row, reflowed.
+                  Above `sm` the wrapper is `display: contents` — not a box at
+                  all — so the layout there, including the way an open feedback
+                  disclosure claims the row's full width, is untouched. */}
+              <div className="contents max-sm:flex max-sm:w-full max-sm:flex-nowrap max-sm:items-center max-sm:justify-end max-sm:gap-2">
+                {/* Copy the answer out — markdown, with or without its sources
+                    written out. Before the thumbs: "take this with you" is what
+                    the reader wants first; rating it is the afterthought. */}
+                {hasAnswerActions && (
+                  <AnswerActions content={content} body={body} documents={documents} />
+                )}
+                {hasFeedback && messageId && (
+                  <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+                )}
+                {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
+              </div>
             </div>
           )}
         </div>

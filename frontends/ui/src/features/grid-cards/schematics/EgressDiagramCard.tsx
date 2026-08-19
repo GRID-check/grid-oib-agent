@@ -22,6 +22,7 @@ import {
   SvgLabel,
 } from './kit'
 import { sketchPath, type Point } from './rough'
+import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, EgressSegmentData, NormReferenceData } from './types'
 
 interface EgressDiagramCardProps {
@@ -41,6 +42,7 @@ export const EgressDiagramCard: FC<EgressDiagramCardProps> = ({
   exit_label,
   reference,
 }) => {
+  const t = useTranslations('chat')
   // Trace the path in metres: start heading +x; a "left" turn after a run is
   // counter-clockwise when walking (−y with SVG's y-down), "right" clockwise.
   let dirX = 1
@@ -109,13 +111,7 @@ export const EgressDiagramCard: FC<EgressDiagramCardProps> = ({
   }
 
   return (
-    <SchematicCard
-      icon={Route}
-      eyebrow="Skizze"
-      title={title}
-      verdict={total_length.status}
-      reference={reference}
-    >
+    <SchematicCard icon={Route} title={title} verdict={total_length.status} reference={reference}>
       <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* corridor underlay */}
         <polyline
@@ -183,7 +179,12 @@ export const EgressDiagramCard: FC<EgressDiagramCardProps> = ({
         )}
       </SchematicCanvas>
 
-      <LimitBar check={{ ...totalCheck, label: totalCheck.label || 'Gehweglänge gesamt' }} />
+      <LimitBar
+        check={{
+          ...totalCheck,
+          label: totalCheck.label || t('cards.schematics.egress.totalWalkLength'),
+        }}
+      />
     </SchematicCard>
   )
 }

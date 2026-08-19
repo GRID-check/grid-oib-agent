@@ -13,6 +13,7 @@ import { type FC } from 'react'
 import { Gavel } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
+import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { NormRefFooter } from '../schematics/kit'
 import type { NormReferenceData } from '../schematics/types'
@@ -29,10 +30,19 @@ interface VerdictHeaderCardProps {
 
 /** German label + subtle tone per confidence level. Colour never travels alone
  * — the word carries the signal, the tint only reinforces it. */
-const CONFIDENCE: Record<Confidence, { label: string; className: string }> = {
-  high: { label: 'hohe Sicherheit', className: 'bg-success-subtle text-success' },
-  medium: { label: 'mittlere Sicherheit', className: 'bg-warning-subtle text-warning' },
-  low: { label: 'geringe Sicherheit', className: 'bg-muted text-muted-foreground' },
+const CONFIDENCE: Record<Confidence, { label: (t: Translator) => string; className: string }> = {
+  high: {
+    label: (t) => t('cards.verdictHeader.confidenceHigh'),
+    className: 'bg-success-subtle text-success',
+  },
+  medium: {
+    label: (t) => t('cards.verdictHeader.confidenceMedium'),
+    className: 'bg-warning-subtle text-warning',
+  },
+  low: {
+    label: (t) => t('cards.verdictHeader.confidenceLow'),
+    className: 'bg-muted text-muted-foreground',
+  },
 }
 
 export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
@@ -42,6 +52,7 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
   confidence,
   confidence_reason,
 }) => {
+  const t = useTranslations('chat')
   const conf = confidence ? CONFIDENCE[confidence] : null
 
   return (
@@ -59,7 +70,7 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
               conf.className,
             )}
           >
-            {conf.label}
+            {conf.label(t)}
           </span>
         )}
       </div>
