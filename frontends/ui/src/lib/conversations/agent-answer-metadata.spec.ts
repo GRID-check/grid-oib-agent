@@ -171,6 +171,53 @@ describe('provenanceFromBackendMetadata', () => {
     })
   })
 
+  it('carries the marks the run left on its own answer', () => {
+    // The jobs runner is the ONLY writer a deep-research answer ever has, so
+    // these four keys are not a backup of a live turn — they are the whole
+    // record. Undecoded, a salvaged, partially researched report reopened
+    // tomorrow rendered identically to a complete one.
+    expect(
+      provenanceFromBackendMetadata({
+        research_truncated: true,
+        truncation_reason: 'wall_clock',
+        degraded_reasons: ['no_valid_citations'],
+        citations_removed: { count: 2, reasons: ['url_not_in_registry'] },
+      })
+    ).toEqual({
+      researchTruncated: true,
+      truncationReason: 'wall_clock',
+      degradedReasons: ['no_valid_citations'],
+      citationsRemoved: { count: 2, reasons: ['url_not_in_registry'] },
+    })
+  })
+
+  it('reads only literal true as a cutoff', () => {
+    // Presence IS the fact. `false` on the row is one more default to
+    // interpret, and telling a reader their research was cut off when nothing
+    // recorded a cutoff is worse than telling them nothing.
+    expect(
+      provenanceFromBackendMetadata({ research_truncated: false, truncation_reason: 'wall_clock' })
+    ).toEqual({ truncationReason: 'wall_clock' })
+  })
+
+  it('reads the cause even when the flag was lost, matching the backend extractor', () => {
+    // `jobs/runner._extract_answer_transparency` reads the two independently: a
+    // state that knows WHY it stopped still knows something true.
+    expect(provenanceFromBackendMetadata({ truncation_reason: 'step_limit' })).toEqual({
+      truncationReason: 'step_limit',
+    })
+  })
+
+  it('drops a token it has no words for rather than storing it for a renderer', () => {
+    expect(
+      provenanceFromBackendMetadata({
+        research_truncated: true,
+        truncation_reason: 'tool_budget',
+        degraded_reasons: ['quantum_flux', 'no_report_file'],
+      })
+    ).toEqual({ researchTruncated: true, degradedReasons: ['no_report_file'] })
+  })
+
   it('yields nothing when the turn reported nothing', () => {
     expect(provenanceFromBackendMetadata({ cards: [] })).toBeNull()
   })
@@ -212,16 +259,47 @@ describe('normalizeAgentAnswerMetadata', () => {
   })
 
   it('removes the wire spelling so the column holds one dialect', () => {
-    const result = normalizeAgentAnswerMetadata(backendMetadata) ?? {}
+    const result =
+      normalizeAgentAnswerMetadata({
+        ...backendMetadata,
+        research_truncated: true,
+        truncation_reason: 'wall_clock',
+        degraded_reasons: ['no_report_file'],
+        citations_removed: { count: 1, reasons: ['unverifiable'] },
+      }) ?? {}
 
     for (const key of [
       'sources',
       'answer_confidence',
       'answer_confidence_reason',
       'deep_research_job_id',
+      'research_truncated',
+      'truncation_reason',
+      'degraded_reasons',
+      'citations_removed',
     ]) {
       expect(result).not.toHaveProperty(key)
     }
+  })
+
+  it("normalizes a row that carries ONLY the run's marks", () => {
+    // The row a cut-off deep run writes has no confidence and no sources to
+    // translate. If those were what triggered the translation, this row — the
+    // one that most needs it — would pass through untouched and the answer
+    // would reopen looking finished.
+    const result = normalizeAgentAnswerMetadata({
+      messageType: 'agent_response',
+      research_truncated: true,
+      truncation_reason: 'wall_clock',
+      degraded_reasons: ['no_valid_citations'],
+    })
+
+    expect(result?.provenance).toEqual({
+      researchTruncated: true,
+      truncationReason: 'wall_clock',
+      degradedReasons: ['no_valid_citations'],
+    })
+    expect(result?.messageType).toBe('agent_response')
   })
 
   it('never overwrites what the browser wrote — it saw the whole turn', () => {

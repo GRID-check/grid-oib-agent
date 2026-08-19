@@ -170,3 +170,50 @@ describe('the truncation flag survives storage', () => {
     expect(sanitizeProvenance({ researchTruncated: false })).toBeNull()
   })
 })
+
+/**
+ * The cutoff's cause and its cost, on the way into the column.
+ *
+ * These arrive as stable TOKENS and are the one part of the provenance the
+ * reader is shown as words the frontend chose. So the column is where the
+ * allow-list belongs: a token no build has a sentence for must not sit in a row
+ * waiting for a renderer that will fall back to printing the key path.
+ */
+describe('why the run stopped, and what it cost', () => {
+  it('keeps the cause beside the flag', () => {
+    expect(
+      sanitizeProvenance({ researchTruncated: true, truncationReason: 'wall_clock' })
+    ).toEqual({ researchTruncated: true, truncationReason: 'wall_clock' })
+    expect(sanitizeProvenance({ truncationReason: 'step_limit' })).toEqual({
+      truncationReason: 'step_limit',
+    })
+  })
+
+  it("refuses a cause outside the backend's own vocabulary", () => {
+    expect(sanitizeProvenance({ truncationReason: 'because_it_felt_like_it' })).toBeNull()
+    expect(sanitizeProvenance({ truncationReason: 42 })).toBeNull()
+  })
+
+  it('keeps the degradations, de-duplicated', () => {
+    expect(
+      sanitizeProvenance({
+        degradedReasons: ['no_report_file', 'no_valid_citations', 'no_report_file'],
+      })
+    ).toEqual({ degradedReasons: ['no_report_file', 'no_valid_citations'] })
+  })
+
+  it('drops an unknown degradation without losing the ones beside it', () => {
+    expect(sanitizeProvenance({ degradedReasons: ['quantum_flux', 'no_report_file'] })).toEqual({
+      degradedReasons: ['no_report_file'],
+    })
+  })
+
+  it('writes no key for an empty list — that is not a claim', () => {
+    // "Degraded in zero ways" is the ordinary case. Stored as `[]` it becomes a
+    // statement a later reader has to interpret, and the ordinary case is the
+    // one that must cost nothing.
+    expect(sanitizeProvenance({ degradedReasons: [] })).toBeNull()
+    expect(sanitizeProvenance({ degradedReasons: ['quantum_flux'] })).toBeNull()
+    expect(sanitizeProvenance({ degradedReasons: 'no_report_file' })).toBeNull()
+  })
+})

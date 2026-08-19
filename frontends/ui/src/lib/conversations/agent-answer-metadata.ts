@@ -12,7 +12,9 @@
  *     or when the jobs runner materialises a finished run. That writer posts the
  *     wire spelling it already holds: `sources`, `answer_confidence`,
  *     `answer_confidence_reason`, `answer_confidence_capped_reason`,
- *     `deep_research_job_id`.
+ *     `deep_research_job_id`, and the marks the run left on its own answer
+ *     (`research_truncated`, `truncation_reason`, `degraded_reasons`,
+ *     `citations_removed`).
  *
  * Both shapes landed in the same jsonb column, and the reader
  * (`features/chat/lib/server-message-mapper`) only ever looked for the first
@@ -64,6 +66,17 @@ const BACKEND_ANSWER_KEYS = [
   'answer_confidence_reason',
   'answer_confidence_capped_reason',
   'deep_research_job_id',
+  // The marks a run leaves on its own answer. These arrive on the row written
+  // by the JOBS runner (`jobs/conversation_output.write_job_turn`), which is
+  // the only writer a deep-research turn ever has: nobody holds a socket for a
+  // job that finishes tomorrow. Left undecoded, a salvaged, partially
+  // researched report reopened from history rendered identically to a complete
+  // one — the answer said nothing, because the only copy of the fact was a key
+  // no reader looked at.
+  'research_truncated',
+  'truncation_reason',
+  'degraded_reasons',
+  'citations_removed',
 ] as const
 
 /**
@@ -215,7 +228,8 @@ export function encodeBackendSources(input: unknown): StoredCitations | undefine
 }
 
 /**
- * Read the answer's self-assessment off the backend's metadata.
+ * Read the answer's self-assessment — and the marks its run left on it — off the
+ * backend's metadata.
  *
  * The level and its reason travel TOGETHER on purpose. The backend's marker is
  * `[CONFIDENCE:level | reason]` (`shallow_researcher/markers.py`) and the reason
@@ -225,7 +239,14 @@ export function encodeBackendSources(input: unknown): StoredCitations | undefine
  * records, so both halves are mapped in one place and neither can be added
  * without the other being considered.
  *
- * Bounded by {@link sanitizeProvenance}, which owns the caps for this column.
+ * The transparency marks below travel the same way and for the same reason: a
+ * cutoff, its cause and the degradations it caused are one statement, and half
+ * of it is worse than none — "the search stopped early" with no cause reads as
+ * an apology, and a degradation with no cutoff reads as an ordinary bad answer.
+ *
+ * Bounded by {@link sanitizeProvenance}, which owns the caps AND the token
+ * allow-lists for this column: a reason token this build has no sentence for is
+ * dropped there, so it can never reach a renderer as a raw identifier.
  */
 export function provenanceFromBackendMetadata(
   metadata: Record<string, unknown>
@@ -246,6 +267,27 @@ export function provenanceFromBackendMetadata(
   // what produced it.
   if (typeof metadata.deep_research_job_id === 'string') {
     candidate.deepResearchJobId = metadata.deep_research_job_id
+  }
+
+  // ── What the run cost the answer ────────────────────────────────────────
+  // Presence IS the fact: `=== true`, so a `false` on the wire is read as
+  // "nothing recorded a cutoff" rather than as a second way of saying it. The
+  // reason and the degradations are read INDEPENDENTLY of the flag, matching
+  // the backend's own extractor — a state that lost the boolean but kept why it
+  // stopped still knows something true, and dropping it here would make the
+  // reopened thread quieter than the run actually was.
+  if (metadata.research_truncated === true) candidate.researchTruncated = true
+  if (typeof metadata.truncation_reason === 'string') {
+    candidate.truncationReason = metadata.truncation_reason
+  }
+  if (Array.isArray(metadata.degraded_reasons)) {
+    candidate.degradedReasons = metadata.degraded_reasons
+  }
+  // The citation-verification summary (`{count, reasons[]}`). It rode the live
+  // socket to shallow answers from the start and never reached a deep one,
+  // because a deep answer has no live socket to ride.
+  if (isRecord(metadata.citations_removed)) {
+    candidate.citationsRemoved = metadata.citations_removed
   }
 
   // The enums are re-checked there, not here: `sanitizeProvenance` is the single

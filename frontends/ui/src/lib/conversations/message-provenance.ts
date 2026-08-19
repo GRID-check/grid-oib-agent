@@ -68,6 +68,33 @@ export interface StoredThinkingStep {
  */
 export type AnswerConfidenceCappedReason = (typeof CAPPED_REASONS)[number]
 
+/**
+ * WHY a deep-research run stopped before it was finished, as the backend's own
+ * stable token (`deep_researcher/models/state.py`):
+ *
+ * - `wall_clock` the run reached its time budget.
+ * - `step_limit`  the orchestrator reached its step ceiling.
+ *
+ * The token is never shown; the frontend owns the words (see the `answerSources`
+ * dictionary group). Allow-listed here for the same reason `CAPPED_REASONS` is:
+ * this is read back out of a jsonb column that a newer backend may have written,
+ * and a token this build has no sentence for must not reach a renderer.
+ */
+export type TruncationReason = (typeof TRUNCATION_REASONS)[number]
+
+/**
+ * Ways a salvaged answer is weaker than one from a clean run — again stable
+ * tokens, again never shown raw:
+ *
+ * - `no_report_file`     the run produced no persisted report; the answer in the
+ *   thread is the only copy.
+ * - `no_valid_citations` nothing the answer cited survived verification.
+ *
+ * An EMPTY list is not a claim of "degraded in zero ways" — it is the ordinary
+ * case, and it is stored as no key at all.
+ */
+export type AnswerDegradedReason = (typeof ANSWER_DEGRADED_REASONS)[number]
+
 export interface MessageProvenance {
   thinkingSteps?: StoredThinkingStep[]
   answerConfidence?: 'low' | 'medium' | 'high'
@@ -84,6 +111,19 @@ export interface MessageProvenance {
    * answer said.
    */
   researchTruncated?: true
+  /**
+   * Why it was cut off. Stored beside the flag rather than folded into it: the
+   * flag is what the reader is told, the reason is what turns "it stopped" into
+   * "it ran out of time", and a reopened thread that kept only the first half
+   * would show less than the live turn did.
+   */
+  truncationReason?: TruncationReason
+  /**
+   * How the salvaged answer is weaker than a clean one. A list because a run
+   * can degrade in more than one way at once, and absent — never `[]` — when it
+   * degraded in none.
+   */
+  degradedReasons?: AnswerDegradedReason[]
   /**
    * The deep-research job, so a colleague can fetch the report rather than be
    * handed a copy of it. The POINTER is small and the report is large and already
@@ -112,6 +152,10 @@ export const CAPPED_REASONS = [
   'citation_fallback',
 ] as const
 const ROUTING_DECISIONS = ['meta', 'shallow', 'deep', 'error'] as const
+/** The cutoff causes the deep researcher records. See {@link TruncationReason}. */
+export const TRUNCATION_REASONS = ['wall_clock', 'step_limit'] as const
+/** The degradations it records. See {@link AnswerDegradedReason}. */
+export const ANSWER_DEGRADED_REASONS = ['no_report_file', 'no_valid_citations'] as const
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -203,6 +247,27 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
   // `=== true`, not truthiness: this comes off untrusted stored JSON, and the
   // field is a fact the reader is shown. A stray "yes" must not become one.
   if (input.researchTruncated === true) out.researchTruncated = true
+
+  // The reason survives on its own, without the flag: a row that recorded WHY
+  // the run stopped but lost the boolean still knows something true, and the
+  // backend reads the two independently for exactly that reason
+  // (`jobs/runner._extract_answer_transparency`).
+  const truncationReason = oneOf(input.truncationReason, TRUNCATION_REASONS)
+  if (truncationReason) out.truncationReason = truncationReason
+
+  if (Array.isArray(input.degradedReasons)) {
+    // De-duplicated: two tokens that say the same thing would put the same
+    // sentence under the answer twice. An empty result stores no key — the
+    // ordinary case is "not degraded", and `[]` would read as a claim about it.
+    const reasons = [
+      ...new Set(
+        input.degradedReasons
+          .map((reason) => oneOf(reason, ANSWER_DEGRADED_REASONS))
+          .filter((reason): reason is AnswerDegradedReason => reason !== undefined)
+      ),
+    ]
+    if (reasons.length > 0) out.degradedReasons = reasons
+  }
 
   const jobId = cap(input.deepResearchJobId, 128)
   if (jobId) out.deepResearchJobId = jobId

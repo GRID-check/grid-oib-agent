@@ -165,6 +165,39 @@ export const chat: typeof en.chat = {
     // Derselbe Sachverhalt, wenn die Antwort gar keine Quellen nennt: der Satz
     // oben verspräche „die bis dahin gefundenen Belege“, die es nicht gibt.
     researchTruncatedWithoutSources: 'Recherche vorzeitig beendet, bevor Belege gefunden wurden',
+    // WOMIT sie endete — als kurzer Zusatz in Klammern hinter dem jeweils
+    // zutreffenden Satz oben. Dass vorzeitig Schluss war, ist der Sachverhalt;
+    // woran es lag, entscheidet, ob eine erneute Anfrage etwas bringt.
+    //
+    // Schlüssel ist wörtlich das stabile Token des Backends, damit die Zuordnung
+    // gegen den Erzeuger prüfbar bleibt. Ein Token ohne Eintrag wird gar nicht
+    // gerendert: `wall_clock` darf nie beim Leser ankommen.
+    truncationReason: {
+      wall_clock: 'Zeitgrenze erreicht',
+      step_limit: 'Schrittgrenze erreicht',
+    },
+    // Wodurch diese gerettete Antwort schwächer ist als die eines sauberen
+    // Laufs. Gleiches Register wie oben — leise, sachlich, über die BELEGLAGE —
+    // aber jede Zeile nennt etwas, woran der Leser anknüpfen kann; deshalb
+    // stehen sie da und nicht im Abbruchsatz mit drin.
+    degradedReason: {
+      no_report_file:
+        'Kein Recherchebericht abgelegt — diese Antwort ist die einzige Aufzeichnung des Laufs',
+      no_valid_citations:
+        'Keine Quellenangabe hielt der Prüfung stand — bitte prüfen Sie die Angaben vor der Verwendung selbst',
+    },
+    // Die Gründe der Zitatprüfung, in der Sprache des Lesers. Das Backend nennt
+    // sie als Token (`url_not_in_registry`, …), und genau so standen sie bisher
+    // im Tooltip; ein nicht zugeordnetes Token entfällt jetzt, statt roh
+    // angezeigt zu werden.
+    citationsRemovedReason: {
+      url_not_in_registry: 'URL nicht unter den abgerufenen Quellen',
+      citation_key_not_in_registry: 'Dokument nicht unter den abgerufenen Quellen',
+      unverifiable: 'Kein prüfbares Ziel in der Quellenangabe',
+      duplicate: 'Doppelte Quellenangabe',
+      ungrounded: 'Antwort nicht auf eine Quellenangabe gestützt',
+      quote_unverified: 'Zitat nicht verifizierbar',
+    },
   },
   // Die Antwort aus Piloti herausbekommen — für Prüfvermerk, Mail, Einreichung.
   // Zwei Icon-Schaltflächen in der Metazeile der Antwort; die zweite gibt es nur,

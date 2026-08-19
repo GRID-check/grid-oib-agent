@@ -1,4 +1,6 @@
 export { GridCards } from './components/GridCards'
+export { useCardOwnerMessageId } from './hooks/use-card-owner'
+export { findCardOwnerMessageId } from './card-owner'
 export { SummaryCard } from './components/SummaryCard'
 export { LegalBasisCard } from './components/LegalBasisCard'
 export { RequirementChecklistCard } from './components/RequirementChecklistCard'

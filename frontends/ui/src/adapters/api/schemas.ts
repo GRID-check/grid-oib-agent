@@ -364,6 +364,17 @@ export const NATSystemResponseMessageSchema = z.object({
   // `false` on the wire would be one more default to interpret. Orthogonal to
   // `answer_confidence`, which grades whether the claims are sourced.
   research_truncated: z.literal(true).optional().catch(undefined),
+  // WHY it stopped, as a stable token (`wall_clock` / `step_limit`). A plain
+  // string rather than an enum: the words belong to the frontend dictionary, so
+  // a token this build has no sentence for renders NOTHING — and an enum here
+  // would drop it one layer earlier for no reader-visible difference while
+  // making every new backend token a schema change too.
+  truncation_reason: z.string().optional().catch(undefined),
+  // Ways this answer is weaker than a clean run, as stable tokens
+  // (`no_report_file`, `no_valid_citations`). `z.array(z.string())` for the same
+  // reason: an enum would fail the whole array over one unknown entry, and
+  // `.catch(undefined)` would then discard the known ones with it.
+  degraded_reasons: z.array(z.string()).optional().catch(undefined),
   // Marks the answer text as a queue-rejection notice (NOT a research answer).
   job_admission_rejected: z.literal(true).optional().catch(undefined),
   // Retry hint (seconds) — only alongside job_admission_rejected.

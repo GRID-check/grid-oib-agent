@@ -33,7 +33,7 @@ import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { useChatStore } from '@/features/chat'
 import { ReportSourcePreviewChip, SourcePreviewChip } from '@/features/chat/components/SourcePreview'
 import { buildCitationModel, refKey, type CitationRef } from '@/features/chat/lib/citations'
-import { GridCards } from '@/features/grid-cards'
+import { GridCards, useCardOwnerMessageId } from '@/features/grid-cards'
 import { ReportPreviewSplit } from '@/features/report-preview'
 import { useTranslations } from '@/i18n'
 import {
@@ -151,6 +151,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
     currentStatus,
     deepResearchCards,
     deepResearchCitations,
+    deepResearchJobId,
     projectId,
   } = useChatStore(
     useShallow((s) => ({
@@ -160,12 +161,36 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
       currentStatus: s.currentStatus,
       deepResearchCards: s.deepResearchCards,
       deepResearchCitations: s.deepResearchCitations,
+      deepResearchJobId: s.deepResearchJobId,
       projectId: s.projectId,
     }))
   )
 
   const reportContentStr = typeof reportContent === 'string' ? reportContent : ''
   const cards = deepResearchCards ?? []
+
+  /**
+   * The message these report cards belong to.
+   *
+   * The cards on this panel come from the finished job's output, but they are
+   * not homeless: `write_job_turn` writes the run into its conversation as an
+   * assistant message carrying the SAME `metadata.cards`, and that message is
+   * what the thread draws them from. So the answer to "who owns this card" is
+   * looked up rather than invented — `useCardOwnerMessageId` matches the run
+   * and the card array against the loaded threads, which is what makes a
+   * decision made here and the same decision seen in the thread ONE fact
+   * instead of two (`features/grid-cards/card-owner.ts` carries the rule and
+   * why byte-identical cards are part of it).
+   *
+   * It can come back null — a run still in flight, a thread not loaded on this
+   * device, a job with no conversation at all. `decisionsMustPersist` is how
+   * this panel says what to do then: an interactive card draws WITHOUT its
+   * buttons rather than accepting an answer that has nowhere to go. That is the
+   * trade this surface wants — neither endpoint behind those buttons is
+   * idempotent, so a forgotten Yes is a duplicated memory row the next time the
+   * card is offered.
+   */
+  const cardOwnerMessageId = useCardOwnerMessageId(deepResearchJobId, cards)
   const isEmpty = !reportContentStr.trim()
   const isGeneratingReport = isStreaming && currentStatus === 'writing'
   const isResearchNotes = reportContentCategory === 'research_notes'
@@ -331,16 +356,19 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
             /* Final report: full prominence, with Grid cards when available */
             <div className="flex flex-1 flex-col gap-4">
               <ReportOutline entries={outline} scrollRootRef={scrollRef} />
-              {/* No `messageId`: report cards are rendered from transient
-                  `deepResearchCards`, which has no reliable owning message —
-                  `activeDeepResearchMessageId` is null after a session switch +
-                  "View report", and `restoreSessionState` re-points it at the
-                  LAST agent_response, which may be an unrelated later answer.
-                  Binding decisions to it would record them onto the wrong
-                  message, so an interactive card here keeps the old local-state
-                  behaviour until the report owns a stable message id.
-                  See ADR-0030 §Open Questions. */}
-              {cards.length > 0 && <GridCards cards={cards} projectId={projectId} />}
+              {/* `messageId` is the run's own answer message, resolved above —
+                  never `activeDeepResearchMessageId`, which ADR-0030 rightly
+                  refused to trust: it is null after a session switch + "View
+                  report", and `restoreSessionState` re-points it at the LAST
+                  agent_response, which may be an unrelated later answer. */}
+              {cards.length > 0 && (
+                <GridCards
+                  cards={cards}
+                  projectId={projectId}
+                  messageId={cardOwnerMessageId ?? undefined}
+                  decisionsMustPersist
+                />
+              )}
               {/* The outline bar is sticky at the top of this scroll box, so a
                   heading jumped to with `block: 'start'` would land underneath
                   it. The renderer's own `scroll-mt-4` is sized for a container

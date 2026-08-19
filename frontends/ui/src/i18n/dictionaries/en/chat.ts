@@ -176,6 +176,39 @@ export const chat = {
     // The same fact for an answer that cites nothing: the sentence above would
     // promise evidence that is not there.
     researchTruncatedWithoutSources: 'The search stopped before it was finished, and before it had found anything',
+    // WHY it stopped, appended to whichever sentence above applies as a short
+    // parenthetical — "it stopped early" is the fact, "it ran out of time" is
+    // what tells the reader whether asking again is worth anything.
+    //
+    // Keyed by the backend's stable token VERBATIM, so the mapping can be
+    // checked against the producer by eye. A token this build has no entry for
+    // renders nothing at all: a reader must never be shown `wall_clock`.
+    truncationReason: {
+      wall_clock: 'time limit reached',
+      step_limit: 'step limit reached',
+    },
+    // Ways a salvaged answer is weaker than one from a finished run. Same
+    // register as the lines above — muted, factual, about the EVIDENCE — but
+    // each one names something the reader can act on, which is why they are
+    // stated rather than folded into the truncation sentence.
+    degradedReason: {
+      no_report_file:
+        'No research report was filed — this answer is the only record of the run',
+      no_valid_citations:
+        'No citation survived verification — please check the figures yourself before relying on them',
+    },
+    // The verification's own reasons for dropping a citation, in the reader's
+    // words. The backend states them as tokens (`url_not_in_registry`, …) and
+    // they used to reach the tooltip exactly like that; an unmapped one is now
+    // left out rather than shown raw.
+    citationsRemovedReason: {
+      url_not_in_registry: 'URL not among the sources retrieved',
+      citation_key_not_in_registry: 'Document not among the sources retrieved',
+      unverifiable: 'Nothing checkable in the citation',
+      duplicate: 'Duplicate citation',
+      ungrounded: 'Claim not backed by a citation',
+      quote_unverified: 'Quotation could not be verified',
+    },
   },
   // Getting the answer OUT of the app — the paste into a report, a mail, a
   // submission. Two icon buttons in the answer's meta row; the second one only
