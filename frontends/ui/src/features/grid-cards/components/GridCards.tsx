@@ -11,6 +11,11 @@ import { VerdictHeaderCard } from './VerdictHeaderCard'
 import { ConditionTreeCard } from './ConditionTreeCard'
 import { TypedTableCard } from './TypedTableCard'
 import { NormChainCard } from './NormChainCard'
+import { KeyTakeawaysCard } from './KeyTakeawaysCard'
+import { CalloutCard } from './CalloutCard'
+import { CalculationCard } from './CalculationCard'
+import { ProcessMapCard } from './ProcessMapCard'
+import { FollowUpsCard } from './FollowUpsCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
 import { DimensionDiagramCard } from '../schematics/DimensionDiagramCard'
@@ -28,6 +33,7 @@ import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
 import { IfcViewerCard } from './IfcViewerCard'
+import { IfcModelPickerCard } from './IfcModelPickerCard'
 import { cardHighlightSpecs } from '@/features/bim/lib/card-highlights'
 import {
   IfcComplianceCard,
@@ -175,6 +181,58 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
     return (
       <FadeIn distance={6}>
         <NormChainCard title={card.title} links={card.links ?? []} />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'key_takeaways') {
+    return (
+      <FadeIn distance={6}>
+        <KeyTakeawaysCard title={card.title} items={card.items ?? []} />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'callout') {
+    return (
+      <FadeIn distance={6}>
+        <CalloutCard kind={card.kind} text={card.text} title={card.title} detail={card.detail} />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'calculation') {
+    return (
+      <FadeIn distance={6}>
+        <CalculationCard
+          title={card.title}
+          steps={card.steps ?? []}
+          limit={card.limit}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'process_map') {
+    return (
+      <FadeIn distance={6}>
+        <ProcessMapCard
+          title={card.title}
+          steps={card.steps ?? []}
+          current_step={card.current_step}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'follow_ups') {
+    return (
+      <FadeIn distance={6}>
+        <FollowUpsCard title={card.title} items={card.items ?? []} />
       </FadeIn>
     )
   }
@@ -512,6 +570,18 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
           title={card.title}
           modelFile={card.model_file ?? null}
           ruleIds={card.rule_ids ?? []}
+          note={card.note ?? null}
+          projectId={projectId ?? null}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'ifc_model_picker') {
+    return (
+      <FadeIn distance={6}>
+        <IfcModelPickerCard
+          title={card.title}
           note={card.note ?? null}
           projectId={projectId ?? null}
         />

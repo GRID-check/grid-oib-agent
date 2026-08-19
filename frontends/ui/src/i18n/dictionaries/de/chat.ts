@@ -78,7 +78,7 @@ export const chat: typeof en.chat = {
     scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
     // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
     // tiny one-line hint under the composer keeps the active source count legible.
-    sourcesActiveMobile: '{count} Quellen aktiv',
+    sourcesActiveMobile: '{count, plural, one {# Quelle} other {# Quellen}} aktiv',
   },
   shortcuts: {
     label: 'Schnellzugriff',
@@ -111,7 +111,7 @@ export const chat: typeof en.chat = {
   },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
-    private: 'Privater Workspace',
+    private: 'Privater Arbeitsbereich',
   },
   roles: {
     input: 'Eingabe',
@@ -152,8 +152,23 @@ export const chat: typeof en.chat = {
     },
     // Hinweis unter der Quellenzeile, wenn die Zitatprüfung nicht belegbare
     // Quellenangaben entfernt hat (WP-A `citations_removed`).
-    citationsRemoved: '{count} Quellenangabe(n) entfernt (nicht verifizierbar)',
+    citationsRemoved:
+      '{count, plural, one {# Quellenangabe entfernt} other {# Quellenangaben entfernt}} (nicht verifizierbar)',
     citationsRemovedReasonsLabel: 'Gründe',
+  },
+  // Die Antwort aus Piloti herausbekommen — für Prüfvermerk, Mail, Einreichung.
+  // Zwei Icon-Schaltflächen in der Metazeile der Antwort; die zweite gibt es nur,
+  // wenn die Antwort überhaupt Quellen aufgelöst hat.
+  answerActions: {
+    copy: 'Antwort kopieren',
+    copyWithSources: 'Antwort mit ausgeschriebenen Quellenangaben kopieren',
+    copied: 'Kopiert',
+    copyFailed: 'Die Antwort konnte nicht kopiert werden.',
+    // Überschrift, unter der die ausgeschriebene Quellenliste steht — dieselbe,
+    // die die Antworten selbst schreiben, damit eine eingefügte Antwort gleich
+    // aussieht, egal über welche Schaltfläche sie kopiert wurde.
+    sourcesHeading: 'Quellen',
+    untitledSource: 'Quelle ohne Titel',
   },
   // Der Zitat-Peek: was diese Fundstelle IST, bevor man sie öffnet.
   citationPeek: {
@@ -162,7 +177,7 @@ export const chat: typeof en.chat = {
     copyLink: 'Link kopieren',
     copyLinkAria: 'Link zu dieser Fundstelle kopieren: {label}',
     markerAria: 'Quelle {number}: {label} — Vorschau öffnen',
-    lociLabel: '{count} Fundstellen',
+    lociLabel: '{count, plural, one {# Fundstelle} other {# Fundstellen}}',
     lociAria: 'Fundstellen in diesem Dokument',
     lociPosition: '{index}/{count}',
     previousLocus: 'Vorherige Fundstelle',
@@ -180,12 +195,280 @@ export const chat: typeof en.chat = {
     legalBasis: 'Rechtsgrundlage',
     viewOib: 'OIB-Richtlinie ansehen',
     verifyRis: 'In RIS prüfen',
+    conditionTree: {
+      eyebrow: 'Bedingungsbaum',
+      dependsOn: 'Abhängig von',
+      applies: 'trifft zu',
+      basis: 'Grundlage',
+      // Überschrift über dem Ergebnis des Falls, der für dieses Projekt gilt.
+      appliesHere: 'Für dieses Projekt gilt:',
+      // Überschrift über jedem anderen Fall — im Konjunktiv, damit schon die
+      // Grammatik sagt, dass hier ein anderer Fall angesehen wird. Ein
+      // Bildschirmfoto dieses Abschnitts kann so nicht als Ergebnis dieses
+      // Projekts gelesen werden.
+      previewLead: 'Bei {condition} würde gelten:',
+      // Dieselbe Überschrift, wenn kein Fall als der zutreffende ausgewiesen
+      // ist: dann steht nichts dagegen, was in den Konjunktiv zu setzen wäre.
+      caseLead: 'Bei {condition} gilt:',
+      // Steht INNERHALB des angesehenen Abschnitts, damit der Hinweis auf
+      // jedem Bildschirmfoto mitgeht.
+      previewNotice: 'Nur zum Vergleich — für dieses Projekt gilt {condition}: {outcome}',
+      backToActive: 'Zurück zu {condition}',
+      caseAria: 'Fall {condition}',
+    },
+    askAbout: {
+      chip: 'Dazu fragen',
+      chipAria: 'Frage zu „{subject}“ ins Eingabefeld übernehmen',
+      missingWithDetail:
+        'Bei „{subject}“ fehlt eine Angabe: {missing}. Wie kann ich das nachreichen, und was gilt bis dahin?',
+      missingOnly:
+        'Bei „{subject}“ fehlt eine Angabe. Welche Angabe wird dafür benötigt, und woher bekomme ich sie?',
+    },
+
+    // ── Gemeinsame Schematik-Chrome ────────────────────────────────────────
+    // `kit.tsx` zeichnet fünfzehn Karten. Sein Wortschatz steht hier, weil er
+    // auf jeder einzelnen erscheint: Verdikt, fehlende Angabe, Herkunft.
+    kit: {
+      eyebrow: 'Skizze',
+      status: {
+        pass: 'erfüllt',
+        fail: 'nicht erfüllt',
+        warning: 'grenzwertig',
+        needsInput: 'Angabe fehlt',
+      },
+      // Steht dort, wo eine Zahl stünde, die niemand kennt. Nie eine geratene
+      // Zahl — ein leeres Feld liest sich als Aussage über das Gebäude.
+      missingValue: 'fehlende Angabe',
+      provenance: {
+        declared: 'laut Modell',
+        computed: 'gemessen',
+        inferred: 'vermutlich',
+      },
+      // Langform im Tooltip, wo Platz ist, das Wort zu erklären.
+      provenanceTitle: {
+        declared: 'Diese Zahl steht so in der IFC-Datei — eine Angabe der Architektin.',
+        computed: 'Aus der Geometrie gemessen, nicht deklariert. Die Toleranz gehört zur Aussage.',
+        inferred: 'Aus einer Heuristik abgeleitet. Ein Vorschlag zur Bestätigung, kein Befund.',
+      },
+      toleranceStraddlesLimit:
+        'Die Messtoleranz reicht über den Grenzwert: bei dieser Genauigkeit ist nicht entschieden, ob der Wert eingehalten ist. Für einen Nachweis genauer aufmessen.',
+    },
+    followUps: {
+      eyebrow: 'Weiterfragen',
+      groupAria: 'Weiterführende Fragen',
+    },
+    keyTakeaways: {
+      eyebrow: 'Das Wichtigste',
+    },
+    callout: {
+      hinweis: 'Hinweis',
+      achtung: 'Achtung',
+      frist: 'Frist',
+      tipp: 'Tipp',
+      more: 'Mehr dazu',
+      less: 'Weniger',
+    },
+    calculation: {
+      eyebrow: 'Rechenweg',
+      result: 'Ergebnis',
+      limitLabel: 'Grenzwert',
+      // Ein Bereich als Grenzwert, etwa 59–65 cm der Schrittmaßregel. Der
+      // Gedankenstrich wird vom Code gesetzt, also steht die Form hier.
+      limitRange: '{lower}–{upper} {unit}',
+      // Ein Operand, der das Ergebnis eines früheren Schritts ist.
+      fromStep: 'aus Schritt {step}',
+      // Steht dort, wo das Ergebnis stünde. Nie eine halbe Zahl: einem
+      // Rechenweg ohne alle Werte fehlt das Ergebnis, und eines trotzdem
+      // hinzuschreiben ist genau der Fehler, den diese Karte ausschließt.
+      undecidable: 'Mit den vorliegenden Angaben nicht berechenbar.',
+      undefinedResult: 'Durch null geteilt — das Ergebnis ist nicht definiert.',
+      sourcesMore: 'Woher die Zahlen kommen',
+      sourcesLess: 'Weniger',
+      // Steht in der Aufklappung, wo die Eingangswerte ohnehin geprüft werden:
+      // gerechnet hat die Karte, zu prüfen sind die Werte.
+      computedNote: 'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
+    },
+    processMap: {
+      eyebrow: 'Verfahrensablauf',
+      current: 'hier stehen Sie',
+      done: 'erledigt',
+      stepAria: 'Schritt {step}: {label}',
+      requires: 'Voraussetzungen',
+      produces: 'Ergebnis',
+      actor: 'Zuständig',
+      duration: 'Frist',
+      basis: 'Grundlage',
+      // Steht INNERHALB eines geöffneten anderen Schritts, damit der Hinweis
+      // auf einem Bildschirmfoto genau dieses Abschnitts mitgeht.
+      elsewhereNotice: 'Nur zur Ansicht — dieses Projekt steht bei Schritt {step}: {label}',
+      backToCurrent: 'Zurück zu {label}',
+    },
+    verdictHeader: {
+      confidenceHigh: 'hohe Sicherheit',
+      confidenceMedium: 'mittlere Sicherheit',
+      confidenceLow: 'geringe Sicherheit',
+    },
+    normChain: {
+      eyebrow: 'Normenkette',
+      // Rang des Rechtsakts. Die Namen sind die der österreichischen
+      // Rechtsordnung und bleiben auch im Englischen stehen.
+      rank: {
+        bundesgesetz: 'Bundesgesetz',
+        landesgesetz: 'Landesgesetz',
+        verordnung: 'Verordnung',
+        oibRichtlinie: 'OIB-Richtlinie',
+        oenorm: 'ÖNORM',
+        leitfaden: 'Leitfaden',
+      },
+      binding: 'bindend',
+      // Eine OIB-Richtlinie bindet erst, wenn ein Land sie für verbindlich
+      // erklärt — das steht am Glied, nicht in einer Fußnote.
+      bindingWhenDeclared: 'bindend, wenn erklärt',
+      interpretive: 'auslegend',
+    },
+    comparison: {
+      eyebrow: 'Vergleich',
+      criterion: 'Kriterium',
+    },
+    typedTable: {
+      eyebrow: 'Tabelle',
+    },
+    // ── Beschriftungen in den Zeichnungen ──────────────────────────────────
+    // Was in der Skizze selbst steht. Symbole (±0,00, Ø, N), Einheiten und
+    // Normbezeichnungen (A++ … G, DnT,w) stehen bewusst nicht hier: sie sind
+    // in jeder Sprache dasselbe Zeichen.
+    schematics: {
+      acoustic: {
+        soundClass: 'Schallschutzklasse',
+        airborne: 'Luftschall',
+        impact: 'Trittschall',
+        airborneResultant: 'Luftschall (resultierend)',
+        lowerIsBetter: '↓ niedriger ist besser',
+        higherIsBetter: '↑ höher ist besser',
+        reserve: 'Reserve +{margin} dB',
+        shortfall: 'Fehlbetrag {margin} dB',
+      },
+      daylight: {
+        glassArea: 'Lichteintrittsfläche',
+        window: 'Fenster',
+        obstruction: 'Lichteinfall 45° — {label}',
+        requiredArea:
+          'Bodenfläche {floor} m² → erforderliche Lichteintrittsfläche ≥ {required} m² (10 %).',
+        obstructionPierces: 'Die Verschattung durchdringt den 45°-Lichteinfallskegel.',
+      },
+      density: {
+        coverage: 'Bebauungsgrad',
+        parcel: 'Grundstück {area} m²',
+        builtUp: 'bebaut',
+        builtUpUnknown: 'bebaute Fläche: {missing}',
+        grossFloorArea: 'Bruttogeschossfläche (BGF)',
+      },
+      egress: {
+        totalWalkLength: 'Gehweglänge gesamt',
+      },
+      elevator: {
+        accessible: 'Barrierefreier Aufzug',
+        required: 'erforderlich',
+        notRequired: 'nicht erforderlich',
+        entranceLevel: 'Zugangsebene',
+        shaft: 'Aufzug',
+        // Geschossbezeichnung relativ zur Zugangsebene.
+        groundFloor: 'EG',
+        upperFloor: '{level}.OG',
+        basement: '{level}.KG',
+      },
+      energy: {
+        hwb: 'Heizwärmebedarf (HWB)',
+        hwbMarker: 'HWB {value}',
+        fgee: 'Gesamtenergieeffizienzfaktor (fGEE)',
+      },
+      fireAccess: {
+        routeWidth: 'Zufahrt Breite',
+        gateClearance: 'Durchfahrt lichte Höhe',
+        aufstellflaecheWidth: 'Aufstellfläche Breite',
+        aufstellflaecheLength: 'Aufstellfläche Länge',
+        facadeDistance: 'Abstand zur Fassade',
+        walkToEntrance: 'Weg zum Eingang',
+        parcel: 'Grundstück {width} × {depth} m',
+        route: 'ZUFAHRT',
+        building: 'Gebäude',
+        aufstellflaeche: 'Aufstellfläche',
+        entrance: 'Eingang',
+        street: 'STRASSE',
+        gebaeudeklasse: 'Gebäudeklasse',
+        walkTooFar: ' — der Weg zum Eingang überschreitet das zulässige Maß.',
+      },
+      fireCompartment: {
+        storey: 'Geschoss {label}',
+        plan: 'Grundriss',
+      },
+      guardrail: {
+        context: {
+          balkon: 'Balkon',
+          loggia: 'Loggia',
+          stiege: 'Stiege',
+          fenster: 'Fenster',
+          dachterrasse: 'Dachterrasse',
+        },
+        elevation: 'ANSICHT · {context}',
+        fallHeight: 'Absturzhöhe',
+        railHeight: 'Geländerhöhe',
+        maxOpening: 'max. Öffnungsweite',
+        bottomGap: 'Bodenspalt',
+        climbGuard: 'Kletterschutz 15–60 cm',
+        atLeast: ' → mind. {value}',
+        climbables:
+          'Horizontale, zum Aufklettern geeignete Elemente im Kletterschutzbereich (15–60 cm).',
+      },
+      parking: {
+        car: 'Kfz-Stellplätze',
+        bicycle: 'Fahrradabstellplätze',
+        // Abkürzung für Stellplätze, die als Einheit hinter der Zahl steht.
+        unit: 'Stpl.',
+        basis: 'Bemessung',
+        // Die Fehlmenge zählt: bei einem fehlenden Platz „1 fehlt“.
+        short:
+          '{provided} von {required} nachgewiesen — {missing, plural, one {# fehlt} other {# fehlen}}{overflow}',
+        surplus: '{provided} nachgewiesen — Überschuss +{surplus}{overflow}',
+        exact: '{provided} von {required} nachgewiesen{overflow}',
+        truncated: ' (Ausschnitt)',
+        legend: 'Gefüllt = nachgewiesen, gestrichelt = fehlend gegenüber der Anforderung.',
+      },
+      setback: {
+        side: {
+          front: 'vorne',
+          back: 'hinten',
+          left: 'links',
+          right: 'rechts',
+        },
+        distance: 'Abstand {side}',
+        parcel: 'Grundstück {width} × {depth} m',
+        building: 'Gebäude',
+        street: 'STRASSE',
+        tooClose: 'Mindestens ein Abstand unterschreitet das geforderte Maß.',
+      },
+      stair: {
+        section: 'SCHNITT',
+        plan: 'GRUNDRISS',
+        // Stufennotation, wie sie im Schnitt eines Einreichplans steht.
+        stepNotation: '{count} Stg · {rise}/{going} cm',
+        // Ohne Steigung und Auftritt bleibt nur die Anzahl.
+        stepCount: '{count, plural, one {# Stufe} other {# Stufen}}',
+      },
+      thermal: {
+        roof: 'Dach',
+        wall: 'Außenwand',
+        window: 'Fenster',
+        door: 'Tür',
+        floor: 'Boden',
+      },
+    },
   },
   agentPrompt: {
     awaitingOther: 'Piloti wartet auf {name}',
     awaitingSomeone: 'Piloti wartet auf eine andere Person',
-    needsInput: 'Der Agent benötigt Ihre Eingabe',
-    receivedInput: 'Der Agent hat Ihre Eingabe erhalten',
+    needsInput: 'Piloti benötigt Ihre Eingabe',
+    receivedInput: 'Piloti hat Ihre Eingabe erhalten',
     approve: 'Genehmigen',
     reject: 'Ablehnen',
     approvePlan: 'Plan genehmigen',
@@ -239,7 +522,7 @@ export const chat: typeof en.chat = {
     inProgress: 'Denkvorgang läuft',
     working: 'Antwort wird erstellt …',
     waiting: 'Warten auf Antwort',
-    elapsedAria: 'Vergangen: {seconds} Sekunden',
+    elapsedAria: 'Vergangen: {seconds, plural, one {# Sekunde} other {# Sekunden}}',
     // Live-Einzeiler, was der Assistent gerade tut — aus dem neuesten OFFENEN
     // Schritt, der sich für Lesende formulieren lässt. Bewusst ohne Eintrag
     // „zeig den Schrittnamen“: ein interner Bezeichner im Status-Gewand ist
@@ -255,13 +538,6 @@ export const chat: typeof en.chat = {
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
       composing: 'Antwort wird formuliert …',
-      // Das alte `use_skill`-Frame benennt den Mechanismus, nicht den Skill.
-      // Lieber ehrlich unbenannt als falsch konkret. Bewusst ohne benanntes
-      // Gegenstück: sobald das Backend `skill:<id>`-Events sendet, formuliert
-      // es diesen Satz selbst — mit dem Titel des Skills und mit dem
-      // Unterschied zwischen „vom Modell gewählt“ und „von Ihnen angefordert“,
-      // den eine Vorlage hier nicht kennen kann.
-      usingSkillUnnamed: 'Skill wird angewendet …',
     },
     // ── Turn-Events: die Worte zu dem, was das Backend GEMELDET hat ───────
     //
@@ -287,14 +563,19 @@ export const chat: typeof en.chat = {
       // Verbindet zwei Korpora in einer Zeile. Grammatik, also auch hier.
       corpusJoin: ' und ',
       status: {
-        // Welche Ablage der Lesenden gerade gesichtet wird. Ein Schlüssel pro
-        // Ablage statt einer Vorlage mit `{shelf}`-Platzhalter: Deutsch braucht
-        // den Dativ („aus dem Büroarchiv“), Englisch gar keinen Artikel.
+        // Welche der eigenen Unterlagen gerade gesichtet werden. Ein
+        // Schlüssel pro Ebene statt einer Vorlage mit Platzhalter: Deutsch
+        // braucht den Dativ („aus dem Büroarchiv“), Englisch gar keinen
+        // Artikel, also lässt sich der Name nicht in EINEN Satz einsetzen.
+        // Jede Zeile nennt den Namen, den die Lesenden im Produkt sehen —
+        // Büroarchiv, Projekt, Unterhaltung. Für mehrere Ebenen zugleich gibt
+        // es keinen: der Sammelbegriff dafür ist unser Wort, nicht ihres, also
+        // sagt `several` schlicht, WAS gelesen wird.
         documents: {
           archiv: 'Unterlagen aus dem Büroarchiv werden gesichtet …',
           project: 'Unterlagen aus dem Projekt werden gesichtet …',
           session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
-          several: 'Unterlagen aus Ihren Ablagen werden gesichtet …',
+          several: 'Ihre Unterlagen werden gesichtet …',
         },
         // Die Routing-ENTSCHEIDUNG aus einer festen Auswahl. Die Begründung des
         // Klassifikators ist Freitext in der Sprache des Modells und steht
@@ -340,7 +621,7 @@ export const chat: typeof en.chat = {
       routing: 'Rechercheweg',
       webSearch: 'Websuche',
       ris: 'RIS',
-      corpus: 'OIB-Korpus',
+      corpus: 'OIB-Wissen',
       assistant: 'Assistent',
       reading: 'Lesen',
       // Ein Chip pro Skill, den dieser Turn tatsächlich angewendet hat.
@@ -349,6 +630,35 @@ export const chat: typeof en.chat = {
       skill: 'Skill: {name}',
       // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
       skillUnnamed: 'Skill',
+    },
+    // Lesbare Namen für die Knoten und Werkzeuge, die das Backend meldet — für
+    // das Technik-Panel (Opt-in). Auf der Leitung stehen interne Ids
+    // (`knowledge_search`), und NAT reicht zusätzlich LangChain-Span-Namen
+    // durch, also CamelCase-Klassennamen. Deshalb löst das Panel jede Zeile
+    // über diese Map auf, statt zu title-casen, was gerade ankam. Was schon
+    // einen Chip hat, nutzt `stepName.*` oben mit: ein Knoten, eine Wortwahl.
+    nodeName: {
+      // Der Rahmen, der den ganzen Zug über offen ist — kein Schritt darin.
+      workflow: 'Ablauf',
+      clarification: 'Rückfrage',
+      deepResearch: 'Tiefenrecherche',
+      dataSources: 'Datenquellen',
+      note: 'Notiz gespeichert',
+      card: 'Ergebniskarte',
+      documents: 'Dokumentenliste',
+      askUser: 'Rückfrage an Sie',
+      model: 'Gebäudemodell',
+      measure: 'Modellmessung',
+      compliance: 'Normprüfung',
+      skillSelection: 'Skill-Auswahl',
+      // Ein Knoten, für den dieser Build keinen Namen hat. Die Zeile bleibt —
+      // das Panel zählt seine Schritte und jeder trägt eine Uhrzeit, ein
+      // Weglassen ließe Liste und Zähler auseinanderlaufen und verschwiege,
+      // dass etwas lief — sagt aber nur, dass intern etwas passiert ist. Der
+      // rohe Name ist kein Vokabular, das man lernen kann (anders als ein
+      // `status:`-Slot, der genau das ist und bewusst wörtlich bleibt); er ist,
+      // wie das Framework diesen Span zufällig genannt hat.
+      internal: 'Interner Schritt',
     },
     interrupted: 'Unterbrochen',
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
@@ -366,7 +676,17 @@ export const chat: typeof en.chat = {
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
-    herleitungSummary: 'Herleitung · {steps} Schritte · {sources} Quellen',
+    // Die Kopfzeile der Herleitung, aus zwei Klauseln gebaut. Die Quellen-
+    // Klausel FEHLT, wenn es keine gibt: „0 Quellen“ ist eine wahre Zahl, die
+    // sich wie ein Fehlschlag liest, und eine Antwort aus einer Messung am
+    // Modell hat zu Recht keine Zitate. Gezählt wird, was da ist; über das,
+    // was nicht da ist, sagt die Zeile nichts.
+    herleitungSummary: 'Herleitung · {count, plural, one {# Schritt} other {# Schritte}}',
+    herleitungSummaryWithSources:
+      '{summary} · {count, plural, one {# Quelle} other {# Quellen}}',
+    // Der Zug hat noch keinen Schritt gemeldet — dann nennt die Zeile nur, was
+    // sie ist, statt „0 Schritte“ zu zählen.
+    herleitungSummaryNoSteps: 'Herleitung',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Herleitung',
     stepsLabel: 'Denkschritte',
@@ -400,7 +720,7 @@ export const chat: typeof en.chat = {
     node: {
       framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
-      framingQuestion: 'Du fragst: „{question}“',
+      framingQuestion: 'Sie fragen: „{question}“',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
@@ -419,13 +739,12 @@ export const chat: typeof en.chat = {
       findingsPendingTab: 'Einschätzung',
       findingsPending: 'Quellen werden abgewogen …',
       branchesTab: 'Folgewege',
-      branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
+      branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },
   },
   deepResearch: {
     stats: {
-      tokens: '{count} Tokens',
-      toolCalls: '{count} Tool-Aufrufe',
+      toolCalls: '{count, plural, one {# Werkzeugaufruf} other {# Werkzeugaufrufe}}',
     },
     success: {
       heading: 'Bericht abgeschlossen!{stats}',
@@ -518,8 +837,9 @@ export const chat: typeof en.chat = {
     researchQueueFull: {
       title: 'Recherche ausgelastet',
       message:
-        'Die Recherche-Warteschlange ist gerade voll. Bitte sende deine Anfrage in einem Moment erneut.',
-      retryHint: 'Bitte in etwa {seconds} Sekunden erneut senden.',
+        'Die Recherche-Warteschlange ist gerade voll. Bitte senden Sie Ihre Anfrage in einem Moment erneut.',
+      retryHint:
+        'Bitte in etwa {seconds, plural, one {# Sekunde} other {# Sekunden}} erneut senden.',
     },
   },
   deepResearchErrors: {
@@ -542,9 +862,9 @@ export const chat: typeof en.chat = {
   budgetExhausted: {
     title: 'Budget aufgebraucht',
     memberMessage:
-      'Ihr LLM-Budget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Ihren eigenen Verbrauch finden Sie unter Organisation → Verbrauch & Budgets. Bitten Sie eine Organisations-Administratorin oder einen -Administrator, Ihr Limit zu erhöhen.',
+      'Ihr Nutzungsbudget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Ihren eigenen Verbrauch finden Sie unter Organisation → Verbrauch & Budgets. Bitten Sie eine Organisations-Administratorin oder einen -Administrator, Ihr Limit zu erhöhen.',
     adminMessage:
-      'Das LLM-Budget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Erhöhen Sie die Limits unter Organisation → Verbrauch & Budgets.',
+      'Das Nutzungsbudget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Erhöhen Sie die Limits unter Organisation → Verbrauch & Budgets.',
   },
   fileUpload: {
     uploading:
@@ -558,7 +878,7 @@ export const chat: typeof en.chat = {
   },
   memory: {
     noted: 'Piloti hat sich gemerkt',
-    notedAria: 'Piloti hat sich {count} Notizen gemerkt',
+    notedAria: 'Piloti hat sich {count, plural, one {# Notiz} other {# Notizen}} gemerkt',
     addedToMemory: 'In das Projektgedächtnis aufgenommen',
     manageHint: 'Diese Einträge können Sie im Projektgedächtnis verwalten und löschen.',
     kinds: {

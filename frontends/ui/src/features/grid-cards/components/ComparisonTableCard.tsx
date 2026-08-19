@@ -11,6 +11,7 @@
 import { type FC } from 'react'
 import { Columns3, ThumbsUp } from 'lucide-react'
 import { SchematicCard, statusColor } from '../schematics/kit'
+import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { ComparisonRowData, NormReferenceData } from '../schematics/types'
 
@@ -31,12 +32,13 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const success = statusColor('pass')
 
   return (
     <SchematicCard
       icon={Columns3}
-      eyebrow="Vergleich"
+      eyebrow={t('cards.comparison.eyebrow')}
       title={title}
       note={note}
       reference={reference}
@@ -46,7 +48,7 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
           <thead>
             <tr className="border-b">
               <th className="py-1.5 pr-3 text-left font-normal text-muted-foreground" scope="col">
-                Kriterium
+                {t('cards.comparison.criterion')}
               </th>
               {options.map((option, i) => (
                 <th

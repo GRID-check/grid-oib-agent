@@ -53,6 +53,10 @@ export const PREVIEW_EXCLUDED: Record<string, 'needsModel' | 'needsDocuments'> =
   ifc_schedule: 'needsModel',
   ifc_element: 'needsModel',
   ifc_diff: 'needsModel',
+  // The picker lists the project's real models from the live list — a gallery
+  // with no project has none to draw, the same reason the other IFC cards are
+  // here.
+  ifc_model_picker: 'needsModel',
   document_grid: 'needsDocuments',
 }
 
@@ -155,6 +159,116 @@ const RAW_FIXTURES: CardInput[] = [
       { label: 'Wiener Bautechnikverordnung', rank: 'verordnung', note: 'erklärt die OIB-Richtlinien für verbindlich' },
       { label: 'OIB-Richtlinie 4', rank: 'oib_richtlinie', note: 'regelt die erforderliche Geländerhöhe' },
       { label: 'ÖNORM B 1600', rank: 'oenorm', note: 'konkretisiert die barrierefreie Ausführung' },
+    ],
+  },
+  {
+    // Carries a takeaway WITHOUT a detail on purpose: the gallery should show
+    // that a row only becomes an expander when there is something behind it.
+    type: 'key_takeaways',
+    title: 'Gebäudeklasse 4 – was daraus folgt',
+    items: [
+      {
+        text: 'Fluchtniveau 9,80 m → Gebäudeklasse 4',
+        detail: 'Maßgeblich ist das oberste Fluchtniveau; die Grenze zu GK 5 liegt bei 11 m.',
+      },
+      {
+        text: 'Tragende Bauteile mindestens REI 60',
+        detail: 'In Kellergeschossen gilt REI 90, unabhängig von der Gebäudeklasse.',
+      },
+      { text: 'Barrierefreier Aufzug ab drei oberirdischen Geschossen' },
+    ],
+  },
+  {
+    type: 'callout',
+    kind: 'frist',
+    title: 'Nur in Wien',
+    text: 'Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen.',
+    detail: 'Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.',
+  },
+  {
+    // Carries a MEASURED operand with its band, because that is the hard state:
+    // the result the card computes is 64,0 cm ±1,0, which sits inside the
+    // Schrittmaßregel's 59–65 cm at every point of the band. The gallery reader
+    // should see that the card decided that itself.
+    type: 'calculation',
+    title: 'Schrittmaßregel – Treppenlauf Haus A',
+    steps: [
+      {
+        label: 'Schrittmaß',
+        operation: 'sum',
+        unit: 'cm',
+        operands: [
+          {
+            label: 'Steigung',
+            value: 17,
+            unit: 'cm',
+            factor: 2,
+            provenance: 'computed',
+            tolerance: 0.5,
+            source: 'Einreichplan, Schnitt A-A',
+          },
+          { label: 'Auftritt', value: 30, unit: 'cm', provenance: 'declared' },
+        ],
+      },
+    ],
+    limit: {
+      comparator: 'between',
+      value: 59,
+      upper: 65,
+      label: 'Schrittmaßregel',
+      reference: OIB4,
+    },
+  },
+  {
+    type: 'process_map',
+    title: 'Baubewilligungsverfahren – Wien',
+    current_step: 2,
+    steps: [
+      {
+        label: 'Einreichung',
+        summary: 'Einreichunterlagen werden bei der Baubehörde eingebracht.',
+        actor: 'Bauwerber',
+        requires: ['Einreichplan', 'Baubeschreibung', 'Energieausweis'],
+        produces: ['Aktenzeichen'],
+        reference: { document: 'Wiener Bauordnung', section: '§ 63' },
+      },
+      {
+        label: 'Bauverhandlung',
+        summary: 'Mündliche Verhandlung mit Nachbarn und Amtssachverständigen.',
+        actor: 'Baubehörde',
+        duration: 'binnen sechs Wochen',
+        produces: ['Verhandlungsschrift'],
+        reference: { document: 'Wiener Bauordnung', section: '§ 70' },
+      },
+      {
+        label: 'Baubewilligung',
+        summary: 'Bescheid mit den Auflagen aus der Verhandlung.',
+        actor: 'Baubehörde',
+        produces: ['Baubewilligungsbescheid'],
+      },
+      {
+        label: 'Baubeginnsanzeige',
+        summary: 'Der Baubeginn ist der Behörde anzuzeigen.',
+        actor: 'Bauwerber',
+        requires: ['rechtskräftige Baubewilligung'],
+      },
+      {
+        label: 'Fertigstellungsanzeige',
+        summary: 'Nach Fertigstellung, mit den Ausführungsbestätigungen.',
+        actor: 'Bauwerber',
+        requires: ['Ausführungsbestätigungen der Fachplaner'],
+      },
+    ],
+    reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
+  },
+  {
+    // One chip without a `hint` on purpose: the tooltip is an extra, and the
+    // gallery should not suggest that a follow-up is incomplete without one.
+    type: 'follow_ups',
+    items: [
+      { question: 'Wie wird das Fluchtniveau genau gemessen?', hint: 'Messpunkt und Bezugsebene' },
+      { question: 'Welche Anforderungen gelten für mein Projekt konkret?' },
+      { question: 'Was wäre bei Gebäudeklasse 5 anders?', hint: 'Vergleich der beiden Klassen' },
     ],
   },
   {

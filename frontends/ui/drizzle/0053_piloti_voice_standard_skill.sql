@@ -12,6 +12,14 @@
 -- edited body alone, so re-running migrations against a live database cannot
 -- silently revert whatever the platform owner has since written.
 --
+-- Which is also why the body below is NOT the current text: it is what this
+-- migration seeded, and editing it here would change nothing in any database
+-- that has already run. The answer-shape craft that moved out of
+-- `<answer_shape>` in the researcher prompt arrives in
+-- `0055_piloti_voice_answer_shape.sql`, which updates the row and is guarded on
+-- the md5 of exactly this literal — so this text is load-bearing history and
+-- must not be edited in place.
+--
 -- `delivery: 'standard'` is load-bearing rather than descriptive: `SkillRuntime`
 -- forces every resolved standard skill for the run, so its body is loaded before
 -- the answer is written instead of sitting in the catalog as a one-line
@@ -21,6 +29,8 @@
 -- `grid-agents` names both answering agents. The voice governs REGISTER, which
 -- is the one thing the deep researcher's own writer skills never specify — they
 -- own the structure of a genre, this owns how a sentence lands, and they compose.
+-- (That last sentence is aspirational, and 0055 records why: nothing resolves a
+-- platform skill for the deep researcher today, so naming it here is inert.)
 
 INSERT INTO "platform_skills" ("name", "description", "body", "metadata", "published", "delivery", "created_by", "created_by_email")
 VALUES (

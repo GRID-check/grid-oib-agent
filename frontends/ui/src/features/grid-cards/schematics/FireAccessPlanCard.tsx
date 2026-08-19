@@ -28,6 +28,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchRect } from './rough'
+import { useTranslations } from '@/i18n'
 import type { AufstellflaechePlanData, DimensionCheckData, NormReferenceData } from './types'
 
 interface FireAccessPlanCardProps {
@@ -65,6 +66,7 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const k = fitScale(parcelW, parcelD, 304, 236)
   const px = 60
   const py = 26
@@ -114,38 +116,44 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
   const viewH = streetY + 26
 
   const checks: DimensionCheckData[] = [
-    { ...route_width, label: route_width.label || 'Zufahrt Breite', unit: route_width.unit ?? 'm' },
+    {
+      ...route_width,
+      label: route_width.label || t('cards.schematics.fireAccess.routeWidth'),
+      unit: route_width.unit ?? 'm',
+    },
     ...(gate_clearance_height
       ? [
           {
             ...gate_clearance_height,
-            label: gate_clearance_height.label || 'Durchfahrt lichte Höhe',
+            label: gate_clearance_height.label || t('cards.schematics.fireAccess.gateClearance'),
             unit: gate_clearance_height.unit ?? 'm',
           },
         ]
       : []),
     {
       ...aufstellflaeche.width,
-      label: aufstellflaeche.width.label || 'Aufstellfläche Breite',
+      label: aufstellflaeche.width.label || t('cards.schematics.fireAccess.aufstellflaecheWidth'),
       unit: aufstellflaeche.width.unit ?? 'm',
     },
     {
       ...aufstellflaeche.length,
-      label: aufstellflaeche.length.label || 'Aufstellfläche Länge',
+      label: aufstellflaeche.length.label || t('cards.schematics.fireAccess.aufstellflaecheLength'),
       unit: aufstellflaeche.length.unit ?? 'm',
     },
     ...(aufstellflaeche.distance_to_facade
       ? [
           {
             ...aufstellflaeche.distance_to_facade,
-            label: aufstellflaeche.distance_to_facade.label || 'Abstand zur Fassade',
+            label:
+              aufstellflaeche.distance_to_facade.label ||
+              t('cards.schematics.fireAccess.facadeDistance'),
             unit: aufstellflaeche.distance_to_facade.unit ?? 'm',
           },
         ]
       : []),
     {
       ...walk_distance_to_entrance,
-      label: walk_distance_to_entrance.label || 'Weg zum Eingang',
+      label: walk_distance_to_entrance.label || t('cards.schematics.fireAccess.walkToEntrance'),
       unit: walk_distance_to_entrance.unit ?? 'm',
     },
   ]
@@ -153,17 +161,19 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
   return (
     <SchematicCard
       icon={Flame}
-      eyebrow="Schematic"
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={440} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* parcel */}
         {sketchRect(px, py, PW, PD, 'fire-parcel', { strokeWidth: 1.5 })}
         <SvgLabel x={px} y={py - 11} size={9}>
-          Grundstück {fmtNum(parcelW)} × {fmtNum(parcelD)} m
+          {t('cards.schematics.fireAccess.parcel', {
+            width: fmtNum(parcelW),
+            depth: fmtNum(parcelD),
+          })}
         </SvgLabel>
 
         {/* access route strip, street → Aufstellfläche */}
@@ -185,14 +195,14 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
           fill={routeColor}
           transform={`rotate(-90 ${rx + RW / 2} ${routeTopY + (routeBottomY - routeTopY) * 0.32})`}
         >
-          ZUFAHRT
+          {t('cards.schematics.fireAccess.route')}
         </SvgLabel>
         <DimensionArrow
           x1={rx}
           y1={routeBottomY - 12}
           x2={rx + RW}
           y2={routeBottomY - 12}
-          label={fmtDim(route_width.value, route_width.unit ?? 'm')}
+          label={fmtDim(route_width.value, route_width.unit ?? 'm', t)}
           status={route_width.status}
           labelOffset={-10}
           fontSize={9}
@@ -206,8 +216,15 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
           fillWeight: 0.5,
           hachureGap: 7,
         })}
-        <SvgLabel x={bx + BW / 2} y={by + BD / 2 - 6} anchor="middle" weight={600} fill="var(--foreground)" size={9.5}>
-          Gebäude
+        <SvgLabel
+          x={bx + BW / 2}
+          y={by + BD / 2 - 6}
+          anchor="middle"
+          weight={600}
+          fill="var(--foreground)"
+          size={9.5}
+        >
+          {t('cards.schematics.fireAccess.building')}
         </SvgLabel>
         <SvgLabel x={bx + BW / 2} y={by + BD / 2 + 7} anchor="middle" mono size={8.5}>
           {fmtNum(buildingW)} × {fmtNum(buildingD)} m
@@ -224,15 +241,22 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
           strokeWidth={1.2}
           strokeDasharray="6 4"
         />
-        <SvgLabel x={ax + AL / 2} y={ay + AW / 2} anchor="middle" size={8.5} weight={600} fill={aufColor}>
-          Aufstellfläche
+        <SvgLabel
+          x={ax + AL / 2}
+          y={ay + AW / 2}
+          anchor="middle"
+          size={8.5}
+          weight={600}
+          fill={aufColor}
+        >
+          {t('cards.schematics.fireAccess.aufstellflaeche')}
         </SvgLabel>
         <DimensionArrow
           x1={ax}
           y1={ay + AW + 10}
           x2={ax + AL}
           y2={ay + AW + 10}
-          label={fmtDim(aufstellflaeche.length.value, aufstellflaeche.length.unit ?? 'm')}
+          label={fmtDim(aufstellflaeche.length.value, aufstellflaeche.length.unit ?? 'm', t)}
           status={aufstellflaeche.length.status}
           labelOffset={9}
           fontSize={9}
@@ -242,7 +266,7 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
           y1={ay + AW}
           x2={ax + AL + 10}
           y2={ay}
-          label={fmtDim(aufstellflaeche.width.value, aufstellflaeche.width.unit ?? 'm')}
+          label={fmtDim(aufstellflaeche.width.value, aufstellflaeche.width.unit ?? 'm', t)}
           status={aufstellflaeche.width.status}
           labelOffset={11}
           fontSize={9}
@@ -258,7 +282,8 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
               y2={ay}
               label={fmtDim(
                 aufstellflaeche.distance_to_facade.value,
-                aufstellflaeche.distance_to_facade.unit ?? 'm'
+                aufstellflaeche.distance_to_facade.unit ?? 'm',
+                t
               )}
               status={aufstellflaeche.distance_to_facade.status}
               labelOffset={-12}
@@ -270,14 +295,14 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
         {/* entrance door tick + reach arrow along the facade */}
         <line x1={doorX - 5} y1={facadeY} x2={doorX + 5} y2={facadeY} stroke="var(--foreground)" strokeWidth={3} strokeLinecap="round" />
         <SvgLabel x={doorX + 8} y={facadeY - 8} size={8} weight={600} fill="var(--foreground)">
-          Eingang
+          {t('cards.schematics.fireAccess.entrance')}
         </SvgLabel>
         <DimensionArrow
           x1={ax + AL * 0.4}
           y1={ay - 4}
           x2={doorX}
           y2={facadeY + 3}
-          label={fmtDim(walk_distance_to_entrance.value, walk_distance_to_entrance.unit ?? 'm')}
+          label={fmtDim(walk_distance_to_entrance.value, walk_distance_to_entrance.unit ?? 'm', t)}
           status={walk_distance_to_entrance.status}
           dashed
           labelOffset={13}
@@ -288,7 +313,7 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
         <line x1={px - 14} y1={streetY} x2={px + PW + 14} y2={streetY} stroke="var(--muted-foreground)" strokeWidth={0.9} opacity={0.6} />
         <line x1={px - 14} y1={streetY + 10} x2={px + PW + 14} y2={streetY + 10} stroke="var(--muted-foreground)" strokeWidth={0.9} opacity={0.6} />
         <SvgLabel x={px + PW / 2} y={streetY + 5} anchor="middle" size={8} weight={600}>
-          STRASSE
+          {t('cards.schematics.fireAccess.street')}
         </SvgLabel>
 
         {/* Gebäudeklasse tag */}
@@ -303,10 +328,9 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
 
       {gebaeudeklasse && (
         <p className="text-xs text-muted-foreground">
-          Gebäudeklasse: <span className="font-medium text-foreground">{gebaeudeklasse}</span>
-          {walkColor === statusColor('fail')
-            ? ' — der Weg zum Eingang überschreitet das zulässige Maß.'
-            : ''}
+          {t('cards.schematics.fireAccess.gebaeudeklasse')}:{' '}
+          <span className="font-medium text-foreground">{gebaeudeklasse}</span>
+          {walkColor === statusColor('fail') ? t('cards.schematics.fireAccess.walkTooFar') : ''}
         </p>
       )}
     </SchematicCard>

@@ -307,7 +307,8 @@ export const bim: typeof en.bim = {
   },
   timeline: {
     title: 'Revisionen',
-    description: '{count} Revisionen von {name}, neueste zuerst.',
+    description:
+      '{count, plural, one {# Revision} other {# Revisionen}} von {name}, neueste zuerst.',
     revision: 'Revision {index}',
     latest: 'Aktuell',
     compare: 'Mit {previous} vergleichen',
@@ -454,5 +455,9 @@ export const bim: typeof en.bim = {
     noModel: 'Das referenzierte Modell ist in diesem Projekt nicht verfügbar.',
     ambiguousModel:
       'Auf diesen Namen passen mehrere Modelle in diesem Projekt — welches Gebäude gemeint ist, lässt sich hier nicht sagen.',
+  },
+  modelPicker: {
+    failed: 'Die Modelle dieses Projekts konnten nicht geladen werden.',
+    openAria: '{name} im Modellbereich öffnen',
   },
 }

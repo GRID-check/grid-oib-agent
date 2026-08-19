@@ -59,3 +59,11 @@ class DeepResearchAgentState(BaseModel):
     # The chat orchestrator lifts it onto the terminal chunk via
     # ``_normalize_citations_removed``.
     citations_removed: dict[str, Any] | None = None
+    # The tenant whose skills this run resolves (``x-grid-organization-id`` on
+    # the synchronous path). Carried on the STATE rather than read from the
+    # request context because deep research runs in a Dask worker, where no
+    # request headers exist: the job runner captured the identity at submit time
+    # and injects it here, the same way it injects ``project_context`` and
+    # ``force_skills``. None means anonymous — the run then resolves no
+    # organization skills and writes its report without them.
+    organization_id: str | None = None

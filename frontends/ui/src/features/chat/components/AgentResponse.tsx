@@ -37,6 +37,47 @@ import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
+import { AnswerActions } from './AnswerActions'
+
+/**
+ * The first paragraph of a long answer, typeset as a lede.
+ *
+ * The agent is asked to lead with the ruling or the number. That rule lives in
+ * the `piloti-voice` platform skill („Der erste Satz ist die Antwort"), which is
+ * applied on every answering turn; `<answer_shape>` in the researcher prompt now
+ * only routes to it. Either way the answer arrives with its conclusion first —
+ * but a conclusion set at exactly the weight of the reasoning beneath it is a
+ * conclusion the reader still has to go looking for.
+ * One notch of size and air is enough to make the answer legible before the
+ * audit trail is read, without turning the reply into a document with a title.
+ *
+ * Applied only when it earns its keep: a short reply IS its own lede, and
+ * enlarging its single paragraph would just look like a font bug.
+ */
+const LEDE_CLASS =
+  '[&>.markdown-content>p:first-child]:text-[1.0625rem] ' +
+  '[&>.markdown-content>p:first-child]:leading-[1.65] ' +
+  '[&>.markdown-content>p:first-child]:mb-4'
+
+/** Below this, the answer is short enough to read whole — no lede. */
+const LEDE_MIN_CHARS = 600
+
+/**
+ * A lede only makes sense when the answer opens with prose. An answer that
+ * opens with a heading, a list, a table, a quote, a fence or a card marker has
+ * already chosen a different way in, and enlarging whatever `p` happens to come
+ * first would land the emphasis somewhere arbitrary.
+ */
+const NON_PROSE_OPENER = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\[\[card:)/
+
+function opensWithLede(body: string, isStreaming: boolean): boolean {
+  if (isStreaming || body.length < LEDE_MIN_CHARS) return false
+  const trimmed = body.trimStart()
+  const firstLine = trimmed.split('\n', 1)[0]
+  if (!firstLine || NON_PROSE_OPENER.test(firstLine)) return false
+  // Two blocks minimum: a lede needs something to lead into.
+  return trimmed.split(/\n{2,}/).length >= 2
+}
 
 export interface AgentResponseProps {
   /** Response content from the agent */
@@ -253,6 +294,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     entries: sourceEntries,
     numbers: citationNumbers,
   } = useMemo(() => splitAnswerBody(content), [content])
+
+  const ledeClass = opensWithLede(body, isStreaming) ? LEDE_CLASS : ''
   // The markers are linked while the body is PARSED, not before: `[2][3]` — two
   // sources behind one claim, the shape the backend is told to write — is
   // indistinguishable from reference-link syntax in raw text, and used to reach
@@ -378,7 +421,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     showConfidenceChip &&
     (answerConfidence === 'low' || answerConfidence === 'medium' || answerConfidence === 'high')
   const hasFeedback = showAnswerFeedback && Boolean(messageId)
-  const hasMetaRow = hasConfidence || hasFeedback || Boolean(timestamp) || memoryItems.length > 0
+  // The copy actions. A still-arriving answer cannot be copied — half a
+  // Prüfvermerk is worse than none — and a cards-only turn has no markdown to
+  // hand over, so both are excluded rather than given a button that copies ''.
+  const hasAnswerActions =
+    !isStreaming && Boolean(content) && content.trim().length > 0 && content !== 'null'
+  const hasMetaRow =
+    hasConfidence ||
+    hasFeedback ||
+    hasAnswerActions ||
+    Boolean(timestamp) ||
+    memoryItems.length > 0
   // Streaming still has no chips/thumbs, but the row is reserved at chip
   // height so the footer does not jump when they land. An idle answer with
   // nothing to hold still omits the row (no empty band).
@@ -404,7 +457,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             className={
               isStreaming
                 ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                : undefined
+                : ledeClass || undefined
             }
           >
             <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
@@ -413,14 +466,20 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </MarkdownSlotProvider>
 
         {/* Cards no marker claimed. AFTER the body, never before it: an answer
-            that opens with three diagrams has pushed itself below the fold. */}
+            that opens with three diagrams has pushed itself below the fold.
+            `mt-1` for the same reason the action button below carries one: this
+            column's `gap-2` is 8px and the markdown body's paragraph rhythm is
+            12px, so without it an UNPLACED card hugged the prose 4px tighter
+            than a placed one — visible the moment an answer carries both. */}
         {cards && fallbackCardIndices.length > 0 && (
-          <GridCards
-            cards={cards}
-            indices={fallbackCardIndices}
-            projectId={projectId}
-            messageId={messageId}
-          />
+          <div className="mt-1">
+            <GridCards
+              cards={cards}
+              indices={fallbackCardIndices}
+              projectId={projectId}
+              messageId={messageId}
+            />
+          </div>
         )}
 
         {/* Optional action button */}
@@ -466,6 +525,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
+        {/* No copy actions here, deliberately. This variant is the box-less
+            rendering used INSIDE another container (the thinking process, the
+            dev turn surfaces) — it has no consolidated meta row, so the buttons
+            would land as one more loose element in a stack that already ends in
+            chips, thumbs and a timestamp. And it never renders a delivered
+            answer in the thread: ChatArea always uses the default variant, so
+            every answer a reader would paste has its buttons on its own card.
+            If that changes, <AnswerActions /> drops into the row below. */}
         <div className="flex flex-wrap items-center gap-2">
           {showConfidenceChip && (
             <ConfidenceChip
@@ -543,7 +610,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               className={
                 isStreaming
                   ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                  : undefined
+                  : ledeClass || undefined
               }
             >
               <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
@@ -552,14 +619,21 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           </MarkdownSlotProvider>
 
           {/* Cards no marker claimed. AFTER the body, never before it: an answer
-              that opens with three diagrams has pushed itself below the fold. */}
+              that opens with three diagrams has pushed itself below the fold.
+              `mt-1` for the same reason the action button below carries one:
+              this column's `gap-2` is 8px and the markdown body's paragraph
+              rhythm is 12px, so without it an UNPLACED card hugged the prose 4px
+              tighter than a placed one — visible the moment an answer carries
+              both, which is what /dev/chat-turn?variant=two-cards shows. */}
           {cards && fallbackCardIndices.length > 0 && (
-            <GridCards
-              cards={cards}
-              indices={fallbackCardIndices}
-              projectId={projectId}
-              messageId={messageId}
-            />
+            <div className="mt-1">
+              <GridCards
+                cards={cards}
+                indices={fallbackCardIndices}
+                projectId={projectId}
+                messageId={messageId}
+              />
+            </div>
           )}
 
           {/* Optional action button stays inside the block */}
@@ -599,7 +673,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             timestamp floating outside the card — same information, one
             hairline, no band-on-band clutter. The sources row must not draw
             its own divider here (the body hairline already separates), so it
-            takes withDivider={false}. */}
+            takes withDivider={false}. On a phone the meta row reflows rather
+            than growing a second band: the acting half travels as one piece. */}
         <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
           <AnswerSourcesRow
             documents={documents}
@@ -632,10 +707,38 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               )}
               <MemoryNotedChip items={memoryItems} />
               {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
-              {hasFeedback && messageId && (
-                <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
-              )}
-              {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
+              {/* The acting half of the row — copy, thumbs, time — as ONE flex
+                  item below `sm`, so the row can only ever break between the
+                  pills and this cluster, never inside it.
+
+                  These used to be three loose items in a wrapping row, and at
+                  phone width the break landed between the copy buttons and the
+                  thumbs: two controls drawn in deliberately identical language
+                  (24px ghost glyph, muted at rest, `touch-target`) ended up on
+                  different lines, reading as two unrelated affordances instead
+                  of one footnote strip. `w-full` also right-aligns the cluster
+                  on its own line, so the actions keep the corner they occupy on
+                  a desktop.
+
+                  A second ROW is not the fix: the footer is deliberately one
+                  tinted zone under a single hairline, and giving the actions a
+                  band of their own puts back the band-on-band stack this footer
+                  was consolidated to remove. This is the same row, reflowed.
+                  Above `sm` the wrapper is `display: contents` — not a box at
+                  all — so the layout there, including the way an open feedback
+                  disclosure claims the row's full width, is untouched. */}
+              <div className="contents max-sm:flex max-sm:w-full max-sm:flex-nowrap max-sm:items-center max-sm:justify-end max-sm:gap-2">
+                {/* Copy the answer out — markdown, with or without its sources
+                    written out. Before the thumbs: "take this with you" is what
+                    the reader wants first; rating it is the afterthought. */}
+                {hasAnswerActions && (
+                  <AnswerActions content={content} body={body} documents={documents} />
+                )}
+                {hasFeedback && messageId && (
+                  <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+                )}
+                {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
+              </div>
             </div>
           )}
         </div>

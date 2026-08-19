@@ -4,11 +4,24 @@
  * Card-gallery dev page: renders every Grid card type with realistic fixture
  * data so visual changes can be reviewed (and screenshotted) in one place.
  * Not linked from anywhere and returns 404 outside development.
+ *
+ * The whole gallery is pinned to German with `fixedLocale`. Without it the
+ * provider falls back to `defaultLocale` ('en'), which is how the committed
+ * screenshot came to show an English „Ask about this" chip in the middle of a
+ * German Anforderungsliste: the cards whose copy is hardcoded German looked
+ * right and only the translated ones leaked. See docs/ux/visual-screenshots.md.
  */
 
 import { notFound } from 'next/navigation'
 
+import { I18nProvider } from '@/i18n'
 import { SummaryCard } from '@/features/grid-cards/components/SummaryCard'
+import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
+import { ConditionTreeCard } from '@/features/grid-cards/components/ConditionTreeCard'
+import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
+import { CalculationCard } from '@/features/grid-cards/components/CalculationCard'
+import { ProcessMapCard } from '@/features/grid-cards/components/ProcessMapCard'
+import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
 import { RequirementChecklistCard } from '@/features/grid-cards/components/RequirementChecklistCard'
 import { ComparisonTableCard } from '@/features/grid-cards/components/ComparisonTableCard'
@@ -48,6 +61,14 @@ export default function CardsGalleryPage() {
   }
 
   return (
+    <I18nProvider initialLocale="de" fixedLocale>
+      <Gallery />
+    </I18nProvider>
+  )
+}
+
+function Gallery() {
+  return (
     <main className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
       <h1 className="text-lg font-semibold">Grid card gallery</h1>
 
@@ -61,6 +82,226 @@ export default function CardsGalleryPage() {
             'Treppenhaus als gesicherter Fluchtbereich erforderlich',
             'Barrierefreier Aufzug ab 3 oberirdischen Geschossen',
           ]}
+        />
+      </Section>
+
+      <Section id="key_takeaways">
+        <KeyTakeawaysCard
+          title="Gebäudeklasse 4 – was daraus folgt"
+          items={[
+            {
+              text: 'Fluchtniveau 9,80 m → Gebäudeklasse 4',
+              detail:
+                'Maßgeblich ist das oberste Fluchtniveau über dem angrenzenden Gelände; die Grenze zu GK 5 liegt bei 11 m.',
+            },
+            {
+              text: 'Tragende Bauteile mindestens REI 60',
+              detail: 'In Kellergeschossen gilt REI 90, unabhängig von der Gebäudeklasse.',
+            },
+            {
+              text: 'Treppenhaus als gesicherter Fluchtbereich erforderlich',
+              detail:
+                'Rauchdichte Abtrennung in jedem Geschoss; die Ausführung ist mit der Brandschutzplanung abzustimmen.',
+            },
+            { text: 'Barrierefreier Aufzug ab drei oberirdischen Geschossen' },
+          ]}
+        />
+      </Section>
+
+      {/* All four kinds side by side: the word carries the signal, the tone
+          only reinforces it — which is exactly what has to be reviewable in
+          both themes at once. */}
+      <Section id="callout">
+        <CalloutCard
+          kind="hinweis"
+          text="Für Zu- und Umbauten im Bestand gelten die Anforderungen nur im Umfang des Eingriffs."
+          detail="Wird die Gebäudeklasse durch den Zubau angehoben, ist das gesamte Gebäude neu zu beurteilen."
+        />
+        <CalloutCard
+          kind="achtung"
+          title="Gilt nur in Wien"
+          text="Die Wiener Bauordnung weicht bei der Berechnung des Fluchtniveaus von den übrigen Ländern ab."
+        />
+        <CalloutCard
+          kind="frist"
+          text="Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen."
+          detail="Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat."
+        />
+        <CalloutCard
+          kind="tipp"
+          text="Ein Schnitt durch das Treppenhaus mit eingetragenem Fluchtniveau erspart in der Regel eine Rückfrage der Behörde."
+        />
+      </Section>
+
+      {/* Three derivations, chosen so the review question is „did the card
+          compute this, and does the number agree with the verdict beside it?":
+          the Schrittmaßregel inside its range with a propagated band; a GFZ
+          over its limit; and a two-step U-value whose exact result (0,2504)
+          would round to the limit itself, so the card must print the fourth
+          decimal rather than contradict its own „nicht erfüllt". */}
+      <Section id="calculation">
+        <CalculationCard
+          title="Schrittmaßregel – Treppenlauf Haus A"
+          steps={[
+            {
+              label: 'Schrittmaß',
+              operation: 'sum',
+              unit: 'cm',
+              operands: [
+                {
+                  label: 'Steigung',
+                  value: 17,
+                  unit: 'cm',
+                  factor: 2,
+                  provenance: 'computed',
+                  tolerance: 0.5,
+                  source: 'Einreichplan, Schnitt A-A',
+                },
+                { label: 'Auftritt', value: 30, unit: 'cm', provenance: 'declared' },
+              ],
+            },
+          ]}
+          limit={{
+            comparator: 'between',
+            value: 59,
+            upper: 65,
+            label: 'Schrittmaßregel',
+            reference: OIB4,
+          }}
+        />
+        <CalculationCard
+          title="Geschossflächenzahl – Grundstück Musterweg 12"
+          steps={[
+            {
+              label: 'GFZ',
+              operation: 'quotient',
+              operands: [
+                { label: 'Bruttogeschossfläche', value: 2400, unit: 'm²', source: 'Flächenaufstellung, Stand 03/2026' },
+                { label: 'Grundfläche', value: 800, unit: 'm²', provenance: 'declared' },
+              ],
+            },
+          ]}
+          limit={{ comparator: '<=', value: 2.5, label: 'Bebauungsplan PD 8123' }}
+          note="Terrassen und Loggien sind in der Bruttogeschossfläche nicht enthalten."
+        />
+        <CalculationCard
+          title="U-Wert Außenwand aus den Wärmedurchlasswiderständen"
+          steps={[
+            {
+              label: 'Wärmedurchgangswiderstand',
+              operation: 'sum',
+              unit: 'm²K/W',
+              operands: [
+                { label: 'Rsi', value: 0.13, unit: 'm²K/W' },
+                { label: 'Dämmung 20 cm', value: 3.5, unit: 'm²K/W' },
+                { label: 'Ziegel 25 cm', value: 0.31, unit: 'm²K/W' },
+                { label: 'Rse', value: 0.04, unit: 'm²K/W' },
+              ],
+            },
+            {
+              label: 'U-Wert',
+              operation: 'quotient',
+              unit: 'W/(m²K)',
+              operands: [{ label: '', value: 1 }, { label: 'Rges', step: 1 }],
+            },
+          ]}
+          limit={{ comparator: '<=', value: 0.25, reference: OIB6 }}
+        />
+      </Section>
+
+      {/* At rest: the step the project is at is open with its Voraussetzungen
+          and its Grundlage, everything before it ticked off, everything after
+          hollow. The switched state — another step opened against it — has its
+          own target, /dev/process-map. */}
+      <Section id="process_map">
+        <ProcessMapCard
+          title="Baubewilligungsverfahren – Wien"
+          current_step={2}
+          steps={[
+            {
+              label: 'Einreichung',
+              summary: 'Einreichunterlagen werden bei der Baubehörde eingebracht.',
+              actor: 'Bauwerber',
+              requires: ['Einreichplan', 'Baubeschreibung', 'Energieausweis'],
+              produces: ['Aktenzeichen'],
+              reference: { document: 'Wiener Bauordnung', section: '§ 63' },
+            },
+            {
+              label: 'Bauverhandlung',
+              summary: 'Mündliche Verhandlung mit Nachbarn und Amtssachverständigen.',
+              actor: 'Baubehörde',
+              duration: 'binnen sechs Wochen',
+              produces: ['Verhandlungsschrift'],
+              reference: { document: 'Wiener Bauordnung', section: '§ 70' },
+            },
+            {
+              label: 'Baubewilligung',
+              summary: 'Bescheid mit den Auflagen aus der Verhandlung.',
+              actor: 'Baubehörde',
+              produces: ['Baubewilligungsbescheid'],
+            },
+            {
+              label: 'Baubeginnsanzeige',
+              summary: 'Der Baubeginn ist der Behörde anzuzeigen.',
+              actor: 'Bauwerber',
+              requires: ['rechtskräftige Baubewilligung'],
+            },
+            {
+              label: 'Fertigstellungsanzeige',
+              summary: 'Nach Fertigstellung, mit den Ausführungsbestätigungen.',
+              actor: 'Bauwerber',
+              requires: ['Ausführungsbestätigungen der Fachplaner'],
+            },
+          ]}
+          reference={{ document: 'Wiener Bauordnung', section: '§§ 60 ff.' }}
+        />
+      </Section>
+
+      {/* Four chips of very different lengths, because the thing to review here
+          is that a long question truncates to one line instead of turning the
+          chip into a paragraph — and that the set still reads as an offer. */}
+      <Section id="follow_ups">
+        <FollowUpsCard
+          title="Weiterführende Fragen"
+          items={[
+            { question: 'Wie wird das Fluchtniveau genau gemessen?', hint: 'Messpunkt und Bezugsebene' },
+            { question: 'Welche Anforderungen gelten für mein Projekt konkret?' },
+            { question: 'Was wäre bei Gebäudeklasse 5 anders?', hint: 'Vergleich der beiden Klassen' },
+            {
+              question:
+                'Wie weise ich die Feuerwiderstandsklasse REI 60 der tragenden Bauteile im Einreichplan nach?',
+            },
+          ]}
+        />
+      </Section>
+
+      {/* At rest: the case that applies is open, the others are one line each.
+          The switched state — a different case previewed against it — is its
+          own target, /dev/condition-tree. */}
+      <Section id="condition_tree">
+        <ConditionTreeCard
+          title="Erforderliche Feuerwiderstandsklasse tragender Bauteile"
+          question="Gebäudeklasse"
+          branches={[
+            { condition: 'GK 1–3', outcome: 'REI 30 (bzw. R 30)' },
+            {
+              condition: 'GK 4',
+              outcome: 'REI 60',
+              active: true,
+              reference: {
+                document: 'OIB-Richtlinie 2',
+                section: 'Tabelle 1b',
+                excerpt:
+                  'Tragende Bauteile in Gebäuden der Gebäudeklasse 4 sind in REI 60 auszuführen; in Kellergeschossen gilt REI 90.',
+              },
+            },
+            {
+              condition: 'GK 5',
+              outcome: 'REI 90',
+              reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
+            },
+          ]}
+          reference={{ document: 'OIB-Richtlinie 2', section: 'Tabelle 1b', edition: 'Ausgabe Mai 2023' }}
         />
       </Section>
 
@@ -161,13 +402,41 @@ export default function CardsGalleryPage() {
         />
       </Section>
 
+      {/* The legend at its most crowded, which is the state worth having on
+          film: a measured value with its ± band, the „gemessen" provenance chip
+          and the limit all in one `text-xs` row, plus the unanswerable check
+          that prints the CAD remedy and offers the „Dazu fragen" chip. */}
       <Section id="dimension_diagram_ramp">
         <DimensionDiagramCard
           title="Rampe – Neigung & Breite"
           shape="ramp"
           dimensions={[
-            { label: 'Neigung', value: 7.2, required: 6, unit: '%', comparator: '<=', status: 'fail' },
-            { label: 'nutzbare Breite', value: 120, required: 120, unit: 'cm', comparator: '>=', status: 'pass' },
+            {
+              label: 'Neigung',
+              value: 7.2,
+              required: 6,
+              unit: '%',
+              comparator: '<=',
+              status: 'fail',
+              provenance: 'computed',
+              tolerance: 0.1,
+            },
+            {
+              label: 'nutzbare Breite',
+              value: 120,
+              required: 120,
+              unit: 'cm',
+              comparator: '>=',
+              status: 'pass',
+              provenance: 'declared',
+            },
+            {
+              label: 'Handlauf beidseitig',
+              value: null,
+              unit: 'cm',
+              status: 'needs_input',
+              missing: 'Dieser Export enthält kein IfcRailing — Handläufe im CAD als IfcRailing modellieren.',
+            },
           ]}
           reference={{ document: 'ÖNORM B 1600', section: 'Pkt. 5.2' }}
         />
@@ -181,6 +450,43 @@ export default function CardsGalleryPage() {
             { label: 'Durchmesser', value: 150, required: 150, unit: 'cm', comparator: '>=', status: 'pass' },
           ]}
           reference={{ document: 'ÖNORM B 1600' }}
+        />
+      </Section>
+
+      {/* The three remaining shapes, so the gallery photographs every template
+          the renderer can produce rather than half of them: a corridor plan, a
+          threshold detail at centimetre scale, and a parking bay in plan. */}
+      <Section id="dimension_diagram_corridor">
+        <DimensionDiagramCard
+          title="Gang – nutzbare Breite"
+          shape="corridor"
+          dimensions={[
+            { label: 'nutzbare Breite', value: 110, required: 120, unit: 'cm', comparator: '>=', status: 'fail' },
+          ]}
+          reference={{ document: 'ÖNORM B 1600', section: 'Pkt. 4.2' }}
+        />
+      </Section>
+
+      <Section id="dimension_diagram_threshold">
+        <DimensionDiagramCard
+          title="Türschwelle – Anschlaghöhe"
+          shape="threshold"
+          dimensions={[
+            { label: 'Schwellenhöhe', value: 2, required: 2, unit: 'cm', comparator: '<=', status: 'pass' },
+          ]}
+          reference={{ document: 'ÖNORM B 1600', section: 'Pkt. 5.1.3' }}
+        />
+      </Section>
+
+      <Section id="dimension_diagram_parking_space">
+        <DimensionDiagramCard
+          title="Stellplatz barrierefrei"
+          shape="parking_space"
+          dimensions={[
+            { label: 'Breite', value: 350, required: 350, unit: 'cm', comparator: '>=', status: 'pass' },
+            { label: 'Länge', value: 500, required: 500, unit: 'cm', comparator: '>=', status: 'pass' },
+          ]}
+          reference={{ document: 'ÖNORM B 1600', section: 'Pkt. 3.3' }}
         />
       </Section>
 

@@ -162,9 +162,9 @@ export const bim = {
     unknowns: 'Not decidable:',
     showInModel: 'show in model',
     more: '{count} more elements',
-    // The translator substitutes tokens and does not select plurals, so every
-    // counted string needs its sibling — a rule with seven findings shows six
-    // and renders "1 more".
+    // A rule with seven findings shows six and would otherwise render "1 more".
+    // The sibling key predates the plural blocks `src/i18n/translate.ts` now
+    // understands; it is correct as it stands, so it keeps its shape.
     moreOne: 'One more element',
     truncated: 'Further elements are affected — see the counts above.',
     missingFacts:
@@ -331,7 +331,8 @@ export const bim = {
   },
   timeline: {
     title: 'Revisions',
-    description: '{count} revisions of {name}, newest first.',
+    description:
+      '{count, plural, one {# revision} other {# revisions}} of {name}, newest first.',
     revision: 'Revision {index}',
     latest: 'Current',
     compare: 'Compare with {previous}',
@@ -532,5 +533,15 @@ export const bim = {
      */
     ambiguousModel:
       'Several models in this project match that name, so this card cannot say which building it is about.',
+  },
+  /**
+   * The model picker — the project's models as tiles that open the viewer on
+   * click, offered instead of a prose list of file names to retype.
+   */
+  modelPicker: {
+    // "Could not look" is not "the project has no models" — the picker says
+    // which, rather than quietly rendering nothing when the list request failed.
+    failed: 'The models for this project could not be loaded.',
+    openAria: 'Open {name} in the model workspace',
   },
 }

@@ -624,6 +624,45 @@ class TestRunAgentStateFields:
         assert state.project_context == "facts:\n  building_class: GK3"
 
     @pytest.mark.asyncio
+    async def test_run_agent_carries_the_organization_onto_the_deep_state(self):
+        """The tenant a deep job resolves its skills for arrives on the state.
+
+        There are no request headers inside a Dask worker, so the organization
+        cannot be read from the context the way the synchronous chat path reads
+        it — it is captured at submit time and handed over here. Without it the
+        run resolves no organization skills at all, which is how the platform's
+        own standard skills came to be silently absent from every report.
+        """
+        from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+        from aiq_api.jobs.runner import _run_agent
+
+        captured: dict = {}
+
+        class FakeDeepAgent:
+            async def run(self, state):
+                captured["state"] = state
+                return state
+
+        FakeDeepAgent.__module__ = "aiq_agent.agents.deep_researcher.agent"
+        FakeDeepAgent.__name__ = "DeepResearcherAgent"
+
+        monitor = MagicMock()
+        monitor.is_cancelled = False
+        monitor.start = MagicMock()
+        monitor.stop = AsyncMock()
+
+        await _run_agent(
+            agent=FakeDeepAgent(),
+            input_text="Wie hoch muss das Geländer sein?",
+            monitor=monitor,
+            organization_id="org_01H",
+        )
+
+        state = captured["state"]
+        assert isinstance(state, DeepResearchAgentState)
+        assert state.organization_id == "org_01H"
+
+    @pytest.mark.asyncio
     async def test_run_agent_skips_unsupported_state_fields(self):
         """Fields absent from a state model are not passed (no validation errors)."""
         from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState

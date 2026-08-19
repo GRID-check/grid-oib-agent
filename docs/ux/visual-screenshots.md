@@ -189,6 +189,19 @@ this on every PR that adds components:
   German or English depending on *whose* dev server captured it. `fixedLocale`
   skips that reconciliation and exists for the `/dev/*` routes only — never for the
   product, where following the user's preference is the point.
+- **A preview that DRIVES an interactive state must be idempotent, because
+  `reactStrictMode` mounts every effect twice.** The harness captures a page at
+  rest, so a state a reader has to click for (a switched `ConditionTreeCard`
+  branch, an opened `ReportOutline`) is produced by an effect in the preview
+  route that presses the control — the `/dev/citation-interaction` pattern. In
+  development React mounts, unmounts and remounts, so that effect runs twice: a
+  plain `.click()` on a toggle opens the panel and closes it again, and the
+  target is then captured at rest under the name of the driven state. Guard with
+  a **module-scope** flag (a `let`, or a `Set` keyed per block) — a flag inside
+  the effect cannot see the second mount, and one the cleanup resets cannot
+  either — and keep polling until the control REPORTS the state
+  (`aria-expanded === 'true'`), so a press that lands before hydration is
+  retried rather than mistaken for success.
 - **Never put `border-radius: inherit` in the global `:focus-visible` rule.** A
   CSS `outline` already follows the focused element's *own* `border-radius` in
   every browser we target, so it needs no help. `border-radius: inherit`

@@ -815,6 +815,475 @@ class NormChainCard(BaseModel):
     links: list[NormChainLink] = Field(min_length=1, description="The chain top-to-bottom, most binding first")
 
 
+# ── Generic answer-polish cards ──────────────────────────────────────────────
+# The two types that carry no domain at all: they fit ANY answer, which is what
+# the fifteen schematics and the four answer-shape cards cannot do. A question
+# that draws no stair and forks on no Gebäudeklasse still has two or three
+# points the reader has to leave with, and usually one sentence that changes
+# what they do next — and both of those are currently prose the reader has to
+# find for themselves.
+
+
+class KeyTakeaway(BaseModel):
+    """One takeaway: the line the reader leaves with, plus the detail behind it."""
+
+    text: str = Field(
+        min_length=1,
+        description="The takeaway as ONE scannable line, e.g. 'Fluchtniveau 9,80 m → Gebäudeklasse 4'",
+    )
+    detail: str | None = Field(
+        default=None,
+        description=(
+            "One or two sentences revealed when the reader expands this takeaway — the derivation, "
+            "the caveat or the exception behind it. Never a restatement of `text`; omit if there is nothing to add"
+        ),
+    )
+
+
+class KeyTakeawaysCard(BaseModel):
+    """Emit for the two to five points the reader must take away from any answer.
+
+    The generic upgrade over a markdown bullet list, and the one card that fits
+    an answer with no diagram and no fork in it. Each takeaway is its own
+    numbered line, so a reader who skims the card leaves with the same answer as
+    one who reads the prose. A `detail` rides folded behind its takeaway and
+    opens on click — the qualification survives without costing the block its
+    scannability.
+    """
+
+    type: Literal["key_takeaways"]
+    title: str | None = Field(
+        default=None,
+        description="Optional headline, e.g. 'Gebäudeklasse 4 – das Wichtigste'; omit to let the takeaways stand alone",
+    )
+    items: list[KeyTakeaway] = Field(
+        min_length=2,
+        max_length=5,
+        description="The takeaways, most important first. Two to five — one is a sentence, six is the answer again",
+    )
+
+
+class CalloutCard(BaseModel):
+    """Emit for the single caveat, deadline or tip that must not drown in a paragraph.
+
+    One framed remark, deliberately small and domain-free. `kind` sets the tone
+    AND is printed as a word ('Hinweis', 'Achtung', 'Frist', 'Tipp'), so the
+    signal survives for a reader who cannot separate the colours. Use at most
+    one per answer: inside a paragraph the sentence that changes what the reader
+    DOES reads at the same weight as the sentence beside it, and a second
+    callout puts both back at that weight.
+    """
+
+    type: Literal["callout"]
+    kind: Literal["hinweis", "achtung", "frist", "tipp"] = Field(
+        description=(
+            "What kind of remark this is: 'hinweis' (something easily missed), 'achtung' (a risk or a "
+            "requirement that is easy to get wrong), 'frist' (a deadline or a period that runs), "
+            "'tipp' (a recommendation that is not required)"
+        )
+    )
+    text: str = Field(
+        min_length=1,
+        description="The remark itself, one or two sentences — the part that changes what the reader does",
+    )
+    title: str | None = Field(
+        default=None, description="Optional short headline, e.g. 'Gilt nur in Wien'; omit when `text` says it already"
+    )
+    detail: str | None = Field(
+        default=None,
+        description=(
+            "Optional background revealed when the reader expands the callout — the exception, the "
+            "source or the consequence. Omit rather than padding the remark out"
+        ),
+    )
+
+
+class FollowUp(BaseModel):
+    """One next question, written out in full so it can be sent as it stands."""
+
+    question: str = Field(
+        min_length=1,
+        description=(
+            "The next question as a COMPLETE, sendable sentence in the answer's language — this exact "
+            "text lands in the composer, so 'Wie wird das Fluchtniveau gemessen?' works and a topic "
+            "label like 'Fluchtniveau' does not. Name something this answer introduced: a term it "
+            "defined, a value it gave, a caveat it raised"
+        ),
+    )
+    hint: str | None = Field(
+        default=None,
+        description=(
+            "Optional half-line saying what asking this would get the reader, e.g. 'Messpunkt und "
+            "Bezugsebene'. Shown only as a tooltip — never the question itself, and omit it rather "
+            "than restating the question in other words"
+        ),
+    )
+
+
+class FollowUpsCard(BaseModel):
+    """Emit at the END of an answer: the two to four questions this answer just made askable.
+
+    The reader who now knows what a Fluchtniveau is has a next question and no
+    phrasing for it; each item renders as a chip that PREFILLS the composer, so
+    the way forward costs a click instead of a paragraph of typing. Nothing is
+    sent on click — the reader still edits and presses send — so the card
+    suggests, it never asks on their behalf.
+
+    What makes the set work is anchoring and spread: every question must name
+    something THIS answer introduced (a term it defined, a number it gave, an
+    exception it raised), and the set must cover different KINDS of next step —
+    narrowing to this project, going a level deeper on a rule just named,
+    comparing the alternative, moving toward the next action. Four rephrasings
+    of one question is one question. A generic 'Erzähl mir mehr' is worse than
+    no card at all: it teaches the reader the chips are decoration, and then
+    they stop reading them.
+    """
+
+    type: Literal["follow_ups"]
+    title: str | None = Field(
+        default=None,
+        description="Optional headline, e.g. 'Weiterführende Fragen'; omit to let the questions stand alone",
+    )
+    items: list[FollowUp] = Field(
+        min_length=2,
+        max_length=4,
+        description=(
+            "The next questions, most useful first. Two to four — one chip is not a set of options, "
+            "five is a menu the reader has to read instead of an offer they can take"
+        ),
+    )
+
+
+# ── The derivation, and the procedure ────────────────────────────────────────
+# Two shapes an OIB answer takes constantly and that had no card, so they were
+# written as prose: the arithmetic that produced a number, and the ordered
+# procedure a project moves through.
+#
+# `calculation` is the one card where the MODEL MUST NOT SUPPLY THE ANSWER. It
+# supplies operands, an operation and (optionally) the limit; the renderer
+# evaluates every step, propagates the tolerance band, formats to Austrian
+# convention and derives the verdict. This is the same invariant the fifteen
+# schematics are built on — the renderer draws to scale and does the geometry
+# itself, so a card cannot show a diagram that disagrees with its own numbers —
+# and it matters more here, because a Rechenweg whose stated result disagrees
+# with its own operands is the artefact that gets screenshotted into an
+# Einreichung.
+#
+# There is deliberately NO expression string and no formula field. A general
+# evaluator would let the model write arbitrary arithmetic that the renderer
+# must then parse and trust; parsing it back is how the renderer ends up
+# re-deriving the model's intent, and the first ambiguous parse (precedence,
+# a unit inside the expression, a stray parenthesis) puts a wrong number on the
+# card with full confidence. A closed set of five operations cannot be
+# mis-parsed because there is nothing to parse.
+
+
+CalculationOperation = Literal["sum", "product", "quotient", "percent_of", "percent_ratio"]
+"""The five closed operation shapes a Rechenweg is allowed to take.
+
+Each is ONE formula the renderer evaluates directly. They were chosen against
+the arithmetic that actually appears in Austrian Baurecht answers, not against
+what an expression grammar would cover:
+
+    sum           Σ factorᵢ · valueᵢ   Schrittmaßregel (2 × 17 + 30), Gehweglänge,
+                                       Gesamthöhe, a Restbreite (negative factor)
+    product       Π valueᵢ             Stellplatzbedarf (14 WE × 1,0), an area
+    quotient      v₁ ÷ v₂              GFZ (BGF ÷ Grundfläche), Brandlast je m²,
+                                       U = 1 ÷ R (numerator 1)
+    percent_of    v₁ · v₂ ÷ 100        erforderliche Lichteintrittsfläche (10 % der
+                                       Bodenfläche), Grünflächenanteil
+    percent_ratio v₁ ÷ v₂ · 100        Bebauungsgrad, Rampenneigung — the result is a
+                                       percentage and the renderer prints '%' for it
+
+Anything more composite is expressed as SEVERAL steps, with a later step
+referencing an earlier one's result (:attr:`CalculationOperand.step`).
+"""
+
+
+class CalculationOperand(BaseModel):
+    """One number entering a step of the derivation, with where it came from.
+
+    Either a literal ``value`` or a reference to an earlier ``step`` — never
+    both, because a stated value beside a reference is two answers to the same
+    question and the renderer would have to pick one.
+
+    Carries the same provenance vocabulary as :class:`DimensionCheck`, for the
+    same reason: a derived number is only as honest as its inputs, and a
+    Schrittmaß computed from a measurement of ours is our claim, not the
+    architect's. The renderer propagates every band it is given into the result,
+    so a tolerance dropped here is a tolerance dropped from the answer.
+    """
+
+    label: str = Field(
+        description=(
+            "What this number IS, e.g. 'Steigung', 'Bruttogeschossfläche', 'Grundfläche'. Empty ONLY for a "
+            "bare constant that names itself, such as the 1 in a U-value's 1 ÷ R — everything a reader "
+            "has to look up needs its name under it"
+        ),
+    )
+    value: float | None = Field(
+        default=None,
+        description=(
+            "The number itself. Leave null when it is not known — the renderer then shows the step as "
+            "undecidable instead of a result, which is the honest outcome. Must be null when `step` is set"
+        ),
+    )
+    unit: str | None = Field(
+        default=None,
+        description="Unit of this operand, e.g. 'cm', 'm²', 'MJ'; omit for a bare count or a ratio",
+    )
+    factor: float | None = Field(
+        default=None,
+        description=(
+            "Only on a 'sum': the RULE's own multiplier for this term, e.g. 2 in the Schrittmaßregel "
+            "'2 × Steigung + Auftritt'. Negative subtracts the term. Omit for a plain +1 — never use it "
+            "to smuggle a second measured quantity in, which is what a 'product' step is for"
+        ),
+    )
+    step: int | None = Field(
+        default=None,
+        description=(
+            "Instead of a value: the 1-based index of an EARLIER step whose result this operand is. "
+            "Must point strictly backwards. With this set, leave value, unit, provenance and tolerance "
+            "null — the renderer takes them from the step it names"
+        ),
+    )
+    provenance: Provenance | None = Field(
+        default=None,
+        description=(
+            "Where `value` came from, copied from the ifc_measure answer's own provenance: 'declared' "
+            "(the IFC file states it), 'computed' (we measured it off the geometry), 'inferred' (a "
+            "heuristic). Leave null for a figure the user typed or a limit read out of the Bestimmung. "
+            "NEVER guess it"
+        ),
+    )
+    tolerance: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "The ± band on `value`, in the SAME unit — copied from the ifc_measure answer, and only "
+            "meaningful with provenance 'computed'. The renderer propagates it through every following "
+            "step, so this is what decides whether the derived result is genuinely on one side of a limit"
+        ),
+    )
+    source: str | None = Field(
+        default=None,
+        description=(
+            "Optional half-line naming WHERE the figure is written down, e.g. 'Einreichplan, Schnitt A-A' "
+            "or 'Bebauungsplan PD 8123'. Revealed when the reader expands the derivation's sources"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _reference_or_value(self) -> "CalculationOperand":
+        if self.step is not None:
+            if self.step < 1:
+                raise ValueError("`step` is a 1-based index of an earlier step")
+            if any(x is not None for x in (self.value, self.unit, self.provenance, self.tolerance)):
+                raise ValueError("an operand referencing a step carries no value, unit, provenance or tolerance")
+        return self
+
+
+class CalculationStep(BaseModel):
+    """One line of the Rechenweg: an operation over its operands.
+
+    The step states no result. The renderer evaluates ``operation`` over
+    ``operands`` and prints what it computed — which is the whole point of the
+    card, so there is no field here for the model to disagree with it in.
+    """
+
+    label: str = Field(min_length=1, description="What this step computes, e.g. 'Schrittmaß', 'Geschossflächenzahl'")
+    operation: CalculationOperation = Field(
+        description=(
+            "Which of the five shapes this step is: 'sum' (Σ factor × value), 'product' (Π value), "
+            "'quotient' (first ÷ second), 'percent_of' (second, as a percentage, OF first), "
+            "'percent_ratio' (first ÷ second × 100, a percentage)"
+        )
+    )
+    operands: list[CalculationOperand] = Field(
+        min_length=2,
+        max_length=6,
+        description=(
+            "The numbers going in, in the order they are read. 'quotient', 'percent_of' and "
+            "'percent_ratio' take EXACTLY two"
+        ),
+    )
+    unit: str | None = Field(
+        default=None,
+        description=(
+            "Unit of THIS step's result, e.g. 'cm', 'm²', 'W/(m²K)'; omit for a dimensionless ratio like "
+            "a GFZ. Ignored on 'percent_ratio', whose result is always a percentage"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _operand_count_matches_operation(self) -> "CalculationStep":
+        if self.operation in ("quotient", "percent_of", "percent_ratio") and len(self.operands) != 2:
+            raise ValueError(f"operation '{self.operation}' takes exactly two operands")
+        if self.operation != "sum" and any(o.factor is not None for o in self.operands):
+            raise ValueError("`factor` belongs to a 'sum' step; scale with a 'product' instead")
+        return self
+
+
+class CalculationLimit(BaseModel):
+    """The Bestimmung the derived result is held against.
+
+    The comparator and the bound are the model's to supply — they are read out
+    of the Richtlinie. The VERDICT is not: the renderer compares its own
+    computed result against this and colours the card accordingly, so a card
+    cannot show a green tick above arithmetic that fails.
+    """
+
+    comparator: Literal["<=", ">=", "between"] = Field(
+        description="How the result must relate to the bound: at most, at least, or inside a range"
+    )
+    value: float = Field(description="The bound. With 'between', this is the LOWER bound")
+    upper: float | None = Field(
+        default=None,
+        description="With 'between': the upper bound, e.g. 65 for the Schrittmaßregel's 59–65 cm. Otherwise omit",
+    )
+    label: str | None = Field(
+        default=None, description="Optional name of the limit, e.g. 'Schrittmaßregel'; omit when the reference says it"
+    )
+    reference: NormReference | None = Field(default=None, description="Where the bound is written. Never invent one")
+
+    @model_validator(mode="after")
+    def _range_needs_an_upper_bound(self) -> "CalculationLimit":
+        if self.comparator == "between":
+            if self.upper is None:
+                raise ValueError("a 'between' limit needs `upper`")
+            if self.upper <= self.value:
+                raise ValueError("`upper` must be greater than `value`")
+        elif self.upper is not None:
+            raise ValueError("`upper` is only meaningful with comparator 'between'")
+        return self
+
+
+class CalculationCard(BaseModel):
+    """Emit for the arithmetic behind a number — the Rechenweg a Ziviltechniker re-checks.
+
+    Whenever the answer computes something (the Schrittmaßregel, a GFZ, a
+    Brandlast, a required parking count, a U-value from its resistances), this
+    card is the derivation laid out line by line instead of a sentence the
+    reader has to re-derive to trust.
+
+    YOU SUPPLY THE INPUTS, NEVER THE ANSWER. Give each operand its label, value
+    and unit, name the operation, and give the limit if there is one. The card
+    evaluates every step itself, carries the tolerance bands through, formats
+    the numbers in Austrian convention and decides pass/fail. There is no field
+    for a result, and that absence is the feature: a stated result that
+    disagreed with its own operands would be the worst artefact this product can
+    produce, because this is the part that gets screenshotted into a submission.
+
+    Several steps chain by reference: a later operand can name an earlier step
+    (`step: 1`) instead of carrying a value, so a two-stage derivation stays
+    auditable rather than collapsing into one pre-computed figure.
+    """
+
+    type: Literal["calculation"]
+    title: str = Field(min_length=1, description="What is being computed, e.g. 'Schrittmaßregel – Treppenlauf Haus A'")
+    steps: list[CalculationStep] = Field(
+        min_length=1,
+        max_length=4,
+        description="The derivation in order, most cards one step. A later step may reference an earlier one's result",
+    )
+    limit: CalculationLimit | None = Field(
+        default=None,
+        description=(
+            "The Bestimmung the LAST step's result is checked against. Omit when the answer only derives a figure"
+        ),
+    )
+    reference: NormReference | None = Field(
+        default=None, description="Where the RULE behind the derivation is written (the limit may carry its own)"
+    )
+    note: str | None = Field(default=None, description="Optional one-line caveat, e.g. what the figure does not cover")
+
+    @model_validator(mode="after")
+    def _references_point_backwards(self) -> "CalculationCard":
+        # A forward or self reference has no value to read, so the renderer
+        # would have nothing to compute; rejecting it here means an
+        # uncomputable card never reaches the client at all.
+        for index, step in enumerate(self.steps, start=1):
+            for operand in step.operands:
+                if operand.step is not None and operand.step >= index:
+                    raise ValueError(f"step {index} references step {operand.step}; a reference must point backwards")
+        return self
+
+
+class ProcessStep(BaseModel):
+    """One station of a Verfahren, with what it needs and what it produces."""
+
+    label: str = Field(min_length=1, description="The step's name, e.g. 'Einreichung', 'Bauverhandlung'")
+    summary: str | None = Field(
+        default=None, description="One short line saying what happens here — shown in the row, so keep it to a clause"
+    )
+    actor: str | None = Field(
+        default=None, description="Who acts at this step, e.g. 'Bauwerber', 'Baubehörde', 'Ziviltechniker'"
+    )
+    duration: str | None = Field(
+        default=None,
+        description=(
+            "How long the step runs or the Frist attached to it, AS WRITTEN — 'binnen sechs Wochen', "
+            "'8 Wochen ab Einreichung'. Never a date: nothing here is calculated, and a computed deadline "
+            "would be a legal statement about this project that the card cannot make"
+        ),
+    )
+    requires: list[str] = Field(
+        default_factory=list,
+        description="What must be in hand for this step, e.g. 'Einreichplan', 'Baubeschreibung', 'Energieausweis'",
+    )
+    produces: list[str] = Field(
+        default_factory=list, description="What comes out of it, e.g. 'Baubewilligungsbescheid', 'Verhandlungsschrift'"
+    )
+    reference: NormReference | None = Field(
+        default=None, description="The Bestimmung governing this step, e.g. the Bauordnung paragraph. Never invent one"
+    )
+
+
+class ProcessMapCard(BaseModel):
+    """Emit for „wie läuft das ab" — the ordered Verfahren, with where this project stands.
+
+    Einreichung → Bauverhandlung → Baubewilligung → Baubeginnsanzeige →
+    Fertigstellungsanzeige currently comes back as a numbered list, which says
+    the order and nothing else: not what each step needs, not what it yields,
+    and not where the reader is. The card draws the procedure as a rail and
+    opens a step on click to show its requirements, its result and its
+    Grundlage — everything already on the client, so no further question is
+    needed to see it.
+
+    Mark `current_step` ONLY when the conversation actually says where the
+    project stands. The renderer derives the rest from it (earlier steps are
+    done, later ones ahead), so guessing it tells the reader they have a
+    Baubewilligung they may not have.
+    """
+
+    type: Literal["process_map"]
+    title: str = Field(min_length=1, description="The procedure's name, e.g. 'Baubewilligungsverfahren – Wien'")
+    steps: list[ProcessStep] = Field(
+        min_length=3,
+        max_length=8,
+        description="The stations in order, first to last. Under three is not a procedure; over eight is a flowchart",
+    )
+    current_step: int | None = Field(
+        default=None,
+        description=(
+            "1-based index of the step this project is AT. Everything before it renders as done and "
+            "everything after as ahead, so set it only when the conversation says so — omit it rather "
+            "than guessing, and the map renders with nothing marked"
+        ),
+    )
+    reference: NormReference | None = Field(
+        default=None, description="The law the procedure as a whole rests on, e.g. the Land's Bauordnung"
+    )
+    note: str | None = Field(default=None, description="Optional one-line caveat, e.g. that a Land deviates")
+
+    @model_validator(mode="after")
+    def _current_step_exists(self) -> "ProcessMapCard":
+        if self.current_step is not None and not 1 <= self.current_step <= len(self.steps):
+            raise ValueError("`current_step` must be a 1-based index into `steps`")
+        return self
+
+
 # ── Document-surfacing card (system-emitted) ─────────────────────────────────
 # Surfaced by the `surface_documents` tool from a REAL vector search over the
 # project + Büroarchiv corpus — never fabricated by the model (it is a system
@@ -1109,6 +1578,27 @@ class IfcDiffCard(BaseModel):
     note: str | None = Field(default=None, description="Optional one-line clarification")
 
 
+class IfcModelPickerCard(BaseModel):
+    """A clickable list of the project's IFC models — pick one to open in the viewer.
+
+    Emit for "zeig mir das Modell" / "welches Modell" when the user wants to SEE
+    or OPEN the building and the project may hold several models. The old answer
+    to that was a prose bullet list of file names the user had to read and retype;
+    this card renders each model as a tile that opens the BIM viewer on click,
+    client-side, with no second turn.
+
+    It carries only WHICH view to offer — never a list of file names. The renderer
+    reads the project's actual models from the live model list (the same source
+    the viewer resolves against), so the model here cannot name a file that does
+    not exist: there is nothing to invent. An empty project renders nothing and
+    the written answer stands on its own, which is the fail-open the prose gave.
+    """
+
+    type: Literal["ifc_model_picker"]
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Welches Modell möchten Sie öffnen?'")
+    note: str | None = Field(default=None, description="Optional one-line clarification under the tiles")
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -1119,6 +1609,11 @@ GridCard = (
     | ConditionTreeCard
     | TypedTableCard
     | NormChainCard
+    | KeyTakeawaysCard
+    | CalloutCard
+    | CalculationCard
+    | ProcessMapCard
+    | FollowUpsCard
     | BuildingSectionCard
     | StairDiagramCard
     | DimensionDiagramCard
@@ -1141,18 +1636,26 @@ GridCard = (
     | IfcScheduleCard
     | IfcElementCard
     | IfcDiffCard
+    | IfcModelPickerCard
 )
 
 # Discriminated-union adapter — the canonical validator for a raw card dict.
 grid_card_adapter = TypeAdapter(Annotated[GridCard, Field(discriminator="type")])
 
 __all__ = [
+    "CalculationCard",
+    "CalculationLimit",
+    "CalculationOperand",
+    "CalculationStep",
+    "CalloutCard",
     "ChecklistItem",
     "ComparisonRow",
     "ComparisonTableCard",
     "ConditionBranch",
     "ConditionTreeCard",
     "DocumentGridCard",
+    "FollowUp",
+    "FollowUpsCard",
     "GridCard",
     "IfcHighlight",
     "IfcViewerCard",
@@ -1160,10 +1663,15 @@ __all__ = [
     "IfcScheduleCard",
     "IfcElementCard",
     "IfcDiffCard",
+    "IfcModelPickerCard",
+    "KeyTakeaway",
+    "KeyTakeawaysCard",
     "LegalBasisCard",
     "MemoryProposalCard",
     "NormChainCard",
     "NormChainLink",
+    "ProcessMapCard",
+    "ProcessStep",
     "SurfacedDocument",
     "ProjectProfilePatchCard",
     "ProjectProfilePatchOperation",

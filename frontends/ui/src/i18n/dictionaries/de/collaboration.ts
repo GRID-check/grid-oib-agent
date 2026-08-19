@@ -104,7 +104,7 @@ export const collaboration: typeof en.collaboration = {
         'Alle in Ihrer Organisation können ebenfalls mitlesen und mitschreiben.',
       viaVisibilityPrivate: 'Nur die hier aufgeführten Personen.',
       namedHeading: 'Namentlich eingeladen',
-      derivedMore: 'und {count} weitere',
+      derivedMore: 'und {count, plural, one {eine weitere} other {# weitere}}',
     },
   },
 
@@ -188,7 +188,8 @@ export const collaboration: typeof en.collaboration = {
   inbox: {
     title: 'Postfach',
     navLabel: 'Postfach',
-    badgeAria: '{count} Einträge brauchen Ihre Aufmerksamkeit',
+    badgeAria:
+      '{count, plural, one {# Eintrag braucht} other {# Einträge brauchen}} Ihre Aufmerksamkeit',
     badgeAriaOne: '1 Eintrag braucht Ihre Aufmerksamkeit',
     subtitle: 'Anfragen und Neuigkeiten aus Ihrem Team.',
     filters: {

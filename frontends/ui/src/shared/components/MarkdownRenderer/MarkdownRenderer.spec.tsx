@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@/test-utils'
 import { describe, test, expect, vi } from 'vitest'
-import { MarkdownRenderer } from './MarkdownRenderer'
+import { MarkdownRenderer, stabilizeStreamingMarkdown } from './MarkdownRenderer'
 import { InternalLinkProvider } from './internal-link-context'
 
 describe('MarkdownRenderer', () => {
@@ -61,6 +61,84 @@ describe('MarkdownRenderer', () => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveAttribute('id', 'introduction')
       expect(screen.getByRole('heading', { level: 2 })).toHaveAttribute('id', 'key-findings')
       expect(screen.getByRole('heading', { level: 3 })).toHaveAttribute('id', 'next-steps')
+    })
+
+    /*
+      A report that assesses two variants writes „## Bewertung" twice. Both
+      headings used to get `id="bewertung"`, so `getElementById` found the first
+      and every link to the second — an outline row, an in-page citation anchor
+      — scrolled to the wrong section without ever failing.
+    */
+    test('a repeated heading gets an id of its own', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'## Bewertung\n\nText.\n\n## Bewertung\n\n## Bewertung'} />
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2', 'bewertung-3'])
+    })
+
+    test('the first occurrence keeps the id it has always had', () => {
+      // Links published against `#zusammenfassung` — stored citation anchors,
+      // an address somebody pasted — must not move because a later section
+      // repeats the title.
+      const { container } = render(
+        <MarkdownRenderer content={'## Zusammenfassung\n\n## Zusammenfassung'} />
+      )
+
+      expect(container.querySelector('h2')?.id).toBe('zusammenfassung')
+    })
+
+    test('two renderers on one page do not number each other', () => {
+      // A chat thread mounts one of these per answer, and a module-level or
+      // ref-held counter would carry the first document's tally into the
+      // second: its lone „Bewertung" would come out as `bewertung-2`.
+      const { container } = render(
+        <>
+          <MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} />
+          <MarkdownRenderer content={'## Bewertung'} />
+        </>
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2', 'bewertung'])
+    })
+
+    test('re-rendering the same document does not renumber it', () => {
+      // The ids come from a pure pass over the markdown, not from counting the
+      // callbacks as they fire, so a second render — which React may perform
+      // whenever it likes — cannot move an anchor.
+      const { container, rerender } = render(
+        <MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} />
+      )
+      rerender(<MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} className="x" />)
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2'])
+    })
+
+    test('a heading inside fenced code is sample text and takes no id', () => {
+      const { container } = render(
+        <MarkdownRenderer
+          content={'## Bewertung\n\n```markdown\n## Bewertung\n```\n\n## Bewertung'}
+        />
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2'])
+    })
+
+    test('the anchor scroll target of a repeated heading is the second one', () => {
+      const scrollIntoView = vi.fn()
+      const { container } = render(
+        <MarkdownRenderer content={'## Bewertung\n\n## Bewertung\n\n[Zur zweiten](#bewertung-2)'} />
+      )
+      const second = container.querySelectorAll('h2')[1]
+      second.scrollIntoView = scrollIntoView
+
+      fireEvent.click(screen.getByRole('link', { name: 'Zur zweiten' }))
+
+      expect(scrollIntoView).toHaveBeenCalled()
     })
   })
 
@@ -423,6 +501,51 @@ Visit [our site](https://example.com) for more.
 
       // Should render without errors
       expect(screen.getByText(/Bold with/)).toBeInTheDocument()
+    })
+  })
+
+  describe('the streaming stabilizer is linear in the length of a line', () => {
+    /**
+     * The delimiter-row test used to read `/^\s*\|?\s*:?-{1,}/`, putting two
+     * `\s*` either side of an optional pipe. On a line of pure whitespace the
+     * engine can split that whitespace between them in quadratically many ways:
+     * 32k tabs took 1,034ms against 0.1ms for the fix. This runs on every token
+     * of every streaming answer, over text a model writes from retrieved
+     * documents, so the length of a line is not ours to bound.
+     *
+     * Measured on the function directly rather than through `render`. A first
+     * version of this test wrapped a full React render around the clock and was
+     * flaky in CI at 737ms against a 400ms budget — on a loaded runner the
+     * render dominates, and the thing under test is microseconds. Calling the
+     * function alone puts four orders of magnitude between healthy and the
+     * defect, which no runner contention can close.
+     */
+    test('a long run of whitespace under a table does not stall the stabilizer', () => {
+      // The whitespace must sit BEFORE the pipe. Only then can the two `\s*`
+      // compete to split it; with the pipe first, one of them consumes the run
+      // and the scan is linear even with the defect in place — a first version
+      // of this test put it after and passed against the bug. The line still
+      // reaches the check, because the surrounding code selects lines whose
+      // `trim()` starts with a pipe, and this one's does.
+      const content = `| Bauteil | REI |\n${'\t'.repeat(32_000)}|\n`
+
+      const started = performance.now()
+      stabilizeStreamingMarkdown(content)
+      const elapsed = performance.now() - started
+
+      expect(elapsed).toBeLessThan(200)
+    })
+
+    test('a real delimiter row is still recognised, so the table is not escaped', () => {
+      const table = '| Bauteil | REI |\n| :--- | ---: |\n| Wand | 90 |'
+
+      expect(stabilizeStreamingMarkdown(table)).toBe(table)
+    })
+
+    test('a header-only table is still deferred until its delimiter row arrives', () => {
+      const partial = '| Bauteil | REI |'
+
+      expect(stabilizeStreamingMarkdown(partial)).toBe('\\| Bauteil \\| REI \\|')
     })
   })
 })

@@ -55,8 +55,9 @@ describe('FileCard', () => {
     test('does not render timestamp when not provided', () => {
       render(<FileCard file={createFile({ timestamp: undefined })} />)
 
-      // Should not have extra timestamp text (only line count)
-      const lineCount = screen.getByText(/lines/)
+      // Should not have extra timestamp text (only line count). The default
+      // fixture is a single line, so this also pins the singular.
+      const lineCount = screen.getByText('1 line')
       expect(lineCount).toBeInTheDocument()
     })
   })

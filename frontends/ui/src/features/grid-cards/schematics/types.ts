@@ -173,3 +173,97 @@ export interface NormChainLinkData {
   rank: NormChainRank
   note?: string | null
 }
+
+/** One key takeaway: the line the reader leaves with, plus the detail behind it. */
+export interface KeyTakeawayData {
+  text: string
+  detail?: string | null
+}
+
+/**
+ * What kind of remark a callout carries. Mirrors `CalloutCard.kind` in
+ * `src/aiq_agent/cards/models.py`. The renderer prints the German word for each
+ * beside its tone — the kind must never be carried by colour alone.
+ */
+export type CalloutKind = 'hinweis' | 'achtung' | 'frist' | 'tipp'
+
+/**
+ * One follow-up question. `question` is the exact text that lands in the
+ * composer, so it is a whole sendable sentence — never a topic label. Mirrors
+ * `FollowUp` in `src/aiq_agent/cards/models.py`.
+ */
+export interface FollowUpData {
+  question: string
+  hint?: string | null
+}
+
+/**
+ * The five operation shapes a {@link CalculationStepData} may take. Mirrors
+ * `CalculationOperation` in `src/aiq_agent/cards/models.py`.
+ *
+ * A closed set rather than an expression string, because the renderer is the
+ * one that evaluates: five formulas cannot be mis-parsed, and there is nothing
+ * for the model to write that the renderer would have to interpret.
+ *
+ *   sum            Σ factorᵢ · valueᵢ
+ *   product        Π valueᵢ
+ *   quotient       v₁ ÷ v₂
+ *   percent_of     v₁ · v₂ ÷ 100   (v₂ is the percentage)
+ *   percent_ratio  v₁ ÷ v₂ · 100   (the result IS a percentage)
+ */
+export type CalculationOperation = 'sum' | 'product' | 'quotient' | 'percent_of' | 'percent_ratio'
+
+/**
+ * One number entering a step of a derivation.
+ *
+ * Either a literal `value` or a backwards `step` reference — the backend
+ * rejects both at once, and rejects a reference that does not point strictly
+ * backwards, so an uncomputable card never reaches here.
+ */
+export interface CalculationOperandData {
+  label: string
+  value?: number | null
+  unit?: string | null
+  /** `sum` only: the RULE's own multiplier (the 2 in 2 × Steigung + Auftritt). */
+  factor?: number | null
+  /** 1-based index of an earlier step whose result this operand is. */
+  step?: number | null
+  provenance?: Provenance | null
+  /** The ± band on `value`, propagated into every following step. */
+  tolerance?: number | null
+  /** Where the figure is written down — revealed, never shown at rest. */
+  source?: string | null
+}
+
+/** One line of a Rechenweg. It states no result: the renderer computes it. */
+export interface CalculationStepData {
+  label: string
+  operation: CalculationOperation
+  operands: CalculationOperandData[]
+  unit?: string | null
+}
+
+/** The Bestimmung a derived result is held against. The verdict is computed. */
+export interface CalculationLimitData {
+  comparator: '<=' | '>=' | 'between'
+  /** The bound; with `between`, the LOWER bound. */
+  value: number
+  upper?: number | null
+  label?: string | null
+  reference?: NormReferenceData | null
+}
+
+/**
+ * One station of a Verfahren. `duration` is a written Frist („binnen sechs
+ * Wochen"), never a date — this card deliberately computes nothing, because a
+ * derived deadline would be a legal statement about the reader's project.
+ */
+export interface ProcessStepData {
+  label: string
+  summary?: string | null
+  actor?: string | null
+  duration?: string | null
+  requires?: string[] | null
+  produces?: string[] | null
+  reference?: NormReferenceData | null
+}

@@ -17,6 +17,7 @@ from .models import SkillValidationError
 from .models import parse_skill_md
 from .models import preferred_cards
 from .resolver import SkillResolver
+from .resolver import resolve_served_skills
 from .runtime import SkillRuntime
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "discover_builtin_skills",
     "parse_skill_md",
     "preferred_cards",
+    "resolve_served_skills",
 ]

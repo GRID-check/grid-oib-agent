@@ -1148,7 +1148,6 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         <DeepResearchBanner
           bannerType={message.deepResearchBannerData.bannerType}
           jobId={message.deepResearchBannerData.jobId}
-          totalTokens={message.deepResearchBannerData.totalTokens}
           toolCallCount={message.deepResearchBannerData.toolCallCount}
           timestamp={message.timestamp}
           escalationReason={message.deepResearchBannerData.escalationReason}

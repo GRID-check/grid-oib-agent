@@ -11,7 +11,7 @@ import type { en } from '../en'
 export const skills: typeof en.skills = {
   title: 'Skills',
   subtitle:
-    'Wiederverwendbare Anweisungen, die Ihre Organisation einmal schreibt und danach im Chat mit „/“ aufruft oder an einen Job anhängt. Eine Bearbeitung ändert nie einen Job, der den Skill bereits verwendet — dieser behält seinen gespeicherten Snapshot.',
+    'Wiederverwendbare Anweisungen, die Ihre Organisation einmal schreibt und danach im Chat mit „/“ aufruft oder an einen Job anhängt. Eine Bearbeitung ändert nie einen Job, der den Skill bereits verwendet — dieser behält seinen gespeicherten Stand.',
   tryAgain: 'Erneut versuchen',
 
   toolbox: {
@@ -85,7 +85,7 @@ export const skills: typeof en.skills = {
     createSubtitle:
       'Erstellen Sie einen wiederverwendbaren Skill im agentskills.io-Format: Name, Beschreibung und Anweisungstext.',
     editSubtitle:
-      'Passen Sie den Skill an. Jobs, die ihn bereits verwenden, behalten ihren gespeicherten Snapshot.',
+      'Passen Sie den Skill an. Jobs, die ihn bereits verwenden, behalten ihren gespeicherten Stand.',
     nameLabel: 'Name',
     namePlaceholder: 'z. B. oib-fire-check',
     nameHint: 'Kleinbuchstaben und Bindestriche. Genau so rufen Sie den Skill im Chat mit „/“ auf.',
@@ -159,16 +159,16 @@ export const skills: typeof en.skills = {
       },
     },
     cards: {
-      heading: 'Bevorzugte Ergebnis-Cards',
-      hint: 'Der Agent gibt das Ergebnis bevorzugt als eine dieser Cards aus, sofern der Inhalt dazu passt – eine Präferenz, keine Vorgabe.',
-      searchPlaceholder: 'Cards durchsuchen, z. B. Vergleich oder Fluchtweg',
-      empty: 'Keine Präferenz – der Agent wählt die Card, die zur Antwort passt.',
-      noMatches: 'Keine Card passt zu dieser Suche.',
-      removeAria: 'Card-Typ „{type}“ aus der Präferenz entfernen',
+      heading: 'Bevorzugte Ergebniskarten',
+      hint: 'Der Agent gibt das Ergebnis bevorzugt als eine dieser Karten aus, sofern der Inhalt dazu passt – eine Präferenz, keine Vorgabe.',
+      searchPlaceholder: 'Karten durchsuchen, z. B. Vergleich oder Fluchtweg',
+      empty: 'Keine Präferenz – der Agent wählt die Karte, die zur Antwort passt.',
+      noMatches: 'Keine Karte passt zu dieser Suche.',
+      removeAria: 'Kartentyp „{type}“ aus der Präferenz entfernen',
     },
     enabledLabel: 'Aktiviert',
     enabledHint:
-      'Aus: Der Skill verschwindet aus dem „/“-Menü und aus der Auswahl des Agenten. Jobs, die ihn bereits verwenden, laufen mit ihrem gespeicherten Snapshot weiter.',
+      'Aus: Der Skill verschwindet aus dem „/“-Menü und aus der Auswahl des Agenten. Jobs, die ihn bereits verwenden, laufen mit ihrem gespeicherten Stand weiter.',
     save: 'Skill speichern',
     saving: 'Wird gespeichert…',
     cancel: 'Abbrechen',
@@ -177,7 +177,7 @@ export const skills: typeof en.skills = {
     saveError: 'Der Skill konnte nicht gespeichert werden.',
     deleteTitle: 'Skill löschen',
     deleteDescription:
-      'Dadurch wird „{name}“ aus der Bibliothek entfernt. Jobs, die ihn bereits verwenden, behalten ihren gespeicherten Snapshot und laufen unverändert weiter.',
+      'Dadurch wird „{name}“ aus der Bibliothek entfernt. Jobs, die ihn bereits verwenden, behalten ihren gespeicherten Stand und laufen unverändert weiter.',
     deleteConfirm: 'Skill löschen',
   },
 

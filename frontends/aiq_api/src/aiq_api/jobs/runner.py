@@ -629,20 +629,25 @@ async def run_agent_job(
                     if llm is not None:
                         llm = provider.get(LLMRole.ORCHESTRATOR)
 
+            # The tenant this job belongs to, captured at submit time inside
+            # usage_context because a Dask worker has no request headers to read
+            # it from. Two things need it: BYOK below, and the agent state
+            # handed to _run_agent (deep research resolves the organization's
+            # skills from it).
+            #
             # BYOK (ADR-0022): resolve the org's own LLM credential just in
             # time from the BFF (never carried in job_args — plaintext keys
-            # must not enter the persisted job store). The org id was captured
-            # at submit time inside usage_context; resolution fails open to
+            # must not enter the persisted job store); resolution fails open to
             # the platform credential.
-            _byok_org_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
+            _job_org_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
             # Captured for the post-job reflection pass, which builds its own LLM
             # outside the provider and must re-apply the same tenant credential.
             resolved_org_credential = None
-            if _byok_org_id:
+            if _job_org_id:
                 from aiq_agent.common import LLMRole
                 from aiq_agent.common import resolve_org_llm_credential
 
-                org_credential = resolve_org_llm_credential(_byok_org_id)
+                org_credential = resolve_org_llm_credential(_job_org_id)
                 resolved_org_credential = org_credential
                 if org_credential is not None:
                     credentialed = provider.with_credential(org_credential)
@@ -897,6 +902,7 @@ async def run_agent_job(
                             clarifier_result=clarifier_result,
                             project_context=project_context,
                             force_skills=force_skills,
+                            organization_id=_job_org_id,
                         )
 
                     # Emit WORKFLOW_END event for Phoenix
@@ -1168,6 +1174,7 @@ async def _run_agent(
     clarifier_result: str | None = None,
     project_context: str | None = None,
     force_skills: list[str] | None = None,
+    organization_id: str | None = None,
 ) -> Any:
     """
     Run the agent, supporting different run() signatures.
@@ -1210,6 +1217,12 @@ async def _run_agent(
                 ("clarifier_result", clarifier_result),
                 ("project_context", project_context),
                 ("force_skills", force_skills),
+                # No request headers exist in a Dask worker, so an agent that
+                # resolves per-tenant data (deep research resolves the org's
+                # skills) cannot read the organization off the context the way
+                # the synchronous chat path does. It was captured at submit
+                # time; hand it over the same way as the fields above.
+                ("organization_id", organization_id),
             ):
                 if field_value is not None and field_name in state_fields:
                     state_kwargs[field_name] = field_value

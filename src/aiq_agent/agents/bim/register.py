@@ -189,7 +189,12 @@ _TOOL_DESCRIPTION = (
     "\n"
     "model_name selects one model when the project has several (a substring of the file name); "
     "leave it empty when there is only one. Report the numbers this tool returns as they are — "
-    "do not recompute, round differently, or extrapolate them."
+    "do not recompute, round differently, or extrapolate them.\n"
+    "\n"
+    "If the user only wants to SEE or OPEN the model ('zeig mir das Modell', 'welches Modell soll "
+    "ich öffnen') and the project has several, do NOT list the file names in prose for them to "
+    "retype — emit an `ifc_model_picker` card with `emit_card`. It renders the project's models as "
+    "tiles the user clicks to open the viewer directly; you supply only a heading, not the names."
 )
 
 

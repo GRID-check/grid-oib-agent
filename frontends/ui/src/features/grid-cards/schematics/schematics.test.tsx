@@ -7,7 +7,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render as rtlRender, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { I18nProvider } from '@/i18n'
 import { BuildingSectionCard } from './BuildingSectionCard'
 import { StairDiagramCard } from './StairDiagramCard'
 import { LimitBar } from './kit'
@@ -24,6 +26,20 @@ import { ThermalEnvelopeCard } from './ThermalEnvelopeCard'
 import { EnergyPerformanceCard } from './EnergyPerformanceCard'
 import { ElevatorRequirementCard } from './ElevatorRequirementCard'
 import { ParkingRequirementCard } from './ParkingRequirementCard'
+
+/**
+ * The cards render in German because the reader is Austrian, and the copy now
+ * comes from the dictionary rather than from literals in the components. A
+ * test that renders without a provider sees the default locale (`en`), so the
+ * locale is pinned here; `fixedLocale` also skips the provider's preference
+ * reconciliation, which would be a fetch.
+ */
+const render = (ui: ReactElement) =>
+  rtlRender(
+    <I18nProvider initialLocale="de" fixedLocale>
+      {ui}
+    </I18nProvider>
+  )
 
 describe('BuildingSectionCard', () => {
   it('draws storeys, ground datum, and threshold markers with the norm footer', () => {
@@ -861,5 +877,60 @@ describe('the tolerance band against the limit', () => {
     // The band is still shown — it qualifies the number whether or not it
     // changes the verdict.
     expect(screen.getByText('±3 kWh/(m²a)')).toBeInTheDocument()
+  })
+})
+
+describe('a drawing fits the card it is printed in', () => {
+  const SHAPES = ['door', 'ramp', 'corridor', 'turning_circle', 'threshold', 'parking_space'] as const
+
+  /**
+   * A schematic is geometry, not a styled box: whatever the SVG does not have
+   * room for is cut off at the card edge, and the part that goes missing is
+   * the outer gutter where the dimension arrows and their numbers are placed.
+   * The canvas therefore may never ask for more width than it is given — no
+   * pixel floor, no intrinsic width — so on a phone the drawing shrinks and
+   * stays whole instead of running past the edge with a number on it.
+   */
+  it.each(SHAPES)('the %s drawing never claims a width the card cannot give', (shape) => {
+    const { container } = render(
+      <DimensionDiagramCard
+        title="Skizze"
+        shape={shape}
+        dimensions={[
+          { label: 'Breite', value: 120, required: 120, unit: 'cm', comparator: '>=', status: 'pass' },
+          { label: 'Höhe', value: 210, required: 200, unit: 'cm', comparator: '>=', status: 'pass' },
+        ]}
+      />
+    )
+
+    const svg = container.querySelector('svg[role="img"]') as SVGSVGElement
+    expect(svg.style.minWidth).toBe('')
+    expect(svg.getAttribute('class')).toContain('w-full')
+  })
+
+  /**
+   * And it may not be blown up without limit either: the drawings are authored
+   * in units that behave like pixels, so a narrow one stretched to fill a wide
+   * column turns two numbers into several hundred pixels of picture. The cap
+   * is a plain multiple of the authored width, which keeps the scale uniform —
+   * every ratio the drawing asserts survives it.
+   */
+  it('caps how far a narrow drawing is blown up, in proportion to how it was drawn', () => {
+    const { container } = render(
+      <DimensionDiagramCard
+        title="Wendekreis"
+        shape="turning_circle"
+        dimensions={[
+          { label: 'Durchmesser', value: 150, required: 150, unit: 'cm', comparator: '>=', status: 'pass' },
+        ]}
+      />
+    )
+
+    const svg = container.querySelector('svg[role="img"]') as SVGSVGElement
+    const viewW = Number(svg.getAttribute('viewBox')!.split(' ')[2])
+    const maxWidth = Number.parseFloat(svg.style.maxWidth)
+
+    expect(maxWidth).toBeGreaterThan(viewW)
+    expect(maxWidth / viewW).toBeLessThanOrEqual(1.5)
   })
 })

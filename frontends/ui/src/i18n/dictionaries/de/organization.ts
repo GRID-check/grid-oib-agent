@@ -5,7 +5,7 @@ export const organization: typeof en.organization = {
   title: 'Organisation',
   subtitle: 'Verwalten Sie Ihre Organisation, ihre Mitglieder und Zugriffe.',
   loading: 'Organisation wird geladen…',
-  memberSubtitle: 'Ihr LLM-Verbrauch und Ihre Organisation auf einen Blick.',
+  memberSubtitle: 'Ihr Verbrauch und Ihre Organisation auf einen Blick.',
   backToApp: 'Zurück zu den Projekten',
   nav: {
     label: 'Organisationsbereiche',
@@ -72,7 +72,8 @@ export const organization: typeof en.organization = {
     roles: {
       title: 'Rollen',
       description: 'Die Rollen, die diese Organisation vergeben kann, und was jede davon freischaltet.',
-      // Singular/Plural wird in der Komponente gewählt — dieses i18n hat kein ICU.
+      // Singular/Plural wählt hier die Komponente. Neue gezählte Strings
+      // schreiben stattdessen einen Plural-Block (siehe `i18n/translate.ts`).
       permissionCountOne: '1 Berechtigung',
       permissionCountOther: '{count} Berechtigungen',
       platformNotice:
@@ -94,7 +95,7 @@ export const organization: typeof en.organization = {
       platform: 'Plattform',
     },
     notAllowed: {
-      title: 'Du kannst hier keine Personen verwalten',
+      title: 'Sie können hier keine Personen verwalten',
       description:
         'Für die Verwaltung von Personen und Rollen wird die Berechtigung „Personen und Rollen verwalten“ benötigt. Ein Organisations-Admin kann sie vergeben.',
     },
@@ -248,7 +249,7 @@ export const organization: typeof en.organization = {
     rotated: 'Schlüssel rotiert — der vorherige Schlüssel wurde widerrufen.',
     saveError: 'Der Schlüssel konnte nicht gespeichert werden.',
     verify: 'Prüfen',
-    verified: 'Schlüssel geprüft — {count} Modelle sichtbar.',
+    verified: 'Schlüssel geprüft — {count, plural, one {# Modell} other {# Modelle}} sichtbar.',
     verifyError: 'Die Prüfung ist fehlgeschlagen.',
     revoke: 'Widerrufen',
     revokeConfirm:
@@ -282,7 +283,7 @@ export const organization: typeof en.organization = {
       'LLM-Ausgaben pro Modell im Verhältnis zu Ihren Organisationslimits. Die Kosten stammen aus dem OpenRouter-Usage-Accounting; Limits werden vor jeder Anfrage durchgesetzt.',
     memberTitle: 'Ihr Verbrauch',
     memberDescription:
-      'Ihre eigenen LLM-Ausgaben im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
+      'Ihre eigenen Ausgaben im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
     today: 'Heute',
     thisMonth: 'Dieser Monat',
     ofLimit: '{spent} von {limit}',
@@ -293,7 +294,7 @@ export const organization: typeof en.organization = {
     trendTitle: 'Letzte 30 Tage',
     trendEmpty: 'In den letzten 30 Tagen wurde keine Nutzung erfasst.',
     otherModels: 'Weitere Modelle',
-    tooltipRequests: '{count} Anfragen',
+    tooltipRequests: '{count, plural, one {# Anfrage} other {# Anfragen}}',
     limitsTitle: 'Organisationslimits',
     limitsDescription:
       'Standardmäßig gelten 10 € pro Tag und 100 € pro Monat, bis Sie eigene Werte festlegen. EUR-Limits werden mit den USD-Kosten über einen konfigurierbaren Kurs verglichen.',

@@ -16,7 +16,7 @@ export const members = {
   },
   roleDescriptions: {
     'project-viewer': 'Can view project content, files, and conversations, but not change anything.',
-    'project-editor': 'Can also edit documents, run workflows, and update the project profile.',
+    'project-editor': 'Can also edit documents, start research, and update the project profile.',
     'project-admin': 'Can also manage project settings, members, and roles.',
   },
   validation: {

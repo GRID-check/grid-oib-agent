@@ -31,20 +31,30 @@ describe('ThoughtCard', () => {
       expect(screen.getByText('claude-3')).toBeInTheDocument()
     })
 
-    test('renders workflow name when provided', () => {
+    test('names the part of the run in words, not by its identifier', () => {
       render(
         <ThoughtCard
           thought={createThought({ workflow: 'researcher-agent' })}
         />
       )
 
-      expect(screen.getByText('via researcher-agent')).toBeInTheDocument()
+      expect(screen.getByText('Step: Research')).toBeInTheDocument()
+      expect(screen.queryByText(/researcher-agent/)).not.toBeInTheDocument()
     })
 
-    test('does not render workflow when not provided', () => {
+    test('an origin this build cannot name reads neutrally, never verbatim', () => {
+      // The backend attributes a card to any enclosing chain whose name merely
+      // contains "agent", so a name no map can hold really does arrive here.
+      render(<ThoughtCard thought={createThought({ workflow: 'ClassificationAssistant' })} />)
+
+      expect(screen.getByText('Step: internal')).toBeInTheDocument()
+      expect(screen.queryByText(/ClassificationAssistant/)).not.toBeInTheDocument()
+    })
+
+    test('does not render the origin line when there is no origin', () => {
       render(<ThoughtCard thought={createThought({ workflow: undefined })} />)
 
-      expect(screen.queryByText(/via/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Step:/)).not.toBeInTheDocument()
     })
   })
 
@@ -70,36 +80,21 @@ describe('ThoughtCard', () => {
   })
 
   describe('token usage', () => {
-    test('shows token usage when not streaming', () => {
-      render(
-        <ThoughtCard
-          thought={createThought({
-            isStreaming: false,
-            usage: { prompt_tokens: 100, completion_tokens: 50 },
-          })}
-        />
+    // Recorded on the thought, never rendered — see `ThoughtInfo.usage`. The
+    // count of our own tokens is not something a reader of the research can do
+    // anything with, and it has no unit they have ever been shown.
+    test('is never shown, streaming or finished', () => {
+      const usage = { prompt_tokens: 100, completion_tokens: 50 }
+
+      const { unmount } = render(
+        <ThoughtCard thought={createThought({ isStreaming: false, usage })} />
       )
+      expect(screen.queryByText(/100/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/\b50\b/)).not.toBeInTheDocument()
+      unmount()
 
-      expect(screen.getByText('Tokens: 100 in / 50 out')).toBeInTheDocument()
-    })
-
-    test('does not show token usage when streaming', () => {
-      render(
-        <ThoughtCard
-          thought={createThought({
-            isStreaming: true,
-            usage: { prompt_tokens: 100, completion_tokens: 50 },
-          })}
-        />
-      )
-
-      expect(screen.queryByText(/Tokens:/)).not.toBeInTheDocument()
-    })
-
-    test('does not show token usage when not provided', () => {
-      render(<ThoughtCard thought={createThought({ usage: undefined })} />)
-
-      expect(screen.queryByText(/Tokens:/)).not.toBeInTheDocument()
+      render(<ThoughtCard thought={createThought({ isStreaming: true, usage })} />)
+      expect(screen.queryByText(/100/)).not.toBeInTheDocument()
     })
   })
 

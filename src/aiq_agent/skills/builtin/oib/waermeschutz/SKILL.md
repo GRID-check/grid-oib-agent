@@ -1,43 +1,44 @@
 ---
 name: waermeschutz
 description: >
-  Bei Fragen zu Energie, Wärmeschutz und Schallschutz laden: U-Wert,
-  Wärmedurchgangskoeffizient, thermische Hülle, Wärmebrücke, Heizwärmebedarf,
-  HWB, Energieausweis, Energieeffizienzklasse, fGEE, Kompaktheit,
-  Referenzklima, sommerliche Überwärmung, Schallschutz, DnTw, LnTw,
-  Trittschall, Luftschall, Anforderungen der OIB-Richtlinien 5 und 6.
+  Energy, thermal protection and sound insulation. Load when the question
+  involves U-Wert or Wärmedurchgangskoeffizient, thermische Hülle, Wärmebrücke,
+  Heizwärmebedarf or HWB, Energieausweis, Energieeffizienzklasse, fGEE,
+  Kompaktheit, Referenzklima, sommerliche Überwärmung, Schallschutz, DnTw,
+  LnTw, Trittschall, Luftschall, or any requirement of OIB Richtlinien 5 and 6.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: thermal_envelope,energy_performance,acoustic_check,requirement_checklist,legal_basis
 ---
 
-# Energie und Schallschutz beantworten
+# Answering an energy or acoustics question
 
-## Der Grenzwert allein beantwortet die Frage selten
+## The limit alone rarely answers the question
 
-Ein U-Wert-Grenzwert ist an das Bauteil gebunden und daran, ob es an Außenluft,
-an Erdreich oder an einen unbeheizten Raum grenzt. Nennen Sie das Bauteil und
-seine Lage mit, sonst ist die Zahl auf das falsche Bauteil anwendbar. Dasselbe
-bei Schallschutz: DnTw und LnTw gelten für ein Bauteil ZWISCHEN zwei bestimmten
-Nutzungseinheiten, und die Paarung entscheidet den Wert.
+A U-value limit is bound to a building element and to what that element borders
+on — outside air, ground, or an unheated room. Name the element and its position
+alongside the number, or the number will be applied to the wrong element. Sound
+insulation works the same way: DnTw and LnTw apply to an element *between* two
+particular Nutzungseinheiten, and the pairing decides the value.
 
-Beim Heizwärmebedarf kommt dazu, dass der Wert aus einer Berechnung stammt, die
-dieses Produkt nicht führt. Sie können sagen, welche Anforderung gilt und wie
-ein Wert einzuordnen ist; Sie können keinen HWB ermitteln. Sagen Sie das, wenn
-die Frage danach klingt.
+Heizwärmebedarf adds one more thing: the value comes out of a calculation this
+product does not perform. You can say which requirement applies and how a given
+value sits against it; you cannot determine an HWB. Say so when the question
+sounds like it is asking for one.
 
-## Welche Card wozu
+## Which card for what
 
-- U-Werte je Bauteil der Hülle → `thermal_envelope`, eine Zeile je Bauteil.
-- HWB und Energieklasse → `energy_performance`.
-- Schallschutz je Bauteilpaarung → `acoustic_check`, die Paarung im Label.
-- Mehrere Anforderungen nebeneinander → `requirement_checklist`.
+- U-values per element of the envelope → `thermal_envelope`, one row per
+  element.
+- HWB and energy class → `energy_performance`.
+- Sound insulation per element pairing → `acoustic_check`, the pairing in the
+  label.
+- Several requirements side by side → `requirement_checklist`.
 
-## Bestand ist der Regelfall, nicht die Ausnahme
+## Bestand is the normal case, not the exception
 
-Ein großer Teil dieser Fragen betrifft Sanierung, und die Anforderungen an
-Bestand, Zubau und größere Renovierung unterscheiden sich vom Neubau. Wenn im
-Projektkontext `bestand_neubau` gesetzt ist, antworten Sie für diesen Fall. Ist
-es nicht gesetzt und macht es einen Unterschied, ist das die eine Frage, die
-Sie stellen — und zwar bevor Sie eine Neubauanforderung nennen, die dann
-falsch ist.
+A large share of these questions concern Sanierung, and the requirements for
+Bestand, Zubau and größere Renovierung differ from Neubau. When
+`bestand_neubau` is set in the project context, answer for that case. When it is
+not set and it makes a difference, that is the one question to ask — and to ask
+before quoting a Neubau requirement that then turns out to be the wrong one.

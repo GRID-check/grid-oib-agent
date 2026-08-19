@@ -47,6 +47,61 @@ describe('interpolate', () => {
   })
 })
 
+describe('interpolate plural blocks', () => {
+  const steps = '{count, plural, one {# Schritt} other {# Schritte}}'
+
+  test('picks the singular at exactly one', () => {
+    expect(interpolate(steps, { count: 1 })).toBe('1 Schritt')
+  })
+
+  test('picks the plural above one', () => {
+    expect(interpolate(steps, { count: 2 })).toBe('2 Schritte')
+    expect(interpolate(steps, { count: 17 })).toBe('17 Schritte')
+  })
+
+  test('picks the plural at zero, as German and English both do', () => {
+    expect(interpolate(steps, { count: 0 })).toBe('0 Schritte')
+  })
+
+  test('resolves a block sitting inside a longer sentence', () => {
+    expect(
+      interpolate('Piloti hat sich {count, plural, one {# Notiz} other {# Notizen}} gemerkt', {
+        count: 1,
+      })
+    ).toBe('Piloti hat sich 1 Notiz gemerkt')
+  })
+
+  test('interpolates ordinary placeholders inside a branch', () => {
+    const template = '{count, plural, one {# Treffer für „{query}“} other {# Treffer für „{query}“}}'
+    expect(interpolate(template, { count: 1, query: 'OIB 6' })).toBe('1 Treffer für „OIB 6“')
+  })
+
+  test('resolves several blocks in one template', () => {
+    const template =
+      '{hits, plural, one {# hit} other {# hits}} in {docs, plural, one {# document} other {# documents}}'
+    expect(interpolate(template, { hits: 1, docs: 1 })).toBe('1 hit in 1 document')
+    expect(interpolate(template, { hits: 4, docs: 2 })).toBe('4 hits in 2 documents')
+  })
+
+  test('falls to the plural branch when the count is missing or not a number', () => {
+    expect(interpolate(steps, { other: 1 })).toBe(' Schritte')
+    expect(interpolate(steps, { count: 'viele' })).toBe('viele Schritte')
+  })
+
+  test('leaves an ordinary placeholder alone next to a block', () => {
+    expect(
+      interpolate('{name}: {count, plural, one {# Seite} other {# Seiten}}', {
+        name: 'OIB 6',
+        count: 1,
+      })
+    ).toBe('OIB 6: 1 Seite')
+  })
+
+  test('leaves a template without a block untouched', () => {
+    expect(interpolate('{count} Treffer', { count: 1 })).toBe('1 Treffer')
+  })
+})
+
 describe('createTranslator', () => {
   const dict = {
     common: { hello: 'Hello', greet: 'Hi {name}' },

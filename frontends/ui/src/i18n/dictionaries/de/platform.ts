@@ -49,20 +49,24 @@ export const platform: typeof en.platform = {
     selectedCount: '{count} ausgewählt',
     clearSelection: 'Aufheben',
     bulkReclassify: 'Dokumentart ändern',
-    bulkReclassifyDone: 'Dokumentart von {count} Dokument(en) auf „{label}“ gesetzt',
-    bulkReclassifyFailed: 'Dokumentart von {count} Dokument(en) konnte nicht geändert werden',
+    bulkReclassifyDone:
+      'Dokumentart von {count, plural, one {# Dokument} other {# Dokumenten}} auf „{label}“ gesetzt',
+    bulkReclassifyFailed:
+      'Dokumentart von {count, plural, one {# Dokument} other {# Dokumenten}} konnte nicht geändert werden',
     bulkReingest: 'Neu indizieren',
     bulkReingestBusy: 'Wird neu indiziert…',
-    bulkReingestDone: '{count} Dokument(e) werden neu indiziert. Der Status aktualisiert sich laufend.',
+    bulkReingestDone:
+      '{count, plural, one {# Dokument wird} other {# Dokumente werden}} neu indiziert. Der Status aktualisiert sich laufend.',
     bulkReingestNothing: 'Keines der gewählten Dokumente ist noch im Korpus',
     bulkReingestFailed: 'Neuindizierung konnte nicht gestartet werden',
     bulkDelete: 'Entfernen',
-    bulkDeleteTitle: '{count} Dokumente entfernen?',
+    bulkDeleteTitle: '{count, plural, one {# Dokument} other {# Dokumente}} entfernen?',
     bulkDeleteDescription:
       'Hochgeladene Dokumente werden samt allen indexierten Inhalten gelöscht; mitgelieferte Basisdokumente werden aus dem Korpus ausgeschlossen und bei der nächsten Synchronisierung nicht erneut ingestiert. Antworten können sich auf keines davon mehr stützen.',
-    bulkDeleteConfirm: '{count} Dokumente entfernen',
-    bulkDeleteDone: '{count} Dokumente entfernt',
-    bulkDeleteFailed: '{count} Dokumente konnten nicht entfernt werden',
+    bulkDeleteConfirm: '{count, plural, one {# Dokument} other {# Dokumente}} entfernen',
+    bulkDeleteDone: '{count, plural, one {# Dokument entfernt} other {# Dokumente entfernt}}',
+    bulkDeleteFailed:
+      '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} nicht entfernt werden',
     // Detailbereich.
     detailClose: 'Schließen',
     detailOrigin: 'Herkunft',

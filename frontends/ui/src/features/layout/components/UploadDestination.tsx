@@ -2,7 +2,7 @@
  * Where an attached file lands — said once, in one vocabulary.
  *
  * The chat has two attach affordances: the sources panel ({@link FileSourcesTab}),
- * which lets the user CHOOSE between the project corpus and the private session,
+ * which lets the user CHOOSE between Projektwissen and Private Sitzung,
  * and the composer ({@link InputArea}), which has no choice at all — it always
  * uploads into the session. Only the panel ever said so, so the same
  * conversation offered two attach points with two different destinations and no
@@ -10,7 +10,7 @@
  *
  * Both surfaces now name the destination through this one primitive, over the
  * SAME `fileSourcesTab.target*` / `filesGoTo` copy, so the two statements cannot
- * drift into disagreeing about the same shelf.
+ * drift into disagreeing about the same destination.
  */
 
 'use client'
@@ -20,16 +20,16 @@ import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 /**
- * The shelf an upload is bound for. Deliberately the panel's existing
+ * The level an upload is bound for. Deliberately the panel's existing
  * `uploadTarget` vocabulary rather than a new one — ADR-0047 Phase 2 unifies
  * these names, and inventing a third set here would be one more to unify.
  */
 export type UploadDestination = 'project' | 'session'
 
 export interface UploadDestinationCopy {
-  /** Title-case name of the shelf — "Projekt-Korpus" / "Private Sitzung". */
+  /** The name the reader sees — "Projektwissen" / "Private Sitzung". */
   label: string
-  /** The same name mid-sentence — "Projekt-Korpus" / "private Sitzung". */
+  /** The same name mid-sentence, with its article — "das Projektwissen". */
   labelLower: string
   /** The full statement: "Hier hochgeladene Dateien gelangen in …". */
   sentence: string

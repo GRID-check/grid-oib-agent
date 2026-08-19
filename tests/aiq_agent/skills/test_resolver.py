@@ -9,6 +9,7 @@ import pytest
 from aiq_agent.common import cache as shared_cache
 from aiq_agent.skills.models import Skill
 from aiq_agent.skills.resolver import SkillResolver
+from aiq_agent.skills.resolver import resolve_served_skills
 
 BUILTIN = (
     Skill(name="calc", description="Base calculator.", body="body-1", origin="platform", collection="research"),
@@ -337,3 +338,52 @@ def test_unrecognised_catalog_value_reads_as_machinery(monkeypatch: pytest.Monke
     )
     resolver._builtin_by_name = {typo.name: typo}
     assert {s.name for s in resolver.always_on} == {"typo"}
+
+
+def test_served_skills_leave_the_builtin_FILES_where_they_are(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``resolve_served_skills`` returns rows, not files, and the reason is delivery.
+
+    Deep research already mounts ``skills/builtin`` into its sandbox and assigns
+    collections per DeepAgents subagent, which is a finer gate than
+    ``grid-agents`` can express. Handing the same files down a second channel
+    would put the research skills — the ones whose instructions call
+    ``execute`` — in front of the WRITER, which cannot run them.
+    """
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
+    with mock.patch.object(
+        SkillResolver,
+        "_fetch_org_skills",
+        return_value=[_row("piloti-voice", metadata={"grid-agents": "shallow_researcher,deep_researcher"})],
+    ):
+        served = resolve_served_skills("deep_researcher", "org-1")
+    assert [s.name for s in served] == ["piloti-voice"]
+    assert {s.origin for s in served} == {"org"}
+
+
+def test_served_skills_still_honour_grid_agents(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One gate, read the same way for both agents."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
+    with mock.patch.object(
+        SkillResolver,
+        "_fetch_org_skills",
+        return_value=[_row("chat-only", metadata={"grid-agents": "shallow_researcher"})],
+    ):
+        assert resolve_served_skills("deep_researcher", "org-1") == ()
+
+
+def test_served_skills_never_raise_without_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No token is the deployment's business; it must not be the run's failure."""
+    monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+    assert resolve_served_skills("deep_researcher", "org-1") == ()
+
+
+def test_served_skills_swallow_a_hard_resolution_failure() -> None:
+    """The last guard: a report is worth far more than the voice it is missing.
+
+    ``resolve`` fails open on its own for a bad payload or an unreachable BFF,
+    so this covers what is left — anything raising OUT of it — because the
+    caller is a forty-minute research job and there is nothing here worth
+    losing it over.
+    """
+    with mock.patch.object(SkillResolver, "resolve", side_effect=RuntimeError("boom")):
+        assert resolve_served_skills("deep_researcher", "org-1") == ()

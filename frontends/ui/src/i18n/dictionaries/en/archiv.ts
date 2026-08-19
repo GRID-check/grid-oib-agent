@@ -22,7 +22,7 @@ export const archiv = {
       searchPlaceholder: 'Search the Archiv — press Enter for semantic search…',
       run: 'Search',
       reset: 'Show all documents',
-      banner: 'Semantic search: {count} results for “{query}”',
+      banner: 'Semantic search: {count, plural, one {# result} other {# results}} for “{query}”',
       searching: 'Searching the Archiv for “{query}”…',
       noResults: 'No semantic matches for “{query}”',
       noResultsDescription:

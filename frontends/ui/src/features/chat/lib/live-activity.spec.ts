@@ -374,13 +374,26 @@ describe('deriveLiveActivity — turn events', () => {
     expect(deriveLiveActivity([legacy], tEn)).toBe('Belege werden geprüft …')
   })
 
-  test('legacy bare use_skill still says a skill is being applied — never "Use Skill"', () => {
-    // No turn events on this turn, so the legacy classification path runs.
+  test('legacy bare use_skill produces no line at all — never "Use Skill", never "Skill"', () => {
+    // No turn events on this turn, so the legacy classification path runs. The
+    // frame names the mechanism and cannot name the skill, so there is nothing
+    // to say that a reader could act on; the caller shows the generic working
+    // copy instead.
     const phrase = deriveLiveActivity(
       [step({ functionName: 'Tool: use_skill', displayName: getDisplayName('Tool: use_skill') })],
-      (key) => (key === 'thinking.activity.usingSkillUnnamed' ? 'Skill wird angewendet …' : key)
+      (key) => key
     )
-    expect(phrase).toBe('Skill wird angewendet …')
-    expect(phrase).not.toContain('Use Skill')
+    expect(phrase).toBeNull()
+  })
+
+  test('an unnameable skill step lets the enclosing step keep speaking', () => {
+    const phrase = deriveLiveActivity(
+      [
+        step({ functionName: 'knowledge_search' }),
+        step({ functionName: 'Tool: use_skill', displayName: getDisplayName('Tool: use_skill') }),
+      ],
+      tDe
+    )
+    expect(phrase).toBe('OIB-Wissen wird durchsucht …')
   })
 })

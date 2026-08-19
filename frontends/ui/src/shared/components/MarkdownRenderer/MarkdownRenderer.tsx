@@ -1,18 +1,18 @@
 'use client'
 
-import { type FC, type ReactNode, memo, useMemo } from 'react'
+import { type FC, type ReactNode, memo, useCallback, useMemo } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import type { PluggableList } from 'unified'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
-import { transliterateGerman } from '@/lib/text/latinize'
 import type { MarkdownRendererProps } from './types'
 import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
 import { MARKDOWN_SLOT_TAG, useMarkdownSlotRenderer } from './slot-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
-import { getLanguageFromClassName } from './utils'
+import { markdownHeadings } from './headings'
+import { getLanguageFromClassName, headingAnchorId } from './utils'
 
 function getTextFromChildren(node: ReactNode): string {
   if (typeof node === 'string') return node
@@ -22,30 +22,6 @@ function getTextFromChildren(node: ReactNode): string {
     return getTextFromChildren((node as React.ReactElement).props.children)
   }
   return ''
-}
-
-/**
- * Heading anchor ids.
- *
- * German letters are spelled out rather than dropped: `[^\w\s-]` below treats
- * every one of them as punctuation, so "Gebäude" slugified to "gebude" and
- * "Außenwand" to "auenwand" — ids no in-page link ever names. The content this
- * renders is German (chat answers, OIB reports), so that is the common
- * heading, not an edge case, and a missed anchor is silent: `scrollToAnchor`
- * returns when `getElementById` finds nothing.
- *
- * Deliberately `transliterateGerman` and NOT `latinize`: folding every other
- * diacritic would change ids that are already published in links, where today
- * an `é` is simply dropped. Everything from the trim down is likewise
- * unchanged, so every ASCII id already in use (and the `1.2` → `12`
- * punctuation shape) stays byte-identical.
- */
-function slugify(text: string): string {
-  return transliterateGerman(text.toLowerCase())
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/^-+|-+$/g, '')
 }
 
 /**
@@ -65,7 +41,10 @@ function slugify(text: string): string {
  * This only runs while `isStreaming` is true; finalized content is passed
  * through untouched so the fully-formed markdown always wins.
  */
-function stabilizeStreamingMarkdown(raw: string): string {
+// Exported for its own spec. It is the one part of this module with a cost that
+// depends on the shape of the input rather than its size, so it is measured
+// directly: timing it through a React render measures the render.
+export function stabilizeStreamingMarkdown(raw: string): string {
   let content = raw
 
   // 1) Auto-close an odd number of ``` fences.
@@ -85,7 +64,12 @@ function stabilizeStreamingMarkdown(raw: string): string {
   while (start > 0 && lines[start - 1].trim().startsWith('|')) start--
   if (end - start >= 1) {
     const tableLines = lines.slice(start, end)
-    const hasDelimiterRow = tableLines.some((l) => /^\s*\|?\s*:?-{1,}/.test(l) && l.includes('-'))
+    // `(?:\|\s*)?` rather than `\|?\s*`: the earlier form put two `\s*` either
+    // side of an optional pipe, and on a line of pure whitespace the engine can
+    // split that whitespace between them in quadratically many ways — 32k tabs
+    // took 1,034ms. Requiring a literal pipe to enter the group removes the
+    // overlap, and this runs on every token of every streaming answer.
+    const hasDelimiterRow = tableLines.some((l) => /^\s*(?:\|\s*)?:?-/.test(l) && l.includes('-'))
     if (!hasDelimiterRow) {
       // Escape the leading pipes so react-markdown renders them as text, not a
       // broken table, until the delimiter row streams in. Backslashes first:
@@ -126,6 +110,44 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       () => (isStreaming ? stabilizeStreamingMarkdown(content) : content),
       [isStreaming, content]
     )
+    /**
+     * The id of every heading in this document, keyed by the source line it was
+     * written on.
+     *
+     * Ids are unique per document — two „Bewertung" sections are `bewertung`
+     * and `bewertung-2` — and that uniqueness cannot be established from inside
+     * a per-heading callback, which knows nothing about the headings before it
+     * and runs whenever React decides to run it. So it is settled here, by a
+     * pure pass over the same string `ReactMarkdown` is handed, and the
+     * callbacks only look their answer up. See {@link markdownHeadings} for why
+     * every counting variant of this fails, and `report-outline` for the other
+     * caller — the outline offers exactly the ids this map assigns.
+     */
+    const headingIds = useMemo(() => {
+      const byLine = new Map<number, string>()
+      for (const heading of markdownHeadings(renderedContent)) byLine.set(heading.line, heading.id)
+      return byLine
+    }, [renderedContent])
+
+    /**
+     * The id for one heading element. The line the heading was written on is a
+     * property of the text, not of the render, so it survives a render React
+     * restarts or interleaves with another instance's.
+     *
+     * The fallback is the id this heading carried before ids were made unique:
+     * a setext heading (which the scan deliberately does not read) and a
+     * heading a remark plugin invented (which has no source line) still get an
+     * anchor, just not a disambiguated one.
+     */
+    const headingId = useCallback(
+      (node: ExtraProps['node'], children: ReactNode): string => {
+        const line = node?.position?.start.line
+        const assigned = line === undefined ? undefined : headingIds.get(line)
+        return assigned ?? headingAnchorId(getTextFromChildren(children))
+      },
+      [headingIds]
+    )
+
     // Custom component mappings
     const components: Components = useMemo(
       () => ({
@@ -177,32 +199,32 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         pre: ({ children }) => <>{children}</>,
 
         // Headings — include id for in-page anchor navigation
-        h1: ({ children }) => {
-          const id = slugify(getTextFromChildren(children))
+        h1: ({ children, node }: React.ComponentPropsWithoutRef<'h1'> & ExtraProps) => {
+          const id = headingId(node, children)
           return (
             <h1 id={id} className="mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight text-foreground">
               {children}
             </h1>
           )
         },
-        h2: ({ children }) => {
-          const id = slugify(getTextFromChildren(children))
+        h2: ({ children, node }: React.ComponentPropsWithoutRef<'h2'> & ExtraProps) => {
+          const id = headingId(node, children)
           return (
             <h2 id={id} className="mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight text-foreground">
               {children}
             </h2>
           )
         },
-        h3: ({ children }) => {
-          const id = slugify(getTextFromChildren(children))
+        h3: ({ children, node }: React.ComponentPropsWithoutRef<'h3'> & ExtraProps) => {
+          const id = headingId(node, children)
           return (
             <h3 id={id} className="mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight text-foreground">
               {children}
             </h3>
           )
         },
-        h4: ({ children }) => {
-          const id = slugify(getTextFromChildren(children))
+        h4: ({ children, node }: React.ComponentPropsWithoutRef<'h4'> & ExtraProps) => {
+          const id = headingId(node, children)
           return (
             <h4 id={id} className="mb-1 mt-3 block scroll-mt-4 text-sm font-semibold text-foreground">
               {children}
@@ -308,7 +330,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           <td className="px-3 py-2 text-sm text-foreground">{children}</td>
         ),
       }) as Components,
-      [compact, renderInPageAnchor, renderInternalLink, renderSlot]
+      [compact, headingId, renderInPageAnchor, renderInternalLink, renderSlot]
     )
 
     return (

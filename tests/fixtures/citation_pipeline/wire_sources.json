@@ -11,6 +11,7 @@
     "kind": "baurecht",
     "lane": "baurecht_oib",
     "lane_label": "OIB-Richtlinie",
+    "binding_status": "verbindlich_erklaert",
     "file_name": "oib-rl_2_ausgabe_mai_2023.pdf",
     "page": 12
   },
@@ -26,6 +27,7 @@
     "kind": "projekt",
     "lane": "projekt",
     "lane_label": "Projektwissen",
+    "binding_status": "unbekannt",
     "file_name": "einreichplan_og.pdf",
     "page": 4
   }

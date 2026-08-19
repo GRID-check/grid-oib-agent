@@ -156,7 +156,7 @@ describe('AgentResponse', () => {
     const { container } = render(<AgentResponse content={longContent} />)
 
     // Verify content is rendered (container should have content)
-    expect(container.textContent).toContain('This is a very long response.')
+    expect(container.textContent).toContain('This is a very long response. ')
   })
 
   test('uses shared research panel loader when clicking "View Report" with jobId', async () => {
@@ -389,13 +389,26 @@ describe('AgentResponse', () => {
       expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
     })
 
-    test('renders no empty meta row when the flags are on but nothing has content', () => {
-      // Flags default to on, but there is no confidence level, no messageId for
-      // the thumbs row, no timestamp and no memory — the row would be a bare
-      // spacer plus its own gap, so it must not mount.
-      const { container } = render(<AgentResponse content="Answer" />)
+    test('the meta row of a bare answer holds the copy action and nothing else', () => {
+      // No confidence level, no messageId for the thumbs row, no timestamp and
+      // no memory. The row used to be a bare spacer here and therefore did not
+      // mount at all; a completed answer can always be copied, so the copy
+      // action is now what keeps it from being empty — and it is alone in it.
+      render(<AgentResponse content="Answer" />)
+
+      expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
+      expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
+      expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
+      expect(screen.queryByText(/\d{1,2}:\d{2}/)).not.toBeInTheDocument()
+    })
+
+    test('renders no meta row at all while the answer is still streaming', () => {
+      // Streaming reserves the row's height but must not mount its content —
+      // an answer that is still arriving cannot be copied or rated.
+      const { container } = render(<AgentResponse content="Answer" isStreaming />)
 
       expect(container.querySelector('[class*="animation-delay"]')).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
     })
 
     test('reserves meta-row height while streaming so late chips do not jump the footer', () => {
@@ -420,15 +433,76 @@ describe('AgentResponse', () => {
         />
       )
 
-      // The timestamp is a direct child of the meta row — no longer a span
-      // floating outside the card.
-      const metaRow = screen.getByText(/^\d{1,2}:\d{2}/).parentElement
+      // The timestamp lives inside the meta row — no longer a span floating
+      // outside the card. It sits in the row's acting cluster, which is a
+      // `display: contents` wrapper above `sm`, so on a desktop it is not a
+      // box: everything is still one row.
+      const metaRow = screen.getByText(/^\d{1,2}:\d{2}/).closest('.min-h-6')
       expect(metaRow).not.toBeNull()
       expect(metaRow).toContainElement(screen.getByText('Confidence: high'))
       expect(metaRow).toContainElement(screen.getByText('Piloti noted'))
       expect(metaRow).toContainElement(
         screen.getByRole('button', { name: 'Mark this answer as helpful' })
       )
+    })
+
+    // ── the row at phone width ──────────────────────────────────────────────
+    // jsdom does no layout, so the wrap itself cannot be observed. What CAN be
+    // asserted is the thing that decides it: whether a line break is even
+    // possible between the copy actions and the thumbs. It is not, because they
+    // are not siblings in the wrapping row any more — they are one flex item.
+    test('the copy actions and the thumbs cannot wrap apart at phone width', () => {
+      render(
+        <AgentResponse
+          content="Answer"
+          messageId="m1"
+          conversationId="conv-1"
+          answerConfidence="high"
+          timestamp={new Date('2026-07-17T10:30:00')}
+          citations={citations}
+        />
+      )
+
+      const copy = screen.getByRole('button', { name: 'Copy answer' })
+      const thumb = screen.getByRole('button', { name: 'Mark this answer as helpful' })
+      const metaRow = copy.closest('.min-h-6')
+      expect(metaRow).not.toBeNull()
+
+      // Both controls hang off ONE element that is not the wrapping row.
+      const cluster = copy.parentElement?.parentElement
+      expect(cluster).not.toBe(metaRow)
+      expect(cluster).toContainElement(thumb)
+      expect(cluster).toContainElement(screen.getByText(/^\d{1,2}:\d{2}/))
+
+      // Below `sm` that element is a full-width, non-wrapping flex line, so the
+      // row breaks before it and never inside it; above `sm` it is
+      // `display: contents` and the row is exactly what it was.
+      expect(cluster?.className).toContain('max-sm:flex')
+      expect(cluster?.className).toContain('max-sm:w-full')
+      expect(cluster?.className).toContain('max-sm:flex-nowrap')
+      expect(cluster?.className).toContain('contents')
+    })
+
+    test('the acting cluster still leaves the pills in the wrapping row', () => {
+      memory.items = [memoryItem]
+
+      render(
+        <AgentResponse
+          content="Answer"
+          messageId="m1"
+          conversationId="conv-1"
+          answerConfidence="high"
+        />
+      )
+
+      const metaRow = screen.getByText('Confidence: high').closest('.min-h-6')
+      const cluster = metaRow?.querySelector('.contents')
+      expect(cluster).not.toBeNull()
+      // The pills stay OUT of the acting cluster, so the row's one wrap point
+      // is between the two halves — which is where it belongs.
+      expect(cluster).not.toContainElement(screen.getByText('Confidence: high'))
+      expect(cluster).not.toContainElement(screen.getByText('Piloti noted'))
+      expect(metaRow?.className).toContain('flex-wrap')
     })
 
     test('renders the thumbs row in its compact inline layout inside the card', () => {
@@ -597,6 +671,89 @@ describe('AgentResponse', () => {
 
       expect(screen.getByText('Result')).toBeInTheDocument()
       expect(screen.queryByText('Note')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('lede typesetting', () => {
+    const LEDE = '[&>.markdown-content>p:first-child]:text-[1.0625rem]'
+    const longAnswer = [
+      'Für GK 4 gilt REI 90 für tragende Bauteile.',
+      'A'.repeat(320),
+      'B'.repeat(320),
+    ].join('\n\n')
+
+    // MarkdownRenderer is stubbed above, so there is no `.markdown-content` to
+    // hang off — look for the wrapper carrying the lede variant instead.
+    const hasLede = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('div')).some((el) => el.className.includes(LEDE))
+
+    test('a long prose answer gets its opening paragraph set as a lede', () => {
+      const { container } = render(<AgentResponse content={longAnswer} />)
+
+      expect(hasLede(container)).toBe(true)
+    })
+
+    test('a short answer is its own lede and gets no enlargement', () => {
+      const { container } = render(<AgentResponse content="Ja, REI 90." />)
+
+      expect(hasLede(container)).toBe(false)
+    })
+
+    test('an answer that opens with a heading is left alone', () => {
+      const { container } = render(<AgentResponse content={`## Ergebnis\n\n${longAnswer}`} />)
+
+      expect(hasLede(container)).toBe(false)
+    })
+
+    test('a streaming answer gets no lede — the opening is still arriving', () => {
+      const { container } = render(<AgentResponse content={longAnswer} isStreaming />)
+
+      expect(hasLede(container)).toBe(false)
+    })
+  })
+  // Getting the answer OUT: the copy actions live in the merged footer's meta
+  // row, next to the feedback thumbs — never in a band of their own.
+  describe('answer copy actions', () => {
+    const citations = [
+      {
+        id: 'copy-c1',
+        content: '',
+        timestamp: new Date('2026-08-18T09:00:00Z'),
+        title: 'OIB-Richtlinie 2',
+        fileName: 'oib-rl_2.pdf',
+        collection: 'oib_knowledge',
+        kind: 'baurecht' as const,
+        origin: 'kb' as const,
+        page: 18,
+        number: 1,
+        isCited: true,
+      },
+    ]
+
+    test('a completed answer offers a copy button', () => {
+      render(<AgentResponse content="Die Antwort." />)
+
+      expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
+    })
+
+    test('the citations-resolved action appears only when the answer has sources', () => {
+      const { rerender } = render(<AgentResponse content="Die Antwort." />)
+      expect(screen.queryByRole('button', { name: /source references/i })).not.toBeInTheDocument()
+
+      rerender(<AgentResponse content="Die Antwort [1]." citations={citations} />)
+      expect(screen.getByRole('button', { name: /source references/i })).toBeInTheDocument()
+    })
+
+    test('an answer that is still arriving cannot be copied', () => {
+      render(<AgentResponse content="Die Antwort" isStreaming />)
+
+      expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
+    })
+
+    test('the inline variant carries no copy actions', () => {
+      render(<AgentResponse content="Die Antwort." variant="inline" citations={citations} />)
+
+      expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
     })
   })
 })
