@@ -2,6 +2,7 @@
 
 from typing import Annotated
 from typing import Any
+from typing import Literal
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
@@ -107,6 +108,39 @@ class DeepResearchAgentState(BaseModel):
     # "what shaped this answer", and a skill the model never opened shaped
     # nothing. None when the run resolved or activated no skills.
     skills_activated: list[str] | None = None
+    # The writer's own self-assessment of how well the report is grounded in the
+    # sources it cited, parsed from the trailing ``[CONFIDENCE:...]`` marker in
+    # ``/shared/output.md`` and already passed through the deterministic
+    # overconfidence guard. Same three names and shapes the shallow/chat path
+    # uses, because one reader consumes both: the job runner lifts them onto the
+    # job output and the frontend renders one confidence chip either way. A deep
+    # answer used to carry none of this, so the chip the product shows beside
+    # every shallow answer was simply missing on the longest reports it writes —
+    # which reads as a broken feature, not as "not assessed". None means "no
+    # signal" (marker absent or malformed) and nothing renders.
+    answer_confidence: Literal["low", "medium", "high"] | None = None
+    # The writer's own one-clause justification from ``[CONFIDENCE:level | reason]``,
+    # shown to the reader verbatim. Describes the RAW self-assessment: when the
+    # guard capped the level, this reason may still argue for the pre-cap one.
+    answer_confidence_reason: str | None = None
+    # Why the surfaced level is lower than the writer claimed, in the shared
+    # five-token taxonomy (see ``shallow_researcher.markers.CappedReason``).
+    # Deep never measures an IFC model and has no single-source fallback, so in
+    # practice only ``ungrounded`` and ``quote_unverified`` can occur here — the
+    # other three are kept so a surface never has to branch on which agent wrote
+    # the answer. A run cut off by its budget is capped too, but says so through
+    # ``research_truncated`` and the report's own banner rather than through a
+    # sixth token no reader's dictionary has.
+    answer_confidence_capped_reason: (
+        Literal[
+            "ungrounded",
+            "quote_unverified",
+            "normative_claim_uncited",
+            "measurement_only",
+            "citation_fallback",
+        ]
+        | None
+    ) = None
     # The subset of ``skills_activated`` marked ``grid-hidden`` — a skill that
     # runs on every answer (the house voice) is still named in the disclosure,
     # just de-emphasised until the reader opens the reasoning view. Named, never

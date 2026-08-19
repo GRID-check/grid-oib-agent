@@ -2682,3 +2682,208 @@ class TestSessionRegistryBinding:
             # run would lose cross-turn source continuity.
             assert during is conversation
             assert get_session_registry() is conversation
+
+
+class TestDeepReportConfidence:
+    """The writer's `[CONFIDENCE:...]` self-assessment: stripped, capped, surfaced.
+
+    Deep answers shipped without the confidence chip every shallow answer wears,
+    so the product's "is this trustworthy?" affordance was simply missing on the
+    longest reports it writes. These tests pin the three things that must hold:
+    the marker never reaches a reader, the level never exceeds what the run can
+    back up, and a malformed marker costs nothing but the chip.
+    """
+
+    #: A knowledge-base passage the fixtures below cite, so citation verification
+    #: and quote verification both have something real to check against.
+    _KB_ENTRY = SourceEntry(
+        citation_key="OIB-330.pdf, p.12",
+        source_type="knowledge_layer",
+        tool_name="knowledge_search",
+        chunk_text="Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen.",
+    )
+
+    #: Long enough to clear MIN_SALVAGE_REPORT_CHARS on the cutoff path.
+    _BODY = (
+        "## Ergebnis\n\n"
+        "Die lichte Durchgangshoehe von Treppen betraegt mindestens 2,10 m und ist "
+        "damit fuer die geplante Nutzung ausreichend bemessen; die uebrigen "
+        "Anforderungen an Steigungsverhaeltnis und Handlauf bleiben davon "
+        "unberuehrt [1].\n\n"
+        "## Sources\n[1] OIB-330.pdf, p.12"
+    )
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        provider.configure(LLMRole.ORCHESTRATOR, mock_llm)
+        provider.configure(LLMRole.PLANNER, mock_llm)
+        provider.configure(LLMRole.RESEARCHER, mock_llm)
+        provider.configure(LLMRole.REPORT_WRITER, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    @staticmethod
+    def _report(marker: str | None = None, body: str | None = None) -> str:
+        """A written report, optionally ending in a confidence marker line."""
+        text = body if body is not None else TestDeepReportConfidence._BODY
+        return f"{text}\n{marker}" if marker else text
+
+    async def _run(self, mock_llm_provider, real_tool, markdown, *, callbacks=None, cutoff=False):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        mock_agent = streaming_graph_mock(
+            {"messages": [AIMessage(content="handoff")], "files": output_markdown_file(markdown)},
+            hang=cutoff,
+        )
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                callbacks=list(callbacks or []),
+                max_run_seconds=1 if cutoff else 0,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+            with seeded_session_registry(self._KB_ENTRY):
+                return await agent.run(state)
+
+    @pytest.mark.asyncio
+    async def test_grounded_report_surfaces_the_writers_own_level(self, mock_llm_provider, real_tool):
+        """Verified citations and no fabricated quote → the self-report stands."""
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:high | OIB-330 woertlich belegt]"),
+        )
+
+        assert result.answer_confidence == "high"
+        assert result.answer_confidence_reason == "OIB-330 woertlich belegt"
+        assert result.answer_confidence_capped_reason is None
+
+    @pytest.mark.asyncio
+    async def test_marker_never_survives_into_the_returned_report(self, mock_llm_provider, real_tool):
+        """The control token must not reach the reader, the socket, or the PDF."""
+
+        class _Emitter:
+            """The narrowest stand-in for the streaming callback: it only emits."""
+
+            def __init__(self) -> None:
+                self.emitted: list[str] = []
+
+            def emit_final_report(self, report: str) -> None:
+                self.emitted.append(report)
+
+        emitter = _Emitter()
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:medium | Nur eine Quelle]"),
+            callbacks=[emitter],
+        )
+
+        answer = result.messages[-1].content
+        assert "CONFIDENCE" not in answer
+        assert "Nur eine Quelle" not in answer
+        # The report itself is otherwise untouched.
+        assert "2,10 m" in answer
+        # And the re-emitted report the frontend overwrites with is just as clean.
+        assert emitter.emitted and "CONFIDENCE" not in emitter.emitted[-1]
+
+    @pytest.mark.asyncio
+    async def test_cutoff_run_cannot_ship_high_confidence(self, mock_llm_provider, real_tool):
+        """A run that never finished gathering evidence is capped below "high"."""
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:high | Alles belegt]"),
+            cutoff=True,
+        )
+
+        assert result.research_truncated is True
+        assert result.answer_confidence == "medium"
+        # Truncation speaks through its own channel; it invents no cap token.
+        assert result.answer_confidence_capped_reason is None
+        assert "CONFIDENCE" not in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_cutoff_does_not_raise_a_modest_self_report(self, mock_llm_provider, real_tool):
+        """The ceiling only clamps down: "low" stays "low" on a salvaged run."""
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:low | Recherche unvollstaendig]"),
+            cutoff=True,
+        )
+
+        assert result.answer_confidence == "low"
+
+    @pytest.mark.asyncio
+    async def test_malformed_marker_degrades_to_no_confidence(self, mock_llm_provider, real_tool):
+        """An invented level yields no chip — and is still stripped from the report."""
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:absolut sicher | Bauchgefuehl]"),
+        )
+
+        assert result.answer_confidence is None
+        assert result.answer_confidence_reason is None
+        assert result.answer_confidence_capped_reason is None
+        answer = result.messages[-1].content
+        assert "CONFIDENCE" not in answer
+        assert "Bauchgefuehl" not in answer
+        # Fail-open: the report still ships.
+        assert "2,10 m" in answer
+
+    @pytest.mark.asyncio
+    async def test_missing_marker_leaves_the_answer_unassessed(self, mock_llm_provider, real_tool):
+        """No marker is "not assessed", never a level — and never a failed run."""
+        result = await self._run(mock_llm_provider, real_tool, self._report())
+
+        assert result.answer_confidence is None
+        assert result.answer_confidence_reason is None
+        assert "2,10 m" in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_ungrounded_report_is_capped_to_low(self, mock_llm_provider, real_tool):
+        """Nothing survived verification → "low", named as ungrounded."""
+        body = "## Ergebnis\n\nDie Hoehe ist ausreichend bemessen.\n\n## Sources\n[1] Kein Nachweis"
+        result = await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
+
+        assert result.degraded_reasons == ["no_valid_citations"]
+        assert result.answer_confidence == "low"
+        assert result.answer_confidence_capped_reason == "ungrounded"
+
+    @pytest.mark.asyncio
+    async def test_fabricated_quote_caps_the_whole_answer(self, mock_llm_provider, real_tool):
+        """One quote that is not in the source drops the report to "low"."""
+        body = (
+            'Laut Richtlinie gilt „Treppen muessen eine Loeschanlage haben" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
+        )
+        result = await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
+
+        assert result.answer_confidence == "low"
+        assert result.answer_confidence_capped_reason == "quote_unverified"
+
+    @pytest.mark.asyncio
+    async def test_citation_health_ledger_records_the_cap_and_no_fallback(self, mock_llm_provider, real_tool):
+        """The ledger finally gets a cap reason — and deep's explicit "never falls back"."""
+        body = "## Ergebnis\n\nDie Hoehe ist ausreichend bemessen.\n\n## Sources\n[1] Kein Nachweis"
+        with patch("aiq_agent.agents.deep_researcher.agent.citation_events.record_turn") as record_turn:
+            await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
+
+        kwargs = record_turn.call_args.kwargs
+        assert kwargs["agent"] == "deep"
+        assert kwargs["confidence_capped_reason"] == "ungrounded"
+        assert kwargs["fallback_used"] is False

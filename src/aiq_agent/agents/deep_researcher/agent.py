@@ -16,6 +16,10 @@ from uuid import uuid4
 from langchain_core.tools import BaseTool
 from langgraph.types import Checkpointer
 
+from aiq_agent.agents.shallow_researcher.markers import ConfidenceLevel
+from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason
+from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_confidence_marker
+from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import citation_events
 from aiq_agent.common import load_prompt
@@ -76,6 +80,47 @@ SKILL_AGENT = "deep_researcher"
 #: failure: it looks like an answer. A cutoff with less than this raises the
 #: original error instead.
 MIN_SALVAGE_REPORT_CHARS = 200
+
+#: The ceiling a run that never finished gathering its evidence may reach. Deep
+#: research is the ONE path that knows it was cut off, and a report salvaged at
+#: the wall clock — or written without the sources that would have proved it —
+#: has not seen what it set out to see. "high" is the level reserved for a claim
+#: checked against a retrieved passage, so an incomplete run cannot earn it from
+#: whatever it happened to reach first. Nothing downstream could reconstruct
+#: this: by the time the report leaves here it reads exactly like a complete one.
+_INCOMPLETE_EVIDENCE_CONFIDENCE_CEILING: ConfidenceLevel = "medium"
+
+#: Ordering used only to clamp DOWN. Spelled out here rather than reached into
+#: the markers module for, so this file can never end up RAISING a self-report —
+#: the one thing the overconfidence guard exists to make impossible.
+_CONFIDENCE_RANK: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
+
+
+def _cap_for_incomplete_evidence(
+    level: ConfidenceLevel | None,
+    *,
+    cutoff_reason: str | None,
+    degraded_reasons: list[str],
+) -> ConfidenceLevel | None:
+    """Clamp a self-report the run's own incompleteness cannot back up.
+
+    Applied ON TOP of the shared overconfidence guard, never instead of it: the
+    guard grades whether the claims are sourced, this grades whether the run
+    that made them ever finished. A truncated run whose few citations all
+    verified sails through the guard at the writer's own "high", and shipping
+    that would tell the reader the most confident thing the product can say
+    about the least complete answer it produces.
+
+    WHY the cap carries no reason token of its own: truncation already has a
+    dedicated channel to the reader — ``research_truncated`` on the state and the
+    honesty banner at the top of the report — and inventing a sixth
+    ``CappedReason`` would put a token on the platform dashboard and in the
+    frontend's chip tooltip that neither has a dictionary entry for.
+    """
+    if level is None or (cutoff_reason is None and not degraded_reasons):
+        return level
+    ceiling = _INCOMPLETE_EVIDENCE_CONFIDENCE_CEILING
+    return level if _CONFIDENCE_RANK[level] <= _CONFIDENCE_RANK[ceiling] else ceiling
 
 
 class _NeverRaised(Exception):
@@ -900,6 +945,15 @@ class DeepResearcherAgent:
         manage to capture.
         """
         degraded_reasons: list[str] = []
+        # What the overconfidence guard is allowed to see. The defaults describe
+        # a run that checked nothing: no citation survived verification (none was
+        # ever verified) and no quoted span was contradicted. They hold on the
+        # ``enable_citation_verification=False`` path, where "no verified
+        # citation" is the literal truth about the answer and the guard therefore
+        # refuses to surface anything above "low" — a report nobody checked must
+        # not wear the chip that means "checked against a retrieved passage".
+        citation_grounded = False
+        quotes_verified = True
         # The sources this report cited, wire-ready. Collected inside the
         # verification branch (only the verifier knows which citations are real)
         # but serialised onto the state below, AFTER sanitisation has settled
@@ -930,6 +984,18 @@ class DeepResearcherAgent:
             # report, and the reader is now told so.
             degraded_reasons.append(DEGRADED_NO_REPORT_FILE)
             final_message = fallback
+
+        # Take the writer's self-assessment out of the report before ANY other
+        # reader touches it. Everything below this line — citation verification,
+        # quote annotation, sanitisation, the honesty banner, the re-emit to the
+        # live socket, the message the job runner stores and the PDF exported
+        # from it — operates on the text this produces, so a marker left in place
+        # here surfaces to a reader as a stray "[CONFIDENCE:high]" in the prose
+        # of the product's most formal artifact. Fail-open by construction:
+        # a missing or malformed marker yields no signal and changes nothing.
+        final_message, self_reported_confidence, self_reported_confidence_reason = detect_and_strip_confidence_marker(
+            final_message
+        )
 
         # Post-process: verify citations against source registry
         if self.enable_citation_verification and source_registry_middleware.has_sources():
@@ -991,8 +1057,8 @@ class DeepResearcherAgent:
             wire_sources = _cited_sources_to_wire(registry, list(verification.valid_citations))
 
             # Citation-health ledger: one batch per deep-research run, the
-            # same shape the shallow researcher posts. Deep reports carry no
-            # self-assessed confidence marker, so no cap reason is recorded.
+            # same shape the shallow researcher posts — including, now that the
+            # writer states one, the reason its self-assessment was capped.
             #
             # The whole registry IS this run's retrieval here — the deep
             # researcher builds a fresh SourceRegistry per run (ADR-0018),
@@ -1001,6 +1067,11 @@ class DeepResearcherAgent:
             # log to keep source_count comparable to cited_count. The
             # asymmetry is intentional; do not "align" them.
             registry_sources = registry.all_sources()
+            citation_grounded = bool(verification.valid_citations)
+            # One fabricated quotation is enough: the guard drops the whole
+            # answer to "low" rather than letting the citations that DID verify
+            # vouch for the sentence that did not.
+            quotes_verified = unverified_quote_count == 0
             citation_events.record_turn(
                 agent="deep",
                 source_count=len(registry_sources),
@@ -1015,15 +1086,23 @@ class DeepResearcherAgent:
                 # dashboard's fallback rate reads "deep never falls back"
                 # instead of inheriting a default nobody chose.
                 fallback_used=False,
+                # Recomputed from the same inputs the state field below uses, so
+                # the dashboard and the reader's chip can never disagree about
+                # WHY a report was downgraded. Deriving it here rather than
+                # threading the value down keeps the shallow researcher's
+                # arrangement, where this call and the surfacing site each ask
+                # the one function that owns the taxonomy.
+                confidence_capped_reason=answer_confidence_capped_reason(
+                    self_reported_confidence,
+                    citation_grounded,
+                    quotes_verified,
+                ),
                 source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in registry_sources],
                 # The retrieval lane of each CITED source, which the dashboard's
                 # defect mix breaks down by. Only the wire entries carry it —
                 # the lane is derived during serialisation, not stored on the
                 # registry entry — so this is the first run at which deep can
-                # report it at all. No ``confidence_capped_reason``: a deep
-                # report writes no confidence marker, so there is no cap to
-                # report and inventing one would put a fabricated reason on the
-                # platform's dashboard.
+                # report it at all.
                 source_lanes=[source.get("lane") for source in wire_sources],
                 source_tools=[entry.tool_name or None for entry in registry_sources],
                 # Source IDENTITIES (URL / document key) — never report prose.
@@ -1076,6 +1155,36 @@ class DeepResearcherAgent:
         if degraded_reasons:
             _set_state_field(result, "degraded_reasons", list(degraded_reasons))
             emit_answer_degraded(agent="deep", reasons=degraded_reasons)
+
+        # The confidence chip, at last, on the longest answers the product
+        # writes. Surfaced only after the run's own limitations are known, since
+        # both of them cap it: the shared guard downgrades a report whose
+        # citations or quotations did not survive verification, and the deep-only
+        # ceiling above downgrades one whose evidence-gathering never finished.
+        # Guarded whole — a self-assessment is a label on an answer, never a
+        # reason to lose one, so a run cut off at its budget still returns its
+        # salvaged report even if this block cannot say how sure of it we are.
+        try:
+            surfaced_confidence = _cap_for_incomplete_evidence(
+                surface_answer_confidence(self_reported_confidence, citation_grounded, quotes_verified),
+                cutoff_reason=cutoff_reason,
+                degraded_reasons=degraded_reasons,
+            )
+            if surfaced_confidence is not None:
+                # Absent, never null-spammed: no marker means "not assessed", and
+                # a surface must be able to tell that from a level of "low".
+                _set_state_field(result, "answer_confidence", surfaced_confidence)
+                if self_reported_confidence_reason:
+                    _set_state_field(result, "answer_confidence_reason", self_reported_confidence_reason)
+                capped_reason = answer_confidence_capped_reason(
+                    self_reported_confidence,
+                    citation_grounded,
+                    quotes_verified,
+                )
+                if capped_reason is not None:
+                    _set_state_field(result, "answer_confidence_capped_reason", capped_reason)
+        except Exception:  # noqa: BLE001 - grading an answer must never unmake it
+            logger.warning("Could not surface the deep report's self-assessed confidence", exc_info=True)
 
         # Re-emit the verified/sanitized report so the frontend overwrites
         # the raw version that on_llm_end auto-emitted during the stream.
