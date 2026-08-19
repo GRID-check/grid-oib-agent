@@ -452,6 +452,28 @@ class DeepResearcherAgent:
         # Stateful trace callbacks (e.g. VerboseTraceCallback) mutate internal
         # per-run state, so a shared instance must not span runs (ADR-0018).
         callbacks = [cb.for_new_run() if hasattr(cb, "for_new_run") else cb for cb in self.callbacks]
+        # Hand this run's registry to any callback that can hold one, so the
+        # live citation stream can tell a source the run RETRIEVED from one the
+        # model merely named. The accessor, not the registry object: the
+        # middleware swaps in a session-scoped registry mid-run in conversation
+        # mode, and a callback holding the first one would judge the whole
+        # report against a registry the run stopped using.
+        #
+        # Done HERE rather than by whoever built the callback, for the reason
+        # everything else in this method is: the registry is born per run, and
+        # a caller that wired it once would be wiring one run's state onto an
+        # instance shared by every run (ADR-0018). It also covers the
+        # synchronous path, which no job runner touches at all.
+        #
+        # This is belt AND braces: run() also binds the session contextvar,
+        # which is what the callback falls back to. That fallback is the one
+        # that breaks quietly -- a contextvar does not survive every thread
+        # hop LangChain's callback machinery can make, and the symptom is not
+        # an error but a citation silently reported as uncited.
+        for cb in callbacks:
+            setter = getattr(cb, "set_source_registry", None)
+            if callable(setter):
+                setter(source_registry_middleware.active_registry)
         graph = build_deep_research_graph(
             llm_provider=self.llm_provider,
             state=state,

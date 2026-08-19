@@ -230,25 +230,51 @@ retires the only button that could have retried it.
 
 ## Open Questions / Follow-ups
 
-- **The deep-research report surface is deliberately NOT wired**, and an
-  interactive card rendered there still keeps its decision in local state. Three
-  things must be fixed before it can be:
-  1. `addAgentResponseWithMeta` (which creates the deep-research answer message)
-     is the one message-creating action that never calls `_appendMessage`, so
-     that message has no server row and the metadata PATCH would 404.
-  2. `activeDeepResearchMessageId` is not a reliable owner: it is null after a
-     session switch + "View report" (`use-load-job-data` never sets it), and
-     `restoreSessionState` re-points it at the LAST `agent_response`, which may
-     be an unrelated later answer.
-  3. `deepResearchCards` is not cleared on session switch or restore, so the
-     previous session's cards can still be on screen.
+- ~~**The deep-research report surface is deliberately NOT wired**~~ —
+  **RESOLVED** (`features/grid-cards/card-owner.ts`). The three blockers below
+  are stated as they were; the fix **avoids** all three rather than repairing
+  them, which is why they still read as true.
 
-  Binding decisions to a wrong or absent message is worse than not persisting
-  them, so the surface keeps today's behaviour until it owns a stable id.
+  The owner is not the message those blockers describe. `write_job_turn`
+  (`aiq_api/jobs/conversation_output.py`) already writes the finished run into
+  its conversation as an assistant message carrying `metadata.cards` — the very
+  cards the report tab draws — and that message DOES have a server row. So the
+  report surface owns a stable id by using a different message than the
+  in-flight tracking bubble the blockers are about.
+
+  The original blockers, and why each is now moot:
+  1. `addAgentResponseWithMeta` never calls `_appendMessage`, so its message has
+     no server row and a metadata PATCH would 404. **Still true — and now a
+     reason that message is not the owner**, rather than an obstacle.
+  2. `activeDeepResearchMessageId` is not a reliable owner (null after a session
+     switch + "View report"; re-pointed at the last `agent_response` by
+     `restoreSessionState`). **Not used.** The owner is looked up by run id, not
+     tracked in a pointer that can drift.
+  3. `deepResearchCards` is not cleared on session switch or restore, so a
+     previous session's cards can still be on screen. **Still true**, but it can
+     no longer mis-file a decision: stale cards fail the byte-identical match
+     below and therefore have no owner, so no decision is offered.
+
+  The id is **looked up, not derived**. The backend computes it as
+  `uuid5(conversation, job, role)`; a client re-spelling that formula would hold
+  a copy of an id the backend owns, and drift would fail silently —
+  `setCardDecision` no-ops on an unknown message and the card would quietly fall
+  back to local state, which is the exact bug this ADR exists to prevent.
+
+  Where no owner can be established — a run still in flight, a thread not loaded
+  on this device — the card renders its proposal with **no action row at all**
+  (`decisionsMustPersist` in `GridCards`). Refusing to ask is honest; asking and
+  forgetting is not.
 - A deep-research answer message CAN carry inline `cards` (the escalation frame
-  passes `validatedCards` into `addAgentResponseWithMeta`), so any future
-  wiring of the report surface must not key on the same message as the chat
-  bubble — the positional keys would collide.
+  passes `validatedCards` into `addAgentResponseWithMeta`), so wiring the report
+  surface must not key on the same message as the chat bubble — the positional
+  keys would collide. **This is why ownership requires a BYTE-IDENTICAL card
+  array as well as a matching run id.** `cardKey` is positional
+  (`${type}-${index}`), so it names the same card on both surfaces only if both
+  hold the same array; byte equality is the same standard
+  `reconcileCardInteractions` already holds a decision to when a streaming frame
+  replaces the array, and for the same reason — losing a record and re-asking is
+  recoverable, attributing one card's decision to another is not.
 - **The per-key merge can add and overwrite, never delete.** When
   `reconcileCardInteractions` drops a decision locally, a server copy of it
   would survive. This is not reachable today — the message row is only inserted

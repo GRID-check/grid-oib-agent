@@ -2887,3 +2887,92 @@ class TestDeepReportConfidence:
         assert kwargs["agent"] == "deep"
         assert kwargs["confidence_capped_reason"] == "ungrounded"
         assert kwargs["fallback_used"] is False
+
+
+class TestCallbackRegistryHandover:
+    """The live citation stream is handed the registry, not left to find one.
+
+    The callback resolves a registry in three tiers: one handed to it, then the
+    session contextvar, then its own mirror. Tier 2 works and is what production
+    ran on -- but a contextvar does not survive every thread hop LangChain's
+    callback machinery can make, and when it is lost the symptom is not an
+    error: it is a Richtlinie the run genuinely retrieved, silently reported as
+    uncited. Tier 1 is the one that cannot be lost, so it has to be wired.
+    """
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        for role in (
+            LLMRole.ORCHESTRATOR,
+            LLMRole.ROUTER,
+            LLMRole.PLANNER,
+            LLMRole.RESEARCHER,
+            LLMRole.REPORT_WRITER,
+        ):
+            provider.configure(role, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    def test_a_callback_that_can_hold_a_registry_is_given_one(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        received = []
+
+        class RegistryHolder:
+            def set_source_registry(self, source_registry):
+                received.append(source_registry)
+
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[RegistryHolder()])
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=streaming_graph_mock({"messages": [], "files": output_markdown_file()}),
+        ):
+            artifacts = agent._prepare_run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+        assert len(received) == 1, "the run built a registry and handed it to nobody"
+        # The ACCESSOR, not the registry object: the middleware swaps in a
+        # session-scoped registry mid-run, and a callback holding the first one
+        # would judge the report against a registry the run stopped using.
+        assert callable(received[0])
+        assert received[0]() is artifacts.source_registry_middleware.active_registry()
+
+    def test_each_run_hands_over_its_own_registry(self, mock_llm_provider, real_tool):
+        """Two runs of one agent must not share a registry (ADR-0018)."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        received = []
+
+        class RegistryHolder:
+            def set_source_registry(self, source_registry):
+                received.append(source_registry)
+
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[RegistryHolder()])
+        state = DeepResearchAgentState(messages=[HumanMessage(content="Q")])
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=streaming_graph_mock({"messages": [], "files": output_markdown_file()}),
+        ):
+            first = agent._prepare_run(state)
+            second = agent._prepare_run(state)
+
+        assert len(received) == 2
+        assert received[0]() is first.source_registry_middleware.active_registry()
+        assert received[1]() is second.source_registry_middleware.active_registry()
+        assert received[0]() is not received[1]()
+
+    def test_a_callback_without_the_seam_is_left_alone(self, mock_llm_provider, real_tool):
+        """Most callbacks are trace sinks; handing them a registry must not crash."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        plain = MagicMock(spec=[])  # no attributes at all
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[plain])
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=streaming_graph_mock({"messages": [], "files": output_markdown_file()}),
+        ):
+            agent._prepare_run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
