@@ -800,3 +800,6 @@ export const createNATWebSocketClient = (
 export { NATMessageType, NATSchemaType, HumanPromptType }
 export type { NATHumanPrompt, NATIntermediateStepContent, NATErrorContent }
 export type { ResponseTransparency as NATResponseTransparency }
+// Re-exported so a consumer of `onStage` types its handler from the same module
+// it registers the callback on.
+export type { NATStageMessage }

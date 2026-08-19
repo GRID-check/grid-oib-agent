@@ -8,6 +8,8 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
+import type { MessageStages } from '@/lib/conversations/message-stages'
+import type { StageFrame } from './stores/messages-store'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 
 import type { Shelf, SourceKind } from './lib/source-kinds'
@@ -376,6 +378,31 @@ export interface ChatMessage {
   skillsActivated?: string[]
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
+  /**
+   * The WS turn id (`parent_id`) this answer belongs to
+   * (`docs/architecture/post-answer-stages.md` §1.6, §4.1).
+   *
+   * There are THREE independent id spaces for one turn: this message's row id
+   * (minted here, a uuid4), the user message's row id, and the WS turn id the
+   * client mints as `msg_${Date.now()}_${counter}`. The agent tier only ever
+   * sees the third, so it is the only id both halves genuinely share — and
+   * therefore the only correlation key a post-answer stage frame can carry.
+   *
+   * Browser-local by design: it is a handle on a live socket's turn, not a fact
+   * about the answer, so it is never persisted to the message row. A frame that
+   * matches no message in this tab is dropped, which is the correct outcome for
+   * a turn this tab did not ask.
+   */
+  wsParentId?: string
+  /**
+   * What a POST-ANSWER STAGE computed for this turn, arriving after the answer
+   * (`docs/architecture/post-answer-stages.md` §4.3).
+   *
+   * One key per stage. Not `cards`: a stage's output is not a card, is not
+   * placed by a marker, and — the reason that matters — is never exported into
+   * an Einreichung, which anything under `cards` is by the generic walker.
+   */
+  stages?: MessageStages
 }
 
 /** Intermediate thinking step from agent */
@@ -729,6 +756,14 @@ export interface ChatState {
   isLoading: boolean
   /** ID of the current user message being processed (for associating thinking steps) */
   currentUserMessageId: string | null
+  /**
+   * The WS turn id (`parent_id`) of the turn in flight — the twin of
+   * `currentUserMessageId` in the id space the AGENT tier owns
+   * (`docs/architecture/post-answer-stages.md` §1.6). The answer bubble is
+   * stamped with it as it is built, so a post-answer stage frame, which knows
+   * only the turn, can find the message it belongs to. Null between turns.
+   */
+  currentTurnWsParentId: string | null
   /** Thinking steps for the Details Panel - Thinking tab */
   thinkingSteps: ThinkingStep[]
   /** ID of the currently active thinking step (for appending content) */
@@ -990,6 +1025,22 @@ export interface ChatActions {
     citations?: CitationSource[],
     transparency?: AnswerTransparency
   ) => void
+  /**
+   * Record which WS turn the answer being built belongs to. Idempotent within a
+   * turn — every frame of a turn carries the same `parent_id`.
+   */
+  setTurnWsParentId: (wsParentId: string) => void
+  /**
+   * Apply a post-answer stage frame to the turn it addresses
+   * (`docs/architecture/post-answer-stages.md` §4.3, §8).
+   *
+   * Declines the frame — silently, and normally — when it addresses no message
+   * here, when the answer is still streaming, when anything sits below that
+   * answer in the thread, or when the reader has started typing. Returns the id
+   * of the message it landed on when something was stored, so the caller can
+   * mirror it to the server; null otherwise.
+   */
+  applyStageFrame: (frame: StageFrame) => string | null
   /**
    * Drop the in-progress streaming assistant bubble of the current turn
    * entirely (message removed, not finalized) and clear
