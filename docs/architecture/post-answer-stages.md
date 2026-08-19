@@ -1,8 +1,13 @@
 # Post-answer stages — a platform primitive
 
-> **Status:** **slices 0 and 1 are built** (`src/aiq_agent/stages/`, memory
-> reflection migrated onto it, the kill switch moved per-turn, and `follow_ups`
-> running `silent`). Slices 2–4b are still design. Paragraphs corrected on
+> **Status:** **slices 0, 1 and 2 are built** (`src/aiq_agent/stages/`, memory
+> reflection migrated onto it, the kill switch moved per-turn, `follow_ups`
+> running `silent`, and the whole client half — frame schema, `onStage`, the
+> `stages` key on the message row, and the rail below the answer — rendering
+> from the §4 fixtures with no backend). **Slice 3 is what connects them**:
+> nothing a reader can see changes until `follow_ups` flips to
+> `delivery="frame"` and `aiq_api` registers the sink. Slices 3–4b are still
+> design. Paragraphs corrected on
 > contact with the code are marked **[as built]** — each states the correction
 > and why the original was wrong.
 > **Scope:** the *stage* as a reusable shape, its wire contract, and the two
@@ -740,6 +745,15 @@ line (`FollowUpsCard.tsx:65-77`). **That rule survives the move unchanged**, whi
 is the main reason to keep the same chip component and only change where it is
 mounted.
 
+> **[as built]** The measurements hold; one inference from them does not. "Four
+> fit across 636px" is true of four SHORT chips and false of four real ones: an
+> OIB follow-up runs 35–50 characters („Was ändert sich beim Sprung von GK 4 auf
+> GK 5?"), so two fit per row and a set of four wraps to two rows on the desktop
+> shot. Nothing needed changing — the rule genuinely does survive the move — but
+> the reason to keep it is the wrapping, not the single row. The rail is
+> therefore two rows tall on desktop and four on a phone, which is what §8's
+> "reserve nothing" has to be safe against, and is.
+
 ### 6.3 The committed rationale that must be rewritten
 
 `frontends/ui/visual/registry.mjs:150-156` currently reads:
@@ -1176,6 +1190,30 @@ And the reason there is a floor under the whole problem: **the reader loses
 nothing if it never arrives.** That is the design's licence to be casual about
 latency, and it is only true because §7.1 holds.
 
+> **[as built] — the claim was true of the wrong column.** "The rail is the last
+> element in the message column, so growing it moves nothing already read" is
+> true of the MESSAGE's column and not of the THREAD. `ChatArea` renders each
+> message in its own `motion.div` inside one scrolling list, so an answer with a
+> later message under it has a whole conversation below the rail — and a stage
+> takes two to six seconds, which is ample time for the reader to send the next
+> question. Growing the rail then pushes their own message down the page, which
+> is the exact defect this section exists to prevent.
+>
+> So there are **three** conditions, not two, and all three are checked at
+> ARRIVAL rather than at render — a rail admitted and then hidden would pop in
+> later, which is the defect itself:
+>
+> 1. nothing sits below the answer in the thread (the missing one);
+> 2. the answer is no longer streaming;
+> 3. the reader has not started typing (`composerDrafts`).
+>
+> A frame failing any of them is dropped and nothing is persisted, which costs
+> the reader nothing — by the licence above. The rail's own component enforces a
+> fourth, smaller thing the section implies: an EMPTY rail renders no wrapper at
+> all, because a wrapper in a `gap-4` column contributes 16px whether or not it
+> has content, and 16px of held-open nothing is the reserved space this section
+> refused.
+
 ---
 
 ## 9. Testing the contract
@@ -1189,6 +1227,22 @@ Written here because "contract-first" is unenforceable without it.
   by *both* the Python frame-builder test and the TypeScript
   `NATStageMessageSchema` test. The fixture is the contract; if the two halves
   drift, one of them fails.
+
+  > **[as built]** The file is `shared/stages/frames.json`, alongside
+  > `shared/cards/schemas.json`, which is the cross-language contract directory
+  > this repo already has. It carries a second section the design did not
+  > anticipate: `rejected` — frames a producer must never emit and a client must
+  > therefore drop (an unknown stage, an unknown status, a future `v`, a payload
+  > beside a non-`ready` status). Those are the client half only; there is
+  > nothing for a frame builder to assert about them, and they are where the
+  > version-skew behaviour of §4.1 stops being a promise.
+  >
+  > **The Python reader does not exist yet** — slice 1 shipped `delivery="silent"`
+  > and has no frame to build. Until it does, the TypeScript side reads
+  > `stages/runner.py` directly and asserts the frame type, the envelope version
+  > and the builder's key set against the fixtures, the way
+  > `research-truncated-wire.spec.ts` already reads `websocket_reconnect.py`.
+  > Slice 3 should replace that with the Python fixture test, not add to it.
 - **Frontend, no backend:** `/dev/chat-turn?variant=follow-ups-rail` renders the
   rail from a fixture, plus a variant with the rail absent, so the "no space
   reserved" claim of §8 is a screenshot and not an assertion.
@@ -1205,7 +1259,7 @@ alone. Nothing else may start before 0.**
 |---|---|---|---|---|
 | **0** ✅ | **BUILT.** The primitive: `stages/` package, `StageSpec`, `TurnFacts`, runner (semaphore + timeout + span), registry, sink interface. Reflection ported onto it, behaviour-identical, flag unchanged. No new stage, no frame. Carries the §1.4 and §1.5 fixes and the §7.8 kill-switch fix. | — | yes — a pure refactor with the §1.4/§1.5 fixes | revert |
 | **1** ✅ | **BUILT.** Backend `follow_ups`: gate, handler, prompt, payload model. `delivery="silent"` — **it runs and is measured, and delivers nothing.** Carries `StageEmpty` (§2.4), per-stage cost on the span (§7.4) and the backend↔BFF stage-flag parity guard. | 0 | yes | flag off |
-| **2** | Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures. | — (contract only) | yes — renders from fixtures with no backend | revert |
+| **2** ✅ | **BUILT.** Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures, which now exist as `shared/stages/frames.json`. Carries the §8 correction (three arrival conditions, not two) and the §6.2 one. | — (contract only) | yes — renders from fixtures with no backend | revert |
 | **3** | Wire them: sink registration in `aiq_api`, `delivery="frame"`, flag on for one org. | 0,1,2 | yes | flag off |
 | **4** | Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal, export skip (§7.10). | 3 **observed** | yes | revert step 1 of §7.10 |
 | **4b** | Reflection's own frame + the per-turn chip; delete the poll (§5.1, §1.7). | 3 | yes | flag off |
