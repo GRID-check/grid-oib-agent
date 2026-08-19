@@ -454,7 +454,24 @@ feature. Either way the metadata stops lying.
 `cards/prompt.py`, not in a skill, so that half does reach it.
 
 ## Sprint 9 — in flight
-- **S9-A · can platform skills reach the deep writer?** See THE FINDING above.
+- **S9-A landed `3e32ad95`.** Split verdict, on evidence: **(a) for
+  `piloti-voice`, (b) for `piloti-cards`.** The resolver never touches the
+  database — it is an HTTP GET to the BFF, and the Dask worker ALREADY makes
+  exactly that class of call (`runner.py:642` resolves BYOK credentials the same
+  way), so option (a) needed no new I/O path and no cache. The only real gap was
+  the org id, which now travels on the agent state beside `project_context`
+  rather than by injecting `x-grid-organization-id` globally — that would have
+  silently switched on org-scoped memory writes and org model-default resolution
+  inside every job. `piloti-cards` was WITHDRAWN from deep (`0056`): the deep
+  writer has no card tool at all, deep cards are post-hoc from a separate pass,
+  so delivering it would hand a surface with no `emit_card` an instruction to
+  emit cards plus ~1,300 tokens of shapes. Guarded on the metadata, not a body
+  md5 — an owner who rewrote the prose did not choose a scope; one who used the
+  agent picker did.
+  **One test was replaced, correctly:** it asserted
+  `agents_with_a_runtime == {"shallow_researcher"}` — true of the code and wrong
+  as an assertion, because it pinned the LIMITATION instead of the contract.
+- **S9-A original question:** See THE FINDING above.
   Explicit fallback authorised: if it needs a new DB dependency inside the Dask
   worker, stop promising it instead. Either way the metadata stops lying.
 - **S9-B · the card layer's strings.** The layer grew fast and some of it is
@@ -463,3 +480,24 @@ feature. Either way the metadata stops lying.
   `key-coverage.spec.ts`. Plus the `ThoughtCard` token euphemism `cc7a860f`
   deleted one surface away, and the mobile answer footer wrapping the copy
   actions away from the thumbs they borrow their language from.
+
+## STILL OPEN — found by S9-A, not acted on
+1. **The deep skill-collection mount is unassigned in the reference config.**
+   `deep_research_agent.skills` defaults to `None` and
+   `configs/config_oib_openrouter.yml` sets no `skills:` key, so `skills_enabled`
+   is False, `/skills/` is never mounted, and `SkillsMiddleware` is never
+   attached. The writer prompt's "## Skill Preflight" has been telling the model
+   to inspect an "Available Skills" section **that is not rendered**. Consequence:
+   the builtin `synthesis` writer skills AND the four `oib` genre skills never
+   reach deep research either. Production-behaviour decision, not a bug fix —
+   needs a human call.
+2. **A scheduled deep job's `force_skills` is silently dropped** —
+   `DeepResearchAgentState` has no such field, so an attached skill reaches the
+   run only through the composed prompt.
+
+## Branch state (checked 2026-08-19 ~00:20 UTC)
+**PR #461 is MERGED** (17:58 UTC, head `6ea82566`, now in develop). Everything
+after it — 40 commits — sits on the branch with **no open PR and no CI run**.
+Local verification is green (pytest 3834/42, ruff clean, tsc 0 errors) but no
+sharded vitest, no CodeQL and no image build has seen any of it.
+Branch is 9 behind develop; rebase deferred while an agent was still writing.
