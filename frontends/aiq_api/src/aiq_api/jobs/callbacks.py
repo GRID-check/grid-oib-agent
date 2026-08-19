@@ -388,19 +388,28 @@ class AgentEventCallback(BaseCallbackHandler):
            ``SourceRegistryMiddleware.active_registry``, i.e. the very registry
            ``verify_citations`` later judges the report against.
         2. The session-scoped registry, bound by the synchronous chat
-           entrypoints. Untouched by this change.
+           entrypoints and — since the fix below — by ``DeepResearcherAgent.run``.
         3. This callback's own mirror of the sources its tool results carried
            (:meth:`_mirror_sources`).
 
-        Tiers 1 and 3 exist because tier 2 is ALWAYS empty in a job: nothing
-        binds a session registry inside a Dask worker (only the synchronous
-        chat paths call ``set_session_registry``). Every lookup here therefore
-        returned None for a deep-research run, ``_emit_cited_documents``
-        early-returned, and no knowledge-base document could ever be marked
-        cited — which in a knowledge-base-first product is most citations, so
-        the live sources panel showed a run's four OIB Richtlinien as merely
-        "discovered" while the one web page it cited was the only thing marked
-        cited.
+        Tier 2 used to be the WHOLE lookup, and inside a Dask worker nothing
+        bound it: only the synchronous chat paths called
+        ``set_session_registry``. Every lookup here therefore returned None for
+        a deep-research run, ``_emit_cited_documents`` early-returned, and no
+        knowledge-base document could ever be marked cited — which in a
+        knowledge-base-first product is most citations, so the live sources
+        panel showed a run's four OIB Richtlinien as merely "discovered" while
+        the one web page it cited was the only thing marked cited.
+
+        ``DeepResearcherAgent.run`` now binds its own registry to that
+        contextvar when nothing is bound, so tier 2 is the tier that actually
+        carries a deep-research job today — do not read the paragraph above as
+        "tier 2 is dead code". Tiers 1 and 3 are what keep the answer honest
+        for every OTHER caller: this callback is generic, the binding is not, so
+        a job whose agent never binds — or a run whose binding does not survive
+        the context boundary the handler is invoked across — still validates
+        against something this run really retrieved instead of falling back to
+        guessing from a URL scrape.
 
         Fail-open: a provider that raises or yields nothing falls through to
         the next tier rather than breaking the artifact stream.
@@ -602,11 +611,16 @@ class AgentEventCallback(BaseCallbackHandler):
     def _emit_cited_urls(self, content: str) -> None:
         """Emit citation_use events for URL sources referenced in ``content``."""
         urls = self._extract_urls(content)
+        # Resolved ONCE for the whole report rather than once per URL. The
+        # attached tier is an accessor a run may swap mid-flight, so re-reading
+        # it inside the loop would let a single report be judged against two
+        # different registries — the first few citations validated against one
+        # truth and the rest silently dropped against another, with nothing in
+        # the artifact stream to show that the standard moved.
+        registry = self._get_source_registry()
         for url in urls:
             normalized = self._normalize_url(url)
 
-            is_valid = False
-            registry = self._get_source_registry()
             if registry is not None:
                 is_valid = registry.has_url(url)
             else:
