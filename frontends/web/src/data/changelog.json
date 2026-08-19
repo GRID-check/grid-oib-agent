@@ -46,6 +46,19 @@
               "de": "Piloti veröffentlicht jetzt ein Changelog. Jede Änderung, die Sie im Produkt bemerken, wird in verständlicher Sprache dokumentiert und erscheint am Tag der Veröffentlichung auf piloti.at/changelog auf Deutsch und Englisch."
             }
           ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Piloti no longer keeps project notes from an answer that was cut short. A question that ran out of research budget before it was fully answered used to leave notes behind that read like settled facts.",
+              "de": "Piloti no longer keeps project notes from an answer that was cut short. A question that ran out of research budget before it was fully answered used to leave notes behind that read like settled facts."
+            },
+            {
+              "en": "A slow model provider can no longer stop Piloti from taking notes at all. The step that records what a conversation established now gives up on its own and works again on the very next question, instead of going quiet for everyone until the service was restarted.",
+              "de": "A slow model provider can no longer stop Piloti from taking notes at all. The step that records what a conversation established now gives up on its own and works again on the very next question, instead of going quiet for everyone until the service was restarted."
+            }
+          ]
         }
       ]
     }
