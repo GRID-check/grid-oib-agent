@@ -124,6 +124,44 @@ export const SCREENSHOT_TARGETS = [
     // Wait for the LIVE turn's reasoning graph to mount before capturing.
     waitFor: '.react-flow__node',
   },
+  // The answer layer INSIDE an answer. Every card, the lede and the provenance
+  // footer had only ever been reviewed in the card gallery — isolated, on a bare
+  // page, at full width — which cannot show a card breaking the reading rhythm,
+  // an inline card misaligned with the prose column, or a fallback block
+  // colliding with the sources row. These four capture the answer at the
+  // thread's real 680px column, in the turn it actually ships in.
+  {
+    id: 'answer-lede-card',
+    mobile: true,
+    path: '/dev/chat-turn?variant=lede-card',
+    description:
+      'A long answer over the lede threshold — first paragraph typeset as the lede — with a calculation card spliced in mid-answer by a [[card:1]] marker, so marker placement and the gap a card leaves on both sides are visible in the prose column.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
+    id: 'answer-two-cards',
+    mobile: true,
+    path: '/dev/chat-turn?variant=two-cards',
+    description:
+      'Two cards in one turn — a condition_tree placed inline by a marker and a process_map left unplaced, so it lands in the fallback block between the prose and the provenance footer. The "two cards is plenty" rule, seen rather than asserted.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
+    id: 'answer-follow-ups',
+    mobile: true,
+    path: '/dev/chat-turn?variant=follow-ups',
+    description:
+      'An inline callout mid-answer and a follow_ups card ENDING the answer, with the provenance footer directly beneath it — the chips have to still read as part of the answer rather than as footer chrome.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
+    id: 'answer-verdict-lede',
+    mobile: true,
+    path: '/dev/chat-turn?variant=verdict-lede',
+    description:
+      'The verdict_header + lede pair. Above: the card at the top of the body, where its marker suppresses the lede by design and the card IS the lede. Below: the same card after an opening paragraph, so the lede fires too and the ruling is stated twice — the misuse the piloti-cards skill rules out.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
   {
     id: 'composer',
     mobile: true,

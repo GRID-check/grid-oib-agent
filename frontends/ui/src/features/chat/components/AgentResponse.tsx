@@ -466,14 +466,20 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </MarkdownSlotProvider>
 
         {/* Cards no marker claimed. AFTER the body, never before it: an answer
-            that opens with three diagrams has pushed itself below the fold. */}
+            that opens with three diagrams has pushed itself below the fold.
+            `mt-1` for the same reason the action button below carries one: this
+            column's `gap-2` is 8px and the markdown body's paragraph rhythm is
+            12px, so without it an UNPLACED card hugged the prose 4px tighter
+            than a placed one — visible the moment an answer carries both. */}
         {cards && fallbackCardIndices.length > 0 && (
-          <GridCards
-            cards={cards}
-            indices={fallbackCardIndices}
-            projectId={projectId}
-            messageId={messageId}
-          />
+          <div className="mt-1">
+            <GridCards
+              cards={cards}
+              indices={fallbackCardIndices}
+              projectId={projectId}
+              messageId={messageId}
+            />
+          </div>
         )}
 
         {/* Optional action button */}
@@ -613,14 +619,21 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           </MarkdownSlotProvider>
 
           {/* Cards no marker claimed. AFTER the body, never before it: an answer
-              that opens with three diagrams has pushed itself below the fold. */}
+              that opens with three diagrams has pushed itself below the fold.
+              `mt-1` for the same reason the action button below carries one:
+              this column's `gap-2` is 8px and the markdown body's paragraph
+              rhythm is 12px, so without it an UNPLACED card hugged the prose 4px
+              tighter than a placed one — visible the moment an answer carries
+              both, which is what /dev/chat-turn?variant=two-cards shows. */}
           {cards && fallbackCardIndices.length > 0 && (
-            <GridCards
-              cards={cards}
-              indices={fallbackCardIndices}
-              projectId={projectId}
-              messageId={messageId}
-            />
+            <div className="mt-1">
+              <GridCards
+                cards={cards}
+                indices={fallbackCardIndices}
+                projectId={projectId}
+                messageId={messageId}
+              />
+            </div>
           )}
 
           {/* Optional action button stays inside the block */}

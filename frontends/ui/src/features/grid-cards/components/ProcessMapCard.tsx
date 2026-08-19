@@ -177,7 +177,15 @@ const Station: FC<StationProps> = ({
                 )}
               </span>
 
-              <span className="flex shrink-0 items-start gap-2">
+              {/* Wrappable, not `shrink-0`. The parent's wrap already drops this
+                  cluster to its own line when the label needs the width — but on
+                  a line of its own it was still sized to max-content, so in the
+                  ANSWER's column (270px on a phone, against the card gallery's
+                  342px) „binnen sechs Wochen" + „hier stehen Sie" together ran
+                  8.5px past the card's own edge. Letting the cluster shrink and
+                  wrap stacks the two chips instead; neither is ever squeezed,
+                  because a chip is not a flex container here. */}
+              <span className="flex min-w-0 flex-wrap items-start gap-2">
                 {step.duration && (
                   <span className="mt-px rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                     {step.duration}
