@@ -689,3 +689,143 @@ build more tests on; the hop either side is pinned, which brackets it.
 
 **No product defect.** Every crossing behaves correctly today; what was missing
 was anything watching them.
+
+## Sprint 13 — the visual layer, and two things nobody was watching
+
+The brief: "make each of the cards truly unique and look absolutely stunning",
+and "all of them" — schematics included. Six parallel investigations, then
+sprints. What follows is what the investigations ESTABLISHED, not what they
+suspected; every claim below was read off the code or measured.
+
+### The card set is not one box. It is five chromes that look alike.
+
+`SchematicCard` for six cards, `Card` + a hand-composed `SectionLabel` for
+four, no chrome at all for three, `ProposalShell` for two, borrowed chrome
+from other features for the rest. Groups one and two render an IDENTICAL
+silhouette from two different code paths. No visual variety and no shared
+implementation — which is why "they all look the same" resisted fixing: there
+was nothing single to fix.
+
+Second cause, measured: **thirteen distinct type sizes across the cards, eight
+of them arbitrary values**, with `text-[12px]` sitting beside `text-xs` — the
+same size written two ways. There is no spacing scale and no type scale, so
+every card invented its own. The eye reads that before it reads any concept.
+
+`docs/design/grid-card-charter.md` is the result. Its load-bearing rule:
+**each card carries exactly one element above 14px, and it must be the card's
+answer.** Three of twenty comply today.
+
+The evidence that made the charter's case: the three card types added the same
+morning, built by the current conventions by a capable implementer, came out as
+the same card three times — and `deadline_timeline` took `process_map`'s
+numbered-node mark. The sameness is not legacy debt. It is what the codebase
+produces today without a shape vocabulary.
+
+Ruled, so it is not re-litigated: **`rough` stays confined to the schematics.**
+The sketch stroke is an epistemic claim ("drawn from your numbers, not a
+survey"), not a style; under a legal citation it would be decoration, and
+decoration under a citation costs the authority the product sells. What binds
+the two families is the shell, the status vocabulary, mono-for-checkable-
+numbers, and `NormRefFooter` — not the stroke.
+
+### Nothing sat between "a card type exists" and "a user can see it"
+
+Four guards already existed — schema sync, `CARD_INTERACTIVITY` via `tsc`, a
+backend parity mirror, a fixture requirement. All four prove a type is
+CLASSIFIED. None proves a renderer branch exists. `GridCardItem` is a flat
+chain of `if` tests ending in `return null`, so a type could clear every guard
+and paint nothing. That is exactly what happened to the three new types.
+
+`GridCards.render-coverage.spec.tsx` now mounts every union member through the
+real dispatcher, once with its fixture and once reduced to REQUIRED FIELDS
+ONLY — the second case catches a renderer that only paints when an optional
+field happens to be present.
+
+**The trap, recorded because it cost a round:** deriving "required" from the
+generated Zod is wrong. The generator flattens every `$ref` to `z.any()`, and
+`z.any()` reads as optional, so the builder stripped fields the backend
+requires and mounted cards the agent could never emit — eight red schematics
+that were all false positives. Required-ness comes from `schemas.json`. A
+pure-Zod rule does reproduce the right answer (`!isOptional() || instanceof
+ZodAny`) but only by recognising the flattening artefact, which is a bug to be
+fixed rather than a contract to lean on.
+
+Also fixed: `answer-document.spec.ts` claimed to cover "every card in the
+catalogue" while iterating a hand-written literal covering **27 of 40**. The
+thirteen missing included `verdict_header`, `calculation` and `follow_ups`.
+
+### The trust boundary is not weak. It is absent.
+
+Measured across the union: **29 of 40 types have at least one field whose
+contents Zod does not check at all.** `{ reference: "banana" }` is a valid card
+to the browser. **14 types** have a required field emitted as a bare `z.any()`,
+so the key may be absent entirely and still parse; **8 of those throw on
+render** — demonstrated, not reasoned.
+
+There is no error boundary anywhere in `frontends/ui/src`. So a malformed card
+does not degrade to a dropped card with a console warning: it unmounts the
+whole route, and because the card is in the last message, a reload crashes
+again. `validateGridCards`' designed failure mode — drop and warn — never gets
+a chance to run.
+
+Second-order: `z.any()` also disables COMPILE-time checking on those fields.
+`GridCards.tsx` already carries a hand-built workaround admitting this, for one
+field. Twenty-eight other types have none.
+
+Fixing the generator is the right repair; an error boundary is a seatbelt, and
+one that degrades to a vanished card would reinstate the exact silent failure
+this whole line of work exists to remove. **Gate before implementing:** stored
+cards are re-validated on every read, so a stricter schema can blank cards out
+of OLD threads. Count first.
+
+### The skill bodies never reached the model
+
+`skill.body` is dereferenced in exactly one prompt path — inside the `use_skill`
+tool closure. A forced / `delivery: 'standard'` skill contributes only its NAME.
+So the craft, the doctrine and the inlined card shapes all sit behind a tool
+call the model must choose to make. This is deliberate and pinned by a test
+that exists to stop anyone inlining bodies "to be safe".
+
+Two consequences nobody was watching:
+
+**The disclosure lies.** Activation is recorded at `SkillRuntime` construction,
+not on delivery. With an LLM that never calls `use_skill`,
+`skills_activated == [VOICE, CARDS]` still holds — the panel tells the user that
+the house voice shaped an answer it never reached. That is also why this went
+unnoticed for the life of the feature.
+
+**`iterations` counts tool CALLS, not rounds.** Two standard skills cost 2 of 7
+before any research. The config's traced floors assume ONE `use_skill`; re-traced
+against two, real OIB shapes land EXACTLY on 7 — which triggers forced synthesis,
+which invokes the bare model with NO tools bound. From that point no card can be
+emitted by construction, and `follow_ups` is doctrinally last, so it dies first.
+Not a tail case: the expected path on the heaviest questions.
+
+Measured and REJECTED: inlining both bodies costs **8,399 tokens per research
+turn** — larger than the catalogue this repo worked to defer, and it buys the
+wrong thing (the bodies teach card QUALITY; the failure was EMISSION).
+
+### Correction from the field, recorded so it is not re-learned
+
+The product owner, after the doctrine change landed: *"card shyness was a bit
+overstated, cards do get put out quite good."* The emission rebalance had moved
+the always-on polarity from **2.36 : 1 restraint to 0.89 : 1** — past neutral
+into net invitation. Being dialled back toward ~1.2–1.5 : 1, keeping only the
+pieces resting on hard observations (the `follow_ups` default, honesty
+outranking a trigger, never guessing `current_step`).
+
+The failure mode on the invitation side is worse than it sounds: a card that
+restates the prose beside it cannot be made beautiful, only bigger.
+
+### Operating notes added this sprint
+
+- **A test you did not watch fail is not a test.** Cost a round here again, in a
+  new shape: eight tests failing loudly for the wrong reason looked exactly like
+  eight renderer bugs.
+- **Stage explicit paths.** `git add -A` on a shared branch swept another
+  agent's verified work into a commit whose message says "not mergeable in this
+  state". The history now misattributes a real fix. Not rewritten — force-push
+  with several sessions live is worse than a wrong commit message.
+- Screenshots are capturable (`npm run screenshots -- cards-gallery`, 4 variants)
+  and worth reading before judging any visual work. `/dev/cards` renders at
+  `max-w-2xl`, NARROWER than the production 636px — do not tune against it.
