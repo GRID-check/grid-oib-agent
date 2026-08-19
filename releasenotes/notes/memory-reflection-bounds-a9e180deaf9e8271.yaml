@@ -1,0 +1,11 @@
+---
+fixes:
+  - >
+    Piloti no longer keeps project notes from an answer that was cut short. A
+    question that ran out of research budget before it was fully answered used
+    to leave notes behind that read like settled facts.
+  - >
+    A slow model provider can no longer stop Piloti from taking notes at all.
+    The step that records what a conversation established now gives up on its
+    own and works again on the very next question, instead of going quiet for
+    everyone until the service was restarted.
