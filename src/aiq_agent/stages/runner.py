@@ -380,7 +380,14 @@ def _validate(spec: StageSpec, result: Any) -> tuple[str, str | None, dict[str, 
         except Exception:
             logger.warning("Stage %s returned a payload its own model rejects", spec.id, exc_info=True)
             return "failed", "invalid_payload", None
-        return "ready", None, validated.model_dump(mode="json")
+        # ``exclude_none`` because on this envelope an absent key and a null are
+        # the same fact, and only one of them is the contract: `shared/stages/
+        # frames.json` shows an optional field simply missing, so a model that
+        # serialised its own ``None`` default would make the fixture file and its
+        # own producer disagree — which is the drift the fixtures exist to catch.
+        # It is the same rule the envelope already applies one level up, where a
+        # non-``ready`` frame carries no ``payload`` KEY rather than a null one.
+        return "ready", None, validated.model_dump(mode="json", exclude_none=True)
     if not isinstance(result, dict):
         return "failed", "invalid_payload", None
     return "ready", None, result

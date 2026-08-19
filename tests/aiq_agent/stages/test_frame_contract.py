@@ -36,6 +36,7 @@ from aiq_agent.stages import STAGE_FRAME_VERSION
 from aiq_agent.stages import build_stage_frame
 from aiq_agent.stages import get_stage
 from aiq_agent.stages import iter_stages
+from aiq_agent.stages.runner import _validate
 from aiq_agent.stages.spec import StageOutcome
 from aiq_agent.stages.spec import TurnFacts
 
@@ -118,10 +119,19 @@ class TestEveryFixtureIsWhatTheBuilderProduces:
         assert "timestamp" in built, "the frame lost its timestamp"
 
     @pytest.mark.parametrize("name", sorted(_delivered()))
-    def test_a_ready_payload_is_a_shape_its_own_stage_could_emit(self, name: str) -> None:
-        """Otherwise the fixture is fiction: a payload the stage's own model
-        rejects would be validated into `failed` long before it reached a frame,
-        and the contract would be describing a frame that cannot exist."""
+    def test_a_ready_payload_survives_its_own_stage_unchanged(self, name: str) -> None:
+        """The payload the runner would actually put on the wire, not the one the
+        fixture was typed with.
+
+        `build_stage_frame` copies whatever the outcome carries, so feeding it the
+        fixture's own payload proves nothing about the payload. What decides the
+        bytes is the runner's validation step: the handler's dict goes through the
+        stage's `payload_model` and is re-serialised, and THAT is what a browser
+        receives. A model that adds a key, drops one, or serialises an absent
+        optional as `null` makes the fixture fiction — and `null` is not the same
+        wire fact as absent, which is the rule the whole envelope is written to
+        (§4.1, and the same reason a non-`ready` frame carries no `payload` key).
+        """
         frame = _delivered()[name]
         if frame["status"] != "ready":
             pytest.skip("only a ready frame carries a payload")
@@ -129,7 +139,15 @@ class TestEveryFixtureIsWhatTheBuilderProduces:
         assert spec is not None
         if spec.payload_model is None:
             pytest.skip(f"{spec.id} declares no payload model")
-        spec.payload_model.model_validate(frame["payload"])
+
+        status, _reason, produced = _validate(spec, frame["payload"])
+
+        assert status == "ready", f"{name}'s payload is one its own stage would record as {status!r}"
+        assert produced == frame["payload"], (
+            f"the {name} fixture is not what {spec.id} actually puts on the wire. The fixture is "
+            f"the contract and the TypeScript half reads it, so a producer that serialises "
+            f"something else means the client is being held to a shape the backend never sends."
+        )
 
 
 class TestTheFixtureSetIsExhaustive:
