@@ -8,6 +8,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
 from uuid import uuid4
 
@@ -38,6 +39,9 @@ from .models import DeepResearchAgentState
 from .tools.source_tool_batching import DEFAULT_MAX_CONCURRENT_SOURCE_TOOL_CALLS
 from .tools.source_tool_batching import DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE
 
+if TYPE_CHECKING:
+    from aiq_agent.skills import SkillRuntime
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_RESEARCH_CONCURRENCY = 6
@@ -48,6 +52,12 @@ DEFAULT_MAX_RUN_SECONDS = 2400
 
 # Path to this agent's directory (for loading prompts)
 AGENT_DIR = Path(__file__).parent
+
+#: This agent's name in ``grid-agents``, the one gate a skill declares itself
+#: with. It is the ``AGENT_REGISTRY`` identifier, so the string a schedule's
+#: ``agent_type`` uses, the string the Skills tab writes, and the string
+#: resolved here are the same string.
+SKILL_AGENT = "deep_researcher"
 
 
 def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -68,6 +78,18 @@ def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dic
         if len(reasons) >= 5:
             break
     return {"count": len(removed_citations), "reasons": reasons}
+
+
+def _skills_block(runtime: SkillRuntime) -> str | None:
+    """The writer's skills section: the catalog, then what is required of it.
+
+    The same two blocks the shallow researcher renders, from the same runtime,
+    so a skill that names both agents is presented to both of them in the same
+    words. None when the run resolved no skills — the writer prompt then shows
+    no skills section at all rather than an empty heading.
+    """
+    blocks = [block for block in (runtime.prompt_block(), runtime.forced_block()) if block]
+    return "\n\n".join(blocks) if blocks else None
 
 
 @dataclass(frozen=True)
@@ -183,11 +205,13 @@ class DeepResearcherAgent:
         no run can observe another run's state (ADR-0018).
         """
         source_registry_middleware = SourceRegistryMiddleware(source_tool_names=self.source_tool_names)
+        skill_runtime = self._build_skill_runtime(state)
         tool_set = build_deep_research_tool_set(
             self.tools,
             source_registry_middleware=source_registry_middleware,
             max_concurrent_source_tool_calls=self.max_concurrent_source_tool_calls,
             max_source_tool_batch_size=self.max_source_tool_batch_size,
+            writer_skill_tools=skill_runtime.build_tools(),
         )
         middleware_set = build_deep_research_middleware_set(
             tool_set=tool_set,
@@ -211,6 +235,7 @@ class DeepResearcherAgent:
             enable_source_router=self.enable_source_router,
             max_research_concurrency=self.max_research_concurrency,
             checkpointer=self.checkpointer,
+            skills_block=_skills_block(skill_runtime),
         )
         return DeepResearchRunArtifacts(
             graph=graph,
@@ -219,6 +244,48 @@ class DeepResearcherAgent:
             middleware_set=middleware_set,
             callbacks=callbacks,
         )
+
+    @staticmethod
+    def _build_skill_runtime(state: DeepResearchAgentState) -> SkillRuntime:
+        """Resolve this run's platform/org skills into a fresh runtime.
+
+        Built HERE, per run, for the same reason the source registry and the
+        tool wrappers are (ADR-0018): the runtime owns the activation list of
+        one run, and this agent instance is shared across runs and across
+        tenants. A runtime cached on ``self`` would announce one organization's
+        house voice under another organization's report.
+
+        The organization comes off the STATE first — deep research runs in a
+        Dask worker where ``get_organization_id_from_context()`` reads no
+        headers because there is no request — and falls back to the request
+        context for the synchronous path and for evaluation runs.
+
+        Nothing here can fail the run: ``resolve_served_skills`` swallows its
+        own errors and an empty skill set produces an empty runtime, no tool and
+        no prompt block, which is exactly the shape of a run that has no skills.
+        """
+        from aiq_agent.project_context import get_organization_id_from_context
+        from aiq_agent.skills import SkillRuntime
+        from aiq_agent.skills import resolve_served_skills
+
+        organization_id = state.organization_id
+        if not organization_id:
+            try:
+                organization_id = get_organization_id_from_context()
+            except Exception:  # noqa: BLE001 - no NAT context in sync/eval paths
+                organization_id = None
+        skills = resolve_served_skills(SKILL_AGENT, organization_id)
+        runtime = SkillRuntime(skills=skills)
+        if skills:
+            from aiq_agent.skills.events import emit_skills_offered
+
+            emit_skills_offered(runtime)
+            logger.info(
+                "Deep research resolved %d organization skill(s) for the writer; required: %s",
+                len(skills),
+                list(runtime.forced) or "none",
+            )
+        return runtime
 
     def _extract_final_markdown(self, result: dict | Any) -> str | None:
         """Extract final Markdown from output files."""

@@ -393,6 +393,13 @@
       "when": 1787270400005,
       "tag": "0055_piloti_voice_answer_shape",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1787356800005,
+      "tag": "0056_piloti_cards_chat_scope",
+      "breakpoints": true
     }
   ]
 }

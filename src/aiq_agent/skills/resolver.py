@@ -48,6 +48,19 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 #: vocabulary rather than one per layer. An unknown name in ``grid-agents`` is
 #: logged and ignored rather than silently narrowing a skill to nothing: a typo
 #: there would otherwise make a skill vanish with no diagnostic.
+#:
+#: Both names are DELIVERED, and they are delivered differently. The chat
+#: researcher resolves inside a live request and builds a ``SkillRuntime`` per
+#: turn (``shallow_researcher/register.py``). Deep research runs in a Dask worker
+#: with no request headers to read an organization off, so it resolves per RUN
+#: through :func:`resolve_served_skills`, keyed on an organization the job runner
+#: captured at submit time and put on the agent state — see
+#: ``deep_researcher/agent.py::_build_skill_runtime``, and
+#: ``test_seeded_platform_skills.py`` for the guard that keeps a name in this set
+#: from outliving its channel. ``deep_researcher`` sat here for months WITHOUT
+#: one, which cost the product's longest answers its house voice in silence:
+#: naming an agent nothing resolves for is not a smaller mistake than naming an
+#: agent that does not exist, it is only a quieter one.
 KNOWN_AGENTS = frozenset({"shallow_researcher", "deep_researcher"})
 
 
@@ -276,3 +289,32 @@ class SkillResolver:
         if not isinstance(payload, dict):
             raise ValueError("skills/resolve returned a non-object payload")
         return payload.get("skills", [])
+
+
+def resolve_served_skills(agent: str, organization_id: str | None) -> tuple[Skill, ...]:
+    """The BFF-SERVED skills that apply to ``agent``, and never an exception.
+
+    Two things separate this from ``SkillResolver.resolve`` and both are about
+    the deep-research path, which is the caller this exists for.
+
+    It returns only rows the BFF served (``origin == "org"``: the platform's
+    standard rows, the offers this organization took up, and its own skills).
+    The builtin FILES are dropped because on the deep path they already have a
+    delivery mechanism of their own — ``deepagents_runtime`` mounts
+    ``skills/builtin`` at ``/skills/`` and the YAML assigns collections per
+    DeepAgents subagent, which is a finer gate than ``grid-agents`` can express.
+    Serving them through this channel as well would hand the WRITER the research
+    skills whose instructions call ``execute``.
+
+    And it never raises. ``resolve`` already fails open on a bad payload or an
+    unreachable BFF, but ``GRID_INTERNAL_API_TOKEN`` being unset raises out of
+    ``_fetch_org_skills`` and a deep-research job must not die because the house
+    voice could not be fetched — a report written without it is worth far more
+    than no report. The degradation is silent to the reader and loud in the log.
+    """
+    try:
+        resolved = SkillResolver(agent=agent).resolve(organization_id)
+    except Exception as exc:  # noqa: BLE001 - skills are additive; a run must survive their absence
+        logger.warning("Skill resolution failed for agent %s: %s", agent, type(exc).__name__)
+        return ()
+    return tuple(skill for skill in resolved if skill.origin == "org")

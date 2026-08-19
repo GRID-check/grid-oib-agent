@@ -91,6 +91,11 @@ class DeepResearchToolSet:
     research_source_tools: list[BaseTool]
     researcher_tools: list[BaseTool]
     writer_tools: list[BaseTool]
+    #: The ``use_skill`` closure of THIS run, when platform/org skills resolved.
+    #: Already inside ``writer_tools``; kept separately because the writer's
+    #: sanitizer has to be told the name (see ``build_deep_research_middleware_set``)
+    #: and because it is the one tool in the set whose existence is per-run.
+    writer_skill_tools: list[BaseTool]
 
 
 @dataclass(frozen=True)
@@ -120,6 +125,11 @@ class DeepResearchGraphContext:
     enable_source_router: bool
     backend: Any
     visibility_middleware: list[Any]
+    #: The resolved platform/org skills for THIS run, rendered as the catalog +
+    #: "required for this turn" blocks the writer prompt shows. None when none
+    #: resolved — including every run where the BFF could not be reached, which
+    #: is why the writer prompt has to read as a complete instruction without it.
+    skills_block: str | None = None
 
     @property
     def available_documents(self) -> list[dict[str, Any]]:
@@ -164,6 +174,7 @@ def build_deep_research_tool_set(
     source_registry_middleware: SourceRegistryMiddleware,
     max_concurrent_source_tool_calls: int,
     max_source_tool_batch_size: int,
+    writer_skill_tools: Sequence[BaseTool] = (),
 ) -> DeepResearchToolSet:
     """Build helper, researcher, writer, and source tool groupings."""
     source_tool_names = {tool.name for tool in tools}
@@ -181,7 +192,12 @@ def build_deep_research_tool_set(
         all_tools=[*helper_tools, *tools],
         research_source_tools=research_source_tools,
         researcher_tools=[*helper_tools, *research_source_tools],
-        writer_tools=list(helper_tools),
+        # ``use_skill`` goes to the WRITER and to no one else. A platform skill
+        # that reaches this agent is an instruction about the ANSWER — the house
+        # voice is the type case — and the answer is written here; the researcher
+        # has a skills channel of its own in the sandbox mount.
+        writer_tools=[*helper_tools, *writer_skill_tools],
+        writer_skill_tools=list(writer_skill_tools),
     )
 
 
@@ -307,6 +323,7 @@ def build_deep_research_middleware_set(
         researcher=common(),
         planner=common(),
         writer=common(
+            [tool.name for tool in tool_set.writer_skill_tools],
             tool_result_keep_last_n=writer_tool_result_keep_last_n(max_research_concurrency),
             tool_result_max_chars=_WRITER_MAX_TOOL_RESULT_CHARS,
             tool_result_total_char_budget=_WRITER_CHAR_BUDGET,
@@ -489,6 +506,7 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
             role=LLMRole.REPORT_WRITER,
             tools=context.tool_set.writer_tools,
             middleware=context.middleware_set.writer,
+            prompt_values={"skills_block": context.skills_block},
             skills=context.skill_sources(WRITER_AGENT),
         ),
     )
@@ -510,6 +528,7 @@ def build_deep_research_graph(
     max_research_concurrency: int,
     enable_source_router: bool = True,
     checkpointer: Checkpointer | None = None,
+    skills_block: str | None = None,
 ) -> Any:
     """Build the full DeepAgents graph for one deep research run.
 
@@ -538,6 +557,7 @@ def build_deep_research_graph(
         enable_source_router=enable_source_router,
         backend=runtime.backend,
         visibility_middleware=runtime_visibility_middleware(runtime),
+        skills_block=skills_block,
     )
     researcher_model = context.llm_provider.get(LLMRole.RESEARCHER)
     researcher_skill_sources = context.skill_sources(RESEARCHER_AGENT)
