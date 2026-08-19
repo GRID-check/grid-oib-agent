@@ -561,7 +561,7 @@ There is no visual-regression diffing, no render-time budget and no bundle-size 
 
 ## E. Status
 
-**Last updated: 2026-08-19.** Nothing has been built against this charter yet — it is a design contract, not a description of shipped work.
+**Last updated: 2026-08-19.** Sprint 1 has shipped (`b82f23e1`): the §A2 type ramp, the §A3 colour-role fix, and items 1, 4, 6, 17, 18, 19. Everything else below is still a design contract, not a description of shipped work — read the Status column per row rather than assuming either way.
 
 ### Implemented
 *(none)*
@@ -583,12 +583,12 @@ There is no visual-regression diffing, no render-time budget and no bundle-size 
 
 | # | Card | Section | Effort | Status |
 |---|---|---|---|---|
-| 1 | follow_ups | B1 | S | Pending |
+| 1 | follow_ups | B1 | S | **Done** (Sprint 1, `b82f23e1`) — frame dropped; `title` deliberately KEPT, see note below |
 | 2 | comparison_table | B1 | L | Pending |
 | 3 | requirement_checklist | B1 | M | Pending |
-| 4 | key_takeaways | B1 | S | Pending |
-| 5 | legal_basis | B1 | M | Pending — **blocked on schema** |
-| 6 | verdict_header | B1 | S | Pending |
+| 4 | key_takeaways | B1 | S | **Done** (Sprint 1, `b82f23e1`) |
+| 5 | legal_basis | B1 | M | Pending — schema now LANDED (`284b2625`), so no longer blocked; the recessed ground / margin § column / hanging quote marks remain |
+| 6 | verdict_header | B1 | S | **Done** (Sprint 1, `b82f23e1`) — gauge shipped as three 5px squares, NOT 12×3 bars; see note below |
 | 7 | deadline_timeline | B2 | M | Pending |
 | 8 | change_impact | B2 | M | Pending |
 | 9 | norm_chain | B1 | M | Pending |
@@ -599,13 +599,46 @@ There is no visual-regression diffing, no render-time budget and no bundle-size 
 | 14 | condition_tree | B1 | M | Pending (includes the `shrink-0` mobile bug) |
 | 15 | process_map | B1 | S–M | Pending |
 | 16 | parking_requirement | B3 | M | Pending |
-| 17 | summary | B1 | S | Pending |
-| 18 | callout | B1 | S | Pending |
-| 19 | proposals (memory / patch) | B1 | S | Pending |
+| 17 | summary | B1 | S | **Done** (Sprint 1, `b82f23e1`) |
+| 18 | callout | B1 | S | **Done** (Sprint 1, `b82f23e1`) |
+| 19 | proposals (memory / patch) | B1 | S | **Done** (Sprint 1, `b82f23e1`) — accent kept at `foreground/40`; verified legible at pixel level, an amendment to /60 was considered and declined |
 | 20 | density_check | B3 | S | Pending |
 | 21 | document_grid | B1 | S | Pending (register check only) |
 | 22 | the eleven strong schematics | B3 | S each | Pending (hygiene only — **do not redesign**) |
 | 23 | the six IFC cards | B1 | S each | Pending (shell alignment only) |
+
+### Sprint 1 — what shipped, and where it departed from this charter
+
+Landed in `b82f23e1`: the §A2 type ramp, the §A3 colour-role fix, and items 1, 4, 6, 17, 18, 19.
+
+**The ramp is `@layer components`, not `@utility`.** A type step sets four or five
+properties and a card legitimately overrides one of them. In the utilities layer,
+which of `card-title` and `font-semibold` wins depends on Tailwind's internal
+ordering; in the components layer the ramp is a base every utility beats, by layer
+order rather than by luck. Enforced by a new `grid/card-type-scale` eslint rule,
+switched on per file through `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs` — the
+compliant set is real project state and belongs in config, not in an exemption list
+inside the rule, which would report "clean" with eleven cards still off the ramp.
+
+**Two deliberate departures, both upheld on review:**
+
+1. **The confidence gauge is three 5px squares, not three 12×3px bars.** As specified
+   the mark failed at the top of its own range: a meter filled to full and a rule are
+   the same picture, so at „hohe Sicherheit" it read as a decorative em-dash and the
+   comparability the gauge exists for was exactly what it lost. Tightening the gaps
+   and grooving the unlit cells did not fix it, because the problem is the cell
+   SHAPE — a square is a token, a bar is a stroke. ▪▪▪ reads as three-of-three;
+   ▪▪▫ and ▪▫▫ still read as levels.
+
+2. **`follow_ups` keeps its `title`.** §B1 says "Eyebrow + chips … nothing else",
+   which read literally deletes a wire field the backend describes as an optional
+   headline. Every sentence of that entry argues about the FRAME; none argues about
+   the field. Silently discarding model output is not a change this charter makes,
+   so the frame went and the field stayed.
+
+**One thing measured rather than assumed:** the Accented register's 2px
+`foreground/40` edge is invisible in a downscaled screenshot and legible at pixel
+level, clearly heavier and darker than the hairline. It stays at /40.
 
 ### Pending — schema requests (backend)
 
