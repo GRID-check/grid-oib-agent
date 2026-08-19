@@ -442,7 +442,7 @@ export const STAGE_FRAME_VERSION = 1
  * new backend starts shipping a stage it has never heard of (§4.1, additive
  * only). Adding a stage here is a deliberate act with a renderer behind it.
  */
-export const STAGE_IDS = ['follow_ups'] as const
+export const STAGE_IDS = ['follow_ups', 'memory_reflection'] as const
 
 /**
  * Post-answer stage frame (`docs/architecture/post-answer-stages.md` §4.1).

@@ -1,18 +1,21 @@
 # Post-answer stages — a platform primitive
 
-> **Status:** **slices 0, 1, 2, 3 and 4 are built** (`src/aiq_agent/stages/`, memory
-> reflection migrated onto it, the kill switch moved per-turn, the whole client
-> half — frame schema, `onStage`, the `stages` key on the message row, and the
-> rail below the answer — and, as of slice 3, the two halves connected:
-> `aiq_api` publishes the frame sink and `follow_ups` declares
+> **Status:** **all slices are built** (`src/aiq_agent/stages/`, memory
+> reflection migrated onto the primitive, the kill switch moved per-turn, the
+> whole client half — frame schema, `onStage`, the `stages` key on the message
+> row, and the rail below the answer — and, as of slice 3, the two halves
+> connected: `aiq_api` publishes the frame sink and `follow_ups` declares
 > `delivery="frame"`. **A real turn produces a real frame that reaches a browser
-> and renders the rail.** As of **slice 4** the in-answer `follow_ups` CARD is
-> retired (`SYSTEM_CARD_TYPES`, its prompt weight removed on every surface,
-> migration `0062`), and the `post-answer-follow-ups` flag is on for **all**
-> organisations in **both** environments — the product owner overrode the
-> ordering rule that made retirement wait on observation, so the revert path was
-> performed and verified rather than assumed (§7.10). Slice 4b is still design.
-> Paragraphs corrected on
+> and renders the rail.** Slice 4 retired the in-answer `follow_ups` CARD
+> (`SYSTEM_CARD_TYPES`, its prompt weight removed on every surface, migration
+> `0062`), and the `post-answer-follow-ups` flag is on for **all** organisations
+> in **both** environments — the product owner overrode the ordering rule that
+> made retirement wait on observation, so the revert path was performed and
+> verified rather than assumed (§7.10). Slice 4b put memory reflection on the
+> same channel and **deleted the poll**: the chip is per-turn, and the primitive
+> now carries two delivering stages rather than one, which is the first real
+> test of "a fourth stage costs a declaration and a handler". Paragraphs
+> corrected on
 > contact with the code are marked **[as built]** — each states the correction
 > and why the original was wrong.
 > **Scope:** the *stage* as a reusable shape, its wire contract, and the two
@@ -89,6 +92,35 @@ of them is the reflection stage:
    renders the union of (1) and (2), fed by the poll. It labels the two apart —
    `distillation` → „nach der Antwort ergänzt" (`MemoryNotedChip.tsx:46-50`,
    `i18n/dictionaries/de/chat.ts:983`).
+
+> **[as built, slice 4b] — point 3 above names the wrong half of path 1.** The
+> chip did not render the union of the *card* and the reflection stage. It
+> rendered the union of two sets of **rows**, because the poll returned rows:
+> reflection's (`provenance_type="distillation"`) and the in-turn `remember`
+> tool's (`"agent"`) — and the audit's own INFORM row says exactly that,
+> "labelling in-turn (`agent`) vs reflection (`distillation`) provenance". The
+> `memory_proposal` card is the *fallback* path, emitted only when an org-scoped
+> write is refused by policy (`register.py`'s `OrgMemoryDisabledError` branch);
+> the common in-turn write succeeds silently and emits no card at all.
+>
+> That distinction is what decided slice 4b's one deliberate loss. The frame
+> gives reflection's items a turn identity; nothing gives the in-turn rows one,
+> because a `project_memory` row carries `source_conversation_id` and no message
+> or turn key at all (§1.6). A per-turn chip therefore **cannot** render them
+> honestly — the old chip only appeared to, by showing the whole conversation's
+> memory against every answer in it, which is the §1.7 defect and not a feature.
+> So the per-turn chip's in-turn half is the `memory_proposal` card the reader
+> **accepted** (`cardInteractions`), which is per-turn, already persisted and
+> already restored on reload; a silent in-turn write is visible in the project
+> memory panel, where it is curated, and nowhere on the answer. §11.3's change —
+> the client minting a real turn id — is what would give those rows a turn and
+> put them back on the chip.
+>
+> The rule the two halves are still held to is unchanged: **do not collapse
+> them.** „während der Antwort notiert" and „nach der Antwort ergänzt" are
+> different promises — one the reader agreed to, one that happened without them
+> — and `MemoryNotedChip.spec.tsx` is where that is now enforced rather than
+> assumed.
 
 So: the *memory feature* has a streamed surface and a polled surface, and the
 **post-answer half is the polled one**. The audit says so in its own words —
@@ -250,6 +282,17 @@ would remove the limitation later.
 
 Both are consequences of having no turn identity to hang the result on. The
 primitive gives them one.
+
+> **[as built, slice 4b] — both are fixed, and the second one was worse than
+> stated.** `useConversationMemory` is deleted. The chip now reads
+> `message.stages.memoryReflection`, which the stage's own frame delivers, so
+> the count is the turn's and a turn that recorded nothing shows no chip at all.
+> The thirty GETs are zero: nothing is fetched, because the writer sends what it
+> wrote. The poll's third defect is the one the section does not name — the
+> schedule itself. `[0, 1500, 4000]` ms is a guess about how long an LLM takes,
+> made by the half of the system that cannot know, and a reflection finishing at
+> 4.1s was invisible until something else re-rendered. A frame has no schedule
+> to be wrong about.
 
 ### 1.8 Flag plumbing (and one piece of doc drift)
 
@@ -655,6 +698,40 @@ always claimed to be.
 
 **The DB write stays the source of truth.** The frame is a notification, not a
 transfer of authority. `grid_app` stays single-writer.
+
+> **[as built, slice 4b]** Four corrections, all small and all in the same
+> direction: the frame has to carry enough that nobody asks the database again.
+>
+> **The payload is the items, not "the ids and kinds".** The chip renders each
+> finding's own words, so a payload of ids would leave the browser holding a
+> receipt for text it cannot read — and the only way to read it would be the GET
+> this slice deletes. The poll would have come back wearing a frame as a
+> trigger. `MemoryReflectionPayload` is `items: [{id, kind, content}]`, and
+> `run_memory_reflection` now returns what it wrote rather than how much (the
+> deep-research caller ignores the return either way).
+>
+> **§8's three arrival conditions do not apply to this stage**, and that is a
+> decision rather than an omission. They protect the page from a block appended
+> BELOW the answer; the chip is inside the answer's own footer meta row, which
+> is rendered and reserved at `min-h-6` before the stage finishes. Held to the
+> rail's rules the chip would lose in exactly the likely cases: reflection is
+> scheduled *before* the answer's deltas are yielded, so on a long answer its
+> frame genuinely arrives mid-stream, and it takes seconds, so the reader has
+> usually typed. A suggestion may be withheld from someone who is busy; a record
+> of a durable write to their project may not. Measured cost of admitting it
+> late: **nothing moves on desktop**, and on a 390px viewport the meta row gains
+> one 24px line, because two pills do not fit across — which is what the poll
+> already did, on every answer rather than on the turns that recorded something.
+>
+> **The flag does not move.** `memory-reflection` still governs the whole stage,
+> so an operator switching it off switches off the writes and the frame
+> together, which is what they mean by it.
+>
+> **`GET /api/projects/{id}/memory?conversationId=…` keeps its filter.** The
+> chip was its only caller and the parameter is now dead, but removing it would
+> make an old tab still polling during a deploy overlap receive the project's
+> ENTIRE memory instead of the conversation's — a dead parameter is cheaper than
+> that.
 
 ### 5.2 `follow_ups` — the new one
 
@@ -1431,7 +1508,7 @@ alone. Nothing else may start before 0.**
 | **2** ✅ | **BUILT.** Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures, which now exist as `shared/stages/frames.json`. Carries the §8 correction (three arrival conditions, not two) and the §6.2 one. | — (contract only) | yes — renders from fixtures with no backend | revert |
 | **3** ✅ | **BUILT.** Wire them: `aiq_api` publishes the frame sink (`GridStageMessage` + `send_stage_frame`, registered at plugin import), `follow_ups` declares `delivery="frame"`, and the `post-answer-follow-ups` flag is on for one organization and off everywhere else. Carries the §9 contract test's Python half, which replaces the slice-2 stand-in. | 0,1,2 | yes | flag off |
 | **4** ✅ | **BUILT.** Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal (catalog, post-hoc craft, and the seeded skill's `grid-cards` list + craft section via `0062`), export skip already done by PR #474 (§7.10). The `post-answer-follow-ups` flag is on for ALL orgs in both environments and `defaultOn` follows it. | 3 | yes | §7.10's revert path — step 1 **plus** reverting the step-2 commit **plus** `0062_…down.sql`; **performed and verified end to end**, not assumed |
-| **4b** | Reflection's own frame + the per-turn chip; delete the poll (§5.1, §1.7). | 3 | yes | flag off |
+| **4b** ✅ | **BUILT.** Reflection's own frame + the per-turn chip; the poll deleted (§5.1, §1.7). `memory_reflection` declares `delivery="frame"` and its payload carries the rows it wrote; the client stores them under `stages.memoryReflection`, and `useConversationMemory` is gone. Carries the §1.1 correction (which half of path 1 the chip's in-turn label actually was) and the §5.1 one (§8's conditions are the rail's, not every stage's). | 3 | yes | flag off |
 
 **Slice 0 is the one that must not be skipped**, and it is also the one that pays
 for itself immediately: it puts a timeout on memory reflection, which is a

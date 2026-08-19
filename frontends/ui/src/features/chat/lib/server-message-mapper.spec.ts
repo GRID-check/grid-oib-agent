@@ -393,6 +393,31 @@ describe('mapServerMessageToChatMessage — a post-answer stage', () => {
     expect(mapped!.stages?.followUps?.items).toHaveLength(4)
   })
 
+  it('restores what the reflection stage recorded, so a reload still shows it', () => {
+    // The reload case that decides whether the poll could be deleted at all.
+    // The `project_memory` rows survive regardless — they are in the database —
+    // but which TURN wrote them exists only here, and a reader who reloads must
+    // still be told what Piloti noted on this answer rather than on the thread.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          stages: {
+            memoryReflection: {
+              items: [
+                { id: 'row-1', kind: 'derived_fact', content: 'Das oberste Fluchtniveau beträgt 9,80 m.' },
+              ],
+            },
+          },
+        },
+      }),
+    )
+
+    expect(mapped!.stages?.memoryReflection?.items).toEqual([
+      { id: 'row-1', kind: 'derived_fact', content: 'Das oberste Fluchtniveau beträgt 9,80 m.' },
+    ])
+  })
+
   it('leaves a message with no stage output without the key at all', () => {
     const mapped = mapServerMessageToChatMessage(serverMessage({ role: 'assistant', metadata: {} }))
     expect(mapped!.stages).toBeUndefined()

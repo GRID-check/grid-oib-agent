@@ -48,6 +48,47 @@
       "stage": "follow_ups",
       "status": "failed",
       "timestamp": "2026-08-19T10:31:02.114Z"
+    },
+    "memory_reflection.ready": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "memory_reflection",
+      "status": "ready",
+      "payload": {
+        "items": [
+          {
+            "id": "9d2f6b41-7c3e-4a58-9f0b-6a1c2d3e4f50",
+            "kind": "constraint",
+            "content": "Das Projekt liegt in Wien; für Fluchtwege gilt die Wiener Bauordnung ergänzend zur OIB-Richtlinie 2."
+          },
+          {
+            "id": "1a7c9e02-5b64-4d19-8e3a-0f5b6c7d8e91",
+            "kind": "derived_fact",
+            "content": "Das oberste Fluchtniveau des Bauvorhabens beträgt 9,80 m, das Gebäude liegt damit in Gebäudeklasse 4."
+          }
+        ]
+      },
+      "timestamp": "2026-08-19T10:31:02.114Z"
+    },
+    "memory_reflection.empty": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "memory_reflection",
+      "status": "empty",
+      "timestamp": "2026-08-19T10:31:02.114Z"
+    },
+    "memory_reflection.failed": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "memory_reflection",
+      "status": "failed",
+      "timestamp": "2026-08-19T10:31:02.114Z"
     }
   },
   "rejected": {

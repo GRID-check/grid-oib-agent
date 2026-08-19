@@ -301,7 +301,9 @@ class TestRunMemoryReflection:
             memory_digest="(none)",
         )
 
-        assert ids == ["id-1"]
+        # What it wrote, not merely how much: the id, the kind and the words —
+        # the post-answer stage puts these on the wire, and the chip renders them.
+        assert ids == [{"id": "id-1", "kind": "decision", "content": "Client chose a flat roof."}]
         assert recorded[0]["scope"] == "project"
         assert recorded[0]["project_id"] == "proj-1"
         assert recorded[0]["kind"] == "decision"
@@ -339,7 +341,7 @@ class TestRunMemoryReflection:
             memory_digest=digest,
         )
 
-        assert ids == ["id-1"]
+        assert [item["id"] for item in ids] == ["id-1"]
         assert recorded[0]["supersedes_content"] == "OIB-RL 2.1 ist nicht anwendbar"
 
     @pytest.mark.asyncio
@@ -464,7 +466,9 @@ class TestMemoryReflectionAsAStage:
 
         assert len(recorded) == 1
         assert outcomes["memory_reflection"].status == "ready"
-        assert outcomes["memory_reflection"].payload == {"item_ids": ["id-1"]}
+        assert outcomes["memory_reflection"].payload == {
+            "items": [{"id": "id-1", "kind": "decision", "content": "Chose district heating."}]
+        }
 
     @pytest.mark.asyncio
     async def test_no_llm_is_noop(self):

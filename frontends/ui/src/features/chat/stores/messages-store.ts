@@ -24,7 +24,12 @@ import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
 import { mergeTraceLaneCards, parseTraceLanesBlock } from '../lib/trace-lanes'
 import { useLayoutStore } from '@/features/layout/store'
 import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
-import { sanitizeFollowUpsStage } from '@/lib/conversations/message-stages'
+import {
+  sanitizeFollowUpsStage,
+  sanitizeMemoryReflectionStage,
+  type MessageStages,
+} from '@/lib/conversations/message-stages'
+import type { StageId } from '@/adapters/api/schemas'
 
 /**
  * One post-answer stage frame, narrowed to what the store acts on
@@ -35,9 +40,47 @@ export interface StageFrame {
   conversationId: string
   /** The WS turn id — the only correlation key both halves share. */
   parentId: string
-  stage: 'follow_ups'
+  stage: StageId
   status: 'ready' | 'empty' | 'failed'
   payload?: unknown
+}
+
+/**
+ * Stages whose output is appended BELOW the answer, as its own block in the
+ * thread column — and which therefore may only land where they cannot push
+ * something the reader has already read (§8).
+ *
+ * `memory_reflection` is deliberately not one of them. Its chip goes INSIDE the
+ * answer's footer meta row, which is rendered and reserved at `min-h-6` before
+ * the stage even starts, so nothing below the answer moves when it arrives.
+ * Holding it to §8's conditions would also make it lose to its own schedule:
+ * reflection is scheduled BEFORE the answer's deltas are yielded, so on a long
+ * answer its frame genuinely can arrive mid-stream, and „the reader started
+ * typing" would suppress the only notice that something was written to their
+ * project's durable memory. A suggestion may be withheld; a record of a write
+ * may not.
+ */
+const STAGES_THAT_GROW_THE_THREAD: ReadonlySet<StageId> = new Set(['follow_ups'])
+
+/**
+ * The payload of one stage, reduced to what may be stored, or null when nothing
+ * survives.
+ *
+ * One entry per stage this client renders, exhaustive over `StageId` so a stage
+ * added to the wire schema without a renderer fails `tsc` here rather than
+ * arriving at runtime and being silently ignored.
+ */
+const STAGE_SANITISERS: {
+  [K in StageId]: (payload: unknown) => MessageStages[keyof MessageStages] | null
+} = {
+  follow_ups: sanitizeFollowUpsStage,
+  memory_reflection: sanitizeMemoryReflectionStage,
+}
+
+/** Which `MessageStages` key each stage's payload is stored under. */
+const STAGE_KEYS: { [K in StageId]: keyof MessageStages } = {
+  follow_ups: 'followUps',
+  memory_reflection: 'memoryReflection',
 }
 
 export type MessagesSlice = {
@@ -1509,10 +1552,11 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // answer worth storing.
     if (frame.status !== 'ready') return null
 
-    // One stage exists today, and the wire schema's stage set is closed, so
-    // there is nothing to dispatch on yet: a second stage adds a branch here
-    // and a key on `MessageStages`, and changes nothing above.
-    const payload = sanitizeFollowUpsStage(frame.payload)
+    // Each stage's payload is validated by its OWN contract before anything is
+    // rendered or stored; the envelope schema deliberately keeps `payload`
+    // unknown, because one schema that knew every stage's shape would have to
+    // be edited by every future stage.
+    const payload = STAGE_SANITISERS[frame.stage](frame.payload)
     // A payload its own contract rejects is dropped whole rather than rendered
     // in part: half a set of chips is a worse offer than none.
     if (!payload) return null
@@ -1528,27 +1572,30 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     const target = messages[index]
 
-    // The three conditions that make "reserve nothing, append below, never
-    // reflow" safe (§8). Each is checked HERE, at arrival, rather than at
-    // render: a rail that is admitted and then hidden is a rail that pops in
-    // later, which is the defect being avoided.
-    //
-    // 1. Nothing may sit below the answer. The claim that a late rail moves
-    //    nothing already read holds only while the rail is the LAST thing in
-    //    the thread — a rail growing under message five pushes six, seven and
-    //    the reader's own question down the page.
-    if (index !== messages.length - 1) return null
-    // 2. The answer must be finished. Growing the column under text that is
-    //    still being written moves it mid-read.
-    if (target.isStreaming) return null
-    // 3. The reader must not have started typing. Offering four questions to
-    //    someone who is writing their own replaces their intention with a
-    //    suggestion.
-    if ((composerDrafts[currentConversation.id] ?? '').trim().length > 0) return null
+    if (STAGES_THAT_GROW_THE_THREAD.has(frame.stage)) {
+      // The three conditions that make "reserve nothing, append below, never
+      // reflow" safe (§8). Each is checked HERE, at arrival, rather than at
+      // render: a rail that is admitted and then hidden is a rail that pops in
+      // later, which is the defect being avoided.
+      //
+      // 1. Nothing may sit below the answer. The claim that a late rail moves
+      //    nothing already read holds only while the rail is the LAST thing in
+      //    the thread — a rail growing under message five pushes six, seven and
+      //    the reader's own question down the page.
+      if (index !== messages.length - 1) return null
+      // 2. The answer must be finished. Growing the column under text that is
+      //    still being written moves it mid-read.
+      if (target.isStreaming) return null
+      // 3. The reader must not have started typing. Offering four questions to
+      //    someone who is writing their own replaces their intention with a
+      //    suggestion.
+      if ((composerDrafts[currentConversation.id] ?? '').trim().length > 0) return null
+    }
 
+    const key = STAGE_KEYS[frame.stage]
     const updatedMessages = messages.map((message) =>
       message.id === target.id
-        ? { ...message, stages: { ...message.stages, followUps: payload } }
+        ? { ...message, stages: { ...message.stages, [key]: payload } }
         : message
     )
 
@@ -1570,10 +1617,15 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       'applyStageFrame'
     )
 
-    // Mirrored to the server row so the chips survive a reload, a colleague's
-    // view and another device — the same best-effort mirror the provenance and
-    // the card decisions already use.
-    void get()._persistStageOutput(target.id, { followUps: payload })
+    // Mirrored to the server row so what the stage produced survives a reload,
+    // a colleague's view and another device — the same best-effort mirror the
+    // provenance and the card decisions already use.
+    //
+    // For `memory_reflection` this mirror is what makes the frame safe to be
+    // the ONLY notice: the row it describes exists in `project_memory` either
+    // way, but the fact that THIS turn wrote it lives nowhere else, so a reload
+    // before this PATCH lands is the one case where the chip does not come back.
+    void get()._persistStageOutput(target.id, { [key]: payload })
 
     return target.id
   },

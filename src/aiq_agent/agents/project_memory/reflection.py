@@ -297,12 +297,19 @@ async def run_memory_reflection(
     organization_id: str | None,
     conversation_id: str | None,
     memory_digest: str | None,
-) -> list[str]:
+) -> list[dict[str, str]]:
     """Run one reflection pass and record any qualifying findings.
 
-    Returns the ids of the memory items written (empty when nothing qualified or
-    on any recoverable failure). Intended to be awaited inside a guarded
-    background task; it never raises for expected failure modes.
+    Returns the memory items written — ``id``, ``kind`` and ``content`` each —
+    empty when nothing qualified or on any recoverable failure. Intended to be
+    awaited inside a guarded background task; it never raises for expected
+    failure modes.
+
+    The return carries what was WRITTEN and not merely how much, because the
+    post-answer stage wrapping this call puts it on the wire: the chip that
+    tells a reader "Piloti noted this" renders the item's own words, and a list
+    of ids would make the browser ask the database for text the writer already
+    had in hand (``docs/architecture/post-answer-stages.md`` §5.1).
     """
     from langchain_core.messages import HumanMessage
     from langchain_core.messages import SystemMessage
@@ -335,7 +342,7 @@ async def run_memory_reflection(
         logger.info("Memory reflection: no new durable findings for this turn")
         return []
 
-    recorded: list[str] = []
+    recorded: list[dict[str, str]] = []
     for item in items:
         scope = item["scope"]  # always "project" — org-wide writes are excluded (S1)
         try:
@@ -359,7 +366,7 @@ async def run_memory_reflection(
             logger.exception("Memory reflection: failed to record a %s finding", item["kind"])
             continue
         if item_id:
-            recorded.append(item_id)
+            recorded.append({"id": item_id, "kind": item["kind"], "content": item["content"]})
             if item.get("supersedes"):
                 logger.info("Memory reflection: recorded %s item %s as a correction", item["kind"], item_id)
 
