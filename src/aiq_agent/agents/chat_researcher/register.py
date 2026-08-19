@@ -35,7 +35,7 @@ from aiq_agent.project_context import get_memory_reflection_enabled_from_context
 from aiq_agent.project_context import get_user_message_id_from_context
 from aiq_agent.stages import TurnFacts
 from aiq_agent.stages import schedule_post_answer_stages
-from aiq_agent.stages.flags import legacy_enabled_stages
+from aiq_agent.stages.flags import resolve_enabled_stages
 from nat.builder.builder import Builder
 from nat.builder.context import Context
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -922,6 +922,18 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
                 _project_context = compose_project_context(_profile_context, _memory_digest)
 
+                # Which post-answer stages are on is decided per TURN, not per
+                # socket. The feature header is written once at the WS upgrade
+                # and then frozen for the life of the connection, so an operator
+                # switching a stage off did not reach an already-open tab — the
+                # opposite of what a kill switch is for. Same shape as the live
+                # digest above: ask the BFF, and fall back to the frozen value
+                # only when the call fails.
+                _enabled_stages = await resolve_enabled_stages(
+                    organization_id=_org_id,
+                    memory_reflection_enabled=_ctx.memory_reflection_enabled,
+                )
+
                 _stage_facts = TurnFacts(
                     conversation_id=nat_context_conversation_id,
                     ws_parent_id=get_user_message_id_from_context(),
@@ -931,7 +943,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     # Reflect against the digest the agent actually saw this turn.
                     memory_digest=_memory_digest,
                     bundesland=_ctx.bundesland,
-                    enabled_stages=legacy_enabled_stages(memory_reflection_enabled=_ctx.memory_reflection_enabled),
+                    enabled_stages=_enabled_stages,
                 )
             except ImportError:
                 pass

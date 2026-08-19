@@ -818,8 +818,11 @@ workflow:
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}
   card_generator_llm: card_llm
   # Enables the async post-answer memory-reflection stage (reuses the cheap
-  # card_llm). This only makes the capability AVAILABLE; whether it runs per
-  # request is gated at runtime solely by the `memory-reflection` WorkOS
-  # feature flag (no env-var fallback; anonymous/non-WorkOS deployments
-  # cannot enable it).
+  # card_llm). This only makes the capability AVAILABLE; whether it runs is
+  # decided per TURN by the BFF (`GET /api/internal/stages`): the
+  # `memory-reflection` WorkOS flag when GRID_ENFORCE_FEATURE_FLAGS is on,
+  # otherwise GRID_MEMORY_REFLECTION_ENABLED, which defaults ON — so a
+  # non-WorkOS deployment DOES get the stage. (The previous claim here, "solely
+  # the WorkOS feature flag, no env-var fallback", contradicted
+  # `feature-flags.ts` and has been wrong since that fallback was added.)
   memory_reflection_llm: card_llm
