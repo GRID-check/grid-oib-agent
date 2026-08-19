@@ -41,6 +41,7 @@ baseline failure caused by a genuine product bug should be reported, not ignored
 | LLM behavior (prompts, models, structured output) | a live smoke call against the configured provider (OpenRouter key in env) proving the contract parses — or an explicit note that live validation was not possible and why |
 | User-visible UI | a screenshot from the screenshot harness (`cd frontends/ui && npm run screenshots [-- <id>]`, output in `frontends/ui/visual/screenshots/`) — add a `/dev/*` preview route + a `visual/registry.mjs` target for the new surface; see `docs/ux/visual-screenshots.md`. **A NEW component without that evidence is not done** (the `visual-coverage` workflow nudges on the PR); opt genuinely non-visual components out with a `// no-visual: <reason>` marker. Quote the exact user-visible copy in the summary too. |
 | Anything long-running / a service | the actual logs showing the behavior, not an inference from code reading |
+| Anything a customer can notice (backend, API, UI, CLI) | a reno release note in the same change — `task release:note -- <slug>`, then `task release:lint`. The **Release note** CI job fails the PR without one; the `no-release-note` label is the only exemption and it claims no user can observe the change. See AGENTS.md, "Release notes are mandatory". |
 
 New behavior needs a test that fails without the change. A bug fix needs a
 regression test that would have caught it — if the existing test suite passed

@@ -41,6 +41,26 @@ than leaving the next person to trip over them.
   [AGENTS.md](AGENTS.md) (“Correlated substrate debt…”) and
   [adding a shareable resource type](docs/architecture/adding-a-shareable-resource-type.md) §5.
 
+## Release notes
+
+Every change a customer can notice ships with a release note in the same PR —
+this is an obligation, enforced by the **Release note** CI job, not a
+convention. Notes are written with [reno](https://docs.openstack.org/reno/latest/)
+and published automatically to piloti.at/changelog (German and English) when the
+PR merges.
+
+```bash
+task release:note -- re-index-projects   # creates releasenotes/notes/<slug>-<hash>.yaml
+task release:lint                        # the same check CI runs
+```
+
+Write it for the architect using Piloti: plain sentences, no issue numbers, no
+file or component names. A PR that genuinely changes nothing a user can observe
+carries the `no-release-note` label instead.
+
+Rules and rationale: [AGENTS.md](AGENTS.md) ("Release notes are mandatory") and
+[docs/contributing/release-notes.md](docs/contributing/release-notes.md).
+
 ## Local validation
 
 Run what your change touches before pushing (the full matrix is in the
