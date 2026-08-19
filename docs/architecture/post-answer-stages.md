@@ -1,6 +1,9 @@
 # Post-answer stages — a platform primitive
 
-> **Status:** design, not yet built. Nothing in this document is implemented.
+> **Status:** **slice 0 is built** (`src/aiq_agent/stages/`, memory reflection
+> migrated onto it, the kill switch moved per-turn). Slices 1–4b are still
+> design. Paragraphs corrected on contact with the code are marked
+> **[as built]** — each states the correction and why the original was wrong.
 > **Scope:** the *stage* as a reusable shape, its wire contract, and the two
 > instances that must run on it — memory reflection (exists, in a bespoke form)
 > and follow-up questions (new).
@@ -184,6 +187,23 @@ primitive:
 
 The agent tier's only handle on the turn is the third one — NAT stores it as
 `self._message_parent_id` (`nat/front_ends/fastapi/message_handler.py:125`).
+
+> **[as built]** This section was written as though that handle lived only inside
+> `aiq_api`. It does not: NAT's session publishes it as a ContextVar
+> (`nat/runtime/session.py:487`) exposed as `Context.user_message_id`
+> (`nat/builder/context.py:206-210`), so `aiq_agent` reads it directly —
+> `get_user_message_id_from_context()` in `project_context.py`.
+> `TurnFacts.ws_parent_id` is therefore a real value on the WebSocket path from
+> slice 0, and the idempotency key of §7.2 is real rather than aspirational.
+> Everything below still holds: the backend still cannot address the browser's
+> assistant **message row**, only the turn.
+>
+> One trap the reading surfaced: NAT initialises `_message_parent_id` to the
+> literal `"default_id"` (`message_handler.py:99`) — a constant shared by every
+> turn of every conversation. Treating it as an identity would collapse them onto
+> one idempotency key and silence every turn after the first, so the accessor maps
+> it (and the CLI/REST paths, where it is absent) to `None`, and the runner skips
+> the guard when there is no key.
 When the client is gone, the backend persists the answer under
 `uuid5(NAMESPACE_URL, f"grid:assistant:{conversation_id}:{parent_id}")`
 (`websocket_reconnect.py:459-468`) — **a different id from the one the browser
@@ -275,6 +295,17 @@ class StageSpec:
     max_output_tokens: int       # cost ceiling, per §7.5
 ```
 
+> **[as built]** `max_output_tokens` is `int | None`, with no default, so a stage
+> author must state a number or state that there is none. `memory_reflection`
+> declares `None`, and the reason is the migration rule: the configured model
+> already caps output (`card_llm.max_tokens: 65536`) and runs with
+> `reasoning_effort: medium`, so reasoning tokens count against that ceiling — a
+> tighter cap introduced by a refactor would truncate the response and turn a
+> working stage into one that silently writes nothing. Reflection's real cost
+> bound is its already-sliced input (`_MAX_ANSWER_CHARS` / `_MAX_QUERY_CHARS` /
+> `_MAX_DIGEST_CHARS`) plus `timeout_s`. When a number IS declared, the runner
+> binds it onto the stage's LLM.
+
 `AgentGroup` is the existing enum (`common/model_overrides.py:56-83`) — reused,
 not re-invented, so a stage inherits Platform → Models defaults, the org
 override, and the ADR-0022 BYOK credential swap by construction.
@@ -291,6 +322,14 @@ query, answer, memory_digest, locale, bundesland,
 intent, routing_decision, research_truncated, deep_research_job_id,
 emitted_card_types: frozenset[str], answer_confidence
 ```
+
+> **[as built]** Two corrections. `locale` is **not** a field: there is no locale
+> in the signed request-context envelope or in any `X-Grid-*` header, so it could
+> only ever have been `None` — and a fact that is always absent is worse than no
+> field, because a gate can be written against it and never fire. `bundesland` is
+> there and is real. One field was added: `enabled_stages: frozenset[str] | None`,
+> the per-turn flag set (§7.8), read fail-closed — `None` means "unknown", which
+> means nothing enabled.
 
 `StageContext = TurnFacts + llm (already model-overridden and credential-swapped)`.
 
@@ -317,8 +356,15 @@ handler to invent output.
 
 ### 2.5 Registration point
 
-`src/aiq_agent/stages/registry.py`, a module-level `@register_stage` decorator
-and `iter_stages()`. Import-time registration, same shape as NAT's
+`src/aiq_agent/stages/registry.py`, a module-level `register_stage()` and
+`iter_stages()`.
+
+> **[as built]** `register_stage` is a function that returns its argument
+> (`MEMORY_REFLECTION = register_stage(StageSpec(...))`), not a decorator: what
+> is registered is a frozen *value*, and there is nothing for a decorator to
+> wrap. It raises on a duplicate id, because two stages under one id would share
+> an idempotency key and overwrite each other's payload on the turn.
+ Import-time registration, same shape as NAT's
 `@register_function` that the whole agent tier already uses.
 
 **One call site.** `chat_researcher/register.py:1222-1253` — the bespoke
@@ -329,6 +375,16 @@ schedule_post_answer_stages(TurnFacts.from_turn(result, response, ctx))
 ```
 
 Adding a stage never touches `register.py` again. That is the test of the design.
+
+> **[as built]** The assembly is `_post_answer_turn_facts(...)` in
+> `chat_researcher/register.py`, not a `TurnFacts.from_turn` classmethod, and the
+> models ride alongside it as `llms={AgentGroup.MEMORY_REFLECTION: …}`. Reading
+> graph state (`_result_field`, `user_intent`, `research_truncated`) is the
+> *caller's* knowledge; putting it on `TurnFacts` would import chat-researcher
+> specifics into a package that must know nothing about any stage or any graph.
+> Keying the model map by `AgentGroup` rather than by stage id is what keeps the
+> call site free of stage names too. The property that matters — adding a stage
+> does not touch `register.py` — holds either way.
 
 ### 2.6 Lifecycle
 
@@ -351,6 +407,14 @@ flowchart TD
     M --> P["WS frame → browser"]
     P --> Q["browser renders + persists onto its own message row"]
 ```
+
+> **[as built]** Two ordering details the diagram leaves open. The **flag is
+> checked before the gate**, not after: evaluating a gate for a stage that is
+> switched off would file `skipped` reasons for a stage that was never going to
+> run, and those reasons are the numbers the gate is judged by. And the terminal
+> states decided *synchronously* (disabled, skipped, pending-cap) are still
+> recorded from a task rather than inline — the span post is blocking I/O, and
+> the answer's first token is waiting behind the scheduling call.
 
 The two rules the diagram encodes: **the answer path (A→D) never waits on the
 stage path**, and **every terminal state converges on O** — including the states
@@ -412,8 +476,15 @@ async with _stage_semaphore(loop):
 - `BudgetSnapshot()` empty, as reflection already does (`reflection.py:463`) — a
   post-answer stage is never hard-stopped by a budget it did not spend against,
   but its spend **is** recorded to `llm_usage_events`.
-- The whole thing is wrapped in `except BaseException` → `StageOutcome(failed)`.
+- The whole thing is wrapped in `except Exception` → `StageOutcome(failed)`.
   A stage cannot raise into the turn because the turn is not awaiting it.
+
+> **[as built]** `Exception`, not `BaseException`: `asyncio.CancelledError` is
+> re-raised rather than recorded. A cancellation is loop teardown, not a stage
+> fault, and swallowing it would keep a shutting-down process alive to post a
+> span nobody is left to read. The scheduling call itself — which DOES run on the
+> answer path — is separately wrapped, so even a gate that raises cannot reach
+> the turn.
 
 ---
 
@@ -658,6 +729,12 @@ The answer is complete and being streamed before any stage task runs
 - **On breach:** the task is cancelled, `StageOutcome(status="timeout")` is
   recorded, and a `status:"failed"` frame is sent if the client is still there.
   Nothing is retried (§7.2).
+
+> **[as built]** A sink that reports "not delivered" — no socket for this
+> conversation on any replica — is recorded as an undelivered frame, **not** as
+> `outcome:"failed"`. A reader who closed the tab is not a stage failure, and
+> conflating the two would poison the exact `GROUP BY` this design exists to
+> produce. A sink that *raises* is caught and also cannot fail the stage.
 - **What the reader sees:** for `follow_ups`, nothing — no chips, no error, no
   gap (§8). For `memory_reflection`, no chip. In both cases the answer is
   untouched, because the answer was untouched before the stage started.
@@ -668,10 +745,14 @@ The answer is complete and being streamed before any stage task runs
 
 **Idempotency key: `(conversation_id, ws_parent_id, stage_id)`.**
 
-- **Backend:** a per-process `set` of in-flight and completed keys, checked
-  before scheduling. A turn is scheduled from exactly one place, once, so this
-  only has to defend against a re-entrant call — but it also makes a future retry
-  safe to add.
+- **Backend:** a per-process **bounded LRU** of in-flight and completed keys,
+  checked before scheduling. A turn is scheduled from exactly one place, once, so
+  this only has to defend against a re-entrant call — but it also makes a future
+  retry safe to add. **[as built]** the guard is skipped when there is no turn
+  key: a CLI, REST or job-worker turn has no `ws_parent_id`, and keying on the
+  conversation alone would suppress every turn after the first. Bounded rather
+  than unbounded because it is a re-entrancy guard on a long-lived process, not
+  an audit log.
 - **Wire:** at most one frame per key, by construction.
 - **Client:** the frame is applied to `message.stages[stage_id]` — a
   **write to a fixed key**, so a duplicate delivery (reconnect replay from the
@@ -839,6 +920,34 @@ reach an open tab. Move the evaluation into the per-turn envelope so "off" means
 believes. A 30s flag cache already exists (`feature-flags.ts:39-47`), so the cost
 is a map lookup, not a WorkOS round-trip.
 
+> **[as built] — the defect is real; the mechanism above is not.** *There is no
+> per-turn envelope on the chat path.* The signed request-context envelope is
+> built exactly once, by `server.js` during the WebSocket upgrade
+> (`server.js:700-737`); after that the socket is a raw proxy and no BFF code
+> runs per turn. "Move the evaluation into the per-turn envelope" is not
+> something that can be done.
+>
+> The fix follows the pattern this codebase already uses for precisely this class
+> of problem, one screen away in the same function: the project-memory digest is
+> also frozen on an upgrade header, and is re-fetched per turn from
+> `GET /api/internal/memory/digest`. Stage flags now do the same through a new
+> token-guarded `GET /api/internal/stages`, called in the same `asyncio.gather`
+> as the digest fetch — so it costs a parallel internal round-trip, not serial
+> latency — behind the existing 30s flag cache.
+>
+> It fails **open to the connection-time value**, not closed. A BFF blip must
+> degrade to the previous behaviour; failing closed would silently disable every
+> stage for as long as the blip lasts, which is worse than the defect.
+>
+> Consequently the envelope keeps its `memoryReflectionEnabled` boolean and does
+> **not** gain `stagesEnabled: string[]`: the envelope is the fallback now, not
+> the channel. `legacy_enabled_stages()` maps that boolean onto whichever stage
+> *declares* the `memory-reflection` slug, so even the fallback is
+> declaration-driven rather than hard-coded to an id. The BFF-side registry is
+> `POST_ANSWER_STAGE_FLAGS` in `lib/workos/feature-flags.ts`, and
+> `isMemoryReflectionEnabled` delegates to it so the socket path and the per-turn
+> path cannot disagree.
+
 ### 7.9 Backpressure
 
 The existing reflection policy is right and is promoted to the primitive
@@ -846,7 +955,10 @@ The existing reflection policy is right and is promoted to the primitive
 queued.**
 
 - One shared, per-event-loop semaphore for all stages — `GRID_STAGE_MAX_CONCURRENCY`,
-  default 4. Loop-keyed via `WeakKeyDictionary` exactly as `_loop_semaphore`
+  default 4. **[as built]** it and `GRID_STAGE_MAX_PENDING` replace
+  `MEMORY_REFLECTION_MAX_CONCURRENCY` / `MEMORY_REFLECTION_MAX_PENDING`, which
+  the primitive supersedes; `deploy/.env.example` and
+  `docs/deployment/environment-variables.md` move with them. Loop-keyed via `WeakKeyDictionary` exactly as `_loop_semaphore`
   does (`reflection.py:385-395`), because chat and Dask workers run different
   loops.
 - `GRID_STAGE_MAX_PENDING`, default 16, counted **across all stages**. At the cap
@@ -974,7 +1086,7 @@ alone. Nothing else may start before 0.**
 
 | # | slice | depends on | independently shippable | reversible by |
 |---|---|---|---|---|
-| **0** | The primitive: `stages/` package, `StageSpec`, `TurnFacts`, runner (semaphore + timeout + span), registry, sink interface. **Reflection ported onto it, behaviour-identical, flag unchanged.** No new stage, no frame. | — | yes — a pure refactor with the §1.4/§1.5 fixes | revert |
+| **0** ✅ | **BUILT.** The primitive: `stages/` package, `StageSpec`, `TurnFacts`, runner (semaphore + timeout + span), registry, sink interface. Reflection ported onto it, behaviour-identical, flag unchanged. No new stage, no frame. Carries the §1.4 and §1.5 fixes and the §7.8 kill-switch fix. | — | yes — a pure refactor with the §1.4/§1.5 fixes | revert |
 | **1** | Backend `follow_ups`: gate, handler, prompt, payload model. `delivery="silent"` — **it runs and is measured, and delivers nothing.** | 0 | yes | flag off |
 | **2** | Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures. | — (contract only) | yes — renders from fixtures with no backend | revert |
 | **3** | Wire them: sink registration in `aiq_api`, `delivery="frame"`, flag on for one org. | 0,1,2 | yes | flag off |
