@@ -979,7 +979,7 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
 
     return (
         "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
-        "Card types:\n" + "\n".join(card_lines) + interactive_note + measured_note + "\n\n"
+        "Card types:\n" + "\n".join(card_lines) + interactive_note + measured_note + _plain_text_note() + "\n\n"
         "Worked examples (copy the nesting exactly):\n" + examples
     )
 
@@ -1023,6 +1023,28 @@ def _measured_note() -> str:
         "  `value` null and `missing` set to that answer's missing.remedy, VERBATIM — that sentence\n"
         "  is what the architect changes in their CAD. A blank slot instead of it reads as a fact\n"
         "  about the building, when it is a finding about the export."
+    )
+
+
+def _plain_text_note() -> str:
+    # Rides with the SHAPES rather than with the doctrine, for the same reason
+    # the measured-numbers rule does: it is a rule about filling a field in, and
+    # the doctrine is paid on every turn whether or not a card is ever emitted
+    # (see `register._build_tool_description`). A model that has just been handed
+    # the shapes is the one about to write these strings.
+    #
+    # The validator in `cards.models.CardModel` strips these delimiters anyway,
+    # so nothing here is load-bearing for correctness — it is here so the field
+    # holds what the model meant instead of the wreckage of a link the model
+    # should never have written. A `legal_basis` card shipped
+    # „[OIB-Richtlinie ansehen](https://www.oib.or.at/de/oib-richtlinien)“ into a
+    # field beside the card's OWN working link to that same page.
+    return (
+        "\n\nEvery text field is PLAIN TEXT:\n"
+        "  No card renders markdown. Write the words, not the markup — no [text](url) links, no\n"
+        "  **bold**, no `code`. A card that needs a link to its source already has one: the card\n"
+        "  builds it from the fields you filled in, so writing one yourself adds a second, unchecked\n"
+        "  claim next to the checked one."
     )
 
 
@@ -1119,6 +1141,9 @@ def render_card_details(card_types: Iterable[str]) -> str:
     # it rides with the shapes that have the field rather than with every card.
     if any("DimensionCheck" in line for line in block_lines + card_lines):
         out += _measured_note()
+    # Unconditional, unlike the provenance rule: every card type here has text
+    # fields, so there is no shape this one fails to apply to.
+    out += _plain_text_note()
     if examples:
         out += "\n\nWorked examples (copy the nesting exactly):\n" + examples
     return out
