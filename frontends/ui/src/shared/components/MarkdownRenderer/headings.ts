@@ -68,8 +68,16 @@ export interface MarkdownHeading {
  * An ATX heading of the levels the renderer anchors. `#####` does not match:
  * after four hashes the fifth is neither whitespace nor end of line, and the
  * text group requires one of those.
+ *
+ * The text is captured GREEDILY and its trailing whitespace trimmed in code,
+ * rather than captured lazily against a trailing `[ \t]*$`. The lazy form made
+ * the engine expand the capture one character at a time and re-scan to the end
+ * of the line on each step, which is quadratic in the line's length: a heading
+ * carrying 40k interior spaces took 1,311ms, and this runs over every line of
+ * every report. Greedy capture cannot backtrack against a class it does not
+ * overlap, so the same line is now microseconds.
  */
-const HEADING_RE = /^ {0,3}(#{1,4})(?:[ \t]+(.*?))?[ \t]*$/
+const HEADING_RE = /^ {0,3}(#{1,4})(?:[ \t]+(.*))?$/
 
 /** A fence that opens or closes a code block. */
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/
@@ -85,8 +93,20 @@ const INLINE_LINK_RE = /!?\[([^\]]*)\]\([^)]*\)/g
  * so `## <b>Kennwerte</b>` reads "Kennwerte" and the id must not carry the
  * tags. Deliberately narrower than `<[^>]*>`: an autolink (`<https://oib.at>`)
  * is not a tag, it renders as its own URL, and eating it would move that id.
+ *
+ * The attribute run is `(?:[\s/][^>]*)?` rather than `(?:\s[^>]*?)?\s*\/?`. That
+ * earlier form let the lazy `[^>]*?` and the trailing `\s*` both match a space,
+ * so an unterminated tag backtracked quadratically — `<a ` followed by 16k
+ * spaces took 223ms, and this scans a whole report's markdown, which is written
+ * from retrieved documents rather than from input we choose.
+ *
+ * The single leading `[\s/]` is what keeps the autolink exclusion above: a
+ * tag's name is followed by whitespace, a slash or `>`, while `<https://oib.at>`
+ * has a colon there, so the group cannot open and the match fails. A bare
+ * `[^>]*` is linear too, and swallows every autolink — the regression the
+ * outline spec now catches.
  */
-const HTML_TAG_RE = /<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*?)?\s*\/?>/g
+const HTML_TAG_RE = /<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/][^>]*)?>/g
 
 /**
  * `_emphasis_`, but only where CommonMark would see emphasis: an underscore
@@ -216,7 +236,8 @@ export const markdownHeadings = (markdown: string): MarkdownHeading[] => {
     const headingMatch = HEADING_RE.exec(raw)
     if (!headingMatch) continue
 
-    const text = headingDisplayText((headingMatch[2] ?? '').replace(CLOSING_SEQUENCE_RE, ''))
+    // `trimEnd` is what the pattern's old trailing `[ \t]*$` used to do.
+    const text = headingDisplayText((headingMatch[2] ?? '').trimEnd().replace(CLOSING_SEQUENCE_RE, ''))
     if (!text) continue
 
     const base = headingAnchorId(text)

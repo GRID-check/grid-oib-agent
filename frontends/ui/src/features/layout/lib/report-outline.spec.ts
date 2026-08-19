@@ -283,3 +283,52 @@ describe('the ids the outline links to exist in the rendered report', () => {
     )
   })
 })
+
+describe('heading extraction is linear in the length of the markdown', () => {
+  /**
+   * `HTML_TAG_RE` in `MarkdownRenderer/headings.ts` used to spell its attribute
+   * run as `(?:\s[^>]*?)?\s*\/?`, where the lazy class and the trailing `\s*`
+   * could both match a space. An unterminated tag then backtracked
+   * quadratically, and this scans a whole deep-research report — markdown
+   * written from retrieved documents, which is not input we choose.
+   *
+   * Two things this fixture has to get right, both of which a first draft got
+   * wrong while still passing against the defect. The payload must sit INSIDE
+   * the heading, because tag stripping only runs over heading text — an
+   * unterminated tag on its own line never reaches it. And it needs a trailing
+   * character, because the heading pattern's own `[ \t]*$` eats trailing
+   * whitespace before the tag pattern is handed the text.
+   *
+   * The budget is absolute rather than a ratio between two sizes: healthy
+   * timings here are microseconds, and a ratio of two sub-millisecond
+   * measurements is noise, not signal. At this size the defect takes ~1,280ms
+   * and the fix takes ~0.1ms, so 400ms sits three times below the defect and
+   * four orders of magnitude above healthy — loose enough for a loaded CI
+   * runner, tight enough that quadratic growth cannot hide under it.
+   */
+  test('an unterminated inline tag in a heading does not blow up the scan', () => {
+    const markdown = `## Kennwerte <a ${' '.repeat(40_000)}x\n`
+
+    const started = performance.now()
+    const outline = extractReportOutline(markdown)
+    const elapsed = performance.now() - started
+
+    expect(elapsed).toBeLessThan(400)
+    expect(outline).toHaveLength(1)
+  })
+
+  test('a heading still loses its inline tags', () => {
+    const outline = extractReportOutline('## <b>Kennwerte</b> der <em>Hülle</em>\n')
+
+    expect(outline[0].text).toBe('Kennwerte der Hülle')
+  })
+
+  test('an autolink in a heading is not eaten as a tag', () => {
+    // The exclusion the single leading `[\s/]` buys: a tag's name is followed by
+    // whitespace, a slash or `>`, and an autolink has a colon there. A bare
+    // `[^>]*` attribute run is linear too and swallows the whole autolink.
+    const outline = extractReportOutline('## Quelle <https://oib.at>\n')
+
+    expect(outline[0].text).toContain('https://oib.at')
+  })
+})
