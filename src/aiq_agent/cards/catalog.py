@@ -118,9 +118,10 @@ _MODEL_PICKER_TRIGGER = """
 
 _FOLLOW_UPS_RULE = """\
 follow_ups closes a subject-matter answer by default — a good answer opens questions, and the
-reader should not have to phrase them. Exactly one, LAST. Two narrow exceptions: a conversational
-or off-topic turn, with no subject to go deeper into, and an answer that already ends by asking the
-user something, because two questions competing for the same reply is how you get neither."""
+reader should not have to phrase them. Exactly one, LAST. Two narrow exceptions: a
+conversational or off-topic turn, with no subject to go deeper into, and an answer that already
+ends by asking the user something, because two questions competing for the same reply is how you
+get neither."""
 
 _MODEL_PICKER_NOTE = """\
 The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":

@@ -15,6 +15,9 @@ import { KeyTakeawaysCard } from './KeyTakeawaysCard'
 import { CalloutCard } from './CalloutCard'
 import { CalculationCard } from './CalculationCard'
 import { ProcessMapCard } from './ProcessMapCard'
+import { DocumentChecklistCard } from './DocumentChecklistCard'
+import { DeadlineTimelineCard } from './DeadlineTimelineCard'
+import { ChangeImpactCard } from './ChangeImpactCard'
 import { FollowUpsCard } from './FollowUpsCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
@@ -222,6 +225,48 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
           title={card.title}
           steps={card.steps ?? []}
           current_step={card.current_step}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'document_checklist') {
+    return (
+      <FadeIn distance={6}>
+        <DocumentChecklistCard
+          title={card.title}
+          items={card.items ?? []}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'deadline_timeline') {
+    return (
+      <FadeIn distance={6}>
+        <DeadlineTimelineCard
+          title={card.title}
+          deadlines={card.deadlines ?? []}
+          reference={card.reference}
+          note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'change_impact') {
+    return (
+      <FadeIn distance={6}>
+        <ChangeImpactCard
+          title={card.title}
+          factor={card.factor}
+          from_value={card.from_value}
+          to_value={card.to_value}
+          consequences={card.consequences ?? []}
           reference={card.reference}
           note={card.note}
         />

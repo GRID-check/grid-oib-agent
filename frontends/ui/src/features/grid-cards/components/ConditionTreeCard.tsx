@@ -84,6 +84,19 @@ const BranchReference: FC<{ reference: NormReferenceData; label: string }> = ({
 
 interface BranchNodeProps {
   branch: ConditionBranchData
+  /**
+   * Whether THIS branch is the project's case.
+   *
+   * Passed in rather than read off `branch.active`, because the card must show
+   * at most one. A stored card can carry more than one `active` — the backend
+   * validator that now rejects it did not exist when older cards were written,
+   * and a card is data that outlives the code that made it. Field evidence:
+   * a „Feuerwiderstand in GK 4" tree arrived with all three branches active,
+   * so the reader saw three simultaneous outcomes each captioned „für dieses
+   * Projekt gilt". The parent resolves ONE index and every branch is told
+   * whether it is that one.
+   */
+  active: boolean
   isLast: boolean
   open: boolean
   onToggle: () => void
@@ -100,6 +113,7 @@ interface BranchNodeProps {
  */
 const BranchNode: FC<BranchNodeProps> = ({
   branch,
+  active,
   isLast,
   open,
   onToggle,
@@ -107,7 +121,6 @@ const BranchNode: FC<BranchNodeProps> = ({
   onBackToActive,
   t,
 }) => {
-  const active = branch.active === true
   const tint = statusColor('pass')
 
   // Indicative for the case that applies, Konjunktiv for a case being looked
@@ -279,6 +292,11 @@ export const ConditionTreeCard: FC<ConditionTreeCardProps> = ({
   reference,
 }) => {
   const t = useTranslations('chat')
+  // The FIRST branch marked active, and only that one. The backend now rejects
+  // a tree marking several, but a card is data that outlives the code that
+  // wrote it: a stored answer from before the validator can still carry three,
+  // and three cases each captioned „für dieses Projekt gilt" tells the reader a
+  // decision was made when none was — worse than showing no card at all.
   const activeIndex = branches.findIndex((branch) => branch.active === true)
   const activeBranch = activeIndex >= 0 ? branches[activeIndex] : null
 
@@ -318,6 +336,7 @@ export const ConditionTreeCard: FC<ConditionTreeCardProps> = ({
             <BranchNode
               key={`${branch.condition}-${index}`}
               branch={branch}
+              active={index === activeIndex}
               isLast={index === branches.length - 1}
               open={openIndex === index}
               onToggle={() => setOpenIndex((current) => (current === index ? null : index))}

@@ -414,6 +414,13 @@
       "when": 1787443200010,
       "tag": "0058_piloti_cards_derivation_and_process",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1787529600005,
+      "tag": "0059_piloti_cards_the_recognised_card",
+      "breakpoints": true
     }
   ]
 }

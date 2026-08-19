@@ -21,6 +21,9 @@ import { ConditionTreeCard } from '@/features/grid-cards/components/ConditionTre
 import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
 import { CalculationCard } from '@/features/grid-cards/components/CalculationCard'
 import { ProcessMapCard } from '@/features/grid-cards/components/ProcessMapCard'
+import { DocumentChecklistCard } from '@/features/grid-cards/components/DocumentChecklistCard'
+import { DeadlineTimelineCard } from '@/features/grid-cards/components/DeadlineTimelineCard'
+import { ChangeImpactCard } from '@/features/grid-cards/components/ChangeImpactCard'
 import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
 import { RequirementChecklistCard } from '@/features/grid-cards/components/RequirementChecklistCard'
@@ -254,6 +257,183 @@ function Gallery() {
             },
           ]}
           reference={{ document: 'Wiener Bauordnung', section: '§§ 60 ff.' }}
+        />
+      </Section>
+
+      {/* Two cards, because the pair IS the review: the first has statuses the
+          conversation settled and the tally counts them; the second has none at
+          all and says so in a sentence where the first draws numbers. A single
+          fixture would only ever show one of the two, and the one it hid is the
+          common case. */}
+      <Section id="document_checklist">
+        <DocumentChecklistCard
+          title="Einreichunterlagen – Neubau Wohngebäude, Wien"
+          items={[
+            {
+              label: 'Einreichplan',
+              requirement: 'required',
+              issuer: 'Ziviltechniker:in',
+              status: 'present',
+              note: 'dreifach, im Maßstab 1:100',
+              reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. a' },
+            },
+            {
+              label: 'Baubeschreibung',
+              requirement: 'required',
+              issuer: 'Ziviltechniker:in',
+              reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. b' },
+            },
+            {
+              label: 'Energieausweis',
+              requirement: 'required',
+              issuer: 'befugte Fachperson',
+              status: 'missing',
+              reference: OIB6,
+            },
+            {
+              label: 'Grundbuchsauszug',
+              requirement: 'conditional',
+              condition: 'nur wenn der Bauwerber nicht Eigentümer der Liegenschaft ist',
+              issuer: 'Bauwerber',
+            },
+            {
+              label: 'Gutachten der MA 19',
+              requirement: 'conditional',
+              condition: 'nur bei einem Gebäude in einer Schutzzone',
+              issuer: 'Baubehörde',
+            },
+          ]}
+          reference={{ document: 'Wiener Bauordnung', section: '§ 63' }}
+        />
+        <DocumentChecklistCard
+          title="Einreichunterlagen – Zubau, ohne Angaben zum Stand"
+          items={[
+            {
+              label: 'Auswechslungsplan',
+              requirement: 'required',
+              issuer: 'Ziviltechniker:in',
+              reference: { document: 'Wiener Bauordnung', section: '§ 73' },
+            },
+            {
+              label: 'Statischer Vorbemessung',
+              requirement: 'conditional',
+              condition: 'nur bei Eingriff in tragende Bauteile',
+              issuer: 'Tragwerksplanung',
+            },
+            {
+              label: 'Zustimmung der Miteigentümer',
+              requirement: 'conditional',
+              condition: 'nur bei Wohnungseigentum',
+              issuer: 'Bauwerber',
+            },
+          ]}
+          note="Die Gemeinde kann im Einzelfall weitere Unterlagen verlangen."
+        />
+      </Section>
+
+      {/* The rail is evenly spaced on purpose: four weeks and four years do not
+          share a timeline, because each one starts from a different event. What
+          to review here is that the drawing never suggests otherwise, and that
+          no period has quietly become a date. */}
+      <Section id="deadline_timeline">
+        <DeadlineTimelineCard
+          title="Fristen im Bauverfahren – Wien"
+          deadlines={[
+            {
+              label: 'Beschwerdefrist',
+              period: 'binnen vier Wochen',
+              starts_from: 'ab Zustellung des Baubewilligungsbescheids',
+              actor: 'Nachbar oder Bauwerber',
+              consequence: 'Der Bescheid wird rechtskräftig.',
+              reference: { document: 'VwGVG', section: '§ 7 Abs. 4' },
+            },
+            {
+              label: 'Geltungsdauer der Baubewilligung',
+              period: 'binnen vier Jahren ist mit dem Bau zu beginnen',
+              starts_from: 'ab Rechtskraft der Baubewilligung',
+              actor: 'Bauwerber',
+              consequence: 'Die Baubewilligung erlischt.',
+              reference: { document: 'Wiener Bauordnung', section: '§ 74 Abs. 1' },
+            },
+            {
+              label: 'Baubeginnsanzeige',
+              period: 'vor Beginn der Bauführung',
+              starts_from: 'bezogen auf den beabsichtigten Baubeginn',
+            },
+            {
+              label: 'Fertigstellungsanzeige',
+              period: 'unverzüglich',
+              starts_from: 'ab Fertigstellung des Bauvorhabens',
+              actor: 'Bauwerber',
+              reference: { document: 'Wiener Bauordnung', section: '§ 128' },
+            },
+          ]}
+        />
+      </Section>
+
+      {/* Again a pair. The first knows where the project stands today, so the
+          header reads „7 bis 11 m → über 11 m"; the second does not, and has to
+          say that rather than print a plausible starting point. The fourth row
+          of the first card is `unchanged`, which is the value that keeps the
+          card from reading as a list of penalties. */}
+      <Section id="change_impact">
+        <ChangeImpactCard
+          title="Fluchtniveau über 11 m – was sich ändert"
+          factor="Fluchtniveau"
+          from_value="7 bis 11 m"
+          to_value="über 11 m"
+          consequences={[
+            {
+              aspect: 'Gebäudeklasse',
+              before: 'GK 4',
+              after: 'GK 5',
+              direction: 'tightens',
+              reference: { document: 'OIB-Begriffsbestimmungen', section: 'Gebäudeklassen' },
+            },
+            {
+              aspect: 'Feuerwiderstand tragender Bauteile',
+              before: 'R 60',
+              after: 'R 90',
+              direction: 'tightens',
+              detail: 'Die Anforderung gilt für die tragenden Bauteile der oberirdischen Geschoße.',
+              reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
+            },
+            {
+              aspect: 'Aufzug',
+              after: 'Aufzug erforderlich',
+              direction: 'tightens',
+              reference: OIB4,
+            },
+            {
+              aspect: 'Schallschutz zwischen den Wohnungen',
+              before: 'DnT,w mindestens 55 dB',
+              after: 'DnT,w mindestens 55 dB',
+              direction: 'unchanged',
+              detail: 'Der Schallschutz hängt an der Nutzung, nicht an der Gebäudeklasse.',
+              reference: { document: 'OIB-Richtlinie 5', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
+            },
+          ]}
+          reference={{ document: 'OIB-Begriffsbestimmungen', section: 'Gebäudeklassen' }}
+        />
+        <ChangeImpactCard
+          title="Nutzungsänderung zu Beherbergung – was sich ändert"
+          factor="Hauptnutzung"
+          to_value="Beherbergungsstätte"
+          consequences={[
+            {
+              aspect: 'Fluchtwegbreite',
+              after: 'mindestens 1,20 m',
+              direction: 'tightens',
+              reference: { document: 'OIB-Richtlinie 2', section: 'Pkt. 5', edition: 'Ausgabe Mai 2023' },
+            },
+            {
+              aspect: 'Barrierefreie Zimmer',
+              after: 'anteilig barrierefrei auszuführen',
+              direction: 'tightens',
+              reference: OIB4,
+            },
+          ]}
+          note="Ob eine Widmungsänderung nötig ist, hängt vom Flächenwidmungsplan ab."
         />
       </Section>
 

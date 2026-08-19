@@ -558,6 +558,163 @@ def test_the_deep_writer_keeps_its_own_lead_as_the_floor_under_the_voice():
     assert "Active skills (required for this turn)" in writer
 
 
+#: Every migration that writes a ``piloti-cards`` BODY, oldest first. ``0056`` is
+#: absent on purpose: it rewrites only ``metadata`` and restates the body
+#: byte-for-byte (pinned by ``test_the_card_scope_migration_changes_only_the_scope``),
+#: so it guards on the scope it changes rather than on a hash. Spelled out for
+#: the same reason ``VOICE_CHAIN`` is — a link added without a guard is a link
+#: whose guard nothing checks.
+CARD_CHAIN = (
+    "0054_piloti_cards_standard_skill",
+    "0058_piloti_cards_derivation_and_process",
+    "0059_piloti_cards_the_recognised_card",
+)
+
+
+def test_every_card_update_is_guarded_on_the_body_it_replaces():
+    """The cards chain gets the guard the voice chain has, for the same reason.
+
+    ``0054`` is a SEED whose ``ON CONFLICT`` protects a platform owner's edits
+    from a re-run, which also means editing its text changes nothing in a
+    database that has applied it. So every new body ships as its own migration
+    and the md5 is the only thing that separates an untouched row from an edited
+    one — ``created_by`` does not, because the dashboard's update path patches
+    ``body`` and never touches it.
+
+    The chain was unguarded here while ``piloti-voice``'s was pinned, so ``0058``
+    shipped with nothing checking that its hash still matched the body it claimed
+    to replace. Editing any literal in place silently turns a guard into a
+    condition that matches nothing and the update into a no-op that ships green.
+    """
+    rows = {tag: row for tag, row in SEEDS if row["name"] == "piloti-cards" and tag in CARD_CHAIN}
+    assert tuple(rows) == CARD_CHAIN, "a piloti-cards body migration is missing from the chain"
+
+    for previous, current in zip(CARD_CHAIN, CARD_CHAIN[1:], strict=False):
+        before = rows[previous]["body"]
+        after = rows[current]["body"]
+        assert before != after, f"{current} must actually change the body it inherits"
+
+        assert _guard_hashes(current) == [hashlib.md5(before.encode("utf-8")).hexdigest()], (
+            f"{current} does not guard on the body {previous} wrote"
+        )
+
+        down = (DRIZZLE_DIR / f"{current}.down.sql").read_text(encoding="utf-8")
+        assert re.findall(r"md5\([^)]*\)\s*=\s*'([0-9a-f]{32})'", down) == [
+            hashlib.md5(after.encode("utf-8")).hexdigest()
+        ], f"{current}.down.sql does not guard on the body it wrote"
+        # A rollback that restores a body but leaves the L1 line promising a
+        # section the body no longer carries has only half-rolled back.
+        assert before in down
+        assert rows[previous]["description"] in down
+
+
+def test_the_card_seed_names_the_failure_of_recognising_a_card_and_not_emitting_it():
+    """``0059``: the observed fault, written down where the craft lives.
+
+    „Wie läuft das Baubewilligungsverfahren in Wien ab?" is almost word for word
+    the ``process_map`` trigger, and it came back as a numbered prose list with
+    no card. Asked about it two turns later the model named the right card and
+    built a good one immediately — so the vocabulary, the trigger and the shape
+    were all reaching it, and what was missing was the instruction that a
+    recognised card gets emitted.
+
+    Nine of this body's sections answered "is this card deserved?" and none
+    answered "you have decided it is". The new one does, SECOND rather than
+    last, because the reader of a long body applies its opening. Pinned rule by
+    rule: a body that keeps the heading and loses the naming rule under it reads
+    fine in a dashboard diff and quietly stops teaching it.
+    """
+    body = _unwrapped(_effective_row("piloti-cards")["body"])
+
+    # The fault named as a fault, and the rule that answers it.
+    assert "## Die erkannte Karte, die nicht kommt" in body
+    assert "Wenn Sie die Karte benennen können, emittieren Sie sie" in body
+    assert "Der Auslöser ist bereits die Entscheidung" in body
+    # The two excuses it forecloses: prose is faster, and the shape would have
+    # to be looked up — the second being the cost this repo deliberately kept
+    # rather than inlining every shape on every turn.
+    assert "nie, weil die Prosa schneller fertig ist" in body
+    assert "billiger als die Karte, die nicht kommt" in body
+    # The field case as the Schlecht example, so the rule is anchored to the
+    # turn that produced it rather than to an invented one.
+    assert "Wie läuft das Baubewilligungsverfahren in Wien ab?" in body
+    assert "Fertigstellungsanzeige" in body
+
+    # It is the SECOND section — an instruction to emit, placed after nine
+    # sections of "only when it is earned", is read as the tenth qualification.
+    headings = [line for line in _effective_row("piloti-cards")["body"].splitlines() if line.startswith("## ")]
+    assert headings[0] == "## Die erkannte Karte, die nicht kommt"
+
+    # follow_ups is the counter-evidence the section had to account for: its
+    # shape is already inlined, so nothing but the wording kept it off the
+    # answer. The set is now the regular close, and the question is which.
+    assert "das ist der Regelfall, nicht die Kür" in body
+    assert "Zu entscheiden ist nicht ob, sondern welche" in body
+
+    # The volume rule is calibration now, not a warning: the same two, said as a
+    # budget. The zero cases stay, because they are the honest ones.
+    assert "## Das Kartenbudget einer Antwort" in body
+    assert "es ist zum Ausgeben da" in body
+    assert "keine ist richtig, wenn die Antwort ein Satz ist" in body
+    assert "## Wie viele Karten zu viele sind" not in body
+
+
+def test_the_card_seed_keeps_every_honesty_rule_the_rebalance_could_have_softened():
+    """More cards must never be bought with more invented numbers.
+
+    A rewrite whose whole purpose is to make cards MORE likely is the one edit
+    most likely to file an honesty rule down on the way past — and a card is the
+    part that gets screenshotted into an Einreichung, so a wrong figure on one
+    outlives every sentence around it. Each rule is asserted on the body 0059
+    ships, not on the one it inherited.
+    """
+    body = _unwrapped(_effective_row("piloti-cards")["body"])
+
+    # `calculation` has no result field: the renderer computes from the operands.
+    assert "Eingangswerte, nicht das Ergebnis" in body
+    assert "Fehlt ein Wert, lassen Sie ihn leer" in body
+    assert "Eine geschätzte Zahl, damit die Rechnung aufgeht, ist schlechter als gar keine Karte" in body
+    # Provenance and tolerance are copied from `ifc_measure`, never inferred.
+    assert "Übernehmen Sie **Herkunft und Toleranz** genau so" in body
+    # `process_map` never guesses where the reader stands.
+    assert "nur, wenn das Gespräch ihn hergibt" in body
+    assert "Ohne Angabe wird nichts markiert" in body
+    # And the deletion test that keeps a card from carrying the answer.
+    assert "Löschen Sie gedanklich alle Karten" in body
+
+
+def test_the_card_seed_does_not_buy_emission_with_always_on_shapes():
+    """Widening ``grid-cards`` was the other candidate fix, and it is not this one.
+
+    ``process_map``'s shape costs +693 cl100k tokens on EVERY turn this skill
+    loads — which is every answering turn, since it is standard delivery — to
+    save one `describe_card` call on the minority of turns that ask about a
+    Verfahren. And ``follow_ups`` is the disproof that inlining causes emission:
+    it is in this list already and went missing on the same answer.
+
+    So the five stay five, and the cost of a lookup is answered in words instead
+    (``test_looking_a_shape_up_is_not_framed_as_a_cost``). Asserted against the
+    catalog rather than as a literal count so that widening the list has to
+    argue with a measurement.
+    """
+    from aiq_agent.cards.catalog import render_card_details
+
+    metadata = json.loads(_effective_row("piloti-cards")["metadata"])
+    inlined = preferred_cards(metadata)
+    assert "process_map" not in inlined
+    assert "calculation" not in inlined
+    assert "follow_ups" in inlined
+
+    tiktoken = pytest.importorskip("tiktoken")
+    encoding = tiktoken.get_encoding("cl100k_base")
+    with_process = len(encoding.encode(render_card_details((*inlined, "process_map"))))
+    without = len(encoding.encode(render_card_details(inlined)))
+    assert with_process - without > 500, (
+        "process_map's shape got cheap enough to reconsider inlining it; re-measure and decide, "
+        "rather than letting the list widen because nothing objected."
+    )
+
+
 def test_every_card_type_with_a_trigger_has_its_craft_in_the_seed():
     """A new card type owes a trigger line to the tool and a paragraph to the skill.
 

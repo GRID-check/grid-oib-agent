@@ -129,15 +129,25 @@ class TestTheDoctrineReachesThePostHocPath:
 
     def test_the_negative_default_survives(self):
         # The trigger table without its counterweight is an instruction to
-        # decorate every report.
+        # decorate every report. The counterweight is now two blocks — what may
+        # go on a card, and how many — and this path pays for both.
         prompt = build_card_generation_prompt()
         assert "WHEN NOT TO" in prompt
-        assert "Two cards in a turn is plenty" in prompt
+        assert "Two content cards is a turn's budget" in prompt
+        assert "Never fabricate a field, a reference or a number" in prompt
+
+    def test_the_volume_rule_is_stated_once_across_the_two_blocks(self):
+        # This module used to close its craft block with its own copy of the
+        # two-card ceiling, written before the shared doctrine carried one. Two
+        # numbers a paragraph apart is how they drift; the doctrine owns it.
+        prompt = build_card_generation_prompt()
+        assert prompt.count("Two content cards") == 1
+        assert "Two content cards is the ceiling" not in prompt
 
     def test_the_follow_ups_rule_survives(self):
         prompt = build_card_generation_prompt()
-        assert "At most one follow_ups per answer" in prompt
-        assert "put it LAST" in prompt
+        assert "follow_ups closes a subject-matter answer by default" in prompt
+        assert "LAST" in prompt
 
     def test_both_surfaces_render_the_one_doctrine(self):
         # The pairing that keeps this from becoming a copy: neither surface

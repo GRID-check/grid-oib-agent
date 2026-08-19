@@ -577,9 +577,15 @@ class TestFollowUpsCard:
         from aiq_agent.cards.register import _CARD_DOCTRINE
 
         assert "follow_ups" in _CARD_DOCTRINE
+        # The DEFAULT comes first and the exceptions after it. The rule used to
+        # be three prohibitions with no default in front of them, and the card
+        # went unemitted on turns that fit it — with its shape already inlined,
+        # so nothing but the wording was in the way.
+        default = _CARD_DOCTRINE.index("follow_ups closes a subject-matter answer by default")
+        assert default < _CARD_DOCTRINE.index("Two narrow exceptions")
         # Placement, and when NOT to: a chat turn has no subject to go deeper
         # into, and an answer that already asked a question would be asking twice.
-        assert "put it LAST" in _CARD_DOCTRINE
+        assert "LAST" in _CARD_DOCTRINE
         assert "conversational or off-topic" in _CARD_DOCTRINE
         # The craft paragraphs are gone from the always-loaded description.
         assert "NAME something" not in _CARD_DOCTRINE
