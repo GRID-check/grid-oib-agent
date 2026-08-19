@@ -39,6 +39,10 @@ import type { ChatMessage, StatusType } from '@/features/chat'
 // Imported from its own module rather than the `@/features/chat` barrel so the
 // shared-thread additions do not depend on that barrel's mock in existing specs.
 import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
+// From its own module rather than the `@/features/chat` barrel, for the same
+// reason the collaboration imports above are: existing specs mock that barrel,
+// and a new export on it would have to be added to every one of those mocks.
+import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -840,6 +844,26 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             routingReason={agentMsg?.routingReason}
                             escalationReason={agentMsg?.escalationReason}
                           />
+                        </div>
+                      )}
+
+                      {/* The questions this answer made askable, BELOW the
+                      answer and outside its surface — the product owner's
+                      ruling, and §6 of docs/architecture/post-answer-stages.md.
+                      Same column, same left edge, same 680px as the answer and
+                      the Herleitung; no new layout concept.
+
+                      LAST in the message column on purpose. A stage delivers
+                      this seconds after the answer, so it appears under a
+                      reader who is already reading — and it may do that without
+                      reserving space only because nothing sits below it to
+                      move. The other half of that guarantee (nothing below it
+                      in the THREAD either, the answer no longer streaming, the
+                      reader not already typing) is enforced where the frame
+                      arrives, in `applyStageFrame`. */}
+                      {message.stages?.followUps && (
+                        <div className="w-[680px] max-w-full">
+                          <FollowUpsRail items={message.stages.followUps.items} />
                         </div>
                       )}
                     </motion.div>

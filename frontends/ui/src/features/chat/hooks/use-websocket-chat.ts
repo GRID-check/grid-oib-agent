@@ -1724,6 +1724,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [
     appendAgentResponseDelta,
     finalizeAgentResponse,
+    setTurnWsParentId,
+    applyStageFrame,
     discardStreamingAssistantMessage,
     addAgentResponseWithMeta,
     addThinkingStep,
