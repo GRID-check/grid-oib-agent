@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@/test-utils'
 import { describe, test, expect, vi } from 'vitest'
-import { MarkdownRenderer } from './MarkdownRenderer'
+import { MarkdownRenderer, stabilizeStreamingMarkdown } from './MarkdownRenderer'
 import { InternalLinkProvider } from './internal-link-context'
 
 describe('MarkdownRenderer', () => {
@@ -509,30 +509,43 @@ Visit [our site](https://example.com) for more.
      * The delimiter-row test used to read `/^\s*\|?\s*:?-{1,}/`, putting two
      * `\s*` either side of an optional pipe. On a line of pure whitespace the
      * engine can split that whitespace between them in quadratically many ways:
-     * 32k tabs took 1,034ms. This runs on every token of every streaming answer,
-     * and the answer's text comes from a model writing over retrieved documents,
-     * so the length of a line is not ours to bound.
+     * 32k tabs took 1,034ms against 0.1ms for the fix. This runs on every token
+     * of every streaming answer, over text a model writes from retrieved
+     * documents, so the length of a line is not ours to bound.
      *
-     * An absolute budget, not a ratio: healthy timings here are microseconds and
-     * a ratio between two of those is noise. 400ms sits well below the defect
-     * and four orders of magnitude above healthy.
+     * Measured on the function directly rather than through `render`. A first
+     * version of this test wrapped a full React render around the clock and was
+     * flaky in CI at 737ms against a 400ms budget — on a loaded runner the
+     * render dominates, and the thing under test is microseconds. Calling the
+     * function alone puts four orders of magnitude between healthy and the
+     * defect, which no runner contention can close.
      */
-    test('a long run of whitespace under a table does not stall the render', () => {
-      const content = `| Bauteil | REI |\n|${'\t'.repeat(32_000)}\n`
+    test('a long run of whitespace under a table does not stall the stabilizer', () => {
+      // The whitespace must sit BEFORE the pipe. Only then can the two `\s*`
+      // compete to split it; with the pipe first, one of them consumes the run
+      // and the scan is linear even with the defect in place — a first version
+      // of this test put it after and passed against the bug. The line still
+      // reaches the check, because the surrounding code selects lines whose
+      // `trim()` starts with a pipe, and this one's does.
+      const content = `| Bauteil | REI |\n${'\t'.repeat(32_000)}|\n`
 
       const started = performance.now()
-      render(<MarkdownRenderer content={content} isStreaming />)
+      stabilizeStreamingMarkdown(content)
       const elapsed = performance.now() - started
 
-      expect(elapsed).toBeLessThan(400)
+      expect(elapsed).toBeLessThan(200)
     })
 
     test('a real delimiter row is still recognised, so the table is not escaped', () => {
-      const { container } = render(
-        <MarkdownRenderer content={'| Bauteil | REI |\n| :--- | ---: |\n| Wand | 90 |'} isStreaming />
-      )
+      const table = '| Bauteil | REI |\n| :--- | ---: |\n| Wand | 90 |'
 
-      expect(container.querySelector('table')).not.toBeNull()
+      expect(stabilizeStreamingMarkdown(table)).toBe(table)
+    })
+
+    test('a header-only table is still deferred until its delimiter row arrives', () => {
+      const partial = '| Bauteil | REI |'
+
+      expect(stabilizeStreamingMarkdown(partial)).toBe('\\| Bauteil \\| REI \\|')
     })
   })
 })

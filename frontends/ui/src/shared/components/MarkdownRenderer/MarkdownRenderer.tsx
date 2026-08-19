@@ -41,7 +41,10 @@ function getTextFromChildren(node: ReactNode): string {
  * This only runs while `isStreaming` is true; finalized content is passed
  * through untouched so the fully-formed markdown always wins.
  */
-function stabilizeStreamingMarkdown(raw: string): string {
+// Exported for its own spec. It is the one part of this module with a cost that
+// depends on the shape of the input rather than its size, so it is measured
+// directly: timing it through a React render measures the render.
+export function stabilizeStreamingMarkdown(raw: string): string {
   let content = raw
 
   // 1) Auto-close an odd number of ``` fences.
