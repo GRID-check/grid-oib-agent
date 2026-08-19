@@ -198,6 +198,69 @@ vulnerabilities:
 
       Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
 
+  # ── golang.org/x/mod inside otelcol-contrib (ADR-0029) ────────────────────
+  #
+  # These two are NOT part of the Go stdlib block above and do NOT clear the
+  # same way. Read them separately: the block above waits on a Go toolchain
+  # rebuild, which 0.159.0 (2026-08-18) already ships — it is built with
+  # Go 1.26.6. These two survive that bump. Verified by reading the build info
+  # compiled into `otelcol-contrib` in
+  # otel/opentelemetry-collector-contrib:0.159.0 (linux/amd64):
+  # `dep golang.org/x/mod v0.38.0`. So bumping the digest to 0.159.0 does not
+  # clear them, and no currently published tag does.
+  #
+  # Shared reasoning, STRUCTURAL rather than circumstantial, and the reason
+  # these are boxed at all: trivy reports x/mod from the module graph recorded
+  # in the binary's build info, not from what was actually linked. The only
+  # x/mod package compiled into `otelcol-contrib` is
+  # `golang.org/x/mod/semver` — pure semantic-version string comparison. Both
+  # defects below live in the module download and checksum-verification path
+  # (`golang.org/x/mod/sumdb` and friends), and none of those packages appear
+  # in the binary's symbol table. Confirmed by enumerating every
+  # `golang.org/x/mod/*` symbol in the shipped binary, not inferred from the
+  # module version.
+  #
+  # On top of that, both defects require the process to be FETCHING Go modules
+  # — acting as the `go` command against a hostile GOPROXY/GOSUMDB. A running
+  # collector never fetches Go modules; it is a compiled binary serving OTLP.
+  #
+  # Boxed to the same date as the block above so the whole collector section is
+  # re-argued in one pass. The real fix is upstream contrib bumping its own
+  # x/mod dependency to >= 0.40.0 (released 2026-08-13).
+
+  - id: CVE-2026-56864
+    expired_at: 2026-09-17
+    statement: |
+      golang.org/x/mod 0.38.0 — a malicious GOSUMDB was capable of serving
+      arbitrary module content without detection. Fixed in 0.40.0.
+
+      Not exploitable here, structurally: the vulnerable code
+      (`golang.org/x/mod/sumdb`, the checksum-database client) is NOT
+      compiled into `otelcol-contrib`. The only x/mod package linked into
+      the binary is `golang.org/x/mod/semver`. trivy flags this from the
+      module graph in the build info, not from a linked call path.
+
+      Independently, the defect requires the process to fetch Go modules
+      through an attacker-controlled GOSUMDB. The collector is a built
+      binary serving OTLP; it never runs a module download.
+
+      Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
+      Re-verify with `go version -m otelcol-contrib` on the new image
+      rather than assuming a tag bump carries it — 0.159.0 did not.
+
+  - id: CVE-2026-56865
+    expired_at: 2026-09-17
+    statement: |
+      golang.org/x/mod 0.38.0 — a malicious GOPROXY was previously capable
+      of forging up to two sumdb tree entries. Fixed in 0.40.0. Same
+      module-verification surface as CVE-2026-56864.
+
+      Not exploitable here, for the same structural reason: the sumdb client
+      is absent from the binary, only `golang.org/x/mod/semver` is linked,
+      and the collector never fetches Go modules at runtime.
+
+      Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
+
   # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
   #
   # All seven are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
