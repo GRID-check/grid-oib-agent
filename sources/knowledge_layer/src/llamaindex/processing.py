@@ -207,11 +207,38 @@ def render_visual_pages_no_vlm(
 
     results: list[dict[str, Any]] = []
     rendered = 0
+    skipped_pages = 0
+
+    # Opening is its own step so the failure can say what it actually means. A PDF
+    # pdfium cannot parse is NOT a failed ingestion: the text layer is read by
+    # pdfplumber on a separate path, so the document still ingests and simply
+    # contributes no visual pages. Logging that at ERROR filed a GitHub issue for
+    # every unusual PDF in the corpus while the ingest it described succeeded.
     try:
         doc = pdfium.PdfDocument(pdf_path)
+    except Exception as e:
+        logger.warning(
+            "Visual-page rendering unavailable for %s (%s: %s); text ingestion is unaffected",
+            pdf_path,
+            type(e).__name__,
+            e,
+        )
+        return results
+
+    try:
         try:
             for page_num in range(len(doc)):
-                page = doc[page_num]
+                # Guarded separately, and this is the defect the guard exists for:
+                # `doc[page_num]` raises on a damaged page and used to sit OUTSIDE
+                # the try below, so one unreadable page abandoned every page after
+                # it. A 40-page drawing set could lose 38 captions to page 2 and
+                # report nothing — the caller sees a short list, not an error.
+                try:
+                    page = doc[page_num]
+                except Exception as e:
+                    skipped_pages += 1
+                    logger.debug("Visual-page render skipped page %d of %s (%s)", page_num + 1, pdf_path, e)
+                    continue
                 try:
                     if page_texts is not None:
                         text_len = len((page_texts.get(page_num + 1) or "").strip())
@@ -255,14 +282,25 @@ def render_visual_pages_no_vlm(
                         }
                     )
                     rendered += 1
+                except Exception as e:
+                    # One page's render failing costs that page, not the rest.
+                    skipped_pages += 1
+                    logger.debug("Visual-page render failed on page %d of %s (%s)", page_num + 1, pdf_path, e)
                 finally:
                     page.close()
         finally:
             doc.close()
-        if results:
-            logger.info("Detected %d visual page(s) in %s", len(results), pdf_path)
     except Exception as e:
-        logger.error("Error rendering visual pages: %s", e)
+        # Whatever is left: a failure of the document itself rather than of one
+        # page. Still not fatal to ingestion, for the reason given above.
+        logger.warning("Visual-page rendering stopped for %s (%s: %s)", pdf_path, type(e).__name__, e)
+
+    if results:
+        logger.info("Detected %d visual page(s) in %s", len(results), pdf_path)
+    if skipped_pages:
+        # Said out loud rather than inferred from a short list: partial output that
+        # looks complete is the failure mode this whole function had.
+        logger.warning("Skipped %d unreadable page(s) while rendering %s", skipped_pages, pdf_path)
 
     return results
 

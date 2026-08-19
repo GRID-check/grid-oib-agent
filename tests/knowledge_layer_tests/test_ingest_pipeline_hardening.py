@@ -23,6 +23,7 @@ Covers the defects found in the 2026-07 pipeline review (vision + speed):
   skips the full-collection ``list_files`` metadata scan per job.
 """
 
+import logging
 import sys
 import tempfile
 import types
@@ -745,3 +746,89 @@ def test_module_under_test_importable():
     """Guard against accidental import-time breakage in the touched modules."""
     assert "knowledge_layer.llamaindex.adapter" in sys.modules
     assert "knowledge_layer.llamaindex.processing" in sys.modules
+
+
+# =============================================================================
+# render_visual_pages_no_vlm — damaged input must cost only what it damages
+# =============================================================================
+
+
+class TestRenderVisualPagesSurvivesDamagedInput:
+    """Two errors observed in production on the same ingest, one hour apart.
+
+    `Failed to load page.` and `Failed to load document (PDFium: Data format
+    error).` Both were logged at ERROR from one catch-all around the whole
+    function, which filed a GitHub issue for each — while the ingestion they
+    described had actually succeeded, because the text layer is read by pdfplumber
+    on a separate path and never touches pdfium.
+
+    The severity was the visible problem. The structural one underneath it was
+    worse: `doc[page_num]` sat outside the per-page try, so a single unreadable
+    page abandoned every page after it and returned a SHORT LIST rather than an
+    error. Partial output that looks complete is the failure this pins.
+    """
+
+    def _install_doc(self, monkeypatch, pages, bad_indices=()):
+        pdfium = pytest.importorskip("pypdfium2")
+
+        class _FakeDoc:
+            def __init__(self, path):
+                self._pages = pages
+
+            def __len__(self):
+                return len(self._pages)
+
+            def __getitem__(self, idx):
+                if idx in bad_indices:
+                    raise RuntimeError("Failed to load page.")
+                return self._pages[idx]
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(pdfium, "PdfDocument", _FakeDoc)
+
+    def test_one_unreadable_page_does_not_cost_the_pages_after_it(self, monkeypatch):
+        pages = [_FakeRenderPage("", n_paths=0) for _ in range(3)]
+        self._install_doc(monkeypatch, pages, bad_indices={1})
+
+        out = processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={1: "", 2: "", 3: ""})
+
+        assert [record["page_number"] for record in out] == [1, 3], (
+            "page 2 is unreadable; pages 1 and 3 must still render"
+        )
+
+    def test_a_pdf_pdfium_cannot_open_yields_no_pages_and_does_not_raise(self, monkeypatch):
+        """Text ingestion is unaffected, so this is a degraded result, not a failure."""
+        pdfium = pytest.importorskip("pypdfium2")
+
+        def _explode(path):
+            raise RuntimeError("Failed to load document (PDFium: Data format error).")
+
+        monkeypatch.setattr(pdfium, "PdfDocument", _explode)
+
+        assert processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={1: ""}) == []
+
+    def test_an_unopenable_pdf_is_not_logged_as_an_error(self, monkeypatch, caplog):
+        """ERROR here files an issue for a document that ingested fine."""
+        pdfium = pytest.importorskip("pypdfium2")
+
+        def _explode(path):
+            raise RuntimeError("Failed to load document (PDFium: Data format error).")
+
+        monkeypatch.setattr(pdfium, "PdfDocument", _explode)
+
+        with caplog.at_level(logging.DEBUG):
+            processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={1: ""})
+
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+    def test_skipped_pages_are_reported_rather_than_left_to_be_inferred(self, monkeypatch, caplog):
+        pages = [_FakeRenderPage("", n_paths=0) for _ in range(3)]
+        self._install_doc(monkeypatch, pages, bad_indices={1})
+
+        with caplog.at_level(logging.DEBUG):
+            processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={1: "", 2: "", 3: ""})
+
+        assert any("Skipped 1 unreadable page" in r.getMessage() for r in caplog.records)
