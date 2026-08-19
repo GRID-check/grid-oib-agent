@@ -21,7 +21,10 @@ from aiq_agent.common import citation_events
 from aiq_agent.common import load_prompt
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
+from aiq_agent.common.citation_verification import get_session_registry
+from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
@@ -228,9 +231,7 @@ def _cited_sources_to_wire(registry: Any, valid_citations: list[dict[str, Any]])
             seen_ids.add(id(entry))
             number = citation.get("number")
             try:
-                wire_sources.append(
-                    source_entry_to_wire(entry, number=number if isinstance(number, int) else None)
-                )
+                wire_sources.append(source_entry_to_wire(entry, number=number if isinstance(number, int) else None))
             except Exception:  # noqa: BLE001 - one bad source must not zero out the rest
                 logger.warning(
                     "Skipping source that failed wire serialization: %s",
@@ -579,6 +580,24 @@ class DeepResearcherAgent:
             logger.info("Query: %s...", query[:100])
             logger.info("=" * 80)
 
+        # The live citation stream reads the SESSION registry to decide whether a
+        # source it saw quoted was one this run actually retrieved. In a Dask
+        # worker nothing binds one -- only the synchronous chat entrypoints do --
+        # so every knowledge-base and OIB citation failed that check and was
+        # never marked as cited: a run citing four Richtlinien and one web page
+        # showed the web page alone, in a product whose sources are mostly
+        # Richtlinien. Bind this run's registry so the check has something true
+        # to read.
+        #
+        # ONLY when nothing is bound. In conversation mode the chat entrypoint
+        # binds a registry that spans TURNS (see the README's run-lifecycle
+        # note); replacing it with this run's would narrow cross-turn source
+        # continuity to a single turn. An existing binding is someone else's
+        # broader truth and is left alone.
+        registry_token = None
+        if get_session_registry() is None:
+            registry_token = set_session_registry(source_registry_middleware.active_registry())
+
         try:
             invoke_config: dict[str, Any] = {}
             if callbacks:
@@ -704,6 +723,14 @@ class DeepResearcherAgent:
         except Exception as ex:
             logger.error("Deep Research Subagent failed: %s", ex, exc_info=True)
             raise
+        finally:
+            # A contextvar set in a worker process outlives the run that set it.
+            # Leaking this one would hand the NEXT job on the same worker a
+            # registry full of a previous question's sources, and it would look
+            # like a run that cited things it never retrieved. Reset whether the
+            # run returned, was cut off, or raised.
+            if registry_token is not None:
+                reset_session_registry(registry_token)
 
     def _finalize_cutoff(
         self,

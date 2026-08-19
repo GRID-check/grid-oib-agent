@@ -2603,3 +2603,82 @@ class TestDeepResearcherQuoteVerification:
         result = await self._run(mock_llm_provider, real_tool, markdown)
         output = result.messages[-1].content
         assert "[nicht wörtlich in der Quelle belegt]" not in output
+
+
+class TestSessionRegistryBinding:
+    """The live citation stream needs a registry to read; the chat path owns its own.
+
+    In a Dask worker nothing binds a session registry, so every knowledge-base
+    and OIB citation failed the "was this actually retrieved?" check and was
+    never marked as cited -- a run citing four Richtlinien and one web page
+    showed the web page alone. The run binds its own registry so the check has
+    something true to read, and must NOT bind over the chat entrypoint's, which
+    deliberately spans turns.
+    """
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        for role in (
+            LLMRole.ORCHESTRATOR,
+            LLMRole.ROUTER,
+            LLMRole.PLANNER,
+            LLMRole.RESEARCHER,
+            LLMRole.REPORT_WRITER,
+        ):
+            provider.configure(role, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    async def _run_capturing_registry(self, agent):
+        """Run the agent, returning what get_session_registry() saw mid-run."""
+        from aiq_agent.common.citation_verification import get_session_registry
+
+        seen = []
+        graph = streaming_graph_mock({"messages": [], "files": output_markdown_file()})
+        original = graph.astream.side_effect
+
+        def _spy(*args, **kwargs):
+            seen.append(get_session_registry())
+            return original(*args, **kwargs)
+
+        graph.astream = MagicMock(side_effect=_spy)
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph):
+            await agent.run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+        return seen[0]
+
+    @pytest.mark.asyncio
+    async def test_binds_the_runs_registry_when_nothing_is_bound(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.citation_verification import get_session_registry
+
+        # Citation verification off: this run captures no sources (the graph is a
+        # mock), and an unverifiable report is correctly a hard failure -- which
+        # is a different behaviour than the one under test here.
+        agent = DeepResearcherAgent(
+            llm_provider=mock_llm_provider, tools=[real_tool], enable_citation_verification=False
+        )
+        during = await self._run_capturing_registry(agent)
+
+        assert during is not None, "the worker run bound no registry, so citations cannot be recognised"
+        # Reset afterwards: a Dask worker is reused, and a leaked registry would
+        # hand the next job a previous question's sources.
+        assert get_session_registry() is None
+
+    @pytest.mark.asyncio
+    async def test_leaves_an_existing_session_registry_alone(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.citation_verification import get_session_registry
+
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        with seeded_session_registry(SourceEntry(url="https://conversation.example")):
+            conversation = get_session_registry()
+            during = await self._run_capturing_registry(agent)
+            # The conversation's registry spans TURNS; narrowing it to this one
+            # run would lose cross-turn source continuity.
+            assert during is conversation
+            assert get_session_registry() is conversation
