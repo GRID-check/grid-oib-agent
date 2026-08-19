@@ -24,6 +24,7 @@ from aiq_agent.stages.runner import build_stage_frame
 from aiq_agent.stages.runner import schedule_post_answer_stages
 from aiq_agent.stages.spec import GateDecision
 from aiq_agent.stages.spec import StageContext
+from aiq_agent.stages.spec import StageEmpty
 from aiq_agent.stages.spec import StageOutcome
 from aiq_agent.stages.spec import StageSpec
 from aiq_agent.stages.spec import StageStatus
@@ -33,15 +34,19 @@ from aiq_agent.stages.spec import TurnFacts
 # the call site iterates them. Kept last so the primitive is fully importable
 # even if a stage module grows a heavier import.
 from aiq_agent.stages import memory_reflection as _memory_reflection  # noqa: E402  isort:skip
+from aiq_agent.stages import follow_ups as _follow_ups  # noqa: E402  isort:skip
 
 MEMORY_REFLECTION = _memory_reflection.MEMORY_REFLECTION
+FOLLOW_UPS = _follow_ups.FOLLOW_UPS
 
 __all__ = [
+    "FOLLOW_UPS",
     "MEMORY_REFLECTION",
     "STAGE_FRAME_TYPE",
     "STAGE_FRAME_VERSION",
     "GateDecision",
     "StageContext",
+    "StageEmpty",
     "StageFrameSink",
     "StageOutcome",
     "StageSpec",
