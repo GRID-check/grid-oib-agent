@@ -23,8 +23,9 @@ import { useDocumentActions, type DocumentScope } from './document-actions'
 import { FilePreviewPane } from './file-preview-pane'
 import type { FileItem } from './project-file-workspace'
 import {
-  FILE_PEEK_WIDTH_MAX,
-  FILE_PEEK_WIDTH_MIN,
+  FILE_PEEK_RATIO_MAX,
+  FILE_PEEK_RATIO_MIN,
+  filePeekSize,
   useFilePreviewStore,
 } from '../stores/file-preview-store'
 
@@ -45,7 +46,7 @@ export function FilePreviewHost({
   const hide = useFilePreviewStore((state) => state.hide)
   const peek = useFilePreviewStore((state) => state.peek)
   const expand = useFilePreviewStore((state) => state.expand)
-  const peekWidth = useFilePreviewStore((state) => state.peekWidth)
+  const peekRatio = useFilePreviewStore((state) => state.peekRatio)
   const patchFile = useFilePreviewStore((state) => state.patchFile)
   const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
   const panelRef = useRef<HTMLDivElement>(null)
@@ -123,7 +124,10 @@ export function FilePreviewHost({
             'bg-popover text-popover-foreground fixed left-1/2 top-1/2 z-50 h-[85vh] w-[min(960px,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-2xl border shadow-lg',
         )}
         style={{
-          width: parked || (peeking && !inSplit) ? peekWidth : undefined,
+          // A share, not a pixel count. Parked is `fixed`, so the percentage
+          // resolves against the viewport; a standalone peek resolves against
+          // the row it sits in. Inside the split the panel owns the width.
+          width: parked || (peeking && !inSplit) ? `${peekRatio}%` : undefined,
           transition: prefersReducedMotion || parked ? 'none' : 'opacity 200ms ease, transform 200ms ease',
         }}
       >
@@ -197,11 +201,11 @@ function FilePreviewSplit({
   split: boolean
   children: ReactNode
 }): JSX.Element {
-  const peekWidth = useFilePreviewStore((state) => state.peekWidth)
-  const setPeekWidth = useFilePreviewStore((state) => state.setPeekWidth)
+  const peekRatio = useFilePreviewStore((state) => state.peekRatio)
+  const setPeekRatio = useFilePreviewStore((state) => state.setPeekRatio)
   const filePanelRef = usePanelRef()
-  const peekWidthRef = useRef(peekWidth)
-  peekWidthRef.current = peekWidth
+  const peekRatioRef = useRef(peekRatio)
+  peekRatioRef.current = peekRatio
 
   // OPEN THE PANEL, DON'T JUST RESIZE IT.
   //
@@ -221,7 +225,7 @@ function FilePreviewSplit({
       return
     }
     panel.expand()
-    panel.resize(peekWidthRef.current)
+    panel.resize(filePeekSize(peekRatioRef.current))
   }, [split, filePanelRef])
 
   return (
@@ -230,7 +234,10 @@ function FilePreviewSplit({
         key="grid-file-ask-chat"
         id="grid-file-ask-chat"
         defaultSize="100"
-        minSize="40"
+        // The file pane may take up to FILE_PEEK_RATIO_MAX of the row, so chat's
+        // own floor has to leave exactly that much room — a 40% floor here is a
+        // 60% ceiling there no matter what the file panel declares.
+        minSize={`${100 - FILE_PEEK_RATIO_MAX}%`}
         className="min-h-0 min-w-0 overflow-hidden"
       >
         {children}
@@ -245,15 +252,18 @@ function FilePreviewSplit({
         // than nothing" at the exact moment the effect above asked it to open —
         // and a mount-time `defaultSize` never gets a second chance to say
         // otherwise. The flag now drives one thing only: collapsed or not.
-        defaultSize={peekWidth}
-        minSize={FILE_PEEK_WIDTH_MIN}
-        maxSize={FILE_PEEK_WIDTH_MAX}
+        defaultSize={filePeekSize(peekRatio)}
+        minSize={`${FILE_PEEK_RATIO_MIN}%`}
+        maxSize={`${FILE_PEEK_RATIO_MAX}%`}
         collapsible
         collapsedSize={0}
         className="min-h-0 min-w-0"
-        groupResizeBehavior="preserve-pixel-size"
+        // Relative, not `preserve-pixel-size`: the reader chose a SHARE of the
+        // row, so widening the window widens the drawing with it instead of
+        // leaving the pane pinned at the pixels it happened to have.
+        groupResizeBehavior="preserve-relative-size"
         onResize={(size) => {
-          if (split && size.inPixels > 0) setPeekWidth(size.inPixels)
+          if (split && size.inPixels > 0) setPeekRatio(size.asPercentage)
         }}
       >
         <FilePreviewHost presentation={split ? 'split' : undefined} />

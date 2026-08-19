@@ -15,9 +15,35 @@ import type { FileItem } from '../components/project-file-workspace'
 
 export type FilePreviewMode = 'modal' | 'peek' | 'expanded'
 
-export const FILE_PEEK_WIDTH_MIN = 280
-export const FILE_PEEK_WIDTH_MAX = 560
-export const FILE_PEEK_WIDTH_DEFAULT = 320
+/**
+ * The peek's width is a SHARE OF THE ROW, not a pixel count.
+ *
+ * Pixels were the wrong unit twice over. A 560px ceiling is a third of a
+ * 1600px display and most of a 900px laptop — the same drawing is "half the
+ * screen" on one desk and a strip on the other — and a plan, a Schnitt or an
+ * IFC viewport is read at the width the reader gives it, so the ceiling was
+ * the complaint. Percentages of the split group travel: the pane keeps its
+ * share when the window resizes, and `preserve-relative-size` on the panel is
+ * what makes that true rather than a re-clamp on every resize.
+ *
+ * 75% is a real ceiling — the chat column still has to hold a message — and it
+ * is more than double what the old 560px ever bought on a wide screen.
+ */
+export const FILE_PEEK_RATIO_MIN = 20
+export const FILE_PEEK_RATIO_MAX = 75
+export const FILE_PEEK_RATIO_DEFAULT = 38
+
+/** Percentages the panel library accepts verbatim (`"38%"`), not bare numbers — those mean pixels. */
+export function filePeekSize(ratio: number): string {
+  return `${clampFilePeekRatio(ratio)}%`
+}
+
+/** Tenths of a percent: on a 1400px row that is ~1.4px, so the drag stays smooth. */
+export function clampFilePeekRatio(ratio: number): number {
+  if (!Number.isFinite(ratio)) return FILE_PEEK_RATIO_DEFAULT
+  const bounded = Math.min(FILE_PEEK_RATIO_MAX, Math.max(FILE_PEEK_RATIO_MIN, ratio))
+  return Math.round(bounded * 10) / 10
+}
 
 /** Retrieval follows the file the user can see, not a leftover composer chip. */
 export function isFilePeekVisible(state?: {
@@ -55,14 +81,15 @@ interface FilePreviewState {
   mode: FilePreviewMode
   /** Peek dismissed; the conversation still knows the file. */
   hidden: boolean
-  peekWidth: number
+  /** Share of the split group the peek occupies, in percent (see the constants above). */
+  peekRatio: number
   context: FilePreviewContext
   open: (file: FileItem, mode: FilePreviewMode, context?: FilePreviewContext) => void
   peek: () => void
   expand: () => void
   hide: () => void
   close: () => void
-  setPeekWidth: (width: number) => void
+  setPeekRatio: (ratio: number) => void
   patchFile: (patch: Partial<FileItem>) => void
 }
 
@@ -70,7 +97,7 @@ export const useFilePreviewStore = create<FilePreviewState>((set, get) => ({
   file: null,
   mode: 'modal',
   hidden: false,
-  peekWidth: FILE_PEEK_WIDTH_DEFAULT,
+  peekRatio: FILE_PEEK_RATIO_DEFAULT,
   context: {},
 
   open: (file, mode, context) =>
@@ -103,10 +130,7 @@ export const useFilePreviewStore = create<FilePreviewState>((set, get) => ({
     clearMatchingComposerSubject(file)
   },
 
-  setPeekWidth: (width) =>
-    set({
-      peekWidth: Math.min(FILE_PEEK_WIDTH_MAX, Math.max(FILE_PEEK_WIDTH_MIN, Math.round(width))),
-    }),
+  setPeekRatio: (ratio) => set({ peekRatio: clampFilePeekRatio(ratio) }),
 
   patchFile: (patch) => {
     const current = get().file

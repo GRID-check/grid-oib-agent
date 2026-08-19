@@ -1,6 +1,13 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { useChatStore } from '@/features/chat/store'
-import { isFilePeekVisible, useFilePreviewStore } from './file-preview-store'
+import {
+  FILE_PEEK_RATIO_DEFAULT,
+  FILE_PEEK_RATIO_MAX,
+  FILE_PEEK_RATIO_MIN,
+  filePeekSize,
+  isFilePeekVisible,
+  useFilePreviewStore,
+} from './file-preview-store'
 import type { FileItem } from '../components/project-file-workspace'
 
 const FILE: FileItem = {
@@ -26,7 +33,7 @@ describe('file-preview-store', () => {
       file: null,
       mode: 'modal',
       hidden: false,
-      peekWidth: 320,
+      peekRatio: 38,
       context: {},
     })
     useChatStore.setState({ composerSubject: null })
@@ -80,6 +87,33 @@ describe('file-preview-store', () => {
     useChatStore.setState({ composerSubject: other })
     useFilePreviewStore.getState().hide()
     expect(useChatStore.getState().composerSubject).toEqual(other)
+  })
+
+  it('keeps the peek width as a share of the row, clamped to its bounds', () => {
+    const { setPeekRatio } = useFilePreviewStore.getState()
+
+    setPeekRatio(62.34)
+    // Tenths, not whole percent: on a wide row a 1% step is a visible jump
+    // under the cursor, and the drag should not feel notched.
+    expect(useFilePreviewStore.getState().peekRatio).toBe(62.3)
+
+    setPeekRatio(200)
+    expect(useFilePreviewStore.getState().peekRatio).toBe(FILE_PEEK_RATIO_MAX)
+
+    setPeekRatio(1)
+    expect(useFilePreviewStore.getState().peekRatio).toBe(FILE_PEEK_RATIO_MIN)
+
+    // A zero-width group divides by nothing; the panel reports NaN and the pane
+    // must not inherit it as a width.
+    setPeekRatio(Number.NaN)
+    expect(useFilePreviewStore.getState().peekRatio).toBe(FILE_PEEK_RATIO_DEFAULT)
+  })
+
+  it('renders the width with an explicit percent unit', () => {
+    // Bare numbers mean PIXELS to the panel library, so an unqualified 38 would
+    // be a 38px pane that reads as "the resize did nothing".
+    expect(filePeekSize(38)).toBe('38%')
+    expect(filePeekSize(1000)).toBe(`${FILE_PEEK_RATIO_MAX}%`)
   })
 
   it('isFilePeekVisible is only true for an unhidden peek or expanded pane', () => {

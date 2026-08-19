@@ -863,6 +863,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-preview-host"][data-mode="peek"]',
   },
   {
+    id: 'file-ask-split-wide',
+    path: '/dev/file-ask-split/chat?variant=wide',
+    description:
+      'The peek at its ceiling. Its width is a share of the row (percent of the split group), not a pixel count, so it holds that share on a laptop and on a 32-inch display alike \u2014 and the ceiling is 75% of the row rather than the old 560px, which was a third of a wide screen and the reason a Plan or a Schnitt could not be read in the peek at all. Held apart from `file-ask-split`, which shows the default share.',
+    waitFor: '[data-testid="file-preview-host"][data-mode="peek"]',
+  },
+  {
     id: 'projects-home',
     mobile: true,
     path: '/dev/projects-home',

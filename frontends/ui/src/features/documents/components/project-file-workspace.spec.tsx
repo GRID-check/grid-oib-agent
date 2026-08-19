@@ -30,7 +30,7 @@ function resetPreviewStore() {
     file: null,
     mode: 'modal',
     hidden: false,
-    peekWidth: 320,
+    peekRatio: 38,
     context: {},
   })
 }

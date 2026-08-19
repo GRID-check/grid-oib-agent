@@ -28,7 +28,7 @@ describe('openFilePeek', () => {
       file: null,
       mode: 'modal',
       hidden: false,
-      peekWidth: 320,
+      peekRatio: 38,
       context: {},
     })
     useChatStore.setState({ composerSubject: null })

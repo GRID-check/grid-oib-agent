@@ -83,7 +83,7 @@ vi.mock('react-resizable-panels', async () => {
 })
 
 import { FilePreviewBridge } from './file-preview-host'
-import { FILE_PEEK_WIDTH_MAX, FILE_PEEK_WIDTH_MIN } from '../stores/file-preview-store'
+import { FILE_PEEK_RATIO_MAX, FILE_PEEK_RATIO_MIN } from '../stores/file-preview-store'
 
 const FILE: FileItem = {
   id: 'doc-1',
@@ -110,7 +110,7 @@ const reset = (): void => {
     file: null,
     mode: 'modal',
     hidden: false,
-    peekWidth: 320,
+    peekRatio: 38,
     context: {},
   })
 }
@@ -142,7 +142,7 @@ describe('FilePreviewSplit — the file panel actually opens', () => {
     // `expand` MUST come first and MUST be there at all: a collapsed panel
     // ignores `resize`, which is how the pane ended up 0px wide in a peek that
     // every other assertion called correct.
-    expect(panel.calls).toEqual(['expand', 'resize:320'])
+    expect(panel.calls).toEqual(['expand', 'resize:38%'])
   })
 
   it('declares its size bounds independently of the split flag', () => {
@@ -156,12 +156,16 @@ describe('FilePreviewSplit — the file panel actually opens', () => {
       </FilePreviewBridge>,
     )
 
+    // Percent strings, not bare numbers: the library reads a NUMBER as pixels
+    // and a unit-less string as a percentage, so `320` and `"320%"` are two
+    // different panels and only the typed unit says which one we meant.
     expect(declared.current).toMatchObject({
-      defaultSize: 320,
-      minSize: FILE_PEEK_WIDTH_MIN,
-      maxSize: FILE_PEEK_WIDTH_MAX,
+      defaultSize: '38%',
+      minSize: `${FILE_PEEK_RATIO_MIN}%`,
+      maxSize: `${FILE_PEEK_RATIO_MAX}%`,
       collapsible: true,
       collapsedSize: 0,
+      groupResizeBehavior: 'preserve-relative-size',
     })
   })
 
@@ -173,7 +177,7 @@ describe('FilePreviewSplit — the file panel actually opens', () => {
         <div>chat transcript</div>
       </FilePreviewBridge>,
     )
-    expect(panel.calls).toEqual(['expand', 'resize:320'])
+    expect(panel.calls).toEqual(['expand', 'resize:38%'])
 
     panel.calls = []
     useFilePreviewStore.getState().hide()

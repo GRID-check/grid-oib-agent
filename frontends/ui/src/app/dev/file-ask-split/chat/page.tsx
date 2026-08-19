@@ -45,6 +45,11 @@
  *   - `hidden`   — same file, peek dismissed: chat must reclaim the full row.
  *   - `arrive`   — mounts with NO file, exactly as `/files` does, then the
  *                  button opens the peek. This is the Ask Piloti path.
+ *   - `wide`     — the peek dragged to its ceiling. The width is a SHARE of the
+ *                  row now, not a pixel count, and this variant is what that
+ *                  buys: a plan or a Schnitt read at three quarters of the
+ *                  screen. The old 560px cap could not reach here on any
+ *                  display, and the ceiling is the thing readers hit.
  */
 
 import { useEffect } from 'react'
@@ -52,7 +57,10 @@ import { useSearchParams } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { FilePreviewBridge } from '@/features/documents/components/file-preview-host'
 import { MainLayout } from '@/features/layout/components/MainLayout'
-import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+import {
+  FILE_PEEK_RATIO_MAX,
+  useFilePreviewStore,
+} from '@/features/documents/stores/file-preview-store'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
 const FILE: FileItem = {
@@ -85,7 +93,15 @@ const CONTEXT = { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: '
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const seed = new URLSearchParams(window.location.search).get('variant') ?? 'default'
   if (seed !== 'arrive') {
-    useFilePreviewStore.setState({ file: FILE, mode: 'peek', hidden: seed === 'hidden', context: CONTEXT })
+    useFilePreviewStore.setState({
+      file: FILE,
+      mode: 'peek',
+      hidden: seed === 'hidden',
+      // Seeded at mount, not dragged: `defaultSize` is read once, so a ratio set
+      // after the panel exists would not move it in a screenshot.
+      ...(seed === 'wide' ? { peekRatio: FILE_PEEK_RATIO_MAX } : {}),
+      context: CONTEXT,
+    })
   } else {
     useFilePreviewStore.setState({ file: null, mode: 'modal', hidden: false, context: CONTEXT })
   }

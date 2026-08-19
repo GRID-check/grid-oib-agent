@@ -62,7 +62,7 @@ describe('FilePreviewHost', () => {
       file: null,
       mode: 'modal',
       hidden: false,
-      peekWidth: 320,
+      peekRatio: 38,
       context: {},
     })
   })
@@ -72,7 +72,7 @@ describe('FilePreviewHost', () => {
       file: null,
       mode: 'modal',
       hidden: false,
-      peekWidth: 320,
+      peekRatio: 38,
       context: {},
     })
   })
