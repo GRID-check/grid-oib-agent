@@ -111,6 +111,62 @@ REJECTION_KEYWORDS = {
 }
 """Keywords that indicate the user rejects the plan."""
 
+# A refusal the exact-match sets above cannot see. ``REJECTION_KEYWORDS`` is
+# tested with ``normalized in REJECTION_KEYWORDS`` — set membership on the WHOLE
+# message — so it recognises "no" and misses "no i dont want a deep research
+# plan", which is then filed as FEEDBACK and answered with a revised plan. That
+# is the step that turned one unwanted plan in the live transcript into three
+# rounds: the user said no, got a second plan, said "reject", and only then hit
+# the (former) dead end.
+#
+# Deliberately narrow, because the alternative reading — plan feedback — is a
+# real feature: "no, focus only on Wien" and "don't include costs in the plan"
+# are revisions and must stay revisions. So a refusal is recognised only when
+# the message refuses the PLAN ITSELF or asks for a plain answer instead, never
+# merely because it opens with "no".
+#
+# The cost of being wrong here is no longer symmetric, and that is what makes
+# this safe to widen: since a rejected plan falls through to the shallow agent
+# instead of ending the turn, mis-reading a revision as a refusal costs the user
+# an ANSWER to the question they asked, not a discarded turn.
+_BARE_REFUSAL_RE = re.compile(
+    r"^(?:no|nope|nah|nein|na|reject|cancel|stop|abort)"
+    r"(?:[\s,.!-]+(?:thanks|thank\s+you|danke|bitte|please|thx))?[\s,.!]*$",
+    re.IGNORECASE,
+)
+_WANTS_NO_PLAN_RE = re.compile(
+    r"(?:do(?:es)?\s*n[o']?t\s+(?:want|need)|dont\s+(?:want|need)|"
+    r"(?:will|m[oö]chte|brauche)\s+kein|kein(?:e|en|er)?\b)",
+    re.IGNORECASE,
+)
+_PLAN_SUBJECT_RE = re.compile(r"(?:deep\s*research|research\s*plan|\bplan\b|recherche|plans)", re.IGNORECASE)
+_WANTS_PLAIN_ANSWER_RE = re.compile(
+    r"\b(?:just|only|simply|einfach|nur)\b[^.!?]{0,30}?\b(?:answer|antwort|antworte|reply)\b",
+    re.IGNORECASE,
+)
+
+
+def _reads_as_refusal(text: str) -> bool:
+    """True when a free-text reply to the plan preview plainly refuses the plan.
+
+    Three shapes, all requiring more than an opening "no":
+      * a bare refusal token, optionally polite ("no thanks", "nein danke");
+      * "(I) don't want / will kein ..." TOGETHER WITH a reference to the plan
+        or the research itself — so "I don't want costs in there" stays feedback
+        because it names no plan, and "don't include costs in the plan" stays
+        feedback because it refuses no wanting;
+      * a request for a plain answer instead ("i just want an answer").
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if _BARE_REFUSAL_RE.match(stripped):
+        return True
+    if _WANTS_NO_PLAN_RE.search(stripped) and _PLAN_SUBJECT_RE.search(stripped):
+        return True
+    return bool(_WANTS_PLAIN_ANSWER_RE.search(stripped))
+
+
 JSON_REMINDER_AFTER_TOOLS = (
     "Based on the search results above, now make your clarification decision. "
     "IMPORTANT: You must respond with ONLY a valid JSON object, nothing else. "
@@ -350,6 +406,10 @@ class ClarifierAgent:
             return True, False, None
 
         if normalized in REJECTION_KEYWORDS:
+            return False, True, None
+
+        # An unmistakable refusal written as a sentence rather than a keyword.
+        if _reads_as_refusal(text):
             return False, True, None
 
         # Treat as feedback for plan revision

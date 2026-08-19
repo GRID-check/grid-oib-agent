@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.memory import MemorySaver
 
 from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
@@ -94,6 +95,17 @@ def parts():
 
 
 def _build(classifier, shallow, deep, clarifier, **kwargs):
+    """An agent wired the way ``register.py`` wires the real one.
+
+    The checkpointer is NOT optional decoration here. ``_build_graph`` compiles
+    with whatever it is handed, so omitting it compiles a graph with
+    ``checkpointer=None`` — and then nothing at all survives a ``run()``, which
+    would make "the rejection is remembered for the conversation" untestable and
+    silently vacuous. Production always passes one
+    (``register.py`` -> ``get_checkpointer(config.checkpoint_db)``); a
+    ``MemorySaver`` is the in-process equivalent.
+    """
+    kwargs.setdefault("checkpointer", MemorySaver())
     return ChatResearcherAgent(
         intent_classifier_fn=classifier,
         shallow_research_fn=shallow,
