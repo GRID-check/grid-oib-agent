@@ -594,3 +594,32 @@ better, and we have never tested whether the answer improves across the last
 thousand tokens of it. That is a Langfuse question, not a repo question — flagging,
 not acting.
 
+## Sprint 11B landed `ce47667b` — the hole was real
+Wrote the chain nothing asserted end to end: served row → `Skill.standard` →
+forced → body reaches the model, and the `requires_sources` gate that keeps
+~6,600 tokens of skill prose off a conversational turn (which I had verified by
+READING, which is exactly the guarantee a refactor breaks silently).
+
+**Two mutations were NOT caught at first and that is the finding.** Deleting
+`standard=bool(row.get("standard"))` from the resolver, or making
+`build_skill_from_payload` ignore `standard`, passed the entire 3,903-test suite.
+`test_resolver.py` never mentioned the flag; `test_models.py` never exercised it;
+and `test_register_skills.py` fakes `SkillResolver` wholesale — correctly, for
+what that file tests — which steps straight over the row→flag step. **The fleet
+would have lost its house voice with everything green.** Closed by driving the
+REAL resolver over a faked fetch built from the seeded SQL.
+
+Also pinned, and previously undocumented: on a `/name` turn the classifier marks
+`meta` and the meta partition strips search tools — `use_skill` survives only
+because `get_source_id_for_tool("use_skill")` returns `None`. Adding it to
+`_FILE_DISCOVERY_BASENAMES` would restore the old silent `/name` no-op with the
+register still looking correct.
+
+21/21 mutations caught in the final sweep. No product defect: `git log -S` shows
+the gate and the standard-forcing have both been correct since they landed.
+
+**Generalisable lesson, worth applying elsewhere:** the dangerous shape is a
+FLAG THAT CROSSES A BOUNDARY (a served row into a model object, a model field
+onto the wire, a wire field into a prop). Unit tests on both sides pass while the
+crossing is unasserted. Look for others.
+
