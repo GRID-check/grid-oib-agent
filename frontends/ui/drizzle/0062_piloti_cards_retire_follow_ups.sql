@@ -31,9 +31,10 @@
 -- characters. The shapes block goes from 2,157 tokens to 1,881 — `follow_ups`'s
 -- shape plus the `FollowUp` building block only it referenced — on every turn
 -- that delivers this body, which `delivery: standard` makes every research turn.
--- The body itself goes from 5,239 to 4,791, of which the craft section is 435.
--- Together: 724 tokens per research turn, against the 136 the always-on
--- `emit_card` description gives back on every chat turn.
+-- The body itself goes from 5,239 to 4,760: the craft section is 435 of that and
+-- the remaining 44 is the two sentences in „Das Kartenbudget einer Antwort" that
+-- spent the budget on this card. Together: 755 tokens per research turn, against
+-- the 136 the always-on `emit_card` description gives back on every chat turn.
 --
 -- The description reverts and advances with the body, as it has since 0060: the
 -- L1 line names what the body teaches, and a description promising

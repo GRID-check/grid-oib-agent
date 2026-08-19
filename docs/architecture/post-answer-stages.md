@@ -1169,7 +1169,17 @@ Stored `follow_ups` cards exist in `messages.metadata.cards`, are re-read on eve
 render (`server-message-mapper.ts:129-132` → `validateGridCards`) and on every
 export (`lib/answer-export/cards.ts`, walked generically). They must keep working.
 
-**Retire, never delete.** Four steps, in this order:
+**Retire, never delete.** Four steps, in this order.
+
+> **[as built] — the reverse order is not "step 1 backwards".** Step 1 is a
+> constant and every surface derived from it comes back the moment the constant
+> does. Steps 2 and 3 delete hand-written text — a trigger row, a rule, a clause,
+> a German craft section — and nothing brings a deleted string back except
+> reverting the commit that deleted it. So the revert path is **step 1, plus a
+> revert of the commit that did step 2, plus `0062_…down.sql` for step 3.** Both
+> tiers were exercised; see the note at the end of this section for what each one
+> restored.
+
 
 1. **Add `"follow_ups"` to `SYSTEM_CARD_TYPES`** (`cards/catalog.py:30`). That
    constant is documented as exactly this lever: the type "remains a valid union
@@ -1202,8 +1212,10 @@ export (`lib/answer-export/cards.ts`, walked generically). They must keep workin
    > research turn's. Migration `0062_piloti_cards_retire_follow_ups` removes
    > the list entry, the section, the two sentences in the closing budget
    > section that spend the budget on the card, and the description's promise of
-   > it: the shapes block **2,157 → 1,881** and the body **5,239 → 4,791**, i.e.
-   > **724 tokens per research turn**.
+   > it: the shapes block **2,157 → 1,881** and the body **5,239 → 4,760** (the
+   > craft section is 435 of that; the other 44 is the two sentences in the closing
+   > budget section that spent the budget on this card), i.e. **755 tokens per
+   > research turn**.
    >
    > Removing the list entry is not tidiness. `preferred_cards` filters
    > `grid-cards` against `model_facing_card_types()`, so a retired name left in
@@ -1254,15 +1266,37 @@ that way.
 > off now means an org with no follow-up questions rather than the old ones.
 >
 > Because the net is gone, "step 1 is the revert path" was checked rather than
-> believed. The revert was **performed** in a scratch commit — `follow_ups` taken
-> back out of `SYSTEM_CARD_TYPES` and `0062` rolled back against a real
-> PostgreSQL 16 — and the card came back on every surface it had left:
-> `emit_card` accepted one again, `render_card_index` and
-> `render_card_doctrine` carried it again, `render_card_details` handed its shape
-> back, and the seeded row was byte-identical to what `0061` wrote. The scratch
-> commit was then reset. Both directions of `0062` are guarded on the body's md5
-> and not on `created_by`, so a row edited through the dashboard is untouched
-> going forward and coming back.
+> believed. It was **performed** in a scratch commit, at two tiers, and the two
+> tiers do not restore the same things — which is the correction this slice owes
+> the section.
+>
+> **Step 1 alone** (`follow_ups` taken back out of `SYSTEM_CARD_TYPES`, one line)
+> restores emission and every surface DERIVED from the constant: `emit_card`
+> accepts a card again, `model_facing_card_types()` includes it,
+> `render_card_index` advertises it, `render_card_details` (so `describe_card`
+> AND the `grid-cards` shapes block) hands its shape back, `validate_cards` keeps
+> a post-hoc one, and the post-hoc prompt names it again.
+>
+> It does **not** restore the hand-written prompt weight. The trigger row,
+> `_FOLLOW_UPS_RULE` and the volume rule's exemption are literal strings that
+> step 2 deleted, and no constant brings a deleted string back. So step 1 alone
+> leaves the model able to emit a card nothing tells it to emit — which is a
+> coherent state (the card is a valid union member and the L1 line still carries
+> its "Emit at the END" imperative) but it is **not** the state before slice 4.
+> **§7.10 should say so: the revert path is step 1 *plus* reverting the commit
+> that did step 2, plus `0062_…down.sql`.**
+>
+> **The full revert** — both feature commits reverted and `0062.down.sql` applied
+> against a real PostgreSQL 16 — restores everything, and byte-exactly. The
+> always-on `emit_card` description measures **2,240** again, the doctrine 937,
+> the L1 index 1,025, the post-hoc prompt 12,654, the inlined shapes 2,157 and
+> the skill body 5,239: every number back to its pre-slice-4 value. The test
+> suite returns to **4,480 passed**, the exact baseline. The seeded row after
+> `0062.down.sql` hashes identically to the row the reverted repo parses off
+> disk (body `9662a746…`, body+description `13b1e07c…`, `grid-cards` back to
+> seven). The scratch commits were then reset. Both directions of `0062` are
+> guarded on the body's md5 and not on `created_by`, so a row edited through the
+> dashboard is untouched going forward and coming back.
 >
 > What the revert does **not** restore is the emitted cards of the turns that ran
 > while the card was retired. There is nothing to restore — those turns have the
@@ -1396,7 +1430,7 @@ alone. Nothing else may start before 0.**
 | **1** ✅ | **BUILT.** Backend `follow_ups`: gate, handler, prompt, payload model. `delivery="silent"` — **it runs and is measured, and delivers nothing.** Carries `StageEmpty` (§2.4), per-stage cost on the span (§7.4) and the backend↔BFF stage-flag parity guard. | 0 | yes | flag off |
 | **2** ✅ | **BUILT.** Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures, which now exist as `shared/stages/frames.json`. Carries the §8 correction (three arrival conditions, not two) and the §6.2 one. | — (contract only) | yes — renders from fixtures with no backend | revert |
 | **3** ✅ | **BUILT.** Wire them: `aiq_api` publishes the frame sink (`GridStageMessage` + `send_stage_frame`, registered at plugin import), `follow_ups` declares `delivery="frame"`, and the `post-answer-follow-ups` flag is on for one organization and off everywhere else. Carries the §9 contract test's Python half, which replaces the slice-2 stand-in. | 0,1,2 | yes | flag off |
-| **4** ✅ | **BUILT.** Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal (catalog, post-hoc craft, and the seeded skill's `grid-cards` list + craft section via `0062`), export skip already done by PR #474 (§7.10). The `post-answer-follow-ups` flag is on for ALL orgs in both environments and `defaultOn` follows it. | 3 | yes | revert step 1 of §7.10 — **performed and verified**, not assumed |
+| **4** ✅ | **BUILT.** Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal (catalog, post-hoc craft, and the seeded skill's `grid-cards` list + craft section via `0062`), export skip already done by PR #474 (§7.10). The `post-answer-follow-ups` flag is on for ALL orgs in both environments and `defaultOn` follows it. | 3 | yes | §7.10's revert path — step 1 **plus** reverting the step-2 commit **plus** `0062_…down.sql`; **performed and verified end to end**, not assumed |
 | **4b** | Reflection's own frame + the per-turn chip; delete the poll (§5.1, §1.7). | 3 | yes | flag off |
 
 **Slice 0 is the one that must not be skipped**, and it is also the one that pays
