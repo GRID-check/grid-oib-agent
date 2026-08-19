@@ -17,6 +17,14 @@ import { enforcementOn } from '@/lib/authz/feature-flags'
 /** Slug of the flag gating the async post-answer memory-reflection stage. */
 export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
 
+/**
+ * Slug of the flag gating the async post-answer follow-up-questions stage.
+ * The stage currently delivers nothing to the reader — it runs so its skip
+ * rate, empty rate and true per-turn cost can be measured before any chip is
+ * rendered (docs/architecture/post-answer-stages.md §10, slice 1).
+ */
+export const FOLLOW_UPS_FLAG = 'post-answer-follow-ups'
+
 /** Slug of the flag gating per-org BYOK LLM credentials (ADR-0022). */
 export const BYOK_LLM_FLAG = 'byok-llm'
 
@@ -90,6 +98,15 @@ export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
     // product gate, so like every non-dark feature it stays ON in environments
     // without the flag product. New stages default OFF.
     defaultOn: true,
+  },
+  {
+    id: 'follow_ups',
+    flag: FOLLOW_UPS_FLAG,
+    envVar: 'GRID_STAGE_FOLLOW_UPS_ENABLED',
+    // OFF, as every new stage is: it costs an LLM call per substantive answer
+    // and, in this slice, delivers nothing at all. It is switched on per org to
+    // be measured.
+    defaultOn: false,
   },
 ]
 

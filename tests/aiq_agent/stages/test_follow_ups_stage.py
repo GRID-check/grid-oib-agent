@@ -113,6 +113,17 @@ class TestDeclaration:
         assert FOLLOW_UPS.flag_slug == "post-answer-follow-ups"
         assert FOLLOW_UPS.env_default == "GRID_STAGE_FOLLOW_UPS_ENABLED"
 
+    def test_no_two_stages_share_an_agent_group(self):
+        """The map a stage's model is resolved from is keyed by AgentGroup, and
+        a group with no model is the capability bit. Two stages under one key
+        could not be pointed at different models, and unsetting one stage's LLM
+        would silently switch the other off too. follow_ups is the first stage
+        that makes this invariant non-trivial."""
+        from aiq_agent.stages import iter_stages
+
+        groups = [spec.agent_group for spec in iter_stages()]
+        assert len(set(groups)) == len(groups)
+
     def test_it_is_bounded_tighter_than_reflection(self):
         """A set that lands after the reader has typed their own question is
         worse than none, because it moves the page."""

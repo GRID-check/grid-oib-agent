@@ -214,6 +214,20 @@ class _TurnState:
             setattr(self, name, value)
 
 
+class TestStageModelWiring:
+    """A stage runs only when a model is configured for its agent group — the
+    capability half of `flag AND capability`. Each stage therefore needs its own
+    config field, and each must default to None so a deployment that wants
+    neither pays for neither."""
+
+    def test_each_post_answer_stage_has_its_own_config_field(self):
+        from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
+
+        for field in ("memory_reflection_llm", "follow_ups_llm"):
+            assert field in ChatDeepResearcherConfig.model_fields
+            assert ChatDeepResearcherConfig.model_fields[field].default is None
+
+
 class TestPostAnswerTurnFacts:
     """The crossing from finished graph state to a stage's inputs.
 

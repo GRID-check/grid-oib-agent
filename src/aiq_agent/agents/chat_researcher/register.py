@@ -632,6 +632,15 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
             "disables reflection entirely (no extra LLM call)."
         ),
     )
+    follow_ups_llm: LLMRef | None = Field(
+        default=None,
+        description=(
+            "Optional LLM for the async post-answer follow-up-questions stage. When set, after a "
+            "substantive answer is returned a background task reads the finished answer and names "
+            "the two to four questions it made askable. Unset disables the stage entirely (no "
+            "extra LLM call) — the capability bit of `flag AND capability`."
+        ),
+    )
 
 
 @register_function(config_type=ChatDeepResearcherConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -821,12 +830,24 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         except Exception:
             logger.warning("Could not build memory_reflection_llm; reflection disabled", exc_info=True)
 
+    # Optional LLM for the async post-answer follow-up-questions stage. Same
+    # shape and the same zero-cost-when-unset rule.
+    follow_ups_llm = None
+    if config.follow_ups_llm is not None:
+        try:
+            follow_ups_llm = await get_langchain_llm(builder, config.follow_ups_llm)
+        except Exception:
+            logger.warning("Could not build follow_ups_llm; the follow-ups stage is disabled", exc_info=True)
+
     # The models the post-answer stages run on, keyed by agent group so the
     # runner can apply the org's override and BYOK credential per group without
     # anything here naming a stage. A group with no model is the capability bit:
     # its stages are a no-op, and — see the flag resolution below — a no-op must
     # cost nothing, not a per-turn round-trip.
-    _stage_llms = {AgentGroup.MEMORY_REFLECTION: reflection_llm}
+    _stage_llms = {
+        AgentGroup.MEMORY_REFLECTION: reflection_llm,
+        AgentGroup.FOLLOW_UPS: follow_ups_llm,
+    }
     _any_stage_llm = any(llm is not None for llm in _stage_llms.values())
 
     checkpointer = await get_checkpointer(config.checkpoint_db)
