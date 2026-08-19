@@ -2045,6 +2045,121 @@ class TestOffTopicDeclineShape:
         assert "decline" in banner.lower()
 
 
+class TestAMetaTurnMayStillEmitACard:
+    """The meta contract and the `<cards>` block must not contradict each other.
+
+    Field case: „Wie läuft das Baubewilligungsverfahren in Wien ab?" was offered
+    a deep-research plan, refused twice, then retyped in plain words — and that
+    follow-up classified `meta`. Two instructions then met on one turn. The
+    output contract said "no tool calls", `emit_card` is a tool call, and the
+    `<cards>` block sits outside both `requires_sources` guards and told the
+    model to emit one. The mandatory-sounding half won and the user got prose.
+
+    Resolved toward ALLOWING the card, for a reason that is about the binding
+    rather than about taste: `_meta_tool_binding` has always kept `remember`,
+    `emit_card` and `describe_card` bound on this turn, so "no tool calls" was
+    never a description of what the turn could do — it was a prompt line
+    disagreeing with its own runtime, and the disagreement cost a real user two
+    turns on a real Baurecht question. Classification is a judgement about
+    whether the turn needs SOURCES; it is not a judgement about whether the
+    answer has anything to show.
+
+    The restraint is unchanged and lives where it already lived: the doctrine's
+    volume rule and `_FOLLOW_UPS_RULE` both already exempt a conversational turn
+    with no subject in it, so a greeting still emits nothing.
+    """
+
+    def _meta(self):
+        return TestOffTopicDeclineShape._render_meta(self)
+
+    def _research(self):
+        from pathlib import Path
+
+        from aiq_agent.agents.shallow_researcher import agent as shallow_agent
+        from aiq_agent.common import load_prompt
+        from aiq_agent.common import render_prompt_template
+
+        prompt = load_prompt(Path(shallow_agent.__file__).parent / "prompts", "researcher")
+        return render_prompt_template(
+            prompt,
+            tools=[],
+            user_info=None,
+            current_datetime="2026-08-19",
+            available_documents=[],
+            project_context=None,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=True,
+        )
+
+    def test_the_meta_contract_no_longer_forbids_every_tool_call(self):
+        # The exact contradiction. `emit_card` IS a tool call, and this line
+        # sat six lines above a `<cards>` block telling the model to make one.
+        contract = self._meta().split("<output_contract>")[1].split("</output_contract>")[0]
+        meta_shape = contract.split("Off-topic / out-of-scope turn")[0]
+        assert "no tool calls" not in meta_shape
+        assert "no search" in meta_shape
+
+    def test_the_off_topic_shape_still_forbids_every_tool_call(self):
+        # The carve-out is for a turn that ANSWERS something. A decline has no
+        # content, so nothing here is loosened for it.
+        contract = self._meta().split("<output_contract>")[1].split("</output_contract>")[0]
+        off_topic = contract.split("Off-topic / out-of-scope turn")[1].split("Research turn")[0]
+        assert "No tool calls" in off_topic
+
+    def test_the_meta_shape_names_the_card_exception_and_its_limit(self):
+        contract = self._meta().split("<output_contract>")[1].split("</output_contract>")[0]
+        meta_shape = contract.split("Off-topic / out-of-scope turn")[0]
+        # Permission...
+        assert "card tools are the ONE exception" in meta_shape
+        # ...scoped to the case that actually failed: a subject-matter question
+        # that merely landed in this shape.
+        assert "sometimes wrong" in meta_shape
+        # ...and closed again for the turns with nothing to show.
+        assert "so emit none" in meta_shape
+
+    def test_the_non_research_banner_tells_the_turn_how_to_reach_a_shape(self):
+        # This turn is NOT given the `piloti-cards` body (the skill gate in
+        # `register.py` stays closed), so the only route to a card's shape is
+        # `describe_card`. Saying "you may emit one" without that is an
+        # instruction the turn cannot carry out.
+        banner = self._meta().split("<turn_classification>")[1].split("</turn_classification>")[0]
+        assert "emit_card" in banner and "describe_card" in banner
+        assert "never a reason to skip a card" in banner
+
+    def test_the_banner_judges_the_answer_and_not_the_classification(self):
+        banner = self._meta().split("<turn_classification>")[1].split("</turn_classification>")[0]
+        assert "ANSWER YOU ARE WRITING" in banner
+        # And an off-topic decline is named as getting none, so the carve-out
+        # cannot be read as "every non-research turn gets a card".
+        assert "small talk are not, and get none" in banner
+
+    def test_the_cards_block_says_out_loud_that_it_is_always_on(self):
+        # It always WAS ungated — outside both `{% if requires_sources %}`
+        # blocks — but silently, which is what let it read as a research-turn
+        # section that had leaked. Both renders carry it and it now says why.
+        for rendered in (self._meta(), self._research()):
+            cards = rendered.split("\n<cards>\n")[1].split("\n</cards>\n")[0]
+            assert "on for EVERY turn" in cards
+
+    def test_describe_card_survives_the_meta_partition(self):
+        from aiq_agent.agents.shallow_researcher.agent import _INTERACTION_TOOL_BASENAMES
+        from aiq_agent.agents.shallow_researcher.agent import _is_search_tool
+
+        assert "describe_card" in _INTERACTION_TOOL_BASENAMES
+        with patch(
+            "aiq_agent.agents.shallow_researcher.agent.get_source_id_for_tool",
+            side_effect=lambda name: "grid_cards" if "card" in name else None,
+        ):
+            # The pin is what makes this hold: without it a `describe_card`
+            # that resolves to a data source is classified as search and
+            # dropped, leaving a meta turn able to NAME a card and unable to
+            # fill it in.
+            assert _is_search_tool("describe_card") is False
+            assert _is_search_tool("emit_card") is False
+
+
 class TestKnowledgeInventoryIsNotCitable:
     """The corpus inventory in the prompt must not read as citable evidence.
 

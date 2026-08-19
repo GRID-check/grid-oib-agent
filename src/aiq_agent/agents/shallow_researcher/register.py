@@ -160,6 +160,20 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             # needs sources; it does not get to overrule a direct instruction,
             # and dropping the tool there made `/name` a silent no-op on exactly
             # the short, imperative messages people type after a slash command.
+            #
+            # This gate STAYS CLOSED for meta turns even though those turns may
+            # now emit a card (see the prompt's `<turn_classification>`), and the
+            # decision is a price rather than a principle. Opening it would hand
+            # every greeting the `piloti-cards` body — 5,239 cl100k tokens — plus
+            # the shapes its `grid-cards` list inlines, 2,157 after 0061: ~7,400
+            # tokens on turns whose usual content is "hallo" or "kürzer bitte".
+            # What a meta turn keeps without it is the whole always-on doctrine
+            # and the L1 index, which ride in `emit_card`'s description on every
+            # turn regardless, so the model can still NAME the right card; the
+            # shape costs it one `describe_card` call. Paying a round trip on the
+            # rare misclassified subject-matter question is the cheaper side of
+            # that trade by two orders of magnitude, and `describe_card` is bound
+            # on meta turns precisely so the round trip exists to be paid.
             skill_runtime = None
             run_tools = selected_tools
             if config.skills_enabled and (state.requires_sources or state.force_skills):

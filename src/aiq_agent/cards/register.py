@@ -104,13 +104,25 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
     from aiq_agent.cards.registry import get_card_registry
 
     async def _emit(card_json: str) -> str:
-        """Validate and register one Grid response card."""
+        """Validate and register one Grid response card.
+
+        Every exit logs, including the refusals. A turn that came back with no
+        card used to be indistinguishable, after the fact, between "the model
+        never called this" and "the model called it and we refused": only the
+        success at the bottom wrote a line, so both left the same silence. Those
+        two call for opposite fixes — a doctrine that does not get the card
+        named, versus a shape the model cannot fill in — and a triage that
+        cannot tell them apart picks by guess. Refusals are ``warning`` because
+        each one is a card the reader was supposed to get and did not.
+        """
         try:
             payload = json.loads(card_json) if isinstance(card_json, str) else card_json
         except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning("emit_card rejected a card: card_json is not valid JSON (%s)", exc)
             return f"Error: card_json is not valid JSON ({exc}). Pass a single JSON object with a 'type' field."
 
         if not isinstance(payload, dict):
+            logger.warning("emit_card rejected a card: card_json is a %s, not a JSON object", type(payload).__name__)
             return "Error: card_json must be a single JSON object with a 'type' field."
 
         try:
@@ -118,6 +130,11 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         except Exception as exc:
             card_type = payload.get("type", "?")
             hint = _shape_hint_for(card_type)
+            # The TYPE is the load-bearing half: it says which card the model
+            # knew it wanted, which is exactly what a silent turn cannot tell
+            # you. The validation message rides along on one line so the shape
+            # it tripped over is readable without reproducing the turn.
+            logger.warning("emit_card rejected a '%s' card: it failed validation: %s", card_type, exc)
             return (
                 f"Error: card of type '{card_type}' failed validation: {exc}. "
                 + (f"Expected shape — {hint} " if hint else "")
@@ -127,6 +144,7 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         # System cards (e.g. memory_proposal) are emitted only by their owning
         # tool on a sanctioned path — the model must never emit one directly.
         if validated["type"] in SYSTEM_CARD_TYPES:
+            logger.warning("emit_card rejected a '%s' card: that type is system-emitted", validated["type"])
             return (
                 f"Error: card type '{validated['type']}' is system-emitted and cannot be created with "
                 "emit_card. Do not emit this card type."

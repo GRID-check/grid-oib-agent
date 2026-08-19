@@ -428,6 +428,13 @@
       "when": 1787616000005,
       "tag": "0060_piloti_cards_dossier_and_change",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1787702400005,
+      "tag": "0061_piloti_cards_reachable_shapes",
+      "breakpoints": true
     }
   ]
 }

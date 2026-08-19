@@ -240,6 +240,18 @@ moment we know which of the shapes this turn could possibly need, so it is
 the moment to spend context on them — and it saves the activated turn a
 `describe_card` round-trip it would otherwise always pay.
 
+That makes `grid-cards` do two things at once, and only the first is obvious: it
+states the author's preference AND it decides which shapes are already in context
+at the moment the model would emit. `piloti-cards` is `delivery: standard`, so
+its list is paid on every answering turn — 2,157 cl100k tokens for the seven
+inlined since migration `0061` (`verdict_header`, `condition_tree`, `typed_table`,
+`key_takeaways`, `callout`, `process_map`, `follow_ups`). `typed_table` and
+`process_map` joined for +265 and +693 respectively, because they are the two
+cards the doctrine spends its words redirecting TO and both were a round trip
+away while `condition_tree`'s shape sat already rendered. The ceiling on that
+block is asserted in `test_seeded_platform_skills.py`; widening it is a priced
+decision, not a preference.
+
 ### `emit_card` carries the doctrine, not a disclaimer
 
 The description used to say "emit a card only when it adds real value". That is
@@ -308,6 +320,47 @@ the written answer stops being the answer; and no field, reference or number may
 be fabricated to fill a card out — a card with an invented limit in it is worse
 than the prose alone, because it is the part that gets screenshotted into a
 submission.
+
+### Which turns may emit a card
+
+Every turn, including one the intent classifier routed as `meta`. This used to be
+contradictory rather than decided: the shallow prompt's meta output contract said
+"no tool calls" while the `<cards>` block six lines below sat outside both
+`{% if requires_sources %}` guards and told the model to emit one. The
+mandatory-sounding half won, and a Baurecht question that classified `meta` —
+„Wie läuft das Baubewilligungsverfahren in Wien ab?", retyped in plain words
+after a research plan was refused — shipped as prose twice.
+
+Resolved toward allowing it, on the grounds that `_meta_tool_binding`
+(`shallow_researcher/agent.py`) has always kept `remember`, `emit_card` and
+`describe_card` bound on that turn. "No tool calls" was never a description of
+what the turn could do; it was a prompt line disagreeing with its own runtime.
+Classification decides whether the turn needs SOURCES, not whether the answer has
+anything worth showing.
+
+Two things bound it:
+
+- **The prompt says what a meta turn may put on a card.** A subject-matter
+  question that merely landed in this shape earns the card its content calls for;
+  small talk, a formatting or memory request, a shelf listing and an off-topic
+  decline get none. The off-topic shape still reads "No tool calls".
+- **The skill gate stays shut.** `register.py` builds a `SkillRuntime` only when
+  `requires_sources or force_skills`, so a meta turn does NOT get the
+  `piloti-cards` body. Opening it would cost ~7,400 cl100k tokens on every
+  greeting (5,239 for the body plus the inlined shapes). What the turn keeps is
+  the always-on doctrine and the L1 index, which ride in `emit_card`'s
+  description regardless — enough to NAME the right card. The shape costs one
+  `describe_card` call, which is why `describe_card` is pinned into
+  `_INTERACTION_TOOL_BASENAMES` rather than surviving by having no data source.
+
+### Every `emit_card` outcome is logged, refusals included
+
+A turn that shipped without its card used to look identical after the fact
+whether the model never called `emit_card` or called it and was refused — only
+the success path wrote a log line. Those have opposite fixes (a doctrine that
+never got the card named, versus a shape the model cannot fill in), so every exit
+in `_emit` now logs: refusals at `warning` naming the card TYPE the model reached
+for, the success at `info` as before.
 
 Because the doctrine lives on the tool, the shallow researcher's `<cards>` block
 no longer restates it. It points at the `emit_card` description and keeps only

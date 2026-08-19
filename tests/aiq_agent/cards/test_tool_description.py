@@ -170,7 +170,10 @@ class TestTheDoctrineStaysCalibrated:
     #: Deliberately excludes the trigger rows and the card index: those are
     #: vocabulary, and counting them would swamp the prose that sets the
     #: disposition. Measured at 1.42 : 1 when written (invitation 167,
-    #: restraint 237).
+    #: restraint 237), and 1.48 : 1 after the naming clause and the
+    #: form-versus-facts discriminator went in together (invitation 198,
+    #: restraint 293) — both edges of the band untouched, because each half of
+    #: that pass pushes the opposite way.
     MIN_RESTRAINT_RATIO = 1.15
     MAX_RESTRAINT_RATIO = 1.75
 
@@ -223,6 +226,35 @@ class TestTheDoctrineStaysCalibrated:
         assert "Not emitting on a match is" not in doctrine
         assert "one failure mode" not in doctrine
 
+    def test_the_naming_clause_converts_recognition_into_emission(self):
+        # What commit a5488b1c took out and this puts back, minus the framing it
+        # was right to remove. The deleted sentence read "if you can NAME the
+        # card that fits, emit it: knowing which one fits and writing the answer
+        # as prose anyway is this tool's one failure mode" — a naming clause
+        # welded to an obligation, deleted whole. Every other line of the head
+        # is about RECOGNISING the card; both field transcripts show recognition
+        # working (asked again in plainer words, the model named the right card
+        # and built it well first try) and emission not following. That step is
+        # the only one the rest of the doctrine cannot reach.
+        doctrine = render_card_doctrine()
+        assert "Naming the card IS the decision" in doctrine
+        # Restored as a consequence, not a duty: the obligation half stays out,
+        # which the sibling test below re-asserts.
+        assert "not a second judgement" in doctrine
+
+    def test_the_restatement_veto_discriminates_form_from_facts(self):
+        # The veto is real and stays: a card that repeats the prose beside it
+        # cannot be made good, only bigger (anti-goal D.8). What it lacked was a
+        # SCOPE. "Says what the prose says" reads on any answer whose prose
+        # already enumerates its cases — which is both observed transcripts —
+        # and cuts exactly the card that helps most. A table of three Lagen with
+        # their Anforderung and Fundstelle is not three sentences said again.
+        assert "about FORM, not" in _CARD_RESTRAINT
+        assert "is not a restatement of three" in _CARD_RESTRAINT
+        assert "Shared facts alone never cut a card" in _CARD_RESTRAINT
+        # The veto itself is untouched: same words, same shape still loses.
+        assert "says in the same words" in _CARD_RESTRAINT
+
     def test_the_default_is_not_scoped_to_one_class_of_card(self):
         # The original defect, and the one thing the rewrite must not give back:
         # a default naming only measurements left `process_map` matching its
@@ -242,6 +274,13 @@ class TestTheDoctrineStaysCalibrated:
         assert '"key_takeaways": Emit for' in index
         assert '"callout": Emit for' in index
         assert '"calculation": Emit for' in index
+        # Added with 0061: `typed_table` is where BOTH the doctrine's
+        # "rows that are all true at once" row and `condition_tree`'s own
+        # docstring redirect, and its L1 line was pure description — "A generic
+        # table whose columns declare their type so cells render right" — while
+        # every card around it said "Emit for". A redirect does not land if the
+        # destination never asks to be emitted.
+        assert '"typed_table": Emit for' in index
 
     def test_the_anti_fabrication_rule_stands_apart_and_outranks_the_triggers(self):
         # The one rule that must NOT be softened to get more cards. It was a
