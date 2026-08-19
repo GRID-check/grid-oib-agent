@@ -385,6 +385,48 @@ class TestFrameDelivery:
         assert outcomes["probe"].status == "ready"
 
     @pytest.mark.asyncio
+    async def test_wiring_the_delivery_changes_nothing_that_lands_in_the_spans(self):
+        """The telemetry slice 4 is gated on must not move when a stage starts
+        delivering.
+
+        The empty rate, the gate's skip reasons and the per-turn cost are the
+        numbers that decide whether the card gets retired. `delivery` is a
+        property of where the outcome GOES, never of how it was reached, so the
+        span a `frame` stage writes must be indistinguishable from the one the
+        same handler wrote while it was `silent`. If it is not, the week of
+        measurement that licensed this flip was measuring something else.
+        """
+        from aiq_agent.stages import delivery
+
+        async def _sink(conversation_id, frame):
+            return True
+
+        def _metadata_for(mode):
+            registry._STAGES.clear()
+            runner._claimed_keys.clear()
+            _spec(lambda ctx: _returns(StageEmpty("model_declined")), delivery=mode)
+            return _facts()
+
+        spans = {}
+        delivery.register_stage_frame_sink(_sink)
+        try:
+            for mode in ("silent", "frame"):
+                facts = _metadata_for(mode)
+                with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+                    await _run_all(facts)
+                spans[mode] = next(s for s in _spans(post) if s["name"] == "stage:probe")["metadata"]
+        finally:
+            delivery.register_stage_frame_sink(None)
+
+        assert spans["frame"] == spans["silent"], (
+            "the span a frame-delivering stage writes differs from the one the same handler "
+            "wrote while it was silent: the outcome counts slice 4 is gated on are not "
+            "comparable across the flip"
+        )
+        assert spans["frame"]["outcome"] == "empty"
+        assert spans["frame"]["reason"] == "model_declined"
+
+    @pytest.mark.asyncio
     async def test_a_silent_stage_never_touches_the_sink(self):
         sent = []
 
