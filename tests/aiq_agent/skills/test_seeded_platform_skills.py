@@ -357,6 +357,17 @@ def _agents_with_a_delivery_surface() -> set[str]:
     return agents
 
 
+def _unwrapped(text: str) -> str:
+    """``text`` with its hard wraps flattened to single spaces.
+
+    The bodies are wrapped at roughly 80 columns, so a substring assertion that
+    quotes a whole sentence would otherwise also be asserting where the seed
+    happens to break the line — and a reflow that changes nothing a reader sees
+    would fail as if a rule had been deleted.
+    """
+    return re.sub(r"\s+", " ", text)
+
+
 def _guard_hashes(tag: str) -> list[str]:
     """The md5 literals a migration guards on, in the order they appear."""
     sql = (DRIZZLE_DIR / f"{tag}.sql").read_text(encoding="utf-8")
@@ -405,35 +416,160 @@ def test_the_voice_seed_carries_the_answer_shape_craft_the_prompt_no_longer_stat
     assert "writing skill active for this turn" in section
 
 
-def test_the_voice_update_is_guarded_on_the_body_it_replaces():
-    """``0055`` may only overwrite a row still identical to what ``0053`` seeded.
+#: Every migration that writes a ``piloti-voice`` body, oldest first. Spelled out
+#: rather than globbed so that extending the chain is a deliberate edit here as
+#: well as in ``frontends/ui/drizzle`` — a link added without one is a link whose
+#: guard nothing checks.
+VOICE_CHAIN = (
+    "0053_piloti_voice_standard_skill",
+    "0055_piloti_voice_answer_shape",
+    "0057_piloti_voice_hard_cases",
+)
+
+
+def test_every_voice_update_is_guarded_on_the_body_it_replaces():
+    """Each link may only overwrite a row still identical to the one before it.
 
     ``0053`` is a SEED: its ``ON CONFLICT DO NOTHING`` protects a platform
     owner's edits from a re-run, which also means editing the text inside it
-    changes nothing in any database that has already applied it. So the new body
-    ships as its own migration, and the guard is the only test that actually
-    separates an untouched seed from an edited row — ``created_by`` does not,
-    because the dashboard's update path patches ``body`` and never touches it.
+    changes nothing in any database that has already applied it. So every new
+    body ships as its own migration, and the guard is the only test that
+    actually separates an untouched row from an edited one — ``created_by`` does
+    not, because the dashboard's update path patches ``body`` and never touches
+    it.
 
-    Pinning the hashes here is what keeps the chain honest: editing ``0053``'s
-    literal in place, or editing ``0055``'s, silently turns the guard into a
-    condition that matches nothing and the update into a no-op that ships green.
+    Pinning the hashes here is what keeps the chain honest: editing any literal
+    in place silently turns a guard into a condition that matches nothing and
+    the update into a no-op that ships green.
     """
-    seeded = next(row for tag, row in SEEDS if tag.startswith("0053_"))["body"]
-    updated = _effective_row("piloti-voice")["body"]
-    assert seeded != updated, "0055 must actually change the body it inherits"
+    rows = {tag: row for tag, row in SEEDS if row["name"] == "piloti-voice"}
+    assert tuple(rows) == VOICE_CHAIN, "a piloti-voice migration is missing from the chain"
 
-    forward = _guard_hashes("0055_piloti_voice_answer_shape")
-    assert forward == [hashlib.md5(seeded.encode("utf-8")).hexdigest()]
+    for previous, current in zip(VOICE_CHAIN, VOICE_CHAIN[1:], strict=False):
+        before = rows[previous]["body"]
+        after = rows[current]["body"]
+        assert before != after, f"{current} must actually change the body it inherits"
 
-    down = (DRIZZLE_DIR / "0055_piloti_voice_answer_shape.down.sql").read_text(encoding="utf-8")
-    assert re.findall(r"md5\([^)]*\)\s*=\s*'([0-9a-f]{32})'", down) == [
-        hashlib.md5(updated.encode("utf-8")).hexdigest()
-    ]
-    # A rollback that restores a body but leaves the L1 line promising rules the
-    # body no longer states has only half-rolled back.
-    assert seeded in down
-    assert next(row for tag, row in SEEDS if tag.startswith("0053_"))["description"] in down
+        assert _guard_hashes(current) == [hashlib.md5(before.encode("utf-8")).hexdigest()], (
+            f"{current} does not guard on the body {previous} wrote"
+        )
+
+        down = (DRIZZLE_DIR / f"{current}.down.sql").read_text(encoding="utf-8")
+        assert re.findall(r"md5\([^)]*\)\s*=\s*'([0-9a-f]{32})'", down) == [
+            hashlib.md5(after.encode("utf-8")).hexdigest()
+        ], f"{current}.down.sql does not guard on the body it wrote"
+        # A rollback that restores a body but leaves the L1 line promising rules
+        # the body no longer states has only half-rolled back.
+        assert before in down
+        assert rows[previous]["description"] in down
+
+
+def test_the_voice_seed_teaches_the_three_cases_a_shape_rule_does_not_settle():
+    """``0057``: what to do when the question is wrong, half-open, or full of numbers.
+
+    Answer shape says where the ruling goes. It does not say what to do when the
+    ruling contradicts the asker, when half the question has no answer, or how a
+    number is spelled on the way out — and all three are ordinary here. Each is
+    a habit rather than a fact, which is why they live in the one body that is
+    forced on every answering turn instead of in a prompt branch.
+
+    Pinned rule by rule. A body that keeps the headings and loses the rule under
+    one of them reads fine in a dashboard diff and quietly stops teaching it.
+    """
+    body = _unwrapped(_effective_row("piloti-voice")["body"])
+
+    # 1. The premise is wrong. The correction LEADS, because it is the answer;
+    # it is a statement about the Richtlinie and never about the asker; it
+    # carries its Fundstelle; and nothing softens it first.
+    assert "## Wenn die Frage von einer falschen Annahme ausgeht" in body
+    assert "Die Berichtigung ist die Antwort und steht im ersten Satz" in body
+    assert "entlang der Richtlinie, nicht entlang der Person" in body
+    assert "Die Fundstelle steht" in body
+    assert 'kein „gute Frage"' in body
+    # The one thing that makes a correction useful rather than merely right:
+    # where the wrong number came from.
+    assert "woher der genannte Wert stammt" in body
+    # And the warmth rule, which allows half a sentence of appreciation, now
+    # says where that half sentence may NOT go. Without this the two rules read
+    # as contradicting each other.
+    assert "nie als Polster vor" in body
+
+    # 2. Only half the question is answerable. „einmal" is per PART; the firm
+    # half is answered with no hedging at all; the open half is named together
+    # with the place it gets settled.
+    assert "## Wenn nur die Hälfte beantwortbar ist" in body
+    assert "gilt pro Teil, nicht pro Antwort" in body
+    assert "in voller Schärfe, ohne jede Abschwächung" in body
+    assert "wo er entschieden wird: in der Bautechnikverordnung des Landes" in body
+
+    # 3. How a number looks inside a sentence.
+    assert "## Zahlen im Satz" in body
+    assert "Dezimalkomma" in body
+    assert "Tausenderpunkt" in body
+    assert "geschütztes Leerzeichen (U+00A0)" in body
+    assert "≤ und ≥ als Zeichen" in body
+    assert "EI₂ 30-C" in body
+
+    # The Fehlanzeige row names the genre's worst turn — answering out of the
+    # wrong body of law — instead of being given a worked pair it does not need.
+    assert "nie ersatzweise aus einem anderen Regelwerk beantwortet" in body
+
+
+def test_the_notation_rule_and_the_prompt_formatting_rule_stay_on_their_own_questions():
+    """``<formatting>`` decides math mode; the voice decides how the digits look.
+
+    They are one keystroke apart in subject and would be easy to merge by
+    accident, and merging them the wrong way is expensive: ``<formatting>`` is
+    English and universal (the renderer supports KaTeX, so use it for formulas
+    and not for measurements), while the notation rule is German-Austrian and is
+    craft a platform owner may rewrite. Asserted against each other so that a
+    second copy of either in the other's home fails here rather than drifting.
+    """
+    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    match = re.search(r"<formatting>.*?</formatting>", prompt, re.DOTALL)
+    assert match is not None, "the researcher prompt no longer has a <formatting> section"
+    formatting = match.group(0)
+    body = _unwrapped(_effective_row("piloti-voice")["body"])
+
+    # The prompt keeps the rendering question, all of it.
+    assert "KaTeX" in formatting
+    assert "math mode" in formatting
+    # And states none of the German notation the body now owns.
+    assert "Dezimalkomma" not in formatting
+    assert "Tausenderpunkt" not in formatting
+
+    # The body states none of the rendering question, and hands it back in one
+    # clause rather than repeating it.
+    assert "KaTeX" not in body
+    assert "$" not in body
+    assert body.count("Formelsatz") == 1
+    assert "eine andere Frage und anderswo geregelt" in body
+
+    # Where they touch the same example they must agree, not merely coexist.
+    assert "1.200 m²" in formatting
+    assert "1.200 m²" in body
+
+
+def test_the_voice_carries_the_certainty_split_the_confidence_line_cannot():
+    """One marker per turn is CONTRACT; two certainties in one answer is craft.
+
+    ``[CONFIDENCE:…]`` is a single value for the whole turn and the output
+    contract says so twice, so an answer whose OIB half is settled and whose
+    Landesrecht half is not has exactly one line to spend and must spend it on
+    the weaker half. That makes the prose the only place the distinction can
+    live, which is a fact about the contract and therefore has to be asserted
+    against it — a contract that grew a second marker would leave the body
+    telling the writer something false.
+    """
+    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    body = _unwrapped(_effective_row("piloti-voice")["body"])
+
+    assert "Exactly one confidence line" in prompt
+    assert "exactly ONE confidence marker" in prompt
+
+    assert "[CONFIDENCE:…]" in body
+    assert "ein Wert für den ganzen Zug" in body
+    assert "nur in der Prosa" in body
 
 
 @pytest.mark.parametrize(("tag", "row"), SEEDS, ids=SEED_IDS)

@@ -245,4 +245,4 @@ ON CONFLICT ("name") DO UPDATE
   SET "description" = EXCLUDED."description",
       "body" = EXCLUDED."body",
       "updated_at" = now()
-  WHERE md5("platform_skills"."body") = '21484e943a9f0e79cf71d553a54d5852';
+  WHERE md5("platform_skills"."body") = '21484e943a9f0e79cf71d553a54d5852';  -- pragma: allowlist secret
