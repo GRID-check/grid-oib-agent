@@ -33,17 +33,36 @@ import { useChatStore } from '@/features/chat/store'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 
+/** Sentence marks a row may end on, dropped before the template's own lands. */
+const TRAILING_MARKS = new Set(['.', ',', ';', ':', '!', '?', '…'])
+
+/**
+ * Strip the trailing run of sentence marks.
+ *
+ * A loop rather than `/[.,;:!?…]+$/`: that pattern is anchored at the end but
+ * can begin at any position, so on a row of many marks the engine retries from
+ * each one and the scan is quadratic — 32k colons took 1,007ms. The text is a
+ * card row label written by the model, so its length and shape are not ours to
+ * bound. A lookbehind would also fix it, but nothing else in this codebase uses
+ * one and a plain loop needs no compatibility argument.
+ */
+const stripTrailingMarks = (text: string): string => {
+  let end = text.length
+  while (end > 0 && TRAILING_MARKS.has(text[end - 1])) end -= 1
+  return text.slice(0, end)
+}
+
 /**
  * Row text as it goes into a sentence: whitespace collapsed, and the trailing
  * sentence mark dropped so the template's own punctuation does not land on top
  * of it („… modellieren.. Wie kann ich" was the first version).
  */
 const tidy = (text: string | null | undefined): string =>
-  (text ?? '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[.,;:!?…]+$/u, '')
-    .trim()
+  stripTrailingMarks(
+    (text ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  ).trim()
 
 /** Below this a fragment names nothing — „?", „m", „n/a" — and makes no question. */
 const MIN_MEANINGFUL = 3
