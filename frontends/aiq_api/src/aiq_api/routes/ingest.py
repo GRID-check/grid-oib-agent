@@ -57,7 +57,10 @@ def add_ingest_routes(router: APIRouter):
 
         The BFF upload route writes the file to SeaweedFS and calls this endpoint
         with a presigned URL so the Python backend can ingest it into the
-        knowledge index. ``x-grid-organization-id`` (forwarded by the BFF for
+        knowledge index. ``folder_path`` (optional) is the materialised
+        project-folder path the document is filed under; it is stamped onto the
+        document's metadata row so surfacing and retrieval can see the filing.
+        ``x-grid-organization-id`` (forwarded by the BFF for
         per-project/Archiv uploads) is threaded into the job so the VLM used
         during ingestion resolves the org's BYOK credential and runtime model
         override — the ingest thread is detached from the request, so the org
@@ -104,6 +107,13 @@ def add_ingest_routes(router: APIRouter):
             }
             if request.thumbnail_upload_url:
                 config["thumbnail_upload_url"] = request.thumbnail_upload_url
+            # The folder this document was filed into, as the BFF's materialised
+            # path (ADR-0049). Carried into the detached ingest thread so the
+            # metadata row can be stamped with it — a folder is part of what the
+            # agent must know about a document, not only of how the object is keyed.
+            folder_path = (request.folder_path or "").strip()
+            if folder_path:
+                config["folder_path"] = folder_path
             # Carry the org id into the detached ingest thread so the VLM
             # resolves the tenant's BYOK credential + runtime model override.
             if x_grid_organization_id:

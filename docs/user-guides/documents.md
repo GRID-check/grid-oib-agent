@@ -26,6 +26,15 @@ The folder tree in the left pane is the project's filing system, and it supports
 
 Renaming or moving a folder rewrites the stored path of everything beneath it in the same transaction, so a deeply nested document is never left pointing at a path that no longer exists.
 
+**The assistant knows your folders.** When you file a document, the folder travels
+with it into the knowledge base, so the agent can answer "welche Unterlagen habe
+ich in Brandschutz" from the actual filing rather than guessing from file names,
+and it can search inside one folder — including everything nested under it, so
+asking about `Brandschutz` also reads `Brandschutz/Fluchtwege`. Renaming or
+moving a folder updates what the assistant sees too; it may take one more
+question before a very recent rename shows up in its answers. Documents that were
+never filed simply have no folder, and the assistant says nothing about one.
+
 ### The file card grid
 
 Files render as cards in a responsive grid. Each card shows:

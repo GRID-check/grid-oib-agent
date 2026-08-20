@@ -110,3 +110,33 @@ def test_existing_tags_are_not_overwritten():
     _merge_summaries(files, summaries)
 
     assert files[0].tags == ["Schnitt"]
+
+
+def test_merges_the_folder_path_onto_matching_file():
+    """The collection listing states where each document is filed (ADR-0049).
+
+    `list_files` only knows what the vector store holds; the filing lives on the
+    metadata row beside the summary and the tags, and this is the one seam that
+    puts the two together for the listing contract.
+    """
+    files = [_file("plan.pdf")]
+    summaries = [
+        AvailableDocument(
+            file_name="plan.pdf",
+            summary="A ground-floor plan.",
+            folder_path="Brandschutz/Fluchtwege",
+        )
+    ]
+
+    _merge_summaries(files, summaries)
+
+    assert files[0].folder_path == "Brandschutz/Fluchtwege"
+
+
+def test_file_filed_at_the_root_keeps_a_null_folder_path():
+    files = [_file("plan.pdf")]
+    summaries = [AvailableDocument(file_name="plan.pdf", summary="At the root.")]
+
+    _merge_summaries(files, summaries)
+
+    assert files[0].folder_path is None

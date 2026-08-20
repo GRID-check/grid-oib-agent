@@ -583,6 +583,39 @@ def get_document_display_titles(collection: str, filenames: list[str]) -> dict[s
     return _get_document_metadata_store().get_display_titles_batch(collection, filenames)
 
 
+def set_document_folder_path(collection: str, filename: str, folder_path: str | None) -> bool:
+    """Set the materialised ``folder_path`` on an existing metadata row (ADR-0049).
+
+    UPDATE-only (never creates a row), like :func:`set_document_display_title`:
+    returns ``False`` when no metadata row exists for ``(collection, filename)``.
+    ``None``/blank clears it, which is what "filed at the project root" means.
+    The single seam behind BOTH ingestion (which stamps the folder the BFF sent
+    with the file) and the folder mirror endpoint.
+    """
+    return _get_document_metadata_store().set_folder_path(collection, filename, (folder_path or "").strip() or None)
+
+
+def get_document_folder_paths(collection: str, filenames: list[str]) -> dict[str, str]:
+    """Return stored ``folder_path`` values for many documents in one query.
+
+    Only documents with a truthy stored path appear in the map (the same
+    coercion as the doc_class and display_title batches). This is what
+    retrieval's folder filter and the ``Ordner:`` citation line read, so a folder
+    rename applies WITHOUT re-ingest.
+    """
+    return _get_document_metadata_store().get_folder_paths_batch(collection, filenames)
+
+
+def rewrite_document_folder_paths(collection: str, from_path: str, to_path: str | None) -> int:
+    """Re-file every document under ``from_path`` onto ``to_path`` (ADR-0049).
+
+    The backend mirror of the BFF's materialised-path rewrite: one call moves a
+    renamed / re-parented / deleted folder's whole subtree. Returns the number of
+    documents re-filed.
+    """
+    return _get_document_metadata_store().rewrite_folder_paths(collection, from_path, to_path)
+
+
 def list_summary_collections() -> list[str]:
     """List every collection that has at least one persisted summary."""
     return _get_document_metadata_store().list_collections()

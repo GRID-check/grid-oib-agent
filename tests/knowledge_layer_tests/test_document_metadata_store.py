@@ -134,6 +134,7 @@ class TestAvailableDocument:
             "tags": None,
             "doc_class": None,
             "display_title": None,
+            "folder_path": None,
             "collection": None,
             "shelf": None,
         }
@@ -148,6 +149,7 @@ class TestAvailableDocument:
             "tags": None,
             "doc_class": None,
             "display_title": None,
+            "folder_path": None,
             "collection": None,
             "shelf": None,
         }
@@ -613,6 +615,41 @@ class TestDocumentMetadataStore:
 # =============================================================================
 # Factory Function Tests
 # =============================================================================
+
+
+class TestReSummarisingKeepsTheHumanColumns:
+    """`register` owns summary + tags. It must not clear anything else.
+
+    SQLite's `INSERT OR REPLACE` is a DELETE plus an INSERT, so re-summarising a
+    document used to null every column the statement did not name — the admin's
+    rename, the platform owner's reclassification, and (once folders travelled)
+    the user's filing. Postgres, on its `ON CONFLICT DO UPDATE` branch, kept all
+    three. Same store, same call, two different outcomes, and the SQLite one is
+    what the default `AIQ_SUMMARY_DB` uses.
+    """
+
+    @pytest.fixture
+    def store(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url = f"sqlite:///{Path(tmpdir) / 'resummarise.db'}"
+            DocumentMetadataStore._tables_initialized.discard(db_url)
+            yield DocumentMetadataStore(db_url)
+            DocumentMetadataStore.dispose_engine(db_url)
+            DocumentMetadataStore._tables_initialized.discard(db_url)
+
+    def test_a_re_register_keeps_display_title_doc_class_and_folder(self, store):
+        store.register("proj_a", "plan.pdf", "First summary")
+        store.set_display_title("proj_a", "plan.pdf", "Einreichplan Erdgeschoss")
+        store.set_doc_class("proj_a", "plan.pdf", "plan")
+        store.set_folder_path("proj_a", "plan.pdf", "Brandschutz/Fluchtwege")
+
+        store.register("proj_a", "plan.pdf", "A newer summary")
+
+        doc = store.get_all("proj_a")[0]
+        assert doc.summary == "A newer summary"
+        assert doc.display_title == "Einreichplan Erdgeschoss"
+        assert doc.doc_class == "plan"
+        assert doc.folder_path == "Brandschutz/Fluchtwege"
 
 
 class TestFactoryFunctions:
