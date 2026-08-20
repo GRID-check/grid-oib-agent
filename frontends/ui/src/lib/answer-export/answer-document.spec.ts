@@ -129,11 +129,77 @@ describe('the document’s chrome', () => {
   })
 })
 
+/**
+ * The marking a document carries when Piloti wrote it and nobody checked it.
+ *
+ * Asserted at the block level like everything else here, and asserted in both
+ * directions: an ordinary export must be exactly what it was before this
+ * existed, because a marking that appears on every file marks nothing and the
+ * one it is meant to warn about becomes indistinguishable again.
+ */
+describe('the marking on an unreviewed document', () => {
+  it('is absent from an ordinary export', () => {
+    const plain = buildAnswerDocument(input(), german, 'de')
+
+    // The flag off and the flag absent are the same document, block for block:
+    // an export nobody opted in for is untouched by this feature.
+    expect(plain).toEqual(buildAnswerDocument(input({ agentAuthored: false }), german, 'de'))
+    expect(plain[0]).toEqual({ kind: 'heading', level: 1, text: 'Fluchtwege Bauteil B' })
+    expect(text(plain)).not.toContain('KI-generiert')
+  })
+
+  it('opens the document, ahead of its own title', () => {
+    const blocks = buildAnswerDocument(input({ agentAuthored: true }), german, 'de')
+
+    // A one-cell table: the border is what separates a statement ABOUT the
+    // document from the document, and it keeps doing that after the reader has
+    // edited the prose around it.
+    expect(blocks[0]).toEqual({
+      kind: 'table',
+      rows: [
+        [
+          [
+            { text: 'KI-generiert — nicht geprüft\n', bold: true },
+            { text: de.answerExport.aiNotice.body },
+          ],
+        ],
+      ],
+    })
+    expect(blocks[1]).toEqual({ kind: 'heading', level: 1, text: 'Fluchtwege Bauteil B' })
+  })
+
+  it('says what the document is and what it is not, in both locales', () => {
+    // Pinned word for word rather than compared against the dictionary: this
+    // sentence is the product's own statement about liability, and a reviewer
+    // has to approve a change to it rather than discover it in a diff of a
+    // dictionary file.
+    expect(text(buildAnswerDocument(input({ agentAuthored: true }), german, 'de'))).toContain(
+      'Dieses Dokument hat Piloti erstellt; ein Mensch hat es nicht geprüft. Es ist ein Entwurf und kein Nachweis — prüfen Sie jede Angabe, bevor Sie das Dokument weitergeben oder einreichen.'
+    )
+    expect(text(buildAnswerDocument(input({ agentAuthored: true }), english, 'en'))).toContain(
+      'AI-generated — not reviewed'
+    )
+    expect(text(buildAnswerDocument(input({ agentAuthored: true }), english, 'en'))).toContain(
+      'Piloti wrote this document; no person has reviewed it. It is a draft, not proof of compliance — check every statement before you pass the document on or submit it.'
+    )
+  })
+
+  it('marks a document that carries nothing else', () => {
+    // Every other section here is conditional on the stored answer having
+    // something to say. This one is not: the claim is about who wrote the file.
+    const blocks = buildAnswerDocument(
+      { answer: '', createdAt: CREATED_AT, agentAuthored: true },
+      german,
+      'de'
+    )
+
+    expect(text(blocks)).toContain('KI-generiert — nicht geprüft')
+  })
+})
+
 describe('citations', () => {
   it('renders the stored sources as a numbered reference list, not as raw markers', () => {
-    const output = text(
-      buildAnswerDocument(input({ citations: storedCitations }), german, 'de')
-    )
+    const output = text(buildAnswerDocument(input({ citations: storedCitations }), german, 'de'))
 
     expect(output).toContain('Quellen')
     expect(output).toContain('[1] OIB-RL 2, Pkt. 5.1.1 — OIB-Richtlinie 2 — Brandschutz, S. 18')
@@ -143,9 +209,7 @@ describe('citations', () => {
   })
 
   it('lists a source once even when several passages of it were retrieved', () => {
-    const output = text(
-      buildAnswerDocument(input({ citations: storedCitations }), german, 'de')
-    )
+    const output = text(buildAnswerDocument(input({ citations: storedCitations }), german, 'de'))
 
     expect(output.match(/\[1\] OIB-RL 2/g)).toHaveLength(1)
     // Retrieved-but-not-cited stays out: nothing in the prose points at it, so
@@ -162,11 +226,7 @@ describe('citations', () => {
       ],
     }
     const output = text(
-      buildAnswerDocument(
-        input({ answer: 'Siehe [3] und [2].', citations }),
-        german,
-        'de'
-      )
+      buildAnswerDocument(input({ answer: 'Siehe [3] und [2].', citations }), german, 'de')
     )
 
     expect(output).toContain('[2] Zweite Quelle')
@@ -313,7 +373,9 @@ describe('cards', () => {
     expect(output).toContain('Position | Ist | Soll | Beurteilung')
     // The tolerance and "gemessen" ride along with the number: without them our
     // measurement reads as the architect's own declared figure.
-    expect(output).toContain('Steigung | 18.2 ±0.5 cm (gemessen) | <= 18 cm | Anforderung nicht erfüllt')
+    expect(output).toContain(
+      'Steigung | 18.2 ±0.5 cm (gemessen) | <= 18 cm | Anforderung nicht erfüllt'
+    )
   })
 
   it('states a live-data card instead of dropping it', () => {
@@ -563,7 +625,13 @@ describe('cards that are the app talking, not the answer', () => {
               rationale: 'Fluchtniveau über 22 m.',
               patch: [{ op: 'add', path: '/facts/fluchtniveau', value: '>22m' }],
             },
-            { type: 'memory_proposal', title: 'Merken?', content: 'REI 90 durchgängig', kind: 'preference', confidence: 'high' },
+            {
+              type: 'memory_proposal',
+              title: 'Merken?',
+              content: 'REI 90 durchgängig',
+              kind: 'preference',
+              confidence: 'high',
+            },
           ],
         }),
         german,
@@ -596,7 +664,9 @@ describe('cards that are the app talking, not the answer', () => {
     // "drop it": a finding missing from the file reads as one never made.
     const output = text(
       buildAnswerDocument(
-        input({ cards: [{ type: 'a_card_from_the_future', title: 'Neue Karte', note: 'Ein Befund.' }] }),
+        input({
+          cards: [{ type: 'a_card_from_the_future', title: 'Neue Karte', note: 'Ein Befund.' }],
+        }),
         german,
         'de'
       )
@@ -627,7 +697,14 @@ describe('every string in the document comes from a dictionary', () => {
    */
   const authoredCards: Record<string, unknown>[] = [
     { type: 'summary', title: 'Kurzfassung', content: 'Kurz.', key_points: ['A', 'B'] },
-    { type: 'legal_basis', law: 'OIB 2', article: '§ 3', section: 'Pkt. 5', summary: 'Kurz.', original_text: 'Wortlaut.' },
+    {
+      type: 'legal_basis',
+      law: 'OIB 2',
+      article: '§ 3',
+      section: 'Pkt. 5',
+      summary: 'Kurz.',
+      original_text: 'Wortlaut.',
+    },
     {
       type: 'project_profile_patch',
       title: 'Projektkontext',
@@ -635,7 +712,13 @@ describe('every string in the document comes from a dictionary', () => {
       patch: [{ op: 'add', path: '/facts/gk', value: 'GK4' }],
       preview: [{ label: 'GK', before: '-', after: 'GK4' }],
     },
-    { type: 'memory_proposal', title: 'Merken?', content: 'Fluchtniveau 9,8 m', kind: 'derived_fact', confidence: 'high' },
+    {
+      type: 'memory_proposal',
+      title: 'Merken?',
+      content: 'Fluchtniveau 9,8 m',
+      kind: 'derived_fact',
+      confidence: 'high',
+    },
     { type: 'requirement_checklist', title: 'Liste', items: [{ label: 'A', status: 'pass' }] },
     {
       type: 'comparison_table',
@@ -727,16 +810,34 @@ describe('every string in the document comes from a dictionary', () => {
       building_width_m: 10,
       building_depth_m: 12,
       route_width: { label: 'Zufahrt', value: 3.5, required: 3, unit: 'm', status: 'pass' },
-      gate_clearance_height: { label: 'Durchfahrt', value: 4, required: 3.5, unit: 'm', status: 'pass' },
+      gate_clearance_height: {
+        label: 'Durchfahrt',
+        value: 4,
+        required: 3.5,
+        unit: 'm',
+        status: 'pass',
+      },
       // `AufstellflaechePlan`: two `DimensionCheck`s and an optional third. The
       // `{label, width_m, length_m}` this used to be is a shape the card has
       // never had, so the assertion below was checking the walker against
       // something the backend cannot emit.
       aufstellflaeche: {
         width: { label: 'Aufstellfläche Breite', value: 5, required: 5, unit: 'm', status: 'pass' },
-        length: { label: 'Aufstellfläche Länge', value: 12, required: 10, unit: 'm', status: 'pass' },
+        length: {
+          label: 'Aufstellfläche Länge',
+          value: 12,
+          required: 10,
+          unit: 'm',
+          status: 'pass',
+        },
       },
-      walk_distance_to_entrance: { label: 'Weg', value: 60, required: 80, unit: 'm', status: 'pass' },
+      walk_distance_to_entrance: {
+        label: 'Weg',
+        value: 60,
+        required: 80,
+        unit: 'm',
+        status: 'pass',
+      },
       reference: { document: 'TRVB F 134' },
     },
     {
@@ -758,7 +859,11 @@ describe('every string in the document comes from a dictionary', () => {
       storey_label: '2.OG',
       gebaeudeklasse: 'GK 4',
       compartments: [
-        { label: 'BA 1', area: { label: 'Fläche', value: 800, required: 1200, unit: 'm²', status: 'pass' }, use: 'Wohnen' },
+        {
+          label: 'BA 1',
+          area: { label: 'Fläche', value: 800, required: 1200, unit: 'm²', status: 'pass' },
+          use: 'Wohnen',
+        },
       ],
       reference: { document: 'OIB 2' },
     },
@@ -766,7 +871,11 @@ describe('every string in the document comes from a dictionary', () => {
       type: 'thermal_envelope',
       title: 'Wärmeschutz',
       components: [
-        { label: 'Außenwand', kind: 'wall', u_value: { label: 'U', value: 0.2, required: 0.35, unit: 'W/(m²K)', status: 'pass' } },
+        {
+          label: 'Außenwand',
+          kind: 'wall',
+          u_value: { label: 'U', value: 0.2, required: 0.35, unit: 'W/(m²K)', status: 'pass' },
+        },
       ],
       reference: { document: 'OIB 6' },
     },
@@ -802,7 +911,9 @@ describe('every string in the document comes from a dictionary', () => {
       type: 'document_grid',
       title: 'Dokumente',
       query: 'Fluchtwege',
-      documents: [{ file_name: 'einreichplan.pdf', summary: 'Einreichplan', snippet: 'Fluchtweg', page: 3 }],
+      documents: [
+        { file_name: 'einreichplan.pdf', summary: 'Einreichplan', snippet: 'Fluchtweg', page: 3 },
+      ],
     },
     { type: 'ifc_viewer', title: 'Modell' },
     { type: 'ifc_compliance', title: 'Prüfbuch' },
@@ -829,7 +940,10 @@ describe('every string in the document comes from a dictionary', () => {
   const authored = new Map(authoredCards.map((card) => [card.type as string, card]))
   const everyCardType: Record<string, unknown>[] = [...gridCardSchema.optionsMap.keys()]
     .filter((type): type is string => typeof type === 'string')
-    .map((type) => authored.get(type) ?? (previewFixtureFor(type) as Record<string, unknown> | undefined))
+    .map(
+      (type) =>
+        authored.get(type) ?? (previewFixtureFor(type) as Record<string, unknown> | undefined)
+    )
     .filter((card): card is Record<string, unknown> => card !== undefined)
 
   it('covers every card type in the union', () => {
@@ -941,10 +1055,9 @@ describe('every string in the document comes from a dictionary', () => {
 
     for (const card of findings) {
       const output = text(buildAnswerDocument(input({ cards: [card] }), german, 'de'))
-      expect(
-        output.length,
-        `card ${card.type} added nothing to the document`
-      ).toBeGreaterThan(withoutCards)
+      expect(output.length, `card ${card.type} added nothing to the document`).toBeGreaterThan(
+        withoutCards
+      )
       // Where the card carries a heading of its own, that heading is what the
       // reader looks for in the file.
       const heading = typeof card.title === 'string' ? card.title : ''
@@ -998,9 +1111,13 @@ describe('every string in the document comes from a dictionary', () => {
     const withoutCards = text(buildAnswerDocument(input({ cards: [] }), german, 'de'))
 
     const dropped = everyCardType
-      .filter((card) => text(buildAnswerDocument(input({ cards: [card] }), german, 'de')) === withoutCards)
+      .filter(
+        (card) => text(buildAnswerDocument(input({ cards: [card] }), german, 'de')) === withoutCards
+      )
       .map((card) => String(card.type))
-    const chrome = everyCardType.filter((card) => kindOf(card) === 'chrome').map((card) => String(card.type))
+    const chrome = everyCardType
+      .filter((card) => kindOf(card) === 'chrome')
+      .map((card) => String(card.type))
 
     expect(
       dropped.sort(),

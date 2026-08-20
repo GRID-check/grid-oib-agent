@@ -26,6 +26,20 @@ export const answerExport = {
   documentTitle: 'Answer',
   /** File-name stem when the conversation carries no title. */
   fileName: 'answer',
+  /**
+   * The marking on a document Piloti wrote and nobody has reviewed.
+   *
+   * It is a dictionary entry rather than a string in the renderer for the
+   * reason the whole namespace exists: the file is read after it has left the
+   * product, by someone who cannot ask what it is — and a marking they cannot
+   * read is not a marking. The wording says what the document is and what it is
+   * not, because a draft mistaken for a Nachweis is the failure this block is
+   * here to prevent.
+   */
+  aiNotice: {
+    title: 'AI-generated — not reviewed',
+    body: 'Piloti wrote this document; no person has reviewed it. It is a draft, not proof of compliance — check every statement before you pass the document on or submit it.',
+  },
   question: 'Question',
   answer: 'Answer',
   project: 'Project',

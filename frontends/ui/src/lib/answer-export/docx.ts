@@ -29,6 +29,16 @@
  * Everything is escaped through {@link escapeXml}, including the parts that look
  * like they cannot contain markup: a source title is model output, and a `&` in
  * one would otherwise produce a package Word refuses to open.
+ *
+ * ## The one optional part
+ *
+ * `docProps/custom.xml` is written only for {@link DocxOptions.aiProvenance}.
+ * An OPC part is three edits, not one — the bytes, an `Override` in
+ * `[Content_Types].xml` giving them a content type, and a `Relationship` from
+ * the package root that reaches them — and a part that is present but
+ * unregistered is not an unread part, it is a package Word declines to open.
+ * All three live in {@link renderDocx} for that reason, keyed off the same
+ * value, so none of them can be added without the others.
  */
 
 import 'server-only'
@@ -109,11 +119,7 @@ const BORDER =
   '</w:tblBorders>'
 
 const renderTable = (block: Extract<DocBlock, { kind: 'table' }>): string => {
-  const columns = Math.max(
-    block.head?.length ?? 0,
-    ...block.rows.map((row) => row.length),
-    1
-  )
+  const columns = Math.max(block.head?.length ?? 0, ...block.rows.map((row) => row.length), 1)
   // Distributed evenly rather than measured: the remainder goes to the last
   // column so the grid sums to the text width exactly. A grid that does not is
   // silently re-flowed by Word, which is how a two-column label table ends up
@@ -181,19 +187,100 @@ const SECTION =
 
 const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
 
-const CONTENT_TYPES =
+/**
+ * What a machine is told about how the document came to exist.
+ *
+ * The printed block on page one is for the reader; this is for everything else
+ * — a records system, a Behörde's intake, a compliance scan — which is what
+ * the AI Act's transparency obligation actually asks for: marking that does
+ * not depend on somebody reading page one and believing it.
+ */
+export interface DocxProvenance {
+  /**
+   * The agent run that produced the content, when the caller knows it. Absent
+   * rather than empty when it does not: a run id nobody can look up is worse
+   * than no run id, because it reads like an audit trail.
+   */
+  runId?: string
+}
+
+export interface DocxOptions {
+  /**
+   * Present when the content was generated and not reviewed by a human.
+   *
+   * Absent — the default — leaves the package byte-identical to what it was
+   * before this option existed: no part, no override, no relationship. A
+   * marking on every file marks nothing.
+   */
+  aiProvenance?: DocxProvenance
+}
+
+/** The name a downstream detector matches on. Stable: it is an interface. */
+const GENERATOR = 'Piloti'
+
+/**
+ * The FMTID every user-defined custom property carries.
+ *
+ * Not a value we choose — OOXML fixes it for the user-defined property set,
+ * and a different GUID puts the properties in a set Word does not show.
+ */
+const CUSTOM_PROPERTIES_FMTID = '{D5CDD505-2E9C-101B-9397-08002B2CF9AE}'
+
+/**
+ * `docProps/custom.xml`.
+ *
+ * `pid` counts from 2 because 0 and 1 are reserved in the property set, and it
+ * is assigned here from the array's own order rather than written per property
+ * — two properties sharing a pid is the malformed shape, and hand-numbering is
+ * how it happens.
+ */
+const customProperties = (provenance: DocxProvenance): string => {
+  const properties = [
+    { name: 'AIGenerated', value: '<vt:bool>true</vt:bool>' },
+    { name: 'AIGenerator', value: `<vt:lpwstr>${escapeXml(GENERATOR)}</vt:lpwstr>` },
+    { name: 'AIHumanReviewed', value: '<vt:bool>false</vt:bool>' },
+  ]
+  if (provenance.runId) {
+    properties.push({
+      name: 'AIRunId',
+      value: `<vt:lpwstr>${escapeXml(provenance.runId)}</vt:lpwstr>`,
+    })
+  }
+
+  return (
+    XML_DECLARATION +
+    '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" ' +
+    'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">' +
+    properties
+      .map(
+        (property, index) =>
+          `<property fmtid="${CUSTOM_PROPERTIES_FMTID}" pid="${index + 2}" ` +
+          `name="${escapeXml(property.name)}">${property.value}</property>`
+      )
+      .join('') +
+    '</Properties>'
+  )
+}
+
+const contentTypes = (withProvenance: boolean): string =>
   XML_DECLARATION +
   '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
   '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
   '<Default Extension="xml" ContentType="application/xml"/>' +
   '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
   '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
+  (withProvenance
+    ? '<Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml"/>'
+    : '') +
   '</Types>'
 
-const PACKAGE_RELS =
+const packageRels = (withProvenance: boolean): string =>
   XML_DECLARATION +
   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+  (withProvenance
+    ? '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties" Target="docProps/custom.xml"/>'
+    : '') +
   '</Relationships>'
 
 const DOCUMENT_RELS =
@@ -244,7 +331,11 @@ const STYLES =
     'Quote',
     '<w:pPr><w:ind w:left="360"/><w:spacing w:after="120"/></w:pPr><w:rPr><w:i/><w:color w:val="404040"/></w:rPr>'
   ) +
-  style('TableText', 'Table Text', '<w:pPr><w:spacing w:after="0"/></w:pPr><w:rPr><w:sz w:val="20"/></w:rPr>') +
+  style(
+    'TableText',
+    'Table Text',
+    '<w:pPr><w:spacing w:after="0"/></w:pPr><w:rPr><w:sz w:val="20"/></w:rPr>'
+  ) +
   '</w:styles>'
 
 /**
@@ -254,19 +345,23 @@ const STYLES =
  * element is a table is malformed, and the trailing spacer every table already
  * emits is not enough on its own when the document ends with one.
  */
-export function renderDocx(blocks: DocBlock[]): Uint8Array {
+export function renderDocx(blocks: DocBlock[], options: DocxOptions = {}): Uint8Array {
+  const provenance = options.aiProvenance
   const body = blocks.map(renderBlock).join('')
   const document =
     XML_DECLARATION +
     `<w:document xmlns:w="${W_NS}"><w:body>${body}${SPACER}${SECTION}</w:body></w:document>`
 
   const entries: ZipEntry[] = [
-    { path: '[Content_Types].xml', content: CONTENT_TYPES },
-    { path: '_rels/.rels', content: PACKAGE_RELS },
+    { path: '[Content_Types].xml', content: contentTypes(Boolean(provenance)) },
+    { path: '_rels/.rels', content: packageRels(Boolean(provenance)) },
     { path: 'word/document.xml', content: document },
     { path: 'word/_rels/document.xml.rels', content: DOCUMENT_RELS },
     { path: 'word/styles.xml', content: STYLES },
   ]
+  if (provenance) {
+    entries.push({ path: 'docProps/custom.xml', content: customProperties(provenance) })
+  }
   return createZip(entries)
 }
 

@@ -47,7 +47,33 @@ export interface AnswerDocumentInput {
   /** `metadata.cards`, in the stored card shape. */
   cards?: unknown
   confidence?: AnswerConfidence | null
+  /**
+   * Set when Piloti wrote the content and no human has reviewed it.
+   *
+   * Off by default, and the default is the honest one: an answer a person
+   * asked for, read on screen and chose to export is not unreviewed. Marking
+   * every export would make the marking mean nothing, which costs exactly the
+   * documents that need it.
+   */
+  agentAuthored?: boolean
 }
+
+/**
+ * The marking, as the first thing on page one.
+ *
+ * A single-cell table rather than two paragraphs, because the border is the
+ * part that does the work: it separates a statement ABOUT the document from
+ * the document, and it keeps separating them after the reader has edited the
+ * text around it. Reusing `table` also keeps the block vocabulary closed — a
+ * `notice` kind would be a second thing every future exporter has to render.
+ *
+ * Unconditional on the answer's content: the claim is about who wrote the
+ * document, which is true of a document with nothing in it too.
+ */
+const agentNotice = (t: Translator): DocBlock => ({
+  kind: 'table',
+  rows: [[[{ text: `${t('aiNotice.title')}\n`, bold: true }, { text: t('aiNotice.body') }]]],
+})
 
 /**
  * A reference-list entry as one paragraph.
@@ -70,7 +96,11 @@ const confidenceBlocks = (confidence: AnswerConfidence, t: Translator): DocBlock
   const blocks: DocBlock[] = [labelled(t('confidence'), level)]
   if (confidence.cappedReason) {
     const key = confidence.cappedReason === 'ungrounded' ? 'ungrounded' : 'quoteUnverified'
-    blocks.push({ kind: 'paragraph', runs: [{ text: t(`confidenceCapped.${key}`) }], style: 'meta' })
+    blocks.push({
+      kind: 'paragraph',
+      runs: [{ text: t(`confidenceCapped.${key}`) }],
+      style: 'meta',
+    })
   }
   // Quoted rather than paraphrased: it is the model's own sentence about its own
   // answer, and rewriting it would make the export the author of a claim it only
@@ -78,7 +108,10 @@ const confidenceBlocks = (confidence: AnswerConfidence, t: Translator): DocBlock
   if (confidence.reason?.trim()) {
     blocks.push({
       kind: 'paragraph',
-      runs: [{ text: `${t('confidenceReason')}: `, bold: true }, { text: confidence.reason.trim() }],
+      runs: [
+        { text: `${t('confidenceReason')}: `, bold: true },
+        { text: confidence.reason.trim() },
+      ],
       style: 'meta',
     })
   }
@@ -104,6 +137,8 @@ export function buildAnswerDocument(
 
   const title = input.conversationTitle?.trim() || t('documentTitle')
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(input.createdAt)
+
+  const notice: DocBlock[] = input.agentAuthored ? [agentNotice(t)] : []
 
   const header: (DocBlock | null)[] = [
     { kind: 'heading', level: 1, text: title },
@@ -131,13 +166,11 @@ export function buildAnswerDocument(
 
   const sourceSection: DocBlock[] =
     references.length > 0
-      ? [
-          { kind: 'heading', level: 2, text: t('sources') },
-          ...references.map(referenceParagraph),
-        ]
+      ? [{ kind: 'heading', level: 2, text: t('sources') }, ...references.map(referenceParagraph)]
       : []
 
   return compact([
+    ...notice,
     ...header,
     ...questionSection,
     ...answerSection,
