@@ -584,11 +584,19 @@ declared no `config`, so Next's `api.bodyParser.sizeLimit` default of 1mb
 bounded every request to it. App Router handlers inherit no such default —
 `serverActions.bodySizeLimit` governs Server Actions only — so after the move a
 `markdown: z.string().min(1)` stood alone in front of `renderToStream`, whose
-cost is superlinear in the input: measured here, 32 KiB renders in 2.9 s, 64 KiB
-in 10.9 s, 128 KiB in 61 s, and a 2 MB body had not finished after ten minutes,
-against a budget that admits 300 mutations per member per minute. Both bounds
-are now explicit in the route (1 MiB body, 64 KiB markdown), each with its
-measurement. The general lesson is the same one the authz hole taught, from the
+cost is superlinear in the input, against a budget that admits 300 mutations per
+member per minute. Both bounds are now explicit (1 MiB body at the route,
+64 KiB markdown in the renderer), each with its measurement.
+
+**One measurement this document used to carry has been retracted.** It read
+"32 KiB renders in 2.9 s, 64 KiB in 10.9 s, 128 KiB in 61 s". The 61 s could not
+be reproduced — prose of that size renders in 1.4 s. The number was right about
+the danger and wrong about the cause: what costs a minute is not 128 KiB, it is
+128 KiB of TABLES, and the sharper edge is memory rather than time (1.2 GB of
+peak RSS is not a slow response, it is an OOM that takes every request in the
+container with it). The conclusion — 64 KiB — survives; the reasoning behind it
+did not. `lib/pdf/markdown-pdf.ts` carries the corrected table, by shape rather
+than by size, and is the source to trust over this paragraph. The general lesson is the same one the authz hole taught, from the
 other side: **what a framework move deletes is not always a line — it can be a
 default**, and a default leaves no diff to review.
 
