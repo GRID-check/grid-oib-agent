@@ -145,6 +145,80 @@ describe('when it draws', () => {
   })
 })
 
+/**
+ * Half a diagram, said out loud.
+ *
+ * The route answers 201 with `pdf: null` when the SVG landed and the PDF did
+ * not. Before that existed, the same case arrived as a 500 and read „Internal
+ * server error" in a German figcaption, while the `partial` state below was set
+ * only for a 2xx body missing `svg.documentId` — an answer the route never
+ * produces. So the copy for it was unreachable and the real half-filed diagram
+ * was reported as a failure, which is the one message that makes a reader stop
+ * looking for a file that exists.
+ */
+describe('when only half of it is filed', () => {
+  const partialFetch = () =>
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ svg: { documentId: 'doc-1' }, pdf: null }),
+    })
+
+  const fileIt = async () => {
+    render(
+      <DiagramFilingProvider target={{ projectId: 'proj-1', answerId: 'msg_42' }}>
+        <MermaidDiagram source={SOURCE} />
+      </DiagramFilingProvider>
+    )
+    await userEvent.click(await screen.findByRole('button', { name: /file in project/i }))
+  }
+
+  it('says which half landed rather than „done" or „failed"', async () => {
+    vi.stubGlobal('fetch', partialFetch())
+    await fileIt()
+
+    expect(await screen.findByText('The image was filed; the PDF was not.')).toBeInTheDocument()
+    expect(screen.queryByText('Filed in the project')).toBeNull()
+  })
+
+  it('links to the half that is in the project', async () => {
+    // A reader told half of it is filed and not told where has to hunt through
+    // Berichte for a file they are not sure exists.
+    vi.stubGlobal('fetch', partialFetch())
+    await fileIt()
+
+    expect(await screen.findByRole('link', { name: /open in project/i })).toHaveAttribute(
+      'href',
+      expect.stringContaining('doc-1')
+    )
+  })
+
+  it('offers the retry that files only the missing half', async () => {
+    // Filing is idempotent per (run, producer): pressing this finds the SVG
+    // already filed and files only the PDF, which is why it is labelled for the
+    // PDF and not for the diagram.
+    const fetchMock = partialFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    await fileIt()
+
+    const retry = await screen.findByRole('button', { name: /add the pdf/i })
+    await userEvent.click(retry)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).runId).toBe(diagramRunId('msg_42', SOURCE))
+  })
+
+  it('does not call an answer it cannot read a partial filing', async () => {
+    // The route never answers 2xx without `svg.documentId`. If it ever does,
+    // the honest reading is "something went wrong", not a sentence claiming a
+    // file was written.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+    await fileIt()
+
+    expect(await screen.findByText('Could not be filed')).toBeInTheDocument()
+    expect(screen.queryByText('The image was filed; the PDF was not.')).toBeNull()
+  })
+})
+
 describe('the diagram’s identity', () => {
   it('is stable for the same source in the same answer, so filing twice files once', () => {
     // A render-time counter would hand the same diagram a different identity on

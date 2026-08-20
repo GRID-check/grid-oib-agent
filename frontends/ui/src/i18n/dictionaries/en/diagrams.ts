@@ -31,8 +31,24 @@ export const diagrams = {
     done: 'Filed in the project',
     open: 'Open in project',
     failed: 'Could not be filed',
-    /** The SVG landed and the PDF did not. Naming both halves beats "done". */
-    partial: 'The image was filed; the PDF was not. Try again to add it.',
+    /**
+     * The SVG landed and the PDF did not — the route's `pdf: null`, 201.
+     *
+     * Naming both halves beats "done", and it beats "could not be filed" by
+     * more: a filed, quota-charged SVG is in Berichte either way, and the one
+     * message that makes a reader stop looking for it is the one that says
+     * nothing happened. What to do about it is not in this sentence — it is
+     * the `open` link and the `completePdf` button beside it.
+     */
+    partial: 'The image was filed; the PDF was not.',
+    /**
+     * The retry, labelled for what it actually does.
+     *
+     * Filing is idempotent per (run, producer), so pressing it again files only
+     * the missing half. "File in project" would promise a second copy of the
+     * drawing; this promises the half that is missing.
+     */
+    completePdf: 'Add the PDF',
   },
   /**
    * The provenance block printed in the PDF itself.
@@ -58,5 +74,12 @@ export const diagrams = {
     'event-handler-attribute': 'The diagram carries an event handler.',
     'external-reference': 'The diagram references something outside itself.',
     'source-too-large': 'The diagram source is too long.',
+    /**
+     * Depth, not size: four walks recurse once per level, so nesting a browser
+     * can still draw is nesting the server and the PDF renderer cannot survive.
+     * Named rather than folded into `too-large`, because the remedy is a
+     * different one — flatten the grouping, not shrink the drawing.
+     */
+    'too-deep': 'The diagram nests its elements too deeply to be filed.',
   },
 }

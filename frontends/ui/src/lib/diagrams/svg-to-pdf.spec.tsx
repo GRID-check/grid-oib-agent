@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { inflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
+import { MAX_DIAGRAM_SVG_DEPTH } from './diagram-sources'
 import { acceptDiagram } from './svg'
 import { renderDiagramPdf } from './svg-to-pdf'
 
@@ -138,6 +139,27 @@ describe('a diagram becomes a PDF, without a browser', () => {
       createdAt: new Date('2026-08-20T00:00:00Z'),
     })
     expect(Buffer.from(pdf).toString('latin1')).not.toContain('graph TD')
+  })
+})
+
+describe('the depth the validator admits is a depth this renderer survives', () => {
+  it('renders a diagram nested exactly as deep as the parser allows', async () => {
+    // The two bounds are one bound, and this is where they are tied together.
+    // `toPdfNode` recurses per level and `@react-pdf/renderer`'s own layout
+    // recurses inside it, so the PDF stage dies FIRST: measured in this
+    // repository, the whole route survived depth 1500 and threw `RangeError:
+    // Maximum call stack size exceeded` at 1600 in a fresh process — while the
+    // parser alone reached 5000. `MAX_DIAGRAM_SVG_DEPTH` is set an order of
+    // magnitude below that, and this test is what fails if a later change
+    // raises it toward the ceiling instead of away from it.
+    const groups = MAX_DIAGRAM_SVG_DEPTH - 2
+    const pdf = await pdfFor(
+      `${'<g>'.repeat(groups)}<rect x="10" y="10" width="80" height="40" fill="#eef"/>${'</g>'.repeat(groups)}`,
+    )
+    expect(Buffer.from(pdf.subarray(0, 5)).toString('latin1')).toBe('%PDF-')
+    // Not just "some bytes came back": the rect at the bottom of the nesting is
+    // what has to have survived the walk.
+    expect(contentStreams(pdf).join('\n')).toContain('10 10 m')
   })
 })
 

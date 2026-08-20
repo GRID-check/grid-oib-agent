@@ -19,7 +19,8 @@ export const diagrams: typeof en.diagrams = {
     done: 'Im Projekt abgelegt',
     open: 'Im Projekt öffnen',
     failed: 'Konnte nicht abgelegt werden',
-    partial: 'Das Bild wurde abgelegt, das PDF nicht. Nochmals versuchen, um es zu ergänzen.',
+    partial: 'Das Bild wurde abgelegt, das PDF nicht.',
+    completePdf: 'PDF ergänzen',
   },
   marking:
     'Von Piloti erstellt — KI-generiert, nicht geprüft. Schematisch: ohne Maßangabe. Kein Nachweis; prüfen Sie jede Angabe, bevor Sie das Dokument weitergeben.',
@@ -38,5 +39,6 @@ export const diagrams: typeof en.diagrams = {
     'event-handler-attribute': 'Das Diagramm enthält einen Ereignis-Handler.',
     'external-reference': 'Das Diagramm verweist auf etwas außerhalb seiner selbst.',
     'source-too-large': 'Der Quelltext des Diagramms ist zu lang.',
+    'too-deep': 'Die Elemente des Diagramms sind zu tief ineinander verschachtelt.',
   },
 }

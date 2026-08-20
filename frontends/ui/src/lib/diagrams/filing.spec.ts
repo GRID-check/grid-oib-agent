@@ -156,10 +156,15 @@ describe('a diagram is two files', () => {
     // content type — and a sibling object would be bytes with no row, which is
     // exactly what ADR-0042 says the quota ledger cannot see.
     const filed = await file()
+    // Narrowed rather than asserted through `?.`: a null PDF is the PARTIAL
+    // case, which has its own tests, and `filed.pdf?.documentId` would let this
+    // one pass by comparing against `undefined`.
+    const { pdf } = filed
+    if (!pdf) throw new Error('expected both halves to be filed')
 
     expect(admitted().map((row) => row.authoredByProducer)).toEqual(['diagram_svg', 'diagram_pdf'])
     expect(admitted().map((row) => row.contentType)).toEqual(['image/svg+xml', 'application/pdf'])
-    expect(filed.svg.documentId).not.toBe(filed.pdf.documentId)
+    expect(filed.svg.documentId).not.toBe(pdf.documentId)
   })
 
   it('gives both rows the same run, which is what makes them one diagram', async () => {
@@ -281,17 +286,63 @@ describe('what is stored is not what was sent', () => {
     expect(requireProjectAccess).not.toHaveBeenCalled()
     expect(admitOrDiscard).not.toHaveBeenCalled()
   })
+
+  it('refuses a deeply nested diagram by name, not by exhausting the stack', async () => {
+    // The reason this belongs HERE and not only in `svg.spec.ts`: the parse runs
+    // before `requireProjectAccess`, so it is reachable by any authenticated
+    // session, and what it threw decided whether the caller got a 400 naming the
+    // rule or an untranslated 500. `RangeError` is not a `DiagramSvgError`.
+    const deep = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">${'<g>'.repeat(5000)}<rect width="1" height="1"/>${'</g>'.repeat(5000)}</svg>`
+
+    await expect(file({ svg: deep })).rejects.toThrow(/too-deep/)
+    expect(requireProjectAccess).not.toHaveBeenCalled()
+  })
 })
 
 describe('a partial filing is recoverable rather than rolled back', () => {
-  it('keeps the SVG when the PDF cannot be filed, and says so by throwing', async () => {
+  it('keeps the SVG when the PDF cannot be filed, and says so in the result', async () => {
     // The SVG is the half that carries the source, so it is the half worth
     // keeping — and `fileGeneratedDocument` is idempotent per (run, producer),
     // which is what makes the retry the compensation: filing again finds the
     // SVG already filed and files only the PDF.
+    //
+    // It says so by RETURNING. This function used to throw here, which made
+    // `FiledDiagram`'s two required halves consistent with itself and with
+    // nothing else: the route turned the throw into `Internal server error` and
+    // the reader was told the filing had failed while their diagram sat filed
+    // and quota-charged in Berichte. A `pdf: null` is the smaller true answer.
     admitOrDiscard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('quota'))
-    await expect(file()).rejects.toThrow('quota')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const filed = await file()
+
+    expect(filed.svg.documentId).toBeTruthy()
+    expect(filed.pdf).toBeNull()
     expect(admitted().map((row) => row.authoredByProducer)).toEqual(['diagram_svg', 'diagram_pdf'])
+  })
+
+  it('leaves the operator the reason it does not put in front of the reader', async () => {
+    // The reader's remedy is the same whatever the cause — press it again — but
+    // an operator staring at a project with half its diagrams needs the cause,
+    // and swallowing an exception without logging it is how a quota failure
+    // becomes a mystery.
+    admitOrDiscard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('quota'))
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await file()
+
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('the SVG was filed and the PDF was not'),
+      expect.objectContaining({ runId: 'msg_42-1a2b3c4d', cause: expect.stringContaining('quota') }),
+    )
+  })
+
+  it('still throws when the SVG itself cannot be filed, because there is no half to report', async () => {
+    // The asymmetry is the design: `pdf: null` is a smaller success, while a
+    // failed SVG wrote nothing at all. A result type that admitted both would
+    // make every caller invent an error message this module already throws.
+    admitOrDiscard.mockRejectedValueOnce(new Error('quota'))
+    await expect(file()).rejects.toThrow('quota')
   })
 
   it('files only the missing half on a retry', async () => {
@@ -301,8 +352,10 @@ describe('a partial filing is recoverable rather than rolled back', () => {
         : Promise.resolve(null),
     )
     const filed = await file()
+    const { pdf } = filed
+    if (!pdf) throw new Error('expected the retry to file the missing half')
     expect(filed.svg.alreadyFiled).toBe(true)
-    expect(filed.pdf.alreadyFiled).toBe(false)
+    expect(pdf.alreadyFiled).toBe(false)
     expect(admitted().map((row) => row.authoredByProducer)).toEqual(['diagram_pdf'])
   })
 })

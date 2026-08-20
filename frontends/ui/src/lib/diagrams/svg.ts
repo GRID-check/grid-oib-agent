@@ -54,7 +54,12 @@
  * that renders correctly in the preview pane and blank in the PDF.
  */
 
-import { DIAGRAM_SOURCE_FACTS, MAX_DIAGRAM_SVG_BYTES, type DiagramSourceKind } from './diagram-sources'
+import {
+  DIAGRAM_SOURCE_FACTS,
+  MAX_DIAGRAM_SVG_BYTES,
+  MAX_DIAGRAM_SVG_DEPTH,
+  type DiagramSourceKind,
+} from './diagram-sources'
 
 /**
  * Every way a submitted diagram can be refused.
@@ -77,6 +82,7 @@ export const DIAGRAM_SVG_REJECTIONS = [
   'event-handler-attribute',
   'external-reference',
   'source-too-large',
+  'too-deep',
 ] as const
 export type DiagramSvgRejection = (typeof DIAGRAM_SVG_REJECTIONS)[number]
 
@@ -219,6 +225,13 @@ const ELEMENT_GEOMETRY: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   // recorded in a filed diagram must be the one the server validated against
   // its own cap and not a second copy the client could make disagree with it.
   // Its attributes are handled separately in `keptAttributes`.
+  //
+  // **Only as a direct child of the root**, which is the one position this
+  // module ever writes one in — see {@link refuseUnsupportedElements}. Membership
+  // of this map alone used to mean "at any depth", and `withDiagramSource`
+  // filters only the ROOT's children, so a `<g><metadata
+  // data-grid-diagram-source="mermaid">…` carried 200 KiB of client text into a
+  // stored file against a 32 KiB source cap the server thought it had enforced.
   ['metadata', new Set<string>()],
 ])
 
@@ -364,7 +377,24 @@ function parseAttributeValue(scanner: Scanner, elementName: string, attributeNam
   return decodeEntities(raw, `${elementName}/@${attributeName}`)
 }
 
-function parseElement(scanner: Scanner): SvgElement {
+/**
+ * Read one element and everything inside it.
+ *
+ * `depth` is what stops a hostile input here rather than in the runtime: this
+ * function recurses once per level of nesting, and so do the three walks after
+ * it, so a document that is trivially small in BYTES can still exhaust the
+ * stack. Depth 5000 is ~35 KB — 3% of the 1 MiB budget — and threw a bare
+ * `RangeError`, which is not a `DiagramSvgError` and therefore reached the route
+ * as an untranslated 500 on a request the caller was promised a named 400 for.
+ * See {@link MAX_DIAGRAM_SVG_DEPTH} for the measurement behind the number.
+ *
+ * The check is BEFORE the recursion and before any work on the child, because
+ * the point is to not do the work.
+ */
+function parseElement(scanner: Scanner, depth: number): SvgElement {
+  if (depth > MAX_DIAGRAM_SVG_DEPTH) {
+    throw new DiagramSvgError('too-deep', `nested deeper than ${MAX_DIAGRAM_SVG_DEPTH}`)
+  }
   scanner.expect('<', 'expected an element')
   const name = scanner.readName('expected an element name')
 
@@ -419,7 +449,7 @@ function parseElement(scanner: Scanner): SvgElement {
       continue
     }
     if (scanner.startsWith('<')) {
-      children.push(parseElement(scanner))
+      children.push(parseElement(scanner, depth + 1))
       continue
     }
     const raw = scanner.readUntil('<', `${name}: unclosed element`)
@@ -517,12 +547,25 @@ function refuseDangerousAttribute(elementName: string, attributeName: string, va
  * part of the picture and says nothing about it. An office cannot audit what it
  * cannot see is absent.
  */
-function refuseUnsupportedElements(node: SvgNode): void {
+function refuseUnsupportedElements(node: SvgNode, depth: number): void {
   if (node.kind === 'text') return
   if (!ELEMENT_GEOMETRY.has(node.name)) {
     throw new DiagramSvgError('unsupported-element', node.name)
   }
-  for (const child of node.children) refuseUnsupportedElements(child)
+  // `<metadata>` is allow-listed for ONE position: the one this module writes it
+  // in, as a direct child of the root, where `withDiagramSource` can throw the
+  // client's copy away and put the server-validated source there instead. Deeper
+  // than that it is refused rather than dropped, because a nested one is not a
+  // decoration this pipeline can ignore — `keptAttributes` carries
+  // `data-grid-diagram-source` wherever it appears, so a `<g><metadata
+  // data-grid-diagram-source="mermaid">…` was serialised into the stored file
+  // with 200 KiB of text the 32 KiB per-kind source cap never saw. A file
+  // claiming two sources is a file whose reader cannot tell which one the server
+  // stood behind.
+  if (node.name === METADATA_ELEMENT && depth !== 1) {
+    throw new DiagramSvgError('unsupported-element', `${METADATA_ELEMENT} below the root`)
+  }
+  for (const child of node.children) refuseUnsupportedElements(child, depth + 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -606,13 +649,13 @@ export function parseDiagramSvg(input: string): ParsedDiagramSvg {
   }
   skipTrivia(scanner)
 
-  const root = parseElement(scanner)
+  const root = parseElement(scanner, 1)
   if (root.name !== 'svg') throw new DiagramSvgError('not-svg', root.name)
 
   skipTrivia(scanner)
   if (!scanner.done) throw new DiagramSvgError('malformed-xml', 'trailing content after </svg>')
 
-  refuseUnsupportedElements(root)
+  refuseUnsupportedElements(root, 0)
   return { root, viewport: readViewport(root) }
 }
 
@@ -714,6 +757,10 @@ export function withDiagramSource(root: SvgElement, kind: DiagramSourceKind, sou
     attributes: [{ name: METADATA_KIND_ATTRIBUTE, value: kind }],
     children: [{ kind: 'text', text: source }],
   }
+  // Filtering the ROOT's children is enough, and only because
+  // `refuseUnsupportedElements` refuses a `<metadata>` anywhere else. When it
+  // did not, this filter was the whole of the "discarded" promise above and a
+  // nested one walked straight past it into the stored file.
   const rest = root.children.filter((child) => !(child.kind === 'element' && child.name === METADATA_ELEMENT))
   return { ...root, children: [metadata, ...rest] }
 }

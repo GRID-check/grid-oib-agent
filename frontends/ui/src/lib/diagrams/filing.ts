@@ -56,8 +56,22 @@
  * `fileGeneratedDocument` is idempotent per (run, producer) — which is what
  * makes the retry the compensation. Filing again finds the SVG already filed,
  * renders and files only the PDF, and costs the reader one more click instead
- * of a report that quietly vanished. The result says which halves landed so the
- * caller can tell the reader the truth rather than "done".
+ * of a report that quietly vanished.
+ *
+ * **So a PDF failure is a RESULT here, not a throw**, and `pdf: null` is what
+ * says so. This paragraph used to describe a design the code did not have:
+ * `FiledDiagram` required both halves and this function simply awaited the PDF,
+ * so the one case the paragraph is about — the SVG landed, the PDF did not —
+ * threw. The route turned that into `Internal server error`, the client into a
+ * red line, and the reader was told nothing had happened while a quota-charged
+ * SVG sat in Berichte with their diagram in it. Being told "it failed" about a
+ * file that exists is worse than being told nothing: it is the one answer that
+ * makes the reader stop looking.
+ *
+ * The failure is swallowed only in the direction where a partial result is
+ * TRUE. The SVG's own failure still throws, because there is no half to report:
+ * nothing was written, and a caller that got `{ svg: null }` back would have to
+ * invent an error message this module already has.
  */
 
 import 'server-only'
@@ -93,8 +107,19 @@ export interface FileDiagramInput extends DiagramSubmission {
 }
 
 export interface FiledDiagram {
+  /**
+   * The half that always landed: if this one had failed, this function threw.
+   */
   svg: FiledGeneratedDocument
-  pdf: FiledGeneratedDocument
+  /**
+   * The PDF, or `null` when only the SVG landed.
+   *
+   * Nullable because the two writes are not one transaction and the caller has
+   * to be able to tell a reader which half is in the project — see the header.
+   * `null` is not an error the caller has to handle: it is a smaller success,
+   * and the compensation for it is pressing the button again.
+   */
+  pdf: FiledGeneratedDocument | null
 }
 
 export async function fileDiagramDocuments(input: FileDiagramInput): Promise<FiledDiagram> {
@@ -102,6 +127,15 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
   // that decides whether the request is a diagram at all. `acceptDiagram`
   // throws a named `DiagramSvgError`; the route turns it into a 400 the client
   // can act on rather than a 500 it can only retry.
+  //
+  // That ORDER is deliberate and it survives review: `apiRoute` has already
+  // required an authenticated session, so this is never reachable anonymously,
+  // and refusing a submission that is not a diagram before the project
+  // permission is read is what keeps a rejected diagram from leaving half a
+  // diagram in somebody's project. The price is that the parser must survive
+  // hostile input from ANY authenticated session — which is what the 1 MiB byte
+  // cap, `MAX_DIAGRAM_SVG_DEPTH` and the route's own body bound are for. An
+  // input that gets past all three has already been judged cheap.
   const accepted = acceptDiagram(input)
   const svgBytes = new TextEncoder().encode(accepted.svg)
 
@@ -118,25 +152,45 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
     render: () => ({ bytes: svgBytes, contentType: 'image/svg+xml' }),
   })
 
-  const pdf = await fileGeneratedDocument({
-    session: input.session,
-    projectId: input.projectId,
-    producer: 'diagram_pdf',
-    runId: input.runId,
-    title: input.title,
-    request: input.request,
-    render: async (context) => ({
-      bytes: await renderDiagramPdf({
-        root: accepted.root,
-        viewport: accepted.viewport,
-        title: input.title,
-        projectName: context.projectName,
-        marking: input.marking,
-        createdAt: new Date(),
+  try {
+    const pdf = await fileGeneratedDocument({
+      session: input.session,
+      projectId: input.projectId,
+      producer: 'diagram_pdf',
+      runId: input.runId,
+      title: input.title,
+      request: input.request,
+      render: async (context) => ({
+        bytes: await renderDiagramPdf({
+          root: accepted.root,
+          viewport: accepted.viewport,
+          title: input.title,
+          projectName: context.projectName,
+          marking: input.marking,
+          createdAt: new Date(),
+        }),
+        contentType: 'application/pdf',
       }),
-      contentType: 'application/pdf',
-    }),
-  })
-
-  return { svg, pdf }
+    })
+    return { svg, pdf }
+  } catch (error) {
+    // Everything this can throw — a quota refusal, an object-store timeout, a
+    // renderer that will not draw this particular geometry — leaves the same
+    // world behind: the SVG is filed and the PDF is not. That is a fact about
+    // the project, so it is reported as one. Rethrowing would replace a true
+    // sentence the reader can act on with a false one they cannot.
+    //
+    // The reason is not lost, it is just not the reader's business: it is
+    // logged for the operator here, because the client's remedy (press it
+    // again) is the same whatever the cause, and a message naming a bucket or a
+    // quota row in a figcaption is noise to an architect and detail to an
+    // attacker.
+    console.error('[diagrams] the SVG was filed and the PDF was not', {
+      projectId: input.projectId,
+      runId: input.runId,
+      svgDocumentId: svg.documentId,
+      cause: error instanceof Error ? `${error.name}: ${error.message}` : 'unknown',
+    })
+    return { svg, pdf: null }
+  }
 }

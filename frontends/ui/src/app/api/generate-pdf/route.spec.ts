@@ -34,11 +34,11 @@ const session = () => ({
   permissions: [],
 })
 
-const post = (body: unknown): Promise<Response> =>
+const post = (body: unknown, headers: Record<string, string> = {}): Promise<Response> =>
   POST(
     new Request('https://grid.test/api/generate-pdf', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(body),
     })
   )
@@ -95,5 +95,47 @@ describe('POST /api/generate-pdf', () => {
     expect((await post({})).status).toBe(400)
     expect((await post({ markdown: '' })).status).toBe(400)
     expect((await post({ markdown: 42 })).status).toBe(400)
+  })
+})
+
+/**
+ * The bound that the Pages Router applied for free, and that the move to the App
+ * Router silently removed.
+ *
+ * `git show f90dad67^:frontends/ui/src/pages/api/generate-pdf.ts` declares no
+ * `config`, so Next's `api.bodyParser.sizeLimit` default of 1mb bounded every
+ * request to it. App Router handlers have no such default —
+ * `serverActions.bodySizeLimit` governs Server Actions only — so the schema's
+ * `z.string().min(1)` was the entire distance between a signed-in caller and
+ * `renderToStream`. Rendering is superlinear in the markdown's length: 64 KiB
+ * takes ~11 s here, 128 KiB ~61 s, and the 2 MB body that found this had not
+ * finished after ten minutes, at 300 permitted mutations per member per minute.
+ */
+describe('the body bounds', () => {
+  it('refuses markdown past the render bound, and renders nothing for it', async () => {
+    const response = await post({ markdown: 'x'.repeat(64 * 1024 + 1) })
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get('Content-Type')).not.toBe('application/pdf')
+  })
+
+  it('still renders markdown at the bound, so the limit is not a ban', async () => {
+    // The pair is the test: only the refusal above would also pass with the
+    // limit set to one character, and a route that renders nothing is not a
+    // route. Kept just under the bound so this stays a test of the limit rather
+    // than of how long CI will wait.
+    const response = await post({ markdown: '# T\n\n' + 'wort '.repeat(2_000) })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('application/pdf')
+  }, 60_000)
+
+  it('refuses a body that declares itself too large, before reading it', async () => {
+    // `Content-Length` is a claim, and refusing on it is the only check that
+    // runs before the bytes are buffered. 1 MiB is the Pages default this route
+    // used to inherit, restated where it can be read.
+    const response = await post({ markdown: '# Bericht' }, { 'content-length': String(2 * 1024 * 1024) })
+
+    expect(response.status).toBe(413)
   })
 })

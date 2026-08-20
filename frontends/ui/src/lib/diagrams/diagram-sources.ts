@@ -117,3 +117,49 @@ export function isDiagramSourceKind(value: unknown): value is DiagramSourceKind 
  * direction that matters more.
  */
 export const MAX_DIAGRAM_SVG_BYTES = 1024 * 1024
+
+/**
+ * The largest byte cap any source kind states, for a caller that has to bound a
+ * transport before it knows which kind is inside it.
+ *
+ * Derived rather than written down, because a third kind with a larger cap must
+ * raise this with it — and a route that hard-coded `512 * 1024` would start
+ * refusing that kind's legitimate sources at the transport layer, before the
+ * per-kind cap that is supposed to judge them ever ran.
+ */
+export const MAX_DIAGRAM_SOURCE_BYTES = Math.max(
+  ...DIAGRAM_SOURCE_KINDS.map((kind) => DIAGRAM_SOURCE_FACTS[kind].maxSourceBytes),
+)
+
+/**
+ * The deepest element nesting a submitted diagram may have.
+ *
+ * **A byte budget is not a depth budget, and this is the measurement that says
+ * so.** Four separate walks recurse once per level — `parseElement`,
+ * `refuseUnsupportedElements` and `serializeNode` here, `toPdfNode` in
+ * `svg-to-pdf.tsx`, plus `@react-pdf/renderer`'s own layout inside the last one
+ * — so nesting, not size, is what exhausts the stack. Measured in this
+ * repository on Node 22:
+ *
+ *   - `parseDiagramSvg` accepts depth 5000 (~35 KB, 3% of the 1 MiB cap) and
+ *     throws a bare `RangeError: Maximum call stack size exceeded` at 6000;
+ *   - the whole route — parse, then `renderDiagramPdf` — survives depth 1500
+ *     and dies at 1600 in a fresh process, and the exact number moves with how
+ *     much stack the caller already used, which is precisely why it cannot be
+ *     the bound.
+ *
+ * A `RangeError` is not a `DiagramSvgError`, so it left the route answering
+ * `Internal server error` (500, untranslated) to a request the module's own
+ * comments promise is refused with a named 400 — and it did so from any
+ * authenticated session, since the parse runs before the project permission
+ * check.
+ *
+ * 64 is ~6x the deepest real diagram measured here (a checked-in mermaid
+ * flowchart nests 11 elements) and ~1/23 of the lowest observed crash point, so
+ * the margin absorbs both a deeper diagram than any mermaid release has emitted
+ * and a stack that is already partly spent. The limit is deliberately a
+ * REFUSAL and not a truncation: dropping the tail of a tree files a diagram
+ * missing part of its picture, which is the same argument that makes an
+ * unsupported element a refusal rather than a drop.
+ */
+export const MAX_DIAGRAM_SVG_DEPTH = 64

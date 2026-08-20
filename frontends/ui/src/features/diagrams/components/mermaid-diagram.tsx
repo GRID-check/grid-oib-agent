@@ -44,11 +44,11 @@
  * byte-for-byte what the filing button will send.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { useTranslations } from '@/i18n'
 import { documentFilesHref } from '@/features/documents/lib/document-question'
-import { diagramRendererFor } from '../render-diagram'
+import { useRenderedDiagram } from '../use-rendered-diagram'
 import { diagramRunId, useDiagramFilingTarget } from '../diagram-filing-context'
 
 /** `--- title: X ---` front matter, which is the only title a source can carry. */
@@ -62,8 +62,40 @@ type FilingState =
   | { kind: 'idle' }
   | { kind: 'filing' }
   | { kind: 'filed'; documentId: string }
-  | { kind: 'partial' }
+  /**
+   * The SVG landed and the PDF did not (`pdf: null`, 201).
+   *
+   * It carries the SVG's document id for the same reason `filed` does: the half
+   * that IS in the project is the half the reader most needs to open, and a
+   * state that says "half of it is filed" without saying where sends them to
+   * hunt through Berichte for a file they are not sure exists.
+   */
+  | { kind: 'partial'; documentId: string }
   | { kind: 'failed'; message: string }
+
+/** The `documentId` of one half of the route's answer, or null if it has none. */
+function documentIdOf(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || !('documentId' in value)) return null
+  const { documentId } = value
+  return typeof documentId === 'string' && documentId.length > 0 ? documentId : null
+}
+
+/**
+ * Read which halves landed out of a 2xx body.
+ *
+ * `null` means the answer was not one this component understands — which the
+ * route does not produce, and which is exactly why it must not be mistaken for
+ * a partial filing. That confusion was the previous shape of this code: a 2xx
+ * body without `svg.documentId` was rendered as „das Bild wurde abgelegt", a
+ * sentence about a file nothing had said existed, while the real partial case
+ * arrived as a 500 and read „Internal server error".
+ */
+function filedHalves(body: unknown): { svgDocumentId: string; pdfFiled: boolean } | null {
+  if (typeof body !== 'object' || body === null || !('svg' in body)) return null
+  const svgDocumentId = documentIdOf(body.svg)
+  if (!svgDocumentId) return null
+  return { svgDocumentId, pdfFiled: 'pdf' in body && documentIdOf(body.pdf) !== null }
+}
 
 export interface MermaidDiagramProps {
   source: string
@@ -74,41 +106,12 @@ export interface MermaidDiagramProps {
 export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramProps) {
   const t = useTranslations('diagrams')
   const target = useDiagramFilingTarget()
-  const [svg, setSvg] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
+  // The render itself is `useRenderedDiagram` — shared with the `diagram` card,
+  // which draws the same sources through the same renderer. One drive, so the
+  // fresh id, the cancellation and the "a failure is not a throw" rule cannot
+  // come out different on the two surfaces.
+  const { svg, failed } = useRenderedDiagram(source, !isStreaming)
   const [filing, setFiling] = useState<FilingState>({ kind: 'idle' })
-
-  useEffect(() => {
-    if (isStreaming) return
-    const renderer = diagramRendererFor('mermaid')
-    if (!renderer) return
-    let cancelled = false
-    // A fresh id per render: mermaid mints element ids from it, and reusing one
-    // across a theme switch would leave two definitions of the same marker in
-    // the document with the first one winning.
-    const id = `mermaid-${Math.random().toString(36).slice(2)}`
-    // Always the light theme — see the header. One render, and it is the one
-    // that gets filed.
-    renderer({ source, id, theme: 'light' })
-      .then((rendered) => {
-        if (!cancelled) {
-          setSvg(rendered)
-          setFailed(false)
-        }
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        // `debug` and not `error`: broken mermaid from a model is an expected
-        // outcome of this feature, not a fault in it, and a console full of red
-        // trains everyone to ignore the console.
-        console.debug('[diagrams] mermaid did not render', error)
-        setSvg(null)
-        setFailed(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [source, isStreaming])
 
   const file = useCallback(async () => {
     if (!target || !svg) return
@@ -138,14 +141,19 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
         return
       }
       const body: unknown = await response.json()
-      const documentId =
-        body && typeof body === 'object' && 'svg' in body && body.svg && typeof body.svg === 'object'
-          ? // The SVG row is the one a reader opens; the PDF is the one they attach.
-            ((body.svg as { documentId?: unknown }).documentId ?? null)
-          : null
-      setFiling(
-        typeof documentId === 'string' ? { kind: 'filed', documentId } : { kind: 'partial' }
-      )
+      // The SVG row is the one a reader opens; the PDF is the one they attach.
+      // Both ids come back, and a missing PDF is a smaller success rather than
+      // a failure — the route answers 201 with `pdf: null` when only the SVG
+      // landed, because the SVG is filed and quota-charged either way.
+      const halves = filedHalves(body)
+      if (!halves) {
+        setFiling({ kind: 'failed', message: t('file.failed') })
+        return
+      }
+      setFiling({
+        kind: halves.pdfFiled ? 'filed' : 'partial',
+        documentId: halves.svgDocumentId,
+      })
     } catch (error) {
       console.debug('[diagrams] filing failed', error)
       setFiling({ kind: 'failed', message: t('file.failed') })
@@ -180,28 +188,37 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
             own numbers; a model-authored diagram has no such guarantee, so it
             says out loud that it is not claiming a measurement. */}
         <span>{t('schematicOnly')}</span>
-        {target && filing.kind === 'idle' ? (
+        {filing.kind === 'filing' ? <span>{t('file.pending')}</span> : null}
+        {/* What landed, in words, before any action: „das PDF fehlt" is the
+            fact, and the two controls under it are what to do about it. A
+            partial filing says the smaller true thing rather than „abgelegt". */}
+        {filing.kind === 'filed' ? <span>{t('file.done')}</span> : null}
+        {filing.kind === 'partial' ? <span>{t('file.partial')}</span> : null}
+        {target && (filing.kind === 'filed' || filing.kind === 'partial') ? (
+          <a
+            href={documentFilesHref(target.projectId, filing.documentId)}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {t('file.open')}
+          </a>
+        ) : null}
+        {/* The same call, and deliberately: `fileGeneratedDocument` is
+            idempotent per (run, producer), so pressing this after a partial
+            filing finds the SVG already filed and files only the PDF. That is
+            why the label is „PDF ergänzen" and not „nochmals ablegen" — the
+            button does the smaller thing, and saying otherwise would invite the
+            reader to expect a second copy of the drawing.
+            A `failed` state offers no retry: a refusal is a 400 about the bytes
+            themselves, and the same bytes will be refused again. */}
+        {target && (filing.kind === 'idle' || filing.kind === 'partial') ? (
           <button
             type="button"
             onClick={file}
             className="font-medium text-primary underline-offset-2 hover:underline"
           >
-            {t('file.action')}
+            {filing.kind === 'partial' ? t('file.completePdf') : t('file.action')}
           </button>
         ) : null}
-        {filing.kind === 'filing' ? <span>{t('file.pending')}</span> : null}
-        {filing.kind === 'filed' && target ? (
-          <>
-            <span>{t('file.done')}</span>
-            <a
-              href={documentFilesHref(target.projectId, filing.documentId)}
-              className="font-medium text-primary underline-offset-2 hover:underline"
-            >
-              {t('file.open')}
-            </a>
-          </>
-        ) : null}
-        {filing.kind === 'partial' ? <span>{t('file.partial')}</span> : null}
         {filing.kind === 'failed' ? <span className="text-destructive">{filing.message}</span> : null}
       </figcaption>
     </figure>

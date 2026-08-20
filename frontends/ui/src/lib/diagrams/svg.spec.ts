@@ -14,7 +14,7 @@
  * attribute nobody thought to refuse is simply not carried across.
  */
 import { describe, expect, it } from 'vitest'
-import { MAX_DIAGRAM_SVG_BYTES } from './diagram-sources'
+import { MAX_DIAGRAM_SVG_BYTES, MAX_DIAGRAM_SVG_DEPTH } from './diagram-sources'
 import {
   DIAGRAM_SVG_REJECTIONS,
   DiagramSvgError,
@@ -26,6 +26,17 @@ import {
 } from './svg'
 
 const OPEN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+
+/**
+ * An SVG whose deepest element sits at `depth`, counting the root as 1.
+ *
+ * Nesting rather than size is what this builds, because the two budgets are
+ * independent: 5000 levels is ~35 KB, which is 3% of the byte cap.
+ */
+function nested(depth: number): string {
+  const groups = depth - 2
+  return `${OPEN}${'<g>'.repeat(groups)}<rect width="1" height="1"/>${'</g>'.repeat(groups)}</svg>`
+}
 
 function rejection(svg: string): string {
   try {
@@ -183,6 +194,39 @@ describe('what is refused, by name', () => {
     ).toThrow(/source-too-large/)
   })
 
+  it('refuses a tree nested past the depth bound', () => {
+    // Depth is its own budget: `parseElement`, `refuseUnsupportedElements`,
+    // `serializeNode` and `toPdfNode` each recurse once per level, so the stack
+    // — not the byte cap — is what a deep document exhausts.
+    expect(rejection(nested(MAX_DIAGRAM_SVG_DEPTH + 1))).toBe('too-deep')
+  })
+
+  it('accepts a tree exactly at the bound, so the bound is where it says it is', () => {
+    // The pair is the test. Only the refusal would pass with the limit set to
+    // zero, and a validator that refuses everything is not a validator.
+    expect(() => parseDiagramSvg(nested(MAX_DIAGRAM_SVG_DEPTH))).not.toThrow()
+  })
+
+  it('refuses a depth no byte cap would ever catch, by name rather than by RangeError', () => {
+    // The defect, as it was reproduced: depth 5000 is ~35 KB, well inside the
+    // 1 MiB refusal budget, and it threw `RangeError: Maximum call stack size
+    // exceeded`. A RangeError is not a `DiagramSvgError`, so the route answered
+    // an untranslated `Internal server error` 500 — rendered inside a German
+    // figcaption — to a request the module promises a named 400 for.
+    const svg = nested(5000)
+    expect(new TextEncoder().encode(svg).byteLength).toBeLessThan(MAX_DIAGRAM_SVG_BYTES)
+    expect(rejection(svg)).toBe('too-deep')
+  })
+
+  it('refuses a metadata block anywhere but the root', () => {
+    // `<metadata>` is allow-listed for the ONE position this module writes it
+    // in. Anywhere deeper it is a second source claim inside a file that is
+    // supposed to carry exactly one, and the one the server validated.
+    expect(
+      rejection(`${OPEN}<g><metadata data-grid-diagram-source="mermaid">x</metadata></g></svg>`),
+    ).toBe('unsupported-element')
+  })
+
   it('has a case for every declared rejection', () => {
     // The tuple is the contract the route's copy is keyed by. A member with no
     // case here is a rule nobody has ever seen fire.
@@ -200,6 +244,7 @@ describe('what is refused, by name', () => {
       'event-handler-attribute',
       'external-reference',
       'source-too-large',
+      'too-deep',
     ])
     expect([...DIAGRAM_SVG_REJECTIONS].filter((member) => !covered.has(member))).toEqual([])
   })
@@ -277,6 +322,30 @@ describe('the diagram carries its own source', () => {
     })
     expect(accepted.svg).not.toContain('a lie')
     expect(diagramSourceOf(accepted.root)?.source).toBe(submission.source)
+  })
+
+  it('refuses a nested metadata rather than filing the source inside it', () => {
+    // Proven before it was fixed: 200 KiB of client text inside
+    // `<g><metadata data-grid-diagram-source="mermaid">…` was ACCEPTED against
+    // a 32 KiB per-kind cap and serialised into the stored file, because
+    // `withDiagramSource` filters only the root's children while the allow-list
+    // and `keptAttributes` both worked at any depth. The stored file then
+    // carried a second, unvalidated source the server never saw.
+    const decoy = 'x'.repeat(200 * 1024)
+    expect(() =>
+      acceptDiagram({
+        ...submission,
+        svg: `${OPEN}<g><metadata data-grid-diagram-source="mermaid">${decoy}</metadata></g></svg>`,
+      }),
+    ).toThrow(/unsupported-element/)
+  })
+
+  it('stores exactly one source, so nothing downstream has to pick', () => {
+    const accepted = acceptDiagram({
+      ...submission,
+      svg: `${OPEN}<metadata data-grid-diagram-source="mermaid">a lie</metadata><rect width="1" height="1"/></svg>`,
+    })
+    expect(accepted.svg.match(/data-grid-diagram-source/g)).toHaveLength(1)
   })
 
   it('reads the viewport off the root, for the page the PDF has to fit', () => {

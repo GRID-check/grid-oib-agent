@@ -82,9 +82,20 @@ file is inert.
 1. **Refuses, by name.** `<script>`, `<foreignObject>`, `<style>`, `on*`
    handlers, any `href`/`url()` that is not a fragment, DOCTYPE and entity
    declarations (which is what makes XXE and billion-laughs *unrepresentable*
-   rather than mitigated), unsupported elements, a missing viewport, and
-   anything over the size caps. Named, because a client that gets
+   rather than mitigated), unsupported elements, a missing viewport, anything
+   over the size caps, and anything **nested deeper than
+   `MAX_DIAGRAM_SVG_DEPTH` (64)**. Named, because a client that gets
    `foreign-object` back can fix its renderer config.
+
+   Depth is a separate budget from size and it has to be, because four walks
+   recurse once per level (`parseElement`, `refuseUnsupportedElements`,
+   `serializeNode`, `toPdfNode`, plus `@react-pdf/renderer`'s own layout inside
+   the last). Measured here: the parser alone died at depth 6000 — ~42 KB, 4% of
+   the 1 MiB cap — and the whole route, PDF included, at 1600. A `RangeError` is
+   not a `DiagramSvgError`, so before the bound existed a 35 KB document from
+   any authenticated session produced an untranslated `Internal server error`
+   500 where the module promises a named 400. A real mermaid flowchart nests 11
+   deep, so 64 is ~6x what the feature draws and ~1/23 of what it survives.
 2. **Re-serialises from an allow-list.** What is stored is written by that
    module out of a table of permitted elements and attributes — never copied
    from the request. (1) is a deny-list and deny-lists are only as complete as
@@ -139,14 +150,26 @@ is the person who has the file — possibly a year later, possibly outside this
 product. A third `documents` row would be a `.mmd` nobody asked for with its own
 quota charge and its own `Zuweisen`; a new column would not survive the download;
 the audit record is a compliance trail, not a store you regenerate artefacts
-from. Any `<metadata>` the client sent is discarded first, so the recorded source
-is the one the server validated.
+from. A `<metadata>` the client sent as a direct child of the root is discarded
+and replaced, so the recorded source is the one the server validated; **one
+anywhere deeper is refused** (`unsupported-element`), because that is the
+position the module never writes and the one where a second source claim could
+hide. It could: a `<g><metadata data-grid-diagram-source="mermaid">` carrying
+200 KiB was accepted against a 32 KiB source cap and serialised into the stored
+file, since the discard only ever filtered the root's own children.
 
-**Partial filing is recoverable, not rolled back.** The two calls are not one
-transaction. The SVG is filed first because it is the half that carries the
-source; if the PDF fails, filing again finds the SVG `alreadyFiled` and files
-only the PDF. Idempotency per (run, producer) is what makes the retry the
-compensation.
+**Partial filing is recoverable, not rolled back — and it is reported.** The two
+calls are not one transaction. The SVG is filed first because it is the half
+that carries the source; if the PDF fails, `fileDiagramDocuments` returns
+`pdf: null` rather than throwing, the route answers **201** with that null (a
+document *was* created and charged to the quota, so any error status would be a
+false statement about the project), and the reader is told „Das Bild wurde
+abgelegt, das PDF nicht." beside a link to the half that landed and a „PDF
+ergänzen" button. Filing again finds the SVG `alreadyFiled` and files only the
+PDF: idempotency per (run, producer) is what makes the retry the compensation,
+and it is why the button names the PDF rather than the diagram. The cause is
+logged for the operator and not shown to the reader, whose remedy is the same
+whatever it was.
 
 ## Every rule of the existing feature still applies
 
@@ -168,6 +191,14 @@ A ```` ```mermaid ```` fence in an answer is drawn instead of printed
   Never a red box, never a throw inside an answer.
 - **drawn** — the SVG, the „Schematisch" line, and (only where the surface
   supplied a filing target, i.e. inside a project) „Im Projekt ablegen".
+
+The `diagram` CARD (`features/grid-cards/components/DiagramCard.tsx`) draws the
+same sources through the same renderer — `useRenderedDiagram` is the one place
+either surface drives it — and shows the same „Schematisch" line and the same
+source-in-a-code-block fallback. What it does not carry is the filing button:
+the card is `presentational` (docs/architecture/cards.md §"The `diagram` card"),
+so **filing a diagram into a project happens from the fence**, which is the only
+affordance for it in the product.
 
 `securityLevel: 'strict'` and `htmlLabels: false` everywhere: the source is
 model-authored text, mermaid has a history of label-based XSS, and
