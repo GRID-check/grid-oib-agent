@@ -134,6 +134,7 @@ export const files: typeof en.files = {
     retryIngestionError:
       'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     dialogLabel: 'Dateivorschau: {name}',
+    resizePeek: 'Breite der Dateivorschau ändern',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',

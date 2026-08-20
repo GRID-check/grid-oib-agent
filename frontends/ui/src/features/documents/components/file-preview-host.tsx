@@ -197,11 +197,41 @@ function FilePreviewSplit({
   split: boolean
   children: ReactNode
 }): JSX.Element {
+  const t = useTranslations('files')
   const peekWidth = useFilePreviewStore((state) => state.peekWidth)
   const setPeekWidth = useFilePreviewStore((state) => state.setPeekWidth)
+  const restorePeekWidth = useFilePreviewStore((state) => state.restorePeekWidth)
+  const hide = useFilePreviewStore((state) => state.hide)
   const filePanelRef = usePanelRef()
   const peekWidthRef = useRef(peekWidth)
   peekWidthRef.current = peekWidth
+
+  // A MOUNT-TIME value, captured once — the seam could not be dragged without it.
+  //
+  // `defaultSize` used to be the LIVE store width, and the panel's `onResize`
+  // wrote every intermediate width straight back into that store. So each
+  // pointer move re-rendered the group with a new `defaultSize`, the library
+  // recomputed the layout from it (a default-size change is one of the sources
+  // its own `LayoutChangedMeta` lists), and the recompute landed on top of the
+  // drag in progress. The seam moved about twenty pixels and then stopped dead,
+  // whichever direction it was pulled — resizable in principle, immovable in
+  // the hand. The width is committed once per gesture now, in
+  // `onLayoutChanged`, and nothing the reader does feeds back into this prop.
+  const mountWidthRef = useRef(peekWidth)
+
+  // The remembered width, adopted before the panel is first sized. Assigning
+  // `peekWidthRef` here as well is what lets the `split` effect below — same
+  // commit, declared after this one — size the panel to it rather than to the
+  // pre-restore default it read during render.
+  const restoredRef = useRef(false)
+  useLayoutEffect(() => {
+    if (restoredRef.current) return
+    restoredRef.current = true
+    const stored = restorePeekWidth()
+    if (stored === null) return
+    peekWidthRef.current = stored
+    filePanelRef.current?.resize(stored)
+  }, [restorePeekWidth, filePanelRef])
 
   // OPEN THE PANEL, DON'T JUST RESIZE IT.
   //
@@ -225,7 +255,34 @@ function FilePreviewSplit({
   }, [split, filePanelRef])
 
   return (
-    <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 flex-1" id="grid-file-ask">
+    <ResizablePanelGroup
+      orientation="horizontal"
+      className="h-full min-h-0 flex-1"
+      id="grid-file-ask"
+      // ONCE PER GESTURE, not once per frame: this fires after the pointer is
+      // released (and on each keyboard resize), which is the library's own
+      // advice for anything that writes the layout to storage. The panel's
+      // per-move `onResize` used to do this job, and paid for it twice — a
+      // synchronous localStorage write per frame, and the feedback loop
+      // described on `mountWidthRef` above.
+      onLayoutChanged={(_layout, meta) => {
+        if (!meta.isUserInteraction) return
+        const size = filePanelRef.current?.getSize()
+        if (!size) return
+        if (size.inPixels > 0) {
+          setPeekWidth(size.inPixels)
+          return
+        }
+        // Dragged shut. The panel is `collapsible` — it has to be, since that
+        // is how the split parks itself when there is no file — so pulling the
+        // seam past the minimum is a gesture the reader can always reach, and
+        // leaving it there would strand a one-pixel sliver of a document they
+        // are still asking about. It means the same thing as the ✕ on the peek:
+        // put the viewer away, keep the question. `hide()` also keeps the
+        // composer's "Asking about …" bar, whose "Show file" brings it back.
+        hide()
+      }}
+    >
       <ResizablePanel
         key="grid-file-ask-chat"
         id="grid-file-ask-chat"
@@ -235,7 +292,16 @@ function FilePreviewSplit({
       >
         {children}
       </ResizablePanel>
-      {split ? <ResizableHandle key="grid-file-ask-handle" withHandle /> : null}
+      {split ? (
+        <ResizableHandle
+          key="grid-file-ask-handle"
+          withHandle
+          // The library makes every separator a tab stop, so this one is a
+          // control a keyboard reader lands on and its arrow keys resize the
+          // pane. Unnamed, it is announced as a separator and nothing else.
+          aria-label={t('preview.resizePeek')}
+        />
+      ) : null}
       <ResizablePanel
         key="grid-file-ask-file"
         id="grid-file-ask-file"
@@ -245,16 +311,15 @@ function FilePreviewSplit({
         // than nothing" at the exact moment the effect above asked it to open —
         // and a mount-time `defaultSize` never gets a second chance to say
         // otherwise. The flag now drives one thing only: collapsed or not.
-        defaultSize={peekWidth}
+        // `defaultSize` is likewise a mount value and not the live width — see
+        // `mountWidthRef`.
+        defaultSize={mountWidthRef.current}
         minSize={FILE_PEEK_WIDTH_MIN}
         maxSize={FILE_PEEK_WIDTH_MAX}
         collapsible
         collapsedSize={0}
         className="min-h-0 min-w-0"
         groupResizeBehavior="preserve-pixel-size"
-        onResize={(size) => {
-          if (split && size.inPixels > 0) setPeekWidth(size.inPixels)
-        }}
       >
         <FilePreviewHost presentation={split ? 'split' : undefined} />
       </ResizablePanel>

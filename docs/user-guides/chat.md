@@ -220,6 +220,16 @@ that cite two or more project files — picking would be a guess. Dismissing
 the peek drops the retrieval focus; it does not come back on the next render
 of the same answer.
 
+**Sizing the peek.** The seam between the conversation and the file is a drag
+handle: pull it to give the document as much of the row as you want, between
+280px and 960px, and the chat column keeps its own floor (40% of the row), so on
+a smaller window that floor is what stops you first. The width you set is
+remembered — per browser, in `localStorage` (`grid.filePeek.width`) — so the next
+file opens at the width you read the last one at. The seam is also keyboard
+operable (Tab to it, then the arrow keys). Drag it all the way shut and the peek
+is dismissed exactly as the **×** dismisses it: the viewer goes away, the
+composer keeps *Asking about …*, and **Show file** brings it back.
+
 Clicking a source chip opens a preview of the source instead of doing nothing:
 
 - **Web / RIS chips** keep linking out to the real source (RIS citations always hit the official Rechtsinformationssystem).

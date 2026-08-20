@@ -886,6 +886,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-preview-host"][data-mode="peek"]',
   },
   {
+    id: 'file-ask-split-wide',
+    path: '/dev/file-ask-split/chat?variant=wide',
+    description:
+      'The file peek opened wide — a remembered width of 720px, which the 1200px capture viewport trims to about 578px because the chat column keeps its own 40% floor. That trim is half the evidence: the two constraints meet without either column collapsing. The other half is that this state exists at all — the seam fought the drag after about twenty pixels and the ceiling stood at 560px, so nobody could reach it. Held beside `file-ask-split` (the 320px default) because the ratio is what needs reviewing: what the transcript does with the width it is left, and whether the peek toolbar still reads at the far end of the range.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
     id: 'projects-home',
     mobile: true,
     path: '/dev/projects-home',
