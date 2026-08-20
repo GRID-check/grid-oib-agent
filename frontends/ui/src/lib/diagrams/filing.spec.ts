@@ -62,10 +62,10 @@ vi.mock('@/lib/projects/folder-service', () => ({
   getOrCreateProjectFolderByName: (...args: unknown[]) => getOrCreateProjectFolderByName(...args),
 }))
 
-const findDocumentAuthoredByRun = vi.fn()
+const findDocumentAuthoredByRef = vi.fn()
 const deleteProjectDocument = vi.fn()
 vi.mock('@/lib/documents/repository', () => ({
-  findDocumentAuthoredByRun: (...args: unknown[]) => findDocumentAuthoredByRun(...args),
+  findDocumentAuthoredByRef: (...args: unknown[]) => findDocumentAuthoredByRef(...args),
   deleteProjectDocument: (...args: unknown[]) => deleteProjectDocument(...args),
 }))
 
@@ -104,7 +104,7 @@ const file = (overrides: Partial<Parameters<typeof fileDiagramDocuments>[0]> = {
   fileDiagramDocuments({
     session: SESSION,
     projectId: 'proj-1',
-    runId: 'msg_42-1a2b3c4d',
+    answerRef: 'msg_42-1a2b3c4d',
     title: 'Ablauf Einreichung',
     sourceKind: 'mermaid',
     source: SOURCE,
@@ -126,7 +126,7 @@ beforeEach(() => {
   let minted = 0
   vi.stubGlobal('crypto', { ...globalThis.crypto, randomUUID: () => `doc-${++minted}` })
   requireProjectAccess.mockResolvedValue(undefined)
-  findDocumentAuthoredByRun.mockResolvedValue(null)
+  findDocumentAuthoredByRef.mockResolvedValue(null)
   findProjectInOrg.mockResolvedValue(makeProject({ id: 'proj-1', name: 'Straßenhäuser' }))
   getOrCreateProjectFolderByName.mockResolvedValue({
     id: 'folder-1',
@@ -171,11 +171,14 @@ describe('a diagram is two files', () => {
     // Migration 0065's key is (organization, project, run, producer). The run is
     // shared so the two rows can be recognised as artifacts of one drawing; the
     // producer is what lets both exist. Synthetic per-artifact run ids would
-    // have needed no migration and would have made `authored_by_run_id` join
+    // have needed no migration and would have made `authored_by_ref` join
     // back to nothing.
     await file()
-    expect(admitted().map((row) => row.authoredByRunId)).toEqual(['msg_42-1a2b3c4d', 'msg_42-1a2b3c4d'])
-    expect(findDocumentAuthoredByRun.mock.calls.map((call) => call[3])).toEqual([
+    expect(admitted().map((row) => row.authoredByRef)).toEqual(['msg_42-1a2b3c4d', 'msg_42-1a2b3c4d'])
+    // And both say what that identifier IS. It is not a run id and the row no
+    // longer implies one (migration 0066).
+    expect(admitted().map((row) => row.authoredByRefKind)).toEqual(['answer_artifact', 'answer_artifact'])
+    expect(findDocumentAuthoredByRef.mock.calls.map((call) => call[3])).toEqual([
       'diagram_svg',
       'diagram_pdf',
     ])
@@ -333,7 +336,7 @@ describe('a partial filing is recoverable rather than rolled back', () => {
 
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining('the SVG was filed and the PDF was not'),
-      expect.objectContaining({ runId: 'msg_42-1a2b3c4d', cause: expect.stringContaining('quota') }),
+      expect.objectContaining({ answerRef: 'msg_42-1a2b3c4d', cause: expect.stringContaining('quota') }),
     )
   })
 
@@ -346,7 +349,7 @@ describe('a partial filing is recoverable rather than rolled back', () => {
   })
 
   it('files only the missing half on a retry', async () => {
-    findDocumentAuthoredByRun.mockImplementation((_run: string, _org: string, _project: string, producer: string) =>
+    findDocumentAuthoredByRef.mockImplementation((_ref: string, _org: string, _project: string, producer: string) =>
       producer === 'diagram_svg'
         ? Promise.resolve({ id: 'doc-svg', filename: 'ablauf.svg', folderId: 'folder-1' })
         : Promise.resolve(null),

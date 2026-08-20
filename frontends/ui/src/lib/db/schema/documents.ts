@@ -41,8 +41,9 @@ export type DocumentScope = (typeof DOCUMENT_SCOPES)[number]
  * Whose hand wrote the bytes (migration 0063). The members that exist TODAY:
  *
  *   - `user`  — somebody uploaded a file. Every row that predates the column.
- *   - `agent` — a commissioned run produced it, and `authoredByProducer` /
- *               `authoredByRunId` say what and which.
+ *   - `agent` — a commissioned run produced it, and `authoredByProducer`,
+ *               `authoredByRef` and `authoredByRefKind` say what, which, and
+ *               what kind of identifier that is.
  *
  * A tuple for the same reason `DOCUMENT_SCOPES` is one: the set is enumerable
  * at runtime (the listing filter validates against it) and the type is derived
@@ -68,12 +69,17 @@ export type DocumentScope = (typeof DOCUMENT_SCOPES)[number]
  * apart load-bearing rather than tidy, because it is the first time the answer
  * to "who wrote this" is not a person at all.
  */
-import { DOCUMENT_AUTHORS, type DocumentAuthor } from '@/lib/documents/document-authors'
+import {
+  AUTHORED_REF_KINDS,
+  DOCUMENT_AUTHORS,
+  type AuthoredRefKind,
+  type DocumentAuthor,
+} from '@/lib/documents/document-authors'
 
 // Re-exported so `@/lib/db/schema` stays the one import site every existing
 // caller already uses; the declaration itself lives outside the schema so a
 // route can validate against it without importing the database.
-export { DOCUMENT_AUTHORS, type DocumentAuthor }
+export { AUTHORED_REF_KINDS, DOCUMENT_AUTHORS, type AuthoredRefKind, type DocumentAuthor }
 
 export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -138,8 +144,8 @@ export const documents = pgTable('documents', {
    * `deep_research`, never `Tiefenrecherche` (migration 0063). NULL for
    * everything a person uploaded.
    *
-   * A separate column from `authoredByRunId` because a run id answers "which
-   * run" and only accidentally answers "what produced this" — it does so for
+   * A separate column from `authoredByRef` because a reference answers "which
+   * one" and only accidentally answers "what produced this" — it does so for
    * exactly as long as there is one producer. The second one (a compliance
    * export, an IFC take-off, a partner integration writing evidence) turns
    * "what made this file" into a join through job history that may have been
@@ -155,40 +161,77 @@ export const documents = pgTable('documents', {
    */
   authoredByProducer: text('authored_by_producer'),
   /**
-   * The backend async job id of the run that wrote a document no person wrote;
-   * NULL for everything a person uploaded (migration 0063).
+   * WHICH ONE — the identifier of the thing that produced a document no person
+   * wrote; NULL for everything a person uploaded (migrations 0063, 0066).
    *
-   * `text`, not `uuid`, because it is the backend's job id and is only ever
-   * carried, never generated here — the same reason `conversations.id` is text.
+   * Read it WITH {@link documents.authoredByRefKind}, which says what kind of
+   * identifier it is. Until migration 0066 this column was called
+   * `authored_by_run_id` and both its comments called it "the backend async job
+   * id of the run", which was true for as long as there was one producer and
+   * false the moment there were three — a diagram's reference is built from the
+   * chat answer it was drawn in, not from any run. The kind is now stated by the
+   * row rather than assumed by the reader, which is the whole of 0066.
    *
-   * Required together with `authoredByProducer` whenever `authoredBy` is not
-   * `user`, as a CHECK below rather than as a convention, because the reason to
-   * record that a machine wrote a document is so somebody can later ask what
-   * wrote it, in which run, on whose budget, from which question. A row that
-   * says "not a person" and can answer neither is an audit trail in appearance
-   * only, and appearing to have one is worse than having none.
+   * `text`, not `uuid`: every kind of reference here is carried from somewhere
+   * else and never generated in this table — the same reason `conversations.id`
+   * is text.
    *
-   * NOTE: the database also has `uniq_documents_authored_run_producer_per_project`,
-   * UNIQUE and PARTIAL — `(organization_id, project_id, authored_by_run_id,
+   * Required together with `authoredByProducer` AND `authoredByRefKind`
+   * whenever `authoredBy` is not `user`, as a CHECK below rather than as a
+   * convention, because the reason to record that a machine wrote a document is
+   * so somebody can later ask what wrote it, in which run, on whose budget, from
+   * which question. A row that says "not a person" and can answer neither is an
+   * audit trail in appearance only, and appearing to have one is worse than
+   * having none. A reference whose KIND is unknown cannot be resolved at all, so
+   * it fails the same test one level down.
+   *
+   * NOTE: the database also has `uniq_documents_authored_ref_producer_per_project`,
+   * UNIQUE and PARTIAL — `(organization_id, project_id, authored_by_ref,
    * authored_by_producer)` WHERE `authored_by <> 'user'` (migration 0065,
    * widening 0064's by the producer because a run can owe more than one FILE: a
-   * diagram is a previewable SVG and an attachable PDF and needs both). It is
-   * what makes "one filed document per run and producer" true under concurrency
-   * rather than only under a lookup: the
+   * diagram is a previewable SVG and an attachable PDF and needs both; renamed
+   * with this column by 0066). It is
+   * what makes "one filed document per reference and producer" true under
+   * concurrency rather than only under a lookup: the
    * filing path's probe runs before the insert, so two report tabs both miss it
    * and both file, producing two rows that are identical in every visible
    * attribute because the generated filename is deterministic. Partial on
    * `<> 'user'` because the CHECK below deliberately lets a HUMAN row carry a
-   * run id too, and two people saving one run's artefact must not collide.
+   * reference too, and two people saving one run's artefact must not collide.
    * Drizzle's index builder can express neither the predicate nor a unique
-   * partial index, so it lives only in migration 0065 — the same arrangement as
+   * partial index, so it lives only in the migrations — the same arrangement as
    * `documents_conversation_idx` and `documents_agent_authored_idx`.
    *
-   * Its columns are `findDocumentAuthoredByRun`'s WHERE clause, deliberately and
+   * Its columns are `findDocumentAuthoredByRef`'s WHERE clause, deliberately and
    * exactly — all four of them. An index narrower than the probe rejects rows the probe would
-   * accept; a wider one admits duplicates the probe was meant to prevent.
+   * accept; a wider one admits duplicates the probe was meant to prevent. That
+   * is also why `authoredByRefKind` is NOT among them: it is a function of
+   * `authoredByProducer`, which is already in the key.
    */
-  authoredByRunId: text('authored_by_run_id'),
+  authoredByRef: text('authored_by_ref'),
+  /**
+   * WHAT KIND of identifier `authoredByRef` is — see `AUTHORED_REF_KINDS`
+   * (migration 0066). NULL for everything a person uploaded.
+   *
+   * A separate column and not an inference from `authoredByProducer`, even
+   * though the filing path derives it from exactly that. The mapping is CODE,
+   * and code changes: a producer that one day files under a different kind of
+   * reference would silently re-interpret every row it had already written,
+   * because the answer would be recomputed rather than recorded. Writing it down
+   * pins each row's meaning at the moment it was written, which is 0063's
+   * argument for `authoredByProducer` — a run id "only accidentally answers what
+   * produced this" — applied to the next question along.
+   *
+   * The other half of the reason is that not every reader is TypeScript. The
+   * audience for these columns is somebody resolving provenance, often through
+   * SQL, sometimes years later; a code table in a repository does not reach
+   * them, and the catalog comment on the column does.
+   *
+   * Plain `text` with no CHECK on its value, so a further kind is a TypeScript
+   * change rather than a migration — the same arrangement `scope` and
+   * `authoredBy` have.
+   */
+  authoredByRefKind: text('authored_by_ref_kind').$type<AuthoredRefKind>(),
   /**
    * Blanket visibility (ADR-0032). Default `project` — a file is evidence the
    * whole project can see. `private` is available once the type is registered;
@@ -360,9 +403,15 @@ export const documents = pgTable('documents', {
     sql`(${table.scope} = 'session') = (${table.conversationId} IS NOT NULL) AND (${table.scope} <> 'session' OR ${table.projectId} IS NULL)`
   ),
   /**
-   * A document no person wrote can always say what wrote it and in which run
-   * (migration 0063). See `authoredByRunId` for why half of that answer is worse
-   * than none.
+   * A document no person wrote can always say what wrote it, which one, and
+   * what kind of identifier that is (migrations 0063, 0066). See `authoredByRef`
+   * for why half of that answer is worse than none.
+   *
+   * 0066 added the third conjunct. Two of them were satisfiable by a row whose
+   * reference nobody could resolve — the value said `msg_42-1a2b3c4d` and the
+   * column's own name and comment said it was a backend job id — so the row
+   * passed a constraint written to guarantee it was auditable while not being
+   * auditable. The kind is what closes that.
    *
    * Written against `<> 'user'` rather than against `'agent'`, which is the
    * whole point: the invariant is true of every producer, not of this one, so a
@@ -379,7 +428,7 @@ export const documents = pgTable('documents', {
    */
   authorshipRequiresProvenance: check(
     'documents_authorship_requires_provenance',
-    sql`${table.authoredBy} = 'user' OR (${table.authoredByProducer} IS NOT NULL AND ${table.authoredByRunId} IS NOT NULL)`
+    sql`${table.authoredBy} = 'user' OR (${table.authoredByProducer} IS NOT NULL AND ${table.authoredByRef} IS NOT NULL AND ${table.authoredByRefKind} IS NOT NULL)`
   ),
 }))
 

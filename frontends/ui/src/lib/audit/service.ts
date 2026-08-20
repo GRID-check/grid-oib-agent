@@ -25,6 +25,7 @@
 
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
+import type { AuthoredRefKind } from '@/lib/documents/document-authors'
 import { AUDIT_ACTIONS } from './schemas.mjs'
 
 export { AUDIT_ACTIONS }
@@ -50,32 +51,56 @@ export type AuditMetadata = Record<string, string | number | boolean>
  * unfindable by the person who commissioned it.
  *
  * So the actor stays the commissioning human on every path, and `'agent'`
- * instead adds the run as a SECOND TARGET, `{type: 'agent_run', id: runId}`.
- * Two structured facts — which human authorized, which run produced — each
- * queryable on its own, neither shadowing the other. That is ADR-0047's
- * provenance-is-not-responsibility line drawn through the audit trail rather
- * than only through the `documents` row.
+ * instead adds what produced the thing as a SECOND TARGET, `{type: <the
+ * reference's kind>, id: <the reference>}`. Two structured facts — which human
+ * authorized, which run produced — each queryable on its own, neither shadowing
+ * the other. That is ADR-0047's provenance-is-not-responsibility line drawn
+ * through the audit trail rather than only through the `documents` row.
+ *
+ * The target's TYPE is the reference's kind and not a constant, which it was
+ * until migration 0066. Every agent-authored event used to be emitted with
+ * `{type: 'agent_run'}` regardless of what the id actually named, so a filed
+ * diagram asserted — in a structured field the audit-log export filters on —
+ * that `msg_42-1a2b3c4d` was a backend job id. An auditor resolving it looked up
+ * a run that does not exist and got nothing: a dead end in the one record that
+ * answers "what wrote this, in which run, on whose authority", and a silent one,
+ * because a target that resolves to nothing looks exactly like a target nobody
+ * has looked up yet.
  *
  * The cost of the choice, stated so it is not discovered: an action emitted
- * with `type: 'agent'` MUST register `agent_run` among its targets in
- * `schemas.mjs`, or WorkOS rejects the whole event the way it rejects an
- * unregistered action (issues #255/#256).
+ * with `type: 'agent'` MUST register EVERY member of `AUTHORED_REF_KINDS` among
+ * its targets in `schemas.mjs`, or WorkOS rejects the whole event the way it
+ * rejects an unregistered action (issues #255/#256). `schemas.spec.ts` fails
+ * when a kind is added here and not registered there.
  */
 export type AuditActorType = 'user' | 'agent'
 
 /**
- * `runId` is required on the agent branch rather than optional: an agent-
- * authored event that cannot name its run answers half the enterprise question,
+ * What an agent-authored event points BACK at: the identifier, and what kind of
+ * identifier it is.
+ *
+ * The kind travels with the id rather than being assumed, for the same reason
+ * `documents.authored_by_ref_kind` exists (migration 0066): the two producers
+ * that exist file under two different kinds of identity, and a record that names
+ * one without saying which cannot be resolved by the person it was written for.
+ * Here the kind does double duty — it is also the WorkOS target type, so the
+ * event says what it points at in the field an auditor filters on.
+ */
+export interface AuditAgentRef {
+  kind: AuthoredRefKind
+  id: string
+}
+
+/**
+ * `ref` is required on the agent branch rather than optional: an agent-authored
+ * event that cannot name what produced it answers half the enterprise question,
  * and half an answer is not an audit record. Making it a discriminated union
  * means the missing half is a compile error at the call site instead of a
  * malformed event discovered in a viewer months later.
  */
 export type AuditActor =
   | { type?: 'user'; userId: string; email?: string | null }
-  | { type: 'agent'; userId: string; email?: string | null; runId: string }
-
-/** The `agent_run` target type, as registered in `schemas.mjs`. */
-const AGENT_RUN_TARGET_TYPE = 'agent_run'
+  | { type: 'agent'; userId: string; email?: string | null; ref: AuditAgentRef }
 
 /** The WorkOS event target shape — `{type, id}` is all this app ever sends. */
 interface AuditTarget {
@@ -122,19 +147,24 @@ function compactMetadata(metadata: AuditEventInput['metadata']): AuditMetadata {
 }
 
 /**
- * The subject of the event, plus the run when a machine wrote it.
+ * The subject of the event, plus what produced it when a machine wrote it.
  *
- * Both are targets rather than one being metadata, because the run id has to
+ * Both are targets rather than one being metadata, because the reference has to
  * survive as an identity: a `runId` metadata KEY would have to be registered
  * per action (`schemas.mjs` rejects events whose metadata keys do not match
  * what the schema declares), so every future agent-authored action would owe a
  * duplicate registration — and the emitter cannot inject the key blindly
  * without breaking the actions that do not declare it.
+ *
+ * The second target's type is the reference's own kind. That is what makes it
+ * resolvable: `agent_run` sends an auditor to the job store, `answer_artifact`
+ * to the chat answer the artifact was drawn in. One constant for both would send
+ * them to the job store for a value that was never in it.
  */
 function eventTargets(input: AuditEventInput): AuditTarget[] {
   const subject: AuditTarget = { type: input.targetType, id: input.targetId ?? input.organizationId }
   if (input.actor.type !== 'agent') return [subject]
-  return [subject, { type: AGENT_RUN_TARGET_TYPE, id: input.actor.runId }]
+  return [subject, { type: input.actor.ref.kind, id: input.actor.ref.id }]
 }
 
 /** A WorkOS emit that failed, with the event it was carrying. */

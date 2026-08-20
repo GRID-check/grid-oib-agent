@@ -18,6 +18,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { AUDIT_ACTIONS, AUDIT_SCHEMAS } from './schemas.mjs'
+import { AUTHORED_REF_KINDS } from '@/lib/documents/document-authors'
 
 type AuditAction = keyof typeof AUDIT_SCHEMAS
 
@@ -56,16 +57,32 @@ describe('audit schema coverage', () => {
     expect(AUDIT_ACTIONS).toContain('resource.ownership.escalated')
   })
 
-  it('gives document.generated its own action, with the run as a target', () => {
+  it('gives document.generated its own action, with what produced it as a target', () => {
     // Its own action rather than a flag on `document.uploaded`: the provenance
-    // question is different, and the run id must be a structured identity
+    // question is different, and the reference must be a structured identity
     // rather than an optional metadata key that is absent on almost every
     // event of the action it would be bolted onto.
     const generated = REGISTRY['document.generated']
-    expect(generated.targets.map((target) => target.type)).toEqual(['document', 'agent_run'])
-    // The run rides as a target, so it must NOT also be a metadata key — two
-    // carriers for one fact is how the two lists behind #255/#256 drifted.
+    expect(generated.targets.map((target) => target.type)).toEqual([
+      'document',
+      'agent_run',
+      'answer_artifact',
+    ])
+    // The reference rides as a target, so it must NOT also be a metadata key —
+    // two carriers for one fact is how the two lists behind #255/#256 drifted.
     expect(Object.keys(generated.metadata ?? {})).not.toContain('runId')
+  })
+
+  it('registers EVERY reference kind an agent-authored event can carry', () => {
+    // `eventTargets` uses the reference's own kind as the target type, so this
+    // list and `AUTHORED_REF_KINDS` are one vocabulary in two files. A kind
+    // added there and missing here is not a lost audit line: `document.generated`
+    // uses the THROWING emitter, so WorkOS rejecting the event unfiles the
+    // document the event was about, and the user sees a report with no file and
+    // no error. That exact failure has shipped once already, from a single
+    // unregistered metadata key.
+    const registered = REGISTRY['document.generated'].targets.map((target) => target.type)
+    for (const kind of AUTHORED_REF_KINDS) expect(registered, kind).toContain(kind)
   })
 
   it('names at least one target type per action — WorkOS requires one', () => {

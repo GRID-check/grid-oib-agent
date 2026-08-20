@@ -137,7 +137,12 @@ describe('agent-authored events', () => {
   it('keeps the authorizing human as the actor and names the run as a second target', async () => {
     await recordAuditEvent({
       organizationId: 'org_1',
-      actor: { type: 'agent', userId: 'user_1', email: 'architect@acme.at', runId: 'run_7' },
+      actor: {
+        type: 'agent',
+        userId: 'user_1',
+        email: 'architect@acme.at',
+        ref: { kind: 'agent_run', id: 'run_7' },
+      },
       action: 'document.generated',
       targetType: 'document',
       targetId: 'doc_9',
@@ -149,6 +154,29 @@ describe('agent-authored events', () => {
     expect(event.targets).toEqual([
       { type: 'document', id: 'doc_9' },
       { type: 'agent_run', id: 'run_7' },
+    ])
+  })
+
+  // The target TYPE is the reference's kind, not a constant. A diagram's
+  // reference is `{chat answer}-{hash of its source}` and was emitted as
+  // `agent_run` until migration 0066, so an auditor filtering the export for
+  // that run found a job that does not exist — and got the same empty answer a
+  // real but unvisited run gives, which is why nobody noticed.
+  it('names the second target for what the reference actually is', async () => {
+    await recordAuditEvent({
+      organizationId: 'org_1',
+      actor: {
+        type: 'agent',
+        userId: 'user_1',
+        ref: { kind: 'answer_artifact', id: 'msg_42-1a2b3c4d' },
+      },
+      action: 'document.generated',
+      targetType: 'document',
+      targetId: 'doc_9',
+    })
+    expect(lastEvent().targets).toEqual([
+      { type: 'document', id: 'doc_9' },
+      { type: 'answer_artifact', id: 'msg_42-1a2b3c4d' },
     ])
   })
 
@@ -170,7 +198,7 @@ describe('agent-authored events', () => {
   it('emits only target types the action registers a schema for', async () => {
     await recordAuditEvent({
       organizationId: 'org_1',
-      actor: { type: 'agent', userId: 'user_1', runId: 'run_7' },
+      actor: { type: 'agent', userId: 'user_1', ref: { kind: 'agent_run', id: 'run_7' } },
       action: 'document.generated',
       targetType: 'document',
       targetId: 'doc_9',
@@ -189,7 +217,7 @@ describe('recordAuditEventOrThrow (the events whose absence is the failure)', ()
   it('emits the same event as the swallowing path', async () => {
     await recordAuditEventOrThrow({
       organizationId: 'org_1',
-      actor: { type: 'agent', userId: 'user_1', runId: 'run_7' },
+      actor: { type: 'agent', userId: 'user_1', ref: { kind: 'agent_run', id: 'run_7' } },
       action: 'document.generated',
       targetType: 'document',
       targetId: 'doc_9',
@@ -207,7 +235,7 @@ describe('recordAuditEventOrThrow (the events whose absence is the failure)', ()
 
     const thrown = await recordAuditEventOrThrow({
       organizationId: 'org_1',
-      actor: { type: 'agent', userId: 'user_1', runId: 'run_7' },
+      actor: { type: 'agent', userId: 'user_1', ref: { kind: 'agent_run', id: 'run_7' } },
       action: 'document.generated',
       targetType: 'document',
       targetId: 'doc_9',

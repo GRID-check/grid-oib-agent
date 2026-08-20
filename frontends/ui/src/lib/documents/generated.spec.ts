@@ -50,10 +50,10 @@ vi.mock('@/lib/projects/folder-service', () => ({
   getOrCreateProjectFolderByName: (...args: unknown[]) => getOrCreateProjectFolderByName(...args),
 }))
 
-const findDocumentAuthoredByRun = vi.fn()
+const findDocumentAuthoredByRef = vi.fn()
 const deleteProjectDocument = vi.fn()
 vi.mock('./repository', () => ({
-  findDocumentAuthoredByRun: (...args: unknown[]) => findDocumentAuthoredByRun(...args),
+  findDocumentAuthoredByRef: (...args: unknown[]) => findDocumentAuthoredByRef(...args),
   deleteProjectDocument: (...args: unknown[]) => deleteProjectDocument(...args),
 }))
 
@@ -76,6 +76,7 @@ import { AUDIT_SCHEMAS } from '@/lib/audit/schemas.mjs'
 import {
   GENERATED_DOCUMENT_FOLDER_NAME,
   GENERATED_DOCUMENT_PRODUCERS,
+  GENERATED_DOCUMENT_PRODUCER_REF_KINDS,
   fileGeneratedDocument,
   generatedFilename,
   resolveGeneratedDocumentDestination,
@@ -113,7 +114,7 @@ const file = () =>
     session: SESSION,
     projectId: 'proj-1',
     producer: 'deep_research',
-    runId: 'run_7',
+    ref: 'run_7',
     title: 'Brandschutz Straßenhäuser',
     render,
   })
@@ -146,7 +147,7 @@ let fetchSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   vi.clearAllMocks()
   requireProjectAccess.mockResolvedValue({ role: 'editor' })
-  findDocumentAuthoredByRun.mockResolvedValue(null)
+  findDocumentAuthoredByRef.mockResolvedValue(null)
   findProjectInOrg.mockResolvedValue(makeProject({ id: 'proj-1', collectionName: 'proj_abc' }))
   getOrCreateProjectFolderByName.mockResolvedValue(FOLDER)
   ensureTenantBucketChecked.mockResolvedValue('grid-org-org-1')
@@ -185,7 +186,11 @@ describe('fileGeneratedDocument', () => {
     const row = admittedRow()
     expect(row.authoredBy).toBe('agent')
     expect(row.authoredByProducer).toBe('deep_research')
-    expect(row.authoredByRunId).toBe('run_7')
+    expect(row.authoredByRef).toBe('run_7')
+    // The KIND is written too, and it is derived from the producer rather than
+    // passed in — a row that names an identifier without saying what kind it is
+    // cannot be resolved by the auditor it was written for (migration 0066).
+    expect(row.authoredByRefKind).toBe('agent_run')
     expect(row.status).toBe('stored')
     // Provenance is not responsibility: the human who commissioned the run.
     expect(row.createdBy).toBe('user-1')
@@ -391,7 +396,7 @@ describe('fileGeneratedDocument', () => {
 
   describe('idempotency', () => {
     it('returns the existing document when this run was already filed', async () => {
-      findDocumentAuthoredByRun.mockResolvedValue({
+      findDocumentAuthoredByRef.mockResolvedValue({
         id: 'doc-existing',
         filename: 'brandschutz-2026-08-20.docx',
         folderId: 'folder-1',
@@ -414,7 +419,7 @@ describe('fileGeneratedDocument', () => {
 
     it('files the same run twice into one document', async () => {
       const first = await file()
-      findDocumentAuthoredByRun.mockResolvedValue({
+      findDocumentAuthoredByRef.mockResolvedValue({
         id: first.documentId,
         filename: first.filename,
         folderId: first.folderId,
@@ -454,7 +459,7 @@ describe('fileGeneratedDocument', () => {
      * and not only on a quota refusal (`admission.spec.ts` pins that).
      */
     it('files ONE document and leaves ONE object when two tabs file the same run at once', async () => {
-      const filedByRun = new Map<string, NewDocument>()
+      const filedByRef = new Map<string, NewDocument>()
       let probes = 0
 
       // Distinct document ids per call, overriding the shared constant stub.
@@ -464,19 +469,19 @@ describe('fileGeneratedDocument', () => {
       let minted = 0
       vi.stubGlobal('crypto', { ...globalThis.crypto, randomUUID: () => `doc-${++minted}` })
 
-      findDocumentAuthoredByRun.mockImplementation(async (runId: string) => {
+      findDocumentAuthoredByRef.mockImplementation(async (ref: string) => {
         // The first two probes are the two tabs, both of which run before either
         // has inserted. Forced rather than hoped for: an interleaving that
         // depended on microtask ordering would silently stop testing the race.
         if (++probes <= 2) return null
-        const row = filedByRun.get(runId)
+        const row = filedByRef.get(ref)
         return row ? { id: row.id, filename: row.filename, folderId: row.folderId } : null
       })
 
       admitOrDiscard.mockImplementation(async (bucket: string, key: string, row: NewDocument) => {
-        const runId = row.authoredByRunId ?? ''
-        if (!filedByRun.has(runId)) {
-          filedByRun.set(runId, row)
+        const ref = row.authoredByRef ?? ''
+        if (!filedByRef.has(ref)) {
+          filedByRef.set(ref, row)
           return
         }
         // What the real admission does with a rejected insert: take the bytes
@@ -485,7 +490,7 @@ describe('fileGeneratedDocument', () => {
         await s3Send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
         throw Object.assign(
           new Error(
-            'duplicate key value violates unique constraint "uniq_documents_authored_run_per_project"',
+            'duplicate key value violates unique constraint "uniq_documents_authored_ref_producer_per_project"',
           ),
           { code: '23505' },
         )
@@ -495,8 +500,8 @@ describe('fileGeneratedDocument', () => {
 
       // One document, and both callers are told about the same one — the loser
       // must not 500 on somebody's finished report.
-      expect(filedByRun.size).toBe(1)
-      const winner = filedByRun.get('run_7')
+      expect(filedByRef.size).toBe(1)
+      const winner = filedByRef.get('run_7')
       expect(first.documentId).toBe(winner?.id)
       expect(second.documentId).toBe(winner?.id)
       expect(first.filename).toBe(winner?.filename)
@@ -526,7 +531,7 @@ describe('fileGeneratedDocument', () => {
     })
 
     it('re-throws a unique violation the re-probe cannot explain', async () => {
-      // Cannot happen while 0064's index and `findDocumentAuthoredByRun` key on
+      // Cannot happen while 0064's index and `findDocumentAuthoredByRef` key on
       // the same three columns — which is why the migration derives one from the
       // other. If they ever drift, this is a violation with no winner to hand
       // back, and answering it with a made-up document id would be worse than
@@ -549,7 +554,7 @@ describe('fileGeneratedDocument', () => {
       await expect(file()).rejects.toThrow('deadlock detected')
       // One probe: the pre-flight one. A non-race failure must not be answered
       // by looking for a winner that was never created.
-      expect(findDocumentAuthoredByRun).toHaveBeenCalledTimes(1)
+      expect(findDocumentAuthoredByRef).toHaveBeenCalledTimes(1)
     })
 
     it('looks the run up by its own id, scoped to the organization AND the project', async () => {
@@ -560,7 +565,7 @@ describe('fileGeneratedDocument', () => {
       // silently never received the report and the caller's Öffnen/Zuweisen
       // pointed somewhere the reader may not even be.
       await file()
-      expect(findDocumentAuthoredByRun).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1', 'deep_research')
+      expect(findDocumentAuthoredByRef).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1', 'deep_research')
     })
 
     it('looks the run up by its PRODUCER too, so a run can owe more than one file', async () => {
@@ -575,29 +580,72 @@ describe('fileGeneratedDocument', () => {
         session: SESSION,
         projectId: 'proj-1',
         producer: 'diagram_pdf',
-        runId: 'run_7',
+        ref: 'run_7',
         title: 'Ablauf',
         render,
       })
-      expect(findDocumentAuthoredByRun).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1', 'diagram_pdf')
+      expect(findDocumentAuthoredByRef).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1', 'diagram_pdf')
     })
   })
 
   describe('audit', () => {
-    it('emits document.generated with the agent actor and the run', async () => {
+    it('emits document.generated with the agent actor and a TYPED reference', async () => {
       await file()
 
       const event = recordAuditEventOrThrow.mock.calls[0][0]
       expect(event.action).toBe('document.generated')
+      // The kind travels with the id, and `eventTargets` turns it into the
+      // WorkOS target TYPE. Before migration 0066 every agent-authored event was
+      // emitted as `agent_run` whatever the id named, so an auditor resolving a
+      // filed diagram looked up a job that does not exist — a dead end that
+      // looks exactly like a target nobody has opened yet.
       expect(event.actor).toEqual({
         type: 'agent',
         userId: 'user-1',
         email: 'architektin@example.at',
-        runId: 'run_7',
+        ref: { kind: 'agent_run', id: 'run_7' },
       })
       expect(event.targetType).toBe('document')
       expect(event.targetId).toBe(admittedRow().id)
       expect(event.metadata).toMatchObject({ projectId: 'proj-1', producer: 'deep_research' })
+    })
+
+    it('does not tell an auditor a diagram\u2019s reference is a job id', async () => {
+      // THE REGRESSION THIS PINS, in full: `authored_by_run_id` held a backend
+      // job id for `deep_research` and `{chat answer}-{hash of the source}` for
+      // the two diagram producers, and the emit hard-coded `{type: 'agent_run'}`
+      // for all of them. So `document.generated` asserted, in a structured field
+      // the audit-log export filters on, that `msg_42-1a2b3c4d` was a run id.
+      // Following it resolves to nothing — and a target that resolves to nothing
+      // is indistinguishable from one nobody has looked up yet, which is why it
+      // stayed invisible.
+      //
+      // The kind now comes off the producer, so this cannot be got wrong at a
+      // call site: `fileGeneratedDocument` takes an identifier and never a kind.
+      await fileGeneratedDocument({
+        session: SESSION,
+        projectId: 'proj-1',
+        producer: 'diagram_svg',
+        ref: 'msg_42-1a2b3c4d',
+        title: 'Ablauf',
+        render,
+      })
+
+      const event = recordAuditEventOrThrow.mock.calls[0][0]
+      expect(event.actor.ref).toEqual({ kind: 'answer_artifact', id: 'msg_42-1a2b3c4d' })
+      expect(admittedRow().authoredByRefKind).toBe('answer_artifact')
+    })
+
+    it('registers every reference kind it can emit as a target of the action', () => {
+      // A target type WorkOS has no schema for is rejected exactly like an
+      // unregistered action — and because this action uses the THROWING emitter,
+      // the rejection does not lose an audit line, it unfiles the document the
+      // line was about. So a kind added to the vocabulary without a registration
+      // is a producer whose every filing is silently undone.
+      const registered = AUDIT_SCHEMAS['document.generated'].targets.map((target) => target.type)
+      for (const kind of Object.values(GENERATED_DOCUMENT_PRODUCER_REF_KINDS)) {
+        expect(registered, kind).toContain(kind)
+      }
     })
 
     it('unfiles the document when the audit write fails', async () => {

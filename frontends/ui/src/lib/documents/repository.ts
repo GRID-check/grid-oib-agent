@@ -201,7 +201,7 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
 }
 
 /**
- * The document a given run already filed, if it filed one.
+ * The document a given reference already filed, if it filed one.
  *
  * The idempotency probe behind `fileGeneratedDocument`. A report is fetched
  * every time its tab is opened, so without this a multi-minute run's single
@@ -209,9 +209,18 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * indistinguishable from a second run's, which is precisely the thing an
  * office cannot untangle later.
  *
- * `authored_by_run_id` is the key because it is the one identifier the producer
- * and the row already share. Scoped by organization like every other read here,
- * so a run id guessed from another tenant finds nothing.
+ * `authored_by_ref` is the key because it is the one identifier the producer
+ * and the row already share — a backend job id for a research run, the answer
+ * an artifact was drawn in for a diagram (migration 0066, which renamed the
+ * column off the first of those two after it had stopped being the only one).
+ * Scoped by organization like every other read here, so a reference guessed from
+ * another tenant finds nothing.
+ *
+ * `authored_by_ref_kind` is deliberately NOT filtered on, and the index does not
+ * carry it either. The kind is a function of the producer — the filing path
+ * derives one from the other — and the producer is already in the key, so asking
+ * for it as well would be a column in the index that this probe does not filter
+ * by, which is the index-wider-than-the-probe failure 0064 names.
  *
  * Scoped by PRODUCER since migration 0065, because a run can owe more than one
  * FILE. A diagram is two artifacts that are not substitutes — an SVG that
@@ -229,9 +238,9 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * This is the CHEAP half of "once per run", never the guarantee. A lookup cannot
  * see a concurrent caller that has not inserted yet: two report tabs both probe,
  * both miss, and both file. Migration 0065's partial unique index
- * `uniq_documents_authored_run_producer_per_project` is the half that holds under
+ * `uniq_documents_authored_ref_producer_per_project` is the half that holds under
  * concurrency, and it is keyed on exactly the four columns this function filters
- * by — `(organization_id, project_id, authored_by_run_id, authored_by_producer)`
+ * by — `(organization_id, project_id, authored_by_ref, authored_by_producer)`
  * WHERE `authored_by <> 'user'`. THAT AGREEMENT IS LOAD-BEARING IN BOTH DIRECTIONS: a
  * narrower index rejects rows this probe would accept (and the caller's recovery
  * finds no winner to return), a wider one admits duplicates this probe was meant
@@ -247,8 +256,8 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * probe has to ask the question the caller is actually asking: has this run
  * filed into THIS project.
  */
-export async function findDocumentAuthoredByRun(
-  runId: string,
+export async function findDocumentAuthoredByRef(
+  ref: string,
   organizationId: string,
   projectId: string,
   producer: string,
@@ -264,7 +273,7 @@ export async function findDocumentAuthoredByRun(
       .from(documents)
       .where(
         and(
-          eq(documents.authoredByRunId, runId),
+          eq(documents.authoredByRef, ref),
           eq(documents.organizationId, organizationId),
           eq(documents.projectId, projectId),
           eq(documents.authoredByProducer, producer),

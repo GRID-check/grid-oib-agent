@@ -41,19 +41,19 @@
  *
  * That collided with migration 0064, which allowed one machine-authored
  * document per (organization, project, run). Migration **0065** widens that key
- * and `findDocumentAuthoredByRun` with it, in the same commit and derived from
+ * and `findDocumentAuthoredByRef` with it, in the same commit and derived from
  * each other, which is the move 0064's own header prescribes for exactly this
- * case. The alternative — two synthetic run ids, `{run}:svg` and `{run}:pdf` —
- * needed no migration and was rejected: `authored_by_run_id` exists so somebody
- * can later ask what wrote a file and in which run, and a key that joins back
- * to no real run is what the schema calls "an audit trail in appearance only".
+ * case. The alternative — two synthetic ids, `{ref}:svg` and `{ref}:pdf` —
+ * needed no migration and was rejected: `authored_by_ref` exists so somebody
+ * can later ask what wrote a file and where it came from, and a key that joins
+ * back to nothing is what the schema calls "an audit trail in appearance only".
  *
  * ## Partial filing, and why retry is the compensation
  *
  * The two calls are not one transaction, so the PDF can fail after the SVG has
  * landed. Nothing is rolled back, and that is deliberate: the SVG is the
  * artifact that carries the source, so it is the half worth keeping, and
- * `fileGeneratedDocument` is idempotent per (run, producer) — which is what
+ * `fileGeneratedDocument` is idempotent per (reference, producer) — which is what
  * makes the retry the compensation. Filing again finds the SVG already filed,
  * renders and files only the PDF, and costs the reader one more click instead
  * of a report that quietly vanished.
@@ -85,13 +85,25 @@ export interface FileDiagramInput extends DiagramSubmission {
   session: AuthorizedSession
   projectId: string
   /**
-   * The identity of the diagram this is an artifact OF — the chat message the
-   * model wrote it in. It is `authored_by_run_id` and half the idempotency key,
-   * so filing the same diagram twice files nothing twice: pressing the button
-   * again on a message that already has its files is a no-op that answers with
-   * the ids it already had.
+   * The identity of the diagram this is an artifact OF: the chat answer the
+   * model drew it in, plus a hash of the source, so one answer holding two
+   * diagrams files two documents.
+   *
+   * It is `authored_by_ref` and half the idempotency key, so filing the same
+   * diagram twice files nothing twice: pressing the button again on a message
+   * that already has its files is a no-op that answers with the ids it already
+   * had.
+   *
+   * **Not a run id, and no longer called one.** Until migration 0066 this field
+   * was `runId` and landed in a column called `authored_by_run_id` whose comment
+   * said "the backend async job id of the run" — a sentence that was true of the
+   * research producer and of nothing here. The kind of identity this is now
+   * travels with it, declared once against the producer in
+   * `GENERATED_DOCUMENT_PRODUCER_REF_KINDS`, so the row and the
+   * `document.generated` audit target both say `answer_artifact` rather than
+   * pointing an auditor at a job store this value was never in.
    */
-  runId: string
+  answerRef: string
   /** What a reader should see in the Files pane. */
   title: string
   /**
@@ -143,7 +155,7 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
     session: input.session,
     projectId: input.projectId,
     producer: 'diagram_svg',
-    runId: input.runId,
+    ref: input.answerRef,
     title: input.title,
     request: input.request,
     // The bytes this renderer returns are the bytes `svg.ts` wrote out of its
@@ -157,7 +169,7 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
       session: input.session,
       projectId: input.projectId,
       producer: 'diagram_pdf',
-      runId: input.runId,
+      ref: input.answerRef,
       title: input.title,
       request: input.request,
       render: async (context) => ({
@@ -187,7 +199,7 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
     // attacker.
     console.error('[diagrams] the SVG was filed and the PDF was not', {
       projectId: input.projectId,
-      runId: input.runId,
+      answerRef: input.answerRef,
       svgDocumentId: svg.documentId,
       cause: error instanceof Error ? `${error.name}: ${error.message}` : 'unknown',
     })

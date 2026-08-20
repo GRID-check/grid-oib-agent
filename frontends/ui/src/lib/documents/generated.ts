@@ -41,17 +41,20 @@ import { NotFoundError } from '@/lib/api/errors'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getOrCreateProjectFolderByName } from '@/lib/projects/folder-service'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { deleteProjectDocument, findDocumentAuthoredByRun } from './repository'
+import type { AuthoredRefKind } from './document-authors'
+import { deleteProjectDocument, findDocumentAuthoredByRef } from './repository'
 
 /**
- * What produced a document no person wrote.
+ * What produced a document no person wrote, and what kind of identifier it
+ * files under.
  *
- * A `const` tuple for the same reason `DOCUMENT_AUTHORS` is one: the set is
- * enumerable at runtime and the type is derived rather than restated, so the
- * value written into `documents.authored_by_producer` cannot drift from the
- * values this service accepts.
+ * A `const` map for the reason `AUDIT_SCHEMAS` is one: the set is enumerable at
+ * runtime, the type is DERIVED from the keys rather than restated, and the fact
+ * each producer owes — its reference kind — is stated in the same place as the
+ * producer itself, so the two cannot drift. A producer without a kind is
+ * unrepresentable rather than merely detectable.
  *
- * **The second producer is a member of this tuple and a caller of
+ * **The second producer is a key of this map and a caller of
  * {@link fileGeneratedDocument}.** It is not a second copy of the filing code.
  * `src/lib/diagrams/filing.ts` is what that looked like when it happened: two
  * members added here, one new caller, no second insert path — so the quota, the
@@ -66,9 +69,38 @@ import { deleteProjectDocument, findDocumentAuthoredByRun } from './repository'
  * migration 0065 the producer is half of the idempotency key. Collapsing them
  * into one member would make a diagram file one artifact or the other and never
  * both, which is the bug 0065 exists to fix.
+ *
+ * ## Why the reference KIND lives here and not at the call site
+ *
+ * Because a call site that can state it is a call site that can state the wrong
+ * one, and nothing downstream could tell. That is not hypothetical — it is
+ * exactly what happened without this map: `authored_by_run_id` held a backend
+ * job id for `deep_research` and `{chat message id}-{source hash}` for the two
+ * diagram producers, both written by callers passing a field called `runId`,
+ * and the row, the column comment and the `agent_run` audit target all went on
+ * saying "job id" for all three. Migration 0066 is the repair; this map is what
+ * stops it recurring, because the kind is now a property of the deliverable and
+ * the caller supplies only the identifier itself.
  */
-export const GENERATED_DOCUMENT_PRODUCERS = ['deep_research', 'diagram_svg', 'diagram_pdf'] as const
-export type GeneratedDocumentProducer = (typeof GENERATED_DOCUMENT_PRODUCERS)[number]
+export const GENERATED_DOCUMENT_PRODUCER_REF_KINDS = {
+  /** The backend async job that ran the research. */
+  deep_research: 'agent_run',
+  /** The chat answer the diagram was drawn in, plus a hash of its source. */
+  diagram_svg: 'answer_artifact',
+  diagram_pdf: 'answer_artifact',
+} as const satisfies Record<string, AuthoredRefKind>
+
+export type GeneratedDocumentProducer = keyof typeof GENERATED_DOCUMENT_PRODUCER_REF_KINDS
+
+/**
+ * The producers, as a list. DERIVED from the map above and never hand-written,
+ * for the reason `AUDIT_ACTIONS` is derived from `AUDIT_SCHEMAS`: two lists that
+ * are meant to be one are two lists that drift, and the drift here would be a
+ * producer this service accepts and has no reference kind for.
+ */
+export const GENERATED_DOCUMENT_PRODUCERS = Object.keys(
+  GENERATED_DOCUMENT_PRODUCER_REF_KINDS,
+) as readonly GeneratedDocumentProducer[]
 
 /**
  * Postgres' `unique_violation`.
@@ -105,8 +137,18 @@ export interface FileGeneratedDocumentInput {
   session: AuthorizedSession
   projectId: string
   producer: GeneratedDocumentProducer
-  /** The backend async job id — `authored_by_run_id`, and the idempotency key. */
-  runId: string
+  /**
+   * WHICH ONE — the identifier of the thing that produced this deliverable, and
+   * the idempotency key. It lands in `authored_by_ref`.
+   *
+   * Only the identifier. What KIND of identifier it is is not the caller's to
+   * say: it is read off the producer through
+   * {@link GENERATED_DOCUMENT_PRODUCER_REF_KINDS} and written into
+   * `authored_by_ref_kind` beside it, so the row can be resolved by somebody who
+   * was not here. See that map for what happened while callers of a field called
+   * `runId` were free to pass anything.
+   */
+  ref: string
   /** What a reader should see in the Files pane. */
   title: string
   /**
@@ -203,16 +245,16 @@ export function generatedFilename(title: string, contentType: string, now: Date)
 /**
  * File a machine-authored document into a project.
  *
- * Returns the existing row when this run has already been filed: a report is
+ * Returns the existing row when this reference has already been filed: a report is
  * fetched every time its tab is opened, and a second document per re-read would
  * be a silent duplicate of a multi-minute run's only artifact.
  *
- * ## Once per run, whichever way the calls interleave
+ * ## Once per (reference, producer), whichever way the calls interleave
  *
  * That guarantee is TWO mechanisms, and it needs both. The probe below answers
  * the sequential case cheaply and before anything is rendered. The unique index
- * `uniq_documents_authored_run_producer_per_project` (migration 0065, widening
- * 0064's key by the producer) answers the concurrent one, which the probe cannot: two tabs open the same report, both
+ * `uniq_documents_authored_ref_producer_per_project` (migration 0065, widening
+ * 0064's key by the producer; renamed with its column by 0066) answers the concurrent one, which the probe cannot: two tabs open the same report, both
  * probe before either inserts, both miss, and a lookup has no way to know it
  * lost. The catch around `admitOrDiscard` is what turns the index's rejection
  * into the same `alreadyFiled` answer the probe gives.
@@ -228,7 +270,9 @@ export function generatedFilename(title: string, contentType: string, now: Date)
 export async function fileGeneratedDocument(
   input: FileGeneratedDocumentInput,
 ): Promise<FiledGeneratedDocument> {
-  const { session, projectId, producer, runId, title, render, request } = input
+  const { session, projectId, producer, ref, title, render, request } = input
+  // Not passed in, and that is the point — see the producer map's header.
+  const refKind = GENERATED_DOCUMENT_PRODUCER_REF_KINDS[producer]
 
   // The capability an organization can withhold (ADR-0038 §3). Spelled exactly
   // as `uploadDocument` spells it, legacy umbrella included: a custom role
@@ -237,15 +281,15 @@ export async function fileGeneratedDocument(
   // was created rather than on what it grants.
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
-  // Idempotency, before any byte is rendered. The run id is the key because it
-  // is the one identifier the producer and the row already share.
+  // Idempotency, before any byte is rendered. The reference is the key because
+  // it is the one identifier the producer and the row already share.
   //
   // This is the CHEAP half, not the guarantee: it saves a re-opened tab a render,
   // a PUT and a quota round trip. It cannot see a concurrent caller that has not
   // inserted yet, which is why 0064's unique index exists and why the catch
   // below has to key on the same three columns this asks about — an index and a
   // probe that disagree turn a race into either a 500 or a duplicate.
-  const existing = await findDocumentAuthoredByRun(runId, session.organizationId, projectId, producer)
+  const existing = await findDocumentAuthoredByRef(ref, session.organizationId, projectId, producer)
   if (existing) {
     return {
       documentId: existing.id,
@@ -298,7 +342,11 @@ export async function fileGeneratedDocument(
       createdBy: session.userId,
       authoredBy: 'agent',
       authoredByProducer: producer,
-      authoredByRunId: runId,
+      authoredByRef: ref,
+      // Written, not derived on read. The producer→kind map is CODE and code
+      // changes; recomputing the kind would silently re-interpret rows that were
+      // written under an older answer. See the column's own note.
+      authoredByRefKind: refKind,
       filename,
       displayName: title.trim() || filename,
       storageKey,
@@ -321,8 +369,8 @@ export async function fileGeneratedDocument(
     // `generatedFilename` is deterministic (slug + date + extension), the two
     // rows would have been identical in every attribute a person can see. An
     // office cannot untangle two byte-identical reports of one run, so
-    // `uniq_documents_authored_run_producer_per_project` (migration 0065) makes
-    // the second insert fail instead of succeed. This is the folder path's shape
+    // `uniq_documents_authored_ref_producer_per_project` (migrations 0065/0066)
+    // makes the second insert fail instead of succeed. This is the folder path's shape
     // one level up: the index is what makes it correct, the catch is what makes
     // it graceful — the loser must not 500 on somebody's finished report.
     if ((error as { code?: string } | null)?.code !== UNIQUE_VIOLATION) throw error
@@ -331,7 +379,7 @@ export async function fileGeneratedDocument(
     // rather than assumed, because the answer the caller needs (the id, the
     // filename, the folder) belongs to the row that survived, not to the one
     // this call built.
-    const winner = await findDocumentAuthoredByRun(runId, session.organizationId, projectId, producer)
+    const winner = await findDocumentAuthoredByRef(ref, session.organizationId, projectId, producer)
     // Cannot happen while the index and the probe key on the same four columns
     // — which is exactly why 0065's header derives one from the other. If it
     // ever does, the two have drifted, and a violation reported as success would
@@ -367,7 +415,11 @@ export async function fileGeneratedDocument(
       organizationId: session.organizationId,
       // The actor stays the human — they are the authorization principal, and
       // the trail is searched by actor. The run rides along as a second target.
-      actor: { type: 'agent', userId: session.userId, email: session.email, runId },
+      // The run — or whatever kind of thing this reference names. The kind IS
+      // the audit target type, so a diagram's reference lands as an
+      // `answer_artifact` target rather than being asserted to be a job id
+      // nobody can look up. See `AUTHORED_REF_KINDS`.
+      actor: { type: 'agent', userId: session.userId, email: session.email, ref: { kind: refKind, id: ref } },
       action: 'document.generated',
       targetType: 'document',
       targetId: documentId,

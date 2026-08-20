@@ -87,7 +87,8 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   // (migration 0063).
   authoredBy: 'user',
   authoredByProducer: null,
-  authoredByRunId: null,
+  authoredByRef: null,
+  authoredByRefKind: null,
   filename: 'plan.pdf',
   // Not renamed — what every document is until somebody renames it.
   displayName: null,
