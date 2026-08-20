@@ -200,6 +200,32 @@ export interface DeepResearchBannerData {
    * shallow→deep — `Eskaliert zur Tiefenrecherche: <reason>` per the contract.
    */
   escalationReason?: string
+  /**
+   * The document this run's report was filed as, once the BFF has reported one.
+   *
+   * Absent is the NORMAL, honest state, not a loading state: filing is refused
+   * when the chat has no project, when the organization withholds
+   * `project:documents:write`, when the quota is full, and for every run that
+   * finished before this feature existed. The banner therefore says nothing at
+   * all when this is missing — it must never offer to open a file that does
+   * not exist, and "maybe there is a document" is not a thing to render.
+   */
+  filedDocument?: DeepResearchFiledDocument
+}
+
+/**
+ * A filed agent-authored report, as the report route reports it back.
+ *
+ * `alreadyFiled` is deliberately NOT carried here. It answers "did this call
+ * create the row", which is a question about the request, not about the
+ * document — the banner shows the same link whether the row was created by this
+ * fetch or by the one before it.
+ */
+export interface DeepResearchFiledDocument {
+  /** `documents.id` — what the `/files?doc=` deep link addresses. */
+  documentId: string
+  /** The generated filename, so the banner can name what now exists. */
+  filename: string
 }
 
 /** Individual chat message */
@@ -1104,6 +1130,23 @@ export interface ChatActions {
     stats?: { totalTokens?: number; toolCallCount?: number },
     escalationReason?: string
   ) => void
+
+  /**
+   * Record that a run's report was filed into the project, on that run's
+   * success banner.
+   *
+   * Separate from `addDeepResearchBanner` because the two facts arrive at
+   * different times and over different transports: the banner is written from
+   * the SSE stream the moment the run succeeds, and the filing is only known
+   * once the report route has been asked for the report (that GET is where the
+   * BFF observes completion and files the document). Folding it into the banner
+   * call would mean holding the banner back until a second request returns,
+   * which would delay the outcome the user is waiting for to decorate it.
+   *
+   * A no-op when no success banner for `jobId` exists — an attached run has no
+   * thread to write into.
+   */
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
 
   // Deep research SSE actions
 

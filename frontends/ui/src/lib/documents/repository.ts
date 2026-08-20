@@ -209,11 +209,21 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * indistinguishable from a second run's, which is precisely the thing an
  * office cannot untangle later.
  *
- * `authored_by_run_id` is the key rather than a unique index: the index would
- * have to be partial over three columns to leave the `user` rows (which all
- * carry NULL) alone, and the window this closes is a person re-opening a tab,
- * not two writers racing. Scoped by organization like every other read here, so
- * a run id guessed from another tenant finds nothing.
+ * `authored_by_run_id` is the key because it is the one identifier the producer
+ * and the row already share. Scoped by organization like every other read here,
+ * so a run id guessed from another tenant finds nothing.
+ *
+ * This is the CHEAP half of "once per run", never the guarantee. A lookup cannot
+ * see a concurrent caller that has not inserted yet: two report tabs both probe,
+ * both miss, and both file. Migration 0064's partial unique index
+ * `uniq_documents_authored_run_per_project` is the half that holds under
+ * concurrency, and it is keyed on exactly the three columns this function filters
+ * by — `(organization_id, project_id, authored_by_run_id)` WHERE
+ * `authored_by <> 'user'`. THAT AGREEMENT IS LOAD-BEARING IN BOTH DIRECTIONS: a
+ * narrower index rejects rows this probe would accept (and the caller's recovery
+ * finds no winner to return), a wider one admits duplicates this probe was meant
+ * to prevent. Changing the columns here means changing the index in the same
+ * commit.
  *
  * Scoped by PROJECT as well, and that is not symmetry for its own sake. The
  * filing target comes from the report request's own `projectId`, so an

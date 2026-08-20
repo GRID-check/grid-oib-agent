@@ -804,12 +804,64 @@ export const getJobStatus = async (
   return response.json()
 }
 
-/** Get job report */
+/**
+ * The document a commissioned run's report was filed as.
+ *
+ * The BFF files the report where it OBSERVES the run finishing, which is this
+ * endpoint (`app/api/jobs/async/[...path]/route.ts`), and reports the result
+ * back as an additive `filed` object. It is optional in every direction: a
+ * chat outside a project sends no `projectId` and nothing is filed, an
+ * organization can withhold `project:documents:write`, a quota can refuse the
+ * bytes, and a report fetched from a build that predates the feature carries
+ * nothing at all.
+ */
+export interface JobReportFiling {
+  documentId: string
+  filename: string
+  /** False only on the fetch that created the row; true on every re-read. */
+  alreadyFiled: boolean
+}
+
+export interface JobReportResponse {
+  job_id: string
+  has_report: boolean
+  report: string | null
+  filed?: JobReportFiling
+}
+
+/**
+ * Narrow the additive `filed` object off an otherwise untyped response body.
+ *
+ * `response.json()` is `any` at the boundary and this repo forbids `any`, so
+ * the body is read as `unknown` and every field is checked before it is
+ * believed — the same posture `readReportMarkdown` takes on the server side of
+ * this same call. A malformed or absent `filed` yields `undefined`, which is
+ * exactly the state the UI already has to handle.
+ */
+function readReportFiling(body: unknown): JobReportFiling | undefined {
+  if (typeof body !== 'object' || body === null) return undefined
+  const filed = (body as { filed?: unknown }).filed
+  if (typeof filed !== 'object' || filed === null) return undefined
+  const { documentId, filename, alreadyFiled } = filed as Record<string, unknown>
+  if (typeof documentId !== 'string' || !documentId) return undefined
+  if (typeof filename !== 'string' || !filename) return undefined
+  return { documentId, filename, alreadyFiled: alreadyFiled === true }
+}
+
+/**
+ * Get job report.
+ *
+ * `projectId` is not decoration: the proxy resolves the caller's project from
+ * the query string, and without it the request is projectless and the report is
+ * never filed. Pass the chat's active project whenever there is one.
+ */
 export const getJobReport = async (
   jobId: string,
-  authToken?: string
-): Promise<{ job_id: string; has_report: boolean; report: string | null }> => {
-  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/report`
+  authToken?: string,
+  options: { projectId?: string | null } = {}
+): Promise<JobReportResponse> => {
+  const query = options.projectId ? `?projectId=${encodeURIComponent(options.projectId)}` : ''
+  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/report${query}`
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   }
@@ -824,7 +876,16 @@ export const getJobReport = async (
     await throwDeepResearchApiError(response, 'Failed to get job report')
   }
 
-  return response.json()
+  const body = (await response.json()) as JobReportResponse
+  // Rebuilt rather than passed through, so a malformed `filed` cannot survive
+  // the boundary wearing a type it does not satisfy.
+  const filed = readReportFiling(body)
+  return {
+    job_id: body.job_id,
+    has_report: body.has_report,
+    report: body.report,
+    ...(filed ? { filed } : {}),
+  }
 }
 
 /** Cancel a running job */

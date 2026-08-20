@@ -217,6 +217,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const setStreaming = useChatStore((s) => s.setStreaming)
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
+  const recordDeepResearchFiling = useChatStore((s) => s.recordDeepResearchFiling)
   const attachToDeepResearchJob = useChatStore((s) => s.attachToDeepResearchJob)
 
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -300,7 +301,16 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
    */
   const _loadReportOnly = useCallback(
     async (jobId: string): Promise<boolean> => {
-      const response = await getJobReport(jobId, idToken || undefined)
+      const response = await getJobReport(jobId, idToken || undefined, {
+        projectId: useChatStore.getState().projectId,
+      })
+
+      if (response.filed) {
+        recordDeepResearchFiling(jobId, {
+          documentId: response.filed.documentId,
+          filename: response.filed.filename,
+        })
+      }
 
       if (response.has_report && response.report) {
         setReportContent(response.report, 'final_report')
@@ -309,7 +319,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
 
       return false
     },
-    [idToken, setReportContent]
+    [idToken, setReportContent, recordDeepResearchFiling]
   )
 
   /**
@@ -369,11 +379,22 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const loadJobDataFast = useCallback(
     async (jobId: string, scope: JobLoadScope): Promise<void> => {
       const [reportResult] = await Promise.allSettled([
-        getJobReport(jobId, idToken || undefined),
+        getJobReport(jobId, idToken || undefined, {
+          projectId: useChatStore.getState().projectId,
+        }),
         loadJobState(jobId, scope),
       ])
 
       if (!isJobLoadScopeCurrent(scope)) return
+
+      if (reportResult.status === 'fulfilled' && reportResult.value.filed) {
+        // Recorded even when the panel has moved on: the filing is a fact about
+        // the project, not about which tab is open.
+        recordDeepResearchFiling(jobId, {
+          documentId: reportResult.value.filed.documentId,
+          filename: reportResult.value.filed.filename,
+        })
+      }
 
       if (
         reportResult.status === 'fulfilled' &&
@@ -383,7 +404,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         setReportContent(reportResult.value.report, 'final_report')
       }
     },
-    [idToken, loadJobState, setReportContent]
+    [idToken, loadJobState, setReportContent, recordDeepResearchFiling]
   )
 
   /**

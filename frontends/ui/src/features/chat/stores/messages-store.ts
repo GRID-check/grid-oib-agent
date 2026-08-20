@@ -11,6 +11,7 @@ import type {
   FileCardData,
   ErrorCode,
   DeepResearchBannerType,
+  DeepResearchFiledDocument,
   Conversation,
   CitationSource,
   AnswerTransparency,
@@ -248,6 +249,8 @@ export type MessagesSlice = {
     stats?: { totalTokens?: number; toolCallCount?: number },
     escalationReason?: string
   ) => void
+  /** See `ChatActions.recordDeepResearchFiling` — the filing arrives after the banner. */
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
   setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
@@ -1983,6 +1986,54 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       },
       false,
       'addDeepResearchBanner'
+    )
+  },
+
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => {
+    const { currentConversation, conversations } = get()
+
+    // Every conversation, not just the current one: the run's banner lives in
+    // the thread that commissioned it, and the report can be re-read (and so
+    // first filed) from another thread, from the run history, or after the
+    // reader has moved on. Searching by job id is what makes that safe.
+    let changed = false
+    const patchConversation = (conversation: Conversation): Conversation => {
+      let patchedHere = false
+      const messages = conversation.messages.map((message) => {
+        if (
+          message.messageType !== 'deep_research_banner' ||
+          message.deepResearchBannerData?.jobId !== jobId ||
+          message.deepResearchBannerData.bannerType !== 'success' ||
+          message.deepResearchBannerData.filedDocument?.documentId === filed.documentId
+        ) {
+          return message
+        }
+        patchedHere = true
+        return {
+          ...message,
+          deepResearchBannerData: { ...message.deepResearchBannerData, filedDocument: filed },
+        }
+      })
+      if (!patchedHere) return conversation
+      changed = true
+      return { ...conversation, messages }
+    }
+
+    const updatedConversations = conversations.map(patchConversation)
+    const updatedCurrent = currentConversation ? patchConversation(currentConversation) : currentConversation
+
+    // Nothing to say: an attached run (no owning thread) has no banner, and a
+    // second report fetch re-reports a filing already recorded. Bailing before
+    // `set` keeps both from producing a render.
+    if (!changed) return
+
+    set(
+      {
+        currentConversation: updatedCurrent,
+        conversations: updatedConversations,
+      },
+      false,
+      'recordDeepResearchFiling'
     )
   },
 

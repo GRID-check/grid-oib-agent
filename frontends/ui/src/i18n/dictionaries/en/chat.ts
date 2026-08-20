@@ -848,6 +848,11 @@ export const chat = {
     success: {
       heading: 'Report Completed!{stats}',
       subheading: 'Research has finished and a report is ready to view in the research panel.',
+      // Rendered ONLY when the report really was filed and has a document id.
+      // Absent — no project, no `project:documents:write`, a refused storage
+      // quota — the banner says nothing rather than claiming a file that does
+      // not exist.
+      filedLine: 'Filed in the project: {filename}',
     },
     failure: {
       heading: 'Report Failed to Complete',
@@ -867,8 +872,23 @@ export const chat = {
       heading: 'Starting Deep Research',
       subheading:
         'Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs — it may take several minutes.',
+      // The disclosure that makes the authorization real. It sits on the
+      // STARTING banner rather than the outcome: deep research escalates out of
+      // a chat turn (there is no submit form), and a run can begin because the
+      // classifier escalated rather than because anybody ordered a report. The
+      // moment the run can still be stopped is therefore the only moment at
+      // which naming the destination is worth anything. No dialog and no
+      // confirmation: a modal asked after the fact is only ever answered yes,
+      // which makes it a ritual rather than a decision. Shown inside a project
+      // only — outside one nothing is filed. The folder is named in German
+      // because that is literally what the folder in the file tree is called.
+      filingDisclosure: 'The finished report will be filed in this project under “Berichte”.',
     },
     viewReport: 'View Report',
+    // The success banner's second action, when something was filed. Worded
+    // apart from "View Report" on purpose: that opens the research panel, this
+    // opens the file in the project — two places, two words.
+    openInProject: 'Open in Project',
     viewThinking: 'View Thinking',
     viewProgress: 'View Progress',
     // One-liner above the "Starting Deep Research" banner when the turn

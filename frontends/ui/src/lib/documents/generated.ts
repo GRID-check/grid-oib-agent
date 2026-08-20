@@ -61,6 +61,16 @@ export const GENERATED_DOCUMENT_PRODUCERS = ['deep_research'] as const
 export type GeneratedDocumentProducer = (typeof GENERATED_DOCUMENT_PRODUCERS)[number]
 
 /**
+ * Postgres' `unique_violation`.
+ *
+ * Named rather than spelled at the catch site for the reason
+ * `folder-service.ts` names it too: `'23505'` in a conditional reads as a magic
+ * number, and the branch it guards is the difference between recovering from a
+ * race and swallowing an unrelated database failure.
+ */
+const UNIQUE_VIOLATION = '23505'
+
+/**
  * What the service already knows and a renderer would otherwise re-query.
  *
  * The project is loaded here to validate tenancy and to name the collection, so
@@ -185,6 +195,22 @@ export function generatedFilename(title: string, contentType: string, now: Date)
  * Returns the existing row when this run has already been filed: a report is
  * fetched every time its tab is opened, and a second document per re-read would
  * be a silent duplicate of a multi-minute run's only artifact.
+ *
+ * ## Once per run, whichever way the calls interleave
+ *
+ * That guarantee is TWO mechanisms, and it needs both. The probe below answers
+ * the sequential case cheaply and before anything is rendered. The unique index
+ * `uniq_documents_authored_run_per_project` (migration 0064) answers the
+ * concurrent one, which the probe cannot: two tabs open the same report, both
+ * probe before either inserts, both miss, and a lookup has no way to know it
+ * lost. The catch around `admitOrDiscard` is what turns the index's rejection
+ * into the same `alreadyFiled` answer the probe gives.
+ *
+ * The duplicate this forecloses is not merely untidy. `generatedFilename` is
+ * deterministic, so the two rows agree on filename, display name, size, folder,
+ * author, run and second — identical in every attribute a reader can see. The
+ * repository calls that out as "precisely the thing an office cannot untangle
+ * later", and an office that cannot tell two reports apart keeps both.
  */
 export async function fileGeneratedDocument(
   input: FileGeneratedDocumentInput,
@@ -199,10 +225,13 @@ export async function fileGeneratedDocument(
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
   // Idempotency, before any byte is rendered. The run id is the key because it
-  // is the one identifier the producer and the row already share; a lookup
-  // rather than a unique index because the index would have to be partial on
-  // three columns to leave `user` rows alone, and the window this closes is a
-  // human re-opening a tab, not two writers racing.
+  // is the one identifier the producer and the row already share.
+  //
+  // This is the CHEAP half, not the guarantee: it saves a re-opened tab a render,
+  // a PUT and a quota round trip. It cannot see a concurrent caller that has not
+  // inserted yet, which is why 0064's unique index exists and why the catch
+  // below has to key on the same three columns this asks about — an index and a
+  // probe that disagree turn a race into either a 500 or a duplicate.
   const existing = await findDocumentAuthoredByRun(runId, session.organizationId, projectId)
   if (existing) {
     return {
@@ -245,33 +274,71 @@ export async function fileGeneratedDocument(
   // path can survive — and the reason admission has to be able to take the
   // bytes back. `InsufficientStorageError` propagates unchanged: a generated
   // report is refused by the quota exactly like an upload is.
-  await admitOrDiscard(storageBucket, storageKey, {
-    id: documentId,
-    organizationId: session.organizationId,
-    projectId,
-    folderId: folder.id,
-    // Provenance is not responsibility (ADR-0047): the human commissioned the
-    // run and the export needs somebody to print, so `createdBy` stays theirs.
-    createdBy: session.userId,
-    authoredBy: 'agent',
-    authoredByProducer: producer,
-    authoredByRunId: runId,
-    filename,
-    displayName: title.trim() || filename,
-    storageKey,
-    storageBucket,
-    // The collection this project's evidence lives in — recorded because the
-    // column says which corpus the row BELONGS to, not which one holds chunks
-    // for it. Nothing is ever indexed here, so there are none; the safety comes
-    // from the dispatch that does not happen, never from this string.
-    collectionName: project.collectionName,
-    fileSize: body.byteLength,
-    contentType: rendered.contentType,
-    // Terminal, and honest: the bytes are here and indexing was deliberately
-    // skipped. `pending` would render a spinner waiting on a job nobody
-    // dispatched.
-    status: 'stored',
-  })
+  try {
+    await admitOrDiscard(storageBucket, storageKey, {
+      id: documentId,
+      organizationId: session.organizationId,
+      projectId,
+      folderId: folder.id,
+      // Provenance is not responsibility (ADR-0047): the human commissioned the
+      // run and the export needs somebody to print, so `createdBy` stays theirs.
+      createdBy: session.userId,
+      authoredBy: 'agent',
+      authoredByProducer: producer,
+      authoredByRunId: runId,
+      filename,
+      displayName: title.trim() || filename,
+      storageKey,
+      storageBucket,
+      // The collection this project's evidence lives in — recorded because the
+      // column says which corpus the row BELONGS to, not which one holds chunks
+      // for it. Nothing is ever indexed here, so there are none; the safety
+      // comes from the dispatch that does not happen, never from this string.
+      collectionName: project.collectionName,
+      fileSize: body.byteLength,
+      contentType: rendered.contentType,
+      // Terminal, and honest: the bytes are here and indexing was deliberately
+      // skipped. `pending` would render a spinner waiting on a job nobody
+      // dispatched.
+      status: 'stored',
+    })
+  } catch (error) {
+    // The probe above lost a race. Both callers ran it before either had
+    // inserted, both missed, both rendered, both PUT an object — and because
+    // `generatedFilename` is deterministic (slug + date + extension), the two
+    // rows would have been identical in every attribute a person can see. An
+    // office cannot untangle two byte-identical reports of one run, so
+    // `uniq_documents_authored_run_per_project` (migration 0064) makes the
+    // second insert fail instead of succeed. This is the folder path's shape
+    // one level up: the index is what makes it correct, the catch is what makes
+    // it graceful — the loser must not 500 on somebody's finished report.
+    if ((error as { code?: string } | null)?.code !== UNIQUE_VIOLATION) throw error
+
+    // The winner's row, which is now the only document this run has. Re-probed
+    // rather than assumed, because the answer the caller needs (the id, the
+    // filename, the folder) belongs to the row that survived, not to the one
+    // this call built.
+    const winner = await findDocumentAuthoredByRun(runId, session.organizationId, projectId)
+    // Cannot happen while the index and the probe key on the same three columns
+    // — which is exactly why 0064's header derives one from the other. If it
+    // ever does, the two have drifted, and a violation reported as success would
+    // hand the caller a document id it does not have.
+    if (!winner) throw error
+
+    // NOT unfiled here, and nothing is left behind: this call inserted no row,
+    // and its object is already gone. `admitOrDiscard` discards on ANY throw
+    // from admission, not only on a quota refusal, and the loser's key carries
+    // its own `documentId`, so the delete cannot touch the winner's bytes.
+    // Without that, every lost race would leave an object with no row —
+    // invisible to the UI and to the quota ledger, findable only by a
+    // bucket-wide sweep. `generated.spec.ts` asserts one surviving object.
+    return {
+      documentId: winner.id,
+      filename: winner.filename,
+      folderId: winner.folderId,
+      alreadyFiled: true,
+    }
+  }
 
   // NOTHING is dispatched here. No `/v1/ingest`, no collection write, no
   // `dispatchDocument`. A report the agent wrote, embedded into the project

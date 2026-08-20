@@ -841,6 +841,11 @@ export const chat: typeof en.chat = {
       heading: 'Bericht abgeschlossen!{stats}',
       subheading:
         'Die Recherche ist abgeschlossen und ein Bericht steht im Recherchebereich zur Ansicht bereit.',
+      // Steht NUR, wenn die Ablage tatsächlich stattgefunden hat und der Bericht
+      // eine Dokument-ID hat. Fehlt sie — kein Projekt, keine Berechtigung
+      // „project:documents:write“, abgelehntes Speicherkontingent —, schweigt
+      // das Banner, statt eine Datei zu behaupten, die es nicht gibt.
+      filedLine: 'Im Projekt abgelegt: {filename}',
     },
     failure: {
       heading: 'Bericht konnte nicht abgeschlossen werden',
@@ -860,8 +865,22 @@ export const chat: typeof en.chat = {
       heading: 'Deep Research wird gestartet',
       subheading:
         'Der Chat ist pausiert, während der Bericht erstellt wird, um zu verhindern, dass mehrere Berichte generiert werden. Sie können den Tab verlassen, während dies läuft – es kann mehrere Minuten dauern.',
+      // Die Offenlegung, die die Zustimmung erst echt macht. Sie steht auf dem
+      // START-Banner, nicht auf dem Ergebnis: Deep Research eskaliert aus einem
+      // Chat-Turn (es gibt kein Absendeformular), und ein Lauf kann beginnen,
+      // weil der Klassifikator eskaliert hat — nicht, weil jemand einen Bericht
+      // bestellt hat. Der Zeitpunkt, an dem man den Lauf noch abbrechen kann,
+      // ist deshalb der einzige, an dem die Angabe des Ablageorts etwas wert
+      // ist. Kein Dialog, keine Rückfrage: eine Bestätigung nach dem Lauf wird
+      // immer nur mit Ja beantwortet und ist damit keine Entscheidung.
+      // Erscheint nur in einem Projekt — außerhalb wird nichts abgelegt.
+      filingDisclosure: 'Der fertige Bericht wird in diesem Projekt unter „Berichte“ abgelegt.',
     },
     viewReport: 'Bericht anzeigen',
+    // Zweite Aktion auf dem Erfolgsbanner, wenn abgelegt wurde. Bewusst anders
+    // benannt als „Bericht anzeigen“: das öffnet den Recherchebereich, dies
+    // öffnet die Datei in der Projektablage — zwei Orte, zwei Wörter.
+    openInProject: 'Im Projekt öffnen',
     viewThinking: 'Denkschritte anzeigen',
     viewProgress: 'Fortschritt anzeigen',
     // Einzeiler über dem „Deep Research wird gestartet“-Banner, wenn der Turn

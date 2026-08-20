@@ -19,8 +19,10 @@ import { useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
+import { documentFilesHref } from '@/features/documents/lib/document-question'
+import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks/use-load-job-data'
-import type { DeepResearchBannerType } from '../types'
+import type { DeepResearchBannerType, DeepResearchFiledDocument } from '../types'
 
 export interface DeepResearchBannerProps {
   /** Type of banner: starting, success, failure, cancelled, or expired */
@@ -37,6 +39,15 @@ export interface DeepResearchBannerProps {
    * (`Eskaliert zur Tiefenrecherche: <reason>`) per the transparency contract.
    */
   escalationReason?: string
+  /**
+   * The document this run's report was filed as, once one exists.
+   *
+   * Absent is the normal state, not a pending one — see
+   * `DeepResearchBannerData.filedDocument`. The banner renders nothing about a
+   * file when it is missing: offering to open a document that does not exist
+   * would be a worse failure than the silence.
+   */
+  filedDocument?: DeepResearchFiledDocument
 }
 
 /** Banner status type */
@@ -138,8 +149,13 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   toolCallCount,
   timestamp,
   escalationReason,
+  filedDocument,
 }) => {
   const t = useTranslations('chat')
+  // Read here rather than threaded through ChatArea, the same way the layout
+  // store already is: both the disclosure and the deep link are facts about
+  // where this chat is, not about the message the banner sits in.
+  const projectId = useChatStore((s) => s.projectId)
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const { loadResearchPanelTab } = useLoadJobData()
@@ -187,6 +203,32 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
       </Button>
     ) : undefined
 
+  // Where the report will land, said while the run can still be stopped.
+  //
+  // This line IS the authorization. The design calls the filing "commissioned"
+  // — the user asked for a report and was told where it goes — but deep
+  // research escalates out of a chat turn rather than a submit form, and the
+  // escalation can be the classifier's decision (`escalationReason` above), so
+  // "the user asked" is not reliably true either. What can be made true is that
+  // nobody is surprised: the destination is named before the file exists, at
+  // the one moment stopping the run is still an option. A modal after the fact
+  // was rejected in the design and is not to be added — it is answered yes
+  // every time, which makes it a receipt, not a decision.
+  //
+  // Outside a project there is nothing to disclose: the report route resolves
+  // the project from the request and files nothing without one.
+  const filingDisclosure =
+    bannerType === 'starting' && projectId ? t('deepResearch.starting.filingDisclosure') : undefined
+
+  // The filed document, offered only when the BFF has said one exists. Reuses
+  // the Files deep link every other document surface uses (`documentFilesHref`,
+  // also the sharing registry's `document` descriptor) rather than inventing a
+  // second URL shape for the same destination.
+  const filedHref =
+    bannerType === 'success' && filedDocument && projectId
+      ? documentFilesHref(projectId, filedDocument.documentId)
+      : undefined
+
   const { variant, Icon } = STATUS_META[config.status]
 
   return (
@@ -201,7 +243,22 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
         <AlertTitle>{config.heading}</AlertTitle>
         <AlertDescription>
           <span>{config.subheading}</span>
-          {actions && <div className="mt-1">{actions}</div>}
+          {filingDisclosure && <span className="text-subtle text-xs">{filingDisclosure}</span>}
+          {filedHref && filedDocument && (
+            <span className="text-subtle text-xs">
+              {t('deepResearch.success.filedLine', { filename: filedDocument.filename })}
+            </span>
+          )}
+          {(actions || filedHref) && (
+            <div className="mt-1 flex flex-wrap gap-2">
+              {actions}
+              {filedHref && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={filedHref}>{t('deepResearch.openInProject')}</a>
+                </Button>
+              )}
+            </div>
+          )}
         </AlertDescription>
       </Alert>
       {timestamp && (

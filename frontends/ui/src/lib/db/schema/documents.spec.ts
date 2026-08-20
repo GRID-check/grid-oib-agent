@@ -45,6 +45,14 @@
  * are unrepresentable in drizzle (one partial, one over an expression), so the
  * only thing standing between them and a `drizzle-kit generate` that drops them
  * is a comment. These tests are what makes that comment load-bearing.
+ *
+ * ## The idempotency index (migration 0064)
+ *
+ * `uniq_documents_authored_run_per_project` is a third rule written in two
+ * places, and the second place is not the schema file — it is
+ * `findDocumentAuthoredByRun`. The index and that probe have to key on the same
+ * columns or one of them is wrong, so the test reads BOTH sources instead of
+ * comparing either to a literal.
  */
 
 import { readFileSync } from 'node:fs'
@@ -73,6 +81,53 @@ const DOWN_MIGRATION_0063 = readFileSync(
   join(process.cwd(), 'drizzle/0063_agent_authored_documents.down.sql'),
   'utf8'
 )
+
+const MIGRATION_0064 = readFileSync(
+  join(process.cwd(), 'drizzle/0064_generated_document_idempotency.sql'),
+  'utf8'
+)
+const DOWN_MIGRATION_0064 = readFileSync(
+  join(process.cwd(), 'drizzle/0064_generated_document_idempotency.down.sql'),
+  'utf8'
+)
+
+/**
+ * The repository's SOURCE, read rather than imported: it is a `server-only`
+ * module and a schema spec has no business booting one. The same arrangement
+ * `document-status.spec.ts` uses on the poller.
+ */
+const DOCUMENTS_REPOSITORY = readFileSync(
+  join(process.cwd(), 'src/lib/documents/repository.ts'),
+  'utf8'
+)
+
+const IDEMPOTENCY_INDEX = 'uniq_documents_authored_run_per_project'
+
+/** The column list of a `CREATE [UNIQUE] INDEX`, in declaration order. */
+function indexColumns(migration: string, name: string): string[] {
+  const match = migration.match(
+    new RegExp(`CREATE UNIQUE INDEX "${name}"\\s*ON "documents" \\(([^)]*)\\)`)
+  )
+  if (!match) throw new Error(`the migration declares no ${name}`)
+  return match[1].split(',').map((column) => column.trim().replace(/"/g, ''))
+}
+
+/**
+ * The columns `findDocumentAuthoredByRun` filters by, read out of its own body.
+ *
+ * Scoped to that one function — from its `export` to the next one — so a
+ * neighbouring query's WHERE clause cannot make this pass.
+ */
+function probeColumns(): string[] {
+  const start = DOCUMENTS_REPOSITORY.indexOf('export async function findDocumentAuthoredByRun')
+  expect(start, 'findDocumentAuthoredByRun still exists').toBeGreaterThan(-1)
+  const rest = DOCUMENTS_REPOSITORY.slice(start + 1)
+  const end = rest.indexOf('export async function')
+  const body = end === -1 ? rest : rest.slice(0, end)
+  return [...body.matchAll(/eq\(documents\.(\w+),/g)]
+    .map(([, column]) => column.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))
+    .sort()
+}
 
 /**
  * The poller's in-flight set.
@@ -254,6 +309,84 @@ describe('the indexes drizzle cannot declare', () => {
 
   it('drops the folder index again on the way down', () => {
     expect(DOWN_MIGRATION_0063).toContain('DROP INDEX IF EXISTS "uniq_project_folders_parent_name"')
+  })
+})
+
+/**
+ * ONE FILED REPORT PER RUN, AS A CONSTRAINT (migration 0064).
+ *
+ * 0063 shipped the filing path with idempotency implemented as a probe:
+ * `findDocumentAuthoredByRun` runs before the render, and a hit short-circuits.
+ * A lookup cannot see a caller that has not inserted yet, and the filing write
+ * sits on a GET that is re-fetched every time the report tab is opened — so two
+ * tabs both probe, both miss, and both file. The two rows are then IDENTICAL in
+ * every visible attribute, because the generated filename is deterministic (slug
+ * + date + extension): same name, size, folder, author, run and second. The
+ * repository already called that "precisely the thing an office cannot untangle
+ * later" and then left a lookup to prevent it.
+ *
+ * These tests are about the index and the probe agreeing. That agreement is the
+ * whole design: an index NARROWER than the probe rejects rows the probe would
+ * accept (and the caller's 23505 recovery finds no winner to hand back), while
+ * an index WIDER than it admits the duplicate the probe was meant to prevent and
+ * reports success. Neither failure shows up in a status code.
+ */
+describe('the idempotency index and the probe it belongs to', () => {
+  it('keys on exactly the columns the probe filters by', () => {
+    // Read from both sources rather than from a literal, because a literal would
+    // simply be a third place to keep in step. If somebody re-scopes the probe —
+    // as 0063 already had to once, adding `project_id` after an org-wide probe
+    // handed back another project's document — this is what makes them change
+    // the index in the same commit.
+    expect(indexColumns(MIGRATION_0064, IDEMPOTENCY_INDEX).sort()).toEqual(probeColumns())
+  })
+
+  it('found real columns on both sides, not two empty lists', () => {
+    // Half the assertion above is that the two scans found anything at all: two
+    // empty lists are equal, and would pass it for the worst possible reason.
+    expect(probeColumns()).toEqual(['authored_by_run_id', 'organization_id', 'project_id'])
+  })
+
+  it('is UNIQUE and partial on <> user, so a human row is never rejected', () => {
+    // 0063's CHECK is one-directional on purpose: a `user` row MAY carry a
+    // producer and a run id, because a person saving an artefact a run showed
+    // them is not a contradiction. Without the predicate, two colleagues saving
+    // one run's artefact into one project would collide with each other — an
+    // index built to stop a machine racing itself rejecting an ordinary human
+    // action. `<> 'user'` rather than `= 'agent'` for 0063's reason: the next
+    // producer arrives already constrained.
+    expect(MIGRATION_0064).toMatch(
+      new RegExp(
+        `CREATE UNIQUE INDEX "${IDEMPOTENCY_INDEX}"\\s*ON "documents" \\([^)]*\\)\\s*WHERE "authored_by" <> 'user'`
+      )
+    )
+  })
+
+  it('lives only in the migration, like every other partial index here', () => {
+    // Drizzle's builder can express neither the predicate nor a unique partial
+    // index, so declaring it in the schema file would produce a FULL unique
+    // index over a table that is overwhelmingly human uploads — which would
+    // reject the legal `user` rows above outright.
+    const declared = [
+      ...getTableConfig(documents).indexes.map((entry) => entry.config.name),
+      ...getTableConfig(documents).uniqueConstraints.map((entry) => entry.name),
+    ]
+    expect(declared).not.toContain(IDEMPOTENCY_INDEX)
+  })
+
+  it('refuses to build over data that already violates', () => {
+    // Same reason as 0063's folder guard: `CREATE UNIQUE INDEX` reports ONE key
+    // and leaves the operator to find the rest, and the resolution — which of
+    // two byte-identical reports to keep — is a decision a migration must not
+    // make on rows that carry real bytes and a real quota charge.
+    const guard = MIGRATION_0064.indexOf('RAISE EXCEPTION')
+    const create = MIGRATION_0064.indexOf(`CREATE UNIQUE INDEX "${IDEMPOTENCY_INDEX}"`)
+    expect(guard).toBeGreaterThan(-1)
+    expect(create).toBeGreaterThan(guard)
+  })
+
+  it('drops it again on the way down', () => {
+    expect(DOWN_MIGRATION_0064).toContain(`DROP INDEX IF EXISTS "${IDEMPOTENCY_INDEX}"`)
   })
 })
 

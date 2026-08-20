@@ -331,6 +331,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-card"]',
   },
   {
+    id: 'research-filing',
+    mobile: true,
+    path: '/dev/research-filing',
+    description:
+      'What a person is told before and after Piloti writes a file into their project. The `starting` banner carries ONE quiet line naming the destination — Projekt › Berichte — and it sits there rather than in a modal because this is the only moment the run can still be stopped; a confirmation asked afterwards is answered yes every time. The second panel is the same line under the escalation narration, the case where the classifier started the run and „the user asked for a report" is not even true. The last two panels are the rule for the outcome: with a filed document the banner names the real filename and offers a second action that goes somewhere else than „Bericht anzeigen" (the research panel) — into the project, through the same /files?doc= deep link every other document surface uses; with nothing filed it says nothing at all, because filing can be refused and a banner must never claim a file that does not exist.',
+    waitFor: '[data-testid="research-filing-preview"]',
+  },
+  {
     id: 'archiv-library',
     mobile: true,
     path: '/dev/archiv-library',

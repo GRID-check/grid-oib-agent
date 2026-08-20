@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { readFileSync } from 'node:fs'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 
 vi.mock('server-only', () => ({}))
@@ -121,6 +121,26 @@ const file = () =>
 /** The row `admitOrDiscard` was asked to insert. */
 const admittedRow = (): NewDocument => admitOrDiscard.mock.calls[0][2] as NewDocument
 
+/**
+ * Every S3 command of one kind that was actually sent.
+ *
+ * The single widening in this file, and it widens rather than narrows: `unknown`
+ * plus a real `instanceof` test, so the compiler learns the type from the same
+ * check the assertion makes. A cast to `PutObjectCommand` would have let the
+ * mutation these helpers exist to catch — a PUT that never happens — read its
+ * `.input` off `undefined` and fail with a TypeError instead of an assertion.
+ */
+const sentCommands = <T>(kind: abstract new (...args: never[]) => T): T[] =>
+  s3Send.mock.calls
+    .map(([command]) => command as unknown)
+    .filter((command): command is T => command instanceof kind)
+
+const onlyPut = (): PutObjectCommand => {
+  const puts = sentCommands(PutObjectCommand)
+  expect(puts, 'exactly one object is written per filed document').toHaveLength(1)
+  return puts[0]
+}
+
 let fetchSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
@@ -143,6 +163,13 @@ beforeEach(() => {
   if (typeof globalThis.crypto?.randomUUID !== 'function') {
     vi.stubGlobal('crypto', { ...globalThis.crypto, randomUUID: () => 'doc-uuid' })
   }
+})
+
+// The race test replaces the constant id stub above with a counter, because two
+// racers need two document ids. Undoing it here rather than there keeps the
+// stub from leaking into whatever test happens to run next.
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('fileGeneratedDocument', () => {
@@ -176,6 +203,109 @@ describe('fileGeneratedDocument', () => {
   it('lands in the destination the resolver names', async () => {
     await file()
     expect(getOrCreateProjectFolderByName).toHaveBeenCalledWith('proj-1', 'Berichte')
+  })
+
+  /**
+   * THE ROW AND ITS OBJECT ARE THE SAME FILE.
+   *
+   * `admission.ts` exists to maintain one invariant — "a `documents` row implies
+   * its object exists" — and it can only maintain it for the bucket and key it
+   * is HANDED. This block is the half admission cannot check: that the bytes
+   * PUT, the location admission was told about, and the location the row records
+   * are one file, described identically in all three places.
+   *
+   * It is asserted here because the suite passed under three separate mutations
+   * of this function, each of which ships a report nobody can open:
+   *
+   *   1. `Body: body` → `Body: Buffer.alloc(0)` — every filed report is a 0-byte
+   *      `.docx` while its row advertises the real size, so the Files pane shows
+   *      a plausible document and Word refuses to open it;
+   *   2. the key given to `admitOrDiscard` ≠ the key PUT — the row points at no
+   *      object at all, the download 404s, and the compensating delete on the
+   *      audit-failure path removes some other key;
+   *   3. `collectionName` dropped — the row belongs to no corpus, and every
+   *      lookup that identifies a document by `(collectionName, filename)`
+   *      (the internal document-file route the agent tier reads through) misses.
+   *
+   * None of the three is visible in a status code or a returned id, which is why
+   * the correspondence has to be asserted rather than assumed.
+   */
+  describe('the row and its object are the same file', () => {
+    it('PUTs the rendered bytes, whole, under the tenant bucket and the built key', async () => {
+      await file()
+
+      const put = onlyPut()
+      const row = admittedRow()
+
+      // The bytes the renderer produced, not a placeholder and not a truncation.
+      // `fileSize` is recorded from the same buffer, so a row whose size does not
+      // describe its object is unrepresentable rather than merely unlikely.
+      expect(put.input.Body).toEqual(Buffer.from([1, 2, 3, 4, 5]))
+      expect(row.fileSize).toBe(5)
+      expect(put.input.ContentType).toBe(
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      )
+      expect(put.input.Bucket).toBe('grid-org-org-1')
+      // The whole key, spelled out. `buildStorageKey` is mocked in this file, so
+      // this pins the ARGUMENTS it was given — the org, the project, the folder
+      // path the destination resolver chose, the document's own id, and the
+      // generated filename — rather than the real naming rule, which has its own
+      // spec.
+      expect(put.input.Key).toBe(
+        `org/org-1/project/proj-1/Berichte/doc/${row.id}/${row.filename}`,
+      )
+    })
+
+    it('tells admission about the object it actually wrote', async () => {
+      await file()
+
+      const put = onlyPut()
+      // Positional, because that is how admission reads them: bucket, key, row.
+      // A mismatch here is the case admission cannot detect — it would dutifully
+      // delete a key nothing was ever written to when the quota refuses, leaving
+      // the real object orphaned and the refusal looking clean.
+      expect(admitOrDiscard.mock.calls[0][0]).toBe(put.input.Bucket)
+      expect(admitOrDiscard.mock.calls[0][1]).toBe(put.input.Key)
+    })
+
+    it('records that same location on the row', async () => {
+      await file()
+
+      const put = onlyPut()
+      const row = admittedRow()
+      // The columns every read path resolves bytes through. If they name a
+      // different object than the one written, the document exists in the Files
+      // pane, counts against the quota, and cannot be downloaded — and nothing
+      // in the filing path fails.
+      expect(row.storageKey).toBe(put.input.Key)
+      expect(row.storageBucket).toBe(put.input.Bucket)
+    })
+
+    it('names the file the same way in the row as in the key', async () => {
+      await file()
+
+      const row = admittedRow()
+      // `filename` is the join key to the object AND to the retrieval index's
+      // chunks. The row's copy and the key's tail are written from one variable
+      // today; this is what notices if they stop being.
+      expect(row.filename).toMatch(/^brandschutz-strassenhauser-\d{4}-\d{2}-\d{2}\.docx$/)
+      expect(row.storageKey?.endsWith(`/${row.filename}`)).toBe(true)
+      // The rename column carries the human title; `filename` stays ASCII.
+      expect(row.displayName).toBe('Brandschutz Straßenhäuser')
+      expect(row.contentType).toBe(
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      )
+    })
+
+    it('files the row into the project corpus it belongs to', async () => {
+      await file()
+
+      // Which corpus the row BELONGS to, not which one holds chunks for it —
+      // nothing is ever indexed here. Dropping it is silent: the row files, the
+      // report opens from the Files pane, and only the lookups that identify a
+      // document by `(collectionName, filename)` come back empty.
+      expect(admittedRow().collectionName).toBe('proj_abc')
+    })
   })
 
   /**
@@ -294,6 +424,132 @@ describe('fileGeneratedDocument', () => {
       expect(second.documentId).toBe(first.documentId)
       expect(second.alreadyFiled).toBe(true)
       expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    })
+
+    /**
+     * TWO TABS, ONE RUN.
+     *
+     * The probe above is a lookup, and a lookup cannot see a caller that has not
+     * inserted yet. The filing write sits on a GET (`/api/jobs/async/job/{id}/
+     * report`) that is re-fetched every time a tab is opened, so two tabs — or a
+     * tab and a reload — run it concurrently: both probe, both miss, both render,
+     * both PUT, both insert. Two rows, two objects, two quota charges, two audit
+     * events for one multi-minute run.
+     *
+     * And the two are INDISTINGUISHABLE: `generatedFilename` is deterministic
+     * (slug + date + extension), so they agree on filename, display name, size,
+     * folder, author, run and second. `repository.ts` names that outcome as
+     * "precisely the thing an office cannot untangle later" — an office that
+     * cannot tell two reports apart keeps both, and somebody signs one of them.
+     *
+     * Migration 0064's partial unique index is what makes the second insert fail
+     * instead of succeed; this is the recovery being graceful, the same shape
+     * `getOrCreateProjectFolderByName` already has for the `Berichte` folder.
+     *
+     * The mocks below MODEL the race rather than hoping for an interleaving: the
+     * first two probes answer "not filed" whatever order they run in, which is
+     * exactly the window a lookup cannot close, and `admitOrDiscard` behaves as
+     * the real one does — it rejects the second insert with a 23505 AND takes
+     * that caller's object back, because it discards on any admission failure
+     * and not only on a quota refusal (`admission.spec.ts` pins that).
+     */
+    it('files ONE document and leaves ONE object when two tabs file the same run at once', async () => {
+      const filedByRun = new Map<string, NewDocument>()
+      let probes = 0
+
+      // Distinct document ids per call, overriding the shared constant stub.
+      // Load-bearing: each caller mints its own uuid and therefore its own
+      // storage key, so "the loser's object is deleted and the winner's is not"
+      // is a real assertion rather than one key deleted and re-asserted.
+      let minted = 0
+      vi.stubGlobal('crypto', { ...globalThis.crypto, randomUUID: () => `doc-${++minted}` })
+
+      findDocumentAuthoredByRun.mockImplementation(async (runId: string) => {
+        // The first two probes are the two tabs, both of which run before either
+        // has inserted. Forced rather than hoped for: an interleaving that
+        // depended on microtask ordering would silently stop testing the race.
+        if (++probes <= 2) return null
+        const row = filedByRun.get(runId)
+        return row ? { id: row.id, filename: row.filename, folderId: row.folderId } : null
+      })
+
+      admitOrDiscard.mockImplementation(async (bucket: string, key: string, row: NewDocument) => {
+        const runId = row.authoredByRunId ?? ''
+        if (!filedByRun.has(runId)) {
+          filedByRun.set(runId, row)
+          return
+        }
+        // What the real admission does with a rejected insert: take the bytes
+        // back, then re-throw. The key is this caller's own, so the winner's
+        // object is untouched.
+        await s3Send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
+        throw Object.assign(
+          new Error(
+            'duplicate key value violates unique constraint "uniq_documents_authored_run_per_project"',
+          ),
+          { code: '23505' },
+        )
+      })
+
+      const [first, second] = await Promise.all([file(), file()])
+
+      // One document, and both callers are told about the same one — the loser
+      // must not 500 on somebody's finished report.
+      expect(filedByRun.size).toBe(1)
+      const winner = filedByRun.get('run_7')
+      expect(first.documentId).toBe(winner?.id)
+      expect(second.documentId).toBe(winner?.id)
+      expect(first.filename).toBe(winner?.filename)
+      expect(second.filename).toBe(winner?.filename)
+      // Exactly one of the two filed; the other is told it was already filed.
+      expect([first.alreadyFiled, second.alreadyFiled].sort()).toEqual([false, true])
+
+      // Both racers wrote an object, and exactly the loser's was taken back. An
+      // object left behind here is quota-INVISIBLE: the ledger counts rows, so
+      // nothing would ever notice the bytes, and only a bucket-wide sweep could
+      // find them.
+      const puts = sentCommands(PutObjectCommand)
+      const deletes = sentCommands(DeleteObjectCommand)
+      expect(puts).toHaveLength(2)
+      expect(deletes).toHaveLength(1)
+      const surviving = puts
+        .map((put) => put.input.Key)
+        .filter((key) => key !== deletes[0].input.Key)
+      expect(surviving).toEqual([winner?.storageKey])
+
+      // One run, one audit event. A second `document.generated` for a document
+      // this call did not file would put an act in the trail that never happened
+      // — and the trail is what answers "who authorized this document".
+      expect(recordAuditEventOrThrow).toHaveBeenCalledTimes(1)
+      // Nothing to unfile: the loser never inserted a row.
+      expect(deleteProjectDocument).not.toHaveBeenCalled()
+    })
+
+    it('re-throws a unique violation the re-probe cannot explain', async () => {
+      // Cannot happen while 0064's index and `findDocumentAuthoredByRun` key on
+      // the same three columns — which is why the migration derives one from the
+      // other. If they ever drift, this is a violation with no winner to hand
+      // back, and answering it with a made-up document id would be worse than
+      // the 500.
+      admitOrDiscard.mockRejectedValue(
+        Object.assign(new Error('duplicate key'), { code: '23505' }),
+      )
+
+      await expect(file()).rejects.toThrow('duplicate key')
+      expect(recordAuditEventOrThrow).not.toHaveBeenCalled()
+    })
+
+    it('re-throws an admission failure that is not a unique violation', async () => {
+      // A deadlock is not a race this function won or lost, and answering it
+      // with "already filed" would report a document that does not exist.
+      admitOrDiscard.mockRejectedValue(
+        Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+      )
+
+      await expect(file()).rejects.toThrow('deadlock detected')
+      // One probe: the pre-flight one. A non-race failure must not be answered
+      // by looking for a winner that was never created.
+      expect(findDocumentAuthoredByRun).toHaveBeenCalledTimes(1)
     })
 
     it('looks the run up by its own id, scoped to the organization AND the project', async () => {
