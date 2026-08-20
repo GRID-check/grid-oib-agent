@@ -4,14 +4,40 @@
 > write side as a substrate rather than a tool: one namespace, one write path,
 > one authorization decision, one lifecycle — mounted under every agent, not
 > only the deep researcher.
-> Status: **DESIGN** (nothing here is built). Depends on nothing; §9 is
-> deliberately sequenced so phase 0 ships alone and deletes no existing path.
+> Status: **EXPLORATION.** Narrowed for build purposes by
+> [`docs/superpowers/specs/2026-08-20-agent-authored-documents-design.md`](../superpowers/specs/2026-08-20-agent-authored-documents-design.md),
+> which is the thing to build. What survived review: §2's threat analysis, the
+> work/estate line, and the invariants. What was cut: the node/version/blob
+> store, mounts as an implementation, saved selectors, the digest, and the
+> `/work` tier — see that spec's "What this is not".
+>
+> **This document contained four factual errors about the infrastructure.** They
+> are corrected in place and marked `[CORRECTED]` so the reasoning that depended
+> on them can be re-read honestly. It is kept because the threat model is worth
+> keeping, not because its plan is.
 
 ## 0. The one-sentence goal
 
 Everything Piloti produces should be an **object in the same file system the
 architect already browses** — addressable, previewable, versioned, filterable,
 and visibly *not yet* the office's word until a human says it is.
+
+## 0.05 [CORRECTED] The spec this failed to reference
+
+This document was written without reference to
+[`2026-08-13-file-native-ownership-design.md`](../superpowers/specs/2026-08-13-file-native-ownership-design.md),
+which was **merged in PR #416** before this was drafted. That spec makes a file
+three things — bytes, a subject of a conversation, and a place with people —
+registers `document` as the second shareable-resource consumer, and ships
+`resource_assignments` with `Unvergeben` as a designed, visible state.
+
+That materially changes this design, and for the better: **an agent-authored
+document is not a new object, and "promotion" is not a new gesture.** A
+generated report is a document with nobody assigned; the human act that turns it
+into somebody's work product is `Zuweisen`, which already exists and already has
+a pre-Einreichung ritual around it (that spec's F9). Everything §5 builds as a
+ladder with a card at the top is better expressed as a document that starts
+`Unvergeben`.
 
 ## 0.1 The stance: an extension, not a migration
 
@@ -427,8 +453,8 @@ than an exception to work around.
 | Failure | Control | Precedent |
 |---|---|---|
 | A loop writes 10⁴ nodes | per-run node + byte budget, failing loudly to the trace | the LLM usage ledger (ADR-0015) |
-| A tenant fills the cluster | per-org storage quota, enforced at the write | demanded by ADR-0042, still open |
-| Work products accumulate forever | TTL on unpromoted work nodes → the existing `deletion_queue`, with notice | ADR-0011 |
+| A tenant fills the cluster | per-org storage quota, enforced at the write | **[CORRECTED]** already BUILT — `lib/storage/admission.ts`, `admitOrDiscard`, Platform → Storage. ADR-0042 also states there is one admitting path and that bytes written outside it are invisible to the quota ledger, which is what rules out the separate store §4 proposes |
+| Work products accumulate forever | TTL → `deletion_queue` | **[CORRECTED]** the purger registers exactly ONE entity type (`purger/index.js:61`: *"no purger registered for entity_type"*); `document` is a later phase. Single-document erasure does work today and works synchronously (`deleteDocument` purges collaboration, assignments, chunks, object, thumbnail), so agent-authored documents are erasable on day one — but a *queued, graced, legal-held* deletion of them does not exist |
 | The tree rots as it grows | the digest is *ranked*, not exhaustive; depth is capped | the arXiv finding that taxonomy adherence erodes with size |
 
 On sprawl, the literature is unambiguous and worth designing for rather than
@@ -628,10 +654,21 @@ not, because an LLM resolving a merge conflict inside a Brandschutzkonzept is a
 liability, and because linear per-node history is what a revision-stamped plan
 set actually is.
 
-**Let the agent write as the user.** Rejected: it is precisely the confused
-deputy. The agent already holds a *narrower* principal than the user — org-wide
-memory writes are denied to it by default and escalate to a card — and that
-existing asymmetry is the correct precedent, not an inconvenience.
+**Let the agent write as the user.** **[CORRECTED — the premise was false.]**
+This section claimed the agent holds a *narrower* principal than the user. It
+does not. It holds the shared `GRID_INTERNAL_API_TOKEN`, and the internal memory
+route says so itself: *"this service-token endpoint cannot verify the human's
+org role"* (`app/api/internal/memory/route.ts`). The org-memory denial is one
+env flag (`GRID_ALLOW_AGENT_ORG_MEMORY`) on one endpoint, not a principal;
+project-scoped writes resolve through `withOptionalTenant(undefined)` →
+`withPlatformAccess`. The agent's principal is **wider**.
+
+The correct conclusion is therefore the opposite of the one drawn here: do not
+give the agent a write path at all. The BFF already proxies the finished report
+(`GET /api/jobs/async/job/{id}/report`), so it can do the write in the
+commissioning user's own session, gated on `project:documents:write`. That
+removes the confused deputy instead of reasoning about it — see the build
+spec's decision 4.
 
 **Keep proposing everything through cards.** Rejected: it does not scale past
 one write per turn, and a deep-research run that writes 30 notes would render 30
