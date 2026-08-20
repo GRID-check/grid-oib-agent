@@ -191,10 +191,10 @@ SeaweedFS that no cascade can reach.
 **Do NOT reach for `project:documents:write` as a kill switch.** An earlier
 version of this page suggested withdrawing it to stop filing without touching the
 schema. That is wrong and would have broken customers: it is the same permission
-that authorizes a **human upload** (`lib/documents/service.ts`, `uploadDocument`),
-a delete (`deleteDocument`) and a whole-project re-index (`reindexProject`). Withdrawing it stops the office putting its
-own files into its own project — a far worse outage than the one it was meant to
-contain.
+that authorizes a **human upload** (`lib/documents/service.ts`,
+`uploadDocument`), a delete (`deleteDocument`) and a whole-project re-index
+(`reindexProject`). Withdrawing it stops the office putting its own files into
+its own project — a far worse outage than the one it was meant to contain.
 
 There are now two levers that stop filing alone, and they answer different
 questions. Pick by who is pulling.
