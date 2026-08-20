@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import { apiRoute, parseQuery } from '@/lib/api/handler'
 import { listDocuments } from '@/lib/documents/service'
-import { DOCUMENT_AUTHORS } from '@/lib/db/schema'
+import { DOCUMENT_AUTHORS } from '@/lib/documents/document-authors'
 
 const listDocumentsQuerySchema = z.object({
   projectId: z.string().min(1),

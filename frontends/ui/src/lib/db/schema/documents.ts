@@ -68,8 +68,12 @@ export type DocumentScope = (typeof DOCUMENT_SCOPES)[number]
  * apart load-bearing rather than tidy, because it is the first time the answer
  * to "who wrote this" is not a person at all.
  */
-export const DOCUMENT_AUTHORS = ['user', 'agent'] as const
-export type DocumentAuthor = (typeof DOCUMENT_AUTHORS)[number]
+import { DOCUMENT_AUTHORS, type DocumentAuthor } from '@/lib/documents/document-authors'
+
+// Re-exported so `@/lib/db/schema` stays the one import site every existing
+// caller already uses; the declaration itself lives outside the schema so a
+// route can validate against it without importing the database.
+export { DOCUMENT_AUTHORS, type DocumentAuthor }
 
 export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
