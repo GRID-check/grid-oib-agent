@@ -444,13 +444,39 @@ export async function fetchSemanticHits(
  * snippet, page, and score. Hits with no matching row are dropped. When a
  * filename collides across rows the most-recent row (latest `createdAt`) wins,
  * so a re-uploaded document resolves to its current entry.
+ *
+ * ## Machine-authored rows are not candidates, and the collision rule is why
+ *
+ * A hit comes from the retrieval index, and nothing machine-authored is ever
+ * indexed — so every hit describes a document a person supplied. This join is
+ * what turns that hit back into a row, and it keys on FILENAME, which is not a
+ * safe identity across authorship.
+ *
+ * `generatedFilename` builds `slug(title)-YYYY-MM-DD.ext` from a title the
+ * MODEL wrote — a report's own H1, a diagram card's `title`. So a filed report
+ * whose title slugs to the stem of a real Gutachten, on the same day, collides.
+ * The tie-break then decides it, and it decides it the wrong way by
+ * construction: the agent row was written after the corpus it was written from,
+ * so it is always the most recent. The reader would get a search result labelled
+ * „Von Piloti erstellt" carrying a snippet and a page number lifted from
+ * somebody's actual Gutachten.
+ *
+ * No chunk was created for the agent row and no retrieval invariant was broken —
+ * the leak is in the join, not in the index, which is why the dispatch-site
+ * guard and the storage-key allow-list do not reach it. This is the third path
+ * by which a machine-authored row can reach a reader as evidence, and it is
+ * closed the same way as the other two: by asking the row, not by trusting the
+ * name.
  */
-export function joinHitsToFiles<T extends { filename: string; createdAt: Date | string }>(
-  hits: BackendSearchHit[],
-  files: T[],
-): Array<SearchedDocument<T>> {
+export function joinHitsToFiles<
+  T extends { filename: string; createdAt: Date | string; authoredBy?: string },
+>(hits: BackendSearchHit[], files: T[]): Array<SearchedDocument<T>> {
   const byName = new Map<string, T>()
   for (const file of files) {
+    // `undefined` is a row from a caller that does not carry the column (the
+    // Archiv join); those corpora have no machine-authored rows, and defaulting
+    // them OUT would silently empty their search.
+    if (file.authoredBy !== undefined && file.authoredBy !== 'user') continue
     const existing = byName.get(file.filename)
     if (!existing || new Date(file.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
       byName.set(file.filename, file)

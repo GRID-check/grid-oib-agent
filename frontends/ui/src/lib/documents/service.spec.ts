@@ -476,6 +476,45 @@ describe('joinHitsToFiles', () => {
     const [row] = joinHitsToFiles(hits, [older])
     expect(row.page).toBeNull()
   })
+
+  // A machine-authored document is not Projektwissen: it is never indexed, so a
+  // hit can only reach one by way of a filename collision. `generatedFilename`
+  // builds `slug(title)-YYYY-MM-DD.ext` out of a title the model itself wrote,
+  // which makes that collision reachable by the model, not just by accident.
+  it('never returns a machine-authored row, even on an exact filename match', () => {
+    const generated = {
+      filename: 'plan.pdf',
+      createdAt: new Date('2026-03-01T00:00:00Z'),
+      id: 'generated',
+      authoredBy: 'agent',
+    }
+    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: 2, collection: 'c' }]
+    expect(joinHitsToFiles(hits, [generated])).toEqual([])
+  })
+
+  it('lets the user row win a collision a newer machine-authored row would take', () => {
+    // Recency alone would hand the hit to the generated row, and with it the
+    // real Gutachten's snippet and page number under a „Von Piloti erstellt" label.
+    const userRow = { ...older, authoredBy: 'user' }
+    const generated = {
+      filename: 'plan.pdf',
+      createdAt: new Date('2026-03-01T00:00:00Z'),
+      id: 'generated',
+      authoredBy: 'agent',
+    }
+    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' }]
+    const [row] = joinHitsToFiles(hits, [userRow, generated])
+    expect(row.id).toBe('old')
+  })
+
+  it('keeps rows from a caller that does not select the column (Archiv)', () => {
+    // Defaulting an absent column OUT would silently empty Archiv search, whose
+    // corpora carry no machine-authored rows in the first place.
+    const hits = [{ file_name: 'permit.pdf', score: 0.4, snippet: 'x', page_number: null, collection: 'c' }]
+    const [row] = joinHitsToFiles(hits, [other])
+    expect(row.id).toBe('permit')
+    expect(other).not.toHaveProperty('authoredBy')
+  })
 })
 
 describe('deriveSearchTopK', () => {
