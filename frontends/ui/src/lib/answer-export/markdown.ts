@@ -20,6 +20,7 @@
 
 import { marked, type Token, type Tokens } from 'marked'
 import type { DocBlock, DocRun } from './blocks'
+import { DIAGRAM_SOURCE_KINDS } from '@/lib/diagrams/diagram-sources'
 
 /** Inline tokens carried on a block token, when it has any. */
 type InlineHost = { tokens?: Token[]; text?: string; raw?: string }
@@ -137,8 +138,33 @@ const blockFrom = (token: Token): DocBlock[] => {
       return (token as Tokens.Blockquote).tokens.flatMap(blockFrom).map((block) =>
         block.kind === 'paragraph' ? { ...block, style: 'quote' as const } : block
       )
-    case 'code':
-      return [{ kind: 'paragraph', runs: [{ text: (token as Tokens.Code).text, mono: true }] }]
+    case 'code': {
+      const code = token as Tokens.Code
+      /**
+       * A diagram fence is not prose, and printing its source as if it were is
+       * the worst of the three options.
+       *
+       * Piloti draws mermaid: the chat renders it, and the diagram filing path
+       * renders it to SVG and PDF. This export cannot — it runs server-side and
+       * mermaid needs a DOM to lay a graph out, which is the same constraint
+       * that put diagram rendering in the browser in the first place. So the
+       * reader of a Word file would silently receive `graph TD; A-->B` where
+       * every other surface shows a picture.
+       *
+       * The source is KEPT rather than dropped, because whoever holds only this
+       * file is exactly the person who might need to regenerate the drawing —
+       * the same reasoning that puts the source inside the filed SVG's own
+       * metadata. It is labelled so it reads as a diagram that could not be
+       * drawn here, not as content the answer meant to state.
+       */
+      if (isDiagramFence(code.lang)) {
+        return [
+          { kind: 'paragraph', runs: [{ text: diagramLabel(code.lang), italic: true }], style: 'meta' },
+          { kind: 'paragraph', runs: [{ text: code.text, mono: true }] },
+        ]
+      }
+      return [{ kind: 'paragraph', runs: [{ text: code.text, mono: true }] }]
+    }
     case 'table': {
       const table = token as Tokens.Table
       return [
@@ -159,6 +185,31 @@ const blockFrom = (token: Token): DocBlock[] => {
     }
   }
 }
+
+
+/**
+ * Fences this export renders as source-plus-label rather than as prose.
+ *
+ * Deliberately narrow: only the kinds the product actually DRAWS elsewhere, so
+ * an ordinary ```ts block keeps reading as code. `DIAGRAM_SOURCE_KINDS` is the
+ * one vocabulary that says which those are, and importing it means a kind added
+ * there reaches this export without anyone remembering to come here.
+ */
+const isDiagramFence = (lang: string | undefined): boolean =>
+  typeof lang === 'string' &&
+  (DIAGRAM_SOURCE_KINDS as readonly string[]).includes(lang.trim().toLowerCase())
+
+/**
+ * The label is not localized, and that is a deliberate limit rather than an
+ * oversight: `markdownToBlocks` takes markdown and nothing else, and threading a
+ * translator through the lexer to caption one rare block would put a locale
+ * dependency on every caller of a pure function. The word „Diagramm" is the same
+ * in the two locales this product ships, so the cost of the shortcut is
+ * currently zero — and if a third locale arrives, the fix is a labels argument
+ * here, not a rewrite.
+ */
+const diagramLabel = (lang: string | undefined): string =>
+  `Diagramm (${(lang ?? '').trim().toLowerCase()}) — hier als Quelltext, im Original als Zeichnung.`
 
 /** Lex markdown into document blocks. Empty input yields no blocks, not an empty one. */
 export function markdownToBlocks(markdown: string): DocBlock[] {
