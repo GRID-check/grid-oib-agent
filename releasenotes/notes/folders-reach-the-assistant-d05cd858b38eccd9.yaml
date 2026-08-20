@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    The assistant now knows how you filed your project documents. It can tell
+    you what is in Brandschutz, name the folder when it points you at a file,
+    and search inside one folder — including everything nested under it, so
+    Brandschutz also covers Brandschutz/Fluchtwege. Renaming or moving a folder
+    updates what it sees, with nothing to re-upload.
+fixes:
+  - >
+    Re-uploading or re-processing a document no longer discards its name, its
+    document type or its folder. Re-generating a summary quietly reset
+    everything stored alongside it, so a renamed file went back to its raw file
+    name the next time it was processed.

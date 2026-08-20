@@ -22,7 +22,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import type { FileItem } from './project-file-workspace'
 
@@ -38,6 +38,8 @@ const declared = vi.hoisted(
  * is the only way to fire it here: it is the library that decides a gesture has
  * ENDED, and jsdom has no layout for it to decide anything from.
  */
+/** Props the seam was last rendered with. */
+const separator = vi.hoisted(() => ({ current: null as null | Record<string, unknown> }))
 const group = vi.hoisted(
   () => ({
     onLayoutChanged: null as
@@ -91,8 +93,14 @@ vi.mock('react-resizable-panels', async () => {
         children as never,
       )
     },
-    Separator: (rest: Record<string, unknown>) =>
-      React.createElement('div', { role: 'separator', ...pickDom(rest) }),
+    Separator: (rest: Record<string, unknown>) => {
+      separator.current = rest
+      return React.createElement('div', {
+        role: 'separator',
+        onDoubleClick: rest.onDoubleClick as (() => void) | undefined,
+        ...pickDom(rest),
+      })
+    },
   }
   /** Drop the library-only props so React does not warn about unknown DOM attributes. */
   function pickDom(props: Record<string, unknown>): Record<string, unknown> {
@@ -131,6 +139,7 @@ const reset = (): void => {
   panel.sizeInPixels = 320
   declared.current = null
   group.onLayoutChanged = null
+  separator.current = null
   window.localStorage.clear()
   nav.pathname = '/app/projects/p1/files'
   useFilePreviewStore.setState({
@@ -308,6 +317,28 @@ describe('FilePreviewSplit — the file panel actually opens', () => {
     // keyboard reader arrives at — announced as "separator" and nothing else
     // until someone gives it a name.
     expect(getByRole('separator')).toHaveAttribute('aria-label', 'Resize file preview')
+  })
+
+  it('puts the pane back at its default width on a double-click', () => {
+    nav.pathname = '/app/projects/p1/chat'
+    useFilePreviewStore.getState().setPeekWidth(520)
+    useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+    const { getByRole } = render(
+      <FilePreviewBridge>
+        <div>chat transcript</div>
+      </FilePreviewBridge>,
+    )
+    panel.calls = []
+
+    fireEvent.doubleClick(getByRole('separator'))
+
+    // The library's own double-click COLLAPSES a collapsible panel, and
+    // collapsed is one pixel — two quick clicks near the seam left a sliver of
+    // a document the reader was still asking about. `expand` first, because a
+    // collapsed panel ignores `resize`.
+    expect(panel.calls).toEqual(['expand', 'resize:320'])
+    expect(useFilePreviewStore.getState().peekWidth).toBe(320)
+    expect(separator.current?.disableDoubleClick).toBe(true)
   })
 
   it('collapses again when the peek is dismissed, so chat reclaims the row', () => {

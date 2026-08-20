@@ -21,7 +21,7 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { Archive, Search, Sparkles } from 'lucide-react'
+import { Archive, Search, SearchX, Sparkles } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -37,7 +37,12 @@ import { FilterChip } from './filter-chip'
 
 /** The kinds of result region the pane can show (see `view` below). */
 type ArchivResultView =
-  'grid' | 'no-match' | 'semantic-searching' | 'semantic-results' | 'semantic-empty'
+  | 'grid'
+  | 'no-match'
+  | 'semantic-searching'
+  | 'semantic-results'
+  | 'semantic-empty'
+  | 'semantic-error'
 
 interface ArchivLibraryPaneProps {
   files: FileItem[]
@@ -124,9 +129,17 @@ export function ArchivLibraryPane({
   const view: ArchivResultView = semantic.active
     ? semantic.isSearching
       ? 'semantic-searching'
-      : semantic.hits.length === 0
-        ? 'semantic-empty'
-        : 'semantic-results'
+      : // A SEARCH THAT NEVER RAN IS NOT A SEARCH THAT FOUND NOTHING.
+        // The hook fails open to an empty result set so the pane cannot crash,
+        // and it says which of the two happened — but nothing read that flag,
+        // so a backend timeout rendered as "no semantic matches for
+        // 'Brandschutz'": the surface told the reader their own corpus does not
+        // contain the thing they are looking for, and offered them a reset.
+        semantic.error
+        ? 'semantic-error'
+        : semantic.hits.length === 0
+          ? 'semantic-empty'
+          : 'semantic-results'
     : filteredFiles.length === 0
       ? 'no-match'
       : 'grid'
@@ -191,10 +204,16 @@ export function ArchivLibraryPane({
         bannerText={
           semantic.isSearching
             ? t('library.semantic.searching', { query: semantic.query ?? '' })
-            : t('library.semantic.banner', {
-                count: String(semantic.hits.length),
-                query: semantic.query ?? '',
-              })
+            : // The count is a claim about the corpus, and a search that never
+              // ran has not counted anything. Reporting "0 results" above a
+              // panel that says the search failed is the same lie twice, in the
+              // one line the reader takes at face value.
+              semantic.error
+              ? t('library.semantic.failedBanner', { query: semantic.query ?? '' })
+              : t('library.semantic.banner', {
+                  count: String(semantic.hits.length),
+                  query: semantic.query ?? '',
+                })
         }
         resetSemanticLabel={t('library.semantic.reset')}
         onResetSemantic={clearSearch}
@@ -249,6 +268,28 @@ export function ArchivLibraryPane({
                 <FileCardSkeleton key={i} />
               ))}
             </FileGrid>
+          </div>
+        ) : view === 'semantic-error' ? (
+          <div className="p-8">
+            <EmptyState
+              variant="bare"
+              icon={SearchX}
+              title={t('library.semantic.failed')}
+              description={t('library.semantic.failedDescription')}
+              action={
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {/* The retry runs the SAME query. Offering only "show all
+                      files" would ask the reader to give up and start again
+                      from a search they had already typed. */}
+                  <Button size="sm" onClick={() => semantic.run(semantic.query ?? '')}>
+                    {t('library.semantic.retry')}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={clearSearch}>
+                    {t('library.semantic.reset')}
+                  </Button>
+                </div>
+              }
+            />
           </div>
         ) : view === 'semantic-empty' ? (
           <div className="p-8">

@@ -103,6 +103,22 @@ interface FilePreviewState {
   mode: FilePreviewMode
   /** Peek dismissed; the conversation still knows the file. */
   hidden: boolean
+  /**
+   * The file is being CARRIED from one route to the other — Ask Piloti, which
+   * turns a modal on Files into a peek beside a chat that has not loaded yet.
+   *
+   * Without it the viewer vanished at the click: `askAboutFile` sets `peek`
+   * and then navigates, and a `peek` on Files belongs nowhere, so the pane
+   * parked itself and the reader watched their document disappear, looked at
+   * the file grid for as long as the router took, and then found it again on
+   * the right of a chat. Nothing was broken and every frame was wrong.
+   *
+   * Intent is why this is a flag rather than something derived: "the file is
+   * following me to the conversation" and "I walked away from it to another
+   * section" produce the identical store state, and only the caller that is
+   * about to navigate knows which one is happening.
+   */
+  handoff: boolean
   peekWidth: number
   context: FilePreviewContext
   open: (file: FileItem, mode: FilePreviewMode, context?: FilePreviewContext) => void
@@ -111,6 +127,9 @@ interface FilePreviewState {
   hide: () => void
   close: () => void
   /** Set and remember the peek width, clamped to the bounds. */
+  /** Hold the current presentation until the destination route arrives. */
+  beginHandoff: () => void
+  endHandoff: () => void
   setPeekWidth: (width: number) => void
   /**
    * Adopt the width remembered from a previous session, if there is one, and
@@ -124,6 +143,7 @@ export const useFilePreviewStore = create<FilePreviewState>((set, get) => ({
   file: null,
   mode: 'modal',
   hidden: false,
+  handoff: false,
   peekWidth: FILE_PEEK_WIDTH_DEFAULT,
   context: {},
 
@@ -134,6 +154,12 @@ export const useFilePreviewStore = create<FilePreviewState>((set, get) => ({
       hidden: false,
       context: { ...get().context, ...context },
     }),
+
+  beginHandoff: () => {
+    if (get().file) set({ handoff: true })
+  },
+
+  endHandoff: () => set({ handoff: false }),
 
   peek: () => {
     if (!get().file) return
@@ -153,7 +179,7 @@ export const useFilePreviewStore = create<FilePreviewState>((set, get) => ({
 
   close: () => {
     const file = get().file
-    set({ file: null, hidden: false, mode: 'modal' })
+    set({ file: null, hidden: false, mode: 'modal', handoff: false })
     clearMatchingComposerSubject(file)
   },
 

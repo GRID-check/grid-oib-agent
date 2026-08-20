@@ -205,6 +205,92 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     vi.clearAllMocks()
   })
 
+  it('says the search failed rather than reporting an empty corpus', async () => {
+    // The hook fails OPEN — an empty hit list, never a crash — and reports
+    // which of the two happened. Nothing read that flag, so a backend timeout
+    // rendered as "no semantic matches for 'fire escape'": the pane told the
+    // reader something about their own files that it had no way of knowing,
+    // and offered them a reset for it.
+    fetchMock.mockImplementation((url: string | URL) =>
+      String(url).includes('/api/documents/search')
+        ? Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) })
+        : Promise.resolve({ ok: false, json: () => Promise.resolve({}) }),
+    )
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+
+    // The banner AND the panel both say it now, which is why this counts two.
+    expect(await screen.findAllByText(/could not be run/i)).toHaveLength(2)
+    expect(screen.queryByText(/no semantic matches/i)).not.toBeInTheDocument()
+    // And the banner above it: a count is a claim about the corpus, and a
+    // search that never ran has not counted anything. "0 results" over a panel
+    // that says the search failed is the same lie twice.
+    expect(await screen.findByTestId('semantic-banner')).not.toHaveTextContent(/0 results/i)
+  })
+
+  it('retries the SAME query, instead of only offering to give up', async () => {
+    let attempt = 0
+    fetchMock.mockImplementation((url: string | URL) => {
+      const href = String(url)
+      if (!href.includes('/api/documents/search')) {
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      }
+      attempt += 1
+      return attempt === 1
+        ? Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) })
+        : Promise.resolve({ ok: true, json: () => Promise.resolve({ hits: [searchHit] }) })
+    })
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+    await user.click(await screen.findByRole('button', { name: /try again/i }))
+
+    // The reader had already typed the query once; a "show all files" button
+    // as the only way out asks them to start over.
+    expect(await screen.findByTestId('semantic-match')).toBeInTheDocument()
+    expect(attempt).toBe(2)
+  })
+
+  it('answers a search in the view the reader chose, not always in cards', async () => {
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1', view: 'list' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+
+    // The toggle was read only on the un-searched branch, so pressing Enter
+    // threw a reader who had deliberately switched to the detail view back into
+    // cards — and clearing the query threw them back again.
+    expect(await screen.findByTestId('file-list-view')).toBeInTheDocument()
+    expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
+    // And the ranking survives into it: the score is on the row.
+    expect(await screen.findByTestId('file-list-relevance')).toHaveTextContent('87%')
+  })
+
+  it('waits in the shape of the view the answer will arrive in', async () => {
+    // Held open so the searching state is observable at all.
+    let release: () => void = () => undefined
+    fetchMock.mockImplementation((url: string | URL) =>
+      String(url).includes('/api/documents/search')
+        ? new Promise((resolve) => {
+            release = () => resolve({ ok: true, json: () => Promise.resolve({ hits: [searchHit] }) })
+          })
+        : Promise.resolve({ ok: false, json: () => Promise.resolve({}) }),
+    )
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1', view: 'list' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+
+    // Card skeletons were drawn whatever the reader had chosen, so a search from
+    // the list flashed a wall of tiles and then snapped to a table.
+    expect(await screen.findByTestId('file-list-skeleton')).toBeInTheDocument()
+    release()
+    expect(await screen.findByTestId('file-list-view')).toBeInTheDocument()
+  })
+
   it('shows no search button (and no semantic call) without a projectId', () => {
     renderPane()
     expect(screen.queryByRole('button', { name: /^search$/i })).not.toBeInTheDocument()

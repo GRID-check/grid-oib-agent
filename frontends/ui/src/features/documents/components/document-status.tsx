@@ -107,12 +107,18 @@ export function documentStatusLabel(status: string | null | undefined, t: Transl
 interface DocumentStatusBadgeProps {
   status: string | null | undefined
   className?: string
+  /**
+   * Hover/AT text saying what the status MEANS where the badge alone does not
+   * carry it — the chat peek, where "processing" has a consequence ("Piloti
+   * cannot read it yet") that the word on its own does not state.
+   */
+  title?: string
 }
 
-export function DocumentStatusBadge({ status, className }: DocumentStatusBadgeProps) {
+export function DocumentStatusBadge({ status, className, title }: DocumentStatusBadgeProps) {
   const t = useTranslations('files')
   return (
-    <Badge variant={documentStatusVariant(status)} className={cn('shrink-0', className)}>
+    <Badge variant={documentStatusVariant(status)} className={cn('shrink-0', className)} title={title}>
       {documentStatusLabel(status, t)}
     </Badge>
   )

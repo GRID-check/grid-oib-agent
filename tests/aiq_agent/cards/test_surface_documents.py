@@ -324,6 +324,66 @@ class TestPlatformCounts:
         assert "inventory" in output.lower()
 
 
+class TestBriefingNamesTheFolder:
+    """Surfacing a file says WHERE it is filed, not only that it exists (ADR-0049).
+
+    The card puts the file on screen; this briefing is what the agent then writes
+    prose from. Without the folder in it, "die drei Dokumente in Brandschutz" is
+    a sentence the model has no grounds for — the filing is the user's own
+    organisation of their project and it is exactly what they ask about.
+
+    The folder rides on an underscore-prefixed key: the briefing reads it and the
+    `document_grid` card payload strips it, because the card schema has no folder
+    field (see the report for what that leaves undone).
+    """
+
+    def test_one_file_states_its_folder_beside_the_shelf(self):
+        text = _briefing_for_agent(
+            "Fluchtwege",
+            [
+                {
+                    "file_name": "Brandschutzplan_EG.pdf",
+                    "source": "projekt",
+                    "summary": "Brandschutzplan Erdgeschoss",
+                    "snippet": "Fluchtwege freihalten",
+                    "page": 3,
+                    "_folder_path": "Brandschutz/Fluchtwege",
+                }
+            ],
+            "one",
+        )
+        assert 'Opened "Brandschutzplan_EG.pdf" (Projekt, Ordner Brandschutz/Fluchtwege)' in text
+
+    def test_a_file_at_the_root_still_reads_as_before(self):
+        text = _briefing_for_agent(
+            "Fluchtwege",
+            [
+                {
+                    "file_name": "Brandschutzplan_EG.pdf",
+                    "source": "projekt",
+                    "summary": "Brandschutzplan Erdgeschoss",
+                    "snippet": "Fluchtwege freihalten",
+                    "page": 3,
+                }
+            ],
+            "one",
+        )
+        assert 'Opened "Brandschutzplan_EG.pdf" (Projekt)' in text
+        assert "Ordner" not in text
+
+    def test_a_browse_choice_states_each_file_folder(self):
+        text = _briefing_for_agent(
+            "Pläne",
+            [
+                {"file_name": "a.pdf", "source": "projekt", "summary": "Lageplan EG", "_folder_path": "Brandschutz"},
+                {"file_name": "b.pdf", "source": "buero", "summary": "Schnitt AA"},
+            ],
+            "many",
+        )
+        assert '- "a.pdf" (Projekt, Ordner Brandschutz)' in text
+        assert '- "b.pdf" (Büroarchiv)' in text
+
+
 class TestBriefing:
     def test_one_file_is_four_to_six_lines_and_clips_snippet(self):
         text = _briefing_for_agent(

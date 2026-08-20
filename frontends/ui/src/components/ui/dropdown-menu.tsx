@@ -159,7 +159,12 @@ const DropdownMenuSubTrigger = React.forwardRef<
     data-slot="dropdown-menu-sub-trigger"
     data-inset={inset}
     className={cn(
-      'focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex cursor-default items-center rounded-lg px-2.5 py-1.5 text-sm outline-hidden select-none data-[inset]:pl-8 pointer-coarse:min-h-11',
+      // `gap-2` and the four `[&_svg]` rules are shadcn's own sub-trigger classes,
+      // dropped when this file was vendored — DropdownMenuItem below still has
+      // them. Without them a sub trigger with a leading icon sets it flush
+      // against its own label while every ordinary row beside it is spaced, and
+      // an unsized icon renders at whatever the font gives it.
+      "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground flex cursor-default items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-hidden select-none data-[inset]:pl-8 pointer-coarse:min-h-11 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
       className
     )}
     {...props}

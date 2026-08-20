@@ -34,16 +34,19 @@ from .factory import get_available_documents_async
 from .factory import get_document_display_title
 from .factory import get_document_display_titles
 from .factory import get_document_doc_class
+from .factory import get_document_folder_paths
 from .factory import get_ingestor
 from .factory import get_retriever
 from .factory import list_summary_collections
 from .factory import register_ingestor
 from .factory import register_retriever
 from .factory import register_summary
+from .factory import rewrite_document_folder_paths
 from .factory import set_active_ingestor
 from .factory import set_active_retriever
 from .factory import set_document_display_title
 from .factory import set_document_doc_class
+from .factory import set_document_folder_path
 from .factory import unregister_summary
 from .factory import update_document_tags
 from .inventory import allocate_inventory
@@ -93,6 +96,9 @@ __all__ = [
     "set_document_display_title",
     "get_document_display_title",
     "get_document_display_titles",
+    "set_document_folder_path",
+    "get_document_folder_paths",
+    "rewrite_document_folder_paths",
     "list_summary_collections",
     "get_available_documents",
     "get_available_documents_async",

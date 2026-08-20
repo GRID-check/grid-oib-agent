@@ -406,6 +406,9 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
                 if info.get("summary"):
                     doc["summary"] = info["summary"]
                 doc["_tags"] = info.get("tags") or []
+                # Underscore-prefixed: the briefing reads it, the card payload
+                # strips it (the `document_grid` schema has no folder field).
+                doc["_folder_path"] = info.get("folder_path") or None
 
         from aiq_agent.cards.models import grid_card_adapter
         from aiq_agent.cards.registry import get_card_registry
@@ -480,6 +483,7 @@ async def _surface_named(
             "score": score if score else 1.0,
             "source": source,
             "summary": info.get("summary"),
+            "_folder_path": info.get("folder_path") or None,
         }
     ]
 
@@ -534,7 +538,7 @@ async def _retrieve_all(
 
 
 async def _fetch_document_metadata(collections: list[str]) -> dict[str, dict]:
-    """Map file_name → {summary, tags} across the given collections."""
+    """Map file_name → {summary, tags, folder_path} across the given collections."""
     from aiq_agent.knowledge.factory import get_available_documents_async
 
     async def _for(collection: str) -> list:
@@ -549,7 +553,14 @@ async def _fetch_document_metadata(collections: list[str]) -> dict[str, dict]:
         for doc in docs:
             name = getattr(doc, "file_name", None)
             if name and name not in out:
-                out[name] = {"summary": getattr(doc, "summary", None), "tags": getattr(doc, "tags", None)}
+                out[name] = {
+                    "summary": getattr(doc, "summary", None),
+                    "tags": getattr(doc, "tags", None),
+                    # Where the user filed it (ADR-0049). The briefing says it so
+                    # the agent can answer "die drei Dokumente in Brandschutz"
+                    # instead of only naming files.
+                    "folder_path": getattr(doc, "folder_path", None),
+                }
     return out
 
 
@@ -571,6 +582,11 @@ def _file_label(doc: dict) -> str:
     return _SOURCE_LABEL.get(doc.get("source") or "", "Dokument")
 
 
+def _folder_of(doc: dict) -> str:
+    """Materialised folder path this file is filed under, or ``""`` (ADR-0049)."""
+    return str(doc.get("_folder_path") or "").strip()
+
+
 def _briefing_for_agent(query: str, documents: list[dict], mode: SurfaceMode) -> str:
     """Concise agent briefing. One file: 4–6 lines. Many: one line per file."""
     if mode == "one" or len(documents) == 1:
@@ -581,7 +597,9 @@ def _briefing_for_agent(query: str, documents: list[dict], mode: SurfaceMode) ->
 def _brief_one(doc: dict) -> str:
     name = doc["file_name"]
     label = _file_label(doc)
-    lines = [f'Opened "{name}" ({label}) beside the chat.']
+    folder = _folder_of(doc)
+    where = f"{label}, Ordner {folder}" if folder else label
+    lines = [f'Opened "{name}" ({where}) beside the chat.']
     summary = _clip(doc.get("summary"), _BRIEF_SUMMARY_MAX)
     if summary:
         lines.append(f"Worum es geht: {summary}")
@@ -601,8 +619,10 @@ def _brief_many(query: str, documents: list[dict]) -> str:
     ]
     for doc in documents:
         label = _file_label(doc)
+        folder = _folder_of(doc)
+        where = f"{label}, Ordner {folder}" if folder else label
         summary = _clip(doc.get("summary"), _BRIEF_SUMMARY_MAX)
-        row = f'- "{doc["file_name"]}" ({label})'
+        row = f'- "{doc["file_name"]}" ({where})'
         if summary:
             row = f"{row} — {summary}"
         lines.append(row)

@@ -1,0 +1,16 @@
+---
+fixes:
+  - >
+    Searching your files no longer throws away the view you chose. Pressing
+    Enter used to drop a reader who had switched to the detail view back into
+    cards, and clearing the query dropped them back again. Results now arrive in
+    whichever view you are in, and the list keeps the ranking: relevance is a
+    sortable column, and each row shows the passage that matched and its page.
+  - >
+    The detail view's keyboard navigation keeps your place. Its single tab stop
+    was pinned to the first row, so tabbing out of row thirty and back returned
+    you to the top of the list. Home and End now jump to either end, too.
+  - >
+    The upload panel no longer retires itself out from under you. A wholly
+    successful batch still clears after a few seconds, but the countdown holds
+    while your pointer is on the panel or your keyboard focus is inside it.

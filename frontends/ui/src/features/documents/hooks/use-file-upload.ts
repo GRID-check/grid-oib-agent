@@ -22,6 +22,7 @@ import { mapUploadResponseStatus } from '../utils'
 import { distributeBatchBytes, shouldEmitProgress } from '../lib/upload-progress'
 import { runWithConcurrency, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
 import { validateFileUpload, type ValidationContext } from '../validation'
+import { summarizeValidation } from '../lib/validation-messages'
 import { UploadOrchestrator } from '../orchestrator'
 import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
@@ -215,13 +216,25 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       const imageVlmBlocked = validationResult.fileErrors.some((e) => e.reason === 'image-vlm-unavailable')
       const imageVlmMessage = t('errors.imageVlmUnavailable')
 
+      /**
+       * The validator's own summary in the READER's language.
+       *
+       * `validation.ts` is pure and has callers with no dictionary, so its
+       * `message` stays English — but that English was being spliced into a
+       * localized sentence, and a German reader was told «1 Datei wird
+       * hochgeladen, 1 übersprungen ("Plan.pdf" is 210 MB, exceeds 100 MB
+       * limit)». Every error now carries its parts, and the words are chosen
+       * here, where there is a `t`.
+       */
+      const localizedSummary = summarizeValidation(validationResult, t)
+
       if (validationResult.batchErrors.length > 0) {
-        setError(validationResult.summary)
+        setError(localizedSummary)
         return
       }
 
       if (validationResult.validFiles.length === 0) {
-        setError(imageVlmBlocked ? imageVlmMessage : validationResult.summary)
+        setError(imageVlmBlocked ? imageVlmMessage : localizedSummary)
         return
       }
 
@@ -236,7 +249,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             uploading: uploadingCount,
             fileLabel: uploadingCount > 1 ? t('errors.filePlural') : t('errors.fileSingular'),
             skipped: skippedCount,
-            summary: imageVlmBlocked ? imageVlmMessage : (validationResult.summary ?? ''),
+            summary: imageVlmBlocked ? imageVlmMessage : (localizedSummary ?? ''),
           })
         )
       } else {

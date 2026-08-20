@@ -153,6 +153,17 @@ def _summary_of(doc: Any) -> str:
     return str(getattr(doc, "summary", "") or "").strip()
 
 
+def _folder_of(doc: Any) -> str:
+    """Materialised folder path a file is filed under, or ``""`` for the root.
+
+    ADR-0049: the backend carries the PATH (``Brandschutz/Fluchtwege``), not a
+    folder id, precisely so it can be printed here without a join and so a
+    prefix match is the subtree.
+    """
+    raw = doc.get("folder_path") if isinstance(doc, dict) else getattr(doc, "folder_path", None)
+    return str(raw or "").strip()
+
+
 def _tags_of(doc: Any) -> list[str]:
     raw = doc.get("tags") if isinstance(doc, dict) else getattr(doc, "tags", None)
     if not raw:
@@ -398,6 +409,16 @@ def render_inventory_block(
         "so. Never fill a gap with another shelf. Büroarchiv is never the OIB corpus.",
         "",
     ]
+    if any(_folder_of(doc) for doc in docs):
+        lines.append(
+            "Files the user filed into a folder show it as `(Ordner: Pfad/Unterpfad)`. "
+            "A folder is a path, so `Brandschutz` also means everything under "
+            "`Brandschutz/…`. You may name folders when you talk about the files, and "
+            "you may pass `folder=` to `knowledge_search` to read only what is filed "
+            "there. Files with no `(Ordner: …)` sit at the top level."
+        )
+        lines.append("")
+
     if focused is not None:
         other = [SHELF_QUALIFIERS[s] for s in _INVENTORY_ORDER if s != focused]
         lines.append(
@@ -416,8 +437,10 @@ def render_inventory_block(
             for doc in rows:
                 tags = _tags_of(doc)
                 tag_bit = f" [{', '.join(tags)}]" if tags else ""
+                folder = _folder_of(doc)
+                folder_bit = f" (Ordner: {folder})" if folder else ""
                 summary = _summary_of(doc) or "No summary available"
-                lines.append(f"- **{_file_name_of(doc)}**{tag_bit}: {summary}")
+                lines.append(f"- **{_file_name_of(doc)}**{folder_bit}{tag_bit}: {summary}")
         lines.append("")
 
     if unknown:

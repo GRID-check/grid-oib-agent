@@ -38,7 +38,7 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import { Download, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Check, Download, Folder, FolderInput, MoreHorizontal, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
@@ -46,16 +46,54 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useTranslations } from '@/i18n'
 import { RenameDocumentDialog } from './rename-document-dialog'
+import { isFailedStatus } from '../document-status'
 import { useDocumentActions, type ActionableDocument, type DocumentScope } from './use-document-actions'
 
 /** One operation the menu can carry. Order in the menu is fixed, not per-caller. */
-export type DocumentActionKind = 'download' | 'rename' | 'delete'
+export type DocumentActionKind = 'download' | 'rename' | 'move' | 'delete' | 'reingest'
 
-const DEFAULT_ACTIONS: readonly DocumentActionKind[] = ['download', 'rename', 'delete']
+const DEFAULT_ACTIONS: readonly DocumentActionKind[] = [
+  'download',
+  'rename',
+  'move',
+  'delete',
+  'reingest',
+]
+
+/** The least the menu needs to offer a folder as a destination. */
+export interface MoveTargetFolder {
+  id: string
+  name: string
+  parentId: string | null
+}
+
+/**
+ * A folder's full path, for a flat list of destinations.
+ *
+ * The submenu is deliberately flat rather than a nested cascade: picking a
+ * destination is one decision, and making the reader walk the tree to reach a
+ * folder they can already name turns it into several. `Brandschutz / Fluchtwege`
+ * says where it is without asking them to travel there.
+ */
+function folderLabel(folder: MoveTargetFolder, byId: Map<string, MoveTargetFolder>): string {
+  const parts = [folder.name]
+  let parentId = folder.parentId
+  // Bounded by the map size: a cycle cannot outlast the folders that exist.
+  for (let hops = 0; parentId && hops < byId.size; hops += 1) {
+    const parent = byId.get(parentId)
+    if (!parent) break
+    parts.unshift(parent.name)
+    parentId = parent.parentId
+  }
+  return parts.join(' / ')
+}
 
 export interface DocumentActionsMenuProps {
   document: ActionableDocument
@@ -76,6 +114,18 @@ export interface DocumentActionsMenuProps {
   canManage?: boolean
   onRenamed?: (documentId: string, displayName: string | null) => void
   onDeleted?: (documentId: string) => void
+  /** The document was sent back through ingestion; carries the new status. */
+  onReingested?: (documentId: string, status: string) => void
+  /**
+   * The project's folders, which is what makes `move` offerable at all.
+   *
+   * Omitted (or empty) on a surface with no folder tree behind it — the Archiv,
+   * the model viewport — and the move quietly is not offered, rather than
+   * opening an empty submenu.
+   */
+  folders?: readonly MoveTargetFolder[]
+  /** The document was re-filed; `null` means the project root. */
+  onMoved?: (documentId: string, folderId: string | null) => void
   /** Replaces the default ghost icon button (e.g. the viewport's glass pill). */
   trigger?: ReactNode
   /** Where the menu opens relative to the trigger. */
@@ -90,6 +140,9 @@ export function DocumentActionsMenu({
   canManage = true,
   onRenamed,
   onDeleted,
+  onReingested,
+  folders,
+  onMoved,
   trigger,
   align = 'end',
   side = 'bottom',
@@ -97,13 +150,41 @@ export function DocumentActionsMenu({
   const t = useTranslations(scope)
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const documentActions = useDocumentActions({ document, scope, onRenamed, onDeleted })
+  const documentActions = useDocumentActions({
+    document,
+    scope,
+    onRenamed,
+    onDeleted,
+    onReingested,
+    onMoved,
+  })
 
-  const offers = (kind: DocumentActionKind) =>
-    actions.includes(kind) && (kind === 'download' || canManage)
+  const offers = (kind: DocumentActionKind) => {
+    if (!actions.includes(kind)) return false
+    if (kind === 'download') return true
+    // Only for a document that actually failed — a "try again" on a healthy
+    // one is an invitation to re-run an expensive pipeline for nothing.
+    if (kind === 'reingest') return canManage && isFailedStatus(document.status)
+    // Nowhere to move it TO is not a disabled control, it is no control.
+    if (kind === 'move') return canManage && Boolean(folders && folders.length > 0)
+    return canManage
+  }
+
+  const folderIndex = new Map((folders ?? []).map((folder) => [folder.id, folder]))
+  const destinations = (folders ?? [])
+    .map((folder) => ({ folder, label: folderLabel(folder, folderIndex) }))
+    .sort((a, b) => a.label.localeCompare(b.label))
 
   // A menu with nothing in it is a control that lies about being one.
-  if (!offers('download') && !offers('rename') && !offers('delete')) return null
+  if (
+    !offers('download') &&
+    !offers('rename') &&
+    !offers('move') &&
+    !offers('delete') &&
+    !offers('reingest')
+  ) {
+    return null
+  }
 
   return (
     <>
@@ -129,6 +210,19 @@ export function DocumentActionsMenu({
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align} side={side} className="w-56">
+          {offers('reingest') && (
+            <DropdownMenuItem
+              onSelect={() => void documentActions.reingest()}
+              disabled={documentActions.isReingesting}
+              data-testid="document-action-reingest"
+            >
+              <RotateCcw className="size-4" aria-hidden />
+              {documentActions.isReingesting ? t('actions.reingesting') : t('actions.reingest')}
+            </DropdownMenuItem>
+          )}
+          {offers('reingest') && (offers('download') || offers('rename') || offers('move')) && (
+            <DropdownMenuSeparator />
+          )}
           {offers('download') && (
             <DropdownMenuItem
               onSelect={() => void documentActions.download()}
@@ -145,11 +239,54 @@ export function DocumentActionsMenu({
               {t('actions.rename')}
             </DropdownMenuItem>
           )}
+          {offers('move') && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger data-testid="document-action-move">
+                <FolderInput className="size-4" aria-hidden />
+                {t('actions.move')}
+              </DropdownMenuSubTrigger>
+              {/* Bounded and scrollable: a project with sixty folders must not
+                  produce a menu taller than the window. */}
+              <DropdownMenuSubContent className="max-h-72 w-64 overflow-y-auto">
+                <DropdownMenuItem
+                  disabled={documentActions.isMoving || (document.folderId ?? null) === null}
+                  onSelect={() => void documentActions.move(null, t('folders.allFiles'))}
+                  data-testid="document-move-root"
+                >
+                  {(document.folderId ?? null) === null ? (
+                    <Check className="size-4" aria-hidden />
+                  ) : (
+                    <Folder className="size-4" aria-hidden />
+                  )}
+                  {t('folders.allFiles')}
+                </DropdownMenuItem>
+                {destinations.map(({ folder, label }) => {
+                  const here = document.folderId === folder.id
+                  return (
+                    <DropdownMenuItem
+                      key={folder.id}
+                      disabled={documentActions.isMoving || here}
+                      onSelect={() => void documentActions.move(folder.id, label)}
+                    >
+                      {here ? (
+                        <Check className="size-4 shrink-0" aria-hidden />
+                      ) : (
+                        <Folder className="size-4 shrink-0" aria-hidden />
+                      )}
+                      <span className="truncate" title={label}>
+                        {label}
+                      </span>
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
           {offers('delete') && (
             <>
               {/* The separator is the point: the destructive item is not one
                   more row in a list of equals. */}
-              {(offers('download') || offers('rename')) && <DropdownMenuSeparator />}
+              {(offers('download') || offers('rename') || offers('move')) && <DropdownMenuSeparator />}
               <DropdownMenuItem
                 variant="destructive"
                 onSelect={() => setDeleteOpen(true)}

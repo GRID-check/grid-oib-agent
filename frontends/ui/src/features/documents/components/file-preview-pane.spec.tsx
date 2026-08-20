@@ -587,4 +587,30 @@ describe('FilePreviewPane', () => {
     render(<FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />)
     expect(screen.getByRole('button', { name: /ask piloti/i })).toBeDisabled()
   })
+
+  describe('a document that is not there any more', () => {
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('says so, and offers the one move left instead of a retry that cannot work', async () => {
+      // 404 is the service's answer both for a deleted document and for one
+      // this reader may no longer open (`getAccessibleDocument`: cross-tenant
+      // and no-access both surface as 404). Neither changes by asking again —
+      // and in a shared project both happen while somebody is mid-conversation
+      // about the file.
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }))
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+
+      expect(await screen.findByText(/no longer available/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /stop asking about it/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    })
+
+    it('still offers the retry for a failure that might not repeat', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+
+      expect(await screen.findByRole('button', { name: /try again/i })).toBeInTheDocument()
+      expect(screen.queryByText(/no longer available/i)).not.toBeInTheDocument()
+    })
+  })
 })

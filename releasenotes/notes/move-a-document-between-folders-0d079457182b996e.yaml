@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    A document can now be moved between folders. Until now a file was filed once,
+    when it was uploaded, and stayed there — one dropped in the wrong folder could
+    not be re-filed at all. Move to folder is in the document's ⋯ menu; each
+    destination is listed by its full path, the folder it is in now is marked and
+    cannot be picked, and All Files takes it out of every folder.
+  - >
+    Moving a document also tells Piloti where it went, so an answer that mentions
+    where a document lives follows the move immediately, with nothing re-indexed.

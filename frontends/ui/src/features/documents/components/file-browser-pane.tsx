@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
-import { Search, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
+import { Search, SearchX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -12,7 +12,7 @@ import { documentDisplayName } from '@/lib/documents/display-name'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
-import { FileListView } from './file-list-view'
+import { FileListSkeleton, FileListView } from './file-list-view'
 import { FileSearchBar } from './file-search-bar'
 import { FilterChip } from './filter-chip'
 import { AssignmentFaces } from './assignment-faces'
@@ -117,7 +117,15 @@ export function FileBrowserPane({
   )
 
   if (isLoading) {
-    return (
+    // Same rule as the search skeleton below: placeholders take the shape of the
+    // view the reader chose, so the first paint is not a layout that was never
+    // going to be there.
+    return view === 'list' ? (
+      <div className="space-y-3 p-4">
+        <Skeleton className="h-9 w-full" />
+        <FileListSkeleton />
+      </div>
+    ) : (
       <div className="space-y-3 p-4">
         <Skeleton className="h-9 w-full" />
         <FileGrid>
@@ -171,10 +179,16 @@ export function FileBrowserPane({
         bannerText={
           semantic.isSearching
             ? t('browser.semantic.searching', { query: semantic.query ?? '' })
-            : t('browser.semantic.banner', {
-                count: String(semantic.hits.length),
-                query: semantic.query ?? '',
-              })
+            : // The count is a claim about the corpus, and a search that never
+              // ran has not counted anything. Reporting "0 results" above a
+              // panel that says the search failed is the same lie twice, in the
+              // one line the reader takes at face value.
+              semantic.error
+              ? t('browser.semantic.failedBanner', { query: semantic.query ?? '' })
+              : t('browser.semantic.banner', {
+                  count: String(semantic.hits.length),
+                  query: semantic.query ?? '',
+                })
         }
         resetSemanticLabel={t('browser.semantic.reset')}
         onResetSemantic={clearSearch}
@@ -213,12 +227,48 @@ export function FileBrowserPane({
         // evidence (snippet + page + relevance). A backend error/timeout fails
         // open to an empty result set (never a crash).
         semantic.isSearching ? (
-          <div className="p-4">
-            <FileGrid>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <FileCardSkeleton key={i} />
-              ))}
-            </FileGrid>
+          // Placeholders shaped like the view the answer will arrive in. Card
+          // skeletons were drawn whatever the reader had chosen, so a search
+          // from the list flashed a wall of tiles and then snapped to a table.
+          view === 'list' ? (
+            <FileListSkeleton />
+          ) : (
+            <div className="p-4">
+              <FileGrid>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <FileCardSkeleton key={i} />
+                ))}
+              </FileGrid>
+            </div>
+          )
+        ) : semantic.error ? (
+          // A SEARCH THAT NEVER RAN IS NOT A SEARCH THAT FOUND NOTHING.
+          // The hook fails open to an empty result set so this pane cannot
+          // crash, and it reports which of the two happened — but nothing read
+          // that flag, so a backend timeout rendered as "Keine semantischen
+          // Treffer für 'Brandschutz'". The surface told the reader their own
+          // corpus does not contain what they were looking for, and offered
+          // them a reset for it.
+          <div className="p-8">
+            <EmptyState
+              variant="bare"
+              icon={SearchX}
+              title={t('browser.semantic.failed')}
+              description={t('browser.semantic.failedDescription')}
+              action={
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {/* Retries the SAME query — offering only "show all files"
+                      asks the reader to give up and retype a search they have
+                      already made. */}
+                  <Button size="sm" onClick={() => semantic.run(search)}>
+                    {t('browser.semantic.retry')}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={clearSearch}>
+                    {t('browser.semantic.reset')}
+                  </Button>
+                </div>
+              }
+            />
           </div>
         ) : semantic.hits.length === 0 ? (
           <div className="p-8">
@@ -234,6 +284,21 @@ export function FileBrowserPane({
               }
             />
           </div>
+        ) : view === 'list' ? (
+          /* The view toggle keeps meaning while searching. It used to be read
+             only on the un-searched branch, so a reader who had deliberately
+             switched to the detail view was thrown back into cards the moment
+             they pressed Enter — and back again when they cleared the query.
+             `key` on the query so a new result set starts at the top of its own
+             ranking rather than inheriting the last one's sort and tab stop. */
+          <FileListView
+            key={semantic.query ?? ''}
+            semantic
+            files={semantic.hits}
+            selectedFileId={selectedFileId}
+            onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+            renderActions={renderActions}
+          />
         ) : (
           <div className="p-4">
             <FileGrid>

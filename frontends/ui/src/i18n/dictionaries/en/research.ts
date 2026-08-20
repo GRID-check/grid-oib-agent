@@ -230,6 +230,14 @@ export const research = {
   },
 
   inputArea: {
+    /**
+     * Clearing the composer's file subject ends two things at once — the
+     * retrieval focus and the open viewer — so it is the one control in the
+     * file flow that cannot be walked back by pressing it again. The toast
+     * carries the way back.
+     */
+    subjectCleared: 'No longer asking about that file.',
+    subjectClearedUndo: 'Undo',
     aiDisclosure:
       'Piloti is an AI — answers can be wrong; verify them against the cited Richtlinie.',
     placeholderDefault: 'Check data sources and ask a research question...',

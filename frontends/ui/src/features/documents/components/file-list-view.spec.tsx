@@ -121,6 +121,67 @@ describe('FileListView', () => {
     expect(screen.getByText('Heizwärmebedarf und Effizienzklasse.')).toBeDefined()
   })
 
+  it('keeps the tab stop on the row the reader walked to', async () => {
+    const user = userEvent.setup()
+    renderList()
+
+    const rows = screen.getAllByTestId('file-list-row')
+    rows[0].focus()
+    await user.keyboard('{ArrowDown}{ArrowDown}')
+
+    // The stop ROVES. Pinned to row 0, tabbing away and back dropped a reader
+    // at the top of the list every time.
+    expect(rows[2]).toHaveAttribute('tabindex', '0')
+    expect(rows[0]).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('jumps to either end of the list with Home and End', async () => {
+    const user = userEvent.setup()
+    renderList()
+
+    const rows = screen.getAllByTestId('file-list-row')
+    rows[0].focus()
+    await user.keyboard('{End}')
+    expect(document.activeElement).toBe(rows[2])
+
+    await user.keyboard('{Home}')
+    expect(document.activeElement).toBe(rows[0])
+  })
+
+  describe('as a ranked semantic result set', () => {
+    const HITS = [
+      { ...doc('Statik.pdf', { createdAt: '2026-06-09T09:00:00Z' }), snippet: 'Lastannahmen', page: 4, score: 0.42 },
+      { ...doc('Flucht.pdf', { createdAt: '2026-06-01T09:00:00Z' }), snippet: 'Fluchtwegbreite', page: 2, score: 0.91 },
+    ]
+
+    it('keeps the ranking instead of re-sorting by upload date', () => {
+      renderList(HITS, { semantic: true })
+      // Newest-first would put Statik on top; the ranking puts Flucht there.
+      expect(rowNames()).toEqual(['Flucht.pdf', 'Statik.pdf'])
+      expect(screen.getAllByTestId('file-list-relevance')[0]).toHaveTextContent('91%')
+    })
+
+    it('shows the passage that matched, with its page', () => {
+      renderList(HITS, { semantic: true })
+      const first = screen.getAllByTestId('file-list-snippet')[0]
+      expect(first).toHaveTextContent('Fluchtwegbreite')
+      expect(first).toHaveTextContent('2')
+    })
+
+    it('offers relevance as a column that can be sorted the other way', async () => {
+      const user = userEvent.setup()
+      renderList(HITS, { semantic: true })
+
+      await user.click(screen.getByRole('button', { name: /relevance/i }))
+      expect(rowNames()).toEqual(['Statik.pdf', 'Flucht.pdf'])
+    })
+
+    it('has no relevance column in a plain listing', () => {
+      renderList()
+      expect(screen.queryByRole('button', { name: /relevance/i })).not.toBeInTheDocument()
+    })
+  })
+
   it('lists a renamed document under its new name', () => {
     render(
       <FileListView
