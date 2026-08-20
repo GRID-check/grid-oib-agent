@@ -347,7 +347,11 @@ src/app/                 config (Secret + env), migrations Job,
   registered schema is rejected by WorkOS and the audit trail silently thins
   out (issues #255/#256). The script reads before it writes, so a deploy that
   changes nothing writes nothing. Nothing depends on the Job — an audit outage
-  must not block a release. See `docs/deployment/workos-provisioning.md` §5.
+  must not block a release — and since agent-authored documents shipped that is
+  a deliberate trade rather than a free choice: `document.generated` uses the
+  throwing emitter, so a rejected event unfiles the document instead of losing a
+  line. The window and the reasoning are in the Job's own header; the compose
+  stacks make the opposite call. See `docs/deployment/workos-provisioning.md` §5.
 - **SeaweedFS** ships two topologies (`seaweedfsTopology`, ADR-0043). A new
   stack defaults to `split` — separate master, volume and filer workloads, so
   capacity is a replica count. Both stack templates pin `single`, the
