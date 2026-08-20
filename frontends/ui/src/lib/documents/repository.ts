@@ -285,6 +285,34 @@ export async function findDocumentAuthoredByRun(
  * for `archiv_` collections); when omitted the lookup stays collection-only.
  * Soft-deleted rows are never returned, and when a filename is re-uploaded
  * into the same collection, the most-recent row wins.
+ *
+ * ## Machine-authored rows are never resolved here, and that is the invariant
+ *
+ * `authored_by = 'user'` is not belt-and-braces. This is the second path by
+ * which a document's BYTES reach the agent tier, and until it was added it was
+ * the open one.
+ *
+ * The design's safety argument is that a document Piloti wrote is never
+ * retrievable by Piloti, enforced by never creating chunks for it —
+ * `dispatchDocument` refuses a non-`user` row, and `fileGeneratedDocument`
+ * notes that "the safety comes from the dispatch that does not happen, never
+ * from this string" about the project collection name it writes. This function
+ * is what made that string load-bearing after all: it resolves any
+ * `(collection, filename)` pair, and `view_knowledge_image` in the knowledge
+ * layer calls the internal route with a file name and collection the MODEL
+ * supplies, fetches the object, renders a page with pdfium and hands it back
+ * as "the actual page the retrieved chunk describes".
+ *
+ * Two changes turned that from theory into a path. Filing the report as a PDF
+ * made it a format that tool renders — a `.docx` was excluded by extension and
+ * unrenderable by pdfium — and `generatedFilename` is deterministic
+ * (`slug(title)-YYYY-MM-DD.pdf`) from a title that IS the H1 the writer agent
+ * wrote. So the model does not have to guess the name of its own filed report;
+ * it derived it.
+ *
+ * Chunk-free was only ever half of "unrepresentable". This is the other half,
+ * and it is enforced the same way the dispatcher is: by reading the row, not by
+ * trusting the caller.
  */
 export async function findStorageKeyByCollectionAndFilename(
   collectionName: string,
@@ -312,6 +340,9 @@ export async function findStorageKeyByCollectionAndFilename(
             eq(documents.collectionName, collectionName),
             eq(documents.filename, filename),
             isNull(documents.deletedAt),
+            // See the note above: this is a byte-serving path reachable with
+            // model-supplied arguments. A machine-authored row must not resolve.
+            eq(documents.authoredBy, 'user'),
             ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
           ),
         )
