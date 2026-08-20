@@ -106,7 +106,11 @@ async function liveFilenamesByCollection(): Promise<Map<string, Set<string>>> {
           authoredBy: documents.authoredBy,
         })
         .from(documents),
-  )) as { collectionName: string; filename: string; authoredBy?: string }[]
+    // `authoredBy` is REQUIRED here, and the select two lines up is why it can
+    // be: an optional field would keep alive a branch for a column that is
+    // always present, and a dead branch in this function is a dead branch in a
+    // sweep that deletes chunks.
+  )) as { collectionName: string; filename: string; authoredBy: string }[]
 
   const byCollection = new Map<string, Set<string>>()
   for (const row of rows) {
@@ -115,11 +119,18 @@ async function liveFilenamesByCollection(): Promise<Map<string, Set<string>>> {
       names = new Set<string>()
       byCollection.set(row.collectionName, names)
     }
-    // `undefined` is admitted for the same reason the document search join
-    // admits it: it means the column was not selected, not that the row is
-    // machine-authored, and defaulting it OUT here would delete every chunk in
-    // the deployment.
-    if (row.authoredBy === undefined || row.authoredBy === 'user') names.add(row.filename)
+    // Only a human-authored row shields a filename from the sweep. A machine-
+    // authored row owns no chunks, so treating one as live would disarm the
+    // recovery sweep for whatever human document shares its name.
+    //
+    // Note the polarity is the OPPOSITE of the document search join, which is
+    // why the two must not be described as one rule. There, admitting an
+    // unknown authorship SHOWS a machine-authored row to a reader; here, it
+    // KEEPS a chunk that might be a human document's. So search fails closed on
+    // anything that is not `user`, and this fails safe on it — and the reason
+    // neither has to make that choice at runtime is that both require the
+    // column, so "unknown authorship" is a compile error rather than a branch.
+    if (row.authoredBy === 'user') names.add(row.filename)
   }
   return byCollection
 }
