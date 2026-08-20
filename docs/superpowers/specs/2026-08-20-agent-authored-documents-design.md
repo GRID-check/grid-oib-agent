@@ -110,7 +110,7 @@ Two failure modes make the naive fix worse than the gap:
 
    > **As built — there is no submit form.** This decision named a surface that
    > does not exist; the disclosure lives on the `starting` banner instead. See
-   > [As built §1](#1-the-disclosure-moved-because-the-surface-it-named-does-not-exist).
+   > [As built §1](#1-the-disclosure-verbatim).
 
    Build note: `project_folders` has **no uniqueness on `(project_id,
    parent_id, name)`** — the only unique constraint is `(id, project_id)`,
@@ -308,12 +308,14 @@ step, and it is why the audit commit lands first.
    behind a flag.
 4. ~~`feat(research): the submit form names where the report lands`.~~
    **Landed as** `feat(research): the starting banner names where the report
-   lands` — there is no submit form (As built §1).
+   lands` — there is no submit form (see *What the build changed about this design* §1,
+   and [As built §1](#1-the-disclosure-verbatim) for the copy).
 5. `feat(export): a generated document says so, in the file itself`.
 6. `feat(files): Piloti-authored files read as unclaimed` — authorship line,
    the `stored` state, toast actions, `/dev` preview.
-7. `docs:` schema, ADR-0032/0047 addendum, user guide, and the exploration doc
-   marked as narrowed by this one.
+7. `docs:` schema, ADR-0032/0047 addenda, the `filed` field in
+   `docs/api/bff-routes.md`, the user guide, and the exploration doc marked as
+   narrowed **and built** by this one — see [As built §3](#3-documentation-this-change-owed-and-where-it-landed).
 
 ## Testing
 
@@ -347,103 +349,84 @@ week.
 
 ## As built (2026-08-20)
 
-What the code does where it differs from the design above, and what review found
-that the design had got wrong. Nothing here is a change of intent; each is the
-same intent surviving contact with the repository.
+The section above says what the design got **wrong** and why. This one says what
+the code now **does**, for the two places where reading the design would leave a
+reader with the wrong picture, plus what the change owed elsewhere.
 
-### 1. The disclosure moved, because the surface it named does not exist
+### 1. The disclosure, verbatim
 
-Decision 8 rests the whole authorization argument on one sentence: the filing is
-**commissioned** because *"the deep-research submit form names it before the
-run"*. **There is no deep-research submit form.** Deep research escalates out of
-an ordinary chat turn — `useDeepResearch` / `use-websocket-chat.ts` add a
-`starting` banner when the backend reports a job, and that banner already
-carries an `escalationReason`, which means **a run can begin because the
-classifier decided it should, not because a person asked for a report.**
+Decision 8's surface does not exist (see *What the build changed about this
+design* §1). What shipped instead:
 
-So the design's premise was false twice over: the user was never told where the
-report goes, and "the user asked for a report" is not reliably true either.
+**On the `starting` banner** — one quiet line under the existing subheading,
+shown only when the chat is inside a project, because outside one nothing is
+filed:
 
-The honest version, built:
+> DE: „Der fertige Bericht wird in diesem Projekt unter „Berichte“ abgelegt.“
+>
+> EN: "The finished report will be filed in this project under “Berichte”."
 
-- **The `starting` banner discloses the destination.** One quiet line under the
-  existing subheading — DE *„Der fertige Bericht wird in diesem Projekt unter
-  „Berichte“ abgelegt."*, EN *"The finished report will be filed in this project
-  under “Berichte”."* — shown only inside a project, because outside one nothing
-  is filed. It sits on the *starting* banner and nowhere else, because that is
-  the only moment the run can still be stopped, which is the only thing that
-  makes a disclosure worth anything.
-- **The `success` banner offers the file, when there is one.** `filed:
-  { documentId, filename, alreadyFiled }` rides back additively on the report
-  route's response; the banner names the filename and adds one action,
-  *Im Projekt öffnen*, through the same `/files?doc=` deep link the Files
-  feature and the sharing registry already use. When `filed` is absent — a
-  projectless chat, a withheld `project:documents:write`, a refused quota — the
-  banner says **nothing** about a file rather than hedging about one.
-- **No modal, no confirmation, no second consent step.** Unchanged from the
-  design, and now guarded by a test rather than only argued for.
+It is on the *starting* banner and nowhere else. That is the only moment the run
+can still be stopped, and a disclosure the reader cannot act on is decoration.
+It renders equally under an `escalationReason`, which is the case that needs it
+most: nobody ordered that run, so this line is the whole of what they were told.
 
-The evidence is `/dev/research-filing` and the `research-filing` screenshot
-target (both themes, desktop and mobile).
+**On the `success` banner** — the report route's response carries an additive
+`filed: { documentId, filename, alreadyFiled }`; the banner names the file and
+adds one action beside *Bericht anzeigen*:
 
-### 2. The no-ingest invariant moved to the dispatch site
+> DE: „Im Projekt abgelegt: {filename}“ · **Im Projekt öffnen**
+>
+> EN: "Filed in the project: {filename}" · **Open in Project**
 
-The design (decision 5, and the "ouroboros test" under Testing) says the
-invariant is asserted *at the dispatch site, not by inspecting retrieval
-output*. The first implementation did not do that: `generated.ts` proved only
-that the **filing path** does not ingest — a claim about one function, where the
-claim that matters is about the **document**.
+Two actions, two destinations: the research panel, and the file in the project
+through `documentFilesHref` — the same `/files?doc=` shape the Files feature and
+the sharing registry's `document` descriptor already use, never a second URL for
+the same place.
 
-Adversarial review found a second caller that defeated it. `reindexProject`,
-behind *"Projekt neu indizieren"* in Project Settings, enumerated every document
-in the project and re-dispatched it. An agent-authored row passed its guard —
-`stored` is neither `pending` nor `processing`, and the row carries a real
-storage key and the project's own collection — so **one click put Piloti's
-report into the corpus Piloti retrieves from**, after which the not-citable UI
-(which derives from `status`, not from `authoredBy`) rendered it green, *Bereit*,
-with *Piloti dazu fragen* enabled.
+**When `filed` is absent the banner says nothing about a file.** Absence is a
+normal answer, not a pending one: a projectless chat, a withheld
+`project:documents:write`, a refused quota, or a run that finished before this
+existed. A hedge ("a file may have been created") would be worse than silence,
+and a dead link worse than both.
 
-The fix is the design's own sentence, taken literally: `dispatchDocument` itself
-refuses a machine-authored row, and refuses **by reading the row** rather than by
-trusting an argument — a caller can forget to pass authorship, and a caller can
-pass it wrongly, which is precisely what happened. One primary-key select in
-front of an operation that is about to make an HTTP call is not a cost worth
-trading the invariant for.
+**No modal, no confirmation, no second consent step** — unchanged from the
+design, and now held by a test rather than only by argument.
 
-The general lesson, which is the reason this is written down: *"asserted at the
-dispatch site"* was in the spec from the start, and an implementation still
-satisfied the words while missing the point, because the assertion was placed at
-the site of the **new** caller instead of at the **shared** one. A safety
-invariant belongs at the narrowest point every caller must pass through, and a
-test for it must be able to fail because of code the feature never touched.
+Filing is observed on `GET …/report`, so a run watched to completion in the tab
+that started it asks for its own report once, at success, purely to trigger the
+filing — best-effort, swallowed on failure, and skipped entirely without a
+project. Evidence: `/dev/research-filing` and the `research-filing` screenshot
+target, both themes, desktop and mobile.
 
-### 3. Two things the design assumed were already true, and were not
+### 2. Two things the design assumed were already true, and were not
 
-Both found by the same review, and both meant the feature had **never once
-worked end to end** in a real deployment:
+Both meant the feature had **never once worked end to end** in a real
+deployment, which is why they are recorded rather than folded into a fix:
 
 - **The audit metadata key was unregistered.** `fileGeneratedDocument` sent
   `producer`; the WorkOS schema did not declare it. A schema with the wrong keys
   rejects an event exactly like a missing one — and because this path uses the
   *throwing* emitter (substrate lift 1), a rejection does not lose an audit
-  line, it **unfiles the document the line was about**. Every commissioned report
-  was filed and immediately deleted, and the reader saw neither a file nor an
-  error. The "Operational prerequisite" section above is therefore not optional
-  paperwork; it is a step whose omission is silent.
+  line, it **unfiles the document the line was about**. Every commissioned
+  report was filed and immediately deleted, and the reader saw neither a file
+  nor an error. "Operational prerequisite" above is therefore not paperwork; it
+  is a step whose omission is silent.
 - **The compensation's two steps were coupled.** Sharing one `try` made the
   object delete conditional on the row delete succeeding, so the single failure
   the ordering was chosen to survive skipped the object and left a filed,
-  quota-charged, visible *„Von Piloti erstellt"* row with no audit record. The
+  quota-charged, visible „Von Piloti erstellt" row with no audit record. The
   ordering was always right; the coupling never was.
 
-### 4. Documentation this change owed, and where it landed
+### 3. Documentation this change owed, and where it landed
 
 - `docs/database/schema.md` — the columns, the CHECK, the partial index and the
   folder uniqueness.
 - [ADR-0047 addendum](../../adr/0047-assignment-is-not-access.md) — provenance as
   a **fourth** relation, never rendered as responsibility; the `document` purger
   still unimplemented (so grace/hold semantics do not cover these rows, while
-  immediate erasure does); ADR-0042's backup posture still Proposed.
+  immediate erasure does, via `deleteDocument`); ADR-0042's backup posture still
+  Proposed.
 - [ADR-0032 addendum](../../adr/0032-shareable-resource-model.md) — the shareable
   model needed no amendment for a machine-authored row, which is the finding.
 - [`docs/api/bff-routes.md`](../../api/bff-routes.md) — the additive `filed`
@@ -452,9 +435,9 @@ worked end to end** in a real deployment:
   — what an architect sees.
 - [`docs/architecture/piloti-filesystem-design.md`](../../architecture/piloti-filesystem-design.md)
   — the exploration marked as narrowed **and built**, with the parts that remain
-  unbuilt named so the document is not read as a plan of record.
+  unbuilt named so it is not read as a plan of record.
 
-### 5. Still open, unchanged by the build
+### 4. Still open, unchanged by the build
 
 Open question 3 (filename search must not leak `stored` rows into a retrieval
 surface) and open question 4 (scheduled runs, v1.1) are untouched. Decision 10
