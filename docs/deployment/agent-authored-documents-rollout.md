@@ -5,6 +5,12 @@ report and a diagram into a project. Written after replaying the whole migration
 chain against a throwaway PostgreSQL 16.13, so the preconditions below are the
 ones the database actually enforced, not the ones the code implies.
 
+One correction to an earlier claim of mine: these migrations are **not**
+unexercised. `scripts/rls-test-db.sh` applies the full chain to a throwaway
+Postgres on every frontend CI change, so the forward path has been running
+routinely. What had never been exercised is what this page adds — the guards
+under dirty data, and the down path.
+
 Design: [`../superpowers/specs/2026-08-20-agent-authored-documents-design.md`](../superpowers/specs/2026-08-20-agent-authored-documents-design.md).
 Roles: [`../database/row-level-security.md`](../database/row-level-security.md).
 
@@ -93,7 +99,22 @@ the repository. **Verify after deploy** by filing one report and confirming a
 
 ## 4. Rollback, and what it will refuse to do
 
-The down migrations are **safe by refusal**, verified with data present:
+The down migrations guard themselves — **but only if you invoke psql so that a
+raised exception actually stops it.** This is the correction that matters most on
+this page, because getting it wrong looks like success:
+
+```bash
+psql -v ON_ERROR_STOP=1 --single-transaction -f 0063_agent_authored_documents.down.sql
+```
+
+Without `ON_ERROR_STOP=1`, psql **prints the guard's refusal and carries on**,
+dropping `authored_by_run_id`, the CHECK and both indexes anyway — precisely the
+state the guard exists to prevent, announced as it happens and ignored. The
+guards are advisory to the script, not to the server. `--single-transaction`
+makes the file atomic, so a mid-file failure cannot leave the schema half
+reversed.
+
+With that invocation, verified with data present:
 
 - `0065` down **refuses** if any run has filed more than one document into one
   project — the SVG + PDF pair that `0064`'s index cannot represent.
@@ -111,10 +132,26 @@ first: delete those documents through the app so their objects and chunks go wit
 their rows, then migrate down. Deleting the rows in SQL would strand objects in
 SeaweedFS that no cascade can reach.
 
-**A faster way back**: the capability is gated on `project:documents:write`
-(ADR-0038). Withdrawing that permission stops new filing immediately without
-touching the schema, and leaves already-filed documents readable. Prefer it to a
-migration rollback under time pressure.
+**Do NOT reach for the permission as a kill switch.** An earlier version of this
+page suggested withdrawing `project:documents:write` to stop filing without
+touching the schema. That is wrong and would have broken customers: it is the
+same permission that authorizes a **human upload**
+(`lib/documents/service.ts:589`), a delete (`:1152`) and a re-ingest (`:919`).
+Withdrawing it stops the office putting its own files into its own project — a
+far worse outage than the one it was meant to contain.
+
+There is currently **no flag that disables filing alone**, and that gap is worth
+closing before rollout rather than after: `lib/authz/feature-flags.ts` has no
+entry for this capability, although the design's own commit plan said the filing
+path would land behind one. Until it exists, the honest rollback under time
+pressure is **redeploy the previous image and leave the schema in place** — the
+columns are additive and nothing older reads them.
+
+Two things are stranded by that path, and both should be expected rather than
+discovered: with `uniq_project_folders_parent_name` still in place, the older
+`createProjectFolder` (which gains its `23505` catch only on this branch) answers
+a duplicate folder name with a 500; and already-filed documents lose their
+„Von Piloti erstellt" line, so they read as ordinary human uploads.
 
 ## 5. After deploy — what to check
 
